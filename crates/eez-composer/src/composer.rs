@@ -1039,9 +1039,9 @@ fn defer_source(
     deferred.push((idx, held));
 }
 
-/// Capacity misses retain ownership while the finite snapshot continues. Keep
-/// their individual reasons separate from a later deadline or provider abort;
-/// requeue them together with the remainder on every exit from the drain.
+/// Capacity misses retain ownership and stop younger admission across both
+/// phases. Older sources may still be simulated to complete the FIFO prefix;
+/// retain each refusal's reason across a later deadline or provider abort.
 #[derive(Default)]
 struct CapacityDeferrals {
     groups: Vec<(usize, HeldTx)>,
@@ -1115,9 +1115,9 @@ impl CapacityDeferrals {
                 "source_hash":held.hash,"position":idx,"reason":reason,
             }),
         );
-        // Only independent senders/directions can bypass this group. Its nonce
-        // successors remain unclaimed in the pool, without a failed attempt.
-        selection.block(idx);
+        // Capacity is a batch constraint, not a source eligibility condition.
+        // Retain this group and every younger source without charging attempts.
+        selection.cut(idx);
         self.groups.push((idx, held));
         *self.reasons.entry(reason).or_default() += 1;
         self.last_reason = Some(reason);
@@ -1857,6 +1857,10 @@ where
         } else {
             pool.pop_n(max_user_txs)
         };
+        if drained.len() < automatic.selected {
+            automatic.selected = drained.len();
+            automatic.selection_limit_reason = Some("fifo_prefix_limit");
+        }
         // When the pool is empty, do not return early. This slot attempts a
         // minimal postBatch whose leading immediate entry advances L1's stored
         // commitment to the empty Sync block's hash. Without it, L1's view
@@ -2583,9 +2587,9 @@ where
                 pool.len(),
                 (
                     admission.selected.min(drained.len()),
-                    admission
-                        .selection_limit_reason
-                        .filter(|_| admission.selected < drained.len()),
+                    admission.selection_limit_reason.filter(|reason| {
+                        admission.selected < drained.len() || *reason == "fifo_prefix_limit"
+                    }),
                 ),
                 self.inner
                     .max_user_txs_per_bundle
@@ -2795,8 +2799,8 @@ where
             .posting
             .transaction_gas_cap(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
-        // A deadline stops the drain; capacity misses only block their source
-        // chain. Both sets remain owned and are restored without an attempt.
+        // A deadline stops the drain; a capacity miss excludes every younger
+        // source. Both sets remain owned and are restored without an attempt.
         let mut deferred: Vec<(usize, HeldTx)> = Vec::new();
         let mut capacity = CapacityDeferrals::default();
         let mut simulation_count = 0usize;
@@ -2909,7 +2913,10 @@ where
                     "source_outcome",
                     serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
                 );
-                selection.block(idx);
+                // A replacement is still older queued work. Revisit a fresh
+                // snapshot rather than treating its chain as ineligible.
+                selection.cut(idx);
+                admission_cut = Some("snapshot_changed");
                 continue;
             }
             let baseline = source_nonce(&held)?;
@@ -3630,7 +3637,10 @@ where
                     "source_outcome",
                     serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
                 );
-                selection.block(idx);
+                // A replacement is still older queued work. Revisit a fresh
+                // snapshot rather than treating its chain as ineligible.
+                selection.cut(idx);
+                admission_cut = Some("snapshot_changed");
                 continue;
             }
             let baseline = source_nonce(&held)?;
@@ -4109,13 +4119,6 @@ where
                 source_deferred.push((idx, held.clone()));
             }
         }
-        if let Some(chain) = selection.resume_chain()
-            && let Some(tx) = snapshot
-                .iter()
-                .find(|tx| (tx.sender, tx.direction) == chain)
-        {
-            pool.resume_discovery_at(tx);
-        }
         admission
             .source_deferred(!source_deferred.is_empty() || !selection.fee_blocked().is_empty());
         self.cancel_historical_predecessor_groups(
@@ -4148,14 +4151,10 @@ where
         // Normal under load. Before the poison sweep, so an eviction here rides
         // the same nonce cascade.
         let resource_reason = capacity.last_reason;
-        // Capacity-blocked chains leave Selection's eligible set; include them
-        // when reporting that a later independent source passed older work.
-        let fifo_bypassed = selection.fifo_bypassed()
-            || survivors
-                .iter()
-                .map(|(index, _)| *index)
-                .max()
-                .is_some_and(|last| capacity.groups.iter().any(|(index, _)| *index < last));
+        // Canonical execution may have spent capacity on younger outbounds
+        // before reaching an older inbound. Such a candidate cannot be posted.
+        let fifo_prefix_len = selection.fifo_prefix_len();
+        let fifo_bypassed = selection.fifo_bypassed();
         deferred.extend(capacity.groups);
         admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
         let prefix_hash_executed_tx_count = prefix_hashes.executed_transactions;
@@ -4175,7 +4174,9 @@ where
                 "prefix_hash_ms":prefix_hash_elapsed.as_secs_f64()*1000.0,
                 "prefix_hash_executed_tx_count":prefix_hash_executed_tx_count,
                 "fifo_bypassed":fifo_bypassed,
-                "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
+                "fifo_prefix_len":fifo_prefix_len,
+                "fifo_trigger":fifo_prefix_len.and(admission_cut.or(resource_reason)),
+                "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(fifo_prefix_len.map(|_| "fifo_prefix_rebuild")).or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
                 "framing_reserve_gas":budget.framing_gas,
                 "full_estimate_gas":budget.full_estimate(),
@@ -4329,6 +4330,44 @@ where
                     bundle_target,
                 )
                 .await;
+        }
+
+        if let Some(prefix_len) = fifo_prefix_len {
+            // Rebuild all effects from the pinned parent; dropping younger
+            // outbound effects from already-simulated inbounds is unsound.
+            // Strictly fewer snapshot users bound recursion, and the shared
+            // admission attempt retains the original absolute deadline.
+            self.cancel_historical_predecessor_groups(
+                rollup_id,
+                snapshot.iter().map(|held| held.hash),
+            );
+            pool.retry_fifo_prefix(&snapshot, prefix_len);
+            admission.rebuilding();
+            // Refresh exact envelopes after restoration. Replacements and
+            // recovered predecessors may have arrived during simulation.
+            let retry = pool.candidates();
+            if retry.is_empty() || retry.len() >= snapshot.len() {
+                // A concurrent recovery can enlarge the prefix. Keep the
+                // boundary for a fresh opportunity rather than recurse without
+                // a strict size decrease or drop a required predecessor.
+                return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+            }
+            let retry_after_error = retry.clone();
+            let result = Box::pin(self.compose_cross_chain_batch(
+                cc,
+                rollup_id,
+                retry,
+                parent_header,
+                timestamp,
+                suggested_fee_recipient,
+                bundle_target,
+                admission,
+            ))
+            .await;
+            if result.is_err() {
+                pool.requeue_composing(retry_after_error);
+            }
+            return result;
         }
 
         requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
@@ -7790,7 +7829,7 @@ mod tests {
     }
 
     #[test]
-    fn capacity_deferrals_and_a_later_abort_restore_every_nonce_without_attempts() {
+    fn capacity_cuts_retain_the_fifo_suffix_without_attempts() {
         for reason in [
             "l1_tx_gas_budget",
             "l1_bundle_gas_budget",
@@ -7828,18 +7867,12 @@ mod tests {
             let mut capacity = CapacityDeferrals::default();
             capacity.defer(&mut selection, &candidate, 1, users[1].clone(), reason);
             assert!(!selection.consider(2));
-            assert!(selection.consider(3));
-            assert!(pool.claim(&users[3]));
-            // A provider failure in the later inbound must restore its source,
-            // earlier accepted work, and the independently held capacity miss.
-            let rest = abort_rest(
-                Some((3, users[3].clone())),
-                &mut std::iter::empty(),
-                Vec::new(),
-            );
+            assert!(!selection.consider(3));
+            assert!(!selection.fifo_bypassed());
+            // Returning the accepted prefix after an infrastructure abort must
+            // also preserve the untouched suffix and the refused group.
             let mut requeue = vec![(0, users[0].clone())];
             requeue.extend(capacity.groups);
-            requeue.extend(rest);
             requeue_unprocessed(&pool, 1, &[], requeue);
             let recovered = pool.candidates();
             let mut recovered_hashes: Vec<_> = recovered.iter().map(|t| t.hash).collect();

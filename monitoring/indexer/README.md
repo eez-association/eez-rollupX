@@ -693,7 +693,12 @@ shape bounds and fallbacks.
 
 Policy `packing-fifo-preference-2` continues past nonfitting independent groups.
 The candidate table exposes `capacity_deferrals` counts per reason and the
-`fifo_bypassed` diagnostic; FIFO does not install a count cap. Source rows expose
+`fifo_bypassed` diagnostic. Policy `strict-fifo-5` enforces FIFO across submitted
+batches: `fifo_bypassed=true` describes discarded speculation, with stop reason
+`fifo_prefix_rebuild` and a replacement linked by `rebuild_of`. A retained queue
+boundary appears as `fifo_prefix_limit` on the next opportunity. Resource reasons
+remain in `fifo_trigger` and `capacity_deferrals`; no learned FIFO count cap is
+installed. Source rows expose
 `source_outcome_reason`, including a blob rejection after a successful gas check.
 The final candidate stop reason and earlier individual deferrals can differ.
 Old histories retain null fields and historical `fifo_fairness_limit` reasons.

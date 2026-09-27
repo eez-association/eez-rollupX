@@ -145,6 +145,15 @@ fn admission_schema_rejects_wrong_context_and_malformed_gas() {
         json!({"deferred":2,"capacity_deferrals":{"l1_bundle_gas_budget":1,"composition_blob_limit":1},"fifo_bypassed":true}),
     );
     assert!(parse(&line(&packing), &config()).is_ok());
+    let mut fifo = event(
+        3,
+        "summary",
+        json!({"deferred":1,"capacity_deferrals":{"l1_tx_gas_budget":1},
+            "fifo_bypassed":true,"fifo_prefix_len":1,"fifo_trigger":"l1_tx_gas_budget",
+            "reason":"fifo_prefix_rebuild"}),
+    );
+    fifo["policy_version"] = json!("strict-fifo-5");
+    assert!(parse(&line(&fifo), &config()).is_ok());
     for reasons in [
         json!(null),
         json!([]),

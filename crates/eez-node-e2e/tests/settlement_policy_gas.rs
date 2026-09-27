@@ -7,7 +7,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
-    ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_4, CrossChainWorld, NativeL1Profile, NodeBinary,
+    ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_4, CrossChainWorld, IValue, NativeL1Profile, NodeBinary,
     NodeConfig, NodeHandle, TARGET_DEPLOYER, batches_posted, create_l2_cross_chain_proxy,
     onchain_nonce, setup_cross_chain_with_profile, sign_and_send, wait_for, wait_for_latest_height,
     wait_for_safe_prefix_convergence,
@@ -283,10 +283,147 @@ async fn gnosis_low_byte_expensive_new_proxies_split_only_complete_groups() {
     assert_gas_first(NativeL1Profile::GnosisPrague).await;
 }
 
-/// A nonfitting group must not hide an independent cheap group behind it.
-/// Its same-sender successor must wait, even though that successor is cheap.
+async fn older_inbound_before_capacity_filling_outbound(profile: NativeL1Profile) {
+    let mut settings = env();
+    settings.extend([
+        ("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()),
+        // The outbound fits alone but leaves less than one inbound entry's
+        // admission reserve. Both sources are individually executable.
+        ("EEZ_MAX_POSTBATCH_GAS", "3000000".into()),
+        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_PROOF_TIME_MS", "2000".into()),
+    ]);
+    let world = setup_cross_chain_with_profile(profile, &settings)
+        .await
+        .unwrap();
+    let (target, proxy) = expensive_target(&world, 100).await;
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower = NodeHandle::start(
+        "fifo-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let inbound_nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
+    quiet_sync(&world).await;
+    let cursor = world.node.signal_cursor().unwrap();
+    let inbound = sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_2,
+        l1.get_chain_id().await.unwrap(),
+        inbound_nonce,
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let outbound = outbound(&world, ANVIL_KEY_4, proxy).await;
+    let incoming = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(inbound).await?)
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+    let outgoing = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(outbound).await?)
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+    assert!(incoming.status() && outgoing.status());
+    let inbound_root = incoming
+        .inner
+        .logs()
+        .iter()
+        .filter(|log| log.address() == world.cfg.eez_address)
+        .find_map(|log| {
+            eez_protocol::abi::L2ExecutionPerformed::decode_log(&log.inner)
+                .ok()
+                .filter(|event| event.rollupId == world.cfg.rollup_id)
+                .map(|event| event.newRoot)
+        })
+        .expect("inbound must commit its delivery root on L1");
+    let inbound_block = wait_for(TIMEOUT, || async {
+        Ok(l2.get_block_by_hash(inbound_root).await?)
+    })
+    .await
+    .unwrap();
+    let through = inbound_block
+        .header
+        .number
+        .max(outgoing.block_number.unwrap());
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], through, TIMEOUT)
+        .await
+        .unwrap();
+    assert!(
+        inbound_block.header.number < outgoing.block_number.unwrap(),
+        "the older inbound must settle before the younger outbound when both cannot fit{}",
+        world.settlement_diagnostics()
+    );
+    assert_eq!(
+        eez_testkit::l2_value(&world.l2_rpc(), world.value_l2)
+            .await
+            .unwrap(),
+        U256::from(77)
+    );
+    assert_eq!(
+        l1.get_storage_at(target, U256::from(99)).await.unwrap(),
+        U256::from(1)
+    );
+    assert_eq!(
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+        inbound_nonce + 1
+    );
+    let events: Vec<serde_json::Value> = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let discarded = events
+        .iter()
+        .find(|e| e["kind"] == "summary" && e["detail"]["reason"] == "fifo_prefix_rebuild")
+        .expect("the fixture must exercise repair of canonical outbound-first admission");
+    assert_eq!(discarded["detail"]["fifo_prefix_len"], 1);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "started" && e["rebuild_of"] == discarded["candidate_id"])
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["kind"] == "proof_requested"
+                && e["candidate_id"] == discarded["candidate_id"]),
+        "a non-FIFO candidate must never reach proving"
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces() {
+async fn ethereum_older_inbound_precedes_capacity_filling_outbound() {
+    older_inbound_before_capacity_filling_outbound(NativeL1Profile::EthereumOsaka).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_older_inbound_precedes_capacity_filling_outbound() {
+    older_inbound_before_capacity_filling_outbound(NativeL1Profile::GnosisPrague).await;
+}
+
+/// A capacity cut retains the complete FIFO suffix, including cheaper work
+/// from independent senders. Source-condition deferrals have separate coverage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work() {
     let mut settings = env();
     settings.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()));
     // Isolate gas packing from the first cold proof of deployment history.
@@ -382,15 +519,19 @@ async fn gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_non
         summary["detail"]["capacity_deferrals"]["l1_tx_gas_budget"],
         1
     );
-    assert_eq!(summary["detail"]["fifo_bypassed"], true);
-    assert_eq!(
-        receipts[0].block_hash, receipts[3].block_hash,
-        "the independent cheap group must fill the first batch after a whole-group rejection"
+    assert_eq!(summary["detail"]["fifo_bypassed"], false);
+    assert!(
+        receipts[3].block_number > receipts[0].block_number,
+        "younger cheap work must not pass the older capacity-deferred group"
     );
     assert!(receipts[1].block_number > receipts[0].block_number);
     assert!(receipts[2].block_number >= receipts[1].block_number);
     if receipts[2].block_hash == receipts[1].block_hash {
         assert!(receipts[2].transaction_index > receipts[1].transaction_index);
+    }
+    assert!(receipts[3].block_number >= receipts[2].block_number);
+    if receipts[3].block_hash == receipts[2].block_hash {
+        assert!(receipts[3].transaction_index > receipts[2].transaction_index);
     }
     for (target, slot) in [
         (target_a, 99),

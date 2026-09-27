@@ -136,12 +136,26 @@ memory and are discarded on restart; they are not durable queue state.
 
 A nominal preparation overrun or infrastructure error does not halve selection.
 A full proving-window failure can reduce the next selection using admitted work,
-while a resource cut does not impose a FIFO count backoff. FIFO remains a
-preference within the canonical outbound-before-inbound phases and per-source
-nonce chains. A nonfitting gas/blob group is retained with its nonce successors;
-discovery continues through independent groups in the finite snapshot while the
-shared pipeline deadline permits it. Earlier capacity deferrals also remain owned
-if a later provider failure aborts the candidate. If a stale
+while a resource cut does not impose a FIFO count backoff. Admission is strict
+FIFO across batches among eligible requests, in both directions. A gas/blob/L2
+capacity refusal stops younger work; a cheaper independent source cannot bypass
+it. Within one batch, execution retains the signer's canonical outbound-first
+order. If that execution order leaves an older eligible inbound out after
+accepting younger outbounds, discard the speculative candidate and rebuild the
+FIFO prefix through the first omitted source before proving. All effects are
+recomputed against the same parent and target, under the original shared
+deadline. Each rebuild strictly shortens the snapshot; a concurrently enlarged
+prefix waits for a fresh opportunity. Fitting mixed snapshots still use one batch.
+
+When rebuilding cannot finish in time, the held pool remembers the omitted
+source's sender/direction/nonce as the next snapshot boundary. Repeated attempts
+cannot spend that source's capacity on younger outbounds. Replacements inherit
+its position; removal, consumption, or a classified source condition clears the
+boundary. This is an in-memory scheduling boundary, not a learned transaction
+count or a settlement failure. Queue snapshots no longer promote a younger chain
+merely because it was not visited. Nonce, fee, balance and escrow waits remain
+eligibility exceptions; independent eligible sources can proceed. Discarded
+simulations retain ownership without charging attempts. If a stale
 estimate blocks every group, the next opportunity makes a bounded probe under
 all resource/deadline checks. Canonically observed, charged exclusions or partial
 consumption in produced blocks increment an in-memory failure streak per rollup.
@@ -235,18 +249,19 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`confirmed-failure-backoff-4` identifies five-failure submission tolerance; it
-retains the capacity minimum checks of `packing-minimum-check-3` and the FIFO
-preference of version 2. Historical `shared-deadline-1` events retain their former
-FIFO count semantics. Version 3 checks a minimum contribution before source
+`strict-fifo-5` adds FIFO prefix repair to the five-failure submission tolerance
+introduced by `confirmed-failure-backoff-4`. It retains the capacity minimum
+checks of `packing-minimum-check-3` and supersedes version 2's FIFO preference.
+Historical `shared-deadline-1` events retain their former FIFO count semantics. Version 3 checks a minimum contribution before source
 execution: 70,000 per outbound entry or 65,000 per inbound entry, zero calldata/
 target gas and zero new companion consumption. It uses the same budget arithmetic,
 including discount revocation, previously accepted companions and the new inbound
 source's signed start requirement. L2 checks retain the existing declared/system
 gas requirement. These are lower bounds on the admission model, not measurements
 of actual execution. A miss retains the source without charging an attempt and
-blocks its nonce dependants, while independent sources remain eligible. Empty
-candidates still run normal simulation/classification. Cheap checks do not train
+retains the complete younger suffix under `strict-fifo-5`; earlier policies
+allowed independent younger sources to pass it. Empty candidates still run
+normal simulation/classification. Cheap checks do not train
 execution timing samples. No execution estimate is cached across changed state.
 
 Estimator `candidate-framing-9` replaces the fixed 600,000 admission reserve
@@ -370,8 +385,13 @@ gas/blob/time cuts, `configured_count_limit`,
 `snapshot_exhausted`, or `eligible_sources_exhausted`. A resource cut takes
 precedence if it occurs before reaching the count cap. Snapshot exhaustion does
 not describe arrivals after the snapshot. These observations do not change the
-retry or ownership rules. `fifo_fairness_limit` is historical only; new candidates
-record `fifo_bypassed` as a diagnostic without restricting selection. The summary's
+retry or ownership rules. `fifo_fairness_limit` is historical only. Policy
+`strict-fifo-5` uses `fifo_prefix_rebuild` for a discarded non-FIFO simulation and
+`fifo_prefix_limit` when its queue boundary restricts the next opportunity.
+`fifo_prefix_len` identifies the repair prefix; `fifo_trigger` retains the gas or
+pipeline refusal that caused it. `fifo_bypassed=true` may describe a discarded
+candidate, which must never reach proving/submission; its replacement is linked
+by `rebuild_of`. Successful candidates have `fifo_bypassed=false`. The summary's
 `capacity_deferrals` counts each individually rejected group by reason, even when
 other work fits later or a deadline ends discovery. Each rejected source retains
 its own outcome reason. New source records additionally
@@ -636,3 +656,15 @@ hash nor an acknowledgement proves inclusion. Historical readers use null for
 missing fields. No RPC, storage or protocol migration is needed; upgrade the
 Composer and dashboard independently. Rolling back removes the discount and new
 observations without changing historical decoding or follower replay.
+
+### FIFO policy compatibility
+
+FIFO prefix repair changes Composer scheduling only. The protocol pin, wire
+profile, historical decoding, follower replay, signer validation and operator
+settings are unchanged. Existing collectors accept the new policy/reason strings
+and optional detail fields; historical reasons remain valid. Upgrade the Composer
+to enforce this policy; older Composers retain relaxed admission. No storage
+migration is required. Restart loses pending in-memory queue state and its FIFO
+boundary under the existing recovery contract; clients may need to resubmit.
+Rollback restores the older scheduling behavior. The separate main-branch Reth
+existing-database compatibility limits still apply to deployment.

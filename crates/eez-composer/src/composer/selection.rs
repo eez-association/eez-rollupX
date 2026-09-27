@@ -1,6 +1,6 @@
 //! FIFO eligibility within a finite snapshot. Admission limits count accepted
-//! groups; a blocked source chain never consumes a position. Execution still
-//! visits outbound candidates before inbound candidates.
+//! groups; a blocked source chain never consumes a position. Canonical execution
+//! visits outbounds first, but submission must contain an eligible FIFO prefix.
 
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -13,8 +13,7 @@ pub(super) struct Selection {
     waiting: VecDeque<usize>,
     eligible: BTreeSet<usize>,
     blocked: HashSet<(Address, Direction)>,
-    visited: HashSet<usize>,
-    last_visited: Option<(Address, Direction)>,
+    capacity_cut: Option<usize>,
     last_accepted: Option<usize>,
     remaining: usize,
     /// First underpriced nonce in each source chain, in snapshot order.
@@ -60,8 +59,7 @@ impl Selection {
             waiting,
             eligible: BTreeSet::new(),
             blocked: HashSet::new(),
-            visited: HashSet::new(),
-            last_visited: None,
+            capacity_cut: None,
             last_accepted: None,
             remaining: limit,
             fee_blocked,
@@ -79,6 +77,9 @@ impl Selection {
             let Some(index) = self.waiting.pop_front() else {
                 break;
             };
+            if self.capacity_cut.is_some_and(|cut| index > cut) {
+                break;
+            }
             if !self.blocked.contains(&self.chains[index]) {
                 self.eligible.insert(index);
             }
@@ -86,11 +87,9 @@ impl Selection {
     }
 
     pub fn consider(&mut self, index: usize) -> bool {
-        if !self.eligible.contains(&index) {
+        if !self.eligible.contains(&index) || self.capacity_cut.is_some_and(|cut| index >= cut) {
             return false;
         }
-        self.visited.insert(index);
-        self.last_visited = Some(self.chains[index]);
         true
     }
 
@@ -100,13 +99,29 @@ impl Selection {
         self.remaining -= 1;
     }
 
-    /// Observe when canonical outbound-first execution passes an older eligible
-    /// inbound. This diagnostic does not impose a capacity limit.
-    pub fn fifo_bypassed(&self) -> bool {
+    /// The first omitted eligible source bounds a fresh canonical rebuild.
+    /// Include that source so even an inbound at the head can make progress.
+    /// Every returned prefix is strictly shorter than the current snapshot:
+    /// an accepted younger source exists beyond its last position.
+    pub fn fifo_prefix_len(&self) -> Option<usize> {
         self.eligible
             .first()
             .zip(self.last_accepted)
-            .is_some_and(|(first, last)| *first < last)
+            .filter(|(first, last)| **first < *last)
+            .map(|(first, _)| first + 1)
+    }
+
+    pub fn fifo_bypassed(&self) -> bool {
+        self.fifo_prefix_len().is_some()
+    }
+
+    /// A resource refusal stops younger work across both phases. Keep the
+    /// refused index eligible for FIFO validation; unlike a source condition,
+    /// running out of this candidate's capacity does not make it ineligible.
+    pub fn cut(&mut self, index: usize) {
+        let cut = self.capacity_cut.map_or(index, |old| old.min(index));
+        self.capacity_cut = Some(cut);
+        self.eligible.retain(|i| *i <= cut);
     }
 
     pub fn discard(&mut self, index: usize) {
@@ -119,38 +134,6 @@ impl Selection {
         self.blocked.insert(chain);
         self.eligible.retain(|i| self.chains[*i] != chain);
         self.fill();
-    }
-
-    /// Includes outbound work that became eligible only during the inbound
-    /// phase. Its source chain gets first discovery priority next opportunity.
-    pub fn resume_chain(&self) -> Option<(Address, Direction)> {
-        if self.remaining == 0 {
-            return None;
-        }
-        // A deadline can expire before a source has been classified. Resume
-        // at another chain, not the next nonce of that same expensive source.
-        let fresh_chain = |index: &usize| {
-            !self.blocked.contains(&self.chains[*index])
-                && Some(self.chains[*index]) != self.last_visited
-        };
-        self.eligible
-            .iter()
-            .copied()
-            .chain(self.waiting.iter().copied())
-            .find(|i| !self.visited.contains(i) && fresh_chain(i))
-            .map(|i| self.chains[i])
-            .or_else(|| {
-                self.eligible
-                    .iter()
-                    .find(|i| !self.visited.contains(i))
-                    .map(|i| self.chains[*i])
-                    .or_else(|| {
-                        self.waiting
-                            .iter()
-                            .find(|i| !self.blocked.contains(&self.chains[**i]))
-                            .map(|i| self.chains[*i])
-                    })
-            })
     }
 }
 
@@ -191,7 +174,6 @@ mod tests {
         }
         assert_eq!(selection.remaining, 13);
         assert!(!selection.fifo_bypassed());
-        assert_eq!(selection.resume_chain(), None);
     }
 
     #[test]
@@ -261,10 +243,8 @@ mod tests {
         );
         assert!(selection.consider(0));
         selection.block(0);
-        assert_eq!(
-            selection.resume_chain(),
-            Some((users[1].sender, Direction::Outbound))
-        );
+        assert!(selection.consider(1));
+        assert_eq!(selection.fifo_prefix_len(), None);
         // A later slot evaluates the new chain afresh; no cached ready flag.
         let mut next = Selection::new(&[users[1].clone(), users[0].clone()], 1, 0, 0);
         assert!(next.consider(0));
@@ -321,18 +301,57 @@ mod tests {
     }
 
     #[test]
-    fn discovery_deadline_resumes_at_another_chain_instead_of_the_same_senders_suffix() {
-        let mut users = (0..10_000)
-            .map(|n| tx(1, n, Direction::Outbound))
-            .collect::<Vec<_>>();
-        users.push(tx(2, 0, Direction::Outbound));
-        let mut selection = Selection::new(&users, 64, 0, 0);
+    fn mixed_capacity_cut_requires_older_inbound_before_younger_outbound_submission() {
+        let users = vec![
+            tx(1, 0, Direction::Inbound),
+            tx(2, 0, Direction::Outbound),
+            tx(3, 0, Direction::Inbound),
+            tx(4, 0, Direction::Outbound),
+        ];
+        let mut selection = Selection::new(&users, 4, 0, 0);
+        for index in [1, 3] {
+            assert!(selection.consider(index));
+            selection.accept(index);
+        }
         assert!(selection.consider(0));
-        // No condition was classified before the deadline. The next opportunity
-        // must not repeatedly examine this chain's 9,999 successors first.
+        selection.cut(0);
+        assert!(!selection.consider(2));
+        assert_eq!(selection.fifo_prefix_len(), Some(1));
+
+        let mut retry = Selection::new(&users[..1], 4, 0, 0);
+        assert!(retry.consider(0));
+        retry.accept(0);
+        assert_eq!(retry.fifo_prefix_len(), None);
+    }
+
+    #[test]
+    fn capacity_cut_keeps_older_inbounds_eligible_but_never_fills_with_younger_work() {
+        let users = vec![
+            tx(1, 0, Direction::Inbound),
+            tx(2, 0, Direction::Outbound),
+            tx(3, 0, Direction::Outbound),
+            tx(4, 0, Direction::Inbound),
+        ];
+        let mut selection = Selection::new(&users, 4, 0, 0);
+        selection.accept(1);
+        selection.cut(2);
+        assert!(selection.consider(0));
+        selection.accept(0);
+        assert!(!selection.consider(3));
+        assert_eq!(selection.fifo_prefix_len(), None);
+    }
+
+    #[test]
+    fn deadline_before_inbound_phase_cannot_authorize_outbound_only_submission() {
+        let users = vec![tx(1, 0, Direction::Inbound), tx(2, 0, Direction::Outbound)];
+        let mut selection = Selection::new(&users, 2, 0, 0);
+        selection.accept(1);
+        assert_eq!(selection.fifo_prefix_len(), Some(1));
+        selection.block(0);
         assert_eq!(
-            selection.resume_chain(),
-            Some((users[10_000].sender, Direction::Outbound))
+            selection.fifo_prefix_len(),
+            None,
+            "classified source waits are ineligible"
         );
     }
 }

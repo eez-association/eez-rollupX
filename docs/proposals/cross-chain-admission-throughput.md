@@ -11,6 +11,42 @@
 
 ## 1. Objective and evidence
 
+### September 27 correction: strict FIFO admission
+
+**Accepted user direction:** restore FIFO because outbound-first admission can
+exclude older inbound requests. This supersedes the relaxed FIFO packing policy
+below. FIFO applies to the set admitted across batches: no younger eligible
+source may be submitted while an older eligible source remains queued. Within
+one batch, the signer's existing outbound-before-inbound execution order remains
+mandatory. A fitting mixed snapshot should still use one batch.
+
+Stop discovery beyond the first resource refusal. If canonical phase ordering
+has already accepted younger sources, discard that speculative candidate and
+recompose the queue prefix through the first omitted eligible source. Keep the
+same parent, target, deadline and source ownership; every rebuild must shorten
+the snapshot. Remember that source boundary for the next opportunity if the
+deadline prevents rebuilding, so repeated outbound-first attempts cannot starve
+the inbound head. Replacements inherit the boundary by sender/direction/nonce.
+Canonical consumption, removal, or a classified source condition clears it.
+
+Fee, balance, nonce and escrow waits remain eligibility exceptions. Preserve
+whole groups, nonce dependencies, exact final execution and five-failure backoff.
+Do not promote a later source chain in the next snapshot merely because it was
+not visited. Restore the original snapshot order when returning speculative work,
+including concurrent replacements and recovered nonce predecessors.
+
+Record discarded candidates and their replacement link as `fifo_prefix_rebuild`;
+record a retained next-opportunity boundary as `fifo_prefix_limit`. Keep existing
+gas/deadline reasons and the historical `fifo_bypassed` field readable. Such a
+bypass can describe discarded simulation, never an authorized submission.
+
+Acceptance: reproduce the current cheaper-source bypass, regress older-inbound /
+younger-outbound capacity cuts, repeated deadline deferral, replacements, nonce
+recovery and blocked-source liveness. Confirm fitting mixed waves retain their
+packing and independent follower replay. No wire, protocol or storage migration
+is introduced. These changes require new validation; earlier throughput records
+do not establish their performance.
+
 Maximize canonically completed cross-chain sources per produced L1 block and
 per second, while preserving source ordering, whole groups, complete effects,
 network limits and the target's submission deadline. Measure oldest request
@@ -213,6 +249,10 @@ for exact images, initial failures/corrections, canonical reconciliation,
 cutoff details, gas tables and validation limits.
 
 #### September 26 follow-up: packing with a FIFO preference
+
+The September 27 strict FIFO correction above supersedes this section's
+cross-batch bypass behavior. The earlier design and measurements remain below
+as historical evidence.
 
 **Accepted scope:** after the `e57c7a5` verified wave, the user explicitly
 prioritized the most cross-chain sources in the fewest postBatches, with FIFO

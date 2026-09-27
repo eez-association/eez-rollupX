@@ -208,8 +208,8 @@ impl AutomaticAdmission {
         // pipeline estimate that prevented work, still needs a bounded probe.
         // A later infrastructure abort after a capacity miss supplies no usable
         // sample and must preserve the prior limit.
-        // Bypassing an older independent group does not measure capacity: FIFO
-        // is a preference, and the next snapshot uses its resource/time budgets.
+        // FIFO repair is an identity-bound queue prefix, not evidence for a
+        // persistent count backoff; the pool retains its boundary when needed.
         if (progress.completed || progress.estimate_blocked)
             && progress.limited
             && progress.prepared.is_none()
@@ -528,6 +528,14 @@ impl Attempt {
 
     pub fn completed(&self) {
         self.progress.lock().unwrap().completed = true;
+    }
+
+    pub fn rebuilding(&self) {
+        // Rejected speculative work is included in elapsed preparation, but
+        // cannot calibrate the cost of the replacement's accepted groups.
+        let mut progress = self.progress.lock().unwrap();
+        progress.unmeasured_work = true;
+        progress.accepted = 0;
     }
 
     pub fn prepared(&self, rollup_id: u64, groups: usize) {

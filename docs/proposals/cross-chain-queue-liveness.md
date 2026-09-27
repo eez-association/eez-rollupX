@@ -183,21 +183,22 @@ For each opportunity:
 3. Count admitted complete groups against the automatic selection estimate or
    an explicitly configured numeric limit. Blocked candidates do not consume
    those positions; with a limit of one, a blocked A must not hide ready B.
-4. If discovery itself exhausts the deadline, resume a bounded fair scan across
-   later source chains on subsequent opportunities. Do not restart an expensive
-   failed scan at the same head forever. Cached readiness must be revalidated
-   against the current state; no stale ready flag authorizes execution.
+4. Revalidate readiness against the current state; no stale ready flag
+   authorizes execution. The September 27 strict FIFO correction supersedes
+   discovery rotation: an unclassified older source cannot be bypassed merely
+   because discovery exhausted the deadline. Classified source-condition waits
+   still allow independent eligible work.
 5. Retain the gas, blob, whole-group, preparation, proof, and exact-target checks
    already implemented. Eligibility does not authorize exceeding any of them.
 
-When an inbound candidate is deferred, an outbound candidate can become
-eligible after the outbound phase has already ended. Preserve canonical phase
-ordering: that outbound source chain receives first discovery priority at the
-next opportunity. This also applies when the preparation deadline expires
-before a source can be classified. Resume at another source chain, not its
-next higher nonce. This is a bounded scheduling delay, not restoration of the
-same blocked FIFO head. If the relevant execution phase and deadline remain
-available, independent work proceeds in the current opportunity.
+When an inbound candidate is deferred for a source condition, an outbound
+candidate can become eligible after the outbound phase has already ended.
+Preserve canonical phase ordering and reevaluate it at the next opportunity in
+stable queue order. Capacity deferrals differ: they stop younger admission across
+both directions. A canonical outbound-first pass that omitted an older eligible
+inbound must be rebuilt before submission. The [strict FIFO correction](cross-chain-admission-throughput.md#september-27-correction-strict-fifo-admission)
+defines the bounded repair and retained queue boundary. An unfinished discovery
+scan cannot authorize promoting a later chain ahead of an eligible source.
 
 Do not add a fixed count of users to examine or a per-chain timing constant.
 Reuse the actual `RollupTiming`/target deadline. A transient source condition
