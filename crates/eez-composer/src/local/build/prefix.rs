@@ -1,6 +1,7 @@
 //! Candidate-local canonical prefix construction. Finalizing a block applies
 //! post-execution changes, so only the state *before* `finish` is reusable.
 use super::*;
+use crate::local::provider::StateSnapshotProvider;
 use reth_ethereum_primitives::{EthPrimitives, Receipt};
 use reth_evm::execute::BasicBlockBuilder;
 
@@ -19,7 +20,7 @@ struct Checkpoint {
 /// Exact raw-prefix equality is required, including when an earlier prospective
 /// group was rejected. Final block and signer replay remain independent.
 pub(crate) struct SyncPrefixHashes<'a> {
-    provider: &'a dyn StateProviderFactory,
+    provider: &'a dyn StateSnapshotProvider,
     config: &'a EthEvmConfig,
     parent: &'a SealedHeader<Header>,
     timestamp: u64,
@@ -68,7 +69,7 @@ impl<'a> SyncPrefixHashes<'a> {
     }
 
     pub(crate) fn new(
-        provider: &'a dyn StateProviderFactory,
+        provider: &'a dyn StateSnapshotProvider,
         config: &'a EthEvmConfig,
         parent: &'a SealedHeader<Header>,
         timestamp: u64,
@@ -224,7 +225,7 @@ impl<'a> SyncPrefixHashes<'a> {
 
 fn copy_state(
     state: &DraftDb,
-    provider: &dyn StateProviderFactory,
+    provider: &dyn StateSnapshotProvider,
     parent: B256,
 ) -> Result<DraftDb, BuildError> {
     // Exhaustive destructuring makes newly added REVM state fields require an
@@ -237,17 +238,47 @@ fn copy_state(
         use_preloaded_bundle,
         block_hashes,
         bal_state,
+        state_hook,
     } = state;
+    // open_draft_db and this execution path install no hooks. A hook owns
+    // non-cloneable observer state; silently dropping it would make reuse
+    // differ from an independent rebuild if that invariant ever changes.
+    if state_hook.is_some() {
+        return Err(BuildError::Builder(
+            "prefix checkpoint cannot copy a state hook".into(),
+        ));
+    }
     let database = provider
         .state_by_block_hash(parent)
         .map_err(|e| BuildError::Provider(format!("prefix snapshot provider: {e}")))?;
     Ok(State {
         cache: cache.clone(),
-        database: StateProviderDatabase::new(database),
+        database: StateProviderDatabase::new(EvmStateProviderAdapter(database)),
         transition_state: transition_state.clone(),
         bundle_state: bundle_state.clone(),
         use_preloaded_bundle: *use_preloaded_bundle,
         block_hashes: block_hashes.clone(),
         bal_state: bal_state.clone(),
+        state_hook: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reth_provider::test_utils::MockEthProvider;
+
+    #[test]
+    fn prefix_checkpoint_rejects_non_cloneable_state_hook() {
+        let provider: MockEthProvider = MockEthProvider::new();
+        let mut state = open_draft_db(&provider, B256::ZERO, None).unwrap();
+        assert!(copy_state(&state, &provider, B256::ZERO).is_ok());
+        state.set_state_hook(Some(Box::new(|_| {})));
+        assert!(matches!(
+            copy_state(&state, &provider, B256::ZERO),
+            Err(BuildError::Builder(message))
+                if message == "prefix checkpoint cannot copy a state hook"
+        ));
+        assert!(state.state_hook.is_some());
+    }
 }
