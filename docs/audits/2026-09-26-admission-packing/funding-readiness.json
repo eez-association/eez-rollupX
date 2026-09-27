@@ -1,0 +1,12 @@
+{
+  "checked_at": "2026-09-26T22:20:35.040498+00:00",
+  "previous_worker_prefunding_xdai": "0.0039",
+  "previous_required_per_layer_xdai": "3.503",
+  "l1_source_balance_xdai": "2.833082774634777126",
+  "l1_faucet_balance_xdai": "0.394517301961621114",
+  "initial_l1_shortfall_xdai": "0.28539992340360176",
+  "candidate_worker_prefunding_xdai": "0.0035",
+  "workload_gas_and_concurrency_unchanged": true,
+  "adjusted_readiness_passed": true,
+  "adjusted_readiness_exit_code": 0
+}

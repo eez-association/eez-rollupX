@@ -1,0 +1,57 @@
+{
+  "candidate_id": "4023537-1790465164433:1:0",
+  "events": [
+    {
+      "kind": "started",
+      "detail": {
+        "queued": 4,
+        "selected": 4,
+        "selection_limit": 4,
+        "selection_limit_reason": null
+      }
+    },
+    {
+      "kind": "summary",
+      "detail": {
+        "accepted": 2,
+        "capacity_deferrals": {
+          "l1_tx_gas_budget": 1
+        },
+        "cold_timing_probe": false,
+        "companion_gas": 0,
+        "deferred": 1,
+        "entry_discount": 0,
+        "examined_count": 3,
+        "fifo_bypassed": true,
+        "not_examined_count": 1,
+        "planning_cap": 3566666,
+        "projected_gas": 3212966,
+        "reason": "l1_tx_gas_budget",
+        "selection_filtered_count": 1,
+        "source_fee_count": 0,
+        "whole_block_cap": 30000000
+      }
+    },
+    {
+      "kind": "proof_requested",
+      "detail": {
+        "blobs": 1,
+        "deadline_ms": 1790465167900,
+        "groups": 2,
+        "nominal_preparation_ms": 1500,
+        "post_reserve_ms": 150.0,
+        "preparation_ms": 80,
+        "proof_estimate_basis": "configured_seed",
+        "proof_estimate_ms": 2000.0,
+        "remaining_ms": 3387.0,
+        "witnesses": 243
+      }
+    },
+    {
+      "kind": "proof_received",
+      "detail": {
+        "proof_ms": 1965.8930699999999
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "calldata_argument_bytes": 131338,
+  "errno": 7,
+  "error": "E2BIG before process execution",
+  "check": "/bin/true with the identical cached calldata argument"
+}

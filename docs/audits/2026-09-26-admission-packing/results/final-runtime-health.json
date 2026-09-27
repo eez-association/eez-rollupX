@@ -1,0 +1,67 @@
+{
+  "checked_at": "2026-09-27T00:17:40.209537+00:00",
+  "source": "e5b2cde65c9166ceae87bd4ee723820ed63ea5f6",
+  "services": {
+    "eez-node": {
+      "image_id": "sha256:9fd6816b4050f0d7cc80f8f85a2ae738fedce1a1a461b63db03a2155cb16aa06",
+      "running": true,
+      "health": null
+    },
+    "eez-proof-signer": {
+      "image_id": "sha256:642d6df2c76f60d506b86b557d2fa8e7974105f9110e612ac453807d0ba4093b",
+      "running": true,
+      "health": "healthy"
+    },
+    "eez-indexer": {
+      "image_id": "sha256:9b53490c4f365987c41caab23d614468552f0f14772e7bcb02759749da72776d",
+      "running": true,
+      "health": null
+    }
+  },
+  "heads": {
+    "L1": {
+      "number": 23246213,
+      "hash": "0xf236d8723901d55617ebde200400e877473d6609178eead1c9818f5f68cbb4bf",
+      "age_seconds": 0.25891757011413574,
+      "syncing": false
+    },
+    "L2": {
+      "number": 108055,
+      "hash": "0x1ace7cc643a8087d59e1b478e6a413a4974c4664262fd558a0abf927702ba8d7",
+      "age_seconds": 1.0487730503082275,
+      "syncing": false
+    }
+  },
+  "l1_matches_external_canonical": true,
+  "external_comparison_height": 23246207,
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790466203116,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0x5792137fdf3e39b25937e8fe21a1c81b1f2bfc5427e0e946613b1112c0910873",
+        "number": 23245835
+      },
+      "observedAtMs": 1790466206219
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x4aefb4736b6e9cc9486462c5d6b7a15a869f9b3b55e4edc6980f8de18883614b",
+        "number": 23245834
+      },
+      "l2": {
+        "hash": "0x083fefe7bb0306d680e7b3e0b8a386a1d2c8fa30b482ca3ebfb9d0f45db55069",
+        "number": 105999
+      }
+    },
+    "unknown": 0
+  },
+  "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+  "dotenv_unchanged_except_two_images": true
+}

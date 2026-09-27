@@ -1,0 +1,22 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742768816,
+    "sha256": "ba71febdf42e8f7f078f6d98e3bf7bc0647654c410fb3af41c4c1da42cbc0827"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632851488,
+    "sha256": "b66a7a99f1919297e300e7c24373e7d478f483bbe74b84c0c822df2f4bfdcd54"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558912,
+    "sha256": "bc02742d632c1bdeac5a57ccbb0f67971e85e8f84c6e4f79cd6d18a27b599dc5"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_gas-867cb4f57bea1329",
+    "size_bytes": 452636200,
+    "sha256": "193ffc5446f8fdb87bf3a250eb0faa44e86ad68f3cdf6bcfe9475ba27c808785"
+  }
+]

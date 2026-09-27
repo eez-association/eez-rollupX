@@ -1,0 +1,7 @@
+{
+  "unchanged_actual_calldata_passed": true,
+  "changed_selector_rejected_by_pinned_verifier": true,
+  "negative_exit_code": 1,
+  "calldata_argument_bytes": 131338,
+  "checks_bypassed": false
+}

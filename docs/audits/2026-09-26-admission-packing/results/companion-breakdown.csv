@@ -1,0 +1,10 @@
+group,name,sources,estimate_gas,receipt_gas,estimate_receipt_ratio,source_simulation_gas,callback_simulation_gas,protocol_reserve_gas,basis_counts
+basis,bounded_protocol,520,168392914,73277802,2.298007164570793,23039974,10910940,134442000,"{""bounded_protocol"": 520}"
+family,counter,100,22948100,13174400,1.7418705975224678,7044100,0,15904000,"{""bounded_protocol"": 100}"
+family,counter-multi-tx,150,33536150,16346178,2.0516202625470004,7146150,0,26390000,"{""bounded_protocol"": 150}"
+family,multi-call-nested,50,37321006,11970356,3.117785803529987,1416406,3482600,32422000,"{""bounded_protocol"": 50}"
+family,multi-call-twice,50,19960628,6593928,3.027122528483781,1268628,0,18692000,"{""bounded_protocol"": 50}"
+family,nestedCounter,50,14232800,6162600,2.3095446727030797,1058000,2168800,11006000,"{""bounded_protocol"": 50}"
+family,reentrant,20,7243880,3320465,2.181586012802424,533940,921940,5788000,"{""bounded_protocol"": 20}"
+family,revertCounter,50,11558750,6936951,1.6662579856769926,3514750,0,8044000,"{""bounded_protocol"": 50}"
+family,revertFromOtherChain,50,21591600,8772924,2.4611634615779185,1058000,4337600,16196000,"{""bounded_protocol"": 50}"

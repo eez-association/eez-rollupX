@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; the completed companion/storage follow-up is deployed at `e57c7a5`. Its 870-source wave passed all 770 semantic checks but required 33 postBatches versus 27 previously. The accepted September 26 packing follow-up below is implemented and undergoing local validation; it has not yet been deployed. Versioned behavior is documented in the settlement/RPC specifications. |
+| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; companion/storage follow-up `e57c7a5` used 33 postBatches versus 27 previously. The September 26 packing follow-up is deployed at `e5b2cde`: 870 sources settled in 28 postBatches and all 770 semantic jobs are validated, including 46 after correcting a verifier argument-size failure. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
@@ -155,7 +155,7 @@ that extra storage compatibility work.
 **Accepted scope:** after the `e57c7a5` verified wave, the user explicitly
 prioritized the most cross-chain sources in the fewest postBatches, with FIFO
 preferred but not a mandatory cutoff. The source baseline is `b5caf1b`, the
-deployed runtime is `e57c7a5`, and the protocol remains `9d13218`. The
+previous deployed runtime was `e57c7a5`, and the protocol remains `9d13218`. The
 [companion audit](../audits/2026-09-26-admission-companions/README.md) records
 870 canonical sources / 770 semantic checks, 33 postings, two final FIFO cuts,
 and 19 final whole-bundle gas cuts. The 170 signed-limit companion fallbacks
@@ -198,6 +198,20 @@ posting, followed by gas prediction error, cutoff counts, latency, missed target
 and preparation overhead. Report live noise and any regression; elapsed time
 alone does not satisfy packing improvement. No protocol, signer-profile, queue
 persistence or speculative-replacement extension is part of this change.
+
+**Completed September 27:** runtime `e5b2cde` is deployed in the existing Chiado
+environment. The verified wave used 28 postBatches for 870 sources, versus 33 in
+the preceding wave, with no FIFO count cutoff or calibration posting. All 520
+inbound sources used bounded companion estimates; their total estimate fell
+32.4%. All 770 semantic jobs are validated; 46 required a file-based transport
+fix for calldata exceeding Linux's argument limit before the unchanged pinned
+verifier could run. The original failed run is retained. Median preparation
+increased from 378 to 483 ms, while send plus monitor fell from 199.540 to
+166.540 seconds. Shared live conditions limit causal attribution. The
+[packing audit](../audits/2026-09-26-admission-packing/README.md) records baseline
+reproductions, local correctness checks, exact images, deployment, original
+failures, canonical receipts, Grafana coverage and remaining gas/preparation
+opportunities.
 
 #### September 26 follow-up: companion costs and reverted storage
 

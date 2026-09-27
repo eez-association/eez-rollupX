@@ -1,0 +1,299 @@
+[
+  {
+    "candidate_id": "1-1790466043116:1:0",
+    "canonical": false,
+    "postbatch_hash": null,
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 149
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "pipeline_time"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:1",
+    "canonical": true,
+    "postbatch_hash": "0x97295b1c6e650a1038dad456924829fed397f02845d9161a39dcdd8c439e9011",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 308
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "pipeline_time"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:2",
+    "canonical": false,
+    "postbatch_hash": "0x43407e518b2cdbf510a6c48d3c3e547ac33c8fddda55654469170ee8802ac627",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 698
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:4",
+    "canonical": true,
+    "postbatch_hash": "0xa1377c8b1680e2bdc0acd5d2820ce0f1536637e2c62cb3753a38065a13690f75",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 680
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:9",
+    "canonical": true,
+    "postbatch_hash": "0x9a642ed219cb1a04c756b37bd7842b71d0379c650a70a47466c6608ae1964614",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 573
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:10",
+    "canonical": true,
+    "postbatch_hash": "0xdaa03a5e3cd0358436bc83cede22379bdfd12c82740683e99922b457d27e8962",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 248
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "pipeline_time"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:11",
+    "canonical": true,
+    "postbatch_hash": "0x187ecff4117228f1e8b3363d5deffb78354d514dc8153821d6866fcc5e95bc5b",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 505
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:12",
+    "canonical": true,
+    "postbatch_hash": "0xc6dfe3d669af73c8da4e67a18ce378e81dc4bd12c9b3fd64a39e6ca4bb0cf6a2",
+    "accepted_after_first_capacity_deferral": 1,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 467
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:13",
+    "canonical": true,
+    "postbatch_hash": "0x853852a2c05bee78efe39b581c89bdc6e31f1d227ca21d92aaa34cecdcedcfd1",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_tx_gas_budget": 431
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_tx_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:14",
+    "canonical": true,
+    "postbatch_hash": "0xda3d69be2dee1e9b4c02184180c86e84617d3fcf031e1c2f0fd6b52fd9855018",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 392
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:15",
+    "canonical": true,
+    "postbatch_hash": "0x215ba5c9145890072e9aa9154222a60d3b4b8105cd68846ecd23d6b6f9517db4",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 350
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:16",
+    "canonical": true,
+    "postbatch_hash": "0x9396fa9ede2dac8c9f760d4a836330a8247f43619b7c4f84d26c39510cae5b1f",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 310
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:17",
+    "canonical": false,
+    "postbatch_hash": "0x073f8dc48a34dbcc71399ab30ec81ff6f33c1a2dde80b5aa2919495d47834bc2",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 278
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:18",
+    "canonical": true,
+    "postbatch_hash": "0x6b457d9ad55802025ca1486b469861de03f97eeac4b18e5a0927984a09933d31",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 278
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:19",
+    "canonical": true,
+    "postbatch_hash": "0x3845b4cf72010c29cb5bd753d80b69d1bc49c6c67d37a052f261c6e4425b4325",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 260
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:20",
+    "canonical": true,
+    "postbatch_hash": "0x8c9be4eba93a78ba3446860d0b6366a52f865f40ca37024e7a026d2fac2d3801",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 247
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:21",
+    "canonical": true,
+    "postbatch_hash": "0xd5ed315eba5efee52889ac176d34959ac0e926ab5737cf77c0f3340fd51fa898",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 233
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:22",
+    "canonical": true,
+    "postbatch_hash": "0x5aad482ab5e24e0bb7c44b93d080b64220ae89b0a44f7e85fc5f987057dad7e2",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 219
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:23",
+    "canonical": true,
+    "postbatch_hash": "0x51f74b110cc8fb50e41111179bc44ed09c84649113b99ea85734b8d2bcf0fca9",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 196
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:24",
+    "canonical": true,
+    "postbatch_hash": "0x527df957746923340318b0b37533a53b2112e6388da3d5e96c1fcf7a6de18f00",
+    "accepted_after_first_capacity_deferral": 1,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 172
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:25",
+    "canonical": true,
+    "postbatch_hash": "0x343da5da9e4d9081fe0bb83d0519f96e5a6662a76401dcbcdcad234231e7d4a2",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 169
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:26",
+    "canonical": true,
+    "postbatch_hash": "0xc1e06f28c4a7f14379d39c3884eeeb9b07da8d9e005979ce166a4489df7f9b3b",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 148
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:27",
+    "canonical": true,
+    "postbatch_hash": "0xc6bb2fd265d24f83a04ee79ee098ec2c4d300d9d792bd67bb9d99c110c19c237",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 116
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:28",
+    "canonical": true,
+    "postbatch_hash": "0x18f7d1722bb42152fbd65f99aedcd3f1f8bb0378258a3ff9fc196c6ecf400ec5",
+    "accepted_after_first_capacity_deferral": 1,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 88
+    },
+    "fifo_bypassed": true,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:29",
+    "canonical": true,
+    "postbatch_hash": "0xb0b84ef167c01e5eb6293cd4a1157b1413dbed5cf600dc323d4ec5f7c71097b3",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 66
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:30",
+    "canonical": true,
+    "postbatch_hash": "0xf25612f4401f9f6a31ff2b572b8c4cd12e7c8293133524ab9e9eb14c750e1e92",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 50
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  },
+  {
+    "candidate_id": "1-1790466043116:1:31",
+    "canonical": true,
+    "postbatch_hash": "0xce88d9dd2405a338aa2252a43009205002774fc39dc473a88bc19b1730165008",
+    "accepted_after_first_capacity_deferral": 0,
+    "capacity_deferrals": {
+      "l1_bundle_gas_budget": 41
+    },
+    "fifo_bypassed": false,
+    "final_stop_reason": "l1_bundle_gas_budget"
+  }
+]

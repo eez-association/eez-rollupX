@@ -1,0 +1,38 @@
+[
+  {
+    "path": "artifacts/admission-packing/candidate/canonical-snapshot.private.json",
+    "size_bytes": 13823936,
+    "sha256": "a21cf67ad66e84177d1ba102bce4c25f0b62c182f41c0b48c2ff36a424af7d84",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  },
+  {
+    "path": "artifacts/admission-packing/candidate/canonical-sources.csv",
+    "size_bytes": 236229,
+    "sha256": "760550f6b43a143e8e97fc00e61a3ccc8ef87e0ac99abc82b9b0f5a823b0f94c",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  },
+  {
+    "path": "artifacts/admission-packing/candidate/source-admission.csv",
+    "size_bytes": 3863978,
+    "sha256": "0dde266441d6b080084a68fe0f1af830775b851d64a56a3715672cdb006810cf",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  },
+  {
+    "path": "artifacts/admission-packing/candidate/detail/source-estimates.csv",
+    "size_bytes": 387564,
+    "sha256": "348d654edd20dba8df4ff7cd8e054c995f3a6c4e1c231d1365ad92cafc40b941",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  },
+  {
+    "path": "artifacts/admission-packing/candidate/detail/events.private.json",
+    "size_bytes": 33298271,
+    "sha256": "26cc544a087c1cd0264276948d599d0683d6ebd87fb121c1b9fcaa7809fb7376",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  },
+  {
+    "path": "artifacts/admission-packing/candidate/detail/all-candidates.json",
+    "size_bytes": 64446,
+    "sha256": "d6779bef538554c98bb6fd848f27bfa08abbfb5f8b34946aaf9c7444d6ff84e5",
+    "availability": "local-only ignored artifact; not present in another checkout"
+  }
+]

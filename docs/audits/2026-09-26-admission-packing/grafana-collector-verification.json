@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-09-26T22:24:30.058490+00:00",
+  "from_ms": 1790439870058,
+  "to_ms": 1790461470058,
+  "panels": [
+    {
+      "id": 1,
+      "rows": 94,
+      "new_fields": [
+        "capacity_deferrals",
+        "fifo_bypassed"
+      ]
+    },
+    {
+      "id": 3,
+      "rows": 2985,
+      "new_fields": [
+        "companion_target_simulation_gas",
+        "source_outcome_reason"
+      ]
+    }
+  ]
+}
