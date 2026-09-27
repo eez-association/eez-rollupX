@@ -275,7 +275,9 @@ SELECT e.candidate_id, to_timestamp(e.first_ms/1000.0) AS time,
     e.summary->>'reason' AS admission_stop_reason,
     p.canonical_l1_hash,
     e.summary->'capacity_deferrals' AS capacity_deferrals,
-    (e.summary->>'fifo_bypassed')::boolean AS fifo_bypassed
+    (e.summary->>'fifo_bypassed')::boolean AS fifo_bypassed,
+    (e.summary->>'minimum_check_count')::numeric AS minimum_check_count,
+    (e.summary->>'simulation_count')::numeric AS simulation_count
 FROM events e
 LEFT JOIN eez_indexer.posting_events link ON link.data->>'stage'='prepared'
     AND link.data->'detail'->>'candidate_id'=e.candidate_id
@@ -289,26 +291,28 @@ WITH sources AS (
         (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_estimate'))[1] AS estimate,
         (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_accepted'))[1] AS accepted,
         (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_outcome'))[1] AS outcome,
-        (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_preflight'))[1] AS preflight
+        (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_preflight'))[1] AS preflight,
+        (array_agg(data->'detail' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_capacity_check'))[1] AS capacity
     FROM eez_indexer.admission_events WHERE data->>'kind' LIKE 'source_%'
     GROUP BY candidate_id,data->'detail'->>'source_hash'
 )
 SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.selected->>'direction') AS direction,
     (s.selected->>'position')::bigint AS position,
     CASE WHEN s.accepted IS NOT NULL THEN 'Accepted'
+         WHEN s.capacity IS NOT NULL THEN 'Capacity deferred before simulation'
          WHEN s.estimate->>'gas_gate_accepted'='false' THEN 'Gas deferred'
          WHEN s.estimate IS NOT NULL THEN 'Not accepted after gas check'
          ELSE coalesce(s.outcome->>'reason','No gas estimate recorded') END AS decision,
-    s.estimate->>'constraint' AS gas_constraint,
+    coalesce(s.estimate->>'constraint',s.capacity->>'constraint') AS gas_constraint,
     (s.estimate->>'source_sim_gas')::numeric AS source_simulation_gas,
     (s.estimate->>'l1_target_sim_gas')::numeric AS l1_target_simulation_gas,
     (s.estimate->>'entry_count')::numeric AS entry_count,
     (s.estimate->>'entry_pin_gas')::numeric AS entry_pin_gas,
     (s.estimate->>'entry_discount')::numeric AS entry_discount,
     (s.estimate->>'calldata_gas')::numeric AS calldata_gas,
-    (s.estimate->>'companion_declared_gas')::numeric AS companion_declared_gas,
+    coalesce(s.estimate->>'companion_declared_gas',s.capacity->>'companion_declared_gas')::numeric AS companion_declared_gas,
     (s.estimate->>'companion_sim_gas')::numeric AS companion_simulation_gas,
-    (s.estimate->>'projected_before')::numeric AS projected_before,
+    coalesce(s.estimate->>'projected_before',s.capacity->>'projected_before')::numeric AS projected_before,
     (s.estimate->>'projected_after')::numeric AS projected_after,
     CASE WHEN s.accepted IS NOT NULL THEN (s.estimate->>'projected_after')::numeric-(s.estimate->>'projected_before')::numeric END AS accepted_delta_gas,
     c.transaction_hash AS postbatch_hash,c.canonical_l1_block,c.reason,c.history,
@@ -326,7 +330,16 @@ SELECT s.candidate_id,c.time,s.source_hash,coalesce(s.estimate->>'direction',s.s
     (s.estimate->>'companion_protocol_reserve_gas')::numeric AS companion_protocol_reserve_gas,
     s.estimate->>'companion_estimate_basis' AS companion_estimate_basis,
     (s.estimate->>'companion_target_sim_gas')::numeric AS companion_target_simulation_gas,
-    s.outcome->>'reason' AS source_outcome_reason
+    s.outcome->>'reason' AS source_outcome_reason,
+    s.capacity->>'basis' AS capacity_check_basis,
+    (s.capacity->>'minimum_entry_gas')::numeric AS minimum_entry_gas,
+    (s.capacity->>'companion_prefix_gas')::numeric AS companion_prefix_gas,
+    (s.capacity->>'companion_required_gas')::numeric AS companion_required_gas,
+    (s.capacity->>'postbatch_planning_cap')::numeric AS capacity_postbatch_cap,
+    (s.capacity->>'whole_block_cap')::numeric AS capacity_block_cap,
+    (s.capacity->>'l2_used_gas')::numeric AS capacity_l2_used_gas,
+    (s.capacity->>'minimum_l2_gas')::numeric AS minimum_l2_gas,
+    (s.capacity->>'l2_block_cap')::numeric AS capacity_l2_block_cap
 FROM sources s JOIN eez_indexer.admission_candidates c USING(candidate_id)
 LEFT JOIN eez_indexer.transactions post ON post.transaction_hash=c.transaction_hash AND post.block_hash=c.canonical_l1_hash
 LEFT JOIN eez_indexer.transactions t ON t.transaction_hash=s.source_hash

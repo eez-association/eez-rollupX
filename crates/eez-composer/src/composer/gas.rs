@@ -121,6 +121,31 @@ const RETAINED_WORD_DISCOUNT: u64 = 15_000;
 const MAX_SIMPLE_RESULT_BYTES: usize = 64;
 pub(super) const MAX_SHAPED_ENTRIES: u64 = 128;
 
+// Cold protocol caller frames on Cancun/Prague/Osaka, including maximum queues,
+// reentrant rows and reverted spans. Application work is charged separately.
+// Matching stale identities retain more headroom because they read root pins.
+const COMPANION_ROOT_GAS: u64 = 80_000;
+const COMPANION_CALLBACK_GAS: u64 = 40_000;
+const COMPANION_ROW_GAS: u64 = 30_000;
+const COMPANION_WORD_GAS: u64 = 2_500;
+const COMPANION_REVERT_SPAN_GAS: u64 = 25_000;
+const COMPANION_SCAN_GAS: u64 = 3_000;
+const COMPANION_MATCHING_SCAN_GAS: u64 = 12_500;
+
+/// Minimum contribution under every supported admission pricing path. This is
+/// a lower bound on the estimator, not on consensus execution gas. A valid
+/// source contributes at least one entry; malformed/empty sources still reach
+/// simulation on a fresh candidate before any capacity deferral is allowed.
+pub(super) const fn minimum_entry_gas(immediate: bool) -> u64 {
+    if immediate {
+        EXISTING_PROXY_ENTRY_GAS
+    } else {
+        // Seven entry slots plus the three words of its stitched root update.
+        // The legacy retained-word path is more expensive than this minimum.
+        deferred::ENTRY_GAS + 10 * deferred::ZERO_WORD_GAS
+    }
+}
+
 /// Evidence belongs to one pinned canonical parent, never a speculative proxy
 /// creation earlier in the drain. Accepted outbound positions retain their
 /// own eligibility, so identical calls with different outcomes cannot share
@@ -420,9 +445,9 @@ impl Projection {
                 .chain(entries[..index].iter().map(|e| e.proxyEntryHash))
                 .map(|hash| {
                     if hash == entry.proxyEntryHash {
-                        12_000
+                        COMPANION_MATCHING_SCAN_GAS
                     } else {
-                        4_000
+                        COMPANION_SCAN_GAS
                     }
                 })
                 .sum::<u64>();
@@ -437,12 +462,12 @@ impl Projection {
                     .map(|r| 8 + r.returnData.len().div_ceil(32))
                     .sum::<usize>();
             let spans = calls.iter().filter(|c| c.revertNextNCalls != 0).count();
-            reserve += 90_000
-                + 60_000 * calls.len() as u64
-                + 3_000 * words as u64
+            reserve += COMPANION_ROOT_GAS
+                + COMPANION_CALLBACK_GAS * calls.len() as u64
+                + COMPANION_WORD_GAS * words as u64
                 + scan
-                + 40_000 * entry.expectedL1ToL2Calls.len() as u64
-                + 60_000 * spans as u64;
+                + COMPANION_ROW_GAS * entry.expectedL1ToL2Calls.len() as u64
+                + COMPANION_REVERT_SPAN_GAS * spans as u64;
         }
         Some(reserve)
     }
@@ -1495,9 +1520,9 @@ mod tests {
         e.returnData = Bytes::from(vec![0xa5; 100]);
         let one = std::slice::from_ref(&e);
         let reserve = p.companion_reserve(one).unwrap();
-        assert_eq!(reserve, 102_000);
+        assert_eq!(reserve, 90_000);
         let estimated = CompanionEstimate::bounded(40_000, 0, reserve, 200_000);
-        assert_eq!(estimated.gas, 142_000);
+        assert_eq!(estimated.gas, 130_000);
         assert_eq!(estimated.basis, "bounded_protocol");
         let capped = CompanionEstimate::bounded(40_000, 0, reserve, 100_000);
         assert_eq!(capped.gas, 100_000);
@@ -1509,16 +1534,16 @@ mod tests {
         p.accept_deferred(std::slice::from_ref(&e));
         assert_eq!(
             p.companion_reserve(std::slice::from_ref(&e)),
-            Some(reserve + 12_000)
+            Some(reserve + 12_500)
         );
         e.proxyEntryHash = B256::repeat_byte(99);
         assert_eq!(
             p.companion_reserve(std::slice::from_ref(&e)),
-            Some(reserve + 4_000)
+            Some(reserve + 3_000)
         );
         assert_eq!(
             p.companion_reserve(&[e.clone(), e.clone()]),
-            Some(2 * (reserve + 4_000) + 12_000)
+            Some(2 * (reserve + 3_000) + 12_500)
         );
         assert!(p.companion_reserve(&vec![e.clone(); 5]).is_none());
         e.returnData = Bytes::from(vec![0; 257]);
@@ -1630,7 +1655,7 @@ mod tests {
             assert!(p.companion_actions(&entries, &forest));
             assert_eq!(
                 p.companion_reserve(&entries),
-                Some(reserve * roots as u64 + 12_000 * (roots * (roots - 1) / 2) as u64)
+                Some(reserve * roots as u64 + 12_500 * (roots * (roots - 1) / 2) as u64)
             );
         }
         for change in 0..6 {

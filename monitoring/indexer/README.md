@@ -695,6 +695,29 @@ Apply the additive schema and dashboard before the new Composer, keep retained
 logs/checkpoints, and retain these views on rollback. No historical follower
 encoding, node storage, signer profile or configuration input changes.
 
+Policy `packing-minimum-check-3` adds `source_capacity_check` for capacity
+refusals before full simulation. The basis `minimum_admission_cost` denotes a
+lower bound on the current admission estimator, not measured gas. Its event
+contains the minimum entry/L2 costs, accepted postBatch and companion prefix,
+signed companion requirement, fixed drain reserve and active caps. Source rows
+show **Capacity deferred before simulation**, the bound and constraint; full
+simulation estimates remain null. `capacity_check_ms` measures selection through
+this cheap decision. `source_checks_and_simulation_ms` remains null for that row.
+Candidate `minimum_check_count` counts these refusals; `simulation_count` counts
+actual source composition executions, including rejected/failed executions.
+Neither count denotes unique sources across candidates. A rebuilt candidate has
+its own counters and state.
+
+Estimator `companion-storage-6` distinguishes zero, retained and fresh storage
+writes and uses tighter measured protocol framing reserves. The separately
+measured source and callback execution terms and declared-limit fallback remain.
+See the [settlement specification](../../docs/configurable-settlement-policy.md)
+for prices and shape bounds. Upgrade schema, collector and dashboard before
+Composer: an older admission-aware collector rejects the new event kind and
+cannot advance its checkpoint past it. Keep the upgraded collector and appended
+view columns on Composer rollback. Retain the JSON volume and checkpoints;
+no historical events are rewritten and missing estimates are not reconstructed.
+
 The optional details worker also enriches accepted inbound sources independently
 of registry events. It checks source receipts against the canonical posting's
 block and transaction order, then rechecks the block before saving. This fills

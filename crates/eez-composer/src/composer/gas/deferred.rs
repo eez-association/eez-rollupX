@@ -9,8 +9,9 @@ use eez_protocol::abi::{ExecutionEntrySol, L2ToL1CallSol};
 
 // Cold caller-frame bounds, before refunds; calibrated by PostBatchGasPins.
 pub(super) const ENTRY_GAS: u64 = 35_000;
-pub(super) const WORD_GAS: u64 = 8_000;
-pub(super) const FRESH_WORD_GAS: u64 = 15_000;
+pub(super) const WORD_GAS: u64 = 6_000;
+pub(super) const ZERO_WORD_GAS: u64 = 3_000;
+pub(super) const FRESH_WORD_GAS: u64 = 17_000;
 pub(super) const ITEM_GAS: u64 = 8_000;
 const MAX_CALLS: usize = 4;
 const MAX_ROWS: usize = 4;
@@ -190,8 +191,13 @@ impl Slot {
         }
         let mut gas = ENTRY_GAS + (calls + rows) as u64 * ITEM_GAS;
         for (slot, nonzero) in &writes {
-            gas += WORD_GAS;
-            if *nonzero && self.words.get(slot).is_none_or(U256::is_zero) {
+            let old_zero = self.words.get(slot).is_none_or(U256::is_zero);
+            gas += if !nonzero && old_zero {
+                ZERO_WORD_GAS
+            } else {
+                WORD_GAS
+            };
+            if *nonzero && old_zero {
                 gas += FRESH_WORD_GAS;
             }
         }
@@ -199,10 +205,16 @@ impl Slot {
         // all obsolete words, including zero ones, and never credit refunds.
         gas += self
             .words
-            .keys()
-            .filter(|slot| !writes.contains_key(slot))
-            .count() as u64
-            * WORD_GAS;
+            .iter()
+            .filter(|(slot, _)| !writes.contains_key(slot))
+            .map(|(_, old)| {
+                if old.is_zero() {
+                    ZERO_WORD_GAS
+                } else {
+                    WORD_GAS
+                }
+            })
+            .sum::<u64>();
         Ok(gas)
     }
 }
@@ -322,19 +334,19 @@ mod tests {
         let fresh = read(&BTreeMap::new());
         let old = read(&retained());
         let e = entry();
-        assert_eq!(fresh.gas(&e, 1).unwrap(), 358_000);
-        assert_eq!(old.gas(&e, 1).unwrap(), 163_000);
+        assert_eq!(fresh.gas(&e, 1).unwrap(), 348_000);
+        assert_eq!(old.gas(&e, 1).unwrap(), 127_000);
         let mut shortened = e.clone();
         shortened.l2ToL1Calls.clear();
         shortened.returnData = Bytes::new();
         // Four old callback words plus the result tail are still charged.
-        assert_eq!(old.gas(&shortened, 1).unwrap(), 155_000);
+        assert_eq!(old.gas(&shortened, 1).unwrap(), 119_000);
         let mut partial = retained();
         partial.insert(data(at(U256::from(123), 6)), U256::ZERO);
-        assert_eq!(read(&partial).gas(&e, 1).unwrap(), 178_000);
+        assert_eq!(read(&partial).gas(&e, 1).unwrap(), 144_000);
         let mut zero_result = e;
         zero_result.returnData = Bytes::from(vec![0; 32]);
-        assert_eq!(read(&partial).gas(&zero_result, 1).unwrap(), 163_000);
+        assert_eq!(read(&partial).gas(&zero_result, 1).unwrap(), 124_000);
     }
 
     #[test]
@@ -412,7 +424,10 @@ mod tests {
                 1 => flagged.l2ToL1Calls[0].isStatic = true,
                 _ => flagged.l2ToL1Calls[0].gas = u64::MAX,
             }
-            assert_eq!(slot.gas(&flagged, 1).unwrap(), zero + FRESH_WORD_GAS);
+            assert_eq!(
+                slot.gas(&flagged, 1).unwrap(),
+                zero + WORD_GAS + FRESH_WORD_GAS - ZERO_WORD_GAS,
+            );
         }
         e.expectedL1ToL2Calls.push(ExpectedL1ToL2CallSol {
             success: false,

@@ -129,12 +129,16 @@ no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
 
-Estimator `companion-execution-5` (storage model introduced in `companion-storage-4`) inventories bounded retained callback
-and result storage. For supported deferred entries it reserves 35,000 per entry,
-8,000 per callback/result row, 8,000 per written storage word, and another 15,000
-for each nonzero new word whose canonical-parent value is zero or unknown.
-Each old word outside the new layout adds 8,000 for truncation; refunds are never
-credited. The lower of this measured reserve and the previous reserve is used.
+Estimator `companion-storage-6` (storage inventory introduced in
+`companion-storage-4`) inventories bounded retained callback and result storage.
+For supported deferred entries it reserves 35,000 per entry, 8,000 per
+callback/result row, 3,000 per zero-to-zero storage word, and 6,000 per other
+written word. A nonzero new word whose canonical-parent value is zero or unknown
+adds 17,000, retaining the previous 23,000 fresh-write allowance. Old words
+outside the new layout add 3,000 if zero or 6,000 if nonzero for truncation;
+refunds are never credited. Version 5 charged 8,000 for every word plus 15,000
+for fresh nonzero words.
+The lower of this measured reserve and the previous reserve is used.
 New words absent from the old inventory pay the fresh allowance. Roots and rolling
 hashes are priced as nonzero before stitching. The current and old layouts are
 bounded to one root update, four total callbacks, four nested result rows,
@@ -151,11 +155,13 @@ mapping slots. No writes in a speculative candidate earn reuse credit.
 These storage prices cover posting. Companion execution adds measured L1 source
 gas, separately measured L1 callback application gas (including reverted work),
 and bounded protocol overhead. Intercepted callbacks return their gas to the
-source caller, so source gas alone omits that work. Version 5 reserves 90,000 per
-entry, 60,000 per callback, 40,000 per nested result row, 60,000 per nonzero revert
-span marker, and 3,000 per 32-byte input/result word. Nested input is conservatively
-charged at its 256-byte bound. Queue scans cost 4,000 per preceding deferred entry
-or 12,000 for a matching identity requiring root checks.
+source caller, so source gas alone omits that work. Version 6 reserves 80,000 per
+root entry, 40,000 per callback, 30,000 per nested result row, 25,000 per nonzero
+revert span marker, and 2,500 per 32-byte input/result word. Nested input is
+conservatively charged at its 256-byte bound. Queue scans cost 3,000 per preceding
+deferred entry or 12,500 for a matching identity requiring root checks. These
+terms are checked against cold-frame fixtures at the pinned protocol revision;
+they are bounded admission estimates, not universal EVM gas guarantees.
 
 The measured family permits one to four sequential root entries per source,
 up to four callbacks and four nested result rows per entry, 256-byte root/callback
@@ -183,10 +189,22 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`packing-fifo-preference-2` identifies the scheduling behavior. Historical
-`shared-deadline-1` events retain their former FIFO count semantics. Deploy the additive
-collector/schema/dashboard before the new Composer; old collectors ignore the
-new family and old histories retain null estimates. Rollback can leave those
+`packing-minimum-check-3` identifies the scheduling behavior; it retains the FIFO
+preference of version 2. Historical `shared-deadline-1` events retain their former
+FIFO count semantics. Version 3 checks a minimum contribution before source
+execution: 70,000 per outbound entry or 65,000 per inbound entry, zero calldata/
+target gas and zero new companion consumption. It uses the same budget arithmetic,
+including discount revocation, previously accepted companions and the new inbound
+source's signed start requirement. L2 checks retain the existing declared/system
+gas requirement. These are lower bounds on the admission model, not measurements
+of actual execution. A miss retains the source without charging an attempt and
+blocks its nonce dependants, while independent sources remain eligible. Empty
+candidates still run normal simulation/classification. Cheap checks do not train
+execution timing samples. No execution estimate is cached across changed state.
+
+Deploy the additive collector/schema/dashboard before the new Composer. Collectors
+that understand admission events but predate `source_capacity_check` reject that
+unknown kind; old histories retain null bounds and counters. Rollback can leave those
 additive tables and checkpoints in place. No ABI, storage migration, protocol
 pin or signer-profile change is required.
 

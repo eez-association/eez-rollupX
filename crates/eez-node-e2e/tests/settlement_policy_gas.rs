@@ -525,6 +525,36 @@ async fn assert_companion_gas_first(profile: NativeL1Profile) {
         "missing complete-group bundle cut: {}",
         world.settlement_diagnostics()
     );
+    let admission: Vec<serde_json::Value> = events
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let cheap = admission
+        .iter()
+        .find(|event| {
+            event["kind"] == "source_capacity_check"
+                && event["detail"]["constraint"] == "l1_bundle_gas_budget"
+        })
+        .expect("the signed companion prefix must reject before source simulation");
+    assert_eq!(cheap["detail"]["basis"], "minimum_admission_cost");
+    assert_eq!(cheap["detail"]["companion_declared_gas"], 16_600_000);
+    assert!(
+        !admission
+            .iter()
+            .any(|event| event["candidate_id"] == cheap["candidate_id"]
+                && event["kind"] == "source_estimate"
+                && event["detail"]["source_hash"] == cheap["detail"]["source_hash"]),
+        "a cheap refusal must not run source simulation or report a fabricated estimate"
+    );
+    let summary = admission
+        .iter()
+        .find(|event| event["candidate_id"] == cheap["candidate_id"] && event["kind"] == "summary")
+        .unwrap();
+    assert_eq!(summary["detail"]["minimum_check_count"], 1);
+    assert_eq!(summary["detail"]["simulation_count"], 1);
     let dispatches: Vec<_> = events
         .iter()
         .filter(|event| event.name == "eez.composer.bundle.dispatched")

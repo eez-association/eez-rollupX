@@ -51,7 +51,7 @@ impl Candidate {
             context: json!({"version":1,"candidate_id":id,"chain_id":chain_id,
                 "registry":registry,"rollup_id":rollup_id,"l2_parent":parent,
                 "target_block":block,"target_timestamp":timestamp,"rebuild_of":rebuild_of,
-                "policy_version":"packing-fifo-preference-2","estimator_version":"companion-execution-5"}),
+                "policy_version":"packing-minimum-check-3","estimator_version":"companion-storage-6"}),
             id,
             sequence: AtomicU64::new(0),
             started: Instant::now(),

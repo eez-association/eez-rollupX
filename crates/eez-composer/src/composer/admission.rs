@@ -335,6 +335,17 @@ impl Attempt {
         self.can_start_at(accepted, self.started.elapsed())
     }
 
+    /// Check the shared deadline before a cheap capacity test. A refusal must
+    /// still invalidate a stale estimate that prevented all work, while a cheap
+    /// capacity miss must not start an unmeasured execution timing sample.
+    pub fn can_check_group(&self, accepted: usize) -> bool {
+        let fits = self.next_group_fits(accepted, self.started.elapsed());
+        if !fits && accepted == 0 && self.previous.is_some() {
+            self.progress.lock().unwrap().estimate_blocked = true;
+        }
+        fits
+    }
+
     /// Reserve finishing time when checking deferred sources, without recording
     /// an execution attempt or contaminating accepted-group timing samples.
     pub fn can_check_source(&self, accepted: usize) -> bool {
@@ -739,6 +750,9 @@ mod tests {
     fn source_checks_reserve_time_without_recording_execution_work() {
         let attempt = attempt(3, 0, false, None);
         assert!(attempt.can_check_source(0));
+        for _ in 0..3 {
+            assert!(attempt.can_check_group(0));
+        }
         assert_eq!(attempt.progress.lock().unwrap().started_groups, 0);
         assert!(attempt.progress.lock().unwrap().group_started.is_none());
         assert!(!attempt.next_group_fits(0, attempt.available));
@@ -1088,7 +1102,8 @@ mod tests {
         let mut blocked = attempt(state.limit(100, Duration::from_millis(500)), 0, true, None);
         blocked.previous = state.sample;
         blocked.available = Duration::from_millis(500);
-        assert!(!blocked.can_start_at(0, Duration::ZERO));
+        assert!(!blocked.can_check_group(0));
+        assert_eq!(blocked.progress.lock().unwrap().started_groups, 0);
         state.finish(&blocked);
         assert!(state.sample.is_none());
         assert_eq!(state.limit(100, Duration::from_millis(500)), 1);

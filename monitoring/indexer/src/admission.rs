@@ -13,6 +13,7 @@ const KINDS: &[&str] = &[
     "source_outcome",
     "source_preflight",
     "source_estimate",
+    "source_capacity_check",
     "source_accepted",
     "summary",
     "full_projection",
@@ -282,6 +283,45 @@ pub fn parse(line: &[u8], config: &Config) -> Result<Option<Value>> {
             ),
             "invalid source direction"
         );
+    }
+    if kind == "source_capacity_check" {
+        ensure!(
+            detail.get("basis").and_then(Value::as_str) == Some("minimum_admission_cost"),
+            "invalid capacity check basis"
+        );
+        ensure!(
+            matches!(
+                detail.get("direction").and_then(Value::as_str),
+                Some("inbound" | "outbound")
+            ),
+            "invalid capacity check direction"
+        );
+        ensure!(
+            matches!(
+                detail.get("constraint").and_then(Value::as_str),
+                Some("l1_tx_gas_budget" | "l1_bundle_gas_budget" | "l2_block_capacity")
+            ),
+            "invalid capacity check constraint"
+        );
+        for field in [
+            "minimum_entry_gas",
+            "projected_before",
+            "postbatch_planning_cap",
+            "companion_prefix_gas",
+            "companion_required_gas",
+            "companion_declared_gas",
+            "fixed_drain_reserve_gas",
+            "whole_block_cap",
+            "transaction_cap",
+            "l2_used_gas",
+            "minimum_l2_gas",
+            "l2_block_cap",
+        ] {
+            ensure!(
+                detail.get(field).and_then(Value::as_u64).is_some(),
+                "missing capacity bound: {field}"
+            );
+        }
     }
     Ok(Some(data))
 }

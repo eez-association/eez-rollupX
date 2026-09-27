@@ -491,6 +491,30 @@ impl PostBatchGasBudget {
         self.try_accept_with_companion(cost, 0, 0)
     }
 
+    /// Establish a nonfit in the admission model without source execution using
+    /// its least expensive entry and zero new companion consumption. Unknown calls can only add
+    /// cost. Use the same admission arithmetic, including discount revocation
+    /// and each signed transaction's start envelope; never cache a simulated
+    /// price across changed parents or accepted prefixes.
+    fn minimum_rejection(&self, inbound: bool, declared: u64) -> Option<&'static str> {
+        if self.entries == 0 {
+            return None;
+        }
+        let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
+            entries: 1,
+            entry_discount: POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(!inbound),
+            calldata_gas: 0,
+            target_gas: 0,
+        };
+        let mut next = *self;
+        if next.try_accept_with_companion(cost, if inbound { declared } else { 0 }, 0) {
+            None
+        } else {
+            next.rejected_constraint
+        }
+    }
+
     /// Previous queue storage is temporary work, not evidence that a source
     /// can never fit. Retain such a first group until an independently due
     /// consolidation clears the old queue; do not evict its nonce chain.
@@ -940,9 +964,56 @@ struct CapacityDeferrals {
     groups: Vec<(usize, HeldTx)>,
     reasons: std::collections::BTreeMap<&'static str, usize>,
     last_reason: Option<&'static str>,
+    minimum_check_count: usize,
 }
 
 impl CapacityDeferrals {
+    /// Early deferral uses only this candidate's budgets and the admission
+    /// model's minimum group cost. Never use it on an empty candidate: normal simulation must still
+    /// classify malformed or individually unpostable sources there.
+    fn minimum_check(
+        &mut self,
+        candidate: &crate::admission_events::Candidate,
+        held: &HeldTx,
+        budget: PostBatchGasBudget,
+        l2_used: u64,
+        system_gas: u64,
+    ) -> Option<&'static str> {
+        if budget.entries == 0 {
+            return None;
+        }
+        let inbound = held.direction == Direction::Inbound;
+        let declared = declared_gas_limit(&held.raw_tx);
+        let l2_minimum = if inbound {
+            system_gas
+        } else {
+            system_gas.saturating_add(declared)
+        };
+        let reason = if block_gas_fit(l2_used, l2_minimum, BUILDER_GAS_LIMIT) == BlockGasFit::Accept
+        {
+            budget.minimum_rejection(inbound, declared)?
+        } else {
+            "l2_block_capacity"
+        };
+        self.minimum_check_count += 1;
+        candidate.emit(
+            "source_capacity_check",
+            serde_json::json!({
+                "source_hash":held.hash,"direction":if inbound {"inbound"} else {"outbound"},
+                "constraint":reason,"basis":"minimum_admission_cost",
+                "minimum_entry_gas":gas::minimum_entry_gas(!inbound),
+                "projected_before":budget.projected,"postbatch_planning_cap":budget.cap,
+                "companion_prefix_gas":budget.companion_gas,
+                "companion_required_gas":budget.companion_required_gas,
+                "companion_declared_gas":if inbound {declared} else {0},
+                "fixed_drain_reserve_gas":POSTBATCH_DRAIN_MARGIN,
+                "whole_block_cap":budget.block_cap,"transaction_cap":budget.transaction_cap,
+                "l2_used_gas":l2_used,"minimum_l2_gas":l2_minimum,"l2_block_cap":BUILDER_GAS_LIMIT,
+            }),
+        );
+        Some(reason)
+    }
+
     fn defer(
         &mut self,
         selection: &mut selection::Selection,
@@ -2615,6 +2686,7 @@ where
         // chain. Both sets remain owned and are restored without an attempt.
         let mut deferred: Vec<(usize, HeldTx)> = Vec::new();
         let mut capacity = CapacityDeferrals::default();
+        let mut simulation_count = 0usize;
         let mut gas_constraint = None;
         // First gas refusal for the legacy cut event. If no group fits, this
         // describes the head considered for the existing unfittable eviction.
@@ -2735,7 +2807,7 @@ where
                 selection.discard(idx);
                 continue;
             }
-            if !admission.can_start_group(survivors.len()) {
+            if !admission.can_check_group(survivors.len()) {
                 admission_cut = Some("pipeline_time");
                 deferred = abort_rest(
                     Some((idx, held)),
@@ -2758,6 +2830,36 @@ where
                 );
                 poison.push(held);
                 continue;
+            }
+            if let Some(reason) = capacity.minimum_check(
+                &candidate,
+                &held,
+                budget,
+                draft.gas_used(),
+                stf_cfg.l2_gas_limit,
+            ) {
+                if reason == "l2_block_capacity" {
+                    block_gas_cut = Some(BlockGasCut {
+                        gas_used: draft.gas_used(),
+                        declared: stf_cfg
+                            .l2_gas_limit
+                            .saturating_add(declared_gas_limit(&held.raw_tx)),
+                    });
+                } else if gas_constraint.is_none() {
+                    gas_constraint = Some(reason);
+                    rejected_cost = Some(gas::minimum_entry_gas(true));
+                }
+                capacity.defer(&mut selection, &candidate, idx, held, reason);
+                continue;
+            }
+            if !admission.can_start_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
+                deferred = abort_rest(
+                    Some((idx, held)),
+                    &mut out_iter,
+                    std::mem::take(&mut inbounds),
+                );
+                break;
             }
             let contexts = L1TargetSession::new(&l1_state, local.l1_entry.clone())
                 .map_err(|e| format!("L1TargetSession::new: {e}"))
@@ -2784,6 +2886,7 @@ where
             let sessions = seed_session(cc.entry_rollup_id, l1_exec);
             let (state, env) = l2_fork.state_and_env();
             let env = env.clone();
+            simulation_count += 1;
             let sim = compose_crosschain(
                 cc,
                 eez_protocol::RollupId(rollup_id),
@@ -3425,7 +3528,7 @@ where
                 selection.discard(idx);
                 continue;
             }
-            if !admission.can_start_group(survivors.len()) {
+            if !admission.can_check_group(survivors.len()) {
                 admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
@@ -3446,6 +3549,30 @@ where
                 continue;
             }
 
+            if let Some(reason) = capacity.minimum_check(
+                &candidate,
+                &held,
+                budget,
+                draft.gas_used(),
+                stf_cfg.l2_gas_limit,
+            ) {
+                if reason == "l2_block_capacity" {
+                    block_gas_cut = Some(BlockGasCut {
+                        gas_used: draft.gas_used(),
+                        declared: stf_cfg.l2_gas_limit,
+                    });
+                } else if gas_constraint.is_none() {
+                    gas_constraint = Some(reason);
+                    rejected_cost = Some(gas::minimum_entry_gas(false));
+                }
+                capacity.defer(&mut selection, &candidate, idx, held, reason);
+                continue;
+            }
+            if !admission.can_start_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
+                deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
+                break;
+            }
             let contexts = draft
                 .fork()
                 .map_err(|e| format!("SyncBlockState::fork: {e}"))
@@ -3467,6 +3594,7 @@ where
                 }
             };
             let sessions = seed_session(eez_protocol::RollupId(rollup_id), probe);
+            simulation_count += 1;
             let sim = compose_crosschain(
                 cc,
                 cc.entry_rollup_id,
@@ -3919,6 +4047,8 @@ where
                 "selection_filtered_count":selection_filtered,
                 "source_fee_count":selection.fee_blocked().len(),
                 "capacity_deferrals":capacity.reasons,
+                "minimum_check_count":capacity.minimum_check_count,
+                "simulation_count":simulation_count,
                 "fifo_bypassed":fifo_bypassed,
                 "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
                 "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
@@ -7220,6 +7350,83 @@ mod tests {
                 ],
                 false
             ));
+        }
+    }
+
+    #[test]
+    fn minimum_capacity_check_keeps_empty_and_fitting_candidates_eligible() {
+        let minimum = gas::minimum_entry_gas(true);
+        let mut budget = PostBatchGasBudget::new(POSTBATCH_DRAIN_MARGIN + minimum);
+        // The first source must reach ordinary classification even if malformed
+        // or individually unpostable. Capacity misses cannot evict it early.
+        assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
+        budget.entries = 1;
+        budget.projected = budget.cap - minimum;
+        assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
+        budget.projected += 1;
+        assert_eq!(budget.minimum_rejection(false, 0), Some("l1_tx_gas_budget"));
+    }
+
+    #[test]
+    fn minimum_capacity_check_preserves_signed_prefix_envelopes_and_smaller_work() {
+        let mut budget = PostBatchGasBudget::new(16_777_216);
+        budget.entries = 5;
+        budget.block_cap = 17_000_000;
+        budget.transaction_cap = 16_777_216;
+        budget.projected = 6_000_000;
+        budget.companion_gas = 9_500_000;
+        budget.companion_required_gas = 9_600_000;
+        let before = budget;
+        assert_eq!(
+            budget.minimum_rejection(true, 1_000_000),
+            Some("l1_bundle_gas_budget")
+        );
+        assert_eq!(budget.minimum_rejection(true, 100_000), None);
+        assert_eq!(budget.projected, before.projected);
+        assert_eq!(budget.companion_gas, before.companion_gas);
+        assert_eq!(budget.companion_required_gas, before.companion_required_gas);
+        budget.companion_gas = 0;
+        budget.companion_required_gas = 16_000_000;
+        assert_eq!(
+            budget.minimum_rejection(true, 100_000),
+            Some("l1_bundle_gas_budget")
+        );
+    }
+
+    #[test]
+    fn minimum_capacity_check_is_no_stricter_than_supported_entry_prices() {
+        for inbound in [false, true] {
+            let minimum = gas::minimum_entry_gas(!inbound);
+            for entries in [1, 2, 126, 127, 128] {
+                for remaining in [0, minimum - 1, minimum, minimum + 1, 1_000_000] {
+                    let mut budget = PostBatchGasBudget::new(16_777_216);
+                    budget.entries = entries;
+                    budget.projected = budget.cap - remaining;
+                    budget.entry_discount = entries * 100_000;
+                    budget.block_cap = 17_000_000;
+                    budget.companion_gas = 1_000_000;
+                    for added in [1, 2, 4] {
+                        for extra in [0, 21_000, 200_000] {
+                            let cost = TxL1Gas {
+                                estimate_reasons: Default::default(),
+                                entries: added,
+                                entry_discount: added * (POSTBATCH_ENTRY_GAS_PIN - minimum),
+                                calldata_gas: extra,
+                                target_gas: extra,
+                            };
+                            let mut next = budget;
+                            let fits = next.try_accept_with_companion(
+                                cost,
+                                if inbound { 1_000_000 } else { 0 },
+                                if inbound { 150_000 } else { 0 },
+                            );
+                            if fits {
+                                assert_eq!(budget.minimum_rejection(inbound, 1_000_000), None);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 

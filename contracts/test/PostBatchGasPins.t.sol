@@ -142,8 +142,9 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant EXTRA_IMMEDIATE_CALL_GAS = 40_000;
     uint256 private constant IMMEDIATE_RESULT_ROW_GAS = 35_000;
     uint256 private constant DEFERRED_STORAGE_ENTRY_GAS = 35_000;
-    uint256 private constant DEFERRED_STORAGE_WORD_GAS = 8_000;
-    uint256 private constant DEFERRED_STORAGE_FRESH_WORD_GAS = 15_000;
+    uint256 private constant DEFERRED_STORAGE_WORD_GAS = 6_000;
+    uint256 private constant DEFERRED_STORAGE_ZERO_WORD_GAS = 3_000;
+    uint256 private constant DEFERRED_STORAGE_FRESH_WORD_GAS = 17_000;
     uint256 private constant DEFERRED_STORAGE_ITEM_GAS = 8_000;
 
     uint64 private constant ROLLUP_ID = 1;
@@ -923,8 +924,11 @@ contract PostBatchGasPinsTest is Test {
         gas = DEFERRED_STORAGE_ENTRY_GAS + (shape.calls + shape.rows * (1 + shape.nestedCalls))
             * DEFERRED_STORAGE_ITEM_GAS;
         for (uint256 i; i < next.count; i++) {
-            gas += DEFERRED_STORAGE_WORD_GAS;
-            if (next.words[i].value != bytes32(0) && vm.load(address(eez), bytes32(next.words[i].slot)) == bytes32(0)) {
+            bool oldZero = vm.load(address(eez), bytes32(next.words[i].slot)) == bytes32(0);
+            gas += next.words[i].value == bytes32(0) && oldZero
+                ? DEFERRED_STORAGE_ZERO_WORD_GAS
+                : DEFERRED_STORAGE_WORD_GAS;
+            if (next.words[i].value != bytes32(0) && oldZero) {
                 gas += DEFERRED_STORAGE_FRESH_WORD_GAS;
             }
         }
@@ -936,7 +940,9 @@ contract PostBatchGasPinsTest is Test {
                     break;
                 }
             }
-            if (!kept) gas += DEFERRED_STORAGE_WORD_GAS;
+            if (!kept) {
+                gas += old.words[i].value == bytes32(0) ? DEFERRED_STORAGE_ZERO_WORD_GAS : DEFERRED_STORAGE_WORD_GAS;
+            }
         }
     }
 
@@ -1108,9 +1114,9 @@ contract PostBatchGasPinsTest is Test {
         uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(256));
         // Includes this fixture's application work, so the production estimate's
         // separately added callback simulation only increases the allowance.
-        uint256 reserve = 90_000 + 60_000 * (1 + callbacks) + 40_000 * rows + 3_000
-            * (8 + 8 * (1 + callbacks) + 10 * rows) + (repeatedHash ? 12_000 : 4_000) * (count - 1)
-            + (revertedSpan ? 60_000 * (1 + callbacks) : 0);
+        uint256 reserve = 80_000 + 40_000 * (1 + callbacks) + 30_000 * rows + 2_500
+            * (8 + 8 * (1 + callbacks) + 10 * rows) + (repeatedHash ? 12_500 : 3_000) * (count - 1)
+            + (revertedSpan ? 25_000 * (1 + callbacks) : 0);
         console.log("nested companion rows / callbacks", rows, callbacks);
         console.log("  execution gas / reserve", used, reserve);
         assertLe(used, reserve, "bounded nested companion protocol reserve");
@@ -1169,8 +1175,8 @@ contract PostBatchGasPinsTest is Test {
             if (i > skip) {
                 current = entry.rollupUpdates[0].newRoot;
                 inputs[i - skip - 1] = input;
-                reserve += 90_000 + 60_000 * 4 + 3_000 * 40 + (repeatedHash ? 12_000 : 4_000) * (i - 1)
-                    + (span > 0 ? 60_000 : 0);
+                reserve += 80_000 + 40_000 * 4 + 2_500 * 40 + (repeatedHash ? 12_500 : 3_000) * (i - 1)
+                    + (span > 0 ? 25_000 : 0);
             }
         }
         _measure(eez, batch, root);
@@ -1241,8 +1247,8 @@ contract PostBatchGasPinsTest is Test {
         }
         uint256 used = probe.measureOutcome(proxy, abi.encode(count), !reverted, _nonzeroBytes(resultBytes));
         // Caller frame excludes source intrinsic/calldata/application gas.
-        uint256 reserve = 90_000 + 60_000 * calls + 3_000 * ((resultBytes + 31) / 32 + 8 * calls)
-            + (repeatedHash ? 12_000 : 4_000) * (count - 1);
+        uint256 reserve = 80_000 + 40_000 * calls + 2_500 * ((resultBytes + 31) / 32 + 8 * calls)
+            + (repeatedHash ? 12_500 : 3_000) * (count - 1);
         console.log("companion calls / skipped", calls, count - 1);
         console.log("  execution gas / reserve", used, reserve);
         assertLe(used, reserve, "bounded companion protocol reserve");

@@ -150,6 +150,54 @@ that extra storage compatibility work.
 
 ### Explain and tighten the gas model
 
+#### September 27 follow-up: cheaper capacity checks and tighter reserves
+
+**Accepted scope:** the user authorized the gas-budget improvements together
+with cheap rejection before expensive simulation and better measured multi-call
+companion reserves. Source baseline `239b822`, deployed runtime `e5b2cde`,
+protocol `9d13218`. The [budget review](../audits/2026-09-26-admission-packing/README.md#september-27-review-is-the-whole-bundle-gas-limit-too-restrictive)
+found that 17 bundle-limited postings used 43.0% of their gas budgets on average;
+their actual signed start envelopes needed 47.7%. The preceding wave also
+performed 7,672 capacity-refused source simulations for three extra included
+sources. These are separate sources of avoidable work and conservative packing.
+
+- Before a source simulation, check the signed transaction-start requirement,
+  known L2 transaction requirement and a minimum postBatch contribution. A
+  rejection must follow from the current candidate's actual policy arithmetic,
+  independent of unknown application behavior. Preserve ownership and nonce
+  blocking; proceed with independent sources. Do not reuse a previous execution
+  estimate across changed parents or accepted prefixes as a proven lower bound.
+- Measure tighter deferred-storage and multi-call companion reserves against
+  the pinned contracts, including cold storage, retained slots, repeated call
+  identities, maximum queues, nested callbacks and outer reverts. Preserve the
+  distinction between successful inner calls and committed queue progress.
+  Unknown shapes retain conservative estimates. No blanket receipt-ratio discount.
+- Investigate bounded refinement near an estimated cutoff. Whole-bundle native
+  execution requires the final stitched roots and proof; any earlier estimate
+  must state its scope and cannot bypass proof/signature validation. Keep final
+  exact execution, block/transaction limits and the existing shared deadline.
+- Report cheap refusals separately from simulated estimates in Grafana, including
+  the bound and limiting budget, so absent full estimates are explained. Keep
+  historical schemas and records readable and avoid per-hash Prometheus labels.
+
+Acceptance: reproduce avoidable simulations and conservative gas fixtures at
+the requested baseline, exercise boundary/nonfit/fitting cases, source retention
+and nonce dependencies, and verify that cheap checks never introduce eviction
+or attempt charges. Run focused Composer, contract, indexer and native admission/
+queue checks, shipping builds, formatting and clippy. Deploy exact local images
+and repeat the verified 870-source / 770-job wave, comparing canonical post count,
+gas prediction error, full simulation count, preparation time and missed targets
+against `e5b2cde`. Record failures and live noise. There is no authorization to
+change the protocol pin, signer profile, canonical ownership or operator timing.
+
+The cutoff-refinement investigation found that exact full-bundle execution is
+currently after proving and after prepared-attempt ownership is installed. A
+second admission pass would need a separate bounded prove/rebuild lifecycle,
+with fallback to the already proved candidate under the same target deadline.
+This iteration tightens measured reserves and retains final exact execution;
+it does not add an extra proof cycle or simulate with proof validation bypassed.
+That extension remains a separate optimization with lifecycle tests required.
+
 #### September 26 follow-up: packing with a FIFO preference
 
 **Accepted scope:** after the `e57c7a5` verified wave, the user explicitly

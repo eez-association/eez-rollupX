@@ -24,6 +24,53 @@ fn event(sequence: u64, kind: &str, detail: Value) -> Value {
 fn line(event: &Value) -> Vec<u8> {
     serde_json::to_vec(&json!({"fields":{"event_name":"eez.composer.admission.v1","admission_event":event.to_string()}})).unwrap()
 }
+
+fn capacity_detail(source: B256) -> Value {
+    json!({"source_hash":source,"direction":"inbound","basis":"minimum_admission_cost",
+        "constraint":"l1_bundle_gas_budget","minimum_entry_gas":65000,
+        "projected_before":6000000,"postbatch_planning_cap":15378300,
+        "companion_prefix_gas":10500000,"companion_required_gas":11000000,
+        "companion_declared_gas":1000000,"fixed_drain_reserve_gas":600000,
+        "whole_block_cap":17000000,"transaction_cap":16777216,
+        "l2_used_gas":500000,"minimum_l2_gas":1000000,"l2_block_cap":30000000})
+}
+
+#[test]
+fn capacity_checks_require_complete_numeric_bounds_and_a_known_reason() {
+    let detail = capacity_detail(B256::repeat_byte(4));
+    let good = event(1, "source_capacity_check", detail.clone());
+    assert_eq!(parse(&line(&good), &config()).unwrap(), Some(good));
+    for (field, value) in detail.as_object().unwrap() {
+        let mut missing = detail.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(
+            parse(
+                &line(&event(1, "source_capacity_check", missing)),
+                &config()
+            )
+            .is_err(),
+            "accepted missing {field}"
+        );
+        if value.is_u64() {
+            for invalid in [json!(-1), json!(1.5), json!("65000"), Value::Null] {
+                let mut malformed = detail.clone();
+                malformed[field] = invalid;
+                assert!(
+                    parse(
+                        &line(&event(1, "source_capacity_check", malformed)),
+                        &config()
+                    )
+                    .is_err()
+                );
+            }
+        }
+    }
+    for field in ["constraint", "basis", "direction"] {
+        let mut wrong = detail.clone();
+        wrong[field] = json!("unknown");
+        assert!(parse(&line(&event(1, "source_capacity_check", wrong)), &config()).is_err());
+    }
+}
 #[test]
 fn admission_schema_rejects_wrong_context_and_malformed_gas() {
     let good = event(0, "started", json!({"queued":5,"selected":5}));
@@ -154,6 +201,20 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         "t.gas_used",
     );
     assert_ne!(legacy_type, schema);
+    let legacy_type = legacy_type.replace(
+        ",\n    (e.summary->>'minimum_check_count')::numeric AS minimum_check_count,\n    (e.summary->>'simulation_count')::numeric AS simulation_count", ""
+    );
+    let added_source_columns = schema
+        .split(",\n    s.capacity->>'basis' AS capacity_check_basis")
+        .nth(1)
+        .unwrap()
+        .split("\nFROM sources s")
+        .next()
+        .unwrap();
+    let legacy_type = legacy_type.replace(
+        &format!(",\n    s.capacity->>'basis' AS capacity_check_basis{added_source_columns}"),
+        "",
+    );
     let legacy_type = legacy_type.replace(
         ",\n    e.summary->'capacity_deferrals' AS capacity_deferrals,\n    (e.summary->>'fifo_bypassed')::boolean AS fifo_bypassed", ""
     ).replace(
@@ -318,6 +379,67 @@ async fn admission_replay_gaps_conflicts_and_dashboard_sql() {
         json!({"l1_bundle_gas_budget":1})
     );
     assert!(packed_row.get::<_, bool>(1));
+
+    let cheap_source = B256::repeat_byte(8);
+    let selected = event(
+        7,
+        "source_selected",
+        json!({"source_hash":cheap_source,
+        "direction":"inbound","position":1,"timing_basis":"source_checks"}),
+    );
+    let cheap = event(8, "source_capacity_check", capacity_detail(cheap_source));
+    let outcome = event(
+        9,
+        "source_outcome",
+        json!({"source_hash":cheap_source,
+        "reason":"l1_bundle_gas_budget"}),
+    );
+    let tx = client.transaction().await.unwrap();
+    for record in [selected, cheap, outcome] {
+        let validated = parse(&line(&record), &config()).unwrap().unwrap();
+        eez_indexer::admission::import(&tx, &validated)
+            .await
+            .unwrap();
+    }
+    tx.commit().await.unwrap();
+    let rows = client
+        .query(&dashboard_sql(source_panel), &[])
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+    let row = rows
+        .iter()
+        .find(|r| r.get::<_, String>("source_hash") == cheap_source.to_string())
+        .unwrap();
+    assert_eq!(
+        row.get::<_, String>("decision"),
+        "Capacity deferred before simulation"
+    );
+    assert_eq!(
+        row.get::<_, String>("gas_constraint"),
+        "l1_bundle_gas_budget"
+    );
+    assert_eq!(
+        row.get::<_, String>("capacity_check_basis"),
+        "minimum_admission_cost"
+    );
+    assert_eq!(row.get::<_, f64>("minimum_entry_gas"), 65000.0);
+    assert_eq!(row.get::<_, f64>("companion_declared_gas"), 1000000.0);
+    assert_eq!(row.get::<_, f64>("capacity_block_cap"), 17000000.0);
+    assert_eq!(row.get::<_, f64>("capacity_check_ms"), 1.0);
+    assert!(row.get::<_, Option<f64>>("source_simulation_gas").is_none());
+    assert!(
+        row.get::<_, Option<f64>>("source_checks_and_simulation_ms")
+            .is_none()
+    );
+    // Keep the later gap/checkpoint assertions scoped to their original history.
+    client
+        .execute(
+            "DELETE FROM eez_indexer.admission_events WHERE sequence>=7",
+            &[],
+        )
+        .await
+        .unwrap();
 
     // A conflicting duplicate cannot advance the shared file checkpoint.
     let mut bad = records[0].clone();
