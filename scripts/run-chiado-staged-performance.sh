@@ -206,6 +206,9 @@ except (RuntimeError, OSError, ValueError, InvalidOperation) as error:
 PY
 
 $CHECK_ONLY && exit 0
+# Larger packed batches can exceed Linux's single-argument limit when the pinned
+# verifier passes hex calldata to Forge. Preserve its checks through file input.
+source "$ROOT/scripts/chiado-forge.sh"
 echo "Starting upstream staged runner; its run directory contains timings.csv and job-timings.csv."
 verify_args=(--no-verify)
 $VERIFY && verify_args=()

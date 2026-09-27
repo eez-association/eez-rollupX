@@ -17,9 +17,11 @@ class StagedPerformanceConfigTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
+        (self.root / "contracts").mkdir()
         (self.root / "eez-core-protocol").mkdir()
         self.script = self.root / "scripts/run-chiado-staged-performance.sh"
         shutil.copy2(REPO / "scripts/run-chiado-staged-performance.sh", self.script)
+        shutil.copy2(REPO / "scripts/chiado-forge.sh", self.root / "scripts/chiado-forge.sh")
         self.tools = self.root / "tools"
         self.tools.mkdir()
         self.marker = self.root / "tool-invoked"
@@ -81,6 +83,9 @@ class StagedPerformanceConfigTest(unittest.TestCase):
         runner.parent.mkdir(parents=True)
         runner.write_text("#!/bin/bash\nset -eu\n"
                           + "test -f " + shlex.quote(str(lock_file)) + "\n"
+                          + '[[ $(type -t forge) == function ]]\n'
+                          + 'test "$EEZ_CHIADO_CONTRACTS_ROOT" = '
+                          + shlex.quote(str(self.root / "contracts")) + "\n"
                           + "printf '%s\\n' \"$@\" > " + shlex.quote(str(args_file)) + "\n")
         for args, verify in (((), False), (("--verify",), True)):
             with self.subTest(args=args):
