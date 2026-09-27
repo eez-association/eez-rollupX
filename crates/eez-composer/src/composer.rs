@@ -7180,13 +7180,20 @@ async fn observe_bundle_outcome(
                 fee_quote,
                 record_dispatch,
                 deadline.instant(),
-                move |elapsed, acknowledged| {
+                move |delivery| {
                     if let Some(candidate) = candidate {
-                        candidate.duration("delivery", elapsed);
+                        candidate.duration("delivery", delivery.elapsed);
                         candidate.emit(
                             "delivery",
                             serde_json::json!({"transaction_hash":attempt_id.post_batch_hash,
-                        "delivery_ms":elapsed.as_secs_f64()*1000.0,"acknowledged":acknowledged}),
+                        "delivery_ms":delivery.elapsed.as_secs_f64()*1000.0,
+                        "acknowledged":delivery.acknowledged,
+                        "relay_bundle_hash":delivery.relay_bundle_hash,
+                        "ack_remaining_ms":delivery.remaining.as_secs_f64()*1000.0,
+                        "target_block":delivery.target_block,
+                        "target_timestamp":delivery.target_timestamp,
+                        "expected_parent_hash":delivery.expected_parent_hash,
+                        "transaction_count":delivery.transaction_count}),
                         );
                     }
                 },

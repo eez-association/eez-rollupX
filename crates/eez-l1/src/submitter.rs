@@ -24,9 +24,24 @@ use crate::l1_reader::L1Reader;
 
 /// Bounded delivery observation. A missing acknowledgement after dispatch is
 /// uncertain submission, not evidence that the relay did not receive the bundle.
+#[derive(Debug, Clone, Copy)]
+pub struct BundleDelivery {
+    pub elapsed: Duration,
+    pub acknowledged: bool,
+    /// Relay-supplied correlation identifier, if it is a valid 32-byte hash.
+    /// It is not an inclusion commitment and may differ between relays.
+    pub relay_bundle_hash: Option<B256>,
+    /// Shared delivery window left after the reply or transport failure.
+    pub remaining: Duration,
+    pub target_block: u64,
+    pub target_timestamp: u64,
+    pub expected_parent_hash: Option<B256>,
+    pub transaction_count: usize,
+}
+
 struct DeliveryWindow {
     deadline: tokio::time::Instant,
-    observed: Box<dyn FnOnce(Duration, bool) + Send>,
+    observed: Box<dyn FnOnce(BundleDelivery) + Send>,
 }
 
 /// Wall-clock cap on the target-block + inclusion check.
@@ -766,7 +781,7 @@ impl Submitter {
         quote: crate::posting_fees::FeeQuote,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
         deadline: tokio::time::Instant,
-        observed: impl FnOnce(Duration, bool) + Send + 'static,
+        observed: impl FnOnce(BundleDelivery) + Send + 'static,
     ) -> L1Result<SendOutcome> {
         self.send_bundle_checked(
             raw_txs,
@@ -1191,13 +1206,24 @@ impl Inner {
                             .into(),
                     ))
                 });
-            (window.observed)(started.elapsed(), result.is_ok());
+            (window.observed)(BundleDelivery {
+                elapsed: started.elapsed(),
+                acknowledged: result.is_ok(),
+                relay_bundle_hash: result.as_ref().ok().copied().flatten(),
+                remaining: window
+                    .deadline
+                    .saturating_duration_since(tokio::time::Instant::now()),
+                target_block: target.block,
+                target_timestamp: target.timestamp,
+                expected_parent_hash: target.expected_parent_hash,
+                transaction_count: raw_txs.len(),
+            });
             result
         } else {
             request.await
         };
         let result = match acknowledgement {
-            Ok(()) => {
+            Ok(_) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
                 self.observe(post_batch_hash, target).await
@@ -1400,7 +1426,7 @@ impl Inner {
 }
 
 /// POST a multi-tx bundle to a Flashbots-style `eth_sendBundle` relay.
-/// Returns `Ok(())` if the relay returns a successful JSON-RPC reply
+/// Returns an optional, strictly decoded relay bundle hash on a successful reply
 /// (any non-error `result` — most relays use `{"result": {"bundleHash":
 /// "0x..."}}`, the chiado builder returns `{"result": null}`). Errors
 /// surface relay-side rejections as [`L1Error::Submission`].
@@ -1421,7 +1447,7 @@ async fn post_bundle(
     target_block: u64,
     pin_timestamp: u64,
     reverting_hashes: &[B256],
-) -> L1Result<()> {
+) -> L1Result<Option<B256>> {
     // Permit only the validated signed L1 users to revert; postBatch remains
     // required. Invalid-transaction omission depends on builder configuration,
     // and every user still requires canonical source reconciliation.
@@ -1454,7 +1480,14 @@ async fn post_bundle(
         }
         return Err(L1Error::Submission(format!("eth_sendBundle: {err}")));
     }
-    Ok(())
+    // Correlation metadata is optional: null and unfamiliar success payloads
+    // keep their existing acknowledgement semantics. Never retain arbitrary
+    // relay strings in structured delivery history.
+    Ok(resp
+        .get("result")
+        .and_then(|result| result.get("bundleHash"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|hash| hash.parse().ok()))
 }
 
 /// Revert permission is limited to signed L1 users actually following the
@@ -1961,9 +1994,7 @@ mod tests {
                     &[],
                     Some(super::DeliveryWindow {
                         deadline: tokio::time::Instant::now() + Duration::from_millis(300),
-                        observed: Box::new(move |elapsed, ack| {
-                            *saved.lock().unwrap() = Some((elapsed, ack))
-                        }),
+                        observed: Box::new(move |delivery| *saved.lock().unwrap() = Some(delivery)),
                     }),
                 )
                 .await
@@ -1977,10 +2008,67 @@ mod tests {
             Err(crate::L1Error::Submission(_))
         ));
         assert_eq!(
-            observed.lock().unwrap().as_ref().map(|(_, ack)| *ack),
+            observed
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|delivery| delivery.acknowledged),
             Some(false)
         );
+        let delivery = observed.lock().unwrap().unwrap();
+        assert!(delivery.relay_bundle_hash.is_none());
+        assert!(delivery.remaining.is_zero());
+        assert_eq!(
+            (
+                delivery.target_block,
+                delivery.target_timestamp,
+                delivery.transaction_count
+            ),
+            (42, PIN, 1)
+        );
         server.abort();
+    }
+
+    #[tokio::test]
+    async fn relay_correlation_is_optional_and_does_not_change_rejections() {
+        let hash = B256::repeat_byte(0xab);
+        for (response, expected, rejected) in [
+            (serde_json::json!({"result": null}), None, false),
+            (
+                serde_json::json!({"result": {"bundleHash": hash}}),
+                Some(hash),
+                false,
+            ),
+            (
+                serde_json::json!({"result": {"bundleHash": "unbounded relay text"}}),
+                None,
+                false,
+            ),
+            (
+                serde_json::json!({"result": {"bundleHash": hash}, "error": {"code": -32000, "message": "rejected"}}),
+                None,
+                true,
+            ),
+        ] {
+            let (url, server) = rpc_server(vec![response], false).await;
+            let result = super::post_bundle(
+                &reqwest::Client::new(),
+                url.as_str(),
+                &["0x01"],
+                42,
+                PIN,
+                &[],
+            )
+            .await;
+            if rejected {
+                assert!(matches!(result, Err(L1Error::Submission(_))));
+            } else {
+                assert_eq!(result.unwrap(), expected);
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["params"][0]["minTimestamp"], PIN);
+            assert_eq!(requests[0]["params"][0]["maxTimestamp"], PIN);
+        }
     }
 
     #[tokio::test]

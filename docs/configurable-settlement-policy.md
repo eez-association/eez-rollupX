@@ -162,7 +162,7 @@ no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
 
-Estimator `companion-reserve-7` retains the `companion-storage-6` posting model
+Estimator `companion-input-8` retains the `companion-storage-6` posting model
 (storage inventory introduced in `companion-storage-4`), which inventories
 bounded retained callback and result storage.
 For supported deferred entries it reserves 35,000 per entry, 8,000 per
@@ -547,3 +547,23 @@ reconciliation remain authoritative.
 
 Packing format is unchanged. Multi-blob batches are preferred; splitting uses
 valid historical boundaries only when actual blob or gas capacity requires it.
+
+### Nested-input companion refinement
+
+Estimator `companion-input-8` keeps version 7's queue, callback, row and rollback
+reserves. After validating the bounded action forest, each nested input pays
+2,300 gas per rounded 32-byte word, with a minimum of four words and maximum of
+eight. The minimum covers measured repeated expected-table copying; empty input
+does not make that work free. Previously every nested input paid eight words.
+Unsupported shapes and inconsistent action evidence retain the signed gas limit.
+The discount is an admission prediction; ordered native execution still checks
+the complete signed bundle against the same target. Posting gas is unchanged.
+
+Delivery events now add optional relay bundle hash, exact target/parent,
+transaction count and remaining shared deadline after acknowledgement. A relay
+hash is accepted only as a 32-byte correlation identifier; absent or malformed
+identifiers stay null without changing acknowledgement semantics. Neither a
+hash nor an acknowledgement proves inclusion. Historical readers use null for
+missing fields. No RPC, storage or protocol migration is needed; upgrade the
+Composer and dashboard independently. Rolling back removes the discount and new
+observations without changing historical decoding or follower replay.

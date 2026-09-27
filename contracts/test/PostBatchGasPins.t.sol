@@ -30,14 +30,16 @@ contract EmptyTarget {
 contract NestedPinTarget {
     address private immutable proxy;
     uint256 private immutable rows;
+    uint256 private immutable inputBytes;
 
-    constructor(address proxy_, uint256 rows_) {
+    constructor(address proxy_, uint256 rows_, uint256 inputBytes_) {
         proxy = proxy_;
         rows = rows_;
+        inputBytes = inputBytes_;
     }
 
     fallback() external {
-        bytes memory input = new bytes(256);
+        bytes memory input = new bytes(inputBytes);
         for (uint256 i = 0; i < rows; i++) {
             (bool ok, bytes memory result) = proxy.call(input);
             require(ok && result.length == 64, "nested resolution failed");
@@ -676,7 +678,7 @@ contract PostBatchGasPinsTest is Test {
         (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
         address remote = address(0x9000);
         address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
-        NestedPinTarget target = new NestedPinTarget(proxy, rows);
+        NestedPinTarget target = new NestedPinTarget(proxy, rows, 256);
         BoundedReturnTarget callback = new BoundedReturnTarget(64);
         touched.push(proxy);
         touched.push(address(target));
@@ -684,7 +686,9 @@ contract PostBatchGasPinsTest is Test {
         ProofSystemBatchPerVerificationEntries memory batch =
             _batch(eez, proofSystem, address(target), Rung(entries, 1, true, false, 64));
         for (uint256 i = 1; i < batch.entries.length; i++) {
-            _nestedEntry(eez, batch.entries[i], NestedShape(address(target), address(callback), rows, callbacks), i);
+            _nestedEntry(
+                eez, batch.entries[i], NestedShape(address(target), address(callback), rows, callbacks, 256), i
+            );
         }
         return _measure(eez, batch, batch.entries[entries].rollupUpdates[0].newRoot);
     }
@@ -694,6 +698,7 @@ contract PostBatchGasPinsTest is Test {
         address callback;
         uint256 rows;
         uint256 callbacks;
+        uint256 inputBytes;
     }
 
     function _nestedEntry(EEZ eez, ExecutionEntry memory entry, NestedShape memory shape, uint256 index) private {
@@ -708,7 +713,14 @@ contract PostBatchGasPinsTest is Test {
         entry.expectedL1ToL2Calls = new ExpectedL1ToL2Call[](shape.rows);
         for (uint256 j = 0; j < shape.rows; j++) {
             bytes32 nestedHash = eez.computeCrossChainCallHash(
-                false, shape.target, eez.MAINNET_ROLLUP_ID(), address(0x9000), ROLLUP_ID, 0, 0, new bytes(256)
+                false,
+                shape.target,
+                eez.MAINNET_ROLLUP_ID(),
+                address(0x9000),
+                ROLLUP_ID,
+                0,
+                0,
+                new bytes(shape.inputBytes)
             );
             L2ToL1Call[] memory calls = new L2ToL1Call[](j < shape.callbacks ? 1 : 0);
             if (calls.length != 0) {
@@ -1081,6 +1093,66 @@ contract PostBatchGasPinsTest is Test {
         _companionNestedRung(127, 4, 3, true, true);
     }
 
+    function testCompanionNestedInput0() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 0);
+        _companionNestedInputRung(10, 4, 3, false, false, 0);
+        _companionNestedInputRung(127, 4, 3, true, true, 0);
+    }
+
+    function testCompanionNestedInput1() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 1);
+        _companionNestedInputRung(10, 4, 3, false, false, 1);
+        _companionNestedInputRung(127, 4, 3, true, true, 1);
+    }
+
+    function testCompanionNestedInput31() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 31);
+        _companionNestedInputRung(10, 4, 3, false, false, 31);
+        _companionNestedInputRung(127, 4, 3, true, true, 31);
+    }
+
+    function testCompanionNestedInput32() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 32);
+        _companionNestedInputRung(10, 4, 3, false, false, 32);
+        _companionNestedInputRung(127, 4, 3, true, true, 32);
+    }
+
+    function testCompanionNestedInput33() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 33);
+        _companionNestedInputRung(10, 4, 3, false, false, 33);
+        _companionNestedInputRung(127, 4, 3, true, true, 33);
+    }
+
+    function testCompanionNestedInput64() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 64);
+        _companionNestedInputRung(10, 4, 3, false, false, 64);
+        _companionNestedInputRung(127, 4, 3, true, true, 64);
+    }
+
+    function testCompanionNestedInput100() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 100);
+        _companionNestedInputRung(10, 4, 3, false, false, 100);
+        _companionNestedInputRung(127, 4, 3, true, true, 100);
+    }
+
+    function testCompanionNestedInput128() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 128);
+        _companionNestedInputRung(10, 4, 3, false, false, 128);
+        _companionNestedInputRung(127, 4, 3, true, true, 128);
+    }
+
+    function testCompanionNestedInput129() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 129);
+        _companionNestedInputRung(10, 4, 3, false, false, 129);
+        _companionNestedInputRung(127, 4, 3, true, true, 129);
+    }
+
+    function testCompanionNestedInput256() public {
+        _companionNestedInputRung(1, 1, 0, false, false, 256);
+        _companionNestedInputRung(10, 4, 3, false, false, 256);
+        _companionNestedInputRung(127, 4, 3, true, true, 256);
+    }
+
     function _companionNestedRung(
         uint256 count,
         uint256 rows,
@@ -1090,11 +1162,24 @@ contract PostBatchGasPinsTest is Test {
     )
         private
     {
+        _companionNestedInputRung(count, rows, callbacks, revertedSpan, repeatedHash, 256);
+    }
+
+    function _companionNestedInputRung(
+        uint256 count,
+        uint256 rows,
+        uint256 callbacks,
+        bool revertedSpan,
+        bool repeatedHash,
+        uint256 inputBytes
+    )
+        private
+    {
         delete touched;
         (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
         address remote = address(0x9000);
         address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
-        NestedPinTarget target = new NestedPinTarget(proxy, rows);
+        NestedPinTarget target = new NestedPinTarget(proxy, rows, inputBytes);
         BoundedReturnTarget callback = new BoundedReturnTarget(64);
         touched.push(proxy);
         touched.push(address(target));
@@ -1117,7 +1202,7 @@ contract PostBatchGasPinsTest is Test {
                 abi.encode(repeatedHash ? count : i)
             );
             entry.returnData = _nonzeroBytes(256);
-            _nestedEntry(eez, entry, NestedShape(address(target), address(callback), rows, callbacks), i);
+            _nestedEntry(eez, entry, NestedShape(address(target), address(callback), rows, callbacks, inputBytes), i);
             entry.l2ToL1Calls[0].revertNextNCalls = revertedSpan ? 1 : 0;
             if (revertedSpan) {
                 for (uint256 j = 0; j < entry.expectedL1ToL2Calls.length; j++) {
@@ -1134,10 +1219,13 @@ contract PostBatchGasPinsTest is Test {
         uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(256));
         // Includes this fixture's application work, so the production estimate's
         // separately added callback simulation only increases the allowance.
+        uint256 inputWords = (inputBytes + 31) / 32;
+        if (inputWords < 4) inputWords = 4;
         uint256 reserve = COMPANION_ROOT_GAS + COMPANION_CALLBACK_GAS * (1 + callbacks) + COMPANION_ROW_GAS * rows
-            + COMPANION_WORD_GAS * (8 + 8 * (1 + callbacks) + 10 * rows)
+            + COMPANION_WORD_GAS * (8 + 8 * (1 + callbacks) + (inputWords + 2) * rows)
             + (repeatedHash ? COMPANION_MATCHING_SCAN_GAS : COMPANION_SCAN_GAS) * (count - 1)
             + (revertedSpan ? COMPANION_REVERT_SPAN_GAS * (1 + callbacks) : 0);
+        console.log("nested companion input bytes", inputBytes);
         console.log("nested companion rows / callbacks", rows, callbacks);
         console.log("  execution gas / reserve", used, reserve);
         assertLe(used, reserve, "bounded nested companion protocol reserve");

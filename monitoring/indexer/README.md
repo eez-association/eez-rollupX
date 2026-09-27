@@ -770,3 +770,19 @@ Malformed/conflicting records stop checkpoint advancement and surface collector
 errors. The [initial validation audit](../../docs/audits/2026-09-26-admission-throughput/README.md)
 and [selection/shape follow-up](../../docs/audits/2026-09-26-admission-shapes/README.md)
 record SQL/replay checks and live coverage.
+
+Estimator `companion-input-8` replaces the maximum input-word allowance for
+validated nested companion calls with their measured lengths, retaining a
+four-word minimum for repeated table copying. Protocol reserve and total
+companion estimate remain available in the source drill-down.
+
+The preparation/proof/delivery table also exposes relay bundle hash (when
+returned as a valid 32-byte hash), target block/timestamp, expected parent,
+transaction count and `ack_remaining_ms`. The latter measures the shared
+delivery window remaining at acknowledgement, whereas dispatch remaining time
+is recorded before the HTTP request. These additive JSON details require no
+database migration; legacy rows remain null. A null relay identifier may also
+mean a successful relay returned no identifier. Correlate by postBatch hash
+and exact target in that case. These fields do not establish builder rejection
+causes or canonical settlement. Dashboard provisioning can be updated before
+or after the Composer; old collectors retain the existing delivery event.

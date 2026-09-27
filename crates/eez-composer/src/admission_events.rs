@@ -52,7 +52,7 @@ impl Candidate {
             context: json!({"version":1,"candidate_id":id,"chain_id":chain_id,
                 "registry":registry,"rollup_id":rollup_id,"l2_parent":parent,
                 "target_block":block,"target_timestamp":timestamp,"rebuild_of":rebuild_of,
-                "policy_version":"confirmed-failure-backoff-4","estimator_version":"companion-reserve-7"}),
+                "policy_version":"confirmed-failure-backoff-4","estimator_version":"companion-input-8"}),
             id,
             sequence: AtomicU64::new(0),
             started: Instant::now(),

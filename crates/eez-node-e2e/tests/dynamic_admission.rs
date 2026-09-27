@@ -660,7 +660,7 @@ async fn single_sync_wave(
             .collect();
         assert_eq!(companion_estimates.len(), inbound_count as usize);
         for estimate in &companion_estimates {
-            assert_eq!(estimate["estimator_version"], "companion-reserve-7");
+            assert_eq!(estimate["estimator_version"], "companion-input-8");
             let detail = &estimate["detail"];
             assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
             assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
@@ -698,11 +698,30 @@ async fn single_sync_wave(
                 "retained storage pricing must reach native settlement"
             );
             for estimate in estimates {
-                assert_eq!(estimate["estimator_version"], "companion-reserve-7");
+                assert_eq!(estimate["estimator_version"], "companion-input-8");
                 assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
                 assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
             }
         }
+        let deliveries: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.name == "eez.composer.admission.v1")
+            .map(|event| {
+                serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+            })
+            .filter(|event: &serde_json::Value| event["kind"] == "delivery")
+            .collect();
+        assert_eq!(deliveries.len(), 1);
+        let delivery = &deliveries[0]["detail"];
+        assert_eq!(delivery["acknowledged"], true);
+        assert_eq!(
+            delivery["transaction_count"].as_u64(),
+            Some(inbound_count + 1)
+        );
+        assert!(delivery["ack_remaining_ms"].as_f64().unwrap() >= 0.0);
+        assert!(delivery["target_block"].as_u64().unwrap() > 0);
+        assert!(delivery["target_timestamp"].as_u64().unwrap() > 0);
+        assert!(delivery["expected_parent_hash"].as_str().is_some());
         let dispatched: Vec<_> = events
             .iter()
             .filter(|e| e.name == "eez.composer.bundle.dispatched")

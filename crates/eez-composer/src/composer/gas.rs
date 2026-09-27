@@ -236,9 +236,12 @@ impl Projection {
         let Some(reserve) = self.companion_reserve(entries) else {
             return Ok(CompanionEstimate::declared(declared));
         };
-        if !self.companion_actions(entries, actions) {
+        let Some(input_discount) = self.companion_action_discount(entries, actions) else {
             return Ok(CompanionEstimate::declared(declared));
-        }
+        };
+        // The shape reserve includes eight input words per nested row; validated
+        // action evidence discounts only those words, never queue/rollback work.
+        let reserve = reserve - input_discount;
         for call in entries.iter().flat_map(|entry| {
             entry.l2ToL1Calls.iter().chain(
                 entry
@@ -272,10 +275,12 @@ impl Projection {
         ))
     }
 
-    fn companion_actions(&self, entries: &[ExecutionEntrySol], actions: &[ExecutedAction]) -> bool {
-        if self.companion_reserve(entries).is_none() {
-            return false;
-        }
+    fn companion_action_discount(
+        &self,
+        entries: &[ExecutionEntrySol],
+        actions: &[ExecutedAction],
+    ) -> Option<u64> {
+        self.companion_reserve(entries)?;
         let expected = entries
             .iter()
             .map(|entry| {
@@ -288,7 +293,7 @@ impl Projection {
             })
             .sum::<usize>();
         if actions.len() != expected {
-            return false;
+            return None;
         }
         let roots: Vec<_> = actions
             .iter()
@@ -296,8 +301,9 @@ impl Projection {
             .filter_map(|(index, action)| action.parent_index.is_none().then_some(index))
             .collect();
         if roots.len() != entries.len() || roots.first() != Some(&0) {
-            return false;
+            return None;
         }
+        let mut discount = 0;
         for (entry_index, entry) in entries.iter().enumerate() {
             let start = roots[entry_index];
             let end = roots.get(entry_index + 1).copied().unwrap_or(actions.len());
@@ -305,7 +311,7 @@ impl Projection {
             if !matches!(&root.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
                 if *success == entry.success && return_data.as_slice() == entry.returnData.as_ref())
             {
-                return false;
+                return None;
             }
             let mut calls: Vec<_> = entry
                 .l2ToL1Calls
@@ -321,12 +327,10 @@ impl Projection {
             let mut ancestors = Vec::new();
             for (index, action) in actions.iter().enumerate().take(end).skip(start) {
                 if let Some(parent) = action.parent_index {
-                    let Some(position) = ancestors.iter().position(|p| *p == parent) else {
-                        return false;
-                    };
+                    let position = ancestors.iter().position(|p| *p == parent)?;
                     ancestors.truncate(position + 1);
                 } else if index != start {
-                    return false;
+                    return None;
                 }
                 let depth = ancestors.len();
                 if depth > 3
@@ -334,54 +338,55 @@ impl Projection {
                     || !action.value.is_zero()
                     || action.data.len() > 256
                 {
-                    return false;
+                    return None;
                 }
                 let outbound = depth % 2 == 1;
                 if outbound {
                     if action.source_rollup_id.0 != self.rollup_id
                         || action.target_rollup_id != RollupId::MAINNET
                     {
-                        return false;
+                        return None;
                     }
-                    let Some(call_index) = calls.iter().position(|call| {
+                    let call_index = calls.iter().position(|call| {
                         action.source_address == call.sourceAddress
                             && action.target_address == call.targetAddress
                             && action.data == call.data
                             && action.revert_span.unwrap_or(0) == u32::from(call.revertNextNCalls)
-                    }) else {
-                        return false;
-                    };
+                    })?;
                     calls.swap_remove(call_index);
                     if !matches!(&action.outcome, ExecutionOutcome::Resolved { success: true, return_data, .. }
                         if return_data.len() <= 64)
                     {
-                        return false;
+                        return None;
                     }
                 } else {
                     if action.source_rollup_id != RollupId::MAINNET
                         || action.target_rollup_id.0 != self.rollup_id
                         || action.revert_span.is_some()
                     {
-                        return false;
+                        return None;
                     }
                     if depth == 2 {
-                        let Some(row) = rows.next() else {
-                            return false;
-                        };
+                        // Nested resolution copies the expected-call table on
+                        // each reentry. Measured bounded shapes require at least
+                        // four words of allowance even for empty call input.
+                        let words = action.data.len().div_ceil(32).max(4);
+                        discount += COMPANION_WORD_GAS * (8 - words) as u64;
+                        let row = rows.next()?;
                         if !matches!(&action.outcome, ExecutionOutcome::Resolved { success, return_data, .. }
                             if *success == row.success && return_data.as_slice() == row.returnData.as_ref())
                         {
-                            return false;
+                            return None;
                         }
                     }
                 }
                 ancestors.push(index);
             }
             if !calls.is_empty() || rows.next().is_some() {
-                return false;
+                return None;
             }
         }
-        true
+        Some(discount)
     }
 
     fn companion_reserve(&self, entries: &[ExecutionEntrySol]) -> Option<u64> {
@@ -1569,7 +1574,10 @@ mod tests {
             gas_used: 1,
         };
         let actions = [root, callback];
-        assert!(p.companion_actions(std::slice::from_ref(&entry), &actions));
+        assert_eq!(
+            p.companion_action_discount(std::slice::from_ref(&entry), &actions),
+            Some(0)
+        );
         for change in 0..4 {
             let mut invalid = actions.clone();
             match change {
@@ -1584,9 +1592,15 @@ mod tests {
                 2 => invalid[1].parent_index = Some(1),
                 _ => invalid[0].call_mode = CallMode::Static,
             }
-            assert!(!p.companion_actions(std::slice::from_ref(&entry), &invalid));
+            assert!(
+                p.companion_action_discount(std::slice::from_ref(&entry), &invalid)
+                    .is_none()
+            );
         }
-        assert!(!p.companion_actions(std::slice::from_ref(&entry), &actions[..1]));
+        assert!(
+            p.companion_action_discount(std::slice::from_ref(&entry), &actions[..1])
+                .is_none()
+        );
     }
 
     #[test]
@@ -1621,6 +1635,7 @@ mod tests {
         };
         let mut nested = root.clone();
         nested.parent_index = Some(1);
+        nested.data = Bytes::new();
         nested.outcome = ExecutionOutcome::Resolved {
             success: true,
             return_data: vec![0xff; 64],
@@ -1640,8 +1655,19 @@ mod tests {
         });
         let actions = vec![root, callback, nested, leaf];
         let one = std::slice::from_ref(&entry);
-        assert!(p.companion_actions(one, &actions));
+        assert_eq!(p.companion_action_discount(one, &actions), Some(9_200));
         let reserve = p.companion_reserve(one).unwrap();
+        for bytes in [0usize, 1, 31, 32, 33, 64, 100, 128, 129, 256] {
+            let mut varied = actions.clone();
+            varied[2].data = vec![0; bytes].into();
+            assert_eq!(
+                p.companion_action_discount(one, &varied),
+                Some(2_300 * (8 - bytes.div_ceil(32).max(4)) as u64)
+            );
+        }
+        let mut oversized = actions.clone();
+        oversized[2].data = vec![0; 257].into();
+        assert!(p.companion_action_discount(one, &oversized).is_none());
         for roots in 1..=4 {
             let entries = vec![entry.clone(); roots];
             let forest: Vec<_> = (0..roots)
@@ -1652,7 +1678,10 @@ mod tests {
                     })
                 })
                 .collect();
-            assert!(p.companion_actions(&entries, &forest));
+            assert_eq!(
+                p.companion_action_discount(&entries, &forest),
+                Some(9_200 * roots as u64)
+            );
             assert_eq!(
                 p.companion_reserve(&entries),
                 Some(reserve * roots as u64 + 12_500 * (roots * (roots - 1) / 2) as u64)
@@ -1668,7 +1697,10 @@ mod tests {
                 4 => invalid[3].data = vec![1; 257].into(),
                 _ => invalid[3].call_mode = CallMode::Static,
             }
-            assert!(!p.companion_actions(one, &invalid), "change {change}");
+            assert!(
+                p.companion_action_discount(one, &invalid).is_none(),
+                "change {change}"
+            );
         }
         p.accept_deferred(&vec![entry.clone(); 127]);
         assert!(p.companion_reserve(one).is_some());

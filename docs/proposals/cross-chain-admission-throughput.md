@@ -690,3 +690,31 @@ when the regular estimate rejects it, retaining finishing/finalization reserves,
 a 25 ms minimum proof opportunity, all resource gates and the original deadline.
 The candidate summary identifies this fallback. It does not impose a one-group
 limit on cold batches that fit the ordinary estimate.
+
+### September 27 measured nested inputs and relay diagnostics (accepted for implementation)
+
+The user authorized the next gas refinement and omission investigation after
+the 24-source-post verified wave. Its companion reserve averaged 2.41–2.56 times
+execution for the two multi-call families. This round will price bounded nested
+input lengths from validated simulation evidence, retaining a measured minimum
+allowance for repeated nested-table copying. Whole-prefix scan and rollback
+allowances, signed limits, parent registration and ordered native validation
+remain required. Unknown or mismatched evidence retains the declared limit.
+
+Relay delivery observations will retain a bounded bundle identifier when the
+relay provides one, target/parent, transaction count and acknowledgement slack.
+A successful relay reply does not establish builder inclusion or source
+consumption. Missing identifiers remain explicitly unavailable; no external
+cause will be inferred from an acknowledgement. These additive diagnostics must
+not change ownership, retry classification, target pins or deadlines. Existing
+history readers must accept old events without the new optional fields.
+
+Acceptance: compare measured input/row/callback/revert/queue boundaries with
+the prior formula on the pinned contracts; reject unsupported evidence; test
+relay null/hash/error/deadline paths. Run focused local checks before a local
+Chiado image rollout, then compare the same verified workload and complete
+applicable broader checks. Record actual deployed identity, per-source estimate
+error, gas cutoffs and acknowledged omissions. No wire/storage migration or
+protocol change is intended; old binaries can ignore additive observations.
+
+Evidence: [nested-input and delivery follow-up](../audits/2026-09-27-admission-nested-delivery/README.md).
