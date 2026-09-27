@@ -31,7 +31,7 @@ use eez_testkit::{
     wait_for_safe_prefix_convergence,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn inputs(parent: &Header, block: &Block<TxEnvelope>) -> Environment {
     Environment {
@@ -137,7 +137,7 @@ async fn native_replay(profile: NativeL1Profile, history_ceiling: Option<u64>) {
         &world.node,
         history_ceiling.unwrap_or(12),
         if requested_history.is_some() {
-            Duration::from_secs(2400)
+            Duration::from_mins(40)
         } else {
             TIMEOUT
         },
@@ -537,7 +537,7 @@ async fn prove_cold_window(
     let mut final_times = Vec::with_capacity(final_repetitions);
     let mut first_response: Option<eez_control_rpc::v1::ProveResponse> = None;
     let mut outcome = None;
-    let catch_up_deadline = Instant::now() + Duration::from_secs(120);
+    let catch_up_deadline = Instant::now() + Duration::from_mins(2);
     let mut cache_misses = 0usize;
     for _ in 0..final_repetitions {
         let started = Instant::now();

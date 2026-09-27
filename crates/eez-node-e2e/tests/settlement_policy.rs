@@ -12,7 +12,7 @@ use eez_testkit::{
     wait_for_safe_prefix_convergence,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
     use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
@@ -805,15 +805,6 @@ async fn ordinary_data_admission_tracks_operator_capacity_without_losing_valid_w
         receipts.last().unwrap().1.block_number.unwrap(),
         TIMEOUT,
     )
-    .await
-    .unwrap();
-    // This native fixture restarts its L1 too. Retain the settlement past the
-    // engine's persistence boundary before changing an operational cap.
-    let post = latest_post(&world).await;
-    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    wait_for(TIMEOUT, || async {
-        Ok((l1.get_block_number().await? > post.block_number.unwrap() + 2).then_some(()))
-    })
     .await
     .unwrap();
     // Increasing an operator cap within the network allowance lets fresh data
@@ -1750,9 +1741,8 @@ async fn retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_repl
         .unwrap()
         .block_number
         .unwrap();
-    // Age accepted history into reth's existing persistent block store before
-    // the fixture stops the process; volatile unflushed engine blocks are not
-    // a policy journal or a durable backlog.
+    // Include an empty tail in the retained backlog. The graceful policy
+    // restart below flushes it; elapsed blocks alone do not prove persistence.
     wait_for_latest_height(&world.node, covered + 12, TIMEOUT)
         .await
         .unwrap();
@@ -2063,20 +2053,12 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             first.header.number < covered,
             "fixture must restart during the drain"
         );
-        // L1 shares this process. Hold the following bundle while the first
-        // canonical receipt crosses Reth's existing two-block persistence
-        // boundary; otherwise killing the fixture also reorgs its L1.
+        // Hold the following bundle so the graceful policy restart occurs
+        // during the drain, before a second canonical settlement.
         world.hold_next_bundle().unwrap();
-        let first_post = latest_post(&world).await;
         wait_for(TIMEOUT, || async { world.held_bundle() })
             .await
             .unwrap();
-        let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-        wait_for(TIMEOUT, || async {
-            Ok((l1.get_block_number().await? > first_post.block_number.unwrap() + 2).then_some(()))
-        })
-        .await
-        .unwrap();
         planning_signals = world.node.signals_since(0).unwrap();
         world
             .restart_composer_with_env(&[
@@ -2255,9 +2237,8 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         .unwrap()
         .block_number
         .unwrap();
-    // Age accepted history into reth's existing persistent block store before
-    // the fixture stops the process; volatile unflushed engine blocks are not
-    // a policy journal or a durable backlog.
+    // Include an empty tail in the retained backlog. The graceful policy
+    // restart below flushes it; elapsed blocks alone do not prove persistence.
     wait_for_latest_height(&world.node, covered + 12, TIMEOUT)
         .await
         .unwrap();

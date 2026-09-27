@@ -272,7 +272,38 @@ elif args[0] != "logout":
         self.assertIn("steps.local-runtime.outcome == 'success'", by_id["local-kurtosis"]["if"])
         self.assertIn("prepare-runtime-artifacts.sh", by_id["local-runtime"]["run"])
         self.assertEqual(by_id["local-runtime"]["env"]["EEZ_EXPECT_PUBLISHED"], "false")
-        self.assertTrue(all(not s.get("continue-on-error", False) for s in steps if "run" in s))
+        self.assertTrue(all(not s.get("continue-on-error", False) for s in steps
+                            if "run" in s and s.get("id") != "cargo-export"))
+
+    def test_docker_cargo_state_is_optional_and_saves_only_after_units_on_main(self):
+        workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
+        job = workflow["jobs"]["build"]
+        steps = job["steps"]
+        by_id = {s["id"]: s for s in steps if "id" in s}
+        enable = job["env"]["EEZ_CARGO_STATE_CACHE"]
+        self.assertIn("inputs.cargo-state-cache", enable)
+        self.assertIn("inputs.runner == 'homelab-rust'", enable)
+        self.assertIn("vars.CI_CARGO_STATE_CACHE == 'true'", enable)
+        restore, export = by_id["cargo-restore"], by_id["cargo-export"]
+        save = next(s for s in steps if s.get("uses", "").startswith("actions/cache/save@"))
+        for step in (restore, export, save):
+            self.assertTrue(step["continue-on-error"])
+            self.assertEqual(step["timeout-minutes"], 10)
+        self.assertEqual(restore["with"]["path"], ".ci-cargo-state/transport")
+        self.assertEqual(save["with"]["path"], restore["with"]["path"])
+        self.assertIn("github.event_name == 'push'", export["if"])
+        self.assertIn("github.event.repository.default_branch", export["if"])
+        self.assertIn("steps.cargo-restore.outputs.cache-hit != 'true'", export["if"])
+        self.assertIn("steps.cargo-export.outcome == 'success'", save["if"])
+        self.assertIn("steps.cargo-export.outputs.upload == 'true'", save["if"])
+        unit = next(s for s in steps if '--suite unit' in s.get("run", ""))
+        build = next(s for s in steps if s.get("run") == 'bash scripts/ci/build-runtime-artifacts.sh')
+        self.assertLess(steps.index(restore), steps.index(build))
+        self.assertLess(steps.index(build), steps.index(unit))
+        self.assertLess(steps.index(unit), steps.index(export))
+        self.assertLess(steps.index(export), steps.index(save))
+        self.assertNotIn("continue-on-error", unit)
+        self.assertNotIn("continue-on-error", build)
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ use eez_testkit::{
     wait_for_safe_prefix_convergence,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn env() -> Vec<(&'static str, String)> {
     [
@@ -455,6 +455,11 @@ async fn expensive_inbound_source(world: &CrossChainWorld, value: u64) -> Addres
 }
 
 async fn assert_companion_gas_first(profile: NativeL1Profile) {
+    use alloy_consensus::{SignableTransaction as _, TxEip1559, TxEnvelope};
+    use alloy_eips::Encodable2718 as _;
+    use alloy_network::TxSignerSync as _;
+    use alloy_signer_local::PrivateKeySigner;
+
     let world = setup_cross_chain_with_profile(profile, &env())
         .await
         .unwrap();
@@ -474,22 +479,33 @@ async fn assert_companion_gas_first(profile: NativeL1Profile) {
     let chain_id = l1.get_chain_id().await.unwrap();
     quiet_sync(&world).await;
     let cursor = world.node.signal_cursor().unwrap();
+    let front = ProviderBuilder::new().connect_http(world.l1_xchain().parse().unwrap());
     let mut users = Vec::new();
     for (key, target) in [(ANVIL_KEY_2, first), (ANVIL_KEY_4, second)] {
-        users.push(
-            sign_and_send(
-                &world.l1_xchain(),
-                key,
-                chain_id,
-                onchain_nonce(&world.l1_rpc(), key).await.unwrap(),
-                Some(target),
-                U256::ZERO,
-                vec![0x12, 0x34, 0x56, 0x78],
-                16_600_000,
-            )
+        let signer: PrivateKeySigner = key.parse().unwrap();
+        let mut tx = TxEip1559 {
+            chain_id,
+            nonce: onchain_nonce(&world.l1_rpc(), key).await.unwrap(),
+            gas_limit: 16_600_000,
+            // The generic helper's 100 gwei ceiling makes this transaction's
+            // maximum fee 1.66 ETH, above the native L1 pool's 1 ETH cap.
+            // Keep the same gas workload and ordering priority, with a ceiling
+            // below that cap (0.83 ETH) and above the fixture's base fee.
+            max_fee_per_gas: 50_000_000_000,
+            max_priority_fee_per_gas: 1_000_000_000,
+            to: target.into(),
+            input: vec![0x12, 0x34, 0x56, 0x78].into(),
+            ..Default::default()
+        };
+        let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+        let signed = TxEnvelope::from(tx.into_signed(signature));
+        let hash = *front
+            .send_raw_transaction(&signed.encoded_2718())
             .await
-            .unwrap(),
-        );
+            .unwrap()
+            .tx_hash();
+        assert_eq!(hash, *signed.tx_hash());
+        users.push(hash);
     }
     let mut total_source_gas = 0;
     let mut largest_block = 0;

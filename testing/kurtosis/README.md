@@ -262,6 +262,10 @@ Show the service state and published ports:
 kurtosis enclave inspect "$KURTOSIS_ENCLAVE"
 ```
 
+After `kurtosis service stop` / `start`, source `testing/kurtosis/ports.sh`
+again before using the exported RPC URLs: Docker can reassign published host
+ports when the same container starts again.
+
 Follow the main service logs:
 
 ```bash

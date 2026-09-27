@@ -11,7 +11,7 @@ use eez_testkit::{
 };
 use std::time::Duration;
 
-const TIMEOUT: Duration = Duration::from_secs(240);
+const TIMEOUT: Duration = Duration::from_mins(4);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn existing_proxy_multicall_estimate_reaches_final_post_and_replays() {

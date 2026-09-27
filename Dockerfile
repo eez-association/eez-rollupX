@@ -4,13 +4,13 @@
 # dependency-layer caching — reth is a large, rarely-changing tree, so
 # the cooked-deps layer is reused across code changes.
 #
-# The build is self-contained in `crates/` + `Cargo.{toml,lock}`; the
+# The build is self-contained in `crates/`, `vendor/`, and `Cargo.{toml,lock}`; the
 # Solidity protocol submodule and `contracts/` are NOT needed (ABI is
 # inline `sol!`). Contract deploys are a separate `forge` step (see
 # scripts/deploy.sh + README).
 
 # ── chef base: toolchain + system deps reth/mdbx/secp256k1 need ───────
-FROM rust:1.94-bookworm AS chef
+FROM rust:1.95-bookworm AS chef
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold \
     && rm -rf /var/lib/apt/lists/* \
@@ -20,6 +20,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # SAME flags — RUSTFLAGS is part of cargo's fingerprint, and a mismatch
 # between the two RUNs would rebuild deps in the hot source layer.
 # Docker-only on purpose: host builds keep the default linker.
+ENV RUST_MIN_STACK=16777216
 ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
 WORKDIR /build
 
@@ -27,6 +28,7 @@ WORKDIR /build
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 RUN cargo chef prepare --recipe-path recipe.json
 
 # ── builder: cook deps (cached), then build eez-node ─────────────────
@@ -44,20 +46,24 @@ FROM chef AS builder
 # fast-to-build default; BUILD_PROFILE=maxperf for production binaries.
 ARG BUILD_PROFILE=release
 COPY --from=planner /build/recipe.json recipe.json
+# Chef omits excluded workspaces from its skeleton; their path dependencies
+# must exist before cook resolves the workspace graph.
+COPY vendor ./vendor
 # Slow, cache-friendly layer: only re-runs when the dep graph changes.
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=eez-node-target,target=/build/target,sharing=locked \
-    cargo chef cook --profile "$BUILD_PROFILE" --recipe-path recipe.json \
+    cargo chef cook --locked --profile "$BUILD_PROFILE" --recipe-path recipe.json \
         --package eez-node --package eez-follower
 # Workspace sources; only this layer rebuilds on first-party code changes.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=eez-node-target,target=/build/target,sharing=locked \
-    cargo build --profile "$BUILD_PROFILE" -p eez-node --bin eez-composer --example genesis_state_root --example genesis_block_hash \
-    && cargo build --profile "$BUILD_PROFILE" -p eez-follower --bin eez-follower \
+    cargo build --locked --profile "$BUILD_PROFILE" -p eez-node --bin eez-composer --example genesis_state_root --example genesis_block_hash \
+    && cargo build --locked --profile "$BUILD_PROFILE" -p eez-follower --bin eez-follower \
     && cp "target/$BUILD_PROFILE/eez-composer" /build/eez-composer \
     && cp "target/$BUILD_PROFILE/eez-follower" /build/eez-follower \
     && cp "target/$BUILD_PROFILE/examples/genesis_state_root" /build/genesis_state_root \

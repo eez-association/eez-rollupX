@@ -635,8 +635,8 @@ async fn cold_span_feasibility() {
         max_window_blocks: nz(65_536),
         max_window_bytes: nz(512 * 1024 * 1024),
         max_window_witness_items: nz(1_000_000),
-        stream_idle_timeout: Duration::from_secs(120),
-        request_timeout: Duration::from_secs(600),
+        stream_idle_timeout: Duration::from_mins(2),
+        request_timeout: Duration::from_mins(10),
     })
     .unwrap();
     let state = state();

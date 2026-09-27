@@ -1,0 +1,607 @@
+use std::{sync::Arc, time::SystemTime};
+
+use core::fmt::Display;
+use tracing::debug;
+
+use crate::{
+    blobs::gnosis_blob_schedule, consts::parse_balancer_hardfork_config,
+    primitives::block::GnosisHeader,
+};
+use alloy_eips::eip7840::BlobParams;
+use alloy_genesis::Genesis;
+use derive_more::{Constructor, Deref, Into};
+use reth_chainspec::{
+    make_genesis_header, BaseFeeParams, BaseFeeParamsKind, ChainHardforks, ChainSpec,
+    DepositContract, EthChainSpec, EthereumHardfork, EthereumHardforks, ForkCondition, ForkFilter,
+    ForkFilterKey, ForkHash, ForkId, Hardfork, Hardforks, Head,
+};
+use reth_cli::chainspec::{parse_genesis, ChainSpecParser};
+use reth_ethereum_forks::hardfork;
+use reth_evm::eth::spec::EthExecutorSpec;
+use reth_network_peers::{parse_nodes, NodeRecord};
+use reth_primitives_traits::SealedHeader;
+use revm::primitives::{b256, Address, FixedBytes, B256, U256};
+use revm::state::Bytecode;
+
+#[derive(Debug, PartialEq, Eq)]
+enum Chain {
+    Gnosis,
+    Chiado,
+}
+
+impl Chain {
+    fn from_chain_id(chain_id: u64) -> Option<Self> {
+        match chain_id {
+            100 => Some(Chain::Gnosis),
+            10200 => Some(Chain::Chiado),
+            _ => None,
+        }
+    }
+}
+
+use super::chains::{CHIADO_GENESIS, GNOSIS_GENESIS};
+
+const GNOSIS_NODES: &[&str] = &[
+    "enode://6765fff89db92aa8d923e28c438af626c8ae95a43093cdccbd6f550a7b6ce6ab5d1a3dc60dd79af3e6d2c2e6731bae629f0e54446a0d9da408c4eca7ebcd8485@3.75.159.31:30303",
+    "enode://9a7c98e8ee8cdd3199db68092b48868847d4743a471b26afc2ff878bafaa829ed43ee405f9aff58ae13fce53b898f7c2e3c30cb80af8eb111682c3c13f686dbb@18.198.130.54:30303",
+    "enode://2c4307831914c237801993eac4f9596d8b2f78e1e76830419b64cb23f0933e52cb1e2bb3009cb4af76454bb5bc296135b36869fd6c13e2c2e536a0780e60fe82@3.64.242.196:30303",
+    "enode://074f68e1a7df5b0859314ff721d55b59d9690e93249c941660609a29b302f02864df4f93ee48884f7ede57dc7f7646379d017a43c9745e34baff049749896b50@3.126.169.151:30303",
+    "enode://d239697375d7586c7ea1de790401c310b0b1d389326849fa3b7c7005833c7a6b9020e49dfb3b61abfa39135237ffc4ff219cb84ca7653069e8548497527aa432@107.22.4.120:30303",
+    "enode://d5852bf415d89b756faa809f4ff3f8beb661dc7d60cfb4a5542f9a5fcdf41e1ed0708a210db64b8c7ca32426e04ef0a50da58974124fdf562a8510314d11e28c@3.26.206.142:30303",
+    "enode://01d372392bb22dd8a91f8b10b6bbb8d80d2dbe98d695801e0df9e4bd4825781df84bba88361f24d1b6580a61313f64e6cec82e8d842ad5f1b3d7cf8d6d132da7@15.152.45.82:30303",
+    "enode://aee88e803b8e54925081957965b2527961cd90f4d6d14664884580b429da44729678a1258a8b49a42d1582c9c7c5ded05733622f7ab442ad9c6f655545a5ecdd@54.207.220.169:30303",
+    "enode://fb14d72321ee823fcf21e163091849ee42e0f6ac0cddc737d79e324b0a734c4fc51823ef0a96b749c954483c25e8d2e534d1d5fc2619ea22d58671aff96f5188@65.109.103.148:30303",
+    "enode://40f40acd78004650cce57aa302de9acbf54becf91b609da93596a18979bb203ba79fcbee5c2e637407b91be23ce72f0cc13dfa38d13e657005ce842eafb6b172@65.109.103.149:30303",
+    "enode://9e50857aa48a7a31bc7b46957e8ced0ef69a7165d3199bea924cb6d02b81f1f35bd8e29d21a54f4a331316bf09bb92716772ea76d3ef75ce027699eccfa14fad@141.94.97.22:30303",
+    "enode://96dc133ce3aeb5d9430f1dce1d77a36418c8789b443ae0445f06f73c6b363f5b35c019086700a098c3e6e54974d64f37e97d72a5c711d1eae34dc06e3e00eed5@141.94.97.74:30303",
+    "enode://516cbfbe9bbf26b6395ed68b24e383401fc33e7fe96b9d235ebca86c9f812fde8d33a7dbebc0fb5595459d2c5cc6381595d96507af89e6b48b5bdd0ebf8af0c0@141.94.97.84:30303",
+    "enode://fc86a93545c56322dd861180b76632b9baeb65af8f304269b489b4623ae060847569c3c3c10c4b39baf221a2cdefea66efabce061a542cdcda374cbba45aa3d4@51.68.39.206:30303",
+    "enode://0e6dd3815a627893515465130c1e95aa73b18fe2f723b2467f3abf94df9be036f27595f301b5e78750ad128e59265f980c92033ae903330c0460c40ae088c04a@35.210.37.245:30303",
+    "enode://b72d6233d50bef7b31c09f3ea39459257520178f985a872bbaa4e371ed619455b7671053ffe985af1b5fb3270606e2a49e4e67084debd75e6c9b93e227c5b01c@35.210.156.59:30303",
+];
+
+const CHIADO_NODES: &[&str] = &[
+    // New ENODEs
+    "enode://d17214473afab4811e2efcb927f58440c74d22982dfbf4a1aff6c0ddaf700a701c4b967438be65fcb47f468896ae3b0274ec1608961d692740185ce8032692eb@51.75.246.2:0?discport=30303",
+    "enode://31081f090180118a0a220b89cb520060d35bdf1f0bf4bce36ba2d9363ecfd56bfe12537dae62f0a964167b61cd1624fd8b206df07e7ca93ce4db2a730125e319@57.129.70.222:0?discport=30303",
+    "enode://4e10cb0cacc3b0a54f36ed306e7e59741f552c48b38d1a2603f7f8c853537b916156d928a2c479fe06cf48ffeec34c075871688babe136b969395fe08f1132ac@57.128.252.123:0?discport=30303",
+    "enode://26c8f288ca7579cac9f1cef98c1357f82b2a9305381587884b9a0d17fd42c2e2b7832867ca3f57fcb91f21ca3498ba36bb6beb1d9f732a673b8ea4794f9d31d6@54.39.148.98:0?discport=30303",
+    // Existing ENODEs
+    "enode://3c9849b809dc34c914fcdf507ff59931942bdf5cd11510782a7d5695eacd622a281ae0b46aa53b8b893e1308f94867001d0fb0b52c854f96e7ecf43490f5b7bb@139.144.26.89:30303",
+    "enode://1556022f95f2910ed795b80df68466284b5a7de112cb00d5f4843b486392e7e790c9d27cf358bf1e3ceff3089df36dcadae593eda9730565a7221e40a96b8cd4@139.144.26.115:30303",
+    "enode://b39e929805542fb141ca6946931d06fdbbbd9ea8202eb1e72d7e7484877658b5baf0d8b0a6eb86a7f34b6f5c4b15b080c807c851692baef96c6a5aeca2cbf29a@139.144.26.101:30303",
+    "enode://5f7074a38a84e7ed7cbb207b9b1a54b4c537c5d06ebc955c892528f95927eb63a3373e344302cb1bcc2242451899c276a21e360a4347674cb97e0b9c251c2704@139.144.26.85:30303",
+    "enode://9ff64d021a83c72d68e7a3cefac5ea0661071cfdeed065782418ff2b0fccaace1072644118ed9fe6a304f451a2e75e2d4c69b502b3486ce16b4c50afc347cbff@170.187.154.239:30303",
+    "enode://4504f03b4773251188e80d2c36186de4c2dd0e1e83aadaa1164cdae2ebc510d47a3dba6c80972ea18a71177ab3aa9883e081f5a350e8979cb7127e63bb6b81ea@139.144.173.54:30303",
+    "enode://712144ac396fd2298b3e2559e2930d7f3a36fded3addd66955224958f1845634067717ab9522757ed2948f480fc52add5676487c8378e9011a7e2c0ac2f36cc3@3.71.132.231:30303",
+    "enode://595160631241ea41b187b85716f9f9572a266daa940d74edbe3b83477264ce284d69208e61cf50e91641b1b4f9a03fa8e60eb73d435a84cf4616b1c969bc2512@3.69.35.13:30303",
+    "enode://5abc2f73f81ea6b94f1e1b1e376731fc662ecd7863c4c7bc83ec307042542a64feab5af7985d52b3b1432acf3cb82460b327d0b6b70cb732afb1e5a16d6b1e58@35.206.174.92:30303",
+    "enode://f7e62226a64a2ccc0ada8b032b33c4389464562f87135a3e0d5bdb814fab717d58db5d142c453b071d08b4e0ffd9c5aff4a6d4441c2041401634f10d7962f885@35.210.126.23:30303",
+];
+
+hardfork!(
+    /// The name of an gnosis hardfork.
+    ///
+    /// When building a list of hardforks for a chain, it's still expected to mix with
+    /// [`EthereumHardfork`].
+    GnosisHardfork {
+        POSDAOActivation,
+        BalancerFork,
+    }
+);
+
+#[derive(Debug, Clone, Default, Into, Constructor, PartialEq, Eq)]
+pub struct BalancerHardforkConfig {
+    pub activation_time: u64,
+    pub config: Vec<(Address, Option<Bytecode>, B256)>,
+}
+
+/// Gnosis chain spec type.
+#[derive(Debug, Clone, Default, Deref, Into, PartialEq, Eq)]
+pub struct GnosisChainSpec {
+    /// [`ChainSpec`].
+    #[deref]
+    pub inner: ChainSpec,
+    pub genesis_header: SealedHeader<GnosisHeader>,
+    pub balancer_hardfork_config: Option<BalancerHardforkConfig>,
+    /// AuRa consensus configuration (parsed from genesis JSON).
+    pub aura_config: Option<crate::aura::config::AuraConfig>,
+}
+
+impl EthChainSpec for GnosisChainSpec {
+    type Header = GnosisHeader;
+
+    fn chain(&self) -> alloy_chains::Chain {
+        self.inner.chain()
+    }
+
+    fn base_fee_params_at_timestamp(&self, timestamp: u64) -> BaseFeeParams {
+        self.inner.base_fee_params_at_timestamp(timestamp)
+    }
+
+    fn blob_params_at_timestamp(&self, timestamp: u64) -> Option<BlobParams> {
+        self.inner.blob_params_at_timestamp(timestamp)
+    }
+
+    fn deposit_contract(&self) -> Option<&DepositContract> {
+        self.inner.deposit_contract()
+    }
+
+    fn genesis_hash(&self) -> B256 {
+        self.genesis_header.hash()
+    }
+
+    fn prune_delete_limit(&self) -> usize {
+        self.inner.prune_delete_limit()
+    }
+
+    fn display_hardforks(&self) -> Box<dyn Display> {
+        Box::new(ChainSpec::display_hardforks(self))
+    }
+
+    fn genesis_header(&self) -> &Self::Header {
+        &self.genesis_header
+    }
+
+    fn genesis(&self) -> &Genesis {
+        self.inner.genesis()
+    }
+
+    fn bootnodes(&self) -> Option<Vec<NodeRecord>> {
+        if let Some(chain) = Chain::from_chain_id(self.chain_id()) {
+            match chain {
+                Chain::Gnosis => Some(parse_nodes(GNOSIS_NODES)),
+                Chain::Chiado => Some(parse_nodes(CHIADO_NODES)),
+            }
+        } else {
+            None
+        }
+    }
+
+    fn final_paris_total_difficulty(&self) -> Option<U256> {
+        self.inner.final_paris_total_difficulty()
+    }
+}
+
+impl Hardforks for GnosisChainSpec {
+    fn fork<H: reth_chainspec::Hardfork>(&self, fork: H) -> reth_chainspec::ForkCondition {
+        self.inner.fork(fork)
+    }
+
+    fn forks_iter(
+        &self,
+    ) -> impl Iterator<Item = (&dyn reth_chainspec::Hardfork, reth_chainspec::ForkCondition)> {
+        self.inner.forks_iter()
+    }
+
+    fn fork_id(&self, head: &Head) -> ForkId {
+        let mut forkhash = ForkHash::from(self.genesis_hash());
+        let mut current_applied = 0;
+
+        // handle all block forks before handling timestamp based forks. see: https://eips.ethereum.org/EIPS/eip-6122
+        for (_, cond) in self.hardforks.forks_iter() {
+            // handle block based forks and the sepolia merge netsplit block edge case (TTD
+            // ForkCondition with Some(block))
+            if let ForkCondition::Block(block)
+            | ForkCondition::TTD {
+                fork_block: Some(block),
+                ..
+            } = cond
+            {
+                if head.number >= block {
+                    // skip duplicated hardforks: hardforks enabled at genesis block
+                    if block != current_applied {
+                        forkhash += block;
+                        current_applied = block;
+                    }
+                } else {
+                    // we can return here because this block fork is not active, so we set the
+                    // `next` value
+                    return ForkId {
+                        hash: forkhash,
+                        next: block,
+                    };
+                }
+            }
+        }
+
+        // timestamp are ALWAYS applied after the merge.
+        //
+        // this filter ensures that no block-based forks are returned
+        for timestamp in self.hardforks.forks_iter().filter_map(|(_, cond)| {
+            // ensure we only get timestamp forks activated __after__ the genesis block
+            cond.as_timestamp()
+                .filter(|time| time > &self.genesis.timestamp)
+        }) {
+            if head.timestamp >= timestamp {
+                // skip duplicated hardfork activated at the same timestamp
+                if timestamp != current_applied {
+                    forkhash += timestamp;
+                    current_applied = timestamp;
+                }
+            } else {
+                // can safely return here because we have already handled all block forks and
+                // have handled all active timestamp forks, and set the next value to the
+                // timestamp that is known but not active yet
+                return ForkId {
+                    hash: forkhash,
+                    next: timestamp,
+                };
+            }
+        }
+
+        ForkId {
+            hash: forkhash,
+            next: 0,
+        }
+    }
+
+    fn latest_fork_id(&self) -> ForkId {
+        self.inner.latest_fork_id()
+    }
+
+    fn fork_filter(&self, head: Head) -> ForkFilter {
+        let forks = self.hardforks.forks_iter().filter_map(|(_, condition)| {
+            // We filter out TTD-based forks w/o a pre-known block since those do not show up in the
+            // fork filter.
+            Some(match condition {
+                ForkCondition::Block(block)
+                | ForkCondition::TTD {
+                    fork_block: Some(block),
+                    ..
+                } => ForkFilterKey::Block(block),
+                ForkCondition::Timestamp(time) => ForkFilterKey::Time(time),
+                _ => return None,
+            })
+        });
+
+        ForkFilter::new(head, self.genesis_hash(), self.genesis_timestamp(), forks)
+    }
+}
+
+impl EthereumHardforks for GnosisChainSpec {
+    fn ethereum_fork_activation(&self, fork: EthereumHardfork) -> ForkCondition {
+        self.fork(fork)
+    }
+}
+
+impl EthExecutorSpec for GnosisChainSpec {
+    fn deposit_contract_address(&self) -> Option<Address> {
+        self.deposit_contract
+            .map(|deposit_contract| deposit_contract.address)
+    }
+}
+
+impl From<Genesis> for GnosisChainSpec {
+    fn from(genesis: Genesis) -> Self {
+        let chain_id = genesis.config.chain_id;
+
+        // Block-based hardforks
+        let mainnet_hardfork_opts: [(Box<dyn Hardfork>, Option<u64>); 11] = [
+            (
+                EthereumHardfork::Homestead.boxed(),
+                genesis.config.homestead_block,
+            ),
+            (EthereumHardfork::Dao.boxed(), genesis.config.dao_fork_block),
+            (
+                EthereumHardfork::Tangerine.boxed(),
+                genesis.config.eip150_block,
+            ),
+            (
+                EthereumHardfork::SpuriousDragon.boxed(),
+                genesis.config.eip155_block,
+            ),
+            (
+                EthereumHardfork::Byzantium.boxed(),
+                genesis.config.byzantium_block,
+            ),
+            (
+                EthereumHardfork::Constantinople.boxed(),
+                genesis.config.constantinople_block,
+            ),
+            (
+                EthereumHardfork::Petersburg.boxed(),
+                genesis.config.petersburg_block,
+            ),
+            (
+                EthereumHardfork::Istanbul.boxed(),
+                genesis.config.istanbul_block,
+            ),
+            (GnosisHardfork::POSDAOActivation.boxed(), Some(9186425)),
+            (
+                EthereumHardfork::Berlin.boxed(),
+                genesis.config.berlin_block,
+            ),
+            (
+                EthereumHardfork::London.boxed(),
+                genesis.config.london_block,
+            ),
+        ];
+
+        let chiado_hardfork_opts: [(Box<dyn Hardfork>, Option<u64>); 9] = [
+            (
+                EthereumHardfork::Homestead.boxed(),
+                genesis.config.homestead_block,
+            ),
+            (
+                EthereumHardfork::Tangerine.boxed(),
+                genesis.config.eip150_block,
+            ),
+            (
+                EthereumHardfork::SpuriousDragon.boxed(),
+                genesis.config.eip155_block,
+            ),
+            (
+                EthereumHardfork::Byzantium.boxed(),
+                genesis.config.byzantium_block,
+            ),
+            (
+                EthereumHardfork::Constantinople.boxed(),
+                genesis.config.constantinople_block,
+            ),
+            (
+                EthereumHardfork::Petersburg.boxed(),
+                genesis.config.petersburg_block,
+            ),
+            (
+                EthereumHardfork::Istanbul.boxed(),
+                genesis.config.istanbul_block,
+            ),
+            (
+                EthereumHardfork::Berlin.boxed(),
+                genesis.config.berlin_block,
+            ),
+            (
+                EthereumHardfork::London.boxed(),
+                genesis.config.london_block,
+            ),
+        ];
+
+        let mut hardforks = match Chain::from_chain_id(chain_id) {
+            Some(Chain::Gnosis) => mainnet_hardfork_opts
+                .into_iter()
+                .filter_map(|(hardfork, opt)| {
+                    opt.map(|block| (hardfork, ForkCondition::Block(block)))
+                })
+                .collect::<Vec<_>>(),
+            _ => chiado_hardfork_opts
+                .into_iter()
+                .filter_map(|(hardfork, opt)| {
+                    opt.map(|block| (hardfork, ForkCondition::Block(block)))
+                })
+                .collect::<Vec<_>>(),
+        };
+
+        // Paris
+        // For Gnosis chains we know the actual merge block heights from chain history.
+        // We set `activation_block_number` so `is_paris_active_at_block` returns the
+        // correct result, but keep `fork_block: None` so the fork ID computation
+        // EXCLUDES this entry — matching other Gnosis clients (Nethermind, Erigon)
+        // which use TTD-based merge without `mergeNetsplitBlock`.
+        // Setting `fork_block: Some(...)` would change the fork hash for ALL pre-merge
+        // blocks and break P2P compatibility with the canonical chain.
+        let known_merge_block = match Chain::from_chain_id(chain_id) {
+            Some(Chain::Gnosis) => Some(25_349_537u64), // Gnosis mainnet merge
+            Some(Chain::Chiado) => Some(680_930u64),    // Chiado merge
+            _ => genesis.config.merge_netsplit_block,
+        };
+        let paris_block_and_final_difficulty =
+            if let Some(ttd) = genesis.config.terminal_total_difficulty {
+                hardforks.push((
+                    EthereumHardfork::Paris.boxed(),
+                    ForkCondition::TTD {
+                        activation_block_number: known_merge_block.unwrap_or_default(),
+                        total_difficulty: ttd,
+                        // Keep None to preserve fork ID compatibility
+                        fork_block: None,
+                    },
+                ));
+
+                known_merge_block.map(|block| (block, ttd))
+            } else {
+                None
+            };
+
+        let balancer_hardfork_config = parse_balancer_hardfork_config(
+            genesis.config.extra_fields.get("balancerHardforkTime"),
+            genesis.config.extra_fields.get("balancerHardforkBytecodes"),
+        );
+
+        // `aura` is optional (devnets / post-merge-since-genesis), but if
+        // present it must parse — silently disabling pre-merge consensus is
+        // a misconfig that must surface at load, not mid-sync.
+        let aura_config = genesis.config.extra_fields.get("aura").map(|v| {
+            crate::aura::config::AuraConfig::from_json_value(v)
+                .unwrap_or_else(|e| panic!("malformed `aura` section in genesis: {e}"))
+        });
+
+        // Time-based hardforks
+        let time_hardfork_opts: [(Box<dyn Hardfork>, Option<u64>); 5] = [
+            (
+                EthereumHardfork::Shanghai.boxed(),
+                genesis.config.shanghai_time,
+            ),
+            (EthereumHardfork::Cancun.boxed(), genesis.config.cancun_time),
+            (EthereumHardfork::Prague.boxed(), genesis.config.prague_time),
+            (
+                GnosisHardfork::BalancerFork.boxed(),
+                balancer_hardfork_config
+                    .as_ref()
+                    .map(|cfg| cfg.activation_time),
+            ),
+            (EthereumHardfork::Osaka.boxed(), genesis.config.osaka_time),
+        ];
+
+        let mut time_hardforks = time_hardfork_opts
+            .into_iter()
+            .filter_map(|(hardfork, opt)| {
+                opt.map(|time| (hardfork.clone(), ForkCondition::Timestamp(time)))
+            })
+            .collect::<Vec<_>>();
+
+        hardforks.append(&mut time_hardforks);
+
+        // NOTE: in full node, we prune all receipts except the deposit contract's. We do not
+        // have the deployment block in the genesis file, so we use block zero. We use the same
+        // deposit topic as the mainnet contract if we have the deposit contract address in the
+        // genesis json.
+        let deposit_contract =
+            genesis
+                .config
+                .deposit_contract_address
+                .map(|address| DepositContract {
+                    address,
+                    block: 0,
+                    topic: b256!(
+                        "0x649bbc62d0e31342afea4e5cd82d4049e7e1ee912fc0889aa790803be39038c5"
+                    ),
+                });
+
+        let hardforks = ChainHardforks::new(hardforks);
+
+        // true means paris is active at genesis => genesis needs to be in post-merge format
+        let is_paris_active_at_genesis = if let Some(ttd) = genesis.config.terminal_total_difficulty
+        {
+            genesis.difficulty >= ttd
+        } else {
+            false
+        };
+
+        let mut genesis_header = GnosisHeader::from(make_genesis_header(&genesis, &hardforks));
+        // by default genesis is post-merge, so if paris is not active at genesis, we need to
+        // convert it to pre-merge format
+        if !is_paris_active_at_genesis {
+            genesis_header.mix_hash = None;
+            genesis_header.nonce = None;
+            genesis_header.aura_seal = Some(FixedBytes::<65>::ZERO);
+            genesis_header.aura_step = Some(U256::ZERO);
+        }
+        let genesis_header = SealedHeader::new_unhashed(genesis_header);
+
+        Self {
+            inner: ChainSpec {
+                chain: genesis.config.chain_id.into(),
+                genesis_header: SealedHeader::new_unhashed(make_genesis_header(
+                    &genesis, &hardforks,
+                )),
+                genesis,
+                hardforks,
+                paris_block_and_final_difficulty,
+                deposit_contract,
+                blob_params: gnosis_blob_schedule(),
+                base_fee_params: BaseFeeParamsKind::Constant(BaseFeeParams::ethereum()),
+                ..Default::default()
+            },
+            genesis_header,
+            balancer_hardfork_config,
+            aura_config,
+        }
+    }
+}
+
+/// Gnosis chain specification parser.
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
+pub struct GnosisChainSpecParser;
+
+impl ChainSpecParser for GnosisChainSpecParser {
+    type ChainSpec = GnosisChainSpec;
+
+    const SUPPORTED_CHAINS: &'static [&'static str] = &["dev", "chiado", "gnosis"];
+
+    fn parse(s: &str) -> eyre::Result<Arc<Self::ChainSpec>> {
+        chain_value_parser(s)
+    }
+}
+
+/// Clap value parser for [`GnosisChainSpec`]s.
+///
+/// The value parser matches either a known chain, the path
+/// to a json file, or a json formatted string in-memory. The json needs to be a Genesis struct.
+pub fn chain_value_parser(s: &str) -> eyre::Result<Arc<GnosisChainSpec>, eyre::Error> {
+    Ok(match s {
+        "dev" => Arc::new(GnosisChainSpec::from(Genesis::default())),
+        "chiado" => Arc::new(GnosisChainSpec::from(CHIADO_GENESIS.clone())),
+        "gnosis" => Arc::new(GnosisChainSpec::from(GNOSIS_GENESIS.clone())),
+        _ => Arc::new(parse_genesis(s)?.into()),
+    })
+}
+
+pub trait GnosisHardForks {
+    fn is_balancer_hardfork_active_at_timestamp(&self, timestamp: u64) -> bool;
+}
+
+impl GnosisHardForks for GnosisChainSpec {
+    fn is_balancer_hardfork_active_at_timestamp(&self, timestamp: u64) -> bool {
+        self.fork(GnosisHardfork::BalancerFork)
+            .active_at_timestamp(timestamp)
+    }
+}
+
+impl GnosisChainSpec {
+    /// Log fork IDs for all hardforks, including future ones
+    pub fn log_all_fork_ids(&self) {
+        debug!(target: "reth::gnosis", "=== Fork IDs for all hardforks ===");
+
+        let genesis_hash = self.genesis_hash();
+        let mut forkhash = ForkHash::from(genesis_hash);
+        let mut current_applied = 0;
+
+        debug!(target: "reth::gnosis", %genesis_hash, ?forkhash, "Genesis info");
+
+        // Log block-based forks
+        debug!(target: "reth::gnosis", "Block-based forks:");
+        for (hardfork, cond) in self.hardforks.forks_iter() {
+            match cond {
+                ForkCondition::Block(block)
+                | ForkCondition::TTD {
+                    fork_block: Some(block),
+                    ..
+                } => {
+                    if block != current_applied {
+                        forkhash += block;
+                        current_applied = block;
+                    }
+                    debug!(
+                        target: "reth::gnosis",
+                        hardfork = %hardfork.name(),
+                        block,
+                        ?forkhash,
+                        "Block fork"
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        // Log timestamp-based forks
+        debug!(target: "reth::gnosis", "Timestamp-based forks:");
+        for (hardfork, cond) in self.hardforks.forks_iter() {
+            if let ForkCondition::Timestamp(timestamp) = cond {
+                if timestamp > self.genesis.timestamp && timestamp != current_applied {
+                    forkhash += timestamp;
+                    current_applied = timestamp;
+                }
+                debug!(
+                    target: "reth::gnosis",
+                    hardfork = %hardfork.name(),
+                    timestamp,
+                    ?forkhash,
+                    "Timestamp fork"
+                );
+            }
+        }
+
+        let current_timestamp = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        debug!(
+            target: "reth::gnosis",
+            ?forkhash,
+            current_timestamp,
+            "Final fork hash"
+        );
+    }
+}

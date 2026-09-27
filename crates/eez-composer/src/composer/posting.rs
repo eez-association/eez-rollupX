@@ -25,6 +25,7 @@ use reth_evm::{
 };
 use reth_primitives_traits::{Recovered, SealedHeader, SignerRecoverable};
 use reth_revm::{database::StateProviderDatabase, db::State};
+use reth_storage_api::EvmStateProviderAdapter;
 use revm::{
     Database, Inspector,
     context::Journal,
@@ -346,7 +347,9 @@ impl PostingRuntime {
             .state_by_block_hash(quote.quote.sample.hash)
             .map_err(|e| PostingError::Unavailable(e.to_string()))?;
         let mut state = State::builder()
-            .with_database(StateProviderDatabase::new(provider))
+            .with_database(StateProviderDatabase::new(EvmStateProviderAdapter(
+                provider,
+            )))
             .with_bundle_update()
             .build();
         let selected = self.gas_trace.as_ref().and_then(|config| {

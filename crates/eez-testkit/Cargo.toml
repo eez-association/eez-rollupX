@@ -27,6 +27,7 @@ eez-control-rpc.workspace = true
 prost.workspace = true
 eez-protocol.workspace = true
 reth-chainspec.workspace = true
+reth-db.workspace = true
 reth_gnosis.workspace = true
 serde_json.workspace = true
 tempfile = "3"

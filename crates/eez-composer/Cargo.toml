@@ -33,6 +33,7 @@ alloy-sol-types.workspace        = true
 
 # reth (state + revm + chainspec + evm + trie for LocalChainClient + sessions,
 # engine-primitives + payload-primitives for build_sync_block → ExecutionData)
+reth-chain-state.workspace                = true
 reth-chainspec.workspace                  = true
 reth-ethereum-engine-primitives.workspace = true
 reth-ethereum-primitives.workspace        = true

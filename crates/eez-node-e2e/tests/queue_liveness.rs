@@ -11,7 +11,7 @@ use eez_testkit::{
     wait_for_receipt_or_failure, wait_for_safe_prefix_convergence, wait_for_with_failure,
 };
 
-const TIMEOUT: Duration = Duration::from_secs(180);
+const TIMEOUT: Duration = Duration::from_mins(3);
 
 async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count: u64) {
     let env = [

@@ -373,6 +373,9 @@ mod tests {
     /// the drift guard for the cache-sharing assumptions in the live overlay
     /// path (`with_cached_prestate`).
     fn clone_state<DB: Clone>(src: &State<DB>) -> State<DB> {
+        // Fresh overlay states have no observer hook. A hook owns a non-cloneable
+        // callback, so fail if a fixture starts relying on one rather than drop it.
+        assert!(src.state_hook.is_none());
         State {
             cache: src.cache.clone(),
             database: src.database.clone(),
@@ -381,13 +384,14 @@ mod tests {
             use_preloaded_bundle: src.use_preloaded_bundle,
             block_hashes: src.block_hashes.clone(),
             bal_state: src.bal_state.clone(),
+            state_hook: None,
         }
     }
 
     /// Regression: `clone_state` must produce a struct literally
     /// equivalent to the source. Any divergence (a field accidentally
     /// not cloned, a field whose Clone impl drifted) shows up as a
-    /// non-equal Debug rendering of one of the seven fields.
+    /// non-equal Debug rendering of a state field.
     #[test]
     fn clone_state_field_parity_default() {
         let src: State<EmptyDB> = State::builder().with_database(EmptyDB::default()).build();
@@ -411,6 +415,7 @@ mod tests {
             format!("{:?}", src.bal_state),
             format!("{:?}", cloned.bal_state),
         );
+        assert!(src.state_hook.is_none() && cloned.state_hook.is_none());
     }
 
     #[test]

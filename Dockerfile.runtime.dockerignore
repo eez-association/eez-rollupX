@@ -3,6 +3,8 @@
 !Cargo.lock
 !crates/
 !crates/**
+!vendor/
+!vendor/**
 !contracts/
 !contracts/test/
 !contracts/test/PostBatchGasPins.t.sol

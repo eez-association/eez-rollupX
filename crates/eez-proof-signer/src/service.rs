@@ -75,7 +75,7 @@ impl ServiceLimits {
         let lease_lifetime = request_timeout
             .checked_mul(2)
             .ok_or_else(|| eyre::eyre!("twice the request timeout is out of range"))?
-            .max(Duration::from_secs(120));
+            .max(Duration::from_mins(2));
         eyre::ensure!(
             now.checked_add(lease_lifetime).is_some(),
             "prepared-cache lease lifetime is out of range"
@@ -110,7 +110,7 @@ impl ServiceLimits {
         self.request_timeout
             .checked_mul(2)
             .expect("validated service request timeout")
-            .max(Duration::from_secs(120))
+            .max(Duration::from_mins(2))
     }
 
     pub(crate) fn max_decoding_message_bytes(self) -> usize {

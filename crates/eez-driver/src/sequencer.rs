@@ -436,6 +436,7 @@ where
                 .then_some(B256::ZERO),
             // Amsterdam-fork addition; not active for stage-1 dev chains.
             slot_number: None,
+            target_gas_limit: None,
         }
     }
 }
