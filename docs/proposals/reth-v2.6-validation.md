@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft PR #41; validating upstream #27429 merge commit and controlled crash recovery |
+| Design status | Draft PR #41; local validation passed, CI Kurtosis failure under investigation |
 | Date | 2026-09-26 |
 | PR base | Latest `origin/main` fetched for preparation: `3346d966f3c8611be790db484abc63b3b259d367`; unrelated admission-branch commits excluded |
 | Prior validation baseline | `85f3691cb9c7ccbf8c0b8700576733283e5af7fc` on an isolated validation branch |
@@ -11,7 +11,10 @@
 The initial target was official Reth v2.6.0. On 2026-09-26 the user requested
 continuing with the upstream #27429 commit to remove the reproduced forkchoice
 blocker. The candidate is now unmodified upstream commit
-`444e867155c2a7a4c028e479ca7201b0b6871579`, validated locally with Kurtosis. Existing database migration and mixed-version deployment compatibility
+`444e867155c2a7a4c028e479ca7201b0b6871579`; local Kurtosis protocol validation
+has passed, including restart, controlled masked-state crash recovery and
+independent follower replay. All eight native CI shards passed; one CI Kurtosis
+scenario failed and remains under investigation. Existing database migration and mixed-version deployment compatibility
 are outside this fresh-network scope. This proposal does not claim acceptance
 of the implementation before the checks below pass.
 

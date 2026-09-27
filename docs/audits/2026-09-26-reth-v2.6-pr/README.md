@@ -243,3 +243,12 @@ migration and rollback were not established by this fresh-network validation.
 GitHub check details were unavailable with the available token. The draft PR
 exists and targets `main`, but these local results do not claim a passing GitHub
 CI gate. No release tag was promoted and no existing network was upgraded.
+
+### September 27 follow-up
+
+The [upstream #27429 candidate audit](../2026-09-26-reth-27429/README.md) records
+the later unmodified upstream merge pin, controlled masked-state crash
+comparisons in both build profiles, local Kurtosis/replay results, and retrievable
+CI results. It preserves the failure above without attributing it to #27429:
+the controlled comparisons also pass with the original v2.6.0 host binaries.
+The original results and acceptance limits in this dated audit are unchanged.

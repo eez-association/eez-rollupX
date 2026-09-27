@@ -1,0 +1,100 @@
+{
+  "verified": true,
+  "enclave": "eez-reth27429-20260926",
+  "rollup_id": 1,
+  "sender": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+  "contract": {
+    "address": "0x121525a50836042846362fAAB126168b998D1cF2",
+    "deployment_tx": "0x913a0d5aa6ebb655f96dafad1827b197746a7a8984411ccfdab308607b429737",
+    "increment_tx": "0xb87a730817d1653be623b24a2dbc2508c91ca74b52950c55b30f31d851f1174e",
+    "add_41_tx": "0x5c88a746aec5425ff9edf4f5db14e6e3d63d546cf0d3d71c3ca921a238d61333",
+    "value_at_safe": 42
+  },
+  "settlement": {
+    "safe_l2_block": 834,
+    "safe_l2_block_hash": "0x7b9b0cc957d7847ee95383b07283f51f1ef9f115c54ce030362fa514219d883e",
+    "l1_registry_commitment": "0x7b9b0cc957d7847ee95383b07283f51f1ef9f115c54ce030362fa514219d883e"
+  },
+  "l2_transaction_to_l1_blob_batch": {
+    "0x913a0d5aa6ebb655f96dafad1827b197746a7a8984411ccfdab308607b429737": "0xf9f086cace11bf3de4f8fb0e2fb74cf314adffc0f58162f0c40f241e61025bb6",
+    "0xb87a730817d1653be623b24a2dbc2508c91ca74b52950c55b30f31d851f1174e": "0xf9f086cace11bf3de4f8fb0e2fb74cf314adffc0f58162f0c40f241e61025bb6",
+    "0x5c88a746aec5425ff9edf4f5db14e6e3d63d546cf0d3d71c3ca921a238d61333": "0x1f9bddfa31bd4a83f58669927efaf020d9566218203532f9f6e6776dfe7e52de"
+  },
+  "verified_blob_batches": [
+    {
+      "abi_call_data_bytes": 0,
+      "beacon_slot": 135,
+      "blob_count": 1,
+      "blob_gas_used": 131072,
+      "blob_indices": [
+        "0"
+      ],
+      "blob_versioned_hashes": [
+        "0x010e993300309fd87d6309e5c30d53651fbdc5a57c7bb4adc41800b6a45294e6"
+      ],
+      "l1_block_hash": "0x5e523bd4379703492bfe04bf808f21e9c8bb9bbd31c29d818365893da5f6bd4a",
+      "l1_block_number": 135,
+      "l1_chain_id": 7331,
+      "l1_transaction_hash": "0xf9f086cace11bf3de4f8fb0e2fb74cf314adffc0f58162f0c40f241e61025bb6",
+      "rollup_id": 1,
+      "verified": true,
+      "block_range": [
+        769,
+        798
+      ],
+      "payload": {
+        "block_count": 30,
+        "bytes": 1197,
+        "l2_entry_count": 0,
+        "outbound_group_sizes": [],
+        "semantic_action_count": 0,
+        "semantic_origins": [],
+        "semantic_transaction_count": 0,
+        "transaction_count": 2,
+        "transaction_hashes": [
+          "0x913a0d5aa6ebb655f96dafad1827b197746a7a8984411ccfdab308607b429737",
+          "0xb87a730817d1653be623b24a2dbc2508c91ca74b52950c55b30f31d851f1174e"
+        ]
+      }
+    },
+    {
+      "abi_call_data_bytes": 0,
+      "beacon_slot": 140,
+      "blob_count": 1,
+      "blob_gas_used": 131072,
+      "blob_indices": [
+        "0"
+      ],
+      "blob_versioned_hashes": [
+        "0x012cc4476b5b6eb5eaae729bd5da1926f5adfc11af5c42cbf1b625c75f74274c"
+      ],
+      "l1_block_hash": "0x22d98b0927dfbcbf15100ed0f02239c22f9fc3812e91b728034b36d4e15411ed",
+      "l1_block_number": 140,
+      "l1_chain_id": 7331,
+      "l1_transaction_hash": "0x1f9bddfa31bd4a83f58669927efaf020d9566218203532f9f6e6776dfe7e52de",
+      "rollup_id": 1,
+      "verified": true,
+      "block_range": [
+        799,
+        834
+      ],
+      "payload": {
+        "block_count": 36,
+        "bytes": 871,
+        "l2_entry_count": 0,
+        "outbound_group_sizes": [],
+        "semantic_action_count": 0,
+        "semantic_origins": [],
+        "semantic_transaction_count": 0,
+        "transaction_count": 1,
+        "transaction_hashes": [
+          "0x5c88a746aec5425ff9edf4f5db14e6e3d63d546cf0d3d71c3ca921a238d61333"
+        ]
+      }
+    }
+  ],
+  "correlation_verified_transactions": 3,
+  "full_summary_sha256": "5b9eee99fae7294e001df25651cbfe29603c02af821476cfe2bea3c6bddd74df",
+  "full_summary_availability": "Local only: artifacts/reth27429/blob/20260926T223455Z/summary.json",
+  "blobscan_checked": false
+}

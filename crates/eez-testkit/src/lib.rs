@@ -4527,29 +4527,39 @@ impl CrossChainWorld {
                 );
             }
         }
-        let path = self.datadir.path().join("db");
-        let checkpoint = tokio::task::spawn_blocking(move || -> Result<(u64, u64)> {
-            use reth_db::{Database, tables, transaction::DbTx};
-            let db = reth_db::open_db_read_only(path, Default::default())
-                .map_err(|error| anyhow!("open crashed L2: {error:#}"))?;
-            let tx = db.tx()?;
-            let checkpoint = tx
-                .get::<tables::StageCheckpoints>("Finish".into())?
-                .context("crashed L2 has no Finish checkpoint")?;
-            let state_tip = checkpoint
-                .finish_stage_checkpoint()
-                .and_then(|finish| finish.partial_state_trie())
-                .unwrap_or(checkpoint.block_number);
-            Ok((checkpoint.block_number, state_tip))
-        })
-        .await
-        .context("join crashed L2 checkpoint reader")??;
+        let checkpoint = self
+            .persisted_l2_frontiers()
+            .await?
+            .context("crashed L2 has no Finish checkpoint")?;
         eprintln!(
             "crashed L2 disk frontiers: blocks={}, state={}",
             checkpoint.0, checkpoint.1
         );
         self.reopen_composer().await?;
         Ok(checkpoint)
+    }
+
+    /// Read the persisted L2 block and state/trie frontiers in a fresh MDBX
+    /// transaction. Returns `None` before the first Finish checkpoint exists.
+    /// The blocking reader closes before returning; RPC height is not a disk barrier.
+    pub async fn persisted_l2_frontiers(&self) -> Result<Option<(u64, u64)>> {
+        let path = self.datadir.path().join("db");
+        tokio::task::spawn_blocking(move || -> Result<Option<(u64, u64)>> {
+            use reth_db::{Database, tables, transaction::DbTx};
+            let db = reth_db::open_db_read_only(path, Default::default())
+                .map_err(|error| anyhow!("open persisted L2: {error:#}"))?;
+            let tx = db.tx()?;
+            let Some(checkpoint) = tx.get::<tables::StageCheckpoints>("Finish".into())? else {
+                return Ok(None);
+            };
+            let state_tip = checkpoint
+                .finish_stage_checkpoint()
+                .and_then(|finish| finish.partial_state_trie())
+                .unwrap_or(checkpoint.block_number);
+            Ok(Some((checkpoint.block_number, state_tip)))
+        })
+        .await
+        .context("join persisted L2 checkpoint reader")?
     }
 
     /// Flush via SIGTERM before reopening with a new startup policy snapshot.

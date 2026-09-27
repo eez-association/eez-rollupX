@@ -1,0 +1,106 @@
+{
+  "completed_checks": [
+    {
+      "check": "workspace_check",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/check-05.log",
+      "log_sha256": "f861c143235ad781db4ec408c3622c5ac51f487aa3203a1c778e70df5a07d768"
+    },
+    {
+      "check": "workspace_clippy",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/clippy.log",
+      "log_sha256": "51fc05221e6102331cfabac6f157477f53f70ba0f8ab0bd52679354497064723"
+    },
+    {
+      "check": "shipping_build",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/shipping-build-02.log",
+      "log_sha256": "ee1878a7e03c7ff6c947a28a000f55727ee988aa00f0a7b5bf9c6e521e05dc28"
+    },
+    {
+      "check": "workspace_unit_and_vectors",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/unit-tests.log",
+      "log_sha256": "a08f72a30445290deebbf552914cb7b06d5e03b36d486f7e752983f335ec8958",
+      "passed": 1195,
+      "ignored": 3
+    },
+    {
+      "check": "upstream_engine",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/upstream-engine.log",
+      "log_sha256": "a1bf64fa9eea8d6ced187176eefaf69eb93b8a29f81d4a2786008a56859732d2",
+      "passed": 205
+    },
+    {
+      "check": "upstream_forkchoice_rpc",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/upstream-forkchoice-rpc.log",
+      "log_sha256": "1373f84f2b8e5942fc690f19009f21d55d5436e31b83a031717e8c68efd1381b",
+      "passed": 3
+    },
+    {
+      "check": "stateless_and_tries",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/stateless-tests.log",
+      "log_sha256": "c6ba8986ab61c3b8c06d4494958a00f286811d0d2f4b1dd31f0529b5f33b2e2d",
+      "passed": 8
+    },
+    {
+      "check": "cargo_deny",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/cargo-deny.log",
+      "log_sha256": "98c6df526ace2977be61eacf845a785e714e569451c7b5a6893d20659dab7a86"
+    },
+    {
+      "check": "cargo_audit",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/cargo-audit.log",
+      "log_sha256": "b669965ae85b55c76a469bfe8f12c61d6eec327937dc1f9de93d995cc2a84ceb",
+      "allowed_warnings": 9
+    },
+    {
+      "check": "tooling",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/tooling.log",
+      "log_sha256": "2733a0b3f7b8ec08b699ce8c48fe9444157cc915f29d16018a06c2fc03205b31",
+      "passed": 261,
+      "skipped": 4
+    },
+    {
+      "check": "focused_clippy_after_crash_fixture",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/clippy-final.log",
+      "log_sha256": "6291bdafdc6b5ff4b418d8c59c9a30a286b2ebf9bcae18cd871461df76308752"
+    },
+    {
+      "check": "host_build",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/host-build-resume.log",
+      "log_sha256": "bfd7458c6325a547a19f377353d04fc7342d70992a8e0597cefc5620d339c720"
+    },
+    {
+      "check": "tooling_after_receipt_diagnostic",
+      "status": "pass",
+      "local_log": "artifacts/reth27429/tooling-final.log",
+      "log_sha256": "3ff1a8ca3ea778ec67200a8ecd4127e99f91c4647dca2adb991b42f9218bfe95",
+      "passed": 262,
+      "skipped": 4
+    }
+  ],
+  "note": "Native process and live follow-up results are recorded separately; raw logs are local-only.",
+  "diagnostic_fixture_setup": {
+    "first_status": "failure before the intended assertion",
+    "reason": "The first test stub wrote Python into the shell worker; corrected to update the existing Python worker fixture.",
+    "first_local_log": "artifacts/reth27429/protocol-runner-final.log",
+    "first_log_sha256": "af30e3ac637273074c471f164f751c0eb5ce209c4bc7a1189effe0b8ac3ffa86",
+    "corrected_result": "Full tooling suite passed, including the moved-receipt regression."
+  },
+  "live_diagnostic_probe": {
+    "status": "pass",
+    "qualification": "Read-only invocation of the failure-receipt function against a passing local transaction; not a reproduction of the CI failure.",
+    "local_log": "artifacts/reth27429/failure-receipt-live-probe.log",
+    "log_sha256": "edc770931a610f65b9ddf134b0faa0e7f25e6ba02997e36b8404bf42a2872f2d"
+  }
+}

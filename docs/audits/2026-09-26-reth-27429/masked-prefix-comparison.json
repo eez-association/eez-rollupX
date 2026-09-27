@@ -1,0 +1,152 @@
+{
+  "baseline-masked": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 101,
+      "seconds": 168.644,
+      "test_sha256": "742846741b319739706a70fddedd5a7e72c290c85d77e1e680997a687d63e954",
+      "runtime_sha256": {
+        "eez-genesis-block-hash": "a59bd0169c4cabab21717964251a998ad8b90412de9e8f40232b7bd913e61551",
+        "eez-genesis-state-root": "1540de20acc8de92e47b1b565129fc742eec3de0b5894fe31c13c1d46f4fd08c",
+        "eez-proof-signer": "a9460eb88b95b610201834f2961db284da645eb8cb9eeb2e067af17b2ffbb43f",
+        "e2e-causal-verify": "22cb559c5c4da646df1aa8a814d26e2aa04be7efc067b9e0d0919095576439ee",
+        "eez-composer": "e830588ae6f83b3393a83a057c857d2f9f9e57d93bd4316dd0b9a063c82aeb86",
+        "eez-follower": "5ea1c040776b4b872316385bd7f0fe0ac16eccd8fbffd0b6cabd78e86aa3c53c",
+        "verify_blob_evidence": "9e38e7f88af13fd0de8e11f8887ddeebea3865c070da050935273dd2bb0aa4dd"
+      },
+      "summary": [
+        "FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 168.62s"
+      ],
+      "crash_frontiers": []
+    }
+  ],
+  "candidate-masked": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 101,
+      "seconds": 168.471,
+      "test_sha256": "742846741b319739706a70fddedd5a7e72c290c85d77e1e680997a687d63e954",
+      "runtime_sha256": {
+        "eez-genesis-block-hash": "830781721ed62689a8fdcd708922cae348604543a247cff484deb52cbda31592",
+        "eez-genesis-state-root": "d47b23a22fc668b94a8a148e334811a4eb981b25ac80c931e24a3017f59c9fa9",
+        "eez-proof-signer": "e4ad22fa974dccad4919ccf3e9c9619035a226cef04dd9d9dbe12680f307ad24",
+        "e2e-causal-verify": "21752b6e3d77a3f45da5215121709af05df0c8aacf34fafc4ef1c5ae7e1d2cc3",
+        "eez-composer": "5000b6c7bf2a8b796b2f73151db9c31c84e9d5ed1f850e5a6c335d53c5cc1d7f",
+        "eez-follower": "0ce2631359210648060abe6f9e8ad690ff22aa6cb0b4929a2d03508fd2b9a477",
+        "verify_blob_evidence": "26f6dd2816643c43236251e673a03c4a422f42b75900ec82ad301f6a5fc344a5"
+      },
+      "summary": [
+        "FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 4 filtered out; finished in 168.45s"
+      ],
+      "crash_frontiers": []
+    }
+  ],
+  "baseline-masked-corrected": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 0,
+      "seconds": 71.54,
+      "test_sha256": "838021e10fa50b0e8768c01e72e4ad9360e974af57204d615958c499e27e69a1",
+      "runtime_sha256": {
+        "eez-genesis-block-hash": "a59bd0169c4cabab21717964251a998ad8b90412de9e8f40232b7bd913e61551",
+        "eez-genesis-state-root": "1540de20acc8de92e47b1b565129fc742eec3de0b5894fe31c13c1d46f4fd08c",
+        "eez-proof-signer": "a9460eb88b95b610201834f2961db284da645eb8cb9eeb2e067af17b2ffbb43f",
+        "e2e-causal-verify": "22cb559c5c4da646df1aa8a814d26e2aa04be7efc067b9e0d0919095576439ee",
+        "eez-composer": "e830588ae6f83b3393a83a057c857d2f9f9e57d93bd4316dd0b9a063c82aeb86",
+        "eez-follower": "5ea1c040776b4b872316385bd7f0fe0ac16eccd8fbffd0b6cabd78e86aa3c53c",
+        "verify_blob_evidence": "9e38e7f88af13fd0de8e11f8887ddeebea3865c070da050935273dd2bb0aa4dd"
+      },
+      "summary": [
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 71.53s"
+      ],
+      "crash_frontiers": [
+        "blocks=46, state=16"
+      ]
+    }
+  ],
+  "candidate-masked-corrected": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 0,
+      "seconds": 76.65,
+      "test_sha256": "838021e10fa50b0e8768c01e72e4ad9360e974af57204d615958c499e27e69a1",
+      "runtime_sha256": {
+        "eez-genesis-block-hash": "830781721ed62689a8fdcd708922cae348604543a247cff484deb52cbda31592",
+        "eez-genesis-state-root": "d47b23a22fc668b94a8a148e334811a4eb981b25ac80c931e24a3017f59c9fa9",
+        "eez-proof-signer": "e4ad22fa974dccad4919ccf3e9c9619035a226cef04dd9d9dbe12680f307ad24",
+        "e2e-causal-verify": "21752b6e3d77a3f45da5215121709af05df0c8aacf34fafc4ef1c5ae7e1d2cc3",
+        "eez-composer": "5000b6c7bf2a8b796b2f73151db9c31c84e9d5ed1f850e5a6c335d53c5cc1d7f",
+        "eez-follower": "0ce2631359210648060abe6f9e8ad690ff22aa6cb0b4929a2d03508fd2b9a477",
+        "verify_blob_evidence": "26f6dd2816643c43236251e673a03c4a422f42b75900ec82ad301f6a5fc344a5"
+      },
+      "summary": [
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 76.64s"
+      ],
+      "crash_frontiers": [
+        "blocks=46, state=16"
+      ]
+    }
+  ],
+  "baseline-host-masked-corrected": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 0,
+      "seconds": 83.856,
+      "test_sha256": "838021e10fa50b0e8768c01e72e4ad9360e974af57204d615958c499e27e69a1",
+      "runtime_sha256": {
+        "eez-proof-signer": "c5dad63c4a0cf75295918d5ae4b7504824b17eb696f777aebef6c6f86e4f464e",
+        "eez-composer": "77c56e1681b23fa1ce1e902e40285bf5725c566b47ec7f5bc606193b399e63d7",
+        "eez-follower": "b7420bdaf1c374181ddf6a9d9c69aa51b25a46b33f00153eebb30e2c3a284000"
+      },
+      "summary": [
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 83.83s"
+      ],
+      "crash_frontiers": [
+        "blocks=46, state=16"
+      ]
+    }
+  ],
+  "candidate-host-masked-corrected": [
+    {
+      "suite": "partial_consumption",
+      "filters": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "--exact"
+      ],
+      "exit_status": 0,
+      "seconds": 74.988,
+      "test_sha256": "838021e10fa50b0e8768c01e72e4ad9360e974af57204d615958c499e27e69a1",
+      "runtime_sha256": {
+        "eez-proof-signer": "616cc1fe3cb1b5e42e67f95ec411ec100e41e1ef61ef82bdbb616d964da6a0dd",
+        "eez-composer": "529f71186b43309cc81d7889560293a4eb6dd0d000a0072538d5c8e1b993c6ab",
+        "eez-follower": "cd589f232ee8c65562e360ae6d7d35be70260e9d0fb9a9cba005cf49f0f2ec2b"
+      },
+      "summary": [
+        "ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 74.98s"
+      ],
+      "crash_frontiers": [
+        "blocks=46, state=16"
+      ]
+    }
+  ]
+}

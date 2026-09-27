@@ -60,27 +60,6 @@ fn policy_env() -> Vec<(&'static str, String)> {
 async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     let env = policy_env();
     let mut world = setup_cross_chain_with_env(&env).await.unwrap();
-    if restart_before_retry {
-        // This restart also stops the isolated L1. Preserve its proxy deployments
-        // before flushing an ordinary L2 prefix for the later crash-recovery check.
-        let (number, hash) = block_number_and_hash_at(&world.l1_rpc(), BlockNumberOrTag::Latest)
-            .await
-            .unwrap()
-            .expect("the isolated L1 has a head after fixture deployment");
-        world
-            .wait_for_persisted_l1_block(
-                alloy_rpc_types_eth::BlockNumHash::new(number, hash),
-                TIMEOUT,
-            )
-            .await
-            .unwrap();
-        world.restart_composer_with_env(&[]).await.unwrap();
-        let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-        assert!(
-            !l1.get_code_at(world.setter_proxy).await.unwrap().is_empty(),
-            "the setup restart must retain the source proxy before the partial-settlement wave"
-        );
-    }
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
         .unwrap();
@@ -321,12 +300,23 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
                 .is_none(),
             "restart fixture must still own an unsettled source before the crash"
         );
+        // Exercise Reth's normal masked persistence: block history has reached
+        // disk while the state/trie frontier still lags. A graceful flush would
+        // collapse these frontiers and miss this crash-recovery path.
+        wait_for(TIMEOUT, || async {
+            Ok(world
+                .persisted_l2_frontiers()
+                .await?
+                .filter(|(blocks, state)| *state > 0 && state < blocks && *state < height))
+        })
+        .await
+        .unwrap();
         // Leave the old relay request held until its bounded timeout. It must
         // never reach L1; the restarted composer has no record of that retry.
         let (persisted_blocks, persisted_state) = world.crash_and_restart_composer().await.unwrap();
         assert!(
-            persisted_blocks > 0 && persisted_blocks < height,
-            "crash must leave an intermediate L2 block prefix: {persisted_blocks}, settled={height}"
+            persisted_blocks > persisted_state,
+            "crash must leave masked L2 state: blocks={persisted_blocks}, state={persisted_state}"
         );
         assert!(
             persisted_state > 0 && persisted_state < height,

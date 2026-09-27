@@ -1,0 +1,126 @@
+{
+  "run_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196",
+  "head_commit": "d5f92cbb454c7fcb5e13678e50070dbf5ae9f816",
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "id": 108498761888,
+      "name": "Lint",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108498761888"
+    },
+    {
+      "id": 108498761991,
+      "name": "Build runtime artifacts / build",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108498761991"
+    },
+    {
+      "id": 108505492696,
+      "name": "Cross-Chain E2E Tests (slice:4/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492696",
+      "tests_run": 15,
+      "passed": 15,
+      "summary": "Summary [ 781.766s] 15 tests run: 15 passed (6 slow), 51 skipped",
+      "log_sha256": "3161d51c3bc55b3271ffd49ccf3e435fdc749ba05015ca5b77a560adf58874d0"
+    },
+    {
+      "id": 108505492703,
+      "name": "Embedded E2E Tests (slice:4/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492703",
+      "tests_run": 9,
+      "passed": 9,
+      "summary": "Summary [ 869.248s] 9 tests run: 9 passed (7 slow), 28 skipped",
+      "log_sha256": "d18478906db039eec1e2d6c671583cdd2a535090b2f588120f194e3c37ac58f8"
+    },
+    {
+      "id": 108505492708,
+      "name": "Embedded E2E Tests (slice:3/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492708",
+      "tests_run": 9,
+      "passed": 9,
+      "summary": "Summary [ 522.127s] 9 tests run: 9 passed (3 slow), 28 skipped",
+      "log_sha256": "3a7b9186b3420fa0d977db16451dc13caa6487445e6758ef67142a6ab76d9a3e"
+    },
+    {
+      "id": 108505492739,
+      "name": "Cross-Chain E2E Tests (slice:3/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492739",
+      "tests_run": 16,
+      "passed": 16,
+      "summary": "Summary [ 865.802s] 16 tests run: 16 passed (4 slow), 50 skipped",
+      "log_sha256": "886bf727713f3f24c5827e27a2d258d98dcbc4dc4c1d19e442652dd6498857d2"
+    },
+    {
+      "id": 108505492740,
+      "name": "Cross-Chain E2E Tests (slice:1/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492740",
+      "tests_run": 16,
+      "passed": 16,
+      "summary": "Summary [ 871.741s] 16 tests run: 16 passed (4 slow), 50 skipped",
+      "log_sha256": "65c9c6a0453f322920979d856f1a9e997f048f143d8ce489f84133c639941d54"
+    },
+    {
+      "id": 108505492741,
+      "name": "Embedded E2E Tests (slice:1/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492741",
+      "tests_run": 9,
+      "passed": 9,
+      "summary": "Summary [ 587.034s] 9 tests run: 9 passed (6 slow), 28 skipped",
+      "log_sha256": "d93adc6a411fffe1d9fac7eee3cfda41cd74bc81810360602b8215d6e9ffbd49"
+    },
+    {
+      "id": 108505492776,
+      "name": "Cross-Chain E2E Tests (slice:2/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492776",
+      "tests_run": 16,
+      "passed": 16,
+      "summary": "Summary [ 915.725s] 16 tests run: 16 passed (4 slow), 50 skipped",
+      "log_sha256": "732273458f8d37f183623d39fd722f845cebc5458a06f0cd68cd95e385e68194"
+    },
+    {
+      "id": 108505492794,
+      "name": "Embedded E2E Tests (slice:2/4)",
+      "conclusion": "success",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492794",
+      "tests_run": 9,
+      "passed": 9,
+      "summary": "Summary [ 616.738s] 9 tests run: 9 passed (5 slow), 28 skipped",
+      "log_sha256": "279f90711b9db5c8655133b7a151f34259e11f98fb28419308ccb9a78ac3b7a0"
+    },
+    {
+      "id": 108505492813,
+      "name": "Kurtosis E2E / Kurtosis E2E",
+      "conclusion": "failure",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108505492813"
+    },
+    {
+      "id": 108510424206,
+      "name": "CI Result",
+      "conclusion": "failure",
+      "html_url": "https://github.com/eduadiez/rollupX/actions/runs/36275978196/job/108510424206"
+    }
+  ],
+  "native_selected_passed": 99,
+  "kurtosis": {
+    "protocol_passed": 31,
+    "protocol_failed": 1,
+    "failed_scenario": "revertFromOtherChainL2",
+    "failed_check": "L2 table: expected 1 loaded entry; 0 found at receipt block 852",
+    "l2_trigger_tx": "0xc75b28a61721baa2407c950a6be6035193727355c5f200b64e35940a93a8c585",
+    "l2_receipt_block": 852,
+    "l1_settlement_tx": "0xbddd5af041ee041902882979ce05586781ffea3d07e5d68cad4930eb75dcc4bf",
+    "l1_settlement_block": 144,
+    "l1_table_fields": "passed",
+    "log_sha256": "6a70f0e2ac9d955182794e4d35a337f6836cefade7786ac3d839542574dc7f0e",
+    "artifact_availability": "Upload failed because GitHub artifact storage quota was reached. Job console is retrievable; complete failure artifacts are unavailable.",
+    "diagnosis": "Not reproduced by isolated or full parallel local runs on the same candidate. Receipt relocation is a hypothesis; bounded post-failure receipt sampling added for a subsequent CI run. Original failure remains an acceptance blocker."
+  }
+}

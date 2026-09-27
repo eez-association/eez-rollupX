@@ -329,6 +329,35 @@ write_non_pass_evidence() {
         >"$evidence_dir/$name.json"
 }
 
+# Receipts observed before settlement can move during a reorg. Keep a later
+# observation in the console when artifact uploads are unavailable, without
+# rerunning verification or changing the failed verdict. At most four failures
+# get one bounded RPC call each; only the first trigger is sampled.
+print_failed_trigger_receipt() {
+    local name="$1" tx rpc="$L1_RPC" receipt
+    [[ -f "$network_dir/$name.log" ]] || return 0
+    tx="$(grep -m1 -E '^tx: 0x[[:xdigit:]]{64}$' "$network_dir/$name.log" | cut -d' ' -f2)" || return 0
+    if grep -qE 'contract ExecuteNetworkL2 ' "$PROTOCOL/${selected_path_by_name[$name]}"; then
+        rpc="$L2_RPC"
+    fi
+    if receipt="$(curl --silent --fail --max-time 3 -H 'Content-Type: application/json' \
+        --data "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"eth_getTransactionReceipt\",\"params\":[\"$tx\"]}" \
+        "$rpc" | jq -ec 'select(has("result")) | .result | if . == null then {missing: true} else
+            {transactionHash, blockNumber, blockHash, transactionIndex, status} end')"; then
+        echo "[$name] post-failure receipt for $tx: $receipt"
+    else
+        echo "[$name] post-failure receipt for $tx: unavailable"
+    fi
+}
+
+failure_receipts=0
+for name in "${selected_names[@]}"; do
+    if [[ "${final_verdict[$name]}" == FAIL ]] && (( failure_receipts < 4 )); then
+        print_failed_trigger_receipt "$name"
+        failure_receipts=$((failure_receipts + 1))
+    fi
+done
+
 # A direct upstream PASS is necessary but not sufficient: independently query
 # all user, settlement, and table-load receipts and bind them to the source log.
 verify_names=()

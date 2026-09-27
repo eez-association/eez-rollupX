@@ -262,8 +262,10 @@ which this protocol does not currently define.
 
 ## Build, test, teardown
 
-Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to the official
-v2.6.0 commit; related local dependency ports are described in
+Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream commit
+`444e867155c2a7a4c028e479ca7201b0b6871579`, which includes the post-v2.6.0
+forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Related
+local dependency ports are described in
 [`vendor/README.md`](vendor/README.md). Private `testing` and `testing-gnosis`
 L1 miners retain the previous two-block persistence threshold, without state
 masking or an in-memory buffer. They have no consensus peers to recover a lost

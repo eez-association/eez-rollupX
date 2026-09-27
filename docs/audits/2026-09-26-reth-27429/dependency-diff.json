@@ -1,0 +1,687 @@
+{
+  "eez_source": "4e9486cf859d38f7348dbca192d552a3ddb97aac",
+  "reth_source": "git+https://github.com/paradigmxyz/reth?rev=444e867155c2a7a4c028e479ca7201b0b6871579#444e867155c2a7a4c028e479ca7201b0b6871579",
+  "reth_package_count": 102,
+  "registry_changes": [
+    {
+      "name": "alloy-consensus",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-consensus-any",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-eip8141",
+      "before": null,
+      "after": "0.1.1"
+    },
+    {
+      "name": "alloy-eips",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-genesis",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-network",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-network-primitives",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-provider",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-admin",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-anvil",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-any",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-beacon",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-debug",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-engine",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-eth",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-mev",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-trace",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-rpc-types-txpool",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-signer-local",
+      "before": "2.4.2",
+      "after": "2.5.0"
+    },
+    {
+      "name": "alloy-trie",
+      "before": "0.9.5",
+      "after": "0.9.7"
+    },
+    {
+      "name": "ark-ff",
+      "before": "0.6.0",
+      "after": "0.3.0"
+    },
+    {
+      "name": "ark-ff",
+      "before": "0.6.0",
+      "after": "0.4.2"
+    },
+    {
+      "name": "ark-ff",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "ark-ff-asm",
+      "before": "0.6.0",
+      "after": "0.3.0"
+    },
+    {
+      "name": "ark-ff-asm",
+      "before": "0.6.0",
+      "after": "0.4.2"
+    },
+    {
+      "name": "ark-ff-asm",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "ark-ff-macros",
+      "before": "0.6.0",
+      "after": "0.3.0"
+    },
+    {
+      "name": "ark-ff-macros",
+      "before": "0.6.0",
+      "after": "0.4.2"
+    },
+    {
+      "name": "ark-ff-macros",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "ark-serialize",
+      "before": "0.6.0",
+      "after": "0.3.0"
+    },
+    {
+      "name": "ark-serialize",
+      "before": "0.6.0",
+      "after": "0.4.2"
+    },
+    {
+      "name": "ark-serialize",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "ark-std",
+      "before": "0.6.0",
+      "after": "0.3.0"
+    },
+    {
+      "name": "ark-std",
+      "before": "0.6.0",
+      "after": "0.4.0"
+    },
+    {
+      "name": "ark-std",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "base64",
+      "before": "0.22.1",
+      "after": "0.21.7"
+    },
+    {
+      "name": "block-buffer",
+      "before": "0.12.0",
+      "after": "0.10.4"
+    },
+    {
+      "name": "core-foundation",
+      "before": "0.10.1",
+      "after": "0.9.4"
+    },
+    {
+      "name": "cpufeatures",
+      "before": "0.3.0",
+      "after": "0.2.17"
+    },
+    {
+      "name": "crypto-common",
+      "before": "0.2.1",
+      "after": "0.1.7"
+    },
+    {
+      "name": "darling",
+      "before": "0.24.1",
+      "after": "0.23.0"
+    },
+    {
+      "name": "darling_core",
+      "before": "0.24.1",
+      "after": "0.23.0"
+    },
+    {
+      "name": "darling_macro",
+      "before": "0.24.1",
+      "after": "0.23.0"
+    },
+    {
+      "name": "digest",
+      "before": "0.11.3",
+      "after": "0.9.0"
+    },
+    {
+      "name": "digest",
+      "before": "0.11.3",
+      "after": "0.10.7"
+    },
+    {
+      "name": "embedded-io",
+      "before": "0.6.1",
+      "after": "0.4.0"
+    },
+    {
+      "name": "fastrlp",
+      "before": "0.4.0",
+      "after": "0.3.1"
+    },
+    {
+      "name": "foldhash",
+      "before": "0.2.0",
+      "after": "0.1.5"
+    },
+    {
+      "name": "getrandom",
+      "before": "0.4.2",
+      "after": "0.2.17"
+    },
+    {
+      "name": "getrandom",
+      "before": "0.4.2",
+      "after": "0.3.4"
+    },
+    {
+      "name": "hashbrown",
+      "before": "0.17.1",
+      "after": "0.12.3"
+    },
+    {
+      "name": "hashbrown",
+      "before": "0.17.1",
+      "after": "0.13.2"
+    },
+    {
+      "name": "hashbrown",
+      "before": "0.17.1",
+      "after": "0.14.5"
+    },
+    {
+      "name": "hashbrown",
+      "before": "0.17.1",
+      "after": "0.15.5"
+    },
+    {
+      "name": "hashbrown",
+      "before": "0.17.1",
+      "after": "0.16.1"
+    },
+    {
+      "name": "indexmap",
+      "before": "2.14.0",
+      "after": "1.9.3"
+    },
+    {
+      "name": "itertools",
+      "before": "0.14.0",
+      "after": "0.10.5"
+    },
+    {
+      "name": "itertools",
+      "before": "0.14.0",
+      "after": "0.13.0"
+    },
+    {
+      "name": "jni",
+      "before": "0.22.4",
+      "after": "0.21.1"
+    },
+    {
+      "name": "jni-sys",
+      "before": "0.4.1",
+      "after": "0.3.1"
+    },
+    {
+      "name": "keccak",
+      "before": "0.2.0",
+      "after": "0.1.6"
+    },
+    {
+      "name": "lru",
+      "before": "0.18.5",
+      "after": "0.16.4"
+    },
+    {
+      "name": "mach2",
+      "before": "0.6.0",
+      "after": "0.5.0"
+    },
+    {
+      "name": "phf",
+      "before": "0.14.0",
+      "after": "0.13.1"
+    },
+    {
+      "name": "phf_generator",
+      "before": "0.14.0",
+      "after": "0.13.1"
+    },
+    {
+      "name": "phf_macros",
+      "before": "0.14.0",
+      "after": "0.13.1"
+    },
+    {
+      "name": "phf_shared",
+      "before": "0.14.0",
+      "after": "0.13.1"
+    },
+    {
+      "name": "prettyplease",
+      "before": "0.3.0",
+      "after": "0.2.37"
+    },
+    {
+      "name": "proptest-derive",
+      "before": "0.8.0",
+      "after": "0.7.0"
+    },
+    {
+      "name": "r-efi",
+      "before": "6.0.0",
+      "after": "5.3.0"
+    },
+    {
+      "name": "rand",
+      "before": "0.10.1",
+      "after": "0.8.6"
+    },
+    {
+      "name": "rand",
+      "before": "0.10.1",
+      "after": "0.9.4"
+    },
+    {
+      "name": "rand_chacha",
+      "before": "0.9.0",
+      "after": "0.3.1"
+    },
+    {
+      "name": "rand_core",
+      "before": "0.10.1",
+      "after": "0.6.4"
+    },
+    {
+      "name": "rand_core",
+      "before": "0.10.1",
+      "after": "0.9.5"
+    },
+    {
+      "name": "reqwest",
+      "before": "0.13.3",
+      "after": "0.12.28"
+    },
+    {
+      "name": "reth-codecs",
+      "before": "0.7.1",
+      "after": "0.8.1"
+    },
+    {
+      "name": "reth-codecs-derive",
+      "before": "0.7.1",
+      "after": "0.8.1"
+    },
+    {
+      "name": "reth-primitives-traits",
+      "before": "0.7.1",
+      "after": "0.8.1"
+    },
+    {
+      "name": "reth-rpc-traits",
+      "before": "0.7.1",
+      "after": "0.8.1"
+    },
+    {
+      "name": "reth-zstd-compressors",
+      "before": "0.7.1",
+      "after": "0.8.1"
+    },
+    {
+      "name": "ripemd",
+      "before": "0.2.0",
+      "after": "0.1.3"
+    },
+    {
+      "name": "rustc_version",
+      "before": "0.4.1",
+      "after": "0.2.3"
+    },
+    {
+      "name": "rustc_version",
+      "before": "0.4.1",
+      "after": "0.3.3"
+    },
+    {
+      "name": "rustls-platform-verifier",
+      "before": "0.7.0",
+      "after": "0.5.3"
+    },
+    {
+      "name": "schemars",
+      "before": "1.2.1",
+      "after": "0.9.0"
+    },
+    {
+      "name": "secp256k1",
+      "before": "0.31.1",
+      "after": "0.30.0"
+    },
+    {
+      "name": "secp256k1-sys",
+      "before": "0.11.0",
+      "after": "0.10.1"
+    },
+    {
+      "name": "semver",
+      "before": "1.0.28",
+      "after": "0.9.0"
+    },
+    {
+      "name": "semver",
+      "before": "1.0.28",
+      "after": "0.11.0"
+    },
+    {
+      "name": "semver-parser",
+      "before": "0.10.3",
+      "after": "0.7.0"
+    },
+    {
+      "name": "send_wrapper",
+      "before": "0.6.0",
+      "after": "0.4.0"
+    },
+    {
+      "name": "sha2",
+      "before": "0.11.0",
+      "after": "0.10.9"
+    },
+    {
+      "name": "sha3",
+      "before": "0.11.0",
+      "after": "0.10.9"
+    },
+    {
+      "name": "syn",
+      "before": "3.0.6",
+      "after": "1.0.109"
+    },
+    {
+      "name": "syn",
+      "before": "3.0.6",
+      "after": "2.0.117"
+    },
+    {
+      "name": "thiserror",
+      "before": "2.0.18",
+      "after": "1.0.69"
+    },
+    {
+      "name": "thiserror-impl",
+      "before": "2.0.18",
+      "after": "1.0.69"
+    },
+    {
+      "name": "toml_datetime",
+      "before": "1.1.1+spec-1.1.0",
+      "after": "0.7.5+spec-1.1.0"
+    },
+    {
+      "name": "uint",
+      "before": "0.10.0",
+      "after": "0.9.5"
+    },
+    {
+      "name": "untrusted",
+      "before": "0.9.0",
+      "after": "0.7.1"
+    },
+    {
+      "name": "webpki-root-certs",
+      "before": "1.0.7",
+      "after": "0.26.11"
+    },
+    {
+      "name": "webpki-roots",
+      "before": "1.0.7",
+      "after": "0.26.11"
+    },
+    {
+      "name": "windows",
+      "before": "0.62.2",
+      "after": "0.61.3"
+    },
+    {
+      "name": "windows-collections",
+      "before": "0.3.2",
+      "after": "0.2.0"
+    },
+    {
+      "name": "windows-core",
+      "before": "0.62.2",
+      "after": "0.61.2"
+    },
+    {
+      "name": "windows-future",
+      "before": "0.3.2",
+      "after": "0.2.1"
+    },
+    {
+      "name": "windows-link",
+      "before": "0.2.1",
+      "after": "0.1.3"
+    },
+    {
+      "name": "windows-numerics",
+      "before": "0.3.1",
+      "after": "0.2.0"
+    },
+    {
+      "name": "windows-result",
+      "before": "0.4.1",
+      "after": "0.3.4"
+    },
+    {
+      "name": "windows-strings",
+      "before": "0.5.1",
+      "after": "0.4.2"
+    },
+    {
+      "name": "windows-sys",
+      "before": "0.61.2",
+      "after": "0.45.0"
+    },
+    {
+      "name": "windows-sys",
+      "before": "0.61.2",
+      "after": "0.52.0"
+    },
+    {
+      "name": "windows-sys",
+      "before": "0.61.2",
+      "after": "0.59.0"
+    },
+    {
+      "name": "windows-sys",
+      "before": "0.61.2",
+      "after": "0.60.2"
+    },
+    {
+      "name": "windows-targets",
+      "before": "0.53.5",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows-targets",
+      "before": "0.53.5",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows-threading",
+      "before": "0.2.1",
+      "after": "0.1.0"
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_aarch64_gnullvm",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_aarch64_msvc",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_i686_gnu",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_i686_gnu",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_i686_gnullvm",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_i686_msvc",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_i686_msvc",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_x86_64_gnu",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_x86_64_gnullvm",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "before": "0.53.1",
+      "after": "0.42.2"
+    },
+    {
+      "name": "windows_x86_64_msvc",
+      "before": "0.53.1",
+      "after": "0.52.6"
+    },
+    {
+      "name": "winnow",
+      "before": "1.0.3",
+      "after": "0.7.15"
+    },
+    {
+      "name": "wit-bindgen",
+      "before": "0.57.1",
+      "after": "0.51.0"
+    }
+  ]
+}
