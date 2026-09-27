@@ -930,7 +930,7 @@ mod tests {
     fn cold_proof_seed_cannot_permanently_block_the_first_observation() {
         let mut a = attempt(30, 0, false, None);
         a.available = Duration::from_millis(1490);
-        a.proof_estimate = Duration::from_millis(1000);
+        a.proof_estimate = Duration::from_secs(1);
         a.deadline = PipelineDeadline::new(
             RollupTiming::new(5000, 1000, 1000, 1500),
             BundleTarget::Exact {
