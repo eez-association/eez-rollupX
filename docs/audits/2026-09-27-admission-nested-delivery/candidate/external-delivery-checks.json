@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-09-27T14:59:45.249972+00:00",
+  "historical_post": [
+    {
+      "post_batch_hash": "0xaf78e7be60be27381f75ae4f3a1e5644775bfa73fde6a8a1b762d36adc400cef",
+      "block": 23255411,
+      "receipt_gas": 109117,
+      "external_receipt_matches": true
+    }
+  ],
+  "omitted_produced_targets": [
+    {
+      "candidate_id": "1-1790519293103:1:18",
+      "block": 23255428,
+      "hash": "0x6acb52f12faea987c6be292131ab227b5644aa6551c4ff6985e8a91e9e9d6a43",
+      "parent_hash": "0x32c0693975ed2c33e5dcb018686c6ea67912f5fa7aff8b1fc29a9c71feff89a1",
+      "gas_used": 0,
+      "transactions": 0,
+      "external_block_matches": true
+    },
+    {
+      "candidate_id": "1-1790519293103:1:32",
+      "block": 23255441,
+      "hash": "0x6b851b152e6dbaa20d37f4aa203b490da978a125c488268b9e0140d6e3d3a6de",
+      "parent_hash": "0x250c6d3608853fc4136349c368abad1b1bf0163b9d3c1d7ced6a9362fa30f81a",
+      "gas_used": 0,
+      "transactions": 0,
+      "external_block_matches": true
+    }
+  ]
+}

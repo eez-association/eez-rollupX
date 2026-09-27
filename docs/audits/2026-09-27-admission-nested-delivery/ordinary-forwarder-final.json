@@ -1,0 +1,9 @@
+{
+  "local_requests": 55418,
+  "forwarded_raw_transactions": 1397,
+  "upstream_rate_limits": 0,
+  "errors": 2396,
+  "error_types": {
+    "BrokenPipeError": 2396
+  }
+}

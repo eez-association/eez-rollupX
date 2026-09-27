@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `9c11c1a` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-reserve-7`. All 870 sources settled in 24 source-bearing postBatches (25 total with ordinary history), versus 28 previously; all 770 semantic jobs and 50 selected native process cases passed. Canonical receipts and live Grafana fields were checked. Local checks, exclusions and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
+| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `aa515c8` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-input-8`. All 870 sources settled in 25 source-bearing postBatches (26 total with ordinary history), versus 24 previously; all 770 semantic jobs and 50 selected native cases passed. Packing did not improve in this comparison. Canonical receipts and live Grafana fields were checked. Local checks, exclusions, the unrelated tooling flake and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
@@ -718,3 +718,28 @@ error, gas cutoffs and acknowledged omissions. No wire/storage migration or
 protocol change is intended; old binaries can ignore additive observations.
 
 Evidence: [nested-input and delivery follow-up](../audits/2026-09-27-admission-nested-delivery/README.md).
+
+### Fixed admission overhead follow-up (recommended, not implemented)
+
+The deployed gas margin is 5% (`EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=500`), although
+the code default remains 20%. Its separate fixed admission reserve is 600,000
+gas. In the latest wave, full sizing added at most 122,808 gas to the incremental
+projection. A smaller fixed allowance would cover that cohort, but one/two-blob
+observations do not establish coverage for larger history or calldata floors.
+
+Replace the fixed allowance with candidate-dependent ABI framing, leading
+anchor/root commitments, bounded proof placeholder and metadata sizing. Keep
+the configured final gas margin and final ordered execution at the signed
+limits. Account for root stitching changing nonzero calldata bytes, dynamic
+array offsets, blob indices, active calldata-floor rules, and revocation of
+shape discounts. Use existing sizing paths without adding repeated KZG or
+full-prefix encoding to every admission attempt. Retain a conservative fallback
+where exact incremental evidence is unavailable.
+
+Before rollout, compare the incremental bound with final full sizing over
+empty/history-heavy, maximum-entry/blob, nested, reverted, unsupported-shape,
+discount-boundary and fork-floor cases. Verify that lower planning overhead
+does not introduce full-projection failures or loss of complete groups. A live
+comparison must show whether extra admission capacity reduces source posts;
+released gas alone is not a throughput result. The broader companion scan
+reserves remain a larger measured source of unused block capacity.

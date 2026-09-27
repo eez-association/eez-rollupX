@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-09-27T14:48:05.099687+00:00",
+  "panel": 3,
+  "checks": [
+    {
+      "family": "revertCounter",
+      "attempt_rows": 21,
+      "canonical_rows": 1,
+      "receipt_coverage": "available",
+      "canonical_receipt_gas": 133749,
+      "companion_estimate_gas": 271695
+    },
+    {
+      "family": "multi-call-nested",
+      "attempt_rows": 14,
+      "canonical_rows": 1,
+      "receipt_coverage": "available",
+      "canonical_receipt_gas": 239410,
+      "companion_estimate_gas": 433783
+    },
+    {
+      "family": "counter",
+      "attempt_rows": 8,
+      "canonical_rows": 1,
+      "receipt_coverage": "available",
+      "canonical_receipt_gas": 131744,
+      "companion_estimate_gas": 142741
+    }
+  ]
+}

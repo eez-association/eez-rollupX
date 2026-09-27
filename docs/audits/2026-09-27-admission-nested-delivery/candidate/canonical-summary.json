@@ -1,0 +1,51 @@
+{
+  "checked_at": "2026-09-27T14:47:13.562752+00:00",
+  "source_count": 870,
+  "canonical_by_layer": {
+    "L1": 520,
+    "L2": 350
+  },
+  "moved_source_heights": 0,
+  "source_window_seconds": 172.541,
+  "sources_per_second": 5.042279805959163,
+  "postings_with_sources": 25,
+  "sources_per_post": [
+    36,
+    36,
+    46,
+    51,
+    31,
+    33,
+    37,
+    39,
+    36,
+    9,
+    52,
+    50,
+    38,
+    20,
+    17,
+    18,
+    25,
+    32,
+    47,
+    38,
+    37,
+    28,
+    42,
+    54,
+    18
+  ],
+  "first_l1_block": 23255412,
+  "last_l1_block": 23255442,
+  "skipped_slots_between_first_last": 2,
+  "produced_blocks_between_first_last": 31,
+  "post_batch_gas_total": 177509959,
+  "bulk_send_to_canonical_settlement_ms": {
+    "p50": 71673.0,
+    "p95": 161673.0,
+    "max": 171673,
+    "send_duration_ms": 1238,
+    "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+  }
+}

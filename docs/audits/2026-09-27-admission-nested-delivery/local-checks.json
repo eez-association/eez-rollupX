@@ -1,0 +1,63 @@
+{
+  "source_revision": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+  "checks": [
+    {
+      "result": "pass with existing manual diagnostic ignored",
+      "local_log": "artifacts/admission-nested-delivery/composer-corrected-parent.log",
+      "sha256": "a695c541e190efb8906f0be91f79326f66c285511772ee0d91a8ef9974236d3b",
+      "reproduction_command": "cargo +1.94.0 test --locked -p eez-composer --lib"
+    },
+    {
+      "result": "pass",
+      "local_log": "artifacts/admission-nested-delivery/l1-first.log",
+      "sha256": "27564804216fa5067db034af9b9b02bd513b7515e77ee2cd0fba53c5538724e6",
+      "reproduction_command": "cargo +1.94.0 test --locked -p eez-l1 --lib"
+    },
+    {
+      "result": "pass",
+      "local_log": "artifacts/admission-nested-delivery/gas-cancun-final.log",
+      "sha256": "232ba8e07b779491a02e28e58036d5bba6399dfade14a75bfd9fc76bfec6730b",
+      "reproduction_command": "forge test --root contracts --match-contract PostBatchGasPins --evm-version cancun"
+    },
+    {
+      "result": "pass",
+      "local_log": "artifacts/admission-nested-delivery/gas-prague-final.log",
+      "sha256": "47e00c0add0517850d26ec69ec0869516c34960e458fb140b67bf1c5fb842aa9",
+      "reproduction_command": "forge test --root contracts --match-contract PostBatchGasPins --evm-version prague"
+    },
+    {
+      "result": "pass",
+      "local_log": "artifacts/admission-nested-delivery/contracts-osaka-final.log",
+      "sha256": "2f1466aa09634651316dc19d873ca4ee30db72b46ddd7391996a1e4b50fe7942",
+      "reproduction_command": "forge test --root contracts --evm-version osaka"
+    },
+    {
+      "result": "pass",
+      "local_log": "artifacts/admission-nested-delivery/clippy-corrected.log",
+      "sha256": "f1346769a0ea729d9b0f0b64141411cecde818baafdcabbea5b765584f954d28",
+      "reproduction_command": "cargo +1.94.0 clippy --locked --workspace --all-targets -- -D warnings"
+    },
+    {
+      "result": "flaky-result = fail",
+      "local_log": "artifacts/admission-nested-delivery/tooling-first.log",
+      "sha256": "199302e67f00e356b400e1656a6db3c7573bb9dd040be6999ea2416bd5a3f860",
+      "reproduction_command": "python3 -m unittest discover -s scripts/ci/tests -v"
+    },
+    {
+      "result": "diagnostic retry pass; first run remains failure",
+      "local_log": "artifacts/admission-nested-delivery/tooling-diagnostic-retry.log",
+      "sha256": "f91e0904504d7a3560d742581c07a10afa20301230b8451d652204b470a5a63b",
+      "reproduction_command": "single diagnostic retry of test_all_workers_follow_discovered_inventory"
+    },
+    {
+      "result": "pass",
+      "checked_after_runtime_changes": true,
+      "reproduction_command": "cargo +1.94.0 fmt --all --check"
+    },
+    {
+      "result": "pass before evidence commit",
+      "reproduction_command": "git diff --check"
+    }
+  ],
+  "local_logs_available_in_other_checkouts": false
+}

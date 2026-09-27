@@ -1,0 +1,52 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742891904,
+    "sha256": "a57e516b088891a9370cc3416d3faa7e3f8417fe99976bdf23c9035c26fe0a0c"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632850448,
+    "sha256": "00267ab13c784b68c0acee644cf52600a259dbbefe56ae74bcf1fb664daf15eb"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558776,
+    "sha256": "fadc0d99975b13ef0ca3082d06953f24ca9c8b1e899588a6c66fb2273d443819"
+  },
+  {
+    "path": "target/debug/deps/dynamic_admission-6915341cab43fd8e",
+    "size_bytes": 453327760,
+    "sha256": "768f0d83f551143fa718ce0fee9d2e5984d6fc2771bb4f423e93ac9bff54a7ef"
+  },
+  {
+    "path": "target/debug/deps/partial_consumption-19b71bfaefd0d7bb",
+    "size_bytes": 452819576,
+    "sha256": "4ea438291d30665f7782c74d5a1a3f9fcc17b503a75c604cefb9cc5290ed12e3"
+  },
+  {
+    "path": "target/debug/deps/queue_liveness-4ea62ef70cb6cfab",
+    "size_bytes": 452376080,
+    "sha256": "697dc0a6b5d5d0556ded3bd8407ed951a67210508e58538943da107fc3d89179"
+  },
+  {
+    "path": "target/debug/deps/queue_reorg-4369b235ad4982f1",
+    "size_bytes": 452342040,
+    "sha256": "da6d9c78082d42cefd70b7feaba7f42ed1f77a6088f4d842cbd816bfb1a35378"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy-9661580098b414ac",
+    "size_bytes": 457185424,
+    "sha256": "b1d220b0ad4e4ca26f11c320fe17cd58dca749690209165b83da078b983214ad"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_cost-3580eea3e39b4668",
+    "size_bytes": 452893936,
+    "sha256": "49ac3ad3f571280b33eae1258b768c074330b30661b7bc530fd59995ef4547f2"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_gas-867cb4f57bea1329",
+    "size_bytes": 452647016,
+    "sha256": "71ad7e34eb5b82d8d4eac5ee0316bc1034baa5801faafd85ec061bda66293e34"
+  }
+]

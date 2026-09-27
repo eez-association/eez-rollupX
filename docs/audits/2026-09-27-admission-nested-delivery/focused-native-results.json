@@ -1,0 +1,68 @@
+{
+  "started_at": "2026-09-27T14:00:40.182581+00:00",
+  "source_revision": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+  "files": {
+    "crates/eez-composer/src/composer.rs": "56174efaee1496c39e5cf73412e7c8d291c7cded829c5093c04e267ff10eb190",
+    "crates/eez-composer/src/composer/admission.rs": "f67667f05ae5e127d3f0b19b9497241764855a2ea87f0eb7cb979240dc568b4b",
+    "crates/eez-composer/src/composer/gas.rs": "e0eaac00c6dc444e882846e0fc5dcda1c1accb877c4da2659fcda7879d6aae36",
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": "cc38f4a5979a270376a36daef68d27b1f3822004a411664f7577ef5fd8162726",
+    "scripts/builder-stub.py": "79718ddad08ab5d2e8e200eecd281cc72c1f535aab0af52ad177f27259635fcd"
+  },
+  "status": "finished",
+  "contracts": {
+    "exit_code": 0,
+    "command": [
+      "forge",
+      "build",
+      "--root",
+      "contracts"
+    ]
+  },
+  "focused-native": {
+    "exit_code": 0,
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "dynamic_admission",
+      "--test",
+      "settlement_policy_gas",
+      "--test",
+      "partial_consumption",
+      "--",
+      "--test-threads=1",
+      "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+      "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+    ]
+  },
+  "finished_at": "2026-09-27T14:10:17.335258+00:00",
+  "suites": [
+    {
+      "suite": "dynamic_admission",
+      "passed": 1,
+      "tests": [
+        "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay"
+      ]
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "passed": 1,
+      "tests": [
+        "gnosis_actual_companion_gas_reduces_whole_groups_before_proving"
+      ]
+    },
+    {
+      "suite": "partial_consumption",
+      "passed": 1,
+      "tests": [
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ]
+    }
+  ],
+  "log_sha256": "91a5a82225d2ecff94ca99e321474170e8211894c7b4a1acc11e79eaee4a0a06"
+}

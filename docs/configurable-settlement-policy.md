@@ -191,8 +191,9 @@ gas, separately measured L1 callback application gas (including reverted work),
 and bounded protocol overhead. Intercepted callbacks return their gas to the
 source caller, so source gas alone omits that work. Version 7 reserves 70,000 per
 root entry, 35,000 per callback, 25,000 per nested result row, 25,000 per nonzero
-revert span marker, and 2,300 per 32-byte input/result word. Nested input is
-conservatively charged at its 256-byte bound. Queue scans cost 2,600 per preceding
+revert span marker, and 2,300 per 32-byte input/result word. Version 8 prices
+validated nested input lengths with a four-word minimum (see the refinement
+below); version 7 charged every nested input at its 256-byte bound. Queue scans cost 2,600 per preceding
 deferred entry or 12,500 for a matching identity requiring root checks. These
 terms are checked against cold-frame fixtures at the pinned protocol revision;
 they are bounded admission estimates, not universal EVM gas guarantees.

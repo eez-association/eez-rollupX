@@ -1,0 +1,21 @@
+{
+  "canonical_postbatches": 25,
+  "canonical_sources": 870,
+  "sources_per_postbatch_mean": 34.8,
+  "capacity_deferrals_all_candidates": {
+    "l1_tx_gas_budget": 5912,
+    "l1_bundle_gas_budget": 3038
+  },
+  "capacity_deferrals_canonical_candidates": {
+    "l1_tx_gas_budget": 5178,
+    "l1_bundle_gas_budget": 2558
+  },
+  "candidates_accepting_work_after_capacity_deferral": 6,
+  "canonical_candidates_accepting_work_after_capacity_deferral": 5,
+  "canonical_sources_accepted_after_capacity_deferral": 7,
+  "fifo_bypassed_candidates": 12,
+  "companion_estimate_gas": 135141162,
+  "companion_receipt_gas": 73335075,
+  "all_companion_components_reconciled": true,
+  "all_capacity_deferrals_reconciled": true
+}
