@@ -1,6 +1,8 @@
 # Upstream Reth #27429 candidate
 
-Status: validation in progress for draft [PR #41](https://github.com/eduadiez/rollupX/pull/41).
+Status: local and CI migration validation passed for
+[PR #41](https://github.com/eduadiez/rollupX/pull/41). The protocol pin remains
+unchanged; the experimental protocol runner correction is a separate follow-up.
 
 The user authorized continuing with the upstream fix commit. Reth is pinned to
 `444e867155c2a7a4c028e479ca7201b0b6871579`, the merge of
@@ -259,7 +261,7 @@ approved a replacement from range 847–852 to 847–858, which is consistent wi
 this mechanism; its missing final receipt prevents direct attribution of that
 particular historical transaction.
 
-The [test-runner patch](protocol-safe-receipt.patch) makes full and staged L2
+The experimental [test-runner patch](protocol-safe-receipt.patch) makes full and staged L2
 verification wait for a current canonical receipt covered by the safe head.
 It retains the existing table fields, event policy, settlement checks and failed
 verdicts. Six mocked polling regressions passed, including moved/orphaned
@@ -276,8 +278,10 @@ runner, tests, CI step and documentation. Contract sources and compiler settings
 are unchanged. Its patch applies cleanly to the pinned revision and merges
 cleanly with `feature/events` at `edf592f`; the latter's additional contract
 changes are outside this migration. GitHub rejected both an organization-branch
-push and personal fork creation with HTTP 403. The patch is attached for review;
-the root protocol gitlink remains unchanged until the fix can be published.
+push and personal fork creation with HTTP 403. The patch is retained only as
+investigation evidence. The user subsequently chose to keep protocol changes
+outside this migration: publishing or adopting this patch is not a prerequisite.
+The root protocol gitlink remains `9d13218a355e7d543ca8a9927eea2962600b716d`.
 
 Separately, [CI run 36299583785](https://github.com/eduadiez/rollupX/actions/runs/36299583785)
 passed all lanes for implementation head `3893cfd`: lint, runtime production,
@@ -285,6 +289,12 @@ passed all lanes for implementation head `3893cfd`: lint, runtime production,
 scenarios with independent evidence. See [ci-3893cfd.json](ci-3893cfd.json).
 That run uses the original protocol runner and is a later passing observation;
 the earlier failure remains recorded.
+
+[CI run 36304470427](https://github.com/eduadiez/rollupX/actions/runs/36304470427)
+also passed all twelve jobs for evidence commit
+`f33e3b04d34f856b2331f9085ee5928cb88964c7`, including all eight native shards
+and Kurtosis with the unchanged protocol pin. The scope clarification below
+changes documentation only; that newer revision still needs its own CI result.
 
 ## Evidence and remaining acceptance
 
@@ -306,8 +316,11 @@ evidence. Earlier v2.6.0 evidence remains in the
 [previous audit](../2026-09-26-reth-v2.6-pr/README.md) and does not validate this
 candidate.
 
-Local and CI runtime validation passed. Publishing and adopting the separately
-validated protocol test correction remains pending because of repository access.
+Local and CI runtime validation passed with the existing protocol pin. The
+protocol runner correction is deferred to a separate follow-up. The known
+receipt-observation failure remains possible with the pinned runner; passing
+runs do not erase the controlled failure or the earlier CI failure. Migration
+review and the final revision's normal CI gate remain required.
 No existing network was upgraded and no release tag was promoted. Public
 Gnosis/Chiado operation and historical database migration/rollback are outside
 this fresh-network validation.

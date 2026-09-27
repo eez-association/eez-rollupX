@@ -221,6 +221,7 @@
     "upstream_target_commit": "edf592f5ef1e756f4168895cc42e348e15e866a3",
     "merge_tree_check": "clean; no upstream contract changes adopted",
     "publication": "Organization push and personal fork creation rejected by GitHub with HTTP 403; local commit and review patch only. Root protocol pin unchanged.",
+    "migration_scope": "User deferred protocol changes to a separate follow-up. This experimental patch is retained as investigation evidence, is not applied by the migration PR, and is not a prerequisite for migration review.",
     "anvil": {
       "passed": 36,
       "failed": 0,
