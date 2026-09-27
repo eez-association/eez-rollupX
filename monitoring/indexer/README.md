@@ -638,8 +638,9 @@ Sequence gaps are explicit; `finished` records the expected final sequence.
 Missing historical estimates and candidates that never reached simulation remain
 null. Check collector status and its last successful check before interpreting
 coverage. Preserve retained JSON logs and existing database checkpoints across
-restart. Old collectors ignore the new family; retaining additive tables/views
-on rollback is safe. Monitoring is operational history, not durable queue ownership.
+restart. Collectors predating the whole admission family ignore it; an
+admission-aware collector rejects unknown event kinds. Retain the upgraded
+collector and additive tables/views on Composer rollback. Monitoring is operational history, not durable queue ownership.
 
 Apply the additive views before loading the updated dashboard and Composer.
 Keep the upgraded indexer when rolling back Composer: PostgreSQL rejects an old

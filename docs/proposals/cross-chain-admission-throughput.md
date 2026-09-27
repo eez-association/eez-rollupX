@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation authorized by the user on 2026-09-26; implemented on `feat/cross-chain-admission-throughput`. Initial deployment was `b352124`; companion/storage follow-up `e57c7a5` used 33 postBatches versus 27 previously. The September 26 packing follow-up is deployed at `e5b2cde`: 870 sources settled in 28 postBatches and all 770 semantic jobs are validated, including 46 after correcting a verifier argument-size failure. Versioned behavior is documented in the settlement/RPC specifications. |
+| Design status | Implemented on `feat/cross-chain-admission-throughput`; local runtime `7fdb3fc` is deployed with policy `packing-minimum-check-3` and estimator `companion-storage-6`. The September 27 wave settled 870 sources in 26 postBatches and passed all 770 semantic jobs. Previous runtime `e5b2cde` needed 28 postBatches. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Existing local work | Chiado deployment runbook edits and the September 25 recovery/wave audit directories; preserve them. |
 | Related contracts | [Settlement policy](../configurable-settlement-policy.md), [original proposal](configurable-settlement-policy.md), [RPC failure handling](../../crates/eez-control-rpc/SPEC.md#6-failure-handling), [posting history](posting-lifecycle-history.md), [replacement design](skipped-slot-speculative-retry.md) |
-| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md) |
+| Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md); [September 27 refinement](../audits/2026-09-27-admission-refinement/README.md) |
 
 ## 1. Objective and evidence
 
@@ -197,6 +197,20 @@ with fallback to the already proved candidate under the same target deadline.
 This iteration tightens measured reserves and retains final exact execution;
 it does not add an extra proof cycle or simulate with proof validation bypassed.
 That extension remains a separate optimization with lifecycle tests required.
+
+**Completed September 27:** runtime `7fdb3fc` and the matching collector are
+locally deployed. All 48 selected native cases are validated, including eight
+after correcting stale version assertions in test-only commit `2d64c7d`.
+All 770 live semantic jobs passed. The wave used 26 postBatches for 870 sources,
+versus 28 previously; full gas-refusal simulations fell from 7,672 to 1,360,
+with 6,601 cheap refusals. Companion estimates fell from 2.298× to 1.977× actual
+gas overall, and the two multi-call families improved to 2.670× / 2.612×.
+Median preparation was 456 ms versus 483 ms. Grafana covers all 31 candidates
+and 9,007 source-attempt rows with explicit cheap-check bounds and nullable full
+estimates. Live state, block budgets and refundable prefunding differ; this is
+one observed comparison. See the [refinement audit](../audits/2026-09-27-admission-refinement/README.md)
+for exact images, initial failures/corrections, canonical reconciliation,
+cutoff details, gas tables and validation limits.
 
 #### September 26 follow-up: packing with a FIFO preference
 
@@ -549,9 +563,11 @@ remain authoritative and are not silently expanded.
 Upgrade additive collector/schema/dashboard support first, then the Composer
 producer and behavior changes after validation. Historical events keep null
 estimates; do not reconstruct missing admission values from receipts. Rollback
-can retain additive database tables and existing checkpoints; old collectors
-ignore the separate admission family, and old Composers resume old timing rules.
-No destructive migration or database reset is required.
+can retain additive database tables and existing checkpoints. Collectors predating
+the entire admission family ignore it; admission-aware collectors reject unknown
+event kinds, so retain the upgraded collector on Composer rollback. Older
+Composers resume their old timing rules. No destructive migration or database
+reset is required.
 
 For a future live rollout, follow the existing deployment runbooks, reconcile
 pending work before replacing the node, preserve logs and source identities, and

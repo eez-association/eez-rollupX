@@ -1,0 +1,47 @@
+[
+  {
+    "fork": "cancun",
+    "command": [
+      "forge",
+      "test",
+      "--root",
+      "contracts",
+      "--evm-version",
+      "cancun",
+      "--match-contract",
+      "PostBatchGasPinsTest",
+      "-vv"
+    ],
+    "exit_code": 0
+  },
+  {
+    "fork": "prague",
+    "command": [
+      "forge",
+      "test",
+      "--root",
+      "contracts",
+      "--evm-version",
+      "prague",
+      "--match-contract",
+      "PostBatchGasPinsTest",
+      "-vv"
+    ],
+    "exit_code": 0
+  },
+  {
+    "fork": "osaka",
+    "command": [
+      "forge",
+      "test",
+      "--root",
+      "contracts",
+      "--evm-version",
+      "osaka",
+      "--match-contract",
+      "PostBatchGasPinsTest",
+      "-vv"
+    ],
+    "exit_code": 0
+  }
+]

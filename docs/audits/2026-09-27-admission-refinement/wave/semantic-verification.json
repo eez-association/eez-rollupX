@@ -1,0 +1,32 @@
+{
+  "checked_at": "2026-09-27T09:04:08.450573+00:00",
+  "runtime_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+  "protocol_run": "20260927-083400",
+  "runner_exit_code": 0,
+  "semantic_jobs_passed": 770,
+  "semantic_jobs_failed": 0,
+  "jobs_with_complete_done_markers": 770,
+  "canonical_sources": 870,
+  "canonical_postbatches": 26,
+  "canonical_source_post_assignments_still_match": true,
+  "families": {
+    "counter": 100,
+    "counter-multi-tx": 50,
+    "counterL2": 100,
+    "multi-call-nested": 50,
+    "multi-call-nestedL2": 50,
+    "multi-call-twice": 50,
+    "multi-call-twiceL2": 50,
+    "nestedCounter": 50,
+    "nestedCounterL2": 50,
+    "reentrant": 20,
+    "revertCounter": 50,
+    "revertCounterL2": 50,
+    "revertFromOtherChain": 50,
+    "revertFromOtherChainL2": 50
+  },
+  "verify_phase_seconds": 884.993,
+  "verify_log_hash_inventory_sha256": "5773df4c3a24dadd79785cf67a1073194c722f320e7ec9835fed7240524f997d",
+  "full_live_independent_follower_replay": false,
+  "native_suites_include_independent_replay": true
+}

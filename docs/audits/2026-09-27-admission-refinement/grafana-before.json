@@ -1,0 +1,28 @@
+{
+  "checked_at": "2026-09-27T07:30:44.638406+00:00",
+  "from_ms": 1790465400000,
+  "to_ms": 1790467800000,
+  "panels": [
+    {
+      "id": 1,
+      "rows": 33,
+      "new_fields": [
+        "capacity_deferrals",
+        "fifo_bypassed",
+        "minimum_check_count",
+        "simulation_count"
+      ]
+    },
+    {
+      "id": 3,
+      "rows": 8771,
+      "new_fields": [
+        "capacity_check_basis",
+        "capacity_check_ms",
+        "companion_target_simulation_gas",
+        "minimum_entry_gas",
+        "source_outcome_reason"
+      ]
+    }
+  ]
+}

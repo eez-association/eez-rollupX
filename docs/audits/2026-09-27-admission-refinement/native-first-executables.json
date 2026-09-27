@@ -1,0 +1,22 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742783808,
+    "sha256": "afee36895b2a4c6de4b923c85c886afb2e8e0ff74b584689376ad297cae40e44"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632851488,
+    "sha256": "b66a7a99f1919297e300e7c24373e7d478f483bbe74b84c0c822df2f4bfdcd54"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558912,
+    "sha256": "bc02742d632c1bdeac5a57ccbb0f67971e85e8f84c6e4f79cd6d18a27b599dc5"
+  },
+  {
+    "path": "target/debug/deps/dynamic_admission-6915341cab43fd8e",
+    "size_bytes": 453226440,
+    "sha256": "43a292cd01b61440cc28592a03795d3aa5dc13ccd08052b7abc9cba2e30428a7"
+  }
+]

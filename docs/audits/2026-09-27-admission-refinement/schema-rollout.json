@@ -1,0 +1,8 @@
+{
+  "source_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+  "checked_at": "2026-09-27T07:29:11.879225+00:00",
+  "exit_code": 0,
+  "history_counts_before": "55231|7",
+  "history_counts_after": "55231|7",
+  "change": "Additive view extension for mounted dashboard; collector image upgrade precedes new producer"
+}
