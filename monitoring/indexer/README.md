@@ -724,6 +724,17 @@ cannot advance its checkpoint past it. Keep the upgraded collector and appended
 view columns on Composer rollback. Retain the JSON volume and checkpoints;
 no historical events are rewritten and missing estimates are not reconstructed.
 
+Policy `confirmed-failure-backoff-4` adds optional `submission_failure_streak`
+and `submission_backoff_threshold` to candidate `started` details. Grafana's
+preparation table reads them directly; historical and numeric-admission values
+remain null. The fifth consecutive qualifying failure first reduces selection;
+complete canonical source settlement resets the streak. This is distinct from
+per-source cumulative retry accounting. Estimator `companion-reserve-7` lowers
+bounded execution framing reserves while retaining version 6's posting storage
+model. Existing gas columns expose the changed values. These versions add no
+new event kind or schema; existing collectors accept them. Upgrade the dashboard
+for the new columns, preserve logs/checkpoints and keep it on Composer rollback.
+
 The optional details worker also enriches accepted inbound sources independently
 of registry events. It checks source receipts against the canonical posting's
 block and transaction order, then rechecks the block before saving. This fills

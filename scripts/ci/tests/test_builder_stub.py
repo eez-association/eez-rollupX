@@ -140,6 +140,17 @@ class BuilderControlTest(unittest.TestCase):
         self.assertEqual(self.forwarded, [{"jsonrpc": "2.0", "id": 1,
             "method": "eth_sendRawTransaction", "params": ["0x030102"]}])
 
+    def test_five_dropped_bundles_then_normal_delivery(self):
+        (self.directory / "drop-next.json").write_text(json.dumps({"remaining": 5}))
+        for index in range(5):
+            request = bundle("0x030" + str(index))
+            self.assertIn("bundleHash", self.send(request)["result"])
+            self.assertEqual(self.forwarded, [])
+            self.assertEqual(json.loads((self.directory / "dropped-bundle.json").read_text()), request)
+        self.assertFalse((self.directory / "drop-next.json").exists())
+        self.send(request)
+        self.assertEqual(self.forwarded, [request])
+
     def test_controlled_consensus_never_splits_a_multi_transaction_bundle(self):
         (self.directory / "single-transaction.json").write_text("{}")
         reply = self.send(bundle("0x030102", "0x0203"))

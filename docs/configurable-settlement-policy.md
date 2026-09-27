@@ -133,11 +133,27 @@ shared pipeline deadline permits it. Earlier capacity deferrals also remain owne
 if a later provider failure aborts the candidate. If a stale
 estimate blocks every group, the next opportunity makes a bounded probe under
 all resource/deadline checks. Canonically observed, charged exclusions or partial
-consumption in produced blocks retain submission backoff. A strict timestamp gap
+consumption in produced blocks increment an in-memory failure streak per rollup.
+Automatic admission preserves selection on failures one through four; the fifth
+and later consecutive qualifying failures halve the next submitted-group allowance
+(minimum one). Complete canonical settlement of a nonempty source batch resets
+this streak and any submission limit. Preparation success and relay acknowledgement
+do not reset it. Skipped targets and uncertain observations do not change it.
+Real pipeline deadline limits still apply immediately and are not cleared by
+canonical success. A strict timestamp gap
 between consecutive canonical headers proves the old target was never produced;
 that target cannot train capacity even if some of its sources completed in a
 replacement. Source dispositions and replacement ownership still reconcile
 independently. `admission.skipped_slot` records this distinction.
+
+Automatic submitted-attempt reconciliation permits six cumulative charged
+failures per source, allowing a smaller retry after the fifth exclusion. Numeric
+admission retains its three-failure limit. Prover/immediate relay rejection also
+retains its three-failure bound on the same cumulative source episode counter;
+switching failure paths never resets a source's counter. Only eligible unspent
+sources retry; spent nonces, partial consumption and dependent nonce eviction
+retain their existing dispositions. This is separate from the per-rollup
+consecutive admission streak. Both counters are in memory and lost on restart.
 
 The legacy deferred-entry gas model can discount six fixed storage words that
 are already nonzero in the exact canonical parent. It discounts 15,000 gas per
@@ -146,8 +162,9 @@ no such discount. The existing shape and 128-entry limits remain. Final full-ABI
 projection and exact signed-bundle native execution still validate gas and every
 intended effect. This is not a receipt-ratio discount.
 
-Estimator `companion-storage-6` (storage inventory introduced in
-`companion-storage-4`) inventories bounded retained callback and result storage.
+Estimator `companion-reserve-7` retains the `companion-storage-6` posting model
+(storage inventory introduced in `companion-storage-4`), which inventories
+bounded retained callback and result storage.
 For supported deferred entries it reserves 35,000 per entry, 8,000 per
 callback/result row, 3,000 per zero-to-zero storage word, and 6,000 per other
 written word. A nonzero new word whose canonical-parent value is zero or unknown
@@ -172,10 +189,10 @@ mapping slots. No writes in a speculative candidate earn reuse credit.
 These storage prices cover posting. Companion execution adds measured L1 source
 gas, separately measured L1 callback application gas (including reverted work),
 and bounded protocol overhead. Intercepted callbacks return their gas to the
-source caller, so source gas alone omits that work. Version 6 reserves 80,000 per
-root entry, 40,000 per callback, 30,000 per nested result row, 25,000 per nonzero
-revert span marker, and 2,500 per 32-byte input/result word. Nested input is
-conservatively charged at its 256-byte bound. Queue scans cost 3,000 per preceding
+source caller, so source gas alone omits that work. Version 7 reserves 70,000 per
+root entry, 35,000 per callback, 25,000 per nested result row, 25,000 per nonzero
+revert span marker, and 2,300 per 32-byte input/result word. Nested input is
+conservatively charged at its 256-byte bound. Queue scans cost 2,600 per preceding
 deferred entry or 12,500 for a matching identity requiring root checks. These
 terms are checked against cold-frame fixtures at the pinned protocol revision;
 they are bounded admission estimates, not universal EVM gas guarantees.
@@ -206,7 +223,8 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`packing-minimum-check-3` identifies the scheduling behavior; it retains the FIFO
+`confirmed-failure-backoff-4` identifies five-failure submission tolerance; it
+retains the capacity minimum checks of `packing-minimum-check-3` and the FIFO
 preference of version 2. Historical `shared-deadline-1` events retain their former
 FIFO count semantics. Version 3 checks a minimum contribution before source
 execution: 70,000 per outbound entry or 65,000 per inbound entry, zero calldata/
@@ -218,6 +236,16 @@ of actual execution. A miss retains the source without charging an attempt and
 blocks its nonce dependants, while independent sources remain eligible. Empty
 candidates still run normal simulation/classification. Cheap checks do not train
 execution timing samples. No execution estimate is cached across changed state.
+
+Version 4 candidate `started` records add nullable `submission_failure_streak`
+and `submission_backoff_threshold` details, displayed in Grafana's preparation
+table. Numeric admission leaves these null. Existing collectors accept these
+details without a schema change; historical candidates remain null. Version 7
+uses the existing gas fields. Upgrading or downgrading Composer changes future
+admission and in-memory retry behavior only; mixed-version signers/followers
+retain the same protocol contract and historical replay. Preserve monitoring
+history and checkpoints on rollback. A restart still requires clients to
+reconcile and potentially resubmit unsettled work.
 
 Deploy the additive collector/schema/dashboard before the new Composer. Collectors
 that understand admission events but predate `source_capacity_check` reject that

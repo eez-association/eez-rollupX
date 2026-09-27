@@ -28,6 +28,7 @@ impl Candidate {
         selected: usize,
         queued: usize,
         selection_limit: (usize, Option<&'static str>),
+        submission_failures: Option<u32>,
         rebuild_of: Option<String>,
     ) -> Self {
         static SESSION: OnceLock<String> = OnceLock::new();
@@ -51,7 +52,7 @@ impl Candidate {
             context: json!({"version":1,"candidate_id":id,"chain_id":chain_id,
                 "registry":registry,"rollup_id":rollup_id,"l2_parent":parent,
                 "target_block":block,"target_timestamp":timestamp,"rebuild_of":rebuild_of,
-                "policy_version":"packing-minimum-check-3","estimator_version":"companion-storage-6"}),
+                "policy_version":"confirmed-failure-backoff-4","estimator_version":"companion-reserve-7"}),
             id,
             sequence: AtomicU64::new(0),
             started: Instant::now(),
@@ -60,7 +61,9 @@ impl Candidate {
         candidate.emit(
             "started",
             json!({"queued":queued,"selected":selected,
-            "selection_limit":selection_limit.0,"selection_limit_reason":selection_limit.1}),
+            "selection_limit":selection_limit.0,"selection_limit_reason":selection_limit.1,
+            "submission_failure_streak":submission_failures,
+            "submission_backoff_threshold":submission_failures.map(|_| crate::composer::SUBMISSION_BACKOFF_THRESHOLD)}),
         );
         candidate
     }
@@ -114,6 +117,7 @@ mod tests {
                 40,
                 100,
                 (20, Some("submission_backoff")),
+                Some(5),
                 parent,
             )
         };

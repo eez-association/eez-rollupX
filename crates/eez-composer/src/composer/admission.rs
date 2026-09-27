@@ -18,6 +18,11 @@ use crate::{
     settlement_policy::index::DaOverhead,
 };
 
+use super::SUBMISSION_BACKOFF_THRESHOLD;
+// The fifth charged exclusion must leave room for its reduced retry. Prover
+// rejection keeps its existing, smaller episode bound in composer.rs.
+pub(super) const MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS: u32 = SUBMISSION_BACKOFF_THRESHOLD + 1;
+
 #[derive(Clone, Copy, Debug)]
 struct Sample {
     groups: usize,
@@ -73,6 +78,7 @@ impl Sample {
 pub(super) struct AutomaticAdmission {
     sample: Option<Sample>,
     retry_limit: Option<SelectionLimit>,
+    pub submission_failures: u32,
     timings: Arc<PipelineTimings>,
 }
 
@@ -93,17 +99,35 @@ impl SelectionLimit {
 }
 
 impl AutomaticAdmission {
-    /// Relay rejection, exclusion or partial consumption can expose a limit
-    /// absent from the local gas/blob model. Canonical reconciliation decides
-    /// which users retry; only shrink their next preparation selection here.
-    pub fn submission_failed(&mut self, submitted: usize) -> usize {
+    /// Only charged, canonically confirmed incomplete settlement trains this
+    /// counter. An isolated omission does not establish a capacity problem.
+    /// Keep the streak across preparation/dispatch, resetting on canonical
+    /// completion. Source retry ownership and its cumulative budget are separate.
+    pub fn submission_failed(&mut self, submitted: usize) -> Option<usize> {
+        if submitted == 0 {
+            return None;
+        }
+        self.submission_failures = self.submission_failures.saturating_add(1);
+        if self.submission_failures < SUBMISSION_BACKOFF_THRESHOLD {
+            return None;
+        }
         let limit = SelectionLimit {
             count: (submitted / 2).max(1),
             reason: "submission_backoff",
         };
         let limit = self.retry_limit.map_or(limit, |old| old.tighter(limit));
         self.retry_limit = Some(limit);
-        limit.count
+        Some(limit.count)
+    }
+
+    pub fn submission_completed(&mut self) {
+        self.submission_failures = 0;
+        if self
+            .retry_limit
+            .is_some_and(|limit| limit.reason == "submission_backoff")
+        {
+            self.retry_limit = None;
+        }
     }
 
     fn limit(&self, queued: usize, available: Duration) -> usize {
@@ -127,6 +151,7 @@ impl AutomaticAdmission {
             available,
             selected: self.limit(queued, available),
             selection_limit_reason: self.retry_limit.map(|limit| limit.reason),
+            submission_failures: self.submission_failures,
             previous: self.sample,
             deadline,
             timings: Arc::clone(&self.timings),
@@ -252,6 +277,7 @@ pub(super) struct Attempt {
     available: Duration,
     pub selected: usize,
     pub selection_limit_reason: Option<&'static str>,
+    pub submission_failures: u32,
     previous: Option<Sample>,
     pub deadline: Option<PipelineDeadline>,
     pub timings: Arc<PipelineTimings>,
@@ -729,6 +755,7 @@ mod tests {
             available: Duration::from_secs(1),
             selected,
             selection_limit_reason: None,
+            submission_failures: 0,
             previous: prepared,
             deadline: None,
             timings: Arc::default(),
@@ -792,13 +819,63 @@ mod tests {
     }
 
     #[test]
+    fn confirmed_failures_wait_for_fifth_before_backoff() {
+        let mut state = AutomaticAdmission::default();
+        for failure in 1..=5 {
+            let _ = state.submission_failed(80);
+            assert_eq!(
+                state.limit(100, Duration::from_secs(1)),
+                if failure < 5 { 100 } else { 40 },
+                "confirmed failure {failure}"
+            );
+            if failure < 5 {
+                // A complete preparation does not establish canonical success.
+                state.finish(&attempt(100, 80, false, Some(sample(80, 100))));
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_success_resets_streak_but_not_deadline_limits() {
+        let mut state = AutomaticAdmission::default();
+        assert_eq!(state.submission_failed(0), None);
+        assert_eq!(state.submission_failures, 0);
+        for _ in 0..4 {
+            assert_eq!(state.submission_failed(80), None);
+        }
+        state.submission_completed();
+        assert_eq!(state.submission_failures, 0);
+        for _ in 0..4 {
+            assert_eq!(state.submission_failed(80), None);
+        }
+        assert_eq!(state.submission_failed(80), Some(40));
+        assert_eq!(state.submission_failed(40), Some(20));
+        state.submission_completed();
+        assert_eq!(state.limit(100, Duration::from_secs(1)), 100);
+        let late = attempt(100, 30, false, Some(sample(30, 100)));
+        late.window_exhausted();
+        state.finish(&late);
+        state.submission_completed();
+        assert_eq!(state.limit(100, Duration::from_secs(1)), 15);
+        assert_eq!(
+            state.retry_limit.unwrap().reason,
+            "pipeline_deadline_backoff"
+        );
+        state.submission_failures = u32::MAX;
+        assert_eq!(state.submission_failed(10), Some(5));
+        assert_eq!(state.submission_failures, u32::MAX);
+    }
+
+    #[test]
     fn capacity_miss_followed_by_infrastructure_abort_does_not_train_a_probe_limit() {
         let mut state = AutomaticAdmission::default();
         let a = attempt(100, 3, true, None);
         a.progress.lock().unwrap().completed = false;
         state.finish(&a);
         assert_eq!(state.limit(100, Duration::from_secs(1)), 100);
-        state.submission_failed(80);
+        for _ in 0..SUBMISSION_BACKOFF_THRESHOLD {
+            let _ = state.submission_failed(80);
+        }
         state.finish(&a);
         assert_eq!(state.limit(100, Duration::from_secs(1)), 40);
         assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
@@ -821,10 +898,14 @@ mod tests {
         fair.progress.lock().unwrap().fifo_bypassed = true;
         state.finish(&fair);
         assert!(state.retry_limit.is_none());
-        state.submission_failed(80);
+        for _ in 0..SUBMISSION_BACKOFF_THRESHOLD {
+            let _ = state.submission_failed(80);
+        }
         assert_eq!(state.retry_limit.unwrap().count, 40);
         assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
-        state.submission_failed(40);
+        for _ in 0..SUBMISSION_BACKOFF_THRESHOLD {
+            let _ = state.submission_failed(40);
+        }
         assert_eq!(state.retry_limit.unwrap().reason, "submission_backoff");
         let mut a = attempt(20, 20, false, Some(sample(20, 100)));
         a.selection_limit_reason = Some(state.retry_limit.unwrap().reason);
@@ -890,7 +971,9 @@ mod tests {
         state.finish(&attempt(30, 10, true, Some(sample(10, 250))));
         assert_eq!(state.limit(20, Duration::from_millis(500)), 20);
         // A failed submission still backs off, even after fair local progress.
-        state.submission_failed(10);
+        for _ in 0..SUBMISSION_BACKOFF_THRESHOLD {
+            let _ = state.submission_failed(10);
+        }
         assert_eq!(state.limit(20, Duration::from_millis(500)), 5);
     }
 
@@ -908,7 +991,9 @@ mod tests {
         failed_rpc.window_exhausted();
         state.finish(&failed_rpc);
         assert_eq!(state.limit(1000, Duration::from_secs(1)), 32);
-        state.submission_failed(32);
+        for _ in 0..SUBMISSION_BACKOFF_THRESHOLD {
+            let _ = state.submission_failed(32);
+        }
         assert_eq!(state.limit(1000, Duration::from_secs(1)), 16);
     }
 
@@ -922,6 +1007,7 @@ mod tests {
                     let mut state = AutomaticAdmission {
                         sample: Some(sample(62, 477)),
                         retry_limit: None,
+                        submission_failures: 0,
                         timings: Arc::default(),
                     };
                     let mut failed = attempt(selected, 60, true, prepared);
@@ -1097,6 +1183,7 @@ mod tests {
         let mut state = AutomaticAdmission {
             sample: Some(sample(1, 2000)),
             retry_limit: None,
+            submission_failures: 0,
             timings: Arc::default(),
         };
         let mut blocked = attempt(state.limit(100, Duration::from_millis(500)), 0, true, None);
@@ -1590,6 +1677,7 @@ mod tests {
         let mut state = AutomaticAdmission {
             sample: Some(sample(64, 100)),
             retry_limit: None,
+            submission_failures: 0,
             timings: Arc::default(),
         };
         let a = attempt(64, 0, false, None);

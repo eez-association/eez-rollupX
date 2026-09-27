@@ -43,9 +43,10 @@ pub struct HeldTx {
     /// Failed settlement attempts so far. A proof rejection or bundle drop
     /// may be caused by a poison transaction even when compose-time simulation
     /// accepted it. Recovery increments this once per failed episode and
-    /// EVICTS the tx (loud ERROR, user resubmits) at
-    /// [`MAX_BUNDLE_ATTEMPTS`](crate::composer::MAX_BUNDLE_ATTEMPTS),
-    /// so one candidate set cannot fail every postBatch forever.
+    /// evicts the tx at the applicable bound: three for prover/immediate relay
+    /// rejection and numeric admission, six for automatic canonical settlement
+    /// failures (allowing a reduced retry after the fifth exclusion). Switching
+    /// failure paths preserves this counter. Eviction requires resubmission.
     pub attempts: u32,
     /// Recovered L1 sender. Together with `nonce`, lets the pool and
     /// the eviction path keep each sender's nonce chain CONTIGUOUS:

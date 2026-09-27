@@ -441,7 +441,8 @@ counter; transport retries within an episode do not each charge it. At
 `MAX_BUNDLE_ATTEMPTS = 3`, it evicts exhausted candidates and their same-sender,
 same-direction nonce suffixes, including queued and in-flight reservations.
 Independent senders and the opposite direction remain eligible. Invalid actionable
-hints receive the same bounded opaque-rejection handling. A potentially valid
+hints receive the same bounded opaque-rejection handling. Automatic submitted-attempt reconciliation has a separate six-failure bound
+described in §8; both paths use the same cumulative source counter. A potentially valid
 candidate may be evicted to restore progress and then requires resubmission.
 Construction failures, skipped slots, and source-condition waits (including
 insufficient escrow) do not charge this counter. Repeated funding checks cannot
@@ -626,6 +627,14 @@ one indivisible replay group.
 
 Eligible omitted users return to the held pool in FIFO order. A conclusive
 settlement failure charges each eligible user's bounded retry policy once.
+Automatic admission permits six cumulative charged failures at reconciliation,
+so five consecutive confirmed incomplete settlements can trigger a smaller
+sixth attempt. Numeric admission retains three. Prover/immediate relay rejection
+keeps the §6.1 bound on the same source counter; no transition resets that counter.
+The per-rollup admission streak resets only after complete canonical settlement
+of a nonempty source batch, and skips uncertain or canonically skipped targets.
+Admission preparation, acknowledgement and progress elsewhere are not source
+completion. See the [admission policy](../../docs/configurable-settlement-policy.md).
 Infrastructure-only failures do not charge that policy. Only an exhausted,
 still-unspent source nonce creates a dependent nonce gap. The pool transfers
 ownership and reservations under one lock. Historical attempts cannot

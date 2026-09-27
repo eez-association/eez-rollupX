@@ -4563,11 +4563,18 @@ impl CrossChainWorld {
 
     /// Accept the next bundle at the relay without including it on L1.
     pub fn drop_next_bundle(&self) -> Result<()> {
+        self.drop_next_bundles(1)
+    }
+
+    /// Acknowledge a bounded series of bundles without including them, allowing
+    /// process tests to observe consecutive canonical exclusions and recovery.
+    pub fn drop_next_bundles(&self, count: u32) -> Result<()> {
+        anyhow::ensure!((1..=6).contains(&count), "drop count must be in 1..=6");
         std::fs::write(
             self.builder_stub
                 .capture_dir()
                 .join("control/drop-next.json"),
-            b"{}",
+            serde_json::to_vec(&serde_json::json!({"remaining": count}))?,
         )?;
         Ok(())
     }

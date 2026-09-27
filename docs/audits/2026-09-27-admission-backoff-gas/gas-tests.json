@@ -1,0 +1,29 @@
+{
+  "baseline_cases": 27,
+  "candidate_cases": 45,
+  "minimum_ratio": 1.0863176483188657,
+  "matched_cases_with_lower_reserve": 27,
+  "forks": {
+    "cancun": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "local_log": "artifacts/admission-backoff-gas/gas-cancun.log",
+      "sha256": "6debd2b2721f2afa7a43ea4b782830a6a64132f44028a0176f6d8363378e6b69"
+    },
+    "prague": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "local_log": "artifacts/admission-backoff-gas/gas-prague.log",
+      "sha256": "1b625d858b3d788cbc3bbd87335678af30f90ca4d8d7b699a2295747fa708920"
+    },
+    "osaka": {
+      "passed": 51,
+      "failed": 0,
+      "skipped": 0,
+      "local_log": "artifacts/admission-backoff-gas/gas-osaka.log",
+      "sha256": "4ba50679c950798a0c382dec7be2e90685da081b5f1d050a6d7a494044bcb756"
+    }
+  }
+}

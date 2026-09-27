@@ -147,6 +147,16 @@ contract PostBatchGasPinsTest is Test {
     uint256 private constant DEFERRED_STORAGE_FRESH_WORD_GAS = 17_000;
     uint256 private constant DEFERRED_STORAGE_ITEM_GAS = 8_000;
 
+    // Companion protocol reserves mirror composer/gas.rs. Application work is
+    // separately charged in production; these cold-frame fixtures include it.
+    uint256 private constant COMPANION_ROOT_GAS = 70_000;
+    uint256 private constant COMPANION_CALLBACK_GAS = 35_000;
+    uint256 private constant COMPANION_ROW_GAS = 25_000;
+    uint256 private constant COMPANION_WORD_GAS = 2_300;
+    uint256 private constant COMPANION_SCAN_GAS = 2_600;
+    uint256 private constant COMPANION_MATCHING_SCAN_GAS = 12_500;
+    uint256 private constant COMPANION_REVERT_SPAN_GAS = 25_000;
+
     uint64 private constant ROLLUP_ID = 1;
     uint256 private constant PROVER_KEY = 0xA11CE;
     bytes32 private constant GENESIS_ROOT = keccak256("postbatch gas pin genesis");
@@ -1042,6 +1052,16 @@ contract PostBatchGasPinsTest is Test {
         _companionRung(127, 0, 256, false, true);
     }
 
+    function testCompanionResultStorageBoundaries() public {
+        uint256[8] memory sizes = [uint256(0), 1, 31, 32, 33, 64, 100, 256];
+        for (uint256 i = 0; i < sizes.length; i++) {
+            _companionRung(1, 0, sizes[i], false, false);
+            _companionRung(1, 4, sizes[i], true, false);
+        }
+        _companionRung(128, 0, 0, false, true);
+        _companionRung(128, 4, 256, true, false);
+    }
+
     function testCompanionNestedRows() public {
         for (uint256 rows = 1; rows <= 4; rows++) {
             _companionNestedRung(1, rows, 0, false, false);
@@ -1114,9 +1134,10 @@ contract PostBatchGasPinsTest is Test {
         uint256 used = probe.measureOutcome(proxy, abi.encode(count), true, _nonzeroBytes(256));
         // Includes this fixture's application work, so the production estimate's
         // separately added callback simulation only increases the allowance.
-        uint256 reserve = 80_000 + 40_000 * (1 + callbacks) + 30_000 * rows + 2_500
-            * (8 + 8 * (1 + callbacks) + 10 * rows) + (repeatedHash ? 12_500 : 3_000) * (count - 1)
-            + (revertedSpan ? 25_000 * (1 + callbacks) : 0);
+        uint256 reserve = COMPANION_ROOT_GAS + COMPANION_CALLBACK_GAS * (1 + callbacks) + COMPANION_ROW_GAS * rows
+            + COMPANION_WORD_GAS * (8 + 8 * (1 + callbacks) + 10 * rows)
+            + (repeatedHash ? COMPANION_MATCHING_SCAN_GAS : COMPANION_SCAN_GAS) * (count - 1)
+            + (revertedSpan ? COMPANION_REVERT_SPAN_GAS * (1 + callbacks) : 0);
         console.log("nested companion rows / callbacks", rows, callbacks);
         console.log("  execution gas / reserve", used, reserve);
         assertLe(used, reserve, "bounded nested companion protocol reserve");
@@ -1175,8 +1196,9 @@ contract PostBatchGasPinsTest is Test {
             if (i > skip) {
                 current = entry.rollupUpdates[0].newRoot;
                 inputs[i - skip - 1] = input;
-                reserve += 80_000 + 40_000 * 4 + 2_500 * 40 + (repeatedHash ? 12_500 : 3_000) * (i - 1)
-                    + (span > 0 ? 25_000 : 0);
+                reserve += COMPANION_ROOT_GAS + COMPANION_CALLBACK_GAS * 4 + COMPANION_WORD_GAS * 40
+                    + (repeatedHash ? COMPANION_MATCHING_SCAN_GAS : COMPANION_SCAN_GAS) * (i - 1)
+                    + (span > 0 ? COMPANION_REVERT_SPAN_GAS : 0);
             }
         }
         _measure(eez, batch, root);
@@ -1247,8 +1269,9 @@ contract PostBatchGasPinsTest is Test {
         }
         uint256 used = probe.measureOutcome(proxy, abi.encode(count), !reverted, _nonzeroBytes(resultBytes));
         // Caller frame excludes source intrinsic/calldata/application gas.
-        uint256 reserve = 80_000 + 40_000 * calls + 2_500 * ((resultBytes + 31) / 32 + 8 * calls)
-            + (repeatedHash ? 12_500 : 3_000) * (count - 1);
+        uint256 reserve = COMPANION_ROOT_GAS + COMPANION_CALLBACK_GAS * calls + COMPANION_WORD_GAS
+            * ((resultBytes + 31) / 32 + 8 * calls) + (repeatedHash ? COMPANION_MATCHING_SCAN_GAS : COMPANION_SCAN_GAS)
+            * (count - 1);
         console.log("companion calls / skipped", calls, count - 1);
         console.log("  execution gas / reserve", used, reserve);
         assertLe(used, reserve, "bounded companion protocol reserve");

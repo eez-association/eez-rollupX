@@ -345,9 +345,11 @@ impl std::fmt::Debug for CrossChainWiring {
     }
 }
 
-/// Failed settlement attempts before a held user_tx is evicted as probable
-/// poison. This covers both relay drops and proof requests that still fail
-/// after their retry episode. After this many failures, the transaction and
+/// Failed prover/immediate relay rejection episodes before a held user_tx is
+/// evicted as probable poison. Automatic admission's canonical settlement
+/// failures use `MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS` so a reduced retry can follow
+/// the fifth exclusion. Both paths charge the same cumulative source counter.
+/// After the applicable bound is reached, the transaction and
 /// its nonce-dependent suffix are evicted so they cannot block the FIFO queue
 /// indefinitely.
 ///
@@ -358,6 +360,8 @@ impl std::fmt::Debug for CrossChainWiring {
 /// backstops is the residual: L1 state that moves between compose time and the
 /// bundle's inclusion block.
 pub const MAX_BUNDLE_ATTEMPTS: u32 = 3;
+
+pub(crate) const SUBMISSION_BACKOFF_THRESHOLD: u32 = 5;
 
 /// Stand-in for `proofs[0]` when sizing before the prover runs (ECDSA is 65 B).
 const MAX_PROOF_BYTES: usize = 128;
@@ -2317,22 +2321,36 @@ where
             at,
             &outcomes,
             charge,
-            MAX_BUNDLE_ATTEMPTS,
+            if self.inner.max_user_txs_per_bundle.is_none() {
+                admission::MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS
+            } else {
+                MAX_BUNDLE_ATTEMPTS
+            },
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
-        if self.inner.max_user_txs_per_bundle.is_none()
-            && charge
-            && submission_backoff_required(&outcomes, skipped_slot)
-        {
-            let next_selection_max = self.inner.automatic_admission[&rollup_id]
-                .lock()
-                .unwrap()
-                .submission_failed(attempt.txs.len());
-            event!(name: "eez.composer.admission.submission_backoff", Level::INFO,
-                event_name = "eez.composer.admission.submission_backoff", rollup_id,
-                submitted_groups = attempt.txs.len(), next_selection_max,
-                "canonical reconciliation left incomplete sources; reducing the next automatic selection");
-        } else if skipped_slot && !outcomes.is_empty() {
+        if self.inner.max_user_txs_per_bundle.is_none() && !outcomes.is_empty() && !skipped_slot {
+            let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
+            if !submission_backoff_required(&outcomes, false) {
+                automatic.submission_completed();
+            } else if charge {
+                let next_selection_max = automatic.submission_failed(attempt.txs.len());
+                event!(name: "eez.composer.admission.submission_failure", Level::INFO,
+                    event_name = "eez.composer.admission.submission_failure", rollup_id,
+                    submitted_groups = attempt.txs.len(),
+                    consecutive_failures = automatic.submission_failures,
+                    backoff_threshold = SUBMISSION_BACKOFF_THRESHOLD,
+                    next_selection_max,
+                    "confirmed incomplete settlement recorded for automatic admission");
+                if let Some(next_selection_max) = next_selection_max {
+                    event!(name: "eez.composer.admission.submission_backoff", Level::INFO,
+                        event_name = "eez.composer.admission.submission_backoff", rollup_id,
+                        submitted_groups = attempt.txs.len(), next_selection_max,
+                        consecutive_failures = automatic.submission_failures,
+                        "repeated incomplete settlements; reducing the next automatic selection");
+                }
+            }
+        }
+        if skipped_slot && !outcomes.is_empty() {
             event!(name: "eez.composer.admission.skipped_slot", Level::INFO,
                 event_name = "eez.composer.admission.skipped_slot", rollup_id,
                 submitted_groups = attempt.txs.len(), target = ?attempt.dispatched_target,
@@ -2487,6 +2505,10 @@ where
                         .selection_limit_reason
                         .filter(|_| admission.selected < drained.len()),
                 ),
+                self.inner
+                    .max_user_txs_per_bundle
+                    .is_none()
+                    .then_some(admission.submission_failures),
                 previous.clone(),
             ));
             *previous = Some(candidate.id.clone());
@@ -7635,6 +7657,7 @@ mod tests {
                 4,
                 4,
                 (4, None),
+                Some(0),
                 None,
             );
             assert!(selection.consider(0));

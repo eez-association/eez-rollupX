@@ -124,12 +124,12 @@ pub(super) const MAX_SHAPED_ENTRIES: u64 = 128;
 // Cold protocol caller frames on Cancun/Prague/Osaka, including maximum queues,
 // reentrant rows and reverted spans. Application work is charged separately.
 // Matching stale identities retain more headroom because they read root pins.
-const COMPANION_ROOT_GAS: u64 = 80_000;
-const COMPANION_CALLBACK_GAS: u64 = 40_000;
-const COMPANION_ROW_GAS: u64 = 30_000;
-const COMPANION_WORD_GAS: u64 = 2_500;
+const COMPANION_ROOT_GAS: u64 = 70_000;
+const COMPANION_CALLBACK_GAS: u64 = 35_000;
+const COMPANION_ROW_GAS: u64 = 25_000;
+const COMPANION_WORD_GAS: u64 = 2_300;
 const COMPANION_REVERT_SPAN_GAS: u64 = 25_000;
-const COMPANION_SCAN_GAS: u64 = 3_000;
+const COMPANION_SCAN_GAS: u64 = 2_600;
 const COMPANION_MATCHING_SCAN_GAS: u64 = 12_500;
 
 /// Minimum contribution under every supported admission pricing path. This is
@@ -1520,9 +1520,9 @@ mod tests {
         e.returnData = Bytes::from(vec![0xa5; 100]);
         let one = std::slice::from_ref(&e);
         let reserve = p.companion_reserve(one).unwrap();
-        assert_eq!(reserve, 90_000);
+        assert_eq!(reserve, 79_200);
         let estimated = CompanionEstimate::bounded(40_000, 0, reserve, 200_000);
-        assert_eq!(estimated.gas, 130_000);
+        assert_eq!(estimated.gas, 119_200);
         assert_eq!(estimated.basis, "bounded_protocol");
         let capped = CompanionEstimate::bounded(40_000, 0, reserve, 100_000);
         assert_eq!(capped.gas, 100_000);
@@ -1539,11 +1539,11 @@ mod tests {
         e.proxyEntryHash = B256::repeat_byte(99);
         assert_eq!(
             p.companion_reserve(std::slice::from_ref(&e)),
-            Some(reserve + 3_000)
+            Some(reserve + 2_600)
         );
         assert_eq!(
             p.companion_reserve(&[e.clone(), e.clone()]),
-            Some(2 * (reserve + 3_000) + 12_500)
+            Some(2 * (reserve + 2_600) + 12_500)
         );
         assert!(p.companion_reserve(&vec![e.clone(); 5]).is_none());
         e.returnData = Bytes::from(vec![0; 257]);

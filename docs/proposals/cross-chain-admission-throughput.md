@@ -577,6 +577,43 @@ Deployment, wallet operations and live workloads are separate execution steps.
 
 ## 9. Additional opportunities after the first measurements
 
+### September 27 failure tolerance and companion reserves (accepted for implementation)
+
+The user requested delaying admission backoff until five errors and improving
+gas estimation. The latest verified wave had six produced-target exclusions,
+each immediately after a skipped target; immediate halving fragmented all six
+following posts. This correlation does not establish the external omission cause.
+
+- Automatic admission counts consecutive canonically confirmed, charged
+  exclusions or incomplete settlements of nonempty source batches. Failures one
+  through four preserve selection; the fifth and later failures halve the next
+  submitted-group allowance. Complete canonical source settlement resets the
+  streak. Preparation, relay acknowledgement, skipped slots and inconclusive
+  observations neither increment nor reset it. Real pipeline deadline limits
+  continue to apply immediately.
+- Automatic submitted-attempt reconciliation permits six cumulative charged
+  failures per source, allowing the fifth failure's reduced retry to execute.
+  Keep the existing shared per-source episode counter and three-failure bound
+  for prover/immediate relay rejection, and for numeric admission. Each eligible
+  source is charged once; nonce-dependent eviction, late-original/replacement
+  ownership and partial consumption keep their existing rules.
+- Tighten only measured bounded companion execution reserves against the pinned
+  protocol. Retain complete-prefix scanning, matching-identity root checks,
+  fallback for unsupported shapes, signed start requirements, active network
+  budgets and final ordered native execution. Do not derive discounts from
+  average receipt ratios or assume inner success committed the queue cursor.
+- Record the failure streak and threshold in retained candidate observations
+  and Grafana. Version the changed scheduling and gas estimates. State is local
+  and in memory; there is no wire, protocol, storage or follower migration.
+
+Acceptance: reproduce immediate backoff at the baseline; test failures one
+through five, canonical success reset, uncertainty and skipped targets, bounded
+source retries and recovery of all sources. Measure companion fixture ladders
+on Cancun/Prague/Osaka, including nested/reverted/max-queue cases; run affected
+Composer and native admission/partial-consumption/reorg checks. Validate focused
+tests before local Chiado rollout and compare the same verified workload with
+the latest preparation wave. Complete broader applicable gates afterwards.
+
 ### September 27 preparation follow-up (accepted for implementation)
 
 The user requested preparation profiling and a shorter devnet iteration loop:

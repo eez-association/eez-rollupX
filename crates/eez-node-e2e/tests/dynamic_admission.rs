@@ -660,12 +660,12 @@ async fn single_sync_wave(
             .collect();
         assert_eq!(companion_estimates.len(), inbound_count as usize);
         for estimate in &companion_estimates {
-            assert_eq!(estimate["estimator_version"], "companion-storage-6");
+            assert_eq!(estimate["estimator_version"], "companion-reserve-7");
             let detail = &estimate["detail"];
             assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
             assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
             let reserve = detail["companion_protocol_reserve_gas"].as_u64().unwrap();
-            assert!(reserve >= 80_000);
+            assert!(reserve >= 70_000);
             assert_eq!(
                 detail["companion_estimate_gas"].as_u64().unwrap(),
                 detail["companion_sim_gas"].as_u64().unwrap()
@@ -698,7 +698,7 @@ async fn single_sync_wave(
                 "retained storage pricing must reach native settlement"
             );
             for estimate in estimates {
-                assert_eq!(estimate["estimator_version"], "companion-storage-6");
+                assert_eq!(estimate["estimator_version"], "companion-reserve-7");
                 assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
                 assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
             }
@@ -1053,7 +1053,16 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source() {
+async fn automatic_selection_preserves_capacity_after_one_exclusion() {
+    consecutive_exclusions(1).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_selection_backs_off_after_five_exclusions_and_retries_every_source() {
+    consecutive_exclusions(5).await;
+}
+
+async fn consecutive_exclusions(failures: u32) {
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
         .await
         .unwrap();
@@ -1121,7 +1130,7 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
     .await
     .unwrap();
     let cursor = world.node.signal_cursor().unwrap();
-    world.drop_next_bundle().unwrap();
+    world.drop_next_bundles(failures).unwrap();
     let mut hashes = Vec::new();
     for i in 1..=4 {
         hashes.push(send(&world, chain, nonce + i, i + 1).await);
@@ -1158,33 +1167,53 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
         "the learned one-blob allowance must admit all four queued sources"
     );
     let events = world.node.signals_since(cursor).unwrap();
-    let backoff = events
+    let observed: Vec<_> = events
         .iter()
-        .position(|e| {
-            e.name == "eez.composer.admission.submission_backoff"
-                && e.fields["submitted_groups"] == 4
-                && e.fields["next_selection_max"] == 2
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "expected measured submission backoff{}",
-                world.settlement_diagnostics()
-            )
-        });
+        .enumerate()
+        .filter(|(_, e)| e.name == "eez.composer.admission.submission_failure")
+        .collect();
+    assert_eq!(
+        observed.len(),
+        failures as usize,
+        "{}",
+        world.settlement_diagnostics()
+    );
+    for (index, (_, event)) in observed.iter().enumerate() {
+        assert_eq!(event.fields["submitted_groups"], 4);
+        assert_eq!(event.fields["consecutive_failures"], index + 1);
+        assert_eq!(event.fields["backoff_threshold"], 5);
+        if index < 4 {
+            assert!(
+                event
+                    .fields
+                    .get("next_selection_max")
+                    .is_none_or(serde_json::Value::is_null)
+            );
+        } else {
+            assert_eq!(event.fields["next_selection_max"], 2);
+        }
+    }
+    let backoffs: Vec<_> = events
+        .iter()
+        .filter(|e| e.name == "eez.composer.admission.submission_backoff")
+        .collect();
+    assert_eq!(backoffs.len(), usize::from(failures == 5));
+    let backoff = observed.last().unwrap().0;
+    let expected = if failures == 5 { 2 } else { 4 };
     let next = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.sync_slot.drain")
         .unwrap();
     assert_eq!(
-        next.fields["selection_limit"], 2,
-        "backoff must affect actual runtime selection"
+        next.fields["selection_limit"], expected,
+        "only the fifth confirmed failure may reduce runtime selection"
     );
     let prepared = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.admission.prepared")
         .unwrap();
     assert_eq!(
-        prepared.fields["accepted"], 2,
+        prepared.fields["accepted"], expected,
         "the composer must enforce the reduced limit on complete groups"
     );
 }
