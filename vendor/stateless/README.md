@@ -1,111 +1,26 @@
-# stateless
+# Stateless compatibility port
 
-[![CI status](https://github.com/eez-association/stateless/actions/workflows/ci.yml/badge.svg)][gh-ci]
-[![Telegram Chat][tg-badge]][tg-url]
+This directory contains the Stateless validator, trie implementations and EEZ's
+transaction-checkpoint regressions. The crates belong to the root EEZ workspace
+and use its `Cargo.lock`. Source revisions and compatibility changes are listed
+in [the vendor guide](../README.md).
 
-**Stateless Ethereum block validation using execution witnesses.**
-
-This EEZ fork is based on `paradigmxyz/stateless` commit
-`3d2fc174df31f5b0d5d4d831dc7e1607ea541531`. Its EEZ-specific extension
-returns the validated pre-state root, the recomputed and header-matched
-post-state root, and optional sparse transaction-state checkpoints from the
-same execution. Checkpoint selection, quotas, and exact returned-index checks
-remain caller responsibilities.
-
-[gh-ci]: https://github.com/eez-association/stateless/actions/workflows/ci.yml
-[tg-badge]: https://img.shields.io/endpoint?color=neon&logo=telegram&label=chat&url=https%3A%2F%2Ftg.sumanjay.workers.dev%2Fparadigm%5Freth
-[tg-url]: https://t.me/paradigm_reth
-
-## What is stateless?
-
-`stateless` provides types and functions for validating Ethereum blocks without access to a full node's persistent database. Instead, it relies on pre-generated witness data that proves the specific state accessed during block execution.
-
-It is built on top of [reth](https://github.com/paradigmxyz/reth) and [revm](https://github.com/bluealloy/revm), and is designed to be `no_std` compatible for use in constrained environments such as zkVMs.
-
-## How it works
-
-1. **Witness verification** — The execution witness is verified against the parent block's state root using a sparse Merkle Patricia trie.
-2. **Block execution** — The block is executed in-memory using a witness-backed database (`WitnessDatabase`).
-3. **Consensus validation** — Post-execution consensus checks are performed.
-4. **State root computation** — The post-state root is calculated and compared against the block header.
-
-## Usage
-
-The primary entry point is `stateless_validation`:
-
-```rust
-use stateless::{stateless_validation, ExecutionWitness};
-
-let validation = stateless_validation(
-    block,
-    public_keys,
-    witness,
-    chain_spec,
-    evm_config,
-)?;
-
-let block_hash = validation.block_hash;
-let pre_state_root = validation.pre_state_root;
-let post_state_root = validation.post_state_root;
-let output = validation.execution_output;
-let block_access_list = validation.block_access_list;
-```
-
-Callers that need execution-boundary state roots can use the opt-in recovered
-block API:
-
-```rust
-use stateless::stateless_validation_recovered_with_state_checkpoints;
-
-let output = stateless_validation_recovered_with_state_checkpoints(
-    recovered_block,
-    witness,
-    chain_spec,
-    evm_config,
-    &[0, 3],
-)?;
-
-let checkpoints = output.checkpoints.transaction_state_checkpoints;
-```
-
-Each checkpoint retains its transaction index and the cumulative state root
-after that transaction, before post-block changes. Consequently, the last
-requested transaction root need not equal the validated block's final root.
-Indices must be strictly increasing and in bounds. The checkpoint API rebuilds
-a trie only for each requested boundary and is intentionally separate from the
-cheaper validation-only API. Callers processing untrusted input must also cap
-the number of requested checkpoints; selecting indices avoids unnecessary work
-but does not itself impose an application-specific resource limit.
-
-## `no_std`
-
-The `stateless` crate is `#![no_std]` compatible and builds for the 64-bit RISC-V target (`riscv64im-unknown-none-elf`), making it suitable for use in zkVM environments. Because upstream dependencies currently require atomics, it must be built using the custom target specification provided in `targets/riscv64im-unknown-none-elf.json`.
-
-> **Note:** The build temporarily relies on the LLVM `lower-atomic` pass
-> to lower atomic instructions into non-atomic equivalents.
-
-## Running EF tests
-
-To run the Ethereum Foundation blockchain tests with stateless validation:
+Run from the repository root:
 
 ```bash
-# From the repository root:
-./scripts/run_ef_tests.sh default
-./scripts/run_ef_tests.sh zeth
+cargo +1.95.0 test --locked -p stateless -p tries -p zeth-mpt
+cargo +1.95.0 clippy --locked -p stateless -p tries -p zeth-mpt --all-targets -- -D warnings
 ```
 
-Or manually:
+The checkpoint API preserves upstream consensus and execution validation and
+returns roots at selected transaction boundaries. Callers must provide strictly
+increasing, bounded indices and apply their own quotas. A transaction checkpoint
+can precede post-block state changes and therefore need not equal the final root.
+The [fixture](crates/stateless/tests/fixtures/README.md) compares checkpoint roots
+with an independently recorded full-state oracle.
 
-```bash
-# From the repository root:
-./scripts/setup_ef_tests.sh
-EF_TEST_TRIE=default cargo test -p ef-tests --release --features "asm-keccak ef-tests"
-```
+The standalone Ethereum Foundation suite and RISC-V build scripts are omitted;
+see the [upstream repository at the imported revision](https://github.com/eez-association/stateless/tree/4fc3806bdd0e6b296c761ef4d4b260938365cf45)
+for those workflows. The local workspace validates EEZ's supported host build.
 
-## Contributing
-
-Contributions are welcome! Join the conversation in the [Telegram group][tg-url].
-
-## License
-
-Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
+Licensed under [Apache-2.0](LICENSE-APACHE) or [MIT](LICENSE-MIT).

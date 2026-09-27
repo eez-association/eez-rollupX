@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["vendor/stateless", "vendor/reth-gnosis", "vendor/gnosis-primitives"]
+exclude = ["vendor/reth-gnosis", "vendor/gnosis-primitives"]
 members = [
     "crates/eez-blob-codec",
     "crates/eez-composer",
@@ -19,6 +19,9 @@ members = [
     "crates/eez-prover",
     "crates/eez-prover-client",
     "crates/eez-testkit",
+    "vendor/stateless/crates/stateless",
+    "vendor/stateless/crates/tries",
+    "vendor/stateless/crates/zeth-mpt",
 ]
 
 [workspace.package]

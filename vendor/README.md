@@ -24,7 +24,9 @@ git apply --reverse --check vendor/patches/*.patch
 Runtime sources, manifests, tests and supplied licenses are retained. Upstream
 GitHub workflows, Gnosis deployment/vector-generation scripts and image build
 files, benchmark reports, and the two Gnosis lockfiles are omitted. EEZ uses the
-root `Cargo.lock`; Stateless keeps its own lockfile for standalone regressions.
+root `Cargo.lock`. The three Stateless crates are workspace members, so their
+library tests run with EEZ. Standalone EF/RISC-V tooling is omitted; checkpoint
+and trie regressions remain in the workspace.
 Upstream operational instructions remain available at the revisions above.
 
 The Stateless trie port incorporates `923f1b759c916b2b5e42c26fa3a55a8d0b820bc3`

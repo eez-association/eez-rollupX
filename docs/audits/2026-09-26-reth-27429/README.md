@@ -57,7 +57,7 @@ Executable hashes, image digests, tested merge commits, commands and exclusions
 are in the archived records below. All owned validation enclaves were dumped and
 removed; operator services and data were preserved.
 
-## Cleanup verification
+## First cleanup (`252b964`)
 
 The cleanup retains byte-identical contents for 340 Rust, Cargo manifest,
 shipping/Stateless lockfile and vendor fixture files. It also restores the
@@ -71,6 +71,28 @@ tooling suite ran 265 tests: **261 passed, 4 opt-in skips**. Full Rust and live
 Kurtosis suites were not repeated locally for this packaging/documentation
 cleanup; final-head CI remains required. Local check output is retained under
 `artifacts/reth-cleanup/`.
+
+## Stateless workspace consolidation
+
+The subsequent cleanup makes `stateless`, `tries` and `zeth-mpt` members of the
+EEZ workspace. Their separate workspace/lockfile and unused standalone EF and
+RISC-V tooling are removed. The root lockfile now covers their dev/optional
+dependencies too. Existing package versions and checksums are unchanged; the
+shipping dependency tree, including enabled features, is identical. All 296
+retained Rust source/test files are byte-identical to `252b964`.
+
+The initial offline resolution chose an older optional `rkyv` and failed the
+audit check. Carrying over the prior standalone lockfile's `rkyv` 0.8.18 and
+preserving existing shipping dependency edges corrected the consolidated lock.
+No advisory exceptions were added. The first failure remains in local logs.
+
+Verification used the final lockfile: **26 Stateless/trie/checkpoint tests**,
+workspace Clippy and formatting, and **261 Python tooling tests** passed
+(4 opt-in skips). Cargo deny/audit passed with the existing warnings. The exact
+`Dockerfile.runtime` package/target selection built locally in the host dev
+profile; release-artifact and Kurtosis validation remain the final CI gate.
+Vendor patches, documentation links and whitespace checks also passed.
+Commands and logs are local-only under `artifacts/reth-cleanup-2/`.
 
 ## Retained failures and limits
 

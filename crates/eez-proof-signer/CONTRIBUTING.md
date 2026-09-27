@@ -135,12 +135,12 @@ cargo test --package eez-proof-signer --locked
 RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --locked
 ```
 
-When changing the local dependency, verify its fixtures and trie tests using
-the dependency workspace:
+When changing the local dependency, verify its fixtures and trie tests from
+the repository root using the same workspace lockfile:
 
 ```bash
-cargo +1.95.0 test --manifest-path vendor/stateless/Cargo.toml --locked -p stateless -p tries
-cargo +1.95.0 clippy --manifest-path vendor/stateless/Cargo.toml --locked -p stateless --all-targets -- -D warnings
+cargo +1.95.0 test --locked -p stateless -p tries -p zeth-mpt
+cargo +1.95.0 clippy --locked -p stateless -p tries -p zeth-mpt --all-targets -- -D warnings
 ```
 
 After updating the dependency, rerun the signer checks above.

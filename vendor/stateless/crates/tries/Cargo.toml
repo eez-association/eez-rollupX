@@ -1,26 +1,37 @@
 [package]
 name = "tries"
+workspace = "../../../.."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
-homepage.workspace = true
-repository.workspace = true
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/paradigmxyz/stateless"
+repository = "https://github.com/paradigmxyz/stateless"
 description = "Trie abstractions and implementations for stateless validation"
 
-[lints]
-workspace = true
+[lints.rust]
+missing_debug_implementations = "warn"
+missing_docs = "warn"
+rust_2018_idioms = { level = "deny", priority = -1 }
+unreachable_pub = "warn"
+unused_must_use = "deny"
+
+[lints.clippy]
+disallowed_types = "deny"
+
+[lints.rustdoc]
+all = "warn"
 
 [dependencies]
-alloy-primitives.workspace = true
-alloy-rlp.workspace = true
-alloy-rpc-types-debug.workspace = true
-alloy-trie.workspace = true
-itertools = { workspace = true, optional = true }
-reth-trie-common.workspace = true
-reth-trie-sparse = { workspace = true, optional = true }
-revm-database-interface.workspace = true
-thiserror.workspace = true
+alloy-primitives = { version = "1.6.0", default-features = false, features = ["map-foldhash", "map-indexmap"] }
+alloy-rlp = { version = "0.3.13", default-features = false }
+alloy-rpc-types-debug = { version = "=2.5.0", default-features = false }
+alloy-trie = { version = "0.9.4", default-features = false }
+itertools = { version = "0.14", default-features = false, features = ["use_alloc"], optional = true }
+reth-trie-common = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
+reth-trie-sparse = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false, optional = true }
+revm-database-interface = { version = "43.0.0", default-features = false }
+thiserror = { version = "2.0", default-features = false }
 zeth-mpt = { path = "../zeth-mpt" }
 
 [features]
