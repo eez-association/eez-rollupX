@@ -74,3 +74,31 @@ evidence are required before concluding the live improvement is correct.
 Composer unit suite: 267 passed, one existing manual diagnostic ignored.
 Focused Composer Clippy passed with warnings denied. Broader tests, local image
 build, rollout and live measurements are pending.
+
+## Readiness correction
+
+The first unchanged readiness check rejected the next trial for a supposed
+0.201012662866298632 xDAI L1 funding shortfall. Inspection at the protocol pin
+showed that `_plan_funding` already funds only deficient workers, and
+`_topup_faucet` reserves gas only for nonempty funding chunks. The fork's staged
+preflight still assumed 770 empty wallets.
+
+The helper now reads balances under the existing wallet lock and applies the
+pinned calculation per chain. The same profile passes: L1 needs 520 worker
+top-ups and a 0.739265059018197372 xDAI faucet budget; L2 needs none. Existing
+source/faucet funds cover both. Worker targets remain 0.0033 xDAI and no extra
+poster transfer is required. Eight focused offline runner tests and Bash syntax
+checks passed. Retained before/after checks are local in
+`artifacts/admission-preparation/readiness-{before,corrected}.log`.
+
+## Focused process gate
+
+Five source-based native cases passed across `chained_interstate`,
+`dynamic_admission`, `partial_consumption`, and `settlement_policy_gas`:
+interdependent mixed-direction work, existing-proxy multi-call work, a Gnosis
+mixed wave, middle-group resumption, and independent packing after a gas refusal.
+These exercise real state/trie construction, signer validation and follower
+replay. All selected cases ran once; no failure or ignored case was counted as a
+pass. The test run started before the implementation commit, so its original
+checkout field names `2b9ca04`; recorded hashes of all three changed Rust files
+match committed candidate `6c171fdb3221a6d6183e113e9d05e4c7f657099b` exactly.

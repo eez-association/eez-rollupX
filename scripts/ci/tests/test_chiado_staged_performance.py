@@ -1,4 +1,5 @@
 """Exercise the runner's real profile boundary without keys, RPC or wallet use."""
+import ast
 import os
 from pathlib import Path
 import shlex
@@ -9,6 +10,37 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[3]
+
+
+class StagedFundingTest(unittest.TestCase):
+    def setUp(self):
+        source = (REPO / "scripts/run-chiado-staged-performance.sh").read_text()
+        python = source.split("python3 - <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        tree = ast.parse(python)
+        function = next(n for n in tree.body
+                        if isinstance(n, ast.FunctionDef) and n.name == "funding_requirement")
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(REPO), "exec"), namespace)
+        self.requirement = namespace["funding_requirement"]
+
+    def test_funded_pool_needs_no_faucet_reserve(self):
+        self.assertEqual(self.requirement([3300] * 770, 3300, 3300, 100), (0, 0))
+
+    def test_only_deficient_workers_count_and_chunk_boundary_is_exact(self):
+        target = 3_300_000_000_000_000
+        for deficient, chunks in [(1, 1), (100, 1), (101, 2)]:
+            balances = [target - 10] * deficient + [target] * (770 - deficient)
+            self.assertEqual(self.requirement(balances, target, target, 100),
+                             (10 * deficient + chunks * 5 * 10**16 + 10**17, deficient))
+
+    def test_floor_equal_or_above_skips_worker_even_below_target(self):
+        self.assertEqual(self.requirement([2000, 2500, 4000, 1999], 3300, 2000, 100),
+                         (1301 + 5 * 10**16 + 10**17, 1))
+
+    def test_empty_pool_retains_original_full_requirement(self):
+        self.assertEqual(self.requirement([0] * 770, 3_300_000_000_000_000,
+                                         3_300_000_000_000_000, 100),
+                         (3_041_000_000_000_000_000, 770))
 
 
 class StagedPerformanceConfigTest(unittest.TestCase):

@@ -1,0 +1,17 @@
+{
+  "checked_at": "2026-09-27T09:50:10.398311+00:00",
+  "from_ms": 1790498600000,
+  "to_ms": 1790498900000,
+  "panels": [
+    {
+      "id": 2,
+      "rows": 31,
+      "new_fields": [
+        "blob_preparation_ms",
+        "prefix_hash_executed_tx_count",
+        "prefix_hash_ms",
+        "witness_preparation_ms"
+      ]
+    }
+  ]
+}
