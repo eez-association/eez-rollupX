@@ -1,0 +1,62 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742870288,
+    "sha256": "d177dcf1da98caea78bee369ace6ee519cbccb59a25d3d82ba98017ddb5c6f67"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632851488,
+    "sha256": "b66a7a99f1919297e300e7c24373e7d478f483bbe74b84c0c822df2f4bfdcd54"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558912,
+    "sha256": "bc02742d632c1bdeac5a57ccbb0f67971e85e8f84c6e4f79cd6d18a27b599dc5"
+  },
+  {
+    "path": "target/debug/deps/chained_interstate-ed027780e7c0488f",
+    "size_bytes": 452704208,
+    "sha256": "f26b63dd8e08bac191659054dfef6c00ece8e7ed5931fe1296d8ccc8bece1284"
+  },
+  {
+    "path": "target/debug/deps/cross_chain-1d041981544c29be",
+    "size_bytes": 454611008,
+    "sha256": "28e44f799b85f9794bd35fc81ded18151e1db329a522caa83bd396dba10f8971"
+  },
+  {
+    "path": "target/debug/deps/dynamic_admission-6915341cab43fd8e",
+    "size_bytes": 453226408,
+    "sha256": "5f65e3d33e742e24677049d60f587b87da739b2d7294ea496f90176f4b1db55c"
+  },
+  {
+    "path": "target/debug/deps/partial_consumption-19b71bfaefd0d7bb",
+    "size_bytes": 452817968,
+    "sha256": "af5a3afab1b8eebfce8a7372a27cac4339ec894b861b57f7401d9beb20e4bdcd"
+  },
+  {
+    "path": "target/debug/deps/queue_liveness-4ea62ef70cb6cfab",
+    "size_bytes": 452374720,
+    "sha256": "8994f1138cc0edafc931bb78563d414ce2acc318b9431c989bd3dce391c4d4a7"
+  },
+  {
+    "path": "target/debug/deps/queue_reorg-4369b235ad4982f1",
+    "size_bytes": 452340672,
+    "sha256": "43bf061dae6d42039bd3c90c77b828c5f58c61c98d74348072250cd4cd3b5270"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy-9661580098b414ac",
+    "size_bytes": 457182056,
+    "sha256": "7872d5ebff21c0acd8bede0e1d5b0d24bc6e22b682f7b0faad60a3fc4a82d72b"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_cost-3580eea3e39b4668",
+    "size_bytes": 452892576,
+    "sha256": "573d7b4ccb8439c385549e74d5625941140e761c0235578f60b5bc564266cbda"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_gas-867cb4f57bea1329",
+    "size_bytes": 452645664,
+    "sha256": "8c406945b27e5cc1071d5c9898ab904dbf92152e9731b3704d0e94b45f1ba9e8"
+  }
+]

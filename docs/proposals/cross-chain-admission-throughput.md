@@ -615,6 +615,13 @@ thread does not remove its work. Reusing speculative results across changed
 prefixes, skipping verification, or treating receipt gas as a consensus budget
 is outside this change.
 
+Runtime `6c171fd` implements the prefix checkpoint and timing fields. Its verified
+870-source wave reduced mean preparation from 453 to 346 ms; end-to-end settlement
+was slower with more skipped/omitted targets and backoff. The
+[September 27 preparation audit](../audits/2026-09-27-admission-preparation/README.md)
+records the comparison, validation status and an accompanying monitoring query
+fix. KZG/prover overlap remains a follow-up, not part of this implementation.
+
 - Profile repeated prefix replay, witness reconstruction, duplicate encoding and
   the final two simulation passes. Reuse only immutable results tied to exact
   parent/target/batch identity; invalidate on changed input, fees where relevant,

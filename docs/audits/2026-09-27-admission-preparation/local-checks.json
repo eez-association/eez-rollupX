@@ -1,0 +1,105 @@
+{
+  "composer": {
+    "passed": 267,
+    "failed": 0,
+    "ignored": 1,
+    "log_sha256": "7e104dc882e44d4bb94ca0dae243009e84984e8aebabbaf49c34a0d35b1cb6c5",
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-composer",
+      "--lib"
+    ]
+  },
+  "focused_clippy": {
+    "exit_code": 0,
+    "log_sha256": "90b07d7c2178175a0da5b4a6321caec7b1ecea4a16f02dfc3d9fdd068e5ca0b8",
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "clippy",
+      "--locked",
+      "-p",
+      "eez-composer",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ]
+  },
+  "tooling": {
+    "run": 263,
+    "failed": 0,
+    "skipped": 4,
+    "skip_reasons": [
+      "opt-in real Docker payload",
+      "isolated Kurtosis resource probe",
+      "real native relocation",
+      "real Docker runtime fixture"
+    ],
+    "log_sha256": "01ba1e03051e33b5ad90748fb628852997c1d522fd362324a4613d59e5aba650",
+    "command": [
+      "python3",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "scripts/ci/tests",
+      "-v"
+    ]
+  },
+  "workspace_clippy": {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "source_revision": "698dee3a79817fff2b29c4b7d798899342ee5aa6",
+    "started_at": "2026-09-27T10:12:50.529875+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:13:41.454645+00:00",
+    "log_sha256": "a98f299d817409de2237a5561e6a8de5cbf3ca7a7f3427b3c2a81582bac175a5"
+  },
+  "baseline_window_recheck": {
+    "source_attribution_identical": true,
+    "post_attribution_identical": true,
+    "logs_sha256": "97e84c55a5fd85d4ae2292954ec54ddff00fc751d3fd956a695b6aa65b842699"
+  },
+  "semantic_workload": {
+    "passed": 770,
+    "failed": 0,
+    "not_verifiable": 0,
+    "log_sha256": "1ea27d5e82666939529ab8afeefa886950a8b9195da3b66f1f9f4dda1d6f1cf7"
+  },
+  "owned_resource_cleanup": {
+    "ordinary_forwarder": {
+      "local_requests": 56200,
+      "forwarded_raw_transactions": 1397,
+      "upstream_rate_limits": 0,
+      "errors": 2379,
+      "error_types": {
+        "BrokenPipeError": 2379
+      }
+    },
+    "disposable_postgresql": "removed after admission and recovery tests"
+  },
+  "format": {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "fmt",
+      "--all",
+      "--check"
+    ],
+    "exit_code": 0
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "old_refresh_statement_timeout_ms": 10000,
+  "old_full_history_diagnostic_timeout_ms": 60000,
+  "new_full_history_execution_ms": 264.284,
+  "wave_pending_old": 357,
+  "wave_pending_new": 357,
+  "missing_from_new": 0,
+  "extra_in_new": 0,
+  "equivalence_scope": "all pending source rows in the current 870-source wave; same read-only repeatable-read transaction",
+  "full_history_equivalence": "not established: old query hit 60-second diagnostic timeout",
+  "logs": {
+    "receipt-query-plan.log": "0878408cf2ac6b31780f3f0ae9cc164ebd5af7fd2946f0c954e1533242dbf48c",
+    "receipt-query-equivalence.log": "583ea6c2a0ab66cdf05f26aca17236c005c719781f2946f76e3a3022d869dca8",
+    "receipt-query-wave-equivalence.log": "c38e6b9ab4202539b83111cca4f43eba6bc4769e635d9bce0ec24a7d93c2be75"
+  }
+}

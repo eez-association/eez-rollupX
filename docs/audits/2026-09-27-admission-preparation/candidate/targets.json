@@ -1,0 +1,421 @@
+{
+  "outcomes": {
+    "skipped_slot": 7,
+    "produced_without_candidate": 6,
+    "canonical_candidate": 28
+  },
+  "accepted_sources_in_noncanonical_attempts": 458,
+  "limit": "Canonical observations distinguish skipped targets and omitted candidates; relay acknowledgment does not establish builder inclusion or its omission reason.",
+  "attempts": [
+    {
+      "candidate_id": "1-1790503713105:1:0",
+      "target_block": 23252605,
+      "target_time": "2026-09-27T10:08:35+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 522.926152,
+      "delivery_ms": 218.415965
+    },
+    {
+      "candidate_id": "1-1790503713105:1:1",
+      "target_block": 23252605,
+      "target_time": "2026-09-27T10:08:40+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 460,
+      "delivery_ms": 216.17732
+    },
+    {
+      "candidate_id": "1-1790503713105:1:2",
+      "target_block": 23252606,
+      "target_time": "2026-09-27T10:08:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 18,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 677.564253,
+      "delivery_ms": 208.632625
+    },
+    {
+      "candidate_id": "1-1790503713105:1:3",
+      "target_block": 23252607,
+      "target_time": "2026-09-27T10:08:50+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 872,
+      "delivery_ms": 173.35193700000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:4",
+      "target_block": 23252607,
+      "target_time": "2026-09-27T10:08:55+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 854,
+      "delivery_ms": 173.248086
+    },
+    {
+      "candidate_id": "1-1790503713105:1:5",
+      "target_block": 23252608,
+      "target_time": "2026-09-27T10:09:00+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 18,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1049,
+      "delivery_ms": 168.25072699999998
+    },
+    {
+      "candidate_id": "1-1790503713105:1:6",
+      "target_block": 23252609,
+      "target_time": "2026-09-27T10:09:05+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 844,
+      "delivery_ms": 168.927929
+    },
+    {
+      "candidate_id": "1-1790503713105:1:7",
+      "target_block": 23252610,
+      "target_time": "2026-09-27T10:09:10+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 46,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 811.792131,
+      "delivery_ms": 188.103168
+    },
+    {
+      "candidate_id": "1-1790503713105:1:8",
+      "target_block": 23252611,
+      "target_time": "2026-09-27T10:09:15+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 51,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 367.596365,
+      "delivery_ms": 230.448028
+    },
+    {
+      "candidate_id": "1-1790503713105:1:9",
+      "target_block": 23252612,
+      "target_time": "2026-09-27T10:09:20+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 31,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 818.825876,
+      "delivery_ms": 177.66163300000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:10",
+      "target_block": 23252613,
+      "target_time": "2026-09-27T10:09:25+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 34,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 869.228806,
+      "delivery_ms": 177.86986900000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:11",
+      "target_block": 23252613,
+      "target_time": "2026-09-27T10:09:30+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 34,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 858.938234,
+      "delivery_ms": 184.419778
+    },
+    {
+      "candidate_id": "1-1790503713105:1:12",
+      "target_block": 23252614,
+      "target_time": "2026-09-27T10:09:35+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 17,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1047,
+      "delivery_ms": 170.811237
+    },
+    {
+      "candidate_id": "1-1790503713105:1:13",
+      "target_block": 23252615,
+      "target_time": "2026-09-27T10:09:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 34,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 827.8639559999999,
+      "delivery_ms": 177.392879
+    },
+    {
+      "candidate_id": "1-1790503713105:1:14",
+      "target_block": 23252616,
+      "target_time": "2026-09-27T10:09:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 39,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 829,
+      "delivery_ms": 173.301861
+    },
+    {
+      "candidate_id": "1-1790503713105:1:15",
+      "target_block": 23252617,
+      "target_time": "2026-09-27T10:09:50+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 38,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 777,
+      "delivery_ms": 172.47259400000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:16",
+      "target_block": 23252617,
+      "target_time": "2026-09-27T10:09:55+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 38,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 787,
+      "delivery_ms": 177.47136799999998
+    },
+    {
+      "candidate_id": "1-1790503713105:1:17",
+      "target_block": 23252618,
+      "target_time": "2026-09-27T10:10:00+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 19,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1053.418271,
+      "delivery_ms": 169.34042699999998
+    },
+    {
+      "candidate_id": "1-1790503713105:1:18",
+      "target_block": 23252619,
+      "target_time": "2026-09-27T10:10:05+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 854.817531,
+      "delivery_ms": 169.67423200000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:19",
+      "target_block": 23252619,
+      "target_time": "2026-09-27T10:10:10+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 817.853183,
+      "delivery_ms": 173.27498799999998
+    },
+    {
+      "candidate_id": "1-1790503713105:1:20",
+      "target_block": 23252620,
+      "target_time": "2026-09-27T10:10:15+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 48,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 812.548904,
+      "delivery_ms": 176.502636
+    },
+    {
+      "candidate_id": "1-1790503713105:1:21",
+      "target_block": 23252621,
+      "target_time": "2026-09-27T10:10:20+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 50,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 767.966451,
+      "delivery_ms": 177.59822
+    },
+    {
+      "candidate_id": "1-1790503713105:1:22",
+      "target_block": 23252622,
+      "target_time": "2026-09-27T10:10:25+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 39,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 875,
+      "delivery_ms": 178.139226
+    },
+    {
+      "candidate_id": "1-1790503713105:1:23",
+      "target_block": 23252623,
+      "target_time": "2026-09-27T10:10:30+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 857,
+      "delivery_ms": 180.440362
+    },
+    {
+      "candidate_id": "1-1790503713105:1:24",
+      "target_block": 23252624,
+      "target_time": "2026-09-27T10:10:35+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 16,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 773.79962,
+      "delivery_ms": 177.894529
+    },
+    {
+      "candidate_id": "1-1790503713105:1:25",
+      "target_block": 23252625,
+      "target_time": "2026-09-27T10:10:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 17,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 880.336899,
+      "delivery_ms": 176.991422
+    },
+    {
+      "candidate_id": "1-1790503713105:1:26",
+      "target_block": 23252626,
+      "target_time": "2026-09-27T10:10:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 20,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 836,
+      "delivery_ms": 175.62504900000002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:27",
+      "target_block": 23252627,
+      "target_time": "2026-09-27T10:10:50+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 843.829441,
+      "delivery_ms": 175.00074099999998
+    },
+    {
+      "candidate_id": "1-1790503713105:1:28",
+      "target_block": 23252628,
+      "target_time": "2026-09-27T10:10:55+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 40,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 820.586983,
+      "delivery_ms": 173.818002
+    },
+    {
+      "candidate_id": "1-1790503713105:1:29",
+      "target_block": 23252629,
+      "target_time": "2026-09-27T10:11:00+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 40,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 927.667218,
+      "delivery_ms": 179.025031
+    },
+    {
+      "candidate_id": "1-1790503713105:1:30",
+      "target_block": 23252629,
+      "target_time": "2026-09-27T10:11:05+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 40,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 874.551612,
+      "delivery_ms": 180.281847
+    },
+    {
+      "candidate_id": "1-1790503713105:1:31",
+      "target_block": 23252630,
+      "target_time": "2026-09-27T10:11:10+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 20,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1023,
+      "delivery_ms": 169.587052
+    },
+    {
+      "candidate_id": "1-1790503713105:1:32",
+      "target_block": 23252631,
+      "target_time": "2026-09-27T10:11:15+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 37,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1016.820342,
+      "delivery_ms": 181.519745
+    },
+    {
+      "candidate_id": "1-1790503713105:1:33",
+      "target_block": 23252632,
+      "target_time": "2026-09-27T10:11:20+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1021,
+      "delivery_ms": 177.880498
+    },
+    {
+      "candidate_id": "1-1790503713105:1:34",
+      "target_block": 23252633,
+      "target_time": "2026-09-27T10:11:25+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 992,
+      "delivery_ms": 174.112469
+    },
+    {
+      "candidate_id": "1-1790503713105:1:35",
+      "target_block": 23252633,
+      "target_time": "2026-09-27T10:11:30+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 893.835371,
+      "delivery_ms": 180.919133
+    },
+    {
+      "candidate_id": "1-1790503713105:1:36",
+      "target_block": 23252634,
+      "target_time": "2026-09-27T10:11:35+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 13,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1040,
+      "delivery_ms": 167.254644
+    },
+    {
+      "candidate_id": "1-1790503713105:1:37",
+      "target_block": 23252635,
+      "target_time": "2026-09-27T10:11:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 29,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 917,
+      "delivery_ms": 178.497623
+    },
+    {
+      "candidate_id": "1-1790503713105:1:38",
+      "target_block": 23252636,
+      "target_time": "2026-09-27T10:11:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 46,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 851,
+      "delivery_ms": 181.608501
+    },
+    {
+      "candidate_id": "1-1790503713105:1:39",
+      "target_block": 23252637,
+      "target_time": "2026-09-27T10:11:50+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 53,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 786,
+      "delivery_ms": 177.980382
+    },
+    {
+      "candidate_id": "1-1790503713105:1:40",
+      "target_block": 23252638,
+      "target_time": "2026-09-27T10:11:55+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 7,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1060.945215,
+      "delivery_ms": 162.75115100000002
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "source_revision": "6c171fdb3221a6d6183e113e9d05e4c7f657099b",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "submodules": [
+    {
+      "path": "eez-core-protocol",
+      "revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+    },
+    {
+      "path": "eez-core-protocol/lib/openzeppelin-contracts",
+      "revision": "5fd1781b1454fd1ef8e722282f86f9293cacf256"
+    },
+    {
+      "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/erc4626-tests",
+      "revision": "232ff9ba8194e406967f52ecc5cb52ed764209e9"
+    },
+    {
+      "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/forge-std",
+      "revision": "3b20d60d14b343ee4f908cb8079495c07f5e8981"
+    },
+    {
+      "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/halmos-cheatcodes",
+      "revision": "7328abe100445fc53885c21d0e713b95293cf14c"
+    }
+  ],
+  "context": "/tmp/eez-admission-preparation-build-6c171fd",
+  "build_profile": "release",
+  "cargo_jobs": 4,
+  "rust": "1.94.0",
+  "created_at": "2026-09-27T09:43:31.754910+00:00",
+  "tag": "6c171fd-shipping-local",
+  "build_selection": "Same archived local shipping recipe as e57c7a5 baseline, matching Dockerfile.runtime package/bin/example selection; no CI artifact substitution",
+  "lockfiles": {
+    "Cargo.lock": "fdf8d3df53500a9b57519b4c1f4d2a01818a619042d9811ead4b76b5e7a3f230",
+    "monitoring/indexer/Cargo.lock": "3613a60b928ca28b999578569c7709d375dae63487364dc8ee7f2d770315b2ea"
+  },
+  "recipes": {
+    "Dockerfile": "2740ded69939c61a9f11c1b3695f58f6423f517527caf0724d6aff74bbece4d2",
+    "testing/kurtosis/Dockerfile.deploy": "679ae195ef47fcd9639d5900e70c36f5703d2d3c3975902c44db0a3dea6db51d",
+    "monitoring/indexer/Dockerfile": "9348d119aa12027cc4c46b5ca20623a5d4ac477c95f3b7845c251e485608d494"
+  }
+}

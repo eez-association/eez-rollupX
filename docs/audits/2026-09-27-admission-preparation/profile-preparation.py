@@ -81,7 +81,7 @@ for key in keys:
         'sum': sum(values) if values else None}
 summary['limits'] = [
     'Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.',
-    'Prefix hashing is a subinterval, never add it to accepted lowering/hash/append time.',
+    'Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.',
     'Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.',
     'Canonical candidates only; failed/excluded attempts are outside this breakdown.']
 with (out / 'preparation-per-post.csv').open('w') as stream:

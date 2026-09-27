@@ -50,6 +50,8 @@ assert {r[2] for r in sent} == {r[2] for r in mined}
 assert all((num(r[4]) == 1 for r in mined))
 source_meta = {h: {'job': job, 'layer': layer} for job, layer, h in sent}
 old_height = {r[2]: int(r[3]) for r in mined}
+phases = list(csv.DictReader((run / 'timings.csv').open()))
+phase = {r['name']: r for r in phases}
 blocks = {}
 receipts = {}
 sources = {}
@@ -61,6 +63,22 @@ for layer in ['L1', 'L2']:
     heights = [old_height[h] for h in wanted]
     lower = min(heights) - 5
     upper = min(max(heights) + (100 if layer == 'L2' else 5), num(rpc(layer, 'eth_blockNumber', [])))
+    if layer == 'L1':
+        # Outbound-only posts can precede the first inbound receipt by many
+        # blocks. Cover the entire send-to-observation interval, including
+        # settlement after speculative L2 receipts ended the runner's monitor.
+        upper = num(rpc(layer, 'eth_blockNumber', []))
+        left, right = 0, upper
+        earliest_ms = int(phase['send']['start_ms']) - 5000
+        while left < right:
+            middle = (left + right) // 2
+            header = rpc(layer, 'eth_getBlockByNumber', [hex(middle), False])
+            assert header
+            if num(header['timestamp']) * 1000 < earliest_ms:
+                left = middle + 1
+            else:
+                right = middle
+        lower = min(lower, max(0, left - 1))
     rows = batch(layer, [('eth_getBlockByNumber', [hex(n), True]) for n in range(lower, upper + 1)])
     assert all(rows)
     blocks[layer] = rows
@@ -102,8 +120,6 @@ low = min((p['block_number'] for p in posts))
 high = max((p['block_number'] for p in posts))
 window = [b for b in blocks['L1'] if low <= num(b['number']) <= high]
 skipped = sum(((num(b['timestamp']) - num(a['timestamp'])) // 5 - 1 for a, b in zip(window, window[1:])))
-phases = list(csv.DictReader((run / 'timings.csv').open()))
-phase = {r['name']: r for r in phases}
 seconds = sum((int(phase[n]['duration_ms']) for n in ['send', 'monitor'])) / 1000
 summary = {'checked_at': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'run': str(run), 'source_count': len(sources), 'canonical_by_layer': {layer: sum((s['layer'] == layer for s in sources.values())) for layer in ports}, 'moved_source_heights': sum((s['moved'] for s in sources.values())), 'source_window_seconds': seconds, 'sources_per_second': 870 / seconds, 'postings_with_sources': len(posts), 'sources_per_post': [p['sources'] for p in posts], 'first_l1_block': low, 'last_l1_block': high, 'skipped_slots_between_first_last': skipped, 'produced_blocks_between_first_last': len(window), 'post_batch_gas_total': sum((p['gas_used'] for p in posts)), 'queue': rpc('L2', 'eez_getCrossChainQueueStatus', []), 'phases': phases}
 post_times = {p['hash']: p['timestamp'] * 1000 for p in posts}
