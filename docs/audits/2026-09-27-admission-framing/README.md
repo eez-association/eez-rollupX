@@ -52,3 +52,16 @@ cutoffs, preparation and gas estimates. Full logs/datadirs remain local under
 
 Native process validation, exact-source images, deployment and the comparable
 live workload are pending at this implementation checkpoint.
+
+Nine focused native process cases passed at `bee97db`: repeated 45-source waves
+on both networks, static-only exclusion, existing-proxy multicalls, middle-group
+partial consumption, actual companion gas on both networks, and both receipt
+fee-cost cases. The latter assert the absent margin setting reaches final signing
+as exactly 5% above native required gas. Wave assertions compare the incremental
+bound with production full batch sizing and retain independent replay checks.
+
+A configuration review also found explicit 2000 values in all six shipped
+Kurtosis profiles and its example. These are updated to 500. Kurtosis tooling:
+13 passed, one opt-in real relay-resource test excluded (unrelated to margin
+transport); both Compose policy propagation checks passed. Custom strings retain
+runtime validation and explicit overrides, including 2000.

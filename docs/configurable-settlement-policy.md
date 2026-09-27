@@ -53,7 +53,9 @@ required price above its ceiling keeps work pending as `fee_cap_blocked`.
 The gas-margin default is now 500 basis points (5%). Explicit values, including
 zero and the former 2000 default, override it; empty or malformed values are
 errors. Compose forwards the operator value to the node and leaves an absent
-setting to the runtime. Shell environment takes precedence over `.env`. Signers
+setting to the runtime. Shipped Kurtosis profiles explicitly use 500, and its
+Starlark transport preserves supplied strings for runtime validation. Shell
+environment takes precedence over `.env`. Signers
 do not consume this operator margin. For mixed versions, explicitly set 500 to
 keep older Composers consistent. This changes future gas planning/signing only;
 no wire, database or follower-replay migration is required. Rollback restores
