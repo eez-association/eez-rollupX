@@ -660,7 +660,7 @@ async fn single_sync_wave(
             .collect();
         assert_eq!(companion_estimates.len(), inbound_count as usize);
         for estimate in &companion_estimates {
-            assert_eq!(estimate["estimator_version"], "candidate-framing-9");
+            assert_eq!(estimate["estimator_version"], "candidate-framing-10");
             let detail = &estimate["detail"];
             assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
             assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
@@ -698,7 +698,7 @@ async fn single_sync_wave(
                 "retained storage pricing must reach native settlement"
             );
             for estimate in estimates {
-                assert_eq!(estimate["estimator_version"], "candidate-framing-9");
+                assert_eq!(estimate["estimator_version"], "candidate-framing-10");
                 assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
                 assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
             }

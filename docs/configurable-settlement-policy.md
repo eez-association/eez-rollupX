@@ -263,9 +263,14 @@ against the margin-adjusted transaction budget and the original ordered
 companion start requirements. Static pools revoke the same execution discounts
 as final batch sizing, including the cheaper anchor. Unsupported entry shapes
 retain general execution pins; metadata costs grow with their actual arrays.
-The cheap inbound check now permits zero mutable entries, since a source can
-contain only static lookups. Zero is a lower bound for that precheck, not a full
-execution or calldata estimate. Final native execution at signed gas limits,
+Estimator `candidate-framing-10` checks both inbound possibilities before a
+cheap rejection: the minimum mutable entry and a static-only group with zero
+mutable entries that restores general execution pins. Empty calls are rejected
+by composition, so every valid source belongs to one of these possibilities.
+Both must fail before simulation can be skipped. The inbound L2 lower bound is
+zero because static-only lookups need no L2 delivery transaction. This preserves static-only work
+without pricing it as a free addition to a discounted mutable batch. The checks
+are lower bounds, not full execution or calldata estimates. Final native execution at signed gas limits,
 the shared deadline and whole-group handling remain unchanged.
 
 `projected_gas` retains the incremental execution/original-calldata projection.
@@ -274,7 +279,9 @@ New summary fields separate `framing_reserve_gas`, `full_estimate_gas`,
 margin. `planning_cap` now bounds the full estimate, rather than subtracting a
 fixed reserve in advance. Source events expose framing and full totals before
 and after acceptance; rejected groups leave the accumulated ledger unchanged.
-Historical estimator versions keep their old meanings. Existing collectors can
+Cheap-check events add `minimum_mutable_entry_gas` and
+`minimum_static_general_fallback`; `minimum_entry_gas` retains the zero inbound
+minimum for compatibility. Historical estimator versions keep their old meanings. Existing collectors can
 retain the additive fields without a database migration; update the dashboard
 before or after Composer and preserve historical events/checkpoints on rollback.
 

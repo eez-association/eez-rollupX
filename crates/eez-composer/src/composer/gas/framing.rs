@@ -298,6 +298,61 @@ mod tests {
     }
 
     #[test]
+    fn minimum_inbound_checks_static_discount_revocation_before_rejecting() {
+        let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 6, true);
+        budget.use_projection(181_000);
+        let minimum = super::super::minimum_entry_gas(false);
+        assert!(budget.try_accept(TxL1Gas {
+            entries: 1,
+            entry_discount: 370_000 - minimum,
+            ..Default::default()
+        }));
+        let before = budget;
+        budget.cap = budget.full_estimate() + minimum - 1;
+        assert_eq!(
+            budget.minimum_rejection(true, 100_000),
+            Some("l1_tx_gas_budget")
+        );
+        budget.cap += 1;
+        assert_eq!(budget.minimum_rejection(true, 100_000), None);
+        assert_eq!(budget.projected, before.projected);
+        assert_eq!(budget.anchor_discount, before.anchor_discount);
+        assert_eq!(budget.entry_discount, before.entry_discount);
+    }
+
+    #[test]
+    fn minimum_inbound_never_rejects_a_fitting_static_group() {
+        for general in [false, true] {
+            for entries in [1, 127, 128] {
+                for remaining in [0, 5_000, 70_000, 500_000, 4_000_000] {
+                    let mut budget = PostBatchGasBudget::with_calldata_limits(16_777_216, 6, true);
+                    budget.use_projection(181_000);
+                    budget.entries = entries;
+                    budget.general = general;
+                    budget.entry_discount = if general { 0 } else { 2_000_000 };
+                    budget.anchor_discount = if general { 0 } else { 370_000 };
+                    budget.cap = budget.full_estimate() + remaining;
+                    for calldata in [0, 5_000, 100_000] {
+                        let mut next = budget;
+                        if next.try_accept_with_companion(
+                            TxL1Gas {
+                                general: true,
+                                calldata_gas: calldata,
+                                framing_gas: 2_000,
+                                ..Default::default()
+                            },
+                            100_000,
+                            50_000,
+                        ) {
+                            assert_eq!(budget.minimum_rejection(true, 100_000), None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn blob_count_outside_shaped_profile_preserves_general_pins() {
         let mut budget = PostBatchGasBudget::with_calldata_limits(2_000_000, 65, true);
         budget.use_projection(181_000 + 50_000);

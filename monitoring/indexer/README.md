@@ -782,11 +782,14 @@ execution fallback flag and gas-margin percentage to the postBatch table.
 Source drilldowns show each group's framing contribution and accumulated framing/
 full estimates before and after admission. `admission_gas` remains the original
 incremental projection; compare `admission_including_framing_gas` with the full
-planning cap for version 9. Historical rows keep null values for the new fields.
+planning cap for versions 9 and later. Historical rows keep null values for the new fields.
 Queries read these additive details from retained events; no schema migration
 or collector rebuild is needed. Static-only sources have a zero mutable-entry
 minimum in cheap capacity checks, while their full estimates still price the
-actual calldata and general execution projection.
+actual calldata and general execution projection. Version 10 requires both the
+mutable minimum and static-only/general-pin alternatives to fail before a cheap
+rejection. `minimum_mutable_entry_gas` and `minimum_static_general_fallback`
+make that distinction visible without inventing simulation results.
 
 The preparation/proof/delivery table also exposes relay bundle hash (when
 returned as a valid 32-byte hash), target block/timestamp, expected parent,

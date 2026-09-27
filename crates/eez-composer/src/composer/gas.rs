@@ -135,8 +135,9 @@ const COMPANION_MATCHING_SCAN_GAS: u64 = 12_500;
 
 /// Minimum contribution under every supported admission pricing path. This is
 /// a lower bound on the estimator, not on consensus execution gas. A valid
-/// source contributes at least one entry; malformed/empty sources still reach
-/// simulation on a fresh candidate before any capacity deferral is allowed.
+/// mutable source contributes at least one entry. Static-only inbound sources
+/// require a separate lower bound with general pins. Malformed/empty sources
+/// still reach simulation on a fresh candidate before any capacity deferral.
 pub(super) const fn minimum_entry_gas(immediate: bool) -> u64 {
     if immediate {
         EXISTING_PROXY_ENTRY_GAS

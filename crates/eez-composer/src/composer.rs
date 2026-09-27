@@ -541,10 +541,11 @@ impl PostBatchGasBudget {
     }
 
     /// Establish a nonfit in the admission model without source execution using
-    /// its least expensive shape and zero new companion consumption. An inbound
-    /// source can be static-only, so it cannot require a mutable entry here.
-    /// Unknown calls can only add
-    /// cost. Use the same admission arithmetic, including discount revocation
+    /// its least expensive shapes and zero new companion consumption. Valid
+    /// inbound composition contains mutable or static entries (finalize rejects
+    /// empty calls). Static-only sources need no mutable entry, but force general
+    /// execution pins, so both possibilities must fail before skipping execution.
+    /// Use the same admission arithmetic, including discount revocation
     /// and each signed transaction's start envelope; never cache a simulated
     /// price across changed parents or accepted prefixes.
     fn minimum_rejection(&self, inbound: bool, declared: u64) -> Option<&'static str> {
@@ -553,22 +554,30 @@ impl PostBatchGasBudget {
         }
         let cost = TxL1Gas {
             estimate_reasons: Default::default(),
-            entries: u64::from(!inbound),
-            entry_discount: if inbound {
-                0
-            } else {
-                POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(true)
-            },
+            entries: 1,
+            entry_discount: POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(!inbound),
             calldata_gas: 0,
             target_gas: 0,
             ..Default::default()
         };
         let mut next = *self;
         if next.try_accept_with_companion(cost, if inbound { declared } else { 0 }, 0) {
-            None
-        } else {
-            next.rejected_constraint
+            return None;
         }
+        if inbound {
+            let mut static_only = *self;
+            if static_only.try_accept_with_companion(
+                TxL1Gas {
+                    general: true,
+                    ..Default::default()
+                },
+                declared,
+                0,
+            ) {
+                return None;
+            }
+        }
+        next.rejected_constraint
     }
 
     /// Previous queue storage is temporary work, not evidence that a source
@@ -1059,7 +1068,8 @@ impl CapacityDeferrals {
         let inbound = held.direction == Direction::Inbound;
         let declared = declared_gas_limit(&held.raw_tx);
         let l2_minimum = if inbound {
-            system_gas
+            // A static-only lookup needs no L2 delivery transaction.
+            0
         } else {
             system_gas.saturating_add(declared)
         };
@@ -1076,6 +1086,8 @@ impl CapacityDeferrals {
                 "source_hash":held.hash,"direction":if inbound {"inbound"} else {"outbound"},
                 "constraint":reason,"basis":"minimum_admission_cost",
                 "minimum_entry_gas":if inbound {0} else {gas::minimum_entry_gas(true)},
+                "minimum_mutable_entry_gas":gas::minimum_entry_gas(!inbound),
+                "minimum_static_general_fallback":inbound,
                 "projected_before":budget.projected,"postbatch_planning_cap":budget.cap,
                 "companion_prefix_gas":budget.companion_gas,
                 "companion_required_gas":budget.companion_required_gas,
@@ -7481,6 +7493,53 @@ mod tests {
                 false
             ));
         }
+    }
+
+    #[test]
+    fn minimum_capacity_keeps_static_only_work_eligible_at_a_full_l2_block() {
+        use alloy_consensus::{SignableTransaction, TxEnvelope, TxLegacy};
+        use alloy_eips::eip2718::Encodable2718;
+        let mut source = held(Address::repeat_byte(1), Direction::Inbound, 0, 1);
+        let raw = TxEnvelope::from(
+            TxLegacy {
+                gas_limit: 100_000,
+                ..Default::default()
+            }
+            .into_signed(alloy_primitives::Signature::new(
+                U256::from(1),
+                U256::from(2),
+                false,
+            )),
+        );
+        source.raw_tx = Bytes::from(raw.encoded_2718());
+        let candidate = crate::admission_events::Candidate::new(
+            10200,
+            Address::repeat_byte(9),
+            1,
+            B256::repeat_byte(8),
+            BundleTarget::NextBlock,
+            1,
+            1,
+            (1, None),
+            Some(0),
+            None,
+        );
+        let mut budget = PostBatchGasBudget::new(1_000_000);
+        budget.entries = 1;
+        budget.general = true;
+        budget.cap = budget.full_estimate() + 5_000;
+        let mut capacity = CapacityDeferrals::default();
+        assert_eq!(
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            None
+        );
+        assert_eq!(capacity.minimum_check_count, 0);
+        source.direction = Direction::Outbound;
+        assert_eq!(
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            Some("l2_block_capacity")
+        );
+        assert_eq!(capacity.minimum_check_count, 1);
     }
 
     #[test]
