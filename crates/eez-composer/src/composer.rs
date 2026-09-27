@@ -7182,6 +7182,13 @@ async fn observe_bundle_outcome(
                 deadline.instant(),
                 move |delivery| {
                     if let Some(candidate) = candidate {
+                        // Exact targets do not carry the transport's optional
+                        // derived-parent guard. The quote was checked against
+                        // the canonical head immediately before dispatch.
+                        let expected_parent_hash = delivery.expected_parent_hash.or_else(|| {
+                            (fee_quote.sample.number.checked_add(1) == Some(delivery.target_block))
+                                .then_some(fee_quote.sample.hash)
+                        });
                         candidate.duration("delivery", delivery.elapsed);
                         candidate.emit(
                             "delivery",
@@ -7192,7 +7199,7 @@ async fn observe_bundle_outcome(
                         "ack_remaining_ms":delivery.remaining.as_secs_f64()*1000.0,
                         "target_block":delivery.target_block,
                         "target_timestamp":delivery.target_timestamp,
-                        "expected_parent_hash":delivery.expected_parent_hash,
+                        "expected_parent_hash":expected_parent_hash,
                         "transaction_count":delivery.transaction_count}),
                         );
                     }

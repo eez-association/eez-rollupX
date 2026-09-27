@@ -54,3 +54,11 @@ its four completed mock workers reached a measured concurrency peak of three.
 The unchanged test requires a peak of four. First-run output is retained in
 `tooling-first.log`; a diagnostic retry will be recorded separately, not promoted
 to a clean first pass. No protocol network runner code changed in this round.
+
+The first native process run reached canonical settlement but failed the new
+parent-hash observation assertion. `Exact` transport targets leave their
+optional derived-parent guard empty. Delivery observations now use the
+already-validated canonical fee sample when it is the target's immediate
+parent. This correction changes diagnostics only; admission and observation
+classifications are unchanged. First process logs/datadirs are retained under
+`focused-native/` and the original log is preserved before the corrected run.
