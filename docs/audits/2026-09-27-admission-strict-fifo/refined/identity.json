@@ -1,0 +1,106 @@
+{
+  "runtime_source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+  "test_source_revision": "d0d184f9eb563e0a65d634376ef09bbb84f69a50",
+  "build_plan": {
+    "source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+    "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "submodules": [
+      {
+        "path": "eez-core-protocol",
+        "revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts",
+        "revision": "5fd1781b1454fd1ef8e722282f86f9293cacf256"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/erc4626-tests",
+        "revision": "232ff9ba8194e406967f52ecc5cb52ed764209e9"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/forge-std",
+        "revision": "3b20d60d14b343ee4f908cb8079495c07f5e8981"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/halmos-cheatcodes",
+        "revision": "7328abe100445fc53885c21d0e713b95293cf14c"
+      }
+    ],
+    "context": "/tmp/eez-fifo-b2ff3b8-ww6_cni4",
+    "tag": "b2ff3b8-strict-fifo-local",
+    "build_profile": "release",
+    "cargo_jobs": 4,
+    "rust": "1.95.0",
+    "created_at": "2026-09-27T21:20:59.832317+00:00",
+    "build_selection": "Identical recipe, profile and shipping features to the recorded 62b8e06 baseline; committed sources only.",
+    "recipe_sha256": "487927133fef042edb584e80f506344cc05a80193ac6b427203a656b883c572c",
+    "cargo_lock_sha256": "5df4d4c089faea59ef3f0d37313a2c7d66eab6ce755cb15a13118113940f32ea",
+    "cache_method": "Preserved previous archive mtimes for 2374 byte-identical files; source bytes come from committed archives."
+  },
+  "images": [
+    {
+      "tag": "eez-node:b2ff3b8-strict-fifo-local",
+      "image_id": "sha256:e58c4a657d4b8d7d5986532af9a140f730637af1c15341d428951aa04ed7bfe8",
+      "source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+      "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+    },
+    {
+      "tag": "eez-proof-signer:b2ff3b8-strict-fifo-local",
+      "image_id": "sha256:0f5009d3e7030df3524f53356d3b1a669c892bfa9c3dbd5f2a657adab4d8ecbc",
+      "source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+      "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+    }
+  ],
+  "binaries": {
+    "candidate": [
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/candidate/eez-composer",
+        "sha256": "8ea0151ddc95f2b94331adb00383cd23706790e964ac1223ebb856c9e0196e55"
+      },
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/candidate/eez-follower",
+        "sha256": "6b0cc805d10494445c70cd4d82e7243d8bec927b61b500c459df9f84d495ffc6"
+      },
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/candidate/eez-proof-signer",
+        "sha256": "a8e6d6513a05b431c7c85493f595f9fbf89761f27a05282a0ceb41bd21b32c34"
+      }
+    ],
+    "baseline": [
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/baseline/eez-composer",
+        "sha256": "b8bf1f034211cfccc03fdf10750bd51d938584f4b4cb4883908832f5c390bc76"
+      },
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/baseline/eez-follower",
+        "sha256": "6b0cc805d10494445c70cd4d82e7243d8bec927b61b500c459df9f84d495ffc6"
+      },
+      {
+        "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo-refined/releases/baseline/eez-proof-signer",
+        "sha256": "a8e6d6513a05b431c7c85493f595f9fbf89761f27a05282a0ceb41bd21b32c34"
+      }
+    ]
+  },
+  "harness": {
+    "dynamic_admission": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+      "sha256": "7a9d7b97f38724ee4084d957c73a6075cc35be0adcebdb2feb57b71e28508a52"
+    },
+    "settlement_policy": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+      "sha256": "7d15ee7882b134987198836e4167e499cf874c6e6cd7063aba20cac178d02391"
+    },
+    "partial_consumption": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/partial_consumption",
+      "sha256": "02ca957dbc296bf67bf12b3e2f1550806c6507db3c0f2d31a4f4dc0fbe877734"
+    },
+    "settlement_policy_gas": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+      "sha256": "ce35e3e0343b324222545c7641afdff4159bf0c2f0223bca586ff084a8758257"
+    },
+    "queue_liveness": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+      "sha256": "f3e7b8228849f1738cf90cf91b5965a2b1910057aa8c3eb0672857bc8be98892"
+    }
+  }
+}

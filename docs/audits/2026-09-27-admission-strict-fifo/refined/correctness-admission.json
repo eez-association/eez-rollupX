@@ -1,0 +1,410 @@
+[
+  {
+    "test": "gnosis_older_inbound_precedes_capacity_filling_outbound",
+    "variant": "candidate",
+    "duration_seconds": 51.712348967033904,
+    "cutoff_reasons": {
+      "fifo_prefix_rebuild": 1,
+      "snapshot_exhausted": 2
+    },
+    "fifo_triggers": {
+      "l1_tx_gas_budget": 1
+    },
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3083571-1790545081406:1:1",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545085992
+      },
+      {
+        "candidate_id": "3083571-1790545081406:1:2",
+        "sources": 1,
+        "l1_block": 10,
+        "timestamp_ms": 1790545091027
+      }
+    ]
+  },
+  {
+    "test": "ethereum_older_inbound_precedes_capacity_filling_outbound",
+    "variant": "candidate",
+    "duration_seconds": 56.56008365697926,
+    "cutoff_reasons": {
+      "fifo_prefix_rebuild": 1,
+      "snapshot_exhausted": 2
+    },
+    "fifo_triggers": {
+      "l1_tx_gas_budget": 1
+    },
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3085794-1790545133405:1:1",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545137700
+      },
+      {
+        "candidate_id": "3085794-1790545133405:1:2",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545147720
+      }
+    ]
+  },
+  {
+    "test": "gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+    "variant": "candidate",
+    "duration_seconds": 62.34450807800749,
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      3
+    ],
+    "included": [
+      {
+        "candidate_id": "3088023-1790545200405:1:0",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545204465
+      },
+      {
+        "candidate_id": "3088023-1790545200405:1:1",
+        "sources": 3,
+        "l1_block": 12,
+        "timestamp_ms": 1790545209024
+      }
+    ]
+  },
+  {
+    "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "variant": "candidate",
+    "duration_seconds": 76.66810511797667,
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3090529-1790545259004:1:1",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545266822
+      },
+      {
+        "candidate_id": "3090529-1790545259004:1:2",
+        "sources": 1,
+        "l1_block": 12,
+        "timestamp_ms": 1790545271841
+      }
+    ]
+  },
+  {
+    "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "variant": "candidate",
+    "duration_seconds": 76.98464880598476,
+    "cutoff_reasons": {
+      "l1_tx_gas_budget": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3093317-1790545336002:1:1",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545343152
+      },
+      {
+        "candidate_id": "3093317-1790545336002:1:2",
+        "sources": 1,
+        "l1_block": 12,
+        "timestamp_ms": 1790545348120
+      }
+    ]
+  },
+  {
+    "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+    "variant": "candidate",
+    "duration_seconds": 57.808463852969,
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 2,
+      "pipeline_deadline_backoff": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3096133-1790545403004:1:2",
+        "sources": 1,
+        "l1_block": 10,
+        "timestamp_ms": 1790545415133
+      },
+      {
+        "candidate_id": "3096133-1790545403004:1:3",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545420112
+      }
+    ]
+  },
+  {
+    "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+    "variant": "candidate",
+    "duration_seconds": 62.91096328099957,
+    "cutoff_reasons": {
+      "configured_count_limit": 3,
+      "eligible_sources_exhausted": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3098409-1790545460003:1:1",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545468336
+      },
+      {
+        "candidate_id": "3098409-1790545460003:1:3",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545477879
+      },
+      {
+        "candidate_id": "3098409-1790545460003:1:4",
+        "sources": 1,
+        "l1_block": 12,
+        "timestamp_ms": 1790545482860
+      }
+    ]
+  },
+  {
+    "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "variant": "candidate",
+    "duration_seconds": 76.24518207396613,
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 5,
+      "configured_count_limit": 3,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3100789-1790545518005:1:2",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545530858
+      },
+      {
+        "candidate_id": "3100789-1790545518005:1:7",
+        "sources": 1,
+        "l1_block": 14,
+        "timestamp_ms": 1790545555836
+      },
+      {
+        "candidate_id": "3100789-1790545518005:1:8",
+        "sources": 1,
+        "l1_block": 15,
+        "timestamp_ms": 1790545561327
+      }
+    ]
+  },
+  {
+    "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "variant": "candidate",
+    "duration_seconds": 77.41769696900155,
+    "cutoff_reasons": {
+      "eligible_sources_exhausted": 7,
+      "pipeline_deadline_backoff": 1,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3103590-1790545595005:1:2",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545607129
+      },
+      {
+        "candidate_id": "3103590-1790545595005:1:7",
+        "sources": 1,
+        "l1_block": 14,
+        "timestamp_ms": 1790545632131
+      },
+      {
+        "candidate_id": "3103590-1790545595005:1:8",
+        "sources": 1,
+        "l1_block": 15,
+        "timestamp_ms": 1790545637124
+      }
+    ]
+  },
+  {
+    "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+    "variant": "candidate",
+    "duration_seconds": 50.77553622703999,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 2
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      3
+    ],
+    "included": [
+      {
+        "candidate_id": "3106414-1790545677004:1:1",
+        "sources": 3,
+        "l1_block": 9,
+        "timestamp_ms": 1790545684995
+      }
+    ]
+  },
+  {
+    "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+    "variant": "candidate",
+    "duration_seconds": 62.66152934497222,
+    "cutoff_reasons": {
+      "composition_blob_limit": 5,
+      "snapshot_exhausted": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "included": [
+      {
+        "candidate_id": "3108554-1790545723003:1:0",
+        "sources": 1,
+        "l1_block": 7,
+        "timestamp_ms": 1790545725634
+      },
+      {
+        "candidate_id": "3108554-1790545723003:1:1",
+        "sources": 1,
+        "l1_block": 8,
+        "timestamp_ms": 1790545730625
+      },
+      {
+        "candidate_id": "3108554-1790545723003:1:2",
+        "sources": 1,
+        "l1_block": 9,
+        "timestamp_ms": 1790545735629
+      },
+      {
+        "candidate_id": "3108554-1790545723003:1:3",
+        "sources": 1,
+        "l1_block": 10,
+        "timestamp_ms": 1790545740626
+      },
+      {
+        "candidate_id": "3108554-1790545723003:1:4",
+        "sources": 1,
+        "l1_block": 11,
+        "timestamp_ms": 1790545745640
+      },
+      {
+        "candidate_id": "3108554-1790545723003:1:5",
+        "sources": 1,
+        "l1_block": 12,
+        "timestamp_ms": 1790545750622
+      }
+    ]
+  },
+  {
+    "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "variant": "candidate",
+    "duration_seconds": 60.334511121036485,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 3
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 0,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      4
+    ],
+    "included": [
+      {
+        "candidate_id": "3111005-1790545789005:1:0",
+        "sources": 1,
+        "l1_block": 8,
+        "timestamp_ms": 1790545792315
+      },
+      {
+        "candidate_id": "3111005-1790545789005:1:1",
+        "sources": 4,
+        "l1_block": 10,
+        "timestamp_ms": 1790545805110
+      }
+    ]
+  }
+]

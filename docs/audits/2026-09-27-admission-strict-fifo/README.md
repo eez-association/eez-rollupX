@@ -1,8 +1,10 @@
 # Strict FIFO admission correction
 
-Status: initial FIFO implementation validated locally; a preparation-accounting
-refinement is being validated. Both reported bypasses reproduce on the baseline
-and pass at `52f8e15`. That version's evidence below does not validate newer code.
+Status: strict FIFO admission and its preparation refinement are validated at
+`b2ff3b8`: 286 Composer unit tests, 14 selected native correctness cases and fresh
+paired release comparisons pass. Packing is preserved in the measured workloads.
+The initial iteration and its corrected performance defect remain documented
+below. Existing live Chiado services and datadirs are unchanged.
 
 ## Contract and baseline
 
@@ -20,7 +22,7 @@ and pass at `52f8e15`. That version's evidence below does not validate newer cod
   Full [previous identity](../2026-09-27-admission-main-alignment/README.md) is dated evidence,
   not validation of this correction.
 - Operator Chiado runbook edits and unrelated audit directories were preserved.
-- Candidate shipping source: `52f8e1560bbebd85ebbce6f80df9785ffc4df6fe`.
+- Initial candidate shipping source: `52f8e1560bbebd85ebbce6f80df9785ffc4df6fe`.
   Test assertion correction: `d0d184f` (no runtime change).
   [Executable, image, harness and build identities](identity.json).
 
@@ -70,7 +72,7 @@ updated assertion verifies `[0]` then `[0, 0, 0]` and passes on the same runtime
 This is a corrected fixture expectation, not a retry-only flaky pass. Both test
 executables and the first failure are retained.
 
-## Correctness checks
+## Initial correctness checks (`52f8e15`)
 
 - `cargo +1.95.0 test --locked -p eez-composer --lib`: **284 passed**, one manual
   backlog profile ignored. First restoration failure retained separately.
@@ -94,7 +96,7 @@ executables and the first failure are retained.
 - [Check log hashes](check-log-hashes.json). Full workspace unit, Kurtosis and
   final-head CI matrices are not represented by these focused local checks.
 
-## Performance
+## Initial performance (`52f8e15`)
 
 Fresh paired release comparison: eight process runs, alternating baseline /
 candidate order across Ethereum/Osaka and Gnosis/Prague. Each case runs two waves
@@ -179,5 +181,108 @@ work. The next sample excludes discarded preparation; conservative finishing
 reserves and final execution/deadline validation remain in force.
 
 The refined unit suite passes 286 tests with the same one manual exclusion.
-New shipping/native/performance evidence is pending and will be appended without
-replacing the initial results.
+The new shipping/native/performance evidence below supplements the initial
+results; it does not replace the first failures or measurements.
+
+### Refined release (`b2ff3b8`)
+
+The [new image/executable identity](refined/identity.json) records committed
+source `b2ff3b894faa509fe310b6b6d38781d335f8f5fc`, unchanged protocol and the
+same release recipe/profile/features as both earlier variants. Byte-identical
+archive files retained their previous mtimes to reuse Cargo caches; committed
+file contents and recipe hashes were checked. The native harness remains the
+frozen `d0d184f` harness (its only change from `52f8e15` is the documented test
+expectation). Builds finished before serial process measurements began.
+
+Fresh tight-window pairs use the same 128-source fixture, frozen harness and
+500 ms preparation setting. Both profiles pass all canonical semantic and
+independent follower replay assertions. Their one-source setup posts are excluded:
+
+| Profile | Baseline source batches | Refined FIFO source batches |
+| --- | --- | --- |
+| Ethereum/Osaka | 39 + 63 + 26 = **3 posts** | 39 + 39 + 50 = **3 posts** |
+| Gnosis/Prague | 72 + 56 = **2 posts** | 20 + 108 = **2 posts** |
+
+The initial nine-post Ethereum penalty is removed. Recomposition still has a
+cost: the refined Ethereum run discarded three candidates (one transaction-gas,
+two pipeline-time triggers); Gnosis discarded five (one transaction-gas, one
+bundle-gas, three pipeline-time). None reached proof generation. Each rebuild
+must include the oldest omitted eligible source and retain the original deadline;
+the successful source batches have no FIFO bypass. Counts here are one fresh
+paired observation per profile, not a sustained throughput or latency guarantee.
+
+[Tight-window commands/results](refined/tight-status.json), [post sizes and
+cutoff details](refined/tight-admission.json), [log hashes](refined/tight-log-hashes.json),
+[refinement unit/Clippy log hashes](refined/check-log-hashes.json).
+
+The refined shipping binaries pass **14 selected native correctness cases**:
+the two tight-window cases above plus [12 targeted cases](refined/correctness-status.json).
+The latter repeat both older-inbound regressions, the cheaper-source cutoff,
+whole-group gas splits on both profiles, fee/balance liveness, escrow recovery
+on both profiles, partial consumption, blob cutoff and late-original inclusion.
+No native case needed a retry. [Admission observations](refined/correctness-admission.json)
+show zero discarded FIFO candidates reaching proof; [log hashes](refined/correctness-log-hashes.json)
+identify the retained evidence. Included proposal source counts in that JSON are
+admission counts, not a substitute for the process tests' canonical-consumption
+and semantic assertions, particularly in the partial-consumption case.
+
+Composer unit tests: **286 passed**, one manual profile ignored. Full workspace /
+all-target Clippy with warnings denied and Rust formatting passed. The first
+refinement Clippy run found a signed-to-unsigned cast in the new test fixture;
+using an explicitly unsigned range corrected it, and the full rerun passed.
+The stale-blob accounting regression was first run against the old reset path
+and failed as expected; its failure and corrected unit run are separately hashed.
+Monitoring/indexer code is unchanged from the initial 24-pass validation above;
+the dashboard JSON also parses successfully. The PostgreSQL, full-workspace,
+Kurtosis and live-deployment exclusions above still apply.
+
+### Refined fitting-wave performance
+
+A new eight-run paired comparison uses the same four fitting-wave cases,
+30/40-source mixes, 1500/500/700 ms settings, alternating variant order, frozen
+harness and release build selection described above. Each process runs two
+waves. Builds were complete; measurements were serial on the shared host.
+Explicit one-source setup posts in the 40-source fixtures are excluded.
+
+| Measurement | Baseline | Refined strict FIFO |
+| --- | ---: | ---: |
+| Measured sources | 280 | 280 |
+| Source postBatches | 8 | 8 |
+| Mean candidate-start through delivery | 295.14 ms | 291.68 ms |
+| Median candidate-start through delivery | 295.66 ms | 279.88 ms |
+| Mean preparation | 157.63 ms | 147.38 ms |
+| Median preparation | 161.50 ms | 142.00 ms |
+| Median prefix hashing | 13.82 ms | 13.32 ms |
+| Median proving | 48.29 ms | 50.87 ms |
+| Median finalization | 69.48 ms | 67.65 ms |
+| Median delivery | 18.02 ms | 18.66 ms |
+
+All 16 measured waves passed canonical effects, source/nonce completion,
+replacement assertions where applicable, one-post packing and independent replay.
+All ended with `snapshot_exhausted`; no measured capacity/FIFO/deadline cuts or
+posting failures occurred after first source selection. The 30-source cases
+still require no calibration post. Packing is unchanged. Mean pipeline time is
+1.17% lower, while median proving and delivery increased; paired pipeline ratios
+range from 0.848 to 1.210. This small noisy sample establishes neither a speedup
+nor the absence of small timing/tail-latency regressions. Together with the
+128-source pairs, each variant processed 536 measured sources in 13 posts.
+
+All 560 fitting-wave sources have estimates; all 328 inbound sources have native
+companion preflight rows. Admission totals and framing reserves are identical
+in all eight pairs. Full projections fit their bounds, and every signed postBatch
+limit equals `ceil(native_required * 1.05)`. All 14 retained numeric receipt-cost
+records match native preflight exactly. Two final warm waves lack numeric cost
+records at teardown (identified by blank CSV fields); their canonical receipt,
+effects and replay assertions passed. Native gas differs by at most 120 gas in
+matched pairs. No gas-estimator or margin changes were made in this correction.
+
+Setup-only failures before source selection remain separate: baseline four
+prover-unavailable / three deadline; candidate three / two. No comparison case
+needed a retry. [Commands/results](refined/comparison-status.json), [summary and
+paired timings](refined/comparison-summary.json), [per-wave gas/timing CSV](refined/comparison-waves.csv),
+[log hashes](refined/comparison-log-hashes.json).
+
+Full logs, datadirs, image build contexts and frozen executables are local-only
+under `artifacts/admission-strict-fifo-refined/`; the committed records contain
+identities and sanitized results. No live Chiado workload, database migration,
+image promotion or merge was performed. Final-head CI remains a separate gate.

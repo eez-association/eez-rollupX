@@ -1,0 +1,434 @@
+{
+  "status": "completed",
+  "variants": {
+    "baseline": {
+      "waves": 8,
+      "sources": 280,
+      "cutoffs": {
+        "snapshot_exhausted": 8
+      },
+      "receipt_gas_coverage": 7,
+      "preparation_ms": {
+        "count": 8,
+        "mean": 157.625,
+        "median": 161.5,
+        "min": 85,
+        "max": 236
+      },
+      "prefix_hash_ms": {
+        "count": 8,
+        "mean": 15.485094,
+        "median": 13.8204905,
+        "min": 10.990834999999999,
+        "max": 25.21842
+      },
+      "proof_ms": {
+        "count": 8,
+        "mean": 47.157207,
+        "median": 48.292649999999995,
+        "min": 40.671789,
+        "max": 53.357455
+      },
+      "blob_ms": {
+        "count": 8,
+        "mean": 117.9390215,
+        "median": 123.1094485,
+        "min": 48.527428,
+        "max": 194.847085
+      },
+      "witness_ms": {
+        "count": 8,
+        "mean": 3.25312725,
+        "median": 3.2460775,
+        "min": 2.514984,
+        "max": 3.752264
+      },
+      "finalization_ms": {
+        "count": 8,
+        "mean": 70.1724375,
+        "median": 69.4769315,
+        "min": 25.329522,
+        "max": 118.312297
+      },
+      "delivery_ms": {
+        "count": 8,
+        "mean": 18.2173195,
+        "median": 18.019101499999998,
+        "min": 9.646744,
+        "max": 25.839517999999998
+      },
+      "pipeline_ms": {
+        "count": 8,
+        "mean": 295.13894462499997,
+        "median": 295.65980049999996,
+        "min": 173.24329899999998,
+        "max": 437.00487100000004
+      },
+      "full_estimate_gas": {
+        "count": 8,
+        "mean": 7853043.5,
+        "median": 7370287.5,
+        "min": 3445207,
+        "max": 13226392
+      },
+      "full_projection_gas": {
+        "count": 8,
+        "mean": 7784918.5,
+        "median": 7302135.5,
+        "min": 3385163,
+        "max": 13150084
+      },
+      "native_used_gas": {
+        "count": 8,
+        "mean": 3875354,
+        "median": 3593543.0,
+        "min": 1619676,
+        "max": 6694504
+      },
+      "framing_gas": {
+        "count": 8,
+        "mean": 137472,
+        "median": 137472.0,
+        "min": 120768,
+        "max": 154176
+      }
+    },
+    "candidate": {
+      "waves": 8,
+      "sources": 280,
+      "cutoffs": {
+        "snapshot_exhausted": 8
+      },
+      "receipt_gas_coverage": 7,
+      "preparation_ms": {
+        "count": 8,
+        "mean": 147.375,
+        "median": 142.0,
+        "min": 80,
+        "max": 234
+      },
+      "prefix_hash_ms": {
+        "count": 8,
+        "mean": 13.342905,
+        "median": 13.3244495,
+        "min": 10.110578,
+        "max": 16.579685
+      },
+      "proof_ms": {
+        "count": 8,
+        "mean": 51.855004,
+        "median": 50.866461,
+        "min": 37.873054,
+        "max": 68.225255
+      },
+      "blob_ms": {
+        "count": 8,
+        "mean": 111.291038875,
+        "median": 106.05588649999999,
+        "min": 49.511036000000004,
+        "max": 193.330351
+      },
+      "witness_ms": {
+        "count": 8,
+        "mean": 3.897881375,
+        "median": 3.715358,
+        "min": 3.1966949999999996,
+        "max": 4.751563
+      },
+      "finalization_ms": {
+        "count": 8,
+        "mean": 69.213170375,
+        "median": 67.6511065,
+        "min": 26.663582,
+        "max": 112.60139
+      },
+      "delivery_ms": {
+        "count": 8,
+        "mean": 21.274121625,
+        "median": 18.656336500000002,
+        "min": 8.629393,
+        "max": 52.286364
+      },
+      "pipeline_ms": {
+        "count": 8,
+        "mean": 291.682015875,
+        "median": 279.8791015,
+        "min": 168.914818,
+        "max": 466.847258
+      },
+      "full_estimate_gas": {
+        "count": 8,
+        "mean": 7853043.5,
+        "median": 7370287.5,
+        "min": 3445207,
+        "max": 13226392
+      },
+      "full_projection_gas": {
+        "count": 8,
+        "mean": 7784899,
+        "median": 7302183.5,
+        "min": 3385235,
+        "max": 13149988
+      },
+      "native_used_gas": {
+        "count": 8,
+        "mean": 3875333,
+        "median": 3593585.0,
+        "min": 1619748,
+        "max": 6694396
+      },
+      "framing_gas": {
+        "count": 8,
+        "mean": 137472,
+        "median": 137472.0,
+        "min": 120768,
+        "max": 154176
+      }
+    }
+  },
+  "paired_waves": 8,
+  "pair_ratios": {
+    "preparation_ms_ratio": {
+      "count": 8,
+      "mean": 0.9219239647481683,
+      "median": 0.9254192409532216,
+      "min": 0.76,
+      "max": 1.1414634146341462
+    },
+    "proof_ms_ratio": {
+      "count": 8,
+      "mean": 1.1051046347640272,
+      "median": 0.9982908702352431,
+      "min": 0.8131162845425269,
+      "max": 1.4329463107708393
+    },
+    "pipeline_ms_ratio": {
+      "count": 8,
+      "mean": 0.9833836588565961,
+      "median": 0.9570332935592301,
+      "min": 0.8481535170185307,
+      "max": 1.209893519000465
+    }
+  },
+  "cases": [
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 56.338374280021526,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 52.76528746297117,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.93016115599312,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.96794526098529,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 67.03761128894985,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 55.99247884203214,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 56.099025178991724,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "duration_seconds": 55.542713066970464,
+      "candidate_count": 3,
+      "summary_reasons": {
+        "snapshot_exhausted": 3
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    }
+  ],
+  "pairs": [
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 0.9545454545454546,
+      "proof_ms_ratio": 0.8808110790261048,
+      "pipeline_ms_ratio": 0.9817800311918291
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 0.941747572815534,
+      "proof_ms_ratio": 0.9695330553336108,
+      "pipeline_ms_ratio": 0.9498623773934383
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 1.011764705882353,
+      "proof_ms_ratio": 1.4329463107708393,
+      "pipeline_ms_ratio": 1.1112358579595047
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 0.9090909090909091,
+      "proof_ms_ratio": 0.8131162845425269,
+      "pipeline_ms_ratio": 0.9008424959661903
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 1.1414634146341462,
+      "proof_ms_ratio": 1.4247969675476877,
+      "pipeline_ms_ratio": 1.209893519000465
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 0.8940677966101694,
+      "proof_ms_ratio": 1.0270486851368754,
+      "pipeline_ms_ratio": 0.9010972625977891
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 1,
+      "sources": 40,
+      "preparation_ms_ratio": 0.76,
+      "proof_ms_ratio": 0.9211665511713573,
+      "pipeline_ms_ratio": 0.8481535170185307
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "wave": 2,
+      "sources": 40,
+      "preparation_ms_ratio": 0.7627118644067796,
+      "proof_ms_ratio": 1.3714181445832152,
+      "pipeline_ms_ratio": 0.9642042097250219
+    }
+  ]
+}

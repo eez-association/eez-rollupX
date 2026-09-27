@@ -1,0 +1,179 @@
+{
+  "harness": {
+    "dynamic_admission": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+      "sha256": "7a9d7b97f38724ee4084d957c73a6075cc35be0adcebdb2feb57b71e28508a52"
+    },
+    "settlement_policy": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+      "sha256": "7d15ee7882b134987198836e4167e499cf874c6e6cd7063aba20cac178d02391"
+    },
+    "partial_consumption": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/partial_consumption",
+      "sha256": "02ca957dbc296bf67bf12b3e2f1550806c6507db3c0f2d31a4f4dc0fbe877734"
+    },
+    "settlement_policy_gas": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+      "sha256": "ce35e3e0343b324222545c7641afdff4159bf0c2f0223bca586ff084a8758257"
+    },
+    "queue_liveness": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+      "sha256": "f3e7b8228849f1738cf90cf91b5965a2b1910057aa8c3eb0672857bc8be98892"
+    }
+  },
+  "cases": [
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/01-baseline-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T21:50:14.326999+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.338374280021526,
+      "finished_at": "2026-09-27T21:51:10.665603+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/02-candidate-ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T21:51:10.670561+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.76528746297117,
+      "finished_at": "2026-09-27T21:52:03.436060+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/03-candidate-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T21:52:03.441030+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.93016115599312,
+      "finished_at": "2026-09-27T21:52:55.380014+00:00"
+    },
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/04-baseline-gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "started_at": "2026-09-27T21:52:55.384915+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.96794526098529,
+      "finished_at": "2026-09-27T21:53:47.361808+00:00"
+    },
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/05-baseline-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T21:53:47.365830+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 67.03761128894985,
+      "finished_at": "2026-09-27T21:54:54.403603+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/06-candidate-ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T21:54:54.407826+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 55.99247884203214,
+      "finished_at": "2026-09-27T21:55:50.400463+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/07-candidate-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T21:55:50.404345+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.099025178991724,
+      "finished_at": "2026-09-27T21:56:46.513712+00:00"
+    },
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "repetition": 1,
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/comparison/08-baseline-gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+      "started_at": "2026-09-27T21:56:46.517696+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 55.542713066970464,
+      "finished_at": "2026-09-27T21:57:42.070311+00:00"
+    }
+  ],
+  "status": "completed"
+}

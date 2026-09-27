@@ -1,0 +1,243 @@
+{
+  "harness": {
+    "dynamic_admission": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+      "sha256": "7a9d7b97f38724ee4084d957c73a6075cc35be0adcebdb2feb57b71e28508a52"
+    },
+    "settlement_policy": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+      "sha256": "7d15ee7882b134987198836e4167e499cf874c6e6cd7063aba20cac178d02391"
+    },
+    "partial_consumption": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/partial_consumption",
+      "sha256": "02ca957dbc296bf67bf12b3e2f1550806c6507db3c0f2d31a4f4dc0fbe877734"
+    },
+    "settlement_policy_gas": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+      "sha256": "ce35e3e0343b324222545c7641afdff4159bf0c2f0223bca586ff084a8758257"
+    },
+    "queue_liveness": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+      "sha256": "f3e7b8228849f1738cf90cf91b5965a2b1910057aa8c3eb0672857bc8be98892"
+    }
+  },
+  "cases": [
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_older_inbound_precedes_capacity_filling_outbound",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+        "--exact",
+        "gnosis_older_inbound_precedes_capacity_filling_outbound",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/01-candidate-gnosis_older_inbound_precedes_capacity_filling_outbound",
+      "started_at": "2026-09-27T21:37:20.370264+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.712348967033904,
+      "finished_at": "2026-09-27T21:38:12.082856+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_older_inbound_precedes_capacity_filling_outbound",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+        "--exact",
+        "ethereum_older_inbound_precedes_capacity_filling_outbound",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/02-candidate-ethereum_older_inbound_precedes_capacity_filling_outbound",
+      "started_at": "2026-09-27T21:38:12.087950+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.56008365697926,
+      "finished_at": "2026-09-27T21:39:08.648226+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+        "--exact",
+        "gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/03-candidate-gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+      "started_at": "2026-09-27T21:39:08.654281+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.34450807800749,
+      "finished_at": "2026-09-27T21:40:11.002188+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+        "--exact",
+        "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/04-candidate-ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "started_at": "2026-09-27T21:40:11.007250+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.66810511797667,
+      "finished_at": "2026-09-27T21:41:27.684156+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+        "--exact",
+        "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/05-candidate-gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "started_at": "2026-09-27T21:41:27.689392+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.98464880598476,
+      "finished_at": "2026-09-27T21:42:44.683426+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+        "--exact",
+        "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/06-candidate-gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "started_at": "2026-09-27T21:42:44.688652+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 57.808463852969,
+      "finished_at": "2026-09-27T21:43:42.505963+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "settlement_policy",
+      "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+        "--exact",
+        "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/07-candidate-ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+      "started_at": "2026-09-27T21:43:42.511446+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.91096328099957,
+      "finished_at": "2026-09-27T21:44:45.430828+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "queue_liveness",
+      "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+        "--exact",
+        "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/08-candidate-ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "started_at": "2026-09-27T21:44:45.434867+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.24518207396613,
+      "finished_at": "2026-09-27T21:46:01.680224+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "queue_liveness",
+      "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+        "--exact",
+        "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/09-candidate-gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+      "started_at": "2026-09-27T21:46:01.685510+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 77.41769696900155,
+      "finished_at": "2026-09-27T21:47:19.112231+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "partial_consumption",
+      "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/partial_consumption",
+        "--exact",
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/10-candidate-valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "started_at": "2026-09-27T21:47:19.117732+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 50.77553622703999,
+      "finished_at": "2026-09-27T21:48:09.901895+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/11-candidate-automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+      "started_at": "2026-09-27T21:48:09.907026+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 62.66152934497222,
+      "finished_at": "2026-09-27T21:49:12.577599+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "started_at": "2026-09-27T21:49:12.582933+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 60.334511121036485,
+      "finished_at": "2026-09-27T21:50:12.925977+00:00"
+    }
+  ],
+  "status": "completed"
+}

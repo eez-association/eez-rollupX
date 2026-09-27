@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Strict FIFO admission implemented at `52f8e15`, with 14 selected native cases and 284 Composer unit tests passing. Fresh paired performance validation is recorded in the [FIFO audit](../audits/2026-09-27-admission-strict-fifo/README.md). The earlier rollout evidence below is historical. |
+| Design status | Strict FIFO admission and preparation refinement implemented at `b2ff3b8`, with 14 selected native cases and 286 Composer unit tests passing. Paired workloads retain 536 sources in 13 posts per variant. Fresh paired performance validation is recorded in the [FIFO audit](../audits/2026-09-27-admission-strict-fifo/README.md). The earlier rollout evidence below is historical. |
 | Earlier rollout record | Implemented on `feat/cross-chain-admission-throughput`; local runtime `aa515c8` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-input-8`. All 870 sources settled in 25 source-bearing postBatches (26 total with ordinary history), versus 24 previously; all 770 semantic jobs and 50 selected native cases passed. Packing did not improve in this comparison. Canonical receipts and live Grafana fields were checked. Local checks, exclusions, the unrelated tooling flake and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |

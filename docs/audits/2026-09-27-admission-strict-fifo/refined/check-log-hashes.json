@@ -1,0 +1,18 @@
+[
+  {
+    "path": "artifacts/admission-strict-fifo-refined/timing-baseline.log",
+    "sha256": "47a20758ca6bf004b39d6ff60f48d8ae255e275dcdda69ce8fe887c4258a09c6"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/composer-unit-final.log",
+    "sha256": "c6390f2a81c42654eb28a5b242f4f3aa009e0281db1d54f7b155db9c63ad2b9e"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/clippy.log",
+    "sha256": "d7dfcdef807e69d536db3d7530c70e876e93880d7ab24df1018106475799f30d"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/clippy-fixed.log",
+    "sha256": "4862dd0fc8cc810c93759ee7b1dc53c5ac1ad118ce85aa49e82cd3d49df9d37b"
+  }
+]
