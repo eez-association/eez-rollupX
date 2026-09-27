@@ -679,6 +679,58 @@ async fn exercise_source_receipts(
             .get::<_, Option<String>>(0)
             .is_none()
     );
+    // The worker must preserve the dashboard's direction precedence and must
+    // not fetch rejected sources. These sources are absent from the mock block;
+    // selecting one would incorrectly add an `absent` receipt observation.
+    let outbound = B256::repeat_byte(16);
+    let rejected = B256::repeat_byte(17);
+    let selected_twice = B256::repeat_byte(18);
+    for record in [
+        event(
+            100,
+            "source_selected",
+            json!({"source_hash":outbound,"direction":"inbound","position":1}),
+        ),
+        event(
+            101,
+            "source_estimate",
+            json!({"source_hash":outbound,"direction":"inbound"}),
+        ),
+        event(
+            102,
+            "source_estimate",
+            json!({"source_hash":outbound,"direction":"outbound"}),
+        ),
+        event(103, "source_accepted", json!({"source_hash":outbound})),
+        event(
+            104,
+            "source_selected",
+            json!({"source_hash":rejected,"direction":"outbound","position":2}),
+        ),
+        event(
+            105,
+            "source_estimate",
+            json!({"source_hash":rejected,"direction":"inbound"}),
+        ),
+        event(
+            106,
+            "source_selected",
+            json!({"source_hash":selected_twice,"direction":"outbound","position":3}),
+        ),
+        event(
+            107,
+            "source_selected",
+            json!({"source_hash":selected_twice,"direction":"inbound","position":3}),
+        ),
+        event(
+            108,
+            "source_accepted",
+            json!({"source_hash":selected_twice}),
+        ),
+    ] {
+        client.execute("INSERT INTO eez_indexer.admission_events(candidate_id,sequence,data) VALUES($1,$2,$3::text::jsonb)",
+            &[&record["candidate_id"].as_str().unwrap(),&(record["sequence"].as_u64().unwrap() as i32),&record.to_string()]).await.unwrap();
+    }
     let mode = Arc::new(AtomicUsize::new(0));
     let reads = Arc::new(AtomicUsize::new(0));
     let app = Router::new().route("/", route_post({
@@ -735,6 +787,24 @@ async fn exercise_source_receipts(
         .await
         .unwrap();
     eez_indexer::admission_receipts::refresh(client, &rpc, &config())
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .query_one(
+                "SELECT count(*) FROM eez_indexer.admission_source_receipts",
+                &[]
+            )
+            .await
+            .unwrap()
+            .get::<_, i64>(0),
+        1
+    );
+    client
+        .execute(
+            "DELETE FROM eez_indexer.admission_events WHERE sequence>=100",
+            &[],
+        )
         .await
         .unwrap();
     let actual = client.query_one("SELECT canonical_source_receipt_gas::bigint,source_receipt_coverage,source_receipt_success FROM eez_indexer.admission_sources", &[]).await.unwrap();

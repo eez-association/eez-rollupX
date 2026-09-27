@@ -71,13 +71,37 @@ pub fn observe(
 /// existing details worker owns cancellation and retries. FK deletion prevents
 /// a late response from recreating an observation after its posting reorgs out.
 pub async fn refresh(client: &Client, rpc: &Rpc, config: &Config) -> Result<()> {
-    let rows = client.query(
-        "SELECT DISTINCT c.canonical_l1_hash,c.transaction_hash,c.canonical_l1_block,s.source_hash \
-         FROM eez_indexer.admission_sources s JOIN eez_indexer.admission_candidates c USING(candidate_id) \
-         JOIN eez_indexer.transactions t ON t.block_hash=c.canonical_l1_hash AND t.transaction_hash=c.transaction_hash \
-         LEFT JOIN eez_indexer.admission_source_receipts r ON r.block_hash=t.block_hash AND r.postbatch_hash=t.transaction_hash AND r.source_hash=s.source_hash \
-         WHERE s.direction='inbound' AND s.decision='Accepted' AND r.source_hash IS NULL \
-         ORDER BY c.canonical_l1_block DESC LIMIT 32", &[]).await?;
+    // Start with canonical posting links, then inspect only each candidate's
+    // source events. Joining the dashboard views here aggregates the complete
+    // admission history repeatedly and can starve enrichment at its SQL timeout.
+    // Keep the views' latest-estimate / earliest-selection direction precedence.
+    let rows = client.query(r#"
+        WITH canonical AS MATERIALIZED (
+            SELECT link.data->'detail'->>'candidate_id' AS candidate_id,
+                   p.canonical_l1_hash,p.transaction_hash,p.canonical_l1_block
+            FROM eez_indexer.posting_events link
+            JOIN eez_indexer.posting_attempts p USING(attempt_id)
+            WHERE link.data->>'stage'='prepared'
+              AND link.data->'detail'->>'candidate_id' IS NOT NULL
+              AND p.canonical_l1_hash IS NOT NULL
+        )
+        SELECT DISTINCT c.canonical_l1_hash,c.transaction_hash,c.canonical_l1_block,s.source_hash
+        FROM canonical c
+        JOIN eez_indexer.transactions t ON t.block_hash=c.canonical_l1_hash AND t.transaction_hash=c.transaction_hash
+        JOIN LATERAL (
+            SELECT data->'detail'->>'source_hash' AS source_hash
+            FROM eez_indexer.admission_events WHERE candidate_id=c.candidate_id
+              AND data->>'kind' IN ('source_selected','source_estimate','source_accepted')
+            GROUP BY data->'detail'->>'source_hash'
+            HAVING bool_or(data->>'kind'='source_accepted') AND coalesce(
+                (array_agg(data->'detail'->>'direction' ORDER BY sequence DESC) FILTER(WHERE data->>'kind'='source_estimate'))[1],
+                (array_agg(data->'detail'->>'direction' ORDER BY sequence) FILTER(WHERE data->>'kind'='source_selected'))[1]
+            )='inbound'
+        ) s ON true
+        LEFT JOIN eez_indexer.admission_source_receipts r ON r.block_hash=t.block_hash AND r.postbatch_hash=t.transaction_hash AND r.source_hash=s.source_hash
+        WHERE r.source_hash IS NULL
+        ORDER BY c.canonical_l1_block DESC,s.source_hash LIMIT 32
+    "#, &[]).await?;
     if rows.is_empty() {
         return Ok(());
     }

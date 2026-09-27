@@ -738,6 +738,12 @@ its receipt in another attempt/block cannot fill this row.
 
 Collection uses at most 32 sources per round with four concurrent RPC sequences
 under the existing details worker. Cancellation drops pending requests. The
+pending-work query starts from canonical posting links and reads source events
+only for those candidates; it avoids repeatedly aggregating the full dashboard
+views as retained history grows. Direction resolution still uses the latest
+estimate, falling back to the earliest source-selection event. This query-only
+change needs no schema migration or node upgrade; rollback preserves observations
+but can restore the old timeout under a large retained history. The
 separate `admission_source_receipts` table references the canonical posting;
 reorg deletion removes observations and rejects late stale inserts. It does
 not add no-log sources to settlement cost totals. Historical accepted sources
