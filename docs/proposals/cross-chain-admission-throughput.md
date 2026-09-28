@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Strict FIFO admission and preparation refinement implemented at `b2ff3b8`, with 14 selected native cases and 286 Composer unit tests passing. Paired workloads retain 536 sources in 13 posts per variant. Fresh paired performance validation is recorded in the [FIFO audit](../audits/2026-09-27-admission-strict-fifo/README.md). The earlier rollout evidence below is historical. |
+| Design status | Strict FIFO admission and preparation refinement implemented at `b2ff3b8`, with 14 selected native cases and 286 Composer unit tests passing. Paired local workloads retain 536 sources in 13 posts per variant. The [September 28 Chiado trial](../audits/2026-09-28-chiado-strict-fifo/README.md) passed 870 canonical sources / 770 semantic checks but needed 29 posts / 186.521 seconds, versus 23 / 146.880 in the previous unpaired live run. Retained-prefix packing and two CI packing failures remain open. |
 | Earlier rollout record | Implemented on `feat/cross-chain-admission-throughput`; local runtime `aa515c8` is deployed with policy `confirmed-failure-backoff-4` and estimator `companion-input-8`. All 870 sources settled in 25 source-bearing postBatches (26 total with ordinary history), versus 24 previously; all 770 semantic jobs and 50 selected native cases passed. Packing did not improve in this comparison. Canonical receipts and live Grafana fields were checked. Local checks, exclusions, the unrelated tooling flake and existing formatting failures are recorded in the audit; this is not CI promotion evidence. Versioned behavior is documented in the settlement/RPC specifications. |
 | Source baseline | `main`, `7c90266a5fe8cfdb46b249c61079badc2dce71a3` |
 | Protocol baseline | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d` |
@@ -11,6 +11,25 @@
 | Evidence | [Initial wave investigation](../audits/2026-09-25-latest-wave-analysis/README.md); [deferred-storage comparison](../audits/2026-09-26-admission-deferred/README.md); [companion baseline](../audits/2026-09-26-admission-companions/README.md); [packing follow-up](../audits/2026-09-26-admission-packing/README.md); [September 27 refinement](../audits/2026-09-27-admission-refinement/README.md); [preparation](../audits/2026-09-27-admission-preparation/README.md); [failure tolerance and gas](../audits/2026-09-27-admission-backoff-gas/README.md) |
 
 ## 1. Objective and evidence
+
+### September 28 live trial findings
+
+Strict FIFO `b2ff3b8` remains deployed on cold copies of the existing Chiado state;
+the [trial audit](../audits/2026-09-28-chiado-strict-fifo/README.md) records migration,
+manual restart backfill, semantic assertions, canonical attribution and gas data.
+All 35 proved candidates respected the FIFO invariant; 32 speculative bypasses
+were discarded before proving. Five small posts drained 1–13 sources remaining
+inside a retained retry prefix. Extending those admitted remainders with eligible
+younger work is an unimplemented optimization that must preserve source ownership,
+nonce dependencies, the target deadline and complete FIFO inclusion. No acceptance
+criterion or strict FIFO requirement is relaxed by this finding.
+
+Monitoring `2cb7d61` restores genesis identity validation against the upgraded
+pruned Reth RPC using a bounded raw-header hash fallback. Live Grafana now exposes
+complete estimates for all 870 settled sources and actual gas for all 29 posts.
+No node/signer behavior changed during that monitoring fix. The historical live
+performance comparison is not a fresh paired benchmark and does not establish
+performance parity; the two CI packing assertions remain unresolved.
 
 ### September 27 correction: strict FIFO admission
 

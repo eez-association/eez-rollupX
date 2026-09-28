@@ -4,7 +4,14 @@ Status: strict FIFO admission and its preparation refinement are validated at
 `b2ff3b8`: 286 Composer unit tests, 14 selected native correctness cases and fresh
 paired release comparisons pass. Packing is preserved in the measured workloads.
 The initial iteration and its corrected performance defect remain documented
-below. Existing live Chiado services and datadirs are unchanged.
+below. Live Chiado services and datadirs were unchanged during this local audit.
+
+**September 28 follow-up:** the authorized [Chiado trial](../2026-09-28-chiado-strict-fifo/README.md)
+deployed these runtime images on cold copies of the existing state. All 870 sources
+and 770 semantic checks passed, with 29 posts / 186.521 seconds. The previous live
+run used 23 posts / 146.880 seconds; conditions were not freshly paired. Retained
+FIFO-prefix tails reduced packing. Two later CI packing assertions also failed
+and remain unresolved; the successful local comparison above does not waive them.
 
 ## Contract and baseline
 

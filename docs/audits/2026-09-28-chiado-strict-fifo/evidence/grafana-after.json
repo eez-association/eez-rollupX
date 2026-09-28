@@ -1,0 +1,58 @@
+{
+  "checked_at": "2026-09-28T07:53:48.085091+00:00",
+  "from_ms": 1790580629470,
+  "to_ms": 1790580825000,
+  "panels": [
+    {
+      "id": 1,
+      "rows": 67,
+      "new_fields": [
+        "admission_including_framing_gas",
+        "calldata_bound_gas",
+        "calldata_floor_active",
+        "canonical_receipt_gas",
+        "fifo_prefix_len",
+        "fifo_trigger",
+        "framing_reserve_gas",
+        "gas_margin_percent",
+        "general_execution_reserve",
+        "policy_version"
+      ],
+      "new_field_nonnull_rows": {
+        "admission_including_framing_gas": 67,
+        "framing_reserve_gas": 67,
+        "fifo_prefix_len": 32,
+        "fifo_trigger": 32,
+        "policy_version": 67,
+        "general_execution_reserve": 67,
+        "canonical_receipt_gas": 29,
+        "gas_margin_percent": 67,
+        "calldata_bound_gas": 67,
+        "calldata_floor_active": 67
+      }
+    },
+    {
+      "id": 3,
+      "rows": 2368,
+      "new_fields": [
+        "framing_reserve_after",
+        "framing_reserve_before",
+        "framing_reserve_gas",
+        "full_estimate_after",
+        "full_estimate_before",
+        "minimum_mutable_entry_gas",
+        "minimum_static_general_fallback"
+      ],
+      "new_field_nonnull_rows": {
+        "full_estimate_before": 2334,
+        "framing_reserve_before": 2334,
+        "framing_reserve_gas": 2334,
+        "framing_reserve_after": 2313,
+        "minimum_mutable_entry_gas": 30,
+        "full_estimate_after": 2313,
+        "minimum_static_general_fallback": 30
+      }
+    }
+  ],
+  "canonical_receipt_gas_total": 173212787
+}

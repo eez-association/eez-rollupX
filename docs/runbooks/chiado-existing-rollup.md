@@ -16,6 +16,15 @@ including [startup](../../crates/eez-node/src/lib.rs),
 [blob retrieval](../../crates/eez-l1/src/blob_source.rs). Shell syntax and links checked;
 fresh replay and backup restoration have **not** been rehearsed on a live rollup.
 
+The [September 28 cold-copy trial](../audits/2026-09-28-chiado-strict-fifo/README.md)
+validated one existing deployment's upgrade, retained history, canonical new
+settlement and restart, followed by 870 settled sources / 770 semantic checks.
+Its restart required bounded manual L1 backfill, so it does not establish
+unattended recovery or fresh historical replay. Retain original databases and
+configuration when testing a Reth upgrade; never roll an older binary back onto
+candidate-modified state. Pruned-genesis RPC handling also requires the
+[compatible monitoring identity check](../../monitoring/indexer/README.md#start-on-the-same-machine).
+
 ## 1. Obtain the deployment and choose the state source
 
 Run commands in Bash from the deployment checkout root; stop on failure. Meet the shared

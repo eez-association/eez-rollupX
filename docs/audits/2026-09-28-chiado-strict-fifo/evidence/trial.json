@@ -1,0 +1,114 @@
+{
+  "checkout_at_trial_start": "642fc2d0dfbf135bdf24a7decd8fc28d4d9e17b2",
+  "pr_base": "main",
+  "target_main": "fd77a2ebc147850333171045dbd263ec74156268",
+  "runtime_source": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "runtime_images": [
+    {
+      "tag": "eez-node:b2ff3b8-strict-fifo-local",
+      "image_id": "sha256:e58c4a657d4b8d7d5986532af9a140f730637af1c15341d428951aa04ed7bfe8",
+      "source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+      "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+    },
+    {
+      "tag": "eez-proof-signer:b2ff3b8-strict-fifo-local",
+      "image_id": "sha256:0f5009d3e7030df3524f53356d3b1a669c892bfa9c3dbd5f2a657adab4d8ecbc",
+      "source_revision": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+      "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+    }
+  ],
+  "indexer_build": {
+    "source": "2cb7d611e3a4aa879ef027de20d0a7cf85408240",
+    "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "source_archive_sha256": "18e36656114e2799040514bcba055f81ac945c898e9ba7805621851bac2f7ba7",
+    "dockerfile_sha256": "16696c1dd3e67dded9b4d81e7f825dad4368743daccdf8f73544701e1d207291",
+    "build_recipe_delta": "builder Rust 1.94.0 -> 1.95.0 only",
+    "tag": "eez-indexer:2cb7d61-pruned-genesis-local",
+    "image_id": "sha256:cd896f0a8305f8c0e6f300b4b121c8ba3c84d6750c5cce46c51fc9e92cbf7d46",
+    "finished": true,
+    "executable_sha256": "f1d654fa5d22980735ea99afb3a514878d0bf1ffa88526a0a21710a620b923f2"
+  },
+  "indexer_rollout": {
+    "source": "2cb7d611e3a4aa879ef027de20d0a7cf85408240",
+    "started_at": "2026-09-28T07:48:25.448212+00:00",
+    "old_image": "sha256:66ac3bd579ac0d2c18d7b0b49edee1e431deaa3ed0d383f411742a8fee9e6e10",
+    "history_counts_before": "260175|28",
+    "new_image": "sha256:cd896f0a8305f8c0e6f300b4b121c8ba3c84d6750c5cce46c51fc9e92cbf7d46",
+    "mounts_environment_command_preserved": true,
+    "history_counts_after": "260175|28",
+    "finished_at": "2026-09-28T07:48:25.993353+00:00"
+  },
+  "workload": {
+    "run": "eez-core-protocol/tmp/e2e-staged-net/20260928-072409",
+    "semantic_jobs_passed": 770,
+    "attempt": 1,
+    "source_count": 870,
+    "inbound": 520,
+    "outbound": 350,
+    "runtime_settings": {
+      "preparation_ms": 1000,
+      "proof_ms": 450,
+      "submission_slack_ms": 450,
+      "gas_margin_bps": 500,
+      "send_workers": 28,
+      "preparation_concurrency": 200
+    },
+    "total_seconds": 1501.333,
+    "send_monitor_seconds": 186.521
+  },
+  "indexer_checks": {
+    "baseline_regressions_failed": 3,
+    "baseline_other_test_passed": 1,
+    "candidate_default_tests_passed": 28,
+    "excluded_postgres_tests": 2,
+    "fmt": "pass",
+    "clippy": "pass",
+    "schema_changes": false
+  },
+  "canonical_fifo_bypasses": 0,
+  "independent_live_follower_replay": false,
+  "independent_live_kzg_recomputation": false,
+  "restart_manual_payload_recovery": 66,
+  "temporary_forwarder_stopped": true,
+  "forwarder_counts": {
+    "local_requests": 53311,
+    "forwarded_raw_transactions": 1397,
+    "upstream_rate_limits": 0,
+    "errors": 2329,
+    "error_types": {
+      "BrokenPipeError": 2329
+    }
+  },
+  "prior_ci_run": {
+    "id": 36353826692,
+    "status": "failed",
+    "unresolved_packing_assertions": 2
+  },
+  "host_before": {
+    "logical_cpus": 22,
+    "load_average": [
+      3.2958984375,
+      3.54150390625,
+      3.58447265625
+    ],
+    "memory_kib": {
+      "MemTotal": 63866800,
+      "MemAvailable": 55581136,
+      "SwapFree": 276724
+    }
+  },
+  "host_after": {
+    "logical_cpus": 22,
+    "load_average": [
+      4.4052734375,
+      4.8896484375,
+      6.43408203125
+    ],
+    "memory_kib": {
+      "MemTotal": 63866800,
+      "MemAvailable": 50511188,
+      "SwapFree": 293652
+    }
+  }
+}
