@@ -1,9 +1,11 @@
+use alloy_primitives::{B256, Bytes, keccak256};
 use anyhow::{Context, Result, anyhow, ensure};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use crate::{
     config::Config,
@@ -66,16 +68,57 @@ impl Rpc {
             "HTTP chain ID mismatch"
         );
         ensure!(
-            self.block(0).await?.hash == config.genesis_hash,
+            self.genesis_hash().await? == config.genesis_hash,
             "HTTP genesis mismatch"
         );
         Ok(())
     }
+
+    /// Verify retained genesis identity even when Reth prunes the full-block RPC.
+    /// Only its explicit pruning error permits the raw-header fallback; callers
+    /// must still compare the computed hash with their configured chain identity.
+    pub async fn genesis_hash(&self) -> Result<B256> {
+        match self.block(0).await {
+            Ok(block) => Ok(block.hash),
+            Err(error) if error.is::<PrunedHistory>() => {
+                raw_header_hash(&self.call("debug_getRawHeader", json!(["0x0"])).await?)
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct PrunedHistory;
+impl std::fmt::Display for PrunedHistory {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("RPC history pruned")
+    }
+}
+impl std::error::Error for PrunedHistory {}
+
+fn raw_header_hash(value: &Value) -> Result<B256> {
+    let text = value.as_str().context("missing raw genesis header")?;
+    // Hashing the exact bounded bytes against the configured genesis commits to
+    // every header field. No remote claimed hash or decoded metadata is trusted.
+    ensure!(
+        text.len() > 2 && text.len() <= 2 + 8192 * 2,
+        "invalid raw genesis header size"
+    );
+    let bytes: Bytes = text.parse()?;
+    Ok(keccak256(bytes))
 }
 
 fn result(value: Value) -> Result<Value> {
     ensure!(
-        value["jsonrpc"] == "2.0" && value["id"] == 1 && value.get("error").is_none(),
+        value["jsonrpc"] == "2.0" && value["id"] == 1,
+        "invalid or failed RPC response"
+    );
+    if value["error"]["code"].as_i64() == Some(4444) && value.get("result").is_none() {
+        return Err(PrunedHistory.into());
+    }
+    ensure!(
+        value.get("error").is_none(),
         "invalid or failed RPC response"
     );
     value.get("result").cloned().context("missing RPC result")
@@ -107,23 +150,19 @@ async fn subscribe(config: &Config, wake: &watch::Sender<u64>) -> Result<()> {
         ("eth_getBlockByNumber", json!(["0x0", false]), 1),
         ("eth_subscribe", json!(["newHeads"]), 2),
     ] {
-        socket
-            .send(Message::Text(
-                json!({"jsonrpc":"2.0","id":1,"method":method,"params":params})
-                    .to_string()
-                    .into(),
-            ))
-            .await?;
-        let value = tokio::time::timeout(Duration::from_secs(10), async {
-            loop {
-                match socket.next().await.context("WS closed")?? {
-                    Message::Text(text) => break result(serde_json::from_str(&text)?),
-                    Message::Close(_) => return Err(anyhow!("WS closed")),
-                    _ => continue,
-                }
-            }
-        })
-        .await??;
+        let response = ws_call(&mut socket, method, params).await;
+        let value = if expected == 1 {
+            let genesis = match response {
+                Ok(value) => hash(&value["hash"])?,
+                Err(error) if error.is::<PrunedHistory>() => raw_header_hash(
+                    &ws_call(&mut socket, "debug_getRawHeader", json!(["0x0"])).await?,
+                )?,
+                Err(error) => return Err(error),
+            };
+            json!({"hash":genesis})
+        } else {
+            response?
+        };
         match expected {
             0 => ensure!(number(&value)? == config.chain_id, "WS chain ID mismatch"),
             1 => ensure!(
@@ -165,4 +204,28 @@ async fn subscribe(config: &Config, wake: &watch::Sender<u64>) -> Result<()> {
         }
     }
     unreachable!("subscription enters notification loop")
+}
+
+async fn ws_call(
+    socket: &mut WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>,
+    method: &str,
+    params: Value,
+) -> Result<Value> {
+    tokio::time::timeout(Duration::from_secs(10), async {
+        socket
+            .send(Message::Text(
+                json!({"jsonrpc":"2.0","id":1,"method":method,"params":params})
+                    .to_string()
+                    .into(),
+            ))
+            .await?;
+        loop {
+            match socket.next().await.context("WS closed")?? {
+                Message::Text(text) => break result(serde_json::from_str(&text)?),
+                Message::Close(_) => return Err(anyhow!("WS closed")),
+                _ => continue,
+            }
+        }
+    })
+    .await?
 }

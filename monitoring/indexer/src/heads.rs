@@ -15,7 +15,7 @@ use tokio_postgres::NoTls;
 pub async fn collect(rpc: &Rpc, chain_id: u64, genesis: B256) -> Result<Value> {
     ensure!(
         number(&rpc.call("eth_chainId", json!([])).await?)? == chain_id
-            && rpc.block(0).await?.hash == genesis,
+            && rpc.genesis_hash().await? == genesis,
         "head source identity mismatch"
     );
     let mut blocks = Vec::new();

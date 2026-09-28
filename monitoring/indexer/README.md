@@ -67,6 +67,22 @@ deployment block to retain the whole rollup history, or a later block for an
 explicitly limited history. The scanner needs headers, logs and receipts from
 that block onward. Nothing is collected before it.
 
+Reth can retain the genesis header while rejecting the full genesis block with
+pruned-history RPC code `4444`. For that specific error, HTTP identity checks,
+head sampling and WS subscription setup request `debug_getRawHeader("0x0")` and
+compare its locally computed Keccak hash with the configured genesis. Missing,
+oversized or malformed bytes and mismatched hashes fail identity validation;
+other RPC failures do not activate this fallback. The node must expose that
+read-only debug method to the indexer when using pruned history. Retained block,
+log and receipt requirements from `start_block` remain the same.
+
+Upgrade the indexer before switching its RPC to a Reth revision that prunes the
+genesis block API. This fix changes no configuration, schema or checkpoints;
+existing full-genesis endpoints remain supported. An older indexer can reuse the
+database, but cannot resume against the pruned endpoint until that endpoint is
+changed or the fix is restored. Preserve the database and posting-log volumes
+through either upgrade or rollback.
+
 The optional `details` object configures `l2_http_url`, `l2_chain_id`,
 `l2_genesis_hash` and `beacon_url`. Use `eth_chainId` and genesis block zero from
 the intended L2. The database binds enrichment to that L2 identity; URLs may
