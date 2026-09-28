@@ -99,6 +99,14 @@ fn min_replacement_fee(replaced: u128) -> u128 {
     replaced.saturating_add(required_increase)
 }
 
+/// Identity endpoints survive queued fee replacements. The first endpoint
+/// lets canonical progress release a partially consumed repair window.
+#[derive(Clone, Copy, Debug)]
+struct FifoBoundary {
+    first: (Address, Direction, u64),
+    last: (Address, Direction, u64),
+}
+
 /// All pool state under one lock, so queue membership, hash dedupe and
 /// nonce reservations can never disagree with each other.
 #[derive(Debug)]
@@ -116,10 +124,10 @@ struct PoolState {
     /// or evicted by its caller; a forgotten reservation bricks its nonce
     /// slot (admission forever expects past it).
     in_flight: HashMap<TxHash, (Address, Direction, u64)>,
-    /// Retain the end of a shrinking FIFO retry snapshot when the current
-    /// deadline cannot accommodate canonical recomposition.
-    /// Identity, rather than hash, lets an ingress replacement keep its position.
-    fifo_boundary: Option<(Address, Direction, u64)>,
+    /// Retain a shrinking FIFO retry snapshot until canonical head progress,
+    /// even when the current deadline cannot accommodate recomposition.
+    /// Identities, rather than hashes, preserve queued replacement positions.
+    fifo_boundary: Option<FifoBoundary>,
     telemetry: status::QueueTelemetry,
 }
 
@@ -161,6 +169,25 @@ impl PoolState {
             .ledger
             .read(|data| data.users.values().cloned().collect::<Vec<_>>());
         users.sort_by_key(|user| (user.owner, user.fifo_position));
+        // A repair boundary protects an unfinished FIFO head across retries.
+        // Once that head is canonically consumed, a new snapshot can include
+        // its remaining suffix and younger work together. Keeping only the old
+        // end after partial consumption would strand a small tail in its own
+        // postBatch. Submission observations cannot establish this progress.
+        if self.fifo_boundary.is_some_and(|boundary| {
+            users.iter().any(|user| {
+                (user.tx.sender, user.tx.direction, user.tx.nonce) == boundary.first
+                    && matches!(
+                        user.location,
+                        UserLocation::Terminal {
+                            canonical: Some(_),
+                            ..
+                        }
+                    )
+            })
+        }) {
+            self.fifo_boundary = None;
+        }
         for user in &users {
             if user.location != UserLocation::Queued {
                 self.txs.retain(|tx| tx.hash != user.tx.hash);
@@ -671,7 +698,7 @@ impl HeldPool {
         if let Some(boundary) = state.fifo_boundary {
             if let Some(index) = candidates
                 .iter()
-                .position(|tx| (tx.sender, tx.direction, tx.nonce) == boundary)
+                .position(|tx| (tx.sender, tx.direction, tx.nonce) == boundary.last)
             {
                 candidates.truncate(index + 1);
             } else {
@@ -724,8 +751,12 @@ impl HeldPool {
             state.insert_queued(tx, false);
         }
         state.update_recovery_ownership();
-        let boundary = &snapshot[prefix_len - 1];
-        state.fifo_boundary = Some((boundary.sender, boundary.direction, boundary.nonce));
+        let first = &snapshot[0];
+        let last = &snapshot[prefix_len - 1];
+        state.fifo_boundary = Some(FifoBoundary {
+            first: (first.sender, first.direction, first.nonce),
+            last: (last.sender, last.direction, last.nonce),
+        });
     }
 
     /// Atomically claim the snapshot's exact identity. A concurrent replacement

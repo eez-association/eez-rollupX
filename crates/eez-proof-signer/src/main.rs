@@ -45,6 +45,22 @@ async fn main() -> eyre::Result<()> {
     let validator =
         validate::Validator::stateless(&config.chain_document_path, expected_l2_system_address)?;
     let l1_chain_spec = eez_l1::chain_config::load_l1_chain_spec(&config.l1_chain_document_path)?;
+    // The codec's default setup is lazy and includes cell-proof precomputation.
+    // Pay this process-wide cost before accepting windows: charging it to the
+    // first Prove can exhaust a slot and contaminate Composer timing samples.
+    // One awaited worker owns initialization; no request or attestation exists
+    // yet, and a worker failure prevents the server from becoming ready.
+    let kzg_started = std::time::Instant::now();
+    tokio::task::spawn_blocking(|| {
+        alloy_eips::eip4844::env_settings::EnvKzgSettings::Default.get();
+    })
+    .await
+    .wrap_err("initialize default KZG settings before serving Prove")?;
+    info!(
+        event_name = "eez.signer.kzg.ready",
+        initialization_ms = kzg_started.elapsed().as_secs_f64() * 1_000.0,
+        "default KZG settings initialized",
+    );
     if !listen_addr.ip().is_loopback() {
         warn!(
             listen = %listen_addr,

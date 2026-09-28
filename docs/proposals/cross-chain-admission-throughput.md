@@ -14,6 +14,31 @@
 
 ### September 28 live trial findings
 
+**Authorized CI follow-up:** initialize the signer's existing default KZG
+settings in one awaited blocking startup worker before opening the RPC listener.
+The first-request lazy initialization can inflate the conservative proof history
+for later cheap batches. An isolated baseline with an 850 ms first-proof delay
+reproduced CI's four-post result (expected two): first proof 2,808.8 ms,
+subsequent proofs 17–26 ms, retained prediction 3,511.0 ms. Moving setup outside
+requests must retain all verification and deadline checks, require no calibration
+post, and pass the same delayed-first-proof check and cold fitting-wave tests.
+This is a reproduced failure mechanism; missing CI artifacts prevent attributing
+the entire historical CI delay to KZG alone.
+
+**Authorized follow-up, in progress:** retain both the first and last source
+identity of a FIFO repair prefix. Canonical consumption of its first source
+allows the next opportunity to consider the remaining queue in its original
+order, including sources beyond the old boundary. Receipt observations, proof
+completion and uncertain retries do not clear the restriction. The complete
+candidate still has to include every older eligible source, and any further
+repair retains the original target/deadline. Regress partial consumption,
+unchanged/invalid canonical observations, replacement and reorg ownership.
+Investigate the gas-packing CI failure separately: current release passes the
+same case locally, while CI log tails show timing refusals; full CI artifacts
+were unavailable because upload exceeded the repository storage quota. Keep
+the exact 1+3 packing assertion and distinguish fixture timing from gas/FIFO
+semantics before changing it.
+
 Strict FIFO `b2ff3b8` remains deployed on cold copies of the existing Chiado state;
 the [trial audit](../audits/2026-09-28-chiado-strict-fifo/README.md) records migration,
 manual restart backfill, semantic assertions, canonical attribution and gas data.

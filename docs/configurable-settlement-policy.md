@@ -150,11 +150,17 @@ shared deadline. Each rebuild strictly shortens the snapshot; a concurrently enl
 prefix waits for a fresh opportunity. Fitting mixed snapshots still use one batch.
 
 When rebuilding cannot finish in time, the held pool remembers the retry prefix's
-last sender/direction/nonce as the next snapshot boundary. Repeated attempts
+first and last sender/direction/nonce identities. The last identity bounds the
+next snapshot. Repeated attempts
 cannot submit younger sources without the older eligible requests. Replacements inherit
-its position; removal, consumption, or a classified source condition clears the
-boundary. This is an in-memory scheduling boundary, not a learned transaction
-count or a settlement failure.
+their positions. Canonical resolution of the first source clears the boundary,
+so an unconsumed suffix can share the next batch with younger work, subject to
+the same FIFO validation. A receipt, relay acceptance, or partial consumption
+that leaves the first source unresolved does not establish this progress.
+Removal or consumption of the last source, or a classified source condition
+blocking that source's nonce chain, also clears the boundary. This is an
+in-memory scheduling boundary, not a learned transaction count or a settlement
+failure.
 
 Discarded preparation remains elapsed time against the same deadline. A rebuild
 resets the candidate's blob/group observations and predicts future work using
@@ -261,7 +267,8 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`strict-fifo-5` adds FIFO prefix repair to the five-failure submission tolerance
+`strict-fifo-6` releases a retained repair boundary on canonical head progress;
+`strict-fifo-5` introduced FIFO prefix repair alongside the five-failure submission tolerance
 introduced by `confirmed-failure-backoff-4`. It retains the capacity minimum
 checks of `packing-minimum-check-3` and supersedes version 2's FIFO preference.
 Historical `shared-deadline-1` events retain their former FIFO count semantics. Version 3 checks a minimum contribution before source
@@ -683,5 +690,11 @@ boundary under the existing recovery contract; clients may need to resubmit.
 FIFO constrains the proposed source set. L1 partial consumption can still omit
 inbound companions from that same proposal; canonical reconciliation retains
 and retries eligible omitted sources under the existing contract. Rollback
-restores the older scheduling behavior. The separate main-branch Reth
+from version 6 to version 5 retains strict FIFO but can strand a partially
+consumed repair prefix in a small batch; earlier policies restore relaxed
+scheduling. Version 6 needs only a Composer upgrade; signers, followers and
+collectors can run mixed versions under the unchanged wire/event schema.
+Reorg reconciliation restores source ownership and order; a cleared scheduling
+boundary does not authorize execution, eviction, or canonical completion.
+The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.

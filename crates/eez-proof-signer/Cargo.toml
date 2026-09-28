@@ -17,6 +17,7 @@ eez-protocol.workspace = true
 eez-driver = { workspace = true, features = ["observation", "derivation"] }
 
 alloy-consensus.workspace = true
+alloy-eips.workspace = true
 alloy-genesis.workspace = true
 alloy-primitives = { workspace = true, features = ["k256"] }
 alloy-rlp.workspace = true
@@ -47,7 +48,6 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
-alloy-eips.workspace = true
 # Recorded calldata fixture decoding.
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.

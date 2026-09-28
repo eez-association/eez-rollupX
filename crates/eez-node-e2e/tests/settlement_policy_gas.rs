@@ -436,6 +436,12 @@ async fn gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work() {
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &settings)
         .await
         .unwrap();
+    // This is a fresh signer process, with no earlier post to initialize KZG.
+    // Readiness must pay that cost before any real batch consumes its deadline.
+    let startup = world.proof_signer.log_tail(1_000);
+    let initialized = startup.find("eez.signer.kzg.ready").unwrap();
+    let serving = startup.find("serving Prove").unwrap();
+    assert!(initialized < serving);
     let (target_a, proxy_a) = expensive_target(&world, 100).await;
     let (target_b, proxy_b) = expensive_target(&world, 100).await;
     let (target_c, proxy_c) = expensive_target(&world, 1).await;

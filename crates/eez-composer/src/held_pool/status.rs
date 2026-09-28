@@ -222,12 +222,10 @@ impl HeldPool {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         // An ineligible boundary (or its blocked predecessor) must not hide
         // independent ready sources at the next opportunity.
-        if state
-            .fifo_boundary
-            .is_some_and(|(sender, direction, nonce)| {
-                sender == tx.sender && direction == tx.direction && nonce >= tx.nonce
-            })
-        {
+        if state.fifo_boundary.is_some_and(|boundary| {
+            let (sender, direction, nonce) = boundary.last;
+            sender == tx.sender && direction == tx.direction && nonce >= tx.nonce
+        }) {
             state.fifo_boundary = None;
         }
         let key = (tx.sender, tx.direction);

@@ -1,0 +1,280 @@
+[
+  {
+    "case": "baseline-gas",
+    "proofs": [
+      {
+        "candidate": "556921-1790587417408:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 47.792619,
+          "blobs": 1,
+          "deadline_ms": 1790587420900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 69,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3423.0,
+          "witness_preparation_ms": 2.6860429999999997,
+          "witnesses": 56
+        }
+      },
+      {
+        "candidate": "556921-1790587417408:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 1917.881107
+        }
+      },
+      {
+        "candidate": "556921-1790587417408:1:1",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 49.316568999999994,
+          "blobs": 1,
+          "deadline_ms": 1790587425900,
+          "groups": 3,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 61,
+          "proof_estimate_basis": "scaled_sample",
+          "proof_estimate_ms": 2397.339567,
+          "remaining_ms": 3433.509845,
+          "witness_preparation_ms": 1.978462,
+          "witnesses": 5
+        }
+      },
+      {
+        "candidate": "556921-1790587417408:1:1",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 30.409035
+        }
+      }
+    ],
+    "test_log_sha256": "60ce601ff393c83d0561dbe148799c9dee5ea4793a0ed79c5384e8ab342cbe33",
+    "result": "passed: two posts, source groups 1+3"
+  },
+  {
+    "case": "baseline-gas-two-cpus",
+    "proofs": [
+      {
+        "candidate": "589167-1790588089406:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 48.01638,
+          "blobs": 1,
+          "deadline_ms": 1790588092900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 57,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3436.05921,
+          "witness_preparation_ms": 2.010742,
+          "witnesses": 60
+        }
+      },
+      {
+        "candidate": "589167-1790588089406:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 1904.116292
+        }
+      },
+      {
+        "candidate": "589167-1790588089406:1:1",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 47.520993,
+          "blobs": 1,
+          "deadline_ms": 1790588097900,
+          "groups": 3,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 57,
+          "proof_estimate_basis": "scaled_sample",
+          "proof_estimate_ms": 2380.1340099999998,
+          "remaining_ms": 3437.0,
+          "witness_preparation_ms": 1.254084,
+          "witnesses": 5
+        }
+      },
+      {
+        "candidate": "589167-1790588089406:1:1",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 17.771060000000002
+        }
+      }
+    ],
+    "test_log_sha256": "9dabc4e52338eee05c65ed1ae04618faac9a0ce1dff31bbdd61c69f52832aa75",
+    "result": "passed: two posts, source groups 1+3"
+  },
+  {
+    "case": "baseline-gas-extra-history",
+    "proofs": [
+      {
+        "candidate": "622063-1790588750406:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 57.121789,
+          "blobs": 1,
+          "deadline_ms": 1790588753900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 73,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3420.516631,
+          "witness_preparation_ms": 2.535809,
+          "witnesses": 96
+        }
+      },
+      {
+        "candidate": "622063-1790588750406:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 1929.476285
+        }
+      },
+      {
+        "candidate": "622063-1790588750406:1:1",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 60.77765,
+          "blobs": 1,
+          "deadline_ms": 1790588758900,
+          "groups": 3,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 73,
+          "proof_estimate_basis": "scaled_sample",
+          "proof_estimate_ms": 2411.832205,
+          "remaining_ms": 3415.735464,
+          "witness_preparation_ms": 2.688658,
+          "witnesses": 5
+        }
+      },
+      {
+        "candidate": "622063-1790588750406:1:1",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 19.922355999999997
+        }
+      }
+    ],
+    "test_log_sha256": "a8ecdec9abeb05c5bd2b4b73d4044bf28a767738787014ea76dcd166bd3facbf",
+    "result": "passed: two posts, source groups 1+3"
+  },
+  {
+    "case": "baseline-gas-delayed-proof",
+    "proofs": [
+      {
+        "candidate": "628427-1790588880405:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 51.401931999999995,
+          "blobs": 1,
+          "deadline_ms": 1790588883900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 63,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3432.0,
+          "witness_preparation_ms": 2.457292,
+          "witnesses": 60
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 2808.8263549999997
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:2",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 49.38545,
+          "blobs": 1,
+          "deadline_ms": 1790588893900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 65,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3511.018633,
+          "remaining_ms": 3427.644281,
+          "witness_preparation_ms": 2.0741940000000003,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:2",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 26.292922
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:4",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 48.534034,
+          "blobs": 1,
+          "deadline_ms": 1790588903900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 57,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3511.018633,
+          "remaining_ms": 3417.784186,
+          "witness_preparation_ms": 1.547394,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:4",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 16.997922
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:6",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 49.527116,
+          "blobs": 1,
+          "deadline_ms": 1790588913900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 65,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3511.018633,
+          "remaining_ms": 3392.8048909999998,
+          "witness_preparation_ms": 2.018448,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "628427-1790588880405:1:6",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 19.108819999999998
+        }
+      }
+    ],
+    "test_log_sha256": "a6c629f129f64f9496800149c3e94a154e735cd108741775f907e0ecfdb3bc81",
+    "result": "expected two posts, observed four"
+  }
+]

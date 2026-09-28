@@ -242,6 +242,15 @@ recovery evidence remains open.
 
 ### 4.1 Single-flight execution
 
+The daemon initializes the codec's default KZG settings before opening its RPC
+listener. This process-wide initialization runs in one awaited blocking worker;
+failure prevents readiness. It creates no request, validation result, or
+attestation, and changes neither the trusted setup nor any per-request check.
+Initialization time belongs to startup, outside Composer's per-window timing
+samples. No calibration postBatch is required. This startup behavior is wire
+compatible with older Composers; rollback moves the cost back to the first
+request without changing historical decoding or follower replay.
+
 Exactly one `Prove` request may be admitted at a time. A second request MUST be
 rejected immediately with `Unavailable`; it MUST NOT wait while holding an
 open stream.
