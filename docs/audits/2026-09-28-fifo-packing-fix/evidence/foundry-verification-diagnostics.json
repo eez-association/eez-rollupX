@@ -1,0 +1,72 @@
+{
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "tool": "Foundry 1.7.1",
+  "scope": "read-only verification environment; no runtime or protocol mutation",
+  "discovery": {
+    "discovery": {
+      "duration_seconds": 93.01050901412964,
+      "exit_code": 0
+    },
+    "observed-discovery": {
+      "duration_seconds": 112.71095204353333,
+      "exit_code": 0
+    },
+    "offline-discovery": {
+      "duration_seconds": 0.36850595474243164,
+      "exit_code": 0
+    },
+    "outputs_identical": true,
+    "output_sha256": "16b4ff72fdd845a5ccb3cbefc900304febcac974de222cf79361fc550c9060a7",
+    "observed_rpc": {
+      "completed_calls": 46,
+      "maximum_duration_ms": 8.129358291625977,
+      "methods": [
+        "eth_chainId",
+        "eth_gasPrice",
+        "eth_getAccountInfo",
+        "eth_getBalance",
+        "eth_getBlockByNumber",
+        "eth_getCode",
+        "eth_getLogs",
+        "eth_getTransactionCount"
+      ]
+    },
+    "scope": "Explicit local RPC reads and identical Solidity verifier output; offline mode avoids ancillary online lookup delay. No preparation/proving/settlement deadline changed."
+  },
+  "failed_job_canonical_calldata": {
+    "results": [
+      {
+        "block": 23269360,
+        "hash": "0x9c560c9c4a771f08df52c4e9c58d13202e958baef392a9bccd52d7215e569945",
+        "duration_seconds": 0.34715914726257324,
+        "exit_code": 0,
+        "matched_indices": [
+          2
+        ],
+        "field_checks_passed": true,
+        "rolling_hash_checks_passed": true
+      },
+      {
+        "block": 23269359,
+        "hash": "0xbeeb050c411a4eec0c5197dcc88cdcd797c84549276c71e86eb338f3d65f6322",
+        "duration_seconds": 0.3298311233520508,
+        "exit_code": 0,
+        "matched_indices": [
+          0,
+          1
+        ],
+        "field_checks_passed": true,
+        "rolling_hash_checks_passed": true
+      }
+    ],
+    "all_indices_exactly_once": true
+  },
+  "raw_artifacts": "local-only: artifacts/fifo-packing-fix-20260928/split-verifier-probe/",
+  "log_sha256": {
+    "observed-discovery.log": "16b4ff72fdd845a5ccb3cbefc900304febcac974de222cf79361fc550c9060a7",
+    "offline-discovery.log": "16b4ff72fdd845a5ccb3cbefc900304febcac974de222cf79361fc550c9060a7",
+    "discovery.log": "16b4ff72fdd845a5ccb3cbefc900304febcac974de222cf79361fc550c9060a7",
+    "0xbeeb050c411a4eec0c5197dcc88cdcd797c84549276c71e86eb338f3d65f6322.log": "dd98f8986efab87f1a8f1bd1113048252d89526a0b924240cebfa3ebb46cccfc",
+    "0x9c560c9c4a771f08df52c4e9c58d13202e958baef392a9bccd52d7215e569945.log": "43369d108abdb9e03084e0de877a5e9d5b23aeceb1ce3d7477b0b44dcb14ff72"
+  }
+}

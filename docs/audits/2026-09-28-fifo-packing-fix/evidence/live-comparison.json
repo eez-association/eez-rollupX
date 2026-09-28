@@ -1,0 +1,772 @@
+{
+  "baseline": {
+    "runtime_source": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+    "protocol_run": "20260928-115327",
+    "source_count": 870,
+    "canonical_by_layer": {
+      "L1": 520,
+      "L2": 350
+    },
+    "setup_transactions_mined": 2812,
+    "canonical_postbatches": 33,
+    "sources_per_post": [
+      37,
+      37,
+      37,
+      37,
+      37,
+      39,
+      63,
+      1,
+      26,
+      1,
+      19,
+      1,
+      1,
+      1,
+      11,
+      28,
+      1,
+      32,
+      31,
+      3,
+      34,
+      38,
+      41,
+      39,
+      39,
+      39,
+      39,
+      39,
+      35,
+      35,
+      2,
+      37,
+      10
+    ],
+    "l1_block_range": [
+      23269333,
+      23269373
+    ],
+    "send_plus_receipt_monitor_seconds": 219.723,
+    "canonical_settlement_latency_ms": {
+      "p50": 111302.0,
+      "p95": 216302.0,
+      "max": 221302,
+      "send_duration_ms": 1303,
+      "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+    },
+    "skipped_slots": 3,
+    "parent_budget_gas": {
+      "min": 17066449,
+      "mean": 17282688.21212121,
+      "max": 17470799
+    },
+    "gas_totals": {
+      "admission_gas": 235004878,
+      "framing_reserve_gas": 4209984,
+      "complete_admission_bound_gas": 239214862,
+      "full_projection_gas": 237130046,
+      "preflight_gas_used": 173929920,
+      "preflight_gas_required": 176838818,
+      "signed_gas_limit": 185680772,
+      "receipt_gas": 173929920
+    },
+    "complete_admission_to_receipt_ratio": 1.3753519923426631,
+    "canonical_phase_ms_mean": {
+      "preparation_ms": 277.0,
+      "proof_ms": 86.58517503030303,
+      "finalization_ms": 119.11714866666667,
+      "delivery_ms": 178.30163942424244
+    },
+    "cutoffs": {
+      "snapshot_exhausted": 24,
+      "l1_tx_gas_budget": 1,
+      "l1_bundle_gas_budget": 7,
+      "preparation_probe_limit": 1
+    },
+    "selection_limits": {
+      "uncapped": 21,
+      "fifo_prefix_limit": 11,
+      "preparation_probe_limit": 1
+    },
+    "packing": {
+      "canonical_postbatches": 33,
+      "canonical_sources": 870,
+      "sources_per_postbatch_mean": 26.363636363636363,
+      "capacity_deferrals_all_candidates": {
+        "l1_tx_gas_budget": 42,
+        "l1_bundle_gas_budget": 20
+      },
+      "capacity_deferrals_canonical_candidates": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 7
+      },
+      "candidates_accepting_work_after_capacity_deferral": 6,
+      "canonical_candidates_accepting_work_after_capacity_deferral": 0,
+      "canonical_sources_accepted_after_capacity_deferral": 0,
+      "fifo_bypassed_candidates": 36,
+      "companion_estimate_gas": 123212558,
+      "companion_receipt_gas": 73314570,
+      "all_companion_components_reconciled": true,
+      "all_capacity_deferrals_reconciled": true
+    },
+    "framing_checks": {
+      "postbatches": 33,
+      "sources": 870,
+      "every_final_projection_within_admission_bound": true,
+      "every_signed_limit_has_five_percent_margin": true,
+      "every_post_preflight_matches_receipt": true,
+      "no_fixed_admission_reserve": true,
+      "general_execution_posts": 0,
+      "cutoffs": {
+        "snapshot_exhausted": 24,
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 7,
+        "preparation_probe_limit": 1
+      },
+      "framing_reserve_gas": {
+        "min": 31360,
+        "max": 252672,
+        "mean": 127575.27272727272
+      },
+      "observed_framing_gap_gas": {
+        "min": 12480,
+        "max": 130884,
+        "mean": 64399.030303030304
+      },
+      "bound_excess_gas": {
+        "min": 18880,
+        "max": 121788,
+        "mean": 63176.242424242424
+      },
+      "capacity_released_gas": {
+        "min": 347328,
+        "max": 568640,
+        "mean": 472424.7272727273
+      }
+    },
+    "delivery": {
+      "deliveries": 41,
+      "acknowledged": 40,
+      "relay_identifiers": 0,
+      "classifications": {
+        "included_target": 33,
+        "produced_target_without_post": 5,
+        "skipped_target_slot": 3
+      },
+      "groups": [
+        {
+          "classification": "included_target",
+          "count": 33,
+          "delivery_ms_mean": 178.30163942424244,
+          "ack_remaining_ms_min": 130.188381,
+          "ack_remaining_ms_median": 724.109686,
+          "parent_matches": 33,
+          "block_gas_fraction_mean": 0.4363344537860069
+        },
+        {
+          "classification": "produced_target_without_post",
+          "count": 5,
+          "delivery_ms_mean": 160.635422,
+          "ack_remaining_ms_min": 0.0,
+          "ack_remaining_ms_median": 780.128618,
+          "parent_matches": 5,
+          "block_gas_fraction_mean": 0.0
+        },
+        {
+          "classification": "skipped_target_slot",
+          "count": 3,
+          "delivery_ms_mean": 171.70627,
+          "ack_remaining_ms_min": 675.831997,
+          "ack_remaining_ms_median": 729.972718,
+          "parent_matches": 3,
+          "block_gas_fraction_mean": 0.12892970252108796
+        }
+      ]
+    },
+    "preparation": {
+      "canonical_candidates": 33,
+      "canonical_sources": 870,
+      "intervals": {
+        "accepted_checks_simulation_ms": {
+          "samples": 33,
+          "mean": 8.478477272727261,
+          "median": 8.214415999999975,
+          "max": 35.27640999999997,
+          "sum": 279.78974999999963
+        },
+        "accepted_lowering_hashing_append_ms": {
+          "samples": 33,
+          "mean": 57.19769481818183,
+          "median": 64.139985,
+          "max": 138.8401330000001,
+          "sum": 1887.5239290000004
+        },
+        "rejected_checks_simulation_ms": {
+          "samples": 33,
+          "mean": 0.039798969696969326,
+          "median": 0.0,
+          "max": 0.49922300000000064,
+          "sum": 1.3133659999999878
+        },
+        "rejection_after_estimate_ms": {
+          "samples": 33,
+          "mean": 0.0022346363636370197,
+          "median": 0.0,
+          "max": 0.025983999999994012,
+          "sum": 0.07374300000002165
+        },
+        "cheap_checks_outcome_ms": {
+          "samples": 33,
+          "mean": 0.008085878787879306,
+          "median": 0.0,
+          "max": 0.06154300000000035,
+          "sum": 0.2668340000000171
+        },
+        "other_admission_ms": {
+          "samples": 33,
+          "mean": 4.239000030303032,
+          "median": 3.976479000000012,
+          "max": 8.222123999999923,
+          "sum": 139.88700100000005
+        },
+        "final_build_encode_projection_ms": {
+          "samples": 33,
+          "mean": 11.021172121212121,
+          "median": 12.257357000000006,
+          "max": 20.00708800000001,
+          "sum": 363.69868
+        },
+        "blob_preparation_ms": {
+          "samples": 33,
+          "mean": 183.73275245454545,
+          "median": 164.54976,
+          "max": 320.966411,
+          "sum": 6063.180831
+        },
+        "witness_and_remaining_request_ms": {
+          "samples": 33,
+          "mean": 12.200437333333332,
+          "median": 12.577942000000007,
+          "max": 24.724090999999987,
+          "sum": 402.61443199999997
+        },
+        "total_preparation_ms": {
+          "samples": 33,
+          "mean": 276.91965351515154,
+          "median": 264.37125299999997,
+          "max": 514.812995,
+          "sum": 9138.348566
+        },
+        "prefix_hash_ms": {
+          "samples": 33,
+          "mean": 49.862726787878785,
+          "median": 55.414462,
+          "max": 119.242196,
+          "sum": 1645.469984
+        },
+        "witness_preparation_ms": {
+          "samples": 33,
+          "mean": 12.088505363636363,
+          "median": 12.43157,
+          "max": 24.326837,
+          "sum": 398.920677
+        }
+      },
+      "limits": [
+        "Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.",
+        "Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.",
+        "Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.",
+        "Canonical candidates only; failed/excluded attempts are outside this breakdown."
+      ]
+    },
+    "canonical_stability": {
+      "checked_at": "2026-09-28T12:07:24.727631+00:00",
+      "canonical_source_attributions_unchanged": 870,
+      "canonical_postings_unchanged": 33,
+      "external_canonical_receipts_match": 33
+    },
+    "grafana": {
+      "checked_at": "2026-09-28T12:07:14.474526+00:00",
+      "policy": "strict-fifo-5",
+      "panels": [
+        {
+          "id": 1,
+          "total_rows": 80,
+          "canonical_cohort_rows": 33,
+          "fields_checked": [
+            "admission_including_framing_gas",
+            "canonical_receipt_gas",
+            "fifo_prefix_len",
+            "fifo_trigger",
+            "framing_reserve_gas",
+            "gas_margin_percent",
+            "policy_version"
+          ],
+          "cohort_nonnull": {
+            "policy_version": 33,
+            "framing_reserve_gas": 33,
+            "fifo_trigger": 0,
+            "gas_margin_percent": 33,
+            "canonical_receipt_gas": 33,
+            "admission_including_framing_gas": 33,
+            "fifo_prefix_len": 0
+          }
+        },
+        {
+          "id": 3,
+          "total_rows": 2353,
+          "canonical_cohort_rows": 870,
+          "fields_checked": [
+            "framing_reserve_after",
+            "framing_reserve_before",
+            "framing_reserve_gas",
+            "full_estimate_after",
+            "full_estimate_before",
+            "minimum_mutable_entry_gas",
+            "minimum_static_general_fallback"
+          ],
+          "cohort_nonnull": {
+            "framing_reserve_gas": 870,
+            "minimum_mutable_entry_gas": 0,
+            "full_estimate_before": 870,
+            "framing_reserve_after": 870,
+            "minimum_static_general_fallback": 0,
+            "full_estimate_after": 870,
+            "framing_reserve_before": 870
+          }
+        }
+      ],
+      "canonical_receipt_gas_total": 173929920
+    },
+    "discarded_fifo_candidates_without_proof": 36,
+    "source_attempt_rows": 2353,
+    "semantic_verification": {
+      "started_at": "2026-09-28T13:21:04.217624+00:00",
+      "mode": "existing --verify-only; no transaction submission",
+      "verification_workers": 16,
+      "environment_correction": "FOUNDRY_OFFLINE=true; explicit local RPC verification and all assertions retained",
+      "initial_failure_preserved": true,
+      "status": "completed",
+      "completed_before_correction": 754,
+      "failed_jobs_before_correction": [
+        "counter-multi-tx-4",
+        "counter-multi-tx-6",
+        "counter-multi-tx-8",
+        "counter-multi-tx-11",
+        "counter-multi-tx-16",
+        "counter-multi-tx-18",
+        "counter-multi-tx-20",
+        "counter-multi-tx-21",
+        "counter-multi-tx-22",
+        "counter-multi-tx-23",
+        "counter-multi-tx-24",
+        "counter-multi-tx-25",
+        "counter-multi-tx-39",
+        "counter-multi-tx-40",
+        "counter-multi-tx-41",
+        "counter-multi-tx-50"
+      ],
+      "exit_code": 0,
+      "finished_at": "2026-09-28T13:26:29.799681+00:00",
+      "semantic_jobs_passed": 770,
+      "failed_jobs_rechecked": 16,
+      "transaction_files_unchanged": true,
+      "first_invocation_clean_pass": false
+    }
+  },
+  "candidate": {
+    "runtime_source": "ca370742920852ad1105df4e40d70625d8749145",
+    "protocol_run": "20260928-133020",
+    "source_count": 870,
+    "canonical_by_layer": {
+      "L1": 520,
+      "L2": 350
+    },
+    "setup_transactions_mined": 2850,
+    "canonical_postbatches": 33,
+    "sources_per_post": [
+      31,
+      37,
+      37,
+      37,
+      37,
+      39,
+      1,
+      4,
+      1,
+      1,
+      35,
+      42,
+      19,
+      18,
+      1,
+      5,
+      3,
+      27,
+      32,
+      29,
+      34,
+      35,
+      39,
+      41,
+      39,
+      39,
+      39,
+      39,
+      6,
+      35,
+      34,
+      37,
+      17
+    ],
+    "l1_block_range": [
+      23270369,
+      23270406
+    ],
+    "send_plus_receipt_monitor_seconds": 198.4,
+    "canonical_settlement_latency_ms": {
+      "p50": 132311.0,
+      "p95": 192311.0,
+      "max": 197311,
+      "send_duration_ms": 1331,
+      "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+    },
+    "skipped_slots": 2,
+    "parent_budget_gas": {
+      "min": 17033054,
+      "mean": 17241321.303030305,
+      "max": 17487792
+    },
+    "gas_totals": {
+      "admission_gas": 236544098,
+      "framing_reserve_gas": 4209984,
+      "complete_admission_bound_gas": 240754082,
+      "full_projection_gas": 238669390,
+      "preflight_gas_used": 175209494,
+      "preflight_gas_required": 178465309,
+      "signed_gas_limit": 187388586,
+      "receipt_gas": 175209494
+    },
+    "complete_admission_to_receipt_ratio": 1.3740926733114132,
+    "canonical_phase_ms_mean": {
+      "preparation_ms": 298.42424242424244,
+      "proof_ms": 84.97740945454545,
+      "finalization_ms": 129.3444077878788,
+      "delivery_ms": 187.7222339090909
+    },
+    "cutoffs": {
+      "pipeline_time": 3,
+      "snapshot_exhausted": 23,
+      "l1_tx_gas_budget": 1,
+      "preparation_probe_limit": 3,
+      "l1_bundle_gas_budget": 3
+    },
+    "selection_limits": {
+      "uncapped": 25,
+      "fifo_prefix_limit": 5,
+      "preparation_probe_limit": 3
+    },
+    "packing": {
+      "canonical_postbatches": 33,
+      "canonical_sources": 870,
+      "sources_per_postbatch_mean": 26.363636363636363,
+      "capacity_deferrals_all_candidates": {
+        "l1_tx_gas_budget": 49,
+        "l1_bundle_gas_budget": 31
+      },
+      "capacity_deferrals_canonical_candidates": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 3
+      },
+      "candidates_accepting_work_after_capacity_deferral": 10,
+      "canonical_candidates_accepting_work_after_capacity_deferral": 0,
+      "canonical_sources_accepted_after_capacity_deferral": 0,
+      "fifo_bypassed_candidates": 69,
+      "companion_estimate_gas": 123542398,
+      "companion_receipt_gas": 73227528,
+      "all_companion_components_reconciled": true,
+      "all_capacity_deferrals_reconciled": true
+    },
+    "framing_checks": {
+      "postbatches": 33,
+      "sources": 870,
+      "every_final_projection_within_admission_bound": true,
+      "every_signed_limit_has_five_percent_margin": true,
+      "every_post_preflight_matches_receipt": true,
+      "no_fixed_admission_reserve": true,
+      "general_execution_posts": 0,
+      "cutoffs": {
+        "pipeline_time": 3,
+        "snapshot_exhausted": 23,
+        "l1_tx_gas_budget": 1,
+        "preparation_probe_limit": 3,
+        "l1_bundle_gas_budget": 3
+      },
+      "framing_reserve_gas": {
+        "min": 29824,
+        "max": 228416,
+        "mean": 127575.27272727272
+      },
+      "observed_framing_gap_gas": {
+        "min": 11700,
+        "max": 117788,
+        "mean": 64402.78787878788
+      },
+      "bound_excess_gas": {
+        "min": 18112,
+        "max": 110628,
+        "mean": 63172.48484848485
+      },
+      "capacity_released_gas": {
+        "min": 371584,
+        "max": 570176,
+        "mean": 472424.7272727273
+      }
+    },
+    "delivery": {
+      "deliveries": 37,
+      "acknowledged": 35,
+      "relay_identifiers": 0,
+      "classifications": {
+        "included_target": 33,
+        "skipped_target_slot": 2,
+        "produced_target_without_post": 2
+      },
+      "groups": [
+        {
+          "classification": "included_target",
+          "count": 33,
+          "delivery_ms_mean": 187.7222339090909,
+          "ack_remaining_ms_min": 0.0,
+          "ack_remaining_ms_median": 668.327724,
+          "parent_matches": 33,
+          "block_gas_fraction_mean": 0.4401073962856376
+        },
+        {
+          "classification": "produced_target_without_post",
+          "count": 2,
+          "delivery_ms_mean": 182.641991,
+          "ack_remaining_ms_min": 730.4174820000001,
+          "ack_remaining_ms_median": 857.5869495000001,
+          "parent_matches": 2,
+          "block_gas_fraction_mean": 0.20430105098808363
+        },
+        {
+          "classification": "skipped_target_slot",
+          "count": 2,
+          "delivery_ms_mean": 178.149632,
+          "ack_remaining_ms_min": 263.414036,
+          "ack_remaining_ms_median": 477.108885,
+          "parent_matches": 2,
+          "block_gas_fraction_mean": 0.20430105098808363
+        }
+      ]
+    },
+    "preparation": {
+      "canonical_candidates": 33,
+      "canonical_sources": 870,
+      "intervals": {
+        "accepted_checks_simulation_ms": {
+          "samples": 33,
+          "mean": 9.556882787878788,
+          "median": 8.534639999999989,
+          "max": 36.92017200000009,
+          "sum": 315.377132
+        },
+        "accepted_lowering_hashing_append_ms": {
+          "samples": 33,
+          "mean": 61.503187,
+          "median": 65.373639,
+          "max": 168.63211699999997,
+          "sum": 2029.605171
+        },
+        "rejected_checks_simulation_ms": {
+          "samples": 33,
+          "mean": 0.0610933030303049,
+          "median": 0.0,
+          "max": 0.7400930000000017,
+          "sum": 2.0160790000000617
+        },
+        "rejection_after_estimate_ms": {
+          "samples": 33,
+          "mean": 0.4789918484848476,
+          "median": 0.0,
+          "max": 9.49978299999998,
+          "sum": 15.80673099999997
+        },
+        "cheap_checks_outcome_ms": {
+          "samples": 33,
+          "mean": 0.007075393939393978,
+          "median": 0.0,
+          "max": 0.12289200000000022,
+          "sum": 0.23348800000000125
+        },
+        "other_admission_ms": {
+          "samples": 33,
+          "mean": 5.4774274848484845,
+          "median": 4.369445000000056,
+          "max": 17.970895000000002,
+          "sum": 180.755107
+        },
+        "final_build_encode_projection_ms": {
+          "samples": 33,
+          "mean": 12.915178454545455,
+          "median": 12.74216100000001,
+          "max": 28.082932999999997,
+          "sum": 426.200889
+        },
+        "blob_preparation_ms": {
+          "samples": 33,
+          "mean": 196.30261312121212,
+          "median": 172.298788,
+          "max": 402.204752,
+          "sum": 6477.9862330000005
+        },
+        "witness_and_remaining_request_ms": {
+          "samples": 33,
+          "mean": 12.202976545454536,
+          "median": 12.292436999999978,
+          "max": 24.554057999999998,
+          "sum": 402.69822599999975
+        },
+        "total_preparation_ms": {
+          "samples": 33,
+          "mean": 298.50542593939394,
+          "median": 275.02959599999997,
+          "max": 664.539888,
+          "sum": 9850.679055999999
+        },
+        "prefix_hash_ms": {
+          "samples": 33,
+          "mean": 53.580813303030304,
+          "median": 56.069923,
+          "max": 138.18835,
+          "sum": 1768.166839
+        },
+        "witness_preparation_ms": {
+          "samples": 33,
+          "mean": 12.082460787878787,
+          "median": 12.199841,
+          "max": 24.438074,
+          "sum": 398.721206
+        }
+      },
+      "limits": [
+        "Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.",
+        "Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.",
+        "Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.",
+        "Canonical candidates only; failed/excluded attempts are outside this breakdown."
+      ]
+    },
+    "canonical_stability": {
+      "checked_at": "2026-09-28T13:38:56.706814+00:00",
+      "canonical_source_attributions_unchanged": 870,
+      "canonical_postings_unchanged": 33,
+      "external_canonical_receipts_match": 33
+    },
+    "grafana": {
+      "checked_at": "2026-09-28T13:38:51.695914+00:00",
+      "policy": "strict-fifo-7",
+      "panels": [
+        {
+          "id": 1,
+          "total_rows": 109,
+          "canonical_cohort_rows": 33,
+          "fields_checked": [
+            "admission_including_framing_gas",
+            "canonical_receipt_gas",
+            "fifo_prefix_len",
+            "fifo_trigger",
+            "framing_reserve_gas",
+            "gas_margin_percent",
+            "policy_version"
+          ],
+          "cohort_nonnull": {
+            "fifo_trigger": 0,
+            "canonical_receipt_gas": 33,
+            "fifo_prefix_len": 0,
+            "admission_including_framing_gas": 33,
+            "gas_margin_percent": 33,
+            "policy_version": 33,
+            "framing_reserve_gas": 33
+          }
+        },
+        {
+          "id": 3,
+          "total_rows": 3522,
+          "canonical_cohort_rows": 870,
+          "fields_checked": [
+            "framing_reserve_after",
+            "framing_reserve_before",
+            "framing_reserve_gas",
+            "full_estimate_after",
+            "full_estimate_before",
+            "minimum_mutable_entry_gas",
+            "minimum_static_general_fallback"
+          ],
+          "cohort_nonnull": {
+            "full_estimate_after": 870,
+            "framing_reserve_after": 870,
+            "minimum_static_general_fallback": 0,
+            "framing_reserve_before": 870,
+            "minimum_mutable_entry_gas": 0,
+            "full_estimate_before": 870,
+            "framing_reserve_gas": 870
+          }
+        }
+      ],
+      "canonical_receipt_gas_total": 175209494
+    },
+    "discarded_fifo_candidates_without_proof": 69,
+    "source_attempt_rows": 3522,
+    "semantic_verification": {
+      "checked_at": "2026-09-28T13:41:32.998420+00:00",
+      "semantic_jobs_passed": 770,
+      "semantic_failures": [],
+      "semantic_retries": 0,
+      "staged_runner_exit_code": 0,
+      "fifo_bypassed_candidates_discarded_before_proof": 69,
+      "independent_live_follower_replay": false,
+      "independent_live_kzg_recomputation": false,
+      "canonical_source_attributions_repeated": 870,
+      "external_canonical_receipts_match": 33
+    }
+  },
+  "limits": [
+    "One sequential live pair, shared host, distinct chain state and slot phase; not a controlled causal speedup claim.",
+    "Native tests include independent follower assertions; no independent live follower replay or live KZG recomputation.",
+    "Baseline verification retained its controlled scheduler handoff and sixteen online-lookup failures; offline rechecks are reported separately.",
+    "Candidate first invocation passed all 770 semantic jobs without retries.",
+    "Live post count is unchanged, median settlement latency increased, and source simulation/rebuild work increased."
+  ],
+  "rollout": {
+    "source": "ca370742920852ad1105df4e40d70625d8749145",
+    "started_at": "2026-09-28T13:27:21.394931+00:00",
+    "status": "healthy",
+    "old_images": {
+      "eez-node": "sha256:e58c4a657d4b8d7d5986532af9a140f730637af1c15341d428951aa04ed7bfe8",
+      "eez-proof-signer": "sha256:0f5009d3e7030df3524f53356d3b1a669c892bfa9c3dbd5f2a657adab4d8ecbc"
+    },
+    "new_images": {
+      "eez-node": "sha256:a37c649f6fc2943fcec2f288f6d7be4ea2e4dc9537821fab96acd18829b9d806",
+      "eez-proof-signer": "sha256:efc9939694bb54d9cf08122ded58a72e45b6fcad3a8072deb483d34fd0968b66"
+    },
+    "stopped_exit_code": 0,
+    "candidate_started_at": "2026-09-28T13:27:49.494542+00:00",
+    "history_preserved": true,
+    "finished_at": "2026-09-28T13:28:55.550765+00:00"
+  },
+  "signer_startup_order": [
+    {
+      "timestamp": "2026-09-28T13:27:45.045957Z",
+      "event": "eez.signer.kzg.ready",
+      "initialization_ms": 1918.985792
+    },
+    {
+      "timestamp": "2026-09-28T13:27:45.047464Z",
+      "event": "serving Prove"
+    }
+  ]
+}

@@ -2064,6 +2064,29 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
         wait_for(TIMEOUT, || async { world.held_bundle() })
             .await
             .unwrap();
+        let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+        let posts = l1
+            .get_logs(
+                &alloy_rpc_types_eth::Filter::new()
+                    .address(world.dep.eez_address)
+                    .event_signature(eez_protocol::abi::BatchPosted::SIGNATURE_HASH)
+                    .from_block(0),
+            )
+            .await
+            .unwrap();
+        assert_eq!(posts.len(), 1, "fixture must hold the second settlement");
+        // Restart also stops the isolated L1 miner. Its canonical RPC suffix
+        // can precede disk persistence, and no peer can restore that suffix.
+        world
+            .wait_for_persisted_l1_block(
+                alloy_rpc_types_eth::BlockNumHash::new(
+                    posts[0].block_number.unwrap(),
+                    posts[0].block_hash.unwrap(),
+                ),
+                TIMEOUT,
+            )
+            .await
+            .unwrap();
         planning_signals = world.node.signals_since(0).unwrap();
         world
             .restart_composer_with_env(&[

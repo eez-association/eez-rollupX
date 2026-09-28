@@ -1,0 +1,35 @@
+{
+  "runtime_source": "ca370742920852ad1105df4e40d70625d8749145",
+  "ci_head": "dc9f50f8e9fa694c6bb5d2d1af9a4ca70e87447c",
+  "ci_run": 36423780303,
+  "ci_job": 108950361064,
+  "failure": "isolated L1 head moved from 11 to 9 on process restart, dropping the first canonical settlement before disk persistence; expected post count 1, observed 0",
+  "local_unchanged_harness": [
+    {
+      "test": "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 113.41889120201813
+    }
+  ],
+  "local_reproduction_limit": "The unchanged local invocation passed; CI retained the timing-dependent failure. No repeated retry was used to obtain a failure.",
+  "fix": "Use the existing isolated-L1 block/state persistence barrier for the first canonical post while holding the second bundle; exact count, safe hash, final two-post drain and independent follower assertions remain unchanged.",
+  "rebuilt_harness": {
+    "base_revision": "dc9f50f8e9fa694c6bb5d2d1af9a4ca70e87447c",
+    "source_sha256": "0a994215502c72a8fa5d773751417048a4dc2889cac4c4ddd2dfd4aa18c41522",
+    "patch_sha256": "498f83346b05cdc555090bbba624e3ac4564c5635f577b95e444126e3ccd3271",
+    "harness_sha256": "1554808919f0d01fb30f9a34a70d9b4fcc79ac0d22197079fc48dc4b81433822",
+    "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test settlement_policy --no-run --message-format=json"
+  },
+  "fixed_cases": [
+    {
+      "test": "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 107.24097367201466
+    }
+  ],
+  "fixed_retries": 0,
+  "workspace_all_target_clippy": "passed",
+  "ci_job_log_sha256": "aec16a0365581f59fa91ab2100064d1a320159dc7759c731f3fa229660b1636b"
+}

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Date / status | September 28, 2026; refined release built; correctness, live and CI validation in progress |
+| Date / status | September 28, 2026; candidate deployed and live semantics checked; final CI pending after fixture corrections |
 | Scope | Release a partially consumed FIFO repair boundary; initialize signer KZG before readiness; learn proof scaling from wider measured workloads |
 | Baseline / PR | Fork `eduadiez/rollupX`, PR #42; head `802dfb1a827025eaa68cee895f46d8729ad66ffc`, base `fd77a2ebc147850333171045dbd263ec74156268` |
 | Protocol | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d`, unchanged |
@@ -300,3 +300,155 @@ all source/deployment transaction CSVs remain byte-identical and that all 770
 distinct semantic jobs finish successfully. The candidate will use sixteen
 verification workers from startup, with the same measured preparation/send
 settings. Verification completion is recorded separately from transaction timing.
+
+### Foundry online-lookup delay during semantic verification
+
+The continuation then exposed failures in split `counter-multi-tx` jobs. The
+runner's 60-second calldata-verification budget includes settlement discovery.
+Its discovery call took 93.011 seconds in a direct probe, and 112.711 seconds
+through a task-local read-only RPC observer. Local RPC responses completed in
+milliseconds; the observer recorded a maximum of 8.130 ms across 46 calls.
+An outstanding non-local HTTPS connection remained after the RPC work completed.
+
+The [identical discovery verifier](evidence/foundry-verification-diagnostics.json)
+with Foundry's `--offline` option completed in
+0.369 seconds and produced byte-identical output, still querying the explicit
+local RPC. `FOUNDRY_OFFLINE=true` was checked through `forge config --json`.
+This identifies ancillary online activity as the delay; the remote service's
+identity was not established. The Solidity assertions and node deadlines are
+unchanged.
+
+For the failed `counter-multi-tx-11` job, independent calls to the pinned calldata
+verifier checked both canonical batches, at L1 blocks 23269359 and 23269360.
+Their matched expected-entry indices were `[0, 1]` and `[2]`, exactly once in
+union, with field and rolling-hash checks passing. Each decode took about 0.3
+seconds. The original runner had checked only the later batch before its budget
+expired, then started its L2 scan too late to include the earlier effects.
+This diagnosis does not turn the original failed invocation into a pass.
+
+Original per-job failures and transaction records are retained. After the current
+online invocation finishes, a separate read-only `--verify-only` invocation will
+recheck failed jobs with `FOUNDRY_OFFLINE=true`, retaining sixteen workers and the
+same FD-200 wallet lock. The candidate uses the same corrected private profile.
+No timeout is extended and no expected entry or assertion is removed. Complete
+corrected semantic results remain pending at this point in the record.
+
+## Completed Chiado candidate validation
+
+The corrected baseline verification finished with all 770 jobs passing.
+Its online invocation had 754 passes and 16 failures; only those failures were
+rechecked with offline mode, with unchanged transaction records and assertions.
+This remains an environment-corrected result, not an initially clean run.
+
+The `ca37074` images recorded above are now deployed. The old node exited cleanly,
+and both complete databases were copied while their writer was stopped. Original
+databases and configuration were retained. The candidate started at 13:27:49 UTC
+and passed sync/history checks at 13:28:55 UTC without manual Engine backfill.
+Signer KZG initialization took 1,918.986 ms and completed before `serving Prove`.
+An immediate new-settlement assertion was initially unsatisfied while idle; the
+unchanged complete settlement/blob check passed after the workload produced new
+canonical progress. No contracts, genesis, protocol pin or dependency versions
+changed. Later PR changes affect tests and records, not these shipping sources.
+
+Candidate run `20260928-133020` used the same workload families, 770 jobs,
+870 sources, preparation concurrency 200, send concurrency 28, timing settings
+and 5% margin. All 2,850 setup transactions mined; the baseline had 2,812 setup
+transactions. Setup precedes the measured source window. The candidate uses
+sixteen verification workers and `FOUNDRY_OFFLINE=true` from startup.
+The staged `--verify` invocation exited zero: **all 770 semantic jobs passed on
+their first invocation, with no retries**. Both live queues drained completely.
+
+[Sanitized comparison and checks](evidence/live-comparison.json),
+[baseline postBatch table](evidence/live-baseline-postbatch.csv) and
+[candidate postBatch table](evidence/live-candidate-postbatch.csv) retain the
+per-post estimates, actual gas, cutoffs and timings.
+
+| Measurement | Baseline `b2ff3b8` | Candidate `ca37074` |
+| --- | ---: | ---: |
+| Canonical sources / postBatches | 870 / 33 | 870 / 33 |
+| Send plus receipt monitoring | 219.723 s | 198.400 s |
+| Canonical settlement latency p50 | 111.302 s | 132.311 s |
+| Canonical settlement latency p95 | 216.302 s | 192.311 s |
+| Last canonical settlement latency | 221.302 s | 197.311 s |
+| Skipped target slots | 3 | 2 |
+| Produced target blocks without the submitted post | 5 | 2 |
+| Mean parent gas budget | 17,282,688 | 17,241,321 |
+| Actual postBatch gas | 173,929,920 | 175,209,494 |
+| Complete admission bound / actual postBatch gas | 1.3754× | 1.3741× |
+| Canonical preparation / proof, mean | 277.00 / 86.59 ms | 298.42 / 84.98 ms |
+| Canonical finalization / delivery, mean | 119.12 / 178.30 ms | 129.34 / 187.72 ms |
+| Source-estimate attempt rows | 2,353 | 3,522 |
+| Discarded FIFO-bypassing candidates | 36 | 69 |
+
+Canonical latency uses the post's timestamp minus bulk-send start; source-send
+uncertainty is bounded by the 1.303/1.331-second submission windows. Receipt
+monitoring can end before canonical settlement. This single sequential live pair
+has distinct chain state and slot alignment, despite comparable gas budgets.
+The candidate preserved post count and finished earlier, while median latency,
+preparation/finalization/delivery time and reconstruction work increased.
+**This does not establish packing improvement or latency parity.** Fewer missed
+or skipped target slots also contribute to the elapsed-time difference.
+
+### Cutoffs and remaining packing cost
+
+| Canonical admission stop | Baseline | Candidate |
+| --- | ---: | ---: |
+| `snapshot_exhausted` | 24 | 23 |
+| `l1_bundle_gas_budget` | 7 | 3 |
+| `l1_tx_gas_budget` | 1 | 1 |
+| `preparation_probe_limit` | 1 | 3 |
+| `pipeline_time` | 0 | 3 |
+
+Posts carrying a retained `fifo_prefix_limit` decreased from eleven to five.
+However, `snapshot_exhausted` describes the selected snapshot, which may itself
+be a bounded prefix; it does not establish an empty global queue. More repeated
+FIFO reconstruction and timing probes offset the reduced retained-prefix cost.
+The candidate still has seven posts containing at most five sources, compared
+with eight in the baseline. Further packing work should reduce repeated prefix
+reconstruction while retaining strict FIFO.
+
+All 69 candidate FIFO bypasses were discarded before proving; no canonical
+candidate accepted younger work after a capacity deferral. Every one of the 870
+accepted sources has an admission estimate. Every native postBatch gas-used
+prediction equals its canonical receipt, every complete projection fits its
+admission bound, and every signed post limit is required gas plus exactly 5%.
+There is no fixed 600,000-gas framing reserve. Candidate framing reserves range
+29,824–228,416 gas. The 520 inbound companion estimates total 123,542,398 gas,
+versus 73,227,528 actual: about 1.687×, so material estimation headroom remains.
+
+Actual Grafana panel queries returned all 33 canonical post rows and all 870
+accepted-source rows for `strict-fifo-7`. Repeated canonical attribution was
+unchanged, and all 33 receipts matched the independent L1 endpoint by hash,
+block, status and gas. The post-wave live check also retrieved the complete
+131,072-byte blob for the latest settlement. These checks do not constitute
+independent live follower replay or KZG recomputation; native tests and the
+recorded Kurtosis lane provide separate replay/blob evidence.
+
+The task-owned forwarding and diagnostic listeners were stopped after their
+work completed. The forwarding queue drained with zero failed broadcasts;
+client-cancelled read responses are retained as `BrokenPipeError` diagnostics.
+Deployed node/signer and retained monitoring logs/checkpoints remain running.
+
+## Isolated-miner persistence in the restart fixture
+
+[CI 36423780303](https://github.com/eduadiez/rollupX/actions/runs/36423780303)
+passed lint, runtime production, all four cross-chain shards and three embedded
+shards. The earlier canonical-post wait case passed. Embedded shard 1 instead
+failed `restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules`:
+after restart, it expected one post and observed zero. Its logs show the first
+settlement in L1 block 11, followed by the isolated miner restarting at block 9.
+The L2 safe observation had established canonical execution, not L1 disk persistence.
+
+The fixture now uses the existing `wait_for_persisted_l1_block` block/state
+barrier for that exact first settlement while the second bundle is held. This
+isolated miner has no consensus peer to restore its unpersisted suffix. The test
+still requires exactly one post after restart, the same safe hash, exactly two
+posts for the completed drain, and independent follower convergence.
+No production shutdown, persistence or admission behavior changed.
+
+The unchanged local case passed in 113.42 seconds; the timing-dependent CI
+failure was not reproduced by that local invocation. The corrected case passed
+in 107.24 seconds, without retries. Formatting, full workspace/all-target Clippy
+with warnings denied, and `git diff --check` passed after the change.
+[Failure, source/harness identities and local results](evidence/restart-persistence-regression.json)
+are retained. Final PR-head CI remains required; prior failed runs are not waived.
