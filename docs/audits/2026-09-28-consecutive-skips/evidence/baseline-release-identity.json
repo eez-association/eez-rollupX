@@ -1,0 +1,30 @@
+{
+  "runtime_source_revision": "ca370742920852ad1105df4e40d70625d8749145",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "images": [
+    {
+      "tag": "eez-node:ca37074-fifo-progress-local",
+      "image_id": "sha256:a37c649f6fc2943fcec2f288f6d7be4ea2e4dc9537821fab96acd18829b9d806"
+    },
+    {
+      "tag": "eez-proof-signer:ca37074-fifo-progress-local",
+      "image_id": "sha256:efc9939694bb54d9cf08122ded58a72e45b6fcad3a8072deb483d34fd0968b66"
+    }
+  ],
+  "binaries": [
+    {
+      "path": "artifacts/fifo-packing-fix-20260928/refined/releases/candidate/eez-composer",
+      "sha256": "d94b44eb528bbfa5d0ca5eed56e1678ddc5a196ea8586fae8c5072ea50d7ad7b"
+    },
+    {
+      "path": "artifacts/fifo-packing-fix-20260928/refined/releases/candidate/eez-follower",
+      "sha256": "6b0cc805d10494445c70cd4d82e7243d8bec927b61b500c459df9f84d495ffc6"
+    },
+    {
+      "path": "artifacts/fifo-packing-fix-20260928/refined/releases/candidate/eez-proof-signer",
+      "sha256": "055643037223f97eb5fab602de48dbee33ae88e22312f8f09fe06a9b9627d5df"
+    }
+  ],
+  "build_plan": "images/build-plan.json",
+  "extracted_at": "2026-09-28T10:59:53.863788+00:00"
+}

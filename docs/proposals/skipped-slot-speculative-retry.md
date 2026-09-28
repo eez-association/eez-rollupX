@@ -3,8 +3,8 @@
 Status: design accepted by the user on 2026-09-23; initial implementation locally validated and deployed to the existing Chiado network. See the [validation and deployment record](../audits/2026-09-23-timeout-replacement/README.md). The later stress run exposed an uncovered historical-prefix fallback; its correction passes the targeted process regressions and is now deployed to the existing Chiado node. See the [historical-prefix audit](../audits/2026-09-23-historical-target/README.md).
 
 September 28 extension: user-authorized consecutive-slot recovery; implementation
-and validation in progress. The four-replacement behavior below is not yet live;
-deployment status is recorded in the [follow-up audit](../audits/2026-09-28-consecutive-skips/README.md).
+validated in focused process tests and deployed on Chiado. The five-minute live
+measurement passed semantic checks with 83.3% Grafana inclusion; results are recorded in the [follow-up audit](../audits/2026-09-28-consecutive-skips/README.md).
 
 Baseline: fork `1832f970884ca9460646a4cde87cca70eaffb3e1`, protocol
 `3c0cdf4955941a5c23639346932b55b33babebbd`. Replaces the earlier draft that

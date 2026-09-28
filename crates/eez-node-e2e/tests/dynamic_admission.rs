@@ -1424,7 +1424,12 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     if delayed_original {
         world.hold_next_bundle().unwrap();
     } else {
-        world.drop_next_bundle().unwrap();
+        // This fixture forwards raw transactions into the EL pool, which does
+        // not enforce relay timestamp pins. Drop every deliberately skipped
+        // target so an older replacement cannot land in the final test slot.
+        world
+            .drop_next_bundles(u32::try_from(skipped_slots).unwrap())
+            .unwrap();
     }
     let mut hashes = Vec::new();
     for offset in 1..=4 {
@@ -1573,7 +1578,32 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .request("eez_getCrossChainTransaction", (*hash,))
             .await
             .unwrap();
-        assert_eq!(owner["ownership"]["canonical"]["number"], target_height);
+        // Ownership records the reconciliation snapshot, which can be newer
+        // than inclusion when the fixture releases a delayed head and catches up.
+        let observed = owner["ownership"]["canonical"]["number"]
+            .as_u64()
+            .unwrap();
+        assert!(observed >= target_height);
+        let anchor = l1
+            .get_block_by_number(observed.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            owner["ownership"]["canonical"]["hash"],
+            serde_json::json!(anchor.header.hash)
+        );
+        let settlement: serde_json::Value = l2
+            .client()
+            .request("eez_getSettlementByL2Block", (receipt.block_hash.unwrap(),))
+            .await
+            .unwrap();
+        assert_eq!(settlement["canonicalL2"], true);
+        assert_eq!(settlement["l1BlockNumber"], format!("{target_height:#x}"));
+        assert_eq!(
+            settlement["l1BlockHash"],
+            serde_json::json!(landed.header.hash)
+        );
         let block = receipt.block_number.unwrap();
         assert_eq!(
             *settled_block.get_or_insert(block),

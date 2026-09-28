@@ -1,0 +1,38 @@
+{
+  "runtime_source_revision": "ba4cbabca056302875715e9e060e7b803c5c282c",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "images": [
+    {
+      "tag": "eez-node:ba4cbab-consecutive-skips-local",
+      "image_id": "sha256:de8c18036d145a856b0c638ec347abeb8887e5b7b913c23dc80299de32056038"
+    },
+    {
+      "tag": "eez-proof-signer:ba4cbab-consecutive-skips-local",
+      "image_id": "sha256:421fb256a1764c92139c9ec33c6f3d894d6e919248ea4cfc75e817aa751f6b97"
+    }
+  ],
+  "binaries": [
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-composer",
+      "sha256": "62b61151516195d6a434ce8c37d7df35fc16ecea9eb018b545e3081112e2f7a5"
+    },
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-follower",
+      "sha256": "c89dd2ed6eaa4f6202d710bb192a98aceb0091fa881a3c26348f0560ae30261c"
+    },
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-proof-signer",
+      "sha256": "400bbfb016c3c1f54be17f986ac117919633dc87fec01d60778c1dd8b6cf24a5"
+    }
+  ],
+  "build_plan": "images/build-plan.json",
+  "extracted_at": "2026-09-28T18:05:39.251949+00:00",
+  "build": {
+    "rust": "1.95.0",
+    "build_profile": "release",
+    "cargo_jobs": 4,
+    "recipe_sha256": "487927133fef042edb584e80f506344cc05a80193ac6b427203a656b883c572c",
+    "cargo_lock_sha256": "5df4d4c089faea59ef3f0d37313a2c7d66eab6ce755cb15a13118113940f32ea",
+    "cache_method": "Preserved mtimes for 2416 identical files; same recorded release recipe as deployed baseline."
+  }
+}

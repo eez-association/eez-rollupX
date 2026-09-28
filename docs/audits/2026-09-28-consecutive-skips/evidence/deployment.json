@@ -1,0 +1,72 @@
+{
+  "runtime_source_revision": "ba4cbabca056302875715e9e060e7b803c5c282c",
+  "started_at": "2026-09-28T18:18:25.061678+00:00",
+  "started_services_at": "2026-09-28T18:21:01.510792+00:00",
+  "ready_at": "2026-09-28T18:23:36.772803+00:00",
+  "containers": [
+    {
+      "container": "eez-node-chiado",
+      "image": "sha256:de8c18036d145a856b0c638ec347abeb8887e5b7b913c23dc80299de32056038",
+      "started_at": "2026-09-28T18:21:01.419804932Z"
+    },
+    {
+      "container": "eez-proof-signer-chiado",
+      "image": "sha256:421fb256a1764c92139c9ec33c6f3d894d6e919248ea4cfc75e817aa751f6b97",
+      "started_at": "2026-09-28T18:20:55.822273851Z"
+    }
+  ],
+  "databases_cold_copied": true,
+  "original_state_retained": true,
+  "configuration_changes": [
+    "EEZ_NODE_IMAGE",
+    "EEZ_PROOF_SIGNER_IMAGE",
+    "L1_SNAPSHOT_DIR",
+    "L2_DATA_DIR"
+  ],
+  "first_copy_failed_on_protected_discovery_key": true,
+  "corrected_copy_originals_mounted_read_only": true,
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": null,
+    "inFlight": 0,
+    "lastCanonicalCompletion": null,
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": null,
+    "unknown": 0
+  },
+  "canonical_settlement": {
+    "canonicalL2": true,
+    "l1BlockHash": "0x0c5591bc3d3b88a6532851f46d98dc313981da649789a133a1d42ea0fa41dcda",
+    "l1BlockNumber": "0x163201c",
+    "l1TransactionHash": "0x22c4718569de99eda9a9979ee9652a23f37d1362bec0e9191859c62e8f29afd1",
+    "l1TransactionIndex": "0x0",
+    "l2Finalized": false,
+    "l2Range": {
+      "blockCount": "0xa0",
+      "firstBlockHash": "0x8c4e71c91d35a9f5acf2fb7ea9c2f02465ece41be4254d41975ece17729a9a19",
+      "firstBlockNumber": "0x3f481",
+      "lastBlockHash": "0x0cc0aee1d5bcb70efa9658a27aea475800cac8a4d9cc22599907266a22bb1c6a",
+      "lastBlockNumber": "0x3f520"
+    },
+    "matchedL2Block": {
+      "hash": "0x0cc0aee1d5bcb70efa9658a27aea475800cac8a4d9cc22599907266a22bb1c6a",
+      "number": "0x3f520"
+    }
+  },
+  "recovery": {
+    "start_block": 23273442,
+    "start_hash": "0xc47a0448d760658d69c73b6b5db67ce6243e45b5ad3e62c0e6ab0604cc052561",
+    "end_block": 23273484,
+    "end_hash": "0x1fdcf86de0ba6cb144ed877818d71c94f2952d4a66272f213d7376bec101d65a",
+    "beacon_slot": "25044687"
+  },
+  "engine_payload_imports": 42,
+  "all_engine_payloads_valid_with_exact_hash": true,
+  "forkchoice_owner": "Lighthouse",
+  "unattended_restart_validated": false,
+  "full_local_preflight_sha256": "41781db9679d9101a473f86ffec5ddceb9dbad748e955b91cb829d24314327ac"
+}
