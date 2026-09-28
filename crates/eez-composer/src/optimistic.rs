@@ -919,6 +919,74 @@ mod tests {
     }
 
     #[test]
+    fn repeated_replacements_preserve_current_owner_through_partial_consumption_and_reorg() {
+        let (ledger, pool, txs, original) = setup();
+        let mut active = original;
+        let mut history = Vec::new();
+        for replacement in 1..=4_u8 {
+            ledger
+                .observe(
+                    active,
+                    SubmissionObservation::Dispatched {
+                        block: 100,
+                        timestamp: 1000 + 5 * u64::from(replacement - 1),
+                    },
+                )
+                .unwrap();
+            pool.release_for_replacement(active).unwrap();
+            history.push(active);
+            let recovered = pool.pop_all();
+            assert_eq!(recovered, txs);
+            active = begin(&ledger, recovered, 10 + replacement);
+        }
+        assert_eq!(ledger.reconciliation_attempts().len(), 5);
+        // Out-of-order historical failure callbacks cannot charge or release
+        // the users now owned by the fourth replacement.
+        for previous in history.into_iter().rev() {
+            pool.resolve_attempt(
+                previous,
+                block(100),
+                &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+                true,
+                3,
+                || true,
+            )
+            .unwrap();
+            assert_eq!(ledger.pending_attempt().unwrap().id, active);
+            assert!(pool.is_empty());
+            ledger.read(|state| {
+                assert!(
+                    state
+                        .users
+                        .values()
+                        .all(|user| user.owner == active.generation
+                            && user.tx.attempts == 0
+                            && user.location == UserLocation::AwaitingEvidence)
+                )
+            });
+        }
+        pool.resolve_attempt(
+            active,
+            block(100),
+            &[
+                SourceOutcome::Terminal(TerminalReason::Committed),
+                SourceOutcome::Retryable { source_nonce: 0 },
+                SourceOutcome::Terminal(TerminalReason::Committed),
+            ],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.candidates(), vec![txs[1].clone()]);
+        assert!(!pool.owns(txs[0].hash));
+        assert!(!pool.owns(txs[2].hash));
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, active);
+        assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
+    }
+
+    #[test]
     fn late_original_settlement_resolves_users_even_if_replacement_preparation_failed() {
         let (ledger, pool, _, original) = setup();
         ledger

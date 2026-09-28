@@ -1,0 +1,11 @@
+{
+  "runtime_source": "c8260cec8e76a267c96cea1313d31b55a8383f75",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "result": "failed: no replacement dispatch after two skipped slots",
+  "selected": 1,
+  "sha256": {
+    "target/debug/eez-composer": "edd2c9fb270a7f5840e32a1ad296cab288aca17467c34a332f7fdbed1675cff3",
+    "target/debug/eez-follower": "30963063d81ec266cd5d78395930326dbb7cbe4334a66051902d1db11f7c6fb3",
+    "target/debug/eez-proof-signer": "40276146039a76a43c74d0440da53502cb95c82112e7e33b09fc02280fccf7e7"
+  }
+}

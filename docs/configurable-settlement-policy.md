@@ -569,13 +569,16 @@ Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
 the applicable proof policy and absolute submission deadline remain enforced.
 If the expected L1 block is still absent at the following preparation deadline,
-the scheduler permits one replacement opportunity on the same parent, with the
-same target execution height and a timestamp one slot later. The Composer
-rebuilds its speculative suffix and retains the old submission as history;
+the scheduler permits up to four replacement opportunities on the same parent.
+Each retains the target execution height and advances its timestamp one slot.
+The Composer rebuilds its speculative suffix and retains all old submissions as history;
 canonical replay resolves late original inclusion. This does not classify the
 slot as skipped or charge user retries. No new timer setting is introduced.
-One additional opportunity per observed L1 head bounds work during an outage;
-a second consecutive missing slot waits for a new head. See
+The shared scheduler/submission bound limits an outage to five target opportunities
+per observed L1 head, including the original. Exhaustion logs
+`eez.slot.l1_anchored.replacement_limit` and waits for a new head. Older Composers
+retain one replacement; this extension needs only a Composer upgrade and has no
+wire, signer, follower or storage migration. See
 [settlement ownership](../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 On the 5-second/1-second Chiado grid, this preset reserves two Future blocks
 per interval rather than one with the former 500 ms proof budget.

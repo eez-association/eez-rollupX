@@ -647,13 +647,22 @@ Invalid ownership transitions leave the prior state unchanged.
 
 At the next slot's preparation deadline, the Composer MAY replace its active
 speculative L2 suffix if the expected L1 block is still absent. The current
-implementation permits one such replacement per observed L1 head and requires
+implementation permits up to four such replacements per observed L1 head and requires
 completed canonical derivation through the unchanged parent. This deadline is
 not a failure verdict: retain the original envelope, manifest, target, observer
 and signed users until canonical reconciliation. Returning those users to the
 held pool for recomposition MUST preserve reservations and retry counters. Old
 results MUST NOT release users owned by a newer attempt. Canonical source
 evidence can still complete users whose replacement preparation did not finish.
+
+Each replacement advances exactly one slot from the current attempt, with at
+most five scheduled opportunities on one parent including the original. The
+scheduler and submission gate share the same bound. After exhaustion, wait for a
+new canonical head; do not release users or charge a failure from timer expiry.
+Retain every historical attempt until canonical reconciliation, including when
+the earliest original settles after several replacements. Older Composers retain
+the previous one-replacement bound; this extension needs no wire, signer, follower
+or storage migration and rollback restores the smaller scheduling allowance.
 
 The replacement uses a fresh proof, the next slot's exact timestamp and the same
 poster nonce. Replace the original nonempty Sync with an empty Sync and rebuild

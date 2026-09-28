@@ -2,6 +2,10 @@
 
 Status: design accepted by the user on 2026-09-23; initial implementation locally validated and deployed to the existing Chiado network. See the [validation and deployment record](../audits/2026-09-23-timeout-replacement/README.md). The later stress run exposed an uncovered historical-prefix fallback; its correction passes the targeted process regressions and is now deployed to the existing Chiado node. See the [historical-prefix audit](../audits/2026-09-23-historical-target/README.md).
 
+September 28 extension: user-authorized consecutive-slot recovery; implementation
+and validation in progress. The four-replacement behavior below is not yet live;
+deployment status is recorded in the [follow-up audit](../audits/2026-09-28-consecutive-skips/README.md).
+
 Baseline: fork `1832f970884ca9460646a4cde87cca70eaffb3e1`, protocol
 `3c0cdf4955941a5c23639346932b55b33babebbd`. Replaces the earlier draft that
 proposed maintaining two active branches. Historical investigation results remain
@@ -18,13 +22,36 @@ speculative branch with the settled execution.
 There is one active L2 branch. A deadline is permission to rebuild, not proof of
 failure or canonical consumption. No consensus-client request is needed.
 
-The scheduler permits one extra opportunity per observed L1 head, at the normal
+The scheduler permits four extra opportunities per observed L1 head, at the normal
 preparation deadline (2.8 seconds after the missing slot under the Chiado
 500 ms preparation / 1,000 ms proof / 700 ms submission-slack preset). The
 execution block number stays unchanged; the timestamp advances one slot. A new
 head replaces this timer with the ordinary schedule. Consecutive missing slots
-without any new head exhaust this single replacement; observation continues.
-This bounds work and retained submissions during disconnection.
+without any new head exhaust these four replacements; observation continues.
+This bounds work and retained submissions during disconnection to five target
+opportunities, including the ordinary target. The shared
+`eez_l1::submitter::MAX_MISSING_SLOT_REPLACEMENTS` bound controls both scheduling
+and the submission gates; this is a local scheduling policy, not a consensus rule.
+
+### Consecutive skipped slots: September 28 follow-up
+
+The user authorized correcting Composer-owned inclusion gaps on September 28.
+The previous one-replacement policy left produced blocks 23272510 and 23272544
+without attempts after two consecutive skipped slots. The five-minute workload's
+Grafana inclusion rate was 42/58 (72.4%); two additional scheduled targets had no
+attempt and were absent from that denominator. The implementation extends the
+bounded burst to four replacements, covering the observed two-skip sequences and
+testing recovery at the last permitted replacement. The bound is deliberately
+finite; it does not claim recovery across an arbitrarily long L1 outage.
+
+Each replacement still advances one slot from the current active attempt,
+revalidates the unchanged canonical parent and completed derivation, and retains
+all earlier submissions. Exhaustion emits
+`eez.slot.l1_anchored.replacement_limit`; it describes timer exhaustion, not proof
+that a posting was prepared or that a source failed. The existing single-owner
+ledger supports a chain of historical attempts; transport observers cannot
+release users owned by a newer generation. The [follow-up audit](../audits/2026-09-28-consecutive-skips/README.md)
+records baseline reproduction, validation and deployment status.
 
 ## Invariants and implementation
 
@@ -42,11 +69,11 @@ This bounds work and retained submissions during disconnection.
   poster nonce. Final ordered execution, source nonces, fee checks, timestamp
   pins and target-height checks still apply. A later original inclusion may
   invalidate this preparation; canonical replay remains authoritative.
-- The policy submission gate admits either the ordinary next-slot timestamp or
-  one additional slot on the current parent. It rejects misaligned/larger gaps
+- The policy submission gate admits the ordinary next-slot timestamp and up to
+  four additional slots on the current parent. It rejects misaligned/larger gaps
   and rejects a target height that has already been produced. This deliberately
   admits speculation without pretending to have proof that the slot was missed.
-- Reconcile both submission records against canonical execution. Partial source
+- Reconcile all submission records against canonical execution. Partial source
   consumption remains supported. Timeouts do not charge user failure budgets;
   canonical evidence decides source completion and eligible retries.
 
@@ -73,6 +100,9 @@ No protocol pin, contract, wire format, signer profile, genesis or database
 migration changes. Mixed-version followers continue replaying the same canonical
 blob format. Upgrade the Composer to enable this scheduling behavior; older
 Composers retain the extra-slot wait. Pending ownership remains in memory.
+Older Composers retain the one-replacement bound; upgraded Composers permit four.
+Signer/follower compatibility and historical decoding are unchanged. Only the
+Composer needs upgrading for this policy; downgrading restores the smaller bound.
 Restart/rollback reconciles canonical history, discards speculative state and
 can require clients to resubmit unsettled requests. Preserve existing network
 bindings, images and datadirs during the upgrade; follow the
@@ -80,16 +110,18 @@ bindings, images and datadirs during the upgrade; follow the
 
 ## Acceptance
 
-- Skipped-slot process test: replacement targets exactly +1 slot at the same L1
-  height; all source nonces settle once with unchanged group selection.
+- Skipped-slot process tests: consecutive replacements each target exactly +1
+  slot at the same L1 height; all source nonces settle once with unchanged group
+  selection. Reproduce the two-skip failure against the old bound.
 - Delayed-original process test: hold an actual Engine API payload until the
-  Composer has dispatched its replacement, then release the original. Verify
+  Composer has dispatched its fourth replacement, then release the original. Verify
   L2 reorg, user outcomes, state, nonce ordering and independent follower parity.
 - Ledger tests: late original success/failure cannot erase newer ownership;
   failed replacement preparation leaves original users reconcilable; L1 reorg
   reopens the right owner; timeout does not charge attempts.
-- Scheduler and submission tests: one extra timer, same execution height,
-  correct timestamp/deadline, rejection of larger gaps and already-built targets.
+- Scheduler and submission tests: four extra timers, same execution height,
+  correct timestamp/deadline, rejection after exhaustion, arithmetic overflow,
+  misalignment and already-built targets. A new observed head resets the allowance.
 - Run affected settlement, partial-consumption, queue/reorg and resumption suites,
   formatting and Clippy before deployment. Record actual results and omissions
   in the implementation audit; design acceptance is not validation evidence.

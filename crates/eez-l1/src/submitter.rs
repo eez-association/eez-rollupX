@@ -52,6 +52,24 @@ const TARGET_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// `latest` is stale by the time the relay sees the bundle.
 const NEXT_BLOCK_SLACK: u64 = 2;
 
+/// Additional exact-target opportunities permitted on one unchanged L1 parent.
+/// The scheduler and submission gates share this bound so consecutive skipped
+/// slots can be retried without unbounded proving work and retained submissions
+/// during a disconnected L1 episode. Every replacement retains its predecessor.
+pub const MAX_MISSING_SLOT_REPLACEMENTS: u64 = 4;
+
+/// Return the aligned, bounded slot offset from the observed canonical parent.
+fn policy_target_slot_offset(parent: u64, target: u64, slot_seconds: u64) -> Option<u64> {
+    let distance = target.checked_sub(parent)?;
+    if distance.checked_rem(slot_seconds)? != 0 {
+        return None;
+    }
+    let offset = distance.checked_div(slot_seconds)?;
+    (1..=MAX_MISSING_SLOT_REPLACEMENTS + 1)
+        .contains(&offset)
+        .then_some(offset)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_field_names)]
 struct SubmissionTiming {
@@ -442,13 +460,17 @@ async fn policy_submission_failure<P: Provider, C: Clock>(
             }));
         }
         if let Some(parent) = rpc_block(provider, BlockNumberOrTag::Number(parent_number)).await? {
-            // Exact timestamp pins allow one speculative replacement after a
-            // missing slot. This admits preparation, not a skipped-slot verdict:
+            // Exact timestamp pins allow a bounded chain of replacements after
+            // missing slots. This admits preparation, not a skipped-slot verdict:
             // the final gate still rejects an already-produced target height,
             // and the caller re-executes the whole bundle on the current parent.
-            let distance = timestamp.checked_sub(parent.header.timestamp);
-            let slot = timing.l1_block_time_secs();
-            if distance != Some(slot) && distance != slot.checked_mul(2) {
+            if policy_target_slot_offset(
+                parent.header.timestamp,
+                timestamp,
+                timing.l1_block_time_secs(),
+            )
+            .is_none()
+            {
                 return Ok(Some(PolicySubmissionFailure::ParentTimestampMismatch));
             }
             break;
@@ -643,7 +665,7 @@ impl Submitter {
         self.inner.reader.clone()
     }
 
-    /// Identify the still-current parent for a single missing-slot replacement.
+    /// Identify the still-current parent within the bounded replacement window.
     /// Absence is permission to speculate only; it is never settlement evidence.
     pub async fn replacement_parent(
         &self,
@@ -653,17 +675,17 @@ impl Submitter {
         let parent = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
             .await?
             .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
-        let distance = self
-            .inner
-            .submission_timing
-            .l1_block_time_secs()
-            .checked_mul(2);
+        let offset = policy_target_slot_offset(
+            parent.header.timestamp,
+            timestamp,
+            self.inner.submission_timing.l1_block_time_secs(),
+        );
         Ok((parent.header.number.checked_add(1) == Some(block)
-            && timestamp.checked_sub(parent.header.timestamp) == distance)
-            .then_some(crate::L1BlockRef {
-                number: parent.header.number,
-                hash: parent.header.hash,
-            }))
+            && offset.is_some_and(|offset| offset >= 2))
+        .then_some(crate::L1BlockRef {
+            number: parent.header.number,
+            hash: parent.header.hash,
+        }))
     }
 
     /// L1 EOA address this Submitter sends from. Used by the Composer
@@ -3063,17 +3085,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replacement_gate_accepts_one_missing_slot_but_rejects_late_parent_and_larger_gaps() {
+    async fn replacement_gate_accepts_bounded_missing_slots_but_rejects_late_parent_and_larger_gaps()
+     {
         for (distance, advanced, accepted) in [
+            (5, false, true),
             (10, false, true),
             (10, true, false),
-            (15, false, false),
+            (15, false, true),
+            (20, false, true),
+            (25, false, true),
+            (25, true, false),
+            (30, false, false),
+            (0, false, false),
             (9, false, false),
+            (24, false, false),
         ] {
             let replies = Asserter::new();
             let parent = mock_block(41, PIN - distance, B256::with_last_byte(1));
             replies.push_success(&parent);
-            if distance == 10 {
+            if matches!(distance, 5 | 10 | 15 | 20 | 25) {
                 replies.push_success(&if advanced {
                     mock_block(42, PIN - 5, B256::with_last_byte(2))
                 } else {
@@ -3094,6 +3124,27 @@ mod tests {
                 .await
                 .unwrap(),
                 accepted
+            );
+        }
+    }
+
+    #[test]
+    fn policy_slot_offsets_reject_underflow_zero_slots_and_unaligned_targets() {
+        for (parent, target, slot, expected) in [
+            (100, 112, 12, Some(1)),
+            (100, 124, 12, Some(2)),
+            (100, 160, 12, Some(5)),
+            (100, 172, 12, None),
+            (100, 159, 12, None),
+            (100, 99, 12, None),
+            (100, 100, 12, None),
+            (100, 112, 0, None),
+            (u64::MAX - 25, u64::MAX, 5, Some(5)),
+            (u64::MAX, 0, 5, None),
+        ] {
+            assert_eq!(
+                super::policy_target_slot_offset(parent, target, slot),
+                expected
             );
         }
     }

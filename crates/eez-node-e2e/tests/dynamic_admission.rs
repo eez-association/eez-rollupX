@@ -1325,15 +1325,25 @@ async fn consecutive_exclusions(failures: u32) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinking() {
-    next_slot_replacement(false).await;
+    next_slot_replacement(false, 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_original_settlement_replaces_the_timeout_branch_without_losing_users() {
-    next_slot_replacement(true).await;
+    next_slot_replacement(true, 1).await;
 }
 
-async fn next_slot_replacement(delayed_original: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block() {
+    next_slot_replacement(false, 2).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_original_after_multiple_replacements_retains_users_and_follower_parity() {
+    next_slot_replacement(true, 4).await;
+}
+
+async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.
     let mut config = env();
@@ -1450,13 +1460,15 @@ async fn next_slot_replacement(delayed_original: bool) {
             .unwrap();
         world.release_bundle(&dropped).unwrap();
     } else {
-        world
-            .l1_reorg_control
-            .as_mut()
-            .unwrap()
-            .skip_slot(target_timestamp)
-            .await
-            .unwrap();
+        for slot in 0..skipped_slots {
+            world
+                .l1_reorg_control
+                .as_mut()
+                .unwrap()
+                .skip_slot(target_timestamp + 5 * slot)
+                .await
+                .unwrap();
+        }
     }
     let original_receipt = wait_for(TIMEOUT, || async {
         Ok(l2.get_transaction_receipt(hashes[0]).await?)
@@ -1477,12 +1489,12 @@ async fn next_slot_replacement(delayed_original: bool) {
     )
     .await
     .unwrap();
-    wait_for(Duration::from_secs(12), || async {
+    wait_for(Duration::from_secs(5 * skipped_slots + 7), || async {
         let events = world.node.signals_since(cursor)?;
         Ok(events.into_iter().find(|event| {
             event.name == "eez.submitter.bundle.dispatch"
                 && event.fields["target_block"] == target_height
-                && event.fields["target_timestamp"] == target_timestamp + 5
+                && event.fields["target_timestamp"] == target_timestamp + 5 * skipped_slots
         }))
     })
     .await
@@ -1522,7 +1534,7 @@ async fn next_slot_replacement(delayed_original: bool) {
         if delayed_original {
             target_timestamp
         } else {
-            target_timestamp + 5
+            target_timestamp + 5 * skipped_slots
         }
     );
     let mut settled_block = None;
@@ -1552,7 +1564,7 @@ async fn next_slot_replacement(delayed_original: bool) {
                 assert_ne!(receipt.block_hash, original_receipt.block_hash);
                 assert_eq!(
                     receipt.block_number.unwrap(),
-                    original_receipt.block_number.unwrap() + 5
+                    original_receipt.block_number.unwrap() + 5 * skipped_slots
                 );
             }
         }

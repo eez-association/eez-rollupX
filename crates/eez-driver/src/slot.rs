@@ -13,8 +13,8 @@
 //!   and sleeps until `L1.timestamp + proof_window_open` after each
 //!   head — i.e. the wall-clock moment when the prover should start
 //!   so the postBatch bundle reaches the relay before the next L1 block.
-//!   If that block is absent, one additional trigger targets the following
-//!   timestamp on the same L1 parent; a new head replaces the pending timer.
+//!   If that block is absent, bounded additional triggers target successive
+//!   timestamps on the same L1 parent; a new head replaces the pending timer.
 //! - [`SlotEvent::LiveTick`] — wall-clock `l2_block_time` tick, also
 //!   produced by [`spawn_l1_anchored`] between sync-slot triggers, so
 //!   the RPC head advances one Live block per cadence instead of in
@@ -33,6 +33,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use alloy_consensus::Header;
 use alloy_rpc_types_engine::ExecutionData;
 use async_trait::async_trait;
+use eez_l1::submitter::MAX_MISSING_SLOT_REPLACEMENTS;
 use reth_primitives_traits::SealedHeader;
 use tokio::sync::mpsc;
 use tokio::time::{Instant, MissedTickBehavior, interval_at};
@@ -232,7 +233,7 @@ struct PendingSyncSlot {
     l1_head: u64,
     /// L1 block timestamp of the anchoring head (logging only).
     l1_timestamp: u64,
-    replacement: bool,
+    replacement_count: u64,
 }
 
 impl PendingSyncSlot {
@@ -249,14 +250,14 @@ impl PendingSyncSlot {
             timestamp,
             l1_head: head.block_number,
             l1_timestamp: head.timestamp,
-            replacement: false,
+            replacement_count: 0,
         }
     }
 
-    /// One extra opportunity per observed head bounds work during an outage.
+    /// Bound replacement opportunities per observed head during an outage.
     /// A missing slot advances time, not the execution block number.
     fn replacement(self, timing: RollupTiming) -> Option<Self> {
-        if self.replacement {
+        if self.replacement_count >= MAX_MISSING_SLOT_REPLACEMENTS {
             return None;
         }
         Some(Self {
@@ -267,7 +268,7 @@ impl PendingSyncSlot {
             timestamp: self
                 .timestamp
                 .checked_add(timing.l1_block_time().as_secs())?,
-            replacement: true,
+            replacement_count: self.replacement_count + 1,
             ..self
         })
     }
@@ -290,8 +291,8 @@ impl PendingSyncSlot {
 ///    — the moment preparation should start so proof and submission finish
 ///    before the next L1 block lands.
 /// 3. When the trigger instant passes, send [`SlotEvent::SyncSlot`].
-/// 4. Arm one further preparation deadline on the same head. A new head
-///    supersedes it; without a new head it fires once, then remains disarmed.
+/// 4. Arm the next preparation deadline on the same head, up to the shared
+///    replacement bound. A new head resets the allowance; exhaustion disarms it.
 ///
 /// Between anchor triggers an internal `l2_block_time` ticker emits
 /// [`SlotEvent::LiveTick`] carrying the latest anchor-computed sync
@@ -319,8 +320,8 @@ pub fn spawn_l1_anchored(
         // Latest anchor-computed sync-slot height. None until the
         // first L1 head; LiveTicks are suppressed until then.
         let mut latest_sync_height: Option<u64> = None;
-        // One ordinary trigger and at most one replacement per observed head.
-        // Disarm after the replacement until a new L1 head arrives.
+        // The shared submission bound also caps timers, including attempts
+        // which cannot finish preparation. A new head resets this allowance.
         let mut pending: Option<PendingSyncSlot> = None;
 
         loop {
@@ -350,7 +351,7 @@ pub fn spawn_l1_anchored(
                     let next = PendingSyncSlot::new(head, timing, l2_genesis_timestamp);
                     let block_height = next.block_height;
 
-                    if let Some(stale) = pending.filter(|slot| !slot.replacement) {
+                    if let Some(stale) = pending.filter(|slot| slot.replacement_count == 0) {
                         // Only reachable when heads arrive faster than
                         // proof_window_open apart — a watcher catch-up
                         // burst. The newest anchor wins; the Sequencer's
@@ -372,6 +373,18 @@ pub fn spawn_l1_anchored(
                         .take()
                         .expect("branch enabled only while pending.is_some()");
                     pending = fired.replacement(timing);
+                    if fired.replacement_count == MAX_MISSING_SLOT_REPLACEMENTS {
+                        event!(
+                            name: "eez.slot.l1_anchored.replacement_limit",
+                            Level::INFO,
+                            event_name = "eez.slot.l1_anchored.replacement_limit",
+                            l1_head = fired.l1_head,
+                            l1_timestamp = fired.l1_timestamp,
+                            last_target_timestamp = fired.timestamp,
+                            replacements = fired.replacement_count,
+                            "last bounded replacement trigger; waiting for a new L1 head afterward",
+                        );
+                    }
                     latest_sync_height = Some(fired.block_height);
                     event!(
                         name: "eez.slot.l1_anchored.trigger",
@@ -438,7 +451,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_slot_replacement_advances_time_once_without_inventing_an_l1_block() {
+    fn missing_slot_replacements_are_bounded_and_do_not_invent_an_l1_block() {
         let timing = RollupTiming::new(5000, 1000, 1000, 700).with_preparation_time_ms(500);
         let first = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
@@ -460,7 +473,16 @@ mod tests {
             ),
             (110, 107_800, 109, 7)
         );
-        assert!(retry.replacement(timing).is_none());
+        let mut last = retry;
+        for replacement_count in 2..=4 {
+            last = last.replacement(timing).unwrap();
+            assert_eq!(last.timestamp, 105 + 5 * replacement_count);
+            assert_eq!(last.trigger_at_ms, 102_800 + 5_000 * replacement_count);
+            assert_eq!(last.block_height, 104 + 5 * replacement_count);
+            assert_eq!(last.l1_head, 7);
+            assert_eq!(last.replacement_count, replacement_count);
+        }
+        assert!(last.replacement(timing).is_none());
         let delayed = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
                 block_number: 8,
@@ -472,6 +494,38 @@ mod tests {
         );
         assert_eq!(delayed.timestamp, retry.timestamp);
         assert_eq!(delayed.l1_head, 8);
+        assert_eq!(delayed.replacement_count, 0);
+        assert!(delayed.replacement(timing).is_some());
+    }
+
+    #[test]
+    fn missing_slot_replacement_rejects_overflow_without_wrapping() {
+        let timing = RollupTiming::new(5000, 1000, 1000, 700);
+        let first = PendingSyncSlot::new(
+            eez_l1::L1HeadInfo {
+                block_number: 7,
+                block_hash: [1; 32],
+                timestamp: 100,
+            },
+            timing,
+            1,
+        );
+        for invalid in [
+            PendingSyncSlot {
+                trigger_at_ms: u64::MAX,
+                ..first
+            },
+            PendingSyncSlot {
+                block_height: u64::MAX,
+                ..first
+            },
+            PendingSyncSlot {
+                timestamp: u64::MAX,
+                ..first
+            },
+        ] {
+            assert!(invalid.replacement(timing).is_none());
+        }
     }
 
     #[test]

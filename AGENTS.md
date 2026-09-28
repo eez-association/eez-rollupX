@@ -135,10 +135,11 @@ its Solidity implementation/tests and the applicable fork contract:
   rejections; they cannot authorize targeted eviction. During submitted-attempt
   reconciliation, charge eligible users once only for conclusive settlement failure;
   infrastructure uncertainty and source deferrals retain work without that charge.
-  The RPC contract permits one deadline-based speculative replacement on an
+  The RPC contract permits up to four deadline-based speculative replacements on an
   unchanged L1 parent. Preserve the old submission history and the single
   current owner; the timeout authorizes recomposition, never canonical completion
-  or eviction. Validate both skipped-slot and late-original inclusion paths.
+  or eviction. Keep the scheduler and submission gates on the shared bound;
+  validate consecutive skipped slots, exhaustion and late-original inclusion.
 - Pending requests and retry counters are **in memory**. Restart reconciles
   canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.
