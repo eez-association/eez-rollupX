@@ -93,12 +93,24 @@ async fn main() -> eyre::Result<()> {
         profile = "anchor_mutable_nested_outbound_then_inbound",
         "serving Prove — waiting for composer windows",
     );
+    use reth_chainspec::EthChainSpec as _;
+    let schedule = validator.schedule()?;
+    eyre::ensure!(
+        schedule.config().l1_reference.chain_id == l1_chain_spec.chain().id(),
+        "L2 genesis reference and trusted L1 profile must identify the same chain"
+    );
+    let l1_authority = service::l1::L1Authority::new(
+        config.l1_rpc_url,
+        config.registry_address,
+        config.expected_rollup_id.get(),
+        schedule,
+    )?;
     let svc = service::ProveSvc::new(
         Arc::new(service::ServiceState::new(
+            l1_authority,
             validator,
             config.expected_rollup_id,
             config.attester,
-            config.system_transaction_key,
             l1_chain_spec,
         )?),
         limits,

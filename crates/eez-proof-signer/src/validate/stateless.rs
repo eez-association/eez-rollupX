@@ -11,21 +11,20 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alloy_consensus::{
-    BlockHeader as _, EthereumReceipt, Transaction as _, TxReceipt as _,
+    BlockHeader as _, Transaction as _,
     proofs::{calculate_receipt_root, calculate_transaction_root},
 };
 #[cfg(test)]
-use alloy_genesis::ChainConfig;
-use alloy_genesis::Genesis;
+use alloy_genesis::{ChainConfig, Genesis};
 use alloy_primitives::{Address, B256, Bloom, Bytes, U256, keccak256, map::B256IndexMap};
 use alloy_sol_types::SolEvent as _;
 use eez_driver::observation::{BlockObservation, ObservedOutcome, replay_block_with_observations};
+use eez_evm::EezEvmConfig;
+use eez_primitives::Block;
 use eez_protocol::abi::eez_l2_events::CrossChainCallExecuted;
 use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::settlement::{is_system_tx, pair_end_positions};
 use reth_chainspec::{ChainSpec, EthereumHardforks as _};
-use reth_ethereum_primitives::Block;
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
 use revm::Database;
 use revm::bytecode::Bytecode;
@@ -48,7 +47,7 @@ use crate::EEZL2_ADDRESS;
 use crate::cancel::CancellationToken;
 use crate::window::AdmittedBlock;
 
-use eez_l1::chain_config::{ChainDocumentKind, load_chain_document_with_digest};
+use eez_l1::chain_config::load_l2_genesis;
 
 const DEBUG_PROGRESS_INTERVAL: usize = 100;
 const BLOCKHASH_ANCESTOR_LIMIT: usize = 256;
@@ -79,14 +78,28 @@ impl CheckpointPlan {
             let is_system_sender = transaction.signer() == expected_l2_system_address;
             system_sender_flags.push(is_system_sender);
             sync_system_transaction_flags.push(is_system_tx(
+                alloy_consensus::Typed2718::ty(&transaction),
                 transaction.signer(),
                 transaction.to(),
                 expected_l2_system_address,
                 EEZL2_ADDRESS,
             ));
         }
+        let ordinary = sync_system_transaction_flags
+            .iter()
+            .position(|&native| native)
+            .unwrap_or(transaction_count);
+        let mut transaction_indices = Vec::new();
+        if ordinary > 0 {
+            transaction_indices.push(ordinary - 1);
+        }
+        transaction_indices.extend(
+            pair_end_positions(&sync_system_transaction_flags[ordinary..])
+                .into_iter()
+                .map(|index| ordinary + index),
+        );
         let plan = Self {
-            transaction_indices: pair_end_positions(&sync_system_transaction_flags),
+            transaction_indices,
         };
         (plan, system_sender_flags)
     }
@@ -141,7 +154,7 @@ struct PreparedSettlingBlock {
 #[derive(Debug)]
 pub(crate) struct Backend {
     chain_spec: Arc<ChainSpec>,
-    evm_config: EthEvmConfig,
+    evm_config: EezEvmConfig,
     expected_l2_system_address: Address,
     chain_document_digest: B256,
     #[cfg(test)]
@@ -149,6 +162,9 @@ pub(crate) struct Backend {
 }
 
 impl Backend {
+    pub(super) fn schedule(&self) -> eyre::Result<eez_protocol::l2::Schedule> {
+        Ok(eez_evm::profile::schedule(self.chain_spec.as_ref())?)
+    }
     pub(super) const fn chain_document_digest(&self) -> B256 {
         self.chain_document_digest
     }
@@ -167,16 +183,14 @@ impl Backend {
         path: &Path,
         expected_l2_system_address: Address,
     ) -> eyre::Result<Self> {
-        let loaded = load_chain_document_with_digest(path)?;
-        let document_kind = loaded.kind();
+        let loaded = load_l2_genesis(path)?;
         let chain_document_digest = loaded.digest();
         let genesis = loaded.into_genesis();
         let chain_config = &genesis.config;
-        let genesis_timestamp =
-            (document_kind == ChainDocumentKind::Genesis).then_some(genesis.timestamp);
+        let genesis_timestamp = genesis.timestamp;
         info!(
             path = %path.display(),
-            source = document_kind.label(),
+            source = "Genesis",
             chain_id = chain_config.chain_id,
             "loaded stateless chain configuration",
         );
@@ -185,34 +199,29 @@ impl Backend {
             ?genesis_timestamp,
             "stateless chain configuration details",
         );
-        Ok(Self::from_genesis(
-            genesis,
+        Ok(Self::from_chain_spec(
+            eez_evm::profile::chain_spec(genesis)?,
             expected_l2_system_address,
             chain_document_digest,
         ))
     }
 
     #[cfg(test)]
-    pub(super) fn new(chain_config: ChainConfig, expected_l2_system_address: Address) -> Self {
-        let document = serde_json::to_vec(&chain_config).unwrap();
+    pub(super) fn new(genesis: Genesis, expected_l2_system_address: Address) -> Self {
+        let document = serde_json::to_vec(&genesis).unwrap();
         let digest = keccak256(eez_l1::chain_config::canonicalize_chain_json(&document).unwrap());
-        Self::from_genesis(
-            Genesis {
-                config: chain_config,
-                ..Default::default()
-            },
-            expected_l2_system_address,
-            digest,
-        )
+        let mut spec = ChainSpec::from_genesis(genesis);
+        spec.base_fee_params = eez_protocol::l2::BASE_FEE_PARAMS.into();
+        Self::from_chain_spec(spec, expected_l2_system_address, digest)
     }
 
-    fn from_genesis(
-        genesis: Genesis,
+    fn from_chain_spec(
+        spec: ChainSpec,
         expected_l2_system_address: Address,
         chain_document_digest: B256,
     ) -> Self {
-        let chain_spec = Arc::new(ChainSpec::from_genesis(genesis));
-        let evm_config = EthEvmConfig::new(Arc::clone(&chain_spec));
+        let chain_spec = Arc::new(spec);
+        let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec));
         Self {
             chain_spec,
             evm_config,
@@ -313,41 +322,47 @@ impl Backend {
             // Before this call the decoded block and witness remain untrusted.
             // Successful Stateless output means consensus, witness pre-state,
             // execution receipts, and the recomputed post-state commitment all
-            // passed. Only a non-empty final selection uses the checkpoint path.
+            // passed. The terminal also captures its pre-transaction state so
+            // the B[0] variant includes pre-execution changes.
             let witness = std::mem::take(&mut admitted.witness);
-            let (stateless_output, replay_state_checkpoints) = match checkpoint_plan {
-                Some(plan) if !plan.transaction_indices.is_empty() => {
-                    let output = stateless_validation_recovered_with_state_checkpoints(
-                        recovered_block,
-                        witness,
-                        Arc::clone(&self.chain_spec),
-                        self.evm_config.clone(),
-                        &plan.transaction_indices,
-                    )
-                    .map_err(|error| map_stateless_error(block_number, error))?;
-                    let checkpoints = output
-                        .checkpoints
-                        .transaction_state_checkpoints
-                        .into_iter()
-                        .map(|checkpoint| ReplayStateCheckpoint {
-                            transaction_index: checkpoint.transaction_index,
-                            state_root: checkpoint.state_root,
-                        })
-                        .collect::<Vec<_>>();
-                    plan.verify_returned(&checkpoints)?;
-                    (output.validation, checkpoints)
-                }
-                _ => {
-                    let output = stateless_validation_recovered(
-                        recovered_block,
-                        witness,
-                        Arc::clone(&self.chain_spec),
-                        self.evm_config.clone(),
-                    )
-                    .map_err(|error| map_stateless_error(block_number, error))?;
-                    (output, Vec::new())
-                }
-            };
+            let (stateless_output, replay_state_checkpoints, pre_transaction_state_root) =
+                match checkpoint_plan {
+                    Some(plan) => {
+                        let output = stateless_validation_recovered_with_state_checkpoints(
+                            recovered_block,
+                            witness,
+                            Arc::clone(&self.chain_spec),
+                            self.evm_config.clone(),
+                            &plan.transaction_indices,
+                        )
+                        .map_err(|error| map_stateless_error(block_number, error))?;
+                        let checkpoints = output
+                            .checkpoints
+                            .transaction_state_checkpoints
+                            .into_iter()
+                            .map(|checkpoint| ReplayStateCheckpoint {
+                                transaction_index: checkpoint.transaction_index,
+                                state_root: checkpoint.state_root,
+                            })
+                            .collect::<Vec<_>>();
+                        plan.verify_returned(&checkpoints)?;
+                        (
+                            output.validation,
+                            checkpoints,
+                            Some(output.checkpoints.pre_transaction_state_root),
+                        )
+                    }
+                    _ => {
+                        let output = stateless_validation_recovered(
+                            recovered_block,
+                            witness,
+                            Arc::clone(&self.chain_spec),
+                            self.evm_config.clone(),
+                        )
+                        .map_err(|error| map_stateless_error(block_number, error))?;
+                        (output, Vec::new(), None)
+                    }
+                };
 
             let reconstruction = reconstruction_input
                 .map(|(block, parent)| {
@@ -388,15 +403,45 @@ impl Backend {
             // later by settlement.
             let has_execution_requests = !execution_output.result.requests.is_empty();
             let validated_receipts = execution_output.result.receipts;
-            let transaction_state_checkpoints = match settling_block_template {
-                Some(block) => derive_prefix_block_hashes(
-                    &block,
-                    &validated_receipts,
-                    &replay_state_checkpoints,
-                    has_execution_requests,
-                )?,
-                None => Vec::new(),
-            };
+            let (ordinary_prefix_hash, transaction_state_checkpoints) =
+                match settling_block_template {
+                    Some(block) => {
+                        let mut checkpoints = derive_prefix_block_hashes(
+                            &block,
+                            &validated_receipts,
+                            &replay_state_checkpoints,
+                            has_execution_requests,
+                        )?;
+                        let ordinary = system_sender_flags
+                            .iter()
+                            .position(|&native| native)
+                            .unwrap_or(transaction_count);
+                        let base = if ordinary == 0 {
+                            // The checkpoint backend ran pre-execution changes even for
+                            // an empty block. The parent state root cannot stand in for it.
+                            let state_root = pre_transaction_state_root.ok_or_else(|| {
+                                ValidationError::InvalidBackendOutput(
+                                    "missing pre-transaction state root".into(),
+                                )
+                            })?;
+                            prefix_block_hash(&block, &validated_receipts, 0, state_root)?
+                        } else {
+                            let checkpoint = checkpoints.first().ok_or_else(|| {
+                                ValidationError::InvalidBackendOutput(
+                                    "missing ordinary-prefix checkpoint".into(),
+                                )
+                            })?;
+                            if checkpoint.transaction_index != ordinary - 1 {
+                                return Err(ValidationError::InvalidBackendOutput(
+                                    "wrong ordinary-prefix checkpoint".into(),
+                                ));
+                            }
+                            checkpoints.remove(0).block_hash
+                        };
+                        (base, checkpoints)
+                    }
+                    None => (computed_hash, Vec::new()),
+                };
             let receipt_successes = validated_receipts
                 .iter()
                 .map(|receipt| receipt.success)
@@ -437,6 +482,7 @@ impl Backend {
                 transaction_state_checkpoints,
                 post_state_root,
                 settlement_evidence: SettlementBlockEvidence {
+                    ordinary_prefix_hash,
                     system_sender_flags,
                     observed_outbound_events,
                 },
@@ -495,9 +541,18 @@ impl Backend {
 
         let mut observations = Vec::with_capacity(claims.len());
         for (index, claim) in claims.iter().cloned().enumerate() {
-            let after_transactions = if claim.pinned_block_hash == window.settling_pre_block_hash()
+            let after_transactions = if claim.pinned_block_hash
+                == settling
+                    .block()
+                    .settlement_evidence()
+                    .ordinary_prefix_hash()
             {
-                0
+                block
+                    .body()
+                    .transactions
+                    .iter()
+                    .position(|tx| matches!(tx, eez_primitives::EezTxEnvelope::System(_)))
+                    .unwrap_or(transaction_count)
             } else if let Some(checkpoint) = settling
                 .transaction_state_checkpoints()
                 .iter()
@@ -674,13 +729,10 @@ impl Database for ObservationWitnessDatabase<'_> {
 /// for each prefix.
 fn derive_prefix_block_hashes(
     block: &RecoveredBlock<Block>,
-    receipts: &[EthereumReceipt],
+    receipts: &[eez_primitives::Receipt],
     checkpoints: &[ReplayStateCheckpoint],
     has_execution_requests: bool,
 ) -> Result<Vec<TransactionStateCheckpoint>, ValidationError> {
-    if checkpoints.is_empty() {
-        return Ok(Vec::new());
-    }
     if receipts.len() != block.body().transactions.len() {
         return Err(ValidationError::InvalidBackendOutput(format!(
             "cannot derive prefix block hashes for block {}: replay returned {} receipts for {} transactions",
@@ -715,51 +767,65 @@ fn derive_prefix_block_hashes(
 
     let mut block_hashes = Vec::with_capacity(checkpoints.len());
     for checkpoint in checkpoints {
-        let prefix_len = checkpoint.transaction_index + 1;
-        let prefix_receipts = receipts[..prefix_len]
-            .iter()
-            .map(alloy_consensus::TxReceipt::with_bloom_ref)
-            .collect::<Vec<_>>();
-        let mut header = block.header().clone();
-        header.state_root = checkpoint.state_root;
-        header.transactions_root =
-            calculate_transaction_root(&block.body().transactions[..prefix_len]);
-        header.receipts_root = calculate_receipt_root(&prefix_receipts);
-        header.logs_bloom = prefix_receipts
-            .iter()
-            .fold(Bloom::ZERO, |bloom, receipt| bloom | receipt.bloom_ref());
-        header.gas_used = receipts[checkpoint.transaction_index].cumulative_gas_used();
-        if header.blob_gas_used.is_some() {
-            header.blob_gas_used = Some(
-                block.body().transactions[..prefix_len]
-                    .iter()
-                    .try_fold(0u64, |total, transaction| {
-                        total.checked_add(transaction.blob_gas_used().unwrap_or(0))
-                    })
-                    .ok_or_else(|| {
-                        ValidationError::InvalidBackendOutput(format!(
-                            "blob gas overflow while deriving a prefix hash for block {}",
-                            block.header().number,
-                        ))
-                    })?,
-            );
-        }
-        let block_hash = header.hash_slow();
-        if prefix_len == block.body().transactions.len() {
-            let full_block_hash = block.header().hash_slow();
-            if block_hash != full_block_hash {
-                return Err(ValidationError::InvalidBackendOutput(format!(
-                    "final prefix hash {block_hash} for block {} does not match validated full block hash {full_block_hash}",
-                    block.header().number,
-                )));
-            }
-        }
+        let block_hash = prefix_block_hash(
+            block,
+            receipts,
+            checkpoint.transaction_index + 1,
+            checkpoint.state_root,
+        )?;
         block_hashes.push(TransactionStateCheckpoint {
             transaction_index: checkpoint.transaction_index,
             block_hash,
         });
     }
     Ok(block_hashes)
+}
+
+fn prefix_block_hash(
+    block: &RecoveredBlock<Block>,
+    receipts: &[eez_primitives::Receipt],
+    prefix_len: usize,
+    state_root: B256,
+) -> Result<B256, ValidationError> {
+    if prefix_len > receipts.len() || receipts.len() != block.body().transactions.len() {
+        return Err(ValidationError::InvalidBackendOutput(
+            "prefix receipt count mismatch".into(),
+        ));
+    }
+    let prefix_receipts = receipts[..prefix_len]
+        .iter()
+        .map(alloy_consensus::TxReceipt::with_bloom_ref)
+        .collect::<Vec<_>>();
+    let mut header = block.header().clone();
+    header.state_root = state_root;
+    header.transactions_root = calculate_transaction_root(&block.body().transactions[..prefix_len]);
+    header.receipts_root = calculate_receipt_root(&prefix_receipts);
+    header.logs_bloom = prefix_receipts
+        .iter()
+        .fold(Bloom::ZERO, |bloom, receipt| bloom | receipt.bloom_ref());
+    header.gas_used = receipts[..prefix_len]
+        .last()
+        .map_or(0, alloy_consensus::TxReceipt::cumulative_gas_used);
+    if header.blob_gas_used.is_some() {
+        header.blob_gas_used = Some(
+            block.body().transactions[..prefix_len]
+                .iter()
+                .try_fold(0u64, |total, tx| {
+                    total.checked_add(tx.blob_gas_used().unwrap_or(0))
+                })
+                .ok_or_else(|| {
+                    ValidationError::InvalidBackendOutput("prefix blob gas overflow".into())
+                })?,
+        );
+    }
+    let hash = header.hash_slow();
+    if prefix_len == block.body().transactions.len() && hash != block.header().hash_slow() {
+        return Err(ValidationError::InvalidBackendOutput(format!(
+            "final prefix hash {hash} does not match validated full block {}",
+            block.header().hash_slow()
+        )));
+    }
+    Ok(hash)
 }
 
 /// Classify a rejected local checkpoint plan as an internal invariant failure;
@@ -849,6 +915,11 @@ fn decode_match_and_recover_signers(
     chain_spec: &ChainSpec,
 ) -> Result<RecoveredBlock<Block>, ValidationError> {
     let block = decode_and_match_stream_metadata(admitted)?;
+    block.body.transactions.iter().try_for_each(|tx| {
+        eez_evm::ensure_supported_transaction(tx).map_err(|error| {
+            ValidationError::Rejected(format!("L2 transaction admission: {error}"))
+        })
+    })?;
     let number = block.header.number;
     recover_block(block, chain_spec).map_err(|error| {
         ValidationError::Rejected(format!(
@@ -876,7 +947,7 @@ fn recover_block(
 /// Canonical encodings expose the emitted hash and manager-entry gas;
 /// malformed or non-canonical encodings remain undecoded observations.
 fn observe_outbound_events(
-    validated_receipts: &[EthereumReceipt],
+    validated_receipts: &[eez_primitives::Receipt],
 ) -> Vec<OutboundEventObservation> {
     let mut observations = Vec::new();
     for (transaction_index, receipt) in validated_receipts.iter().enumerate() {

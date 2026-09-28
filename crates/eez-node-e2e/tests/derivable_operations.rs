@@ -21,7 +21,7 @@ use eez_control_rpc::v1::{
     PrepareHeader, ProveChunk, ProveHeader, RetainOrdinaryRangesRequest, prepare_chunk,
     prove_chunk, prove_failure, prover_client::ProverClient,
 };
-use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
+use eez_payload_codec::v0::{self, BlockRun};
 use eez_protocol::abi::{
     EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
 };
@@ -33,71 +33,32 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
-fn inputs(parent: &Header, block: &Block<TxEnvelope>) -> Environment {
-    Environment {
-        timestamp_step_seconds: block
-            .header
-            .timestamp
-            .checked_sub(parent.timestamp)
-            .unwrap(),
-        fee_recipient: block.header.beneficiary,
-        prev_randao: block.header.mix_hash,
-        gas_limit: block.header.gas_limit,
-        extra_data: block.header.extra_data.clone(),
-        cancun_parent_beacon_root: block.header.parent_beacon_block_root.unwrap_or_default(),
-    }
-}
-
-/// Independent dense test writer; every omitted output must be reconstructed
-/// by the real signer before this test is allowed to submit anything to L1.
-fn encode(parent: &Header, blocks: &[Block<TxEnvelope>]) -> Vec<u8> {
-    let initial = inputs(parent, &blocks[0]);
-    let mut active = initial.clone();
-    let mut previous = parent;
-    let mut gap = 0;
-    let mut records = Vec::new();
-    for block in &blocks[..blocks.len() - 1] {
-        assert!(block.body.ommers.is_empty());
-        assert!(block.body.withdrawals.as_ref().is_none_or(|w| w.is_empty()));
-        let environment = inputs(previous, block);
-        let transactions = block
-            .body
-            .transactions
+/// Independent dense test writer: only actual metadata and exact ordinary
+/// transaction bytes. The signer must reconstruct all omitted outputs.
+fn encode(_parent: &Header, blocks: &[Block<TxEnvelope>]) -> Vec<u8> {
+    let transactions = blocks
+        .iter()
+        .map(|block| {
+            block
+                .body
+                .transactions
+                .iter()
+                .map(|tx| Bytes::from(tx.encoded_2718()))
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    v0::encode(
+        &blocks
             .iter()
-            .map(|tx| Bytes::from(tx.encoded_2718()))
-            .collect::<Vec<_>>();
-        let record = if environment != active {
-            active = environment.clone();
-            Some(RecordData::EnvironmentChange {
-                environment,
+            .zip(&transactions)
+            .map(|(block, transactions)| BlockRun {
+                blocks: 1,
+                beneficiary: block.header.beneficiary,
+                extra_data: &block.header.extra_data,
                 transactions,
             })
-        } else if transactions.is_empty() {
-            None
-        } else {
-            Some(RecordData::Transactions(transactions))
-        };
-        if let Some(data) = record {
-            records.push(Record {
-                empty_gap: gap,
-                data,
-            });
-            gap = 0;
-        } else {
-            gap += 1;
-        }
-        previous = &block.header;
-    }
-    Payload::new(
-        blocks.len() as u64 - 1,
-        initial,
-        records,
-        alloy_rlp::encode(blocks.last().unwrap()),
-        vec![],
-        vec![],
+            .collect::<Vec<_>>(),
     )
-    .unwrap()
-    .encode()
     .unwrap()
 }
 
@@ -179,17 +140,7 @@ async fn native_replay(profile: NativeL1Profile, history_ceiling: Option<u64>) {
     let l1_step = read_setting("EEZ_L1_BLOCK_TIME_MS").parse::<u64>().unwrap() / 1000;
     let k = l1_step / step;
     let latest = l2.get_block_number().await.unwrap();
-    // The native miner can start at a nonzero slot residue. Use the actual
-    // Composer grid, not an assumed multiple of K measured from genesis.
-    let grid_reference = std::fs::read_to_string(&world.node.log_path)
-        .unwrap()
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|record| record["fields"]["message"] == "settlement backlog")
-        .filter_map(|record| record["fields"]["sync_height"].as_u64())
-        .next_back()
-        .expect("native Composer must have observed a Sync grid");
-    let terminal = native_grid_boundary(history_ceiling.unwrap_or(latest), grid_reference, k);
+    let terminal = native_grid_boundary(history_ceiling.unwrap_or(latest), k);
     eprintln!(
         "native history produced: profile={profile:?}, ceiling={history_ceiling:?}, terminal={terminal}, build_ms={}",
         build_started.elapsed().as_millis()
@@ -231,7 +182,7 @@ async fn native_replay(profile: NativeL1Profile, history_ceiling: Option<u64>) {
     let last_checkpoint = ceilings.len().saturating_sub(1);
     for (checkpoint, ceiling) in ceilings.into_iter().enumerate() {
         let mut count = ceiling.map_or(blocks.len(), |count| {
-            native_grid_boundary(count, grid_reference, k) as usize
+            native_grid_boundary(count, k) as usize
         });
         while !blocks[count - 1].body.transactions.is_empty() {
             count = count
@@ -270,7 +221,8 @@ struct NativeProofContext<'a> {
     proof_system: Address,
     attester: Address,
     l1_chain_id: u64,
-    target_timestamp: u64,
+    l1_rpc: &'a str,
+    l1_step: u64,
 }
 
 async fn load_history(
@@ -318,7 +270,14 @@ async fn prove_cold_window(
     store: Arc<eez_node::WitnessDb>,
     release_after_proof: bool,
     producer_prepared: bool,
-) -> Result<(eez_protocol::EvmBatch, eez_blob_codec::PreparedBlobSidecar), tonic::Status> {
+) -> Result<
+    (
+        eez_protocol::EvmBatch,
+        eez_blob_codec::PreparedBlobSidecar,
+        L1PostingContext,
+    ),
+    tonic::Status,
+> {
     let terminal = blocks.last().unwrap().header.number;
     assert!(blocks.last().unwrap().body.transactions.is_empty());
     let terminal_hash = blocks.last().unwrap().header.hash_slow();
@@ -328,6 +287,7 @@ async fn prove_cold_window(
         .unwrap();
     assert_eq!(blobs.len(), 1);
     let mut batch = eez_protocol::EvmBatch {
+        blockNumber: u64::MAX,
         entries: vec![ExecutionEntrySol {
             rootUpdates: vec![RootUpdateSol {
                 rollupId: context.rollup_id,
@@ -349,7 +309,14 @@ async fn prove_cold_window(
         ..Default::default()
     };
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
-    let target_timestamp = context.target_timestamp;
+    let l1 = ProviderBuilder::new().connect_http(context.l1_rpc.parse().unwrap());
+    let encoding = if context.profile == NativeL1Profile::EthereumOsaka {
+        BlobSidecarEncoding::Eip7594
+    } else {
+        BlobSidecarEncoding::Eip4844
+    };
+    // KZG preparation precedes the short-lived signing target selection.
+    let sidecar = prepare_blob_sidecar(&blobs, encoding).unwrap();
     let mut prover_client = ProverClient::connect(context.endpoint.to_owned())
         .await
         .unwrap()
@@ -362,6 +329,11 @@ async fn prove_cold_window(
         .into_inner();
     let validation_identity = capabilities.validation_identity;
     let header = ProveHeader {
+        parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+            parent_header_rlp: alloy_rlp::encode(genesis),
+            accepted_l1_number: 0,
+            live_slot_endpoint_headers_rlp: Vec::new(),
+        }),
         expected_validation_identity: validation_identity.clone(),
         rollup_id: context.rollup_id,
         from_block: 1,
@@ -373,11 +345,8 @@ async fn prove_cold_window(
                 .cloned()
                 .map(|blob| blob.into_bytes().into_vec())
                 .collect(),
-            posting_context: Some(L1PostingContext {
-                chain_id: context.l1_chain_id,
-                target_timestamp,
-            }),
-            ..Default::default()
+            // Filled from canonical L1 immediately before each Prove.
+            posting_context: None,
         }),
     };
     let header_chunk = ProveChunk {
@@ -535,47 +504,74 @@ async fn prove_cold_window(
         1
     };
     let mut final_times = Vec::with_capacity(final_repetitions);
-    let mut first_response: Option<eez_control_rpc::v1::ProveResponse> = None;
+    let mut first_response: Option<(L1PostingContext, eez_control_rpc::v1::ProveResponse)> = None;
+    let mut signed_target = None;
     let mut outcome = None;
     let catch_up_deadline = Instant::now() + Duration::from_mins(2);
     let mut cache_misses = 0usize;
     for _ in 0..final_repetitions {
         let started = Instant::now();
         let result = loop {
-            match prover_client
+            let head = l1
+                .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+                .await
+                .unwrap()
+                .unwrap();
+            let target = L1PostingContext {
+                chain_id: context.l1_chain_id,
+                parent_number: head.header.number,
+                parent_hash: head.header.hash.to_vec(),
+                target_timestamp: head.header.timestamp + context.l1_step,
+            };
+            let Some(prove_chunk::Kind::Header(header)) = &mut final_chunks[0].kind else {
+                unreachable!()
+            };
+            header.post_batch.as_mut().unwrap().posting_context = Some(target.clone());
+            let result = prover_client
                 .prove(tokio_stream::iter(final_chunks.clone()))
                 .await
-                .map(tonic::Response::into_inner)
-            {
-                Err(status)
-                    if producer_prepared
-                        && Instant::now() < catch_up_deadline
-                        && (status.code() == tonic::Code::Unavailable
-                            || structured_cache_miss(&status)) =>
-                {
-                    if structured_cache_miss(&status) {
-                        cache_misses += 1;
+                .map(tonic::Response::into_inner);
+            match result {
+                Ok(response) => {
+                    if let Some((previous_target, previous_response)) = &first_response
+                        && previous_target == &target
+                    {
+                        assert_eq!(
+                            &response, previous_response,
+                            "warm proof changed within the same authenticated context"
+                        );
                     }
-                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    first_response = Some((target.clone(), response.clone()));
+                    signed_target = Some(target);
+                    break Ok(response);
                 }
-                result => break result,
+                Err(status) => {
+                    let latest = l1
+                        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+                        .await
+                        .unwrap()
+                        .unwrap();
+                    let stale = latest.header.hash != head.header.hash;
+                    let cache_miss = structured_cache_miss(&status);
+                    if Instant::now() < catch_up_deadline
+                        && (stale
+                            || (producer_prepared
+                                && (status.code() == tonic::Code::Unavailable || cache_miss)))
+                    {
+                        cache_misses += usize::from(cache_miss);
+                        tokio::time::sleep(Duration::from_millis(100)).await;
+                        continue;
+                    }
+                    break Err(status);
+                }
             }
         };
         final_times.push(started.elapsed().as_millis() as u64);
-        match &result {
-            Ok(response) => {
-                if let Some(first) = &first_response {
-                    assert_eq!(response, first, "warm proof changed digest or signature");
-                } else {
-                    first_response = Some(response.clone());
-                }
-            }
-            Err(_) => {
-                outcome = Some(result);
-                break;
-            }
-        }
+        let failed = result.is_err();
         outcome = Some(result);
+        if failed {
+            break;
+        }
     }
     let proof_ms = proof_started.elapsed().as_millis();
     let mut sorted_final_times = final_times.clone();
@@ -590,7 +586,7 @@ async fn prove_cold_window(
             "requested_ceiling": history_ceiling, "actual_blocks": terminal, "k": context.k,
             "anchor_hash": genesis.hash_slow(), "terminal_hash": terminal_hash,
             "terminal_state_root": blocks.last().unwrap().header.state_root,
-            "target_l1_timestamp": target_timestamp,
+            "target_l1_timestamp": signed_target.as_ref().map(|target| target.target_timestamp),
             "l2_start_timestamp": genesis.timestamp,
             "l2_terminal_timestamp": blocks.last().unwrap().header.timestamp,
             "transactions": blocks.iter().map(|b| b.body.transactions.len()).sum::<usize>(),
@@ -608,17 +604,18 @@ async fn prove_cold_window(
         })
     );
     let response = outcome?;
-    let encoding = if context.profile == NativeL1Profile::EthereumOsaka {
-        BlobSidecarEncoding::Eip7594
-    } else {
-        BlobSidecarEncoding::Eip4844
-    };
-    let sidecar = prepare_blob_sidecar(&blobs, encoding).unwrap();
+    let target = signed_target.expect("successful proof has an authenticated target");
     let attester = context.attester;
     let expected = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &batch,
         attester.into_word(),
         sidecar.versioned_hashes(),
+        eez_protocol::public_inputs::L1PostingContext {
+            chain_id: target.chain_id,
+            parent_number: target.parent_number,
+            parent_hash: B256::from_slice(&target.parent_hash),
+            target_timestamp: target.target_timestamp,
+        },
     )
     .unwrap();
     assert_eq!(expected.len(), 1);
@@ -645,7 +642,7 @@ async fn prove_cold_window(
         assert_eq!(released.retained_count, 0);
     }
     batch.proofs = vec![response.signature.into()];
-    Ok((batch, sidecar))
+    Ok((batch, sidecar, target))
 }
 
 fn structured_cache_miss(status: &tonic::Status) -> bool {
@@ -688,12 +685,7 @@ async fn prove_native_window(
             .unwrap(),
         genesis.header.hash_slow()
     );
-    let head = l1
-        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-        .await
-        .unwrap()
-        .unwrap();
-    let target_timestamp = head.header.timestamp + 8 * l1_step;
+    let l1_rpc = world.l1_rpc();
     let context = NativeProofContext {
         endpoint: world.proof_signer.endpoint(),
         profile,
@@ -702,9 +694,10 @@ async fn prove_native_window(
         proof_system: world.dep.proof_system_address,
         attester: signer_address(world.cfg.attester_key).unwrap(),
         l1_chain_id: l1.get_chain_id().await.unwrap(),
-        target_timestamp,
+        l1_rpc: &l1_rpc,
+        l1_step,
     };
-    let (batch, sidecar) = prove_cold_window(
+    let (batch, sidecar, target) = prove_cold_window(
         &context,
         &genesis.header,
         blocks,
@@ -748,11 +741,15 @@ async fn prove_native_window(
         .unwrap()
         .unwrap();
     assert!(
-        current.header.timestamp < target_timestamp,
+        current.header.timestamp < target.target_timestamp,
         "cold prototype missed its explicit target"
     );
-    let target_number =
-        current.header.number + (target_timestamp - current.header.timestamp) / l1_step;
+    assert_eq!(
+        current.header.hash.as_slice(),
+        target.parent_hash.as_slice(),
+        "proof parent changed before submission"
+    );
+    let target_number = target.parent_number + 1;
     let builder = ProviderBuilder::new()
         .connect_http(read_setting("EEZ_L1_BUILDER_RPC_URL").parse().unwrap());
     let _: serde_json::Value = builder
@@ -761,7 +758,7 @@ async fn prove_native_window(
             "eth_sendBundle",
             (serde_json::json!({
                 "txs": [signed.pooled_transaction], "blockNumber": format!("0x{target_number:x}"),
-                "minTimestamp": target_timestamp, "maxTimestamp": target_timestamp,
+                "minTimestamp": target.target_timestamp, "maxTimestamp": target.target_timestamp,
             }),),
         )
         .await
@@ -794,7 +791,7 @@ async fn prove_native_window(
         .await
         .unwrap_or_else(|error| {
             panic!(
-                "v3 replay failed: {error:#}{}\n{}",
+                "V0 replay failed: {error:#}{}\n{}",
                 world.settlement_diagnostics(),
                 follower.log_tail(100)
             )
@@ -812,12 +809,12 @@ async fn prove_native_window(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ethereum_native_v3_post_replays_from_blobs_without_sequencer_headers() {
+async fn ethereum_native_v0_post_replays_from_blobs_without_sequencer_headers() {
     native_replay(NativeL1Profile::EthereumOsaka, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn gnosis_native_v3_post_replays_from_blobs_without_sequencer_headers() {
+async fn gnosis_native_v0_post_replays_from_blobs_without_sequencer_headers() {
     native_replay(NativeL1Profile::GnosisPrague, None).await;
 }
 
@@ -868,7 +865,15 @@ async fn retained_native_history_cold_checkpoint() {
         "GnosisPrague" => NativeL1Profile::GnosisPrague,
         other => panic!("unsupported native fixture profile: {other}"),
     };
+    let l1_rpc = std::env::var("EEZ_TEST_L1_RPC_URL").expect("canonical fixture L1 RPC required");
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
+        // Offline fixtures must now supply a canonical L1 source explicitly.
+        l1_rpc_url: l1_rpc.clone(),
+        registry_address: metadata["registry_address"]
+            .as_str()
+            .expect("fixture registry address")
+            .parse()
+            .unwrap(),
         chain_config: &directory.join("l2-genesis.json"),
         l1_chain_config: Some(if profile == NativeL1Profile::GnosisPrague {
             format!("gnosis:{}", directory.join("l1-genesis.json").display())
@@ -925,18 +930,26 @@ async fn retained_native_history_cold_checkpoint() {
         proof_system: metadata["proof_system"].as_str().unwrap().parse().unwrap(),
         attester: metadata["attester"].as_str().unwrap().parse().unwrap(),
         l1_chain_id: l1.config.chain_id,
-        target_timestamp: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            + 40,
+        l1_rpc: &l1_rpc,
+        l1_step: {
+            let config: eez_protocol::l2::DerivationConfig = serde_json::from_value(
+                chain
+                    .genesis
+                    .config
+                    .extra_fields
+                    .get("rollupX")
+                    .unwrap()
+                    .clone(),
+            )
+            .unwrap();
+            eez_protocol::l2::Schedule::new(config, genesis_header)
+                .unwrap()
+                .l1_slot_seconds()
+        },
     };
     let mut failures = Vec::new();
     for ceiling in [512, 1_024, 4_096, 10_000, 43_200, 65_536] {
-        let reference = metadata["grid_reference_height"]
-            .as_u64()
-            .expect("retained fixture must pin its actual Sync grid");
-        let mut count = native_grid_boundary(ceiling, reference, context.k) as usize;
+        let mut count = native_grid_boundary(ceiling, context.k) as usize;
         while !blocks[count - 1].body.transactions.is_empty() {
             count = count
                 .checked_sub(context.k as usize)
@@ -963,26 +976,27 @@ async fn retained_native_history_cold_checkpoint() {
     );
 }
 
-fn native_grid_boundary(ceiling: u64, reference: u64, k: u64) -> u64 {
+fn native_grid_boundary(ceiling: u64, k: u64) -> u64 {
     assert!((2..=65_536).contains(&k));
-    ceiling
-        .checked_sub((ceiling % k + k - reference % k) % k)
-        .filter(|number| *number != 0)
-        .expect("no nonzero native grid endpoint below ceiling")
+    let endpoint = ceiling / k * k;
+    assert!(
+        endpoint > 0,
+        "no nonzero genesis-derived endpoint below ceiling"
+    );
+    endpoint
 }
 
 #[test]
-fn native_capacity_uses_the_observed_sync_residue() {
-    assert_eq!(native_grid_boundary(65_536, 66_630, 5), 65_535);
-    assert_eq!(native_grid_boundary(65_536, 66_631, 5), 65_536);
-    assert_eq!(native_grid_boundary(65_536, 66_630, 6), 65_532);
+fn native_capacity_uses_the_genesis_sync_grid() {
+    assert_eq!(native_grid_boundary(65_536, 5), 65_535);
+    assert_eq!(native_grid_boundary(65_536, 6), 65_532);
     for (ceiling, expected) in [
-        (512, 511),
-        (1_024, 1_021),
-        (4_096, 4_096),
-        (10_000, 9_996),
-        (43_200, 43_196),
+        (512, 510),
+        (1024, 1020),
+        (4096, 4095),
+        (10_000, 10_000),
+        (43_200, 43_200),
     ] {
-        assert_eq!(native_grid_boundary(ceiling, 66_631, 5), expected);
+        assert_eq!(native_grid_boundary(ceiling, 5), expected);
     }
 }

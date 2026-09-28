@@ -10,7 +10,7 @@ WORKDIR /cargo/registry
 WORKDIR /cargo/git
 
 FROM scratch AS source
-COPY Cargo.toml Cargo.lock /checkout/
+COPY Cargo.toml Cargo.lock genesis.json /checkout/
 COPY crates /checkout/crates
 COPY vendor /checkout/vendor
 COPY contracts/test/PostBatchGasPins.t.sol /checkout/contracts/test/PostBatchGasPins.t.sol

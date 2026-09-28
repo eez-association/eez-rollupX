@@ -15,27 +15,35 @@ use eez_testkit::{
 const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
-    use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
-
-    let (terminal, ordinary) = blocks.split_last().expect("nonempty interval");
-    // Measure a valid V0 all-full representation, including counts, overrides
-    // and the terminal. Do not use the old integer-list wrapper as a size oracle.
-    Payload::new(
-        ordinary.len() as u64,
-        Environment::unused(),
-        ordinary
+    use alloy_eips::Encodable2718;
+    use eez_payload_codec::v0::{self, BlockRun};
+    let blocks = blocks
+        .iter()
+        .map(|bytes| alloy_rlp::decode_exact::<eez_primitives::Block>(bytes).unwrap())
+        .collect::<Vec<_>>();
+    let transactions = blocks
+        .iter()
+        .map(|block| {
+            block
+                .body
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    v0::encode(
+        &blocks
             .iter()
-            .map(|block| Record {
-                empty_gap: 0,
-                data: RecordData::FullBlock(block.clone().into()),
+            .zip(&transactions)
+            .map(|(block, transactions)| BlockRun {
+                blocks: 1,
+                beneficiary: block.header.beneficiary,
+                extra_data: &block.header.extra_data,
+                transactions,
             })
-            .collect(),
-        terminal.clone(),
-        vec![],
-        vec![],
+            .collect::<Vec<_>>(),
     )
-    .unwrap()
-    .encode()
     .unwrap()
     .len()
 }

@@ -10,14 +10,14 @@ use std::{error::Error, fmt::Debug};
 use alloy_consensus::BlockHeader as _;
 use alloy_primitives::{Address, Bytes, TxKind};
 use alloy_sol_types::SolCall as _;
+use eez_evm::EezEvmConfig;
+use eez_primitives::Block;
 use eez_protocol::abi::computeCrossChainProxyAddressCall;
 use eez_protocol::settlement::FifoObservationClaim;
 use eez_protocol::{
     CallMode, EEZL2_AUTHORIZED_PROXIES_SLOT, decode_proxy_value, proxy_mapping_key,
 };
-use reth_ethereum_primitives::Block;
 use reth_evm::{ConfigureEvm, Evm as _, EvmEnvFor, block::BlockExecutor};
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
 use revm::context_interface::{ContextTr, Host, JournalTr};
 use revm::database::State;
@@ -152,7 +152,7 @@ where
     }
 }
 
-fn simulation_env(env: &EvmEnvFor<EthEvmConfig>) -> EvmEnvFor<EthEvmConfig> {
+fn simulation_env(env: &EvmEnvFor<EezEvmConfig>) -> EvmEnvFor<EezEvmConfig> {
     let mut env = env.clone();
     env.cfg_env.disable_base_fee = true;
     env.cfg_env.disable_balance_check = true;
@@ -167,8 +167,8 @@ fn simulation_env(env: &EvmEnvFor<EthEvmConfig>) -> EvmEnvFor<EthEvmConfig> {
 /// Database reads still warm `state`, which is what witness generation needs.
 fn execute_observation<DB>(
     state: &mut State<DB>,
-    evm_config: &EthEvmConfig,
-    evm_env: &EvmEnvFor<EthEvmConfig>,
+    evm_config: &EezEvmConfig,
+    evm_env: &EvmEnvFor<EezEvmConfig>,
     observation: &BlockObservation,
 ) -> eyre::Result<ObservedOutcome>
 where
@@ -247,7 +247,7 @@ where
 /// witness/database data, or an invalid proxy-address response.
 pub fn replay_block_with_observations<DB>(
     state: &mut State<DB>,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
     observations: &[BlockObservation],
 ) -> eyre::Result<Vec<ObservedOutcome>>

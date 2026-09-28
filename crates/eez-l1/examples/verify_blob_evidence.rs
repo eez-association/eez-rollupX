@@ -7,7 +7,6 @@
 
 use std::{error::Error, fs, str::FromStr as _};
 
-use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{B256, Bytes, U256, hex, keccak256};
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
@@ -205,63 +204,21 @@ fn run() -> Result<(), Box<dyn Error>> {
     let native = decode_native_payload(&selected_blobs, rollup_id)?;
     let semantic_transactions =
         eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
-    let payload = eez_payload_codec::derivable::Payload::decode(&native.operations)?;
-    let mut payload_blocks = Vec::with_capacity(payload.block_count());
-    let mut block_tx_counts = Vec::with_capacity(payload.block_count());
-    let mut payload_transaction_hashes = Vec::new();
-    for plan in payload.blocks() {
-        use eez_payload_codec::derivable::BlockPlan;
-        match plan {
-            BlockPlan::Derived {
-                position,
-                environment,
-                transactions,
-            } => {
-                block_tx_counts.push(transactions.len());
-                payload_transaction_hashes
-                    .extend(transactions.iter().map(|raw| keccak256(raw).to_string()));
-                payload_blocks.push(json!({
-                    "number": payload.first_block_number() + position as u64,
-                    "representation": "derived",
-                    "transaction_count": transactions.len(),
-                    "timestamp_step_seconds": environment.timestamp_step_seconds,
-                    "fee_recipient": environment.fee_recipient,
-                    "prev_randao": environment.prev_randao,
-                    "gas_limit": environment.gas_limit,
-                    "extra_data": environment.extra_data,
-                    "parent_beacon_root": environment.cancun_parent_beacon_root,
-                    "execution_verified": false,
-                }));
-            }
-            BlockPlan::Full {
-                position,
-                rlp,
-                terminal,
-            } => {
-                let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(rlp)
-                    .map_err(|error| format!("decode full block {position}: {error}"))?;
-                block_tx_counts.push(block.body.transactions.len());
-                payload_transaction_hashes.extend(
-                    block
-                        .body
-                        .transactions
-                        .iter()
-                        .map(|tx| keccak256(tx.encoded_2718()).to_string()),
-                );
-                payload_blocks.push(json!({
-                    "number": block.header.number,
-                    "representation": if terminal { "terminal" } else { "full" },
-                    "hash": block.header.hash_slow(),
-                    "parent_hash": block.header.parent_hash,
-                    "timestamp": block.header.timestamp,
-                    "state_root": block.header.state_root,
-                    "transaction_count": block.body.transactions.len(),
-                    "rlp_bytes": rlp.len(),
-                    "execution_verified": false,
-                }));
-            }
-        }
-    }
+    let payload = eez_payload_codec::v0::Payload::decode(&native.operations)?;
+    // Report supplied runs rather than expanding an attacker-declared empty
+    // span. No block heights or hashes can be authenticated by syntax alone.
+    let count_runs = payload
+        .count_runs()
+        .map(|run| {
+            json!({
+                "blocks": run.blocks, "transactions_per_block": run.transactions_per_block,
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload_transaction_hashes = payload
+        .transactions()
+        .map(|raw| keccak256(raw).to_string())
+        .collect::<Vec<_>>();
     let blob_indices = posted
         .batch
         .blobIndices
@@ -334,12 +291,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .collect::<Vec<_>>(),
                 "semantic_transactions": semantic_details,
                 "block_count": payload.block_count(),
-                "block_tx_counts": block_tx_counts,
-                "blocks": payload_blocks,
+                "count_runs": count_runs,
+                "execution_verified": false,
                 "transaction_count": payload_transaction_hashes.len(),
                 "transaction_hashes": payload_transaction_hashes,
-                "l2_entry_count": payload.l2_entries().len(),
-                "outbound_group_sizes": payload.outbound_group_sizes(),
             }
         }))?
     );

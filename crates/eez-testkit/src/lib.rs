@@ -8,6 +8,7 @@
 
 mod artifacts;
 mod l1_reorg;
+pub mod native;
 mod ports;
 pub mod signals;
 pub use l1_reorg::{L1ReorgControl, setup_cross_chain_with_l1_reorg};
@@ -66,9 +67,8 @@ pub const ANVIL_KEY_6: &str = "0x92db14e403b83dfe3df233f83dfa3a0d7096f21ca9b0d6d
 pub const ANVIL_ATTESTER_KEY: &str =
     "0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba";
 pub const ANVIL_ADDR_3: Address = address!("0x90F79bf6EB2c4f870365E785982E1f101E93b906");
-/// Dedicated deterministic L2 system identity; deliberately not an Anvil account.
-pub const L2_SYSTEM_KEY: &str =
-    "0x6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1";
+/// Keyless protocol sender, shared by every composer, follower and signer.
+pub const L2_SYSTEM_ADDRESS: Address = eez_primitives::SYSTEM_ADDRESS;
 
 // K = L1/L2 = 2 leaves one L2 slot for proving.
 const L1_BLOCK_TIME_SECS: u64 = 4;
@@ -661,6 +661,8 @@ fn proof_signer_binary() -> Result<PathBuf> {
 #[derive(Debug)]
 /// Launch configuration for real-signer native and retained-history tests.
 pub struct ProofSignerConfig<'a> {
+    pub l1_rpc_url: String,
+    pub registry_address: Address,
     pub chain_config: &'a std::path::Path,
     pub l1_chain_config: Option<String>,
     pub rollup_id: u64,
@@ -676,6 +678,7 @@ pub struct ProofSignerConfig<'a> {
 fn write_l1_chain_config(directory: &std::path::Path) -> Result<PathBuf> {
     let mut config = fixture_genesis()?.config;
     config.chain_id = DEV_CHAIN_ID;
+    config.extra_fields.remove("rollupX");
     let path = directory.join("l1-chain-config.json");
     std::fs::write(&path, serde_json::to_vec(&config)?).context("write native test L1 profile")?;
     Ok(path)
@@ -697,7 +700,7 @@ impl ProofSignerHandle {
         let port_lease = PortLease::tcp();
         let listen = format!("127.0.0.1:{}", port_lease.port());
         let attester = signer_address(cfg.signer_key)?;
-        let l2_system_address = signer_address(L2_SYSTEM_KEY)?;
+        let l2_system_address = L2_SYSTEM_ADDRESS;
         let (log_path, log_dir) = test_log_destination("eez-proof-signer")?;
         let working_dir = tempfile::tempdir().context("proof signer working directory")?;
         isolate_dotenv(working_dir.path())?;
@@ -723,6 +726,10 @@ impl ProofSignerHandle {
                 cfg.chain_config
                     .to_str()
                     .context("non-UTF-8 L2 genesis path")?,
+                "--l1-rpc-url",
+                &cfg.l1_rpc_url,
+                "--registry-address",
+                &format!("{:#x}", cfg.registry_address),
                 "--l1-chain-config",
                 l1_profile,
                 "--rollup-id",
@@ -738,7 +745,6 @@ impl ProofSignerHandle {
             ])
             .env_clear()
             .env("EEZ_PROOF_SIGNER_KEY", cfg.signer_key)
-            .env("EEZ_L2_SYSTEM_KEY", L2_SYSTEM_KEY)
             .env("NO_COLOR", "1")
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log))
@@ -1310,29 +1316,36 @@ impl Harness {
     /// Starts a fixture with L1 and L2 genesis timestamps aligned to wall time.
     pub async fn fresh() -> Result<Self> {
         let ts = now_unix_secs();
-        let l2_genesis = write_l2_genesis_at(ts)?;
-        let initial_block_hash = genesis_block_hash(&l2_genesis.0)?;
         let cfg = AnvilConfig::standard(ts);
-        Self::with_anvil_config(cfg, initial_block_hash, l2_genesis).await
+        Self::with_anvil_config(cfg).await
     }
 
     /// Starts the reorg fixture with one timestamp shared by Anvil and the L2.
     pub async fn for_reorg() -> Result<Self> {
-        let ts = now_unix_secs();
-        let l2_genesis = write_l2_genesis_at(ts)?;
-        let initial_block_hash = genesis_block_hash(&l2_genesis.0)?;
-        let cfg = AnvilConfig::standard(ts);
-        Self::with_anvil_config(cfg, initial_block_hash, l2_genesis).await
+        Self::fresh().await
     }
 
-    async fn with_anvil_config(
-        cfg: AnvilConfig,
-        initial_block_hash: B256,
-        l2_genesis: (PathBuf, tempfile::TempDir),
-    ) -> Result<Self> {
+    async fn with_anvil_config(cfg: AnvilConfig) -> Result<Self> {
         let genesis_time = cfg.genesis_timestamp;
-        write_l1_chain_config(l2_genesis.1.path())?;
         let anvil = Anvil::spawn_with(PortLease::tcp(), cfg).await?;
+        let reference = ProviderBuilder::new()
+            .connect_http(anvil.rpc_url.parse()?)
+            .get_block_by_number(0.into())
+            .await?
+            .context("Anvil genesis reference absent")?;
+        ensure!(
+            reference.header.hash == reference.header.inner.hash_slow(),
+            "Anvil genesis header identity"
+        );
+        let l2_genesis = write_l2_genesis_at(genesis_time)?;
+        bind_l2_genesis_reference(
+            &l2_genesis.0,
+            &reference.header.inner,
+            2,
+            u32::try_from(L1_BLOCK_TIME_SECS / 2)?,
+        )?;
+        let initial_block_hash = genesis_block_hash(&l2_genesis.0)?;
+        write_l1_chain_config(l2_genesis.1.path())?;
         let stub = BundleStub::spawn(PortLease::tcp(), &anvil.rpc_url).await?;
         let beacon = BeaconStub::spawn(
             anvil.rpc_url.clone(),
@@ -1478,7 +1491,6 @@ impl Harness {
             ("EEZ_L1_BLOB_SIDECAR_ENCODING", "eip7594".to_string()),
             ("EEZ_L1_CHAIN_ID", DEV_CHAIN_ID.to_string()),
             ("EEZ_L1_CHAIN", "testing".to_string()),
-            ("EEZ_L2_SYSTEM_KEY", L2_SYSTEM_KEY.to_string()),
             ("EEZL2_ADDRESS", format!("{EEZL2_ADDRESS:#x}")),
             (
                 "EEZ_L1_BLOCK_TIME_MS",
@@ -1554,6 +1566,8 @@ impl Harness {
             let genesis = self.l2_genesis_path();
             let attester = signer_address(signer_key)?;
             let signer = ProofSignerHandle::spawn(&ProofSignerConfig {
+                l1_rpc_url: self.anvil.rpc_url.clone(),
+                registry_address: self.dep.eez_address,
                 l1_chain_config: None,
                 chain_config: genesis,
                 rollup_id: opts.rollup_id,
@@ -3080,10 +3094,29 @@ pub async fn assert_latest_batch_signature(
         .inner
         .blob_versioned_hashes()
         .map_or_else(Vec::new, <[B256]>::to_vec);
+    let containing = provider
+        .get_block_by_hash(
+            receipt
+                .block_hash
+                .ok_or_else(|| anyhow!("posted receipt has no block hash"))?,
+        )
+        .await?
+        .ok_or_else(|| anyhow!("posted block is unavailable"))?;
+    let posting_context = eez_protocol::public_inputs::L1PostingContext {
+        chain_id: provider.get_chain_id().await?,
+        parent_number: containing
+            .header
+            .number
+            .checked_sub(1)
+            .ok_or_else(|| anyhow!("a posted transaction cannot be in genesis"))?,
+        parent_hash: containing.header.parent_hash,
+        target_timestamp: containing.header.timestamp,
+    };
     let public_inputs_hash = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &call.batch,
         expected_attester.into_word(),
         &transaction_blob_hashes,
+        posting_context,
     )?
     .into_iter()
     .next()
@@ -3427,11 +3460,45 @@ fn write_fixture_genesis(
     genesis.timestamp = ts;
     if let Some(id) = chain_id {
         genesis.config.chain_id = id;
+        genesis.config.extra_fields.remove("rollupX");
     }
     let dir = tempfile::tempdir().context("genesis tempdir")?;
     let path = dir.path().join(filename);
     std::fs::write(&path, serde_json::to_vec(&genesis)?).context("write genesis")?;
     Ok((path, dir))
+}
+
+/// Bind a newly created fixture before calculating its registration commitment.
+/// This never rewrites a running node's genesis. Private fixtures select their
+/// actual cadence explicitly, and runtime startup authenticates this L1 header.
+fn bind_l2_genesis_reference(
+    path: &std::path::Path,
+    reference: &alloy_consensus::Header,
+    block_interval_seconds: u64,
+    sync_interval_blocks: u32,
+) -> Result<()> {
+    use eez_protocol::l2::{DerivationConfig, GenesisL1Reference};
+    let mut genesis: alloy_genesis::Genesis = serde_json::from_slice(&std::fs::read(path)?)?;
+    genesis.mix_hash = reference.mix_hash;
+    let config = DerivationConfig {
+        block_interval_seconds,
+        sync_interval_blocks,
+        l1_reference: GenesisL1Reference {
+            chain_id: DEV_CHAIN_ID,
+            number: reference.number,
+            hash: reference.hash_slow(),
+            timestamp: reference.timestamp,
+            prev_randao: reference.mix_hash,
+        },
+    };
+    genesis
+        .config
+        .extra_fields
+        .insert("rollupX".into(), serde_json::to_value(config)?);
+    let spec = reth_chainspec::ChainSpec::from_genesis(genesis.clone());
+    eez_protocol::l2::Schedule::new(config, spec.genesis_header())?;
+    std::fs::write(path, serde_json::to_vec(&genesis)?)?;
+    Ok(())
 }
 
 fn signer_of(key: &str) -> Result<PrivateKeySigner> {
@@ -4073,10 +4140,14 @@ pub async fn account_code(rpc_url: &str, addr: Address) -> Result<Bytes> {
 
 pub async fn receipt_ok(rpc_url: &str, hash: alloy_primitives::TxHash) -> Result<Option<bool>> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
-    Ok(provider
-        .get_transaction_receipt(hash)
-        .await?
-        .map(|r| r.status()))
+    // Native receipts use type 0x76, outside Ethereum's closed receipt enum.
+    let receipt: Option<
+        TransactionReceipt<alloy_consensus_any::AnyReceiptEnvelope<alloy_rpc_types_eth::Log>>,
+    > = provider
+        .client()
+        .request("eth_getTransactionReceipt", (hash,))
+        .await?;
+    Ok(receipt.map(|receipt| alloy_network::ReceiptResponse::status(&receipt)))
 }
 
 /// Wait for a source receipt, surfacing composer death and retained terminal
@@ -4183,7 +4254,6 @@ impl CrossChainConfig {
         let rollup_manager_address = deployer.create(2);
         let ts = now_unix_secs();
         let l2_genesis = write_l2_genesis_at(ts)?;
-        let initial_state = genesis_block_hash(&l2_genesis.0)?;
         let l1_http_lease = PortLease::http_pair();
         let l1_auth_lease = PortLease::tcp();
         let l1_p2p_lease = PortLease::tcp_udp();
@@ -4215,6 +4285,16 @@ impl CrossChainConfig {
             }
             std::fs::write(&l1_genesis.0, serde_json::to_vec(&genesis)?)?;
         }
+        let reference: alloy_genesis::Genesis =
+            serde_json::from_slice(&std::fs::read(&l1_genesis.0)?)?;
+        let spec = reth_chainspec::ChainSpec::from_genesis(reference);
+        bind_l2_genesis_reference(
+            &l2_genesis.0,
+            spec.genesis_header(),
+            CROSS_CHAIN_L2_BLOCK_TIME_MS / 1000,
+            u32::try_from(CROSS_CHAIN_SYNC_INTERVAL)?,
+        )?;
+        let initial_state = genesis_block_hash(&l2_genesis.0)?;
         Ok(Self {
             l1_http_port,
             l1_auth_port,
@@ -4295,7 +4375,6 @@ impl CrossChainConfig {
                 self.l1_genesis.0.to_string_lossy().into_owned(),
             ),
             ("EEZ_L1_POSTER_KEY", self.poster_key.to_string()),
-            ("EEZ_L2_SYSTEM_KEY", L2_SYSTEM_KEY.to_string()),
             ("EEZL2_ADDRESS", format!("{EEZL2_ADDRESS:#x}")),
             (
                 "EEZ_L1_BLOCK_TIME_MS",
@@ -5950,9 +6029,8 @@ async fn setup_cross_chain_inner(
 ) -> Result<CrossChainWorld> {
     let setup_started = std::time::Instant::now();
     let mut cfg = CrossChainConfig::new(profile)?;
-    // A past L2 genesis exercises the real capped catch-up path without
-    // waiting one wall-clock second for each historical L2 block. L1 keeps
-    // its current genesis/slot clock, and the registered root is recomputed.
+    // Both genesis timestamps move together: L2 cannot precede its finalized
+    // L1 reference. The development miner catches up to the current slot clock.
     if let Some((_, age)) = extra_env
         .iter()
         .rev()
@@ -5962,17 +6040,19 @@ async fn setup_cross_chain_inner(
             .parse::<u64>()
             .context("EEZ_TEST_L2_GENESIS_AGE_SECONDS must be an unsigned integer")?;
         ensure!(
-            age <= 131_072,
-            "native history fixture age exceeds two seconds per maximum window block"
+            age <= 131_072 && age.is_multiple_of(CROSS_CHAIN_L1_BLOCK_TIME_MS / 1000),
+            "native history fixture age must be a bounded whole settlement interval"
         );
-        let mut genesis: alloy_genesis::Genesis =
-            serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
-        genesis.timestamp = genesis
-            .timestamp
+        cfg.genesis_time = cfg
+            .genesis_time
             .checked_sub(age)
             .context("native history genesis timestamp underflow")?;
-        std::fs::write(&cfg.l2_genesis.0, serde_json::to_vec(&genesis)?)?;
-        cfg.initial_state = genesis_block_hash(&cfg.l2_genesis.0)?;
+        for path in [&cfg.l1_genesis.0, &cfg.l2_genesis.0] {
+            let mut genesis: alloy_genesis::Genesis =
+                serde_json::from_slice(&std::fs::read(path)?)?;
+            genesis.timestamp = cfg.genesis_time;
+            std::fs::write(path, serde_json::to_vec(&genesis)?)?;
+        }
     }
     if fixed_fee_fixture {
         let mut genesis: alloy_genesis::Genesis =
@@ -5980,6 +6060,18 @@ async fn setup_cross_chain_inner(
         genesis.base_fee_per_gas = Some(0);
         std::fs::write(&cfg.l1_genesis.0, serde_json::to_vec(&genesis)?)?;
     }
+    // Fee/history variants change the reference hash. Finalize the reference
+    // before exporting fixtures, starting the signer or registering L2.
+    let reference: alloy_genesis::Genesis =
+        serde_json::from_slice(&std::fs::read(&cfg.l1_genesis.0)?)?;
+    let reference = reth_chainspec::ChainSpec::from_genesis(reference);
+    bind_l2_genesis_reference(
+        &cfg.l2_genesis.0,
+        reference.genesis_header(),
+        CROSS_CHAIN_L2_BLOCK_TIME_MS / 1000,
+        u32::try_from(CROSS_CHAIN_SYNC_INTERVAL)?,
+    )?;
+    cfg.initial_state = genesis_block_hash(&cfg.l2_genesis.0)?;
     let fixture_directory = std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").map(PathBuf::from);
     if let Some(directory) = &fixture_directory {
         std::fs::create_dir_all(directory)?;
@@ -5989,19 +6081,22 @@ async fn setup_cross_chain_inner(
             serde_json::to_vec_pretty(&l2["config"])?,
         )?;
         std::fs::copy(&cfg.l1_genesis.0, directory.join("l1-genesis.json"))?;
+        std::fs::copy(&cfg.l2_genesis.0, directory.join("l2-genesis.json"))?;
         std::fs::write(
             directory.join("identity.json"),
             serde_json::to_vec_pretty(&serde_json::json!({
                 "rollup_id": cfg.rollup_id,
                 "proof_system": cfg.proof_system_address,
                 "vkey": signer_address(cfg.attester_key)?.into_word(),
-                "l2_system_address": signer_address(L2_SYSTEM_KEY)?,
+                "l2_system_address": L2_SYSTEM_ADDRESS,
                 "gnosis_l1": profile == NativeL1Profile::GnosisPrague,
             }))?,
         )?;
     }
     let signer_attester = signer_address(cfg.attester_key)?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
+        l1_rpc_url: cfg.l1_rpc_url(),
+        registry_address: cfg.eez_address,
         chain_config: &cfg.l2_genesis.0,
         l1_chain_config: Some(cfg.l1_chain_config()),
         rollup_id: cfg.rollup_id,

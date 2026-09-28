@@ -16,7 +16,7 @@ use crate::window::{AdmittedBlock, AdmittedBlocks};
 mod stateless;
 use stateless::reconstruction::ReconstructedBlock;
 
-type EthereumBlock = reth_ethereum_primitives::Block;
+type EezBlock = eez_primitives::Block;
 
 /// A canonical prefix-block hash locally recomputed during successful replay.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,6 +159,9 @@ impl OutboundEventObservation {
 /// receives only immutable views.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettlementBlockEvidence {
+    /// Canonical terminal variant after its ordinary prefix and before any
+    /// native action. Includes pre-execution changes even with no transactions.
+    pub(in crate::validate) ordinary_prefix_hash: B256,
     /// Whether each transaction's fork-aware recovered signer is the reserved
     /// system address, in exact block order.
     pub(in crate::validate) system_sender_flags: Vec<bool>,
@@ -167,6 +170,16 @@ pub(crate) struct SettlementBlockEvidence {
 }
 
 impl SettlementBlockEvidence {
+    pub(crate) const fn ordinary_prefix_hash(&self) -> B256 {
+        self.ordinary_prefix_hash
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_ordinary_prefix_for_test(mut self, block_hash: B256) -> Self {
+        self.ordinary_prefix_hash = block_hash;
+        self
+    }
+
     /// Recovered system-sender classification in exact transaction order.
     pub(crate) fn system_sender_flags(&self) -> &[bool] {
         &self.system_sender_flags
@@ -184,6 +197,7 @@ impl SettlementBlockEvidence {
         observed_outbound_events: Vec<OutboundEventObservation>,
     ) -> Self {
         Self {
+            ordinary_prefix_hash: B256::ZERO,
             system_sender_flags,
             observed_outbound_events,
         }
@@ -220,6 +234,12 @@ impl ValidatedBlock {
         self.number
     }
 
+    #[cfg(test)]
+    pub(crate) fn with_ordinary_prefix_for_test(mut self, block_hash: B256) -> Self {
+        self.settlement_evidence.ordinary_prefix_hash = block_hash;
+        self
+    }
+
     /// Exact block RLP accepted by the validation backend.
     pub(crate) fn rlp(&self) -> &[u8] {
         &self.rlp
@@ -238,7 +258,9 @@ impl ValidatedBlock {
         settlement_evidence: SettlementBlockEvidence,
     ) -> Self {
         Self {
-            reconstruction: None,
+            reconstruction: alloy_rlp::decode_exact::<EezBlock>(&rlp)
+                .ok()
+                .map(|block| ReconstructedBlock::for_test(block.header.hash_slow(), &block.header)),
             number,
             rlp,
             settlement_evidence,
@@ -384,6 +406,7 @@ impl ValidatedWindow {
     }
 
     /// Validated parent block hash immediately before the terminal block.
+    #[cfg(test)]
     pub(crate) fn settling_pre_block_hash(&self) -> B256 {
         self.settling_pre_block_hash
     }
@@ -516,6 +539,7 @@ impl PreparedOrdinaryBlock {
                 number,
                 rlp: vec![0; rlp_bytes],
                 settlement_evidence: SettlementBlockEvidence {
+                    ordinary_prefix_hash: hash,
                     system_sender_flags: Vec::new(),
                     observed_outbound_events: Vec::new(),
                 },
@@ -568,6 +592,13 @@ pub(crate) enum Validator {
 }
 
 impl Validator {
+    pub(crate) fn schedule(&self) -> eyre::Result<eez_protocol::l2::Schedule> {
+        match self {
+            Self::Stateless(backend) => backend.schedule(),
+            #[cfg(test)]
+            Self::Stub(_) => eyre::bail!("synthetic validator has no authenticated schedule"),
+        }
+    }
     /// Namespace only: this binds local rules, never caller claims or signing
     /// authority. Production gets the digest from the very same file read as
     /// the execution configuration.
@@ -603,13 +634,10 @@ impl Validator {
 
     #[cfg(test)]
     pub(crate) fn stateless_for_test(
-        chain_config: alloy_genesis::ChainConfig,
+        genesis: alloy_genesis::Genesis,
         expected_l2_system_address: alloy_primitives::Address,
     ) -> Self {
-        Self::Stateless(stateless::Backend::new(
-            chain_config,
-            expected_l2_system_address,
-        ))
+        Self::Stateless(stateless::Backend::new(genesis, expected_l2_system_address))
     }
 
     /// Static, non-sensitive identifier for startup logs.
@@ -1049,7 +1077,7 @@ impl CheckedBlock {
 
 /// Exact-decode Composer-supplied consensus RLP for result-coverage checks.
 fn decode_transaction_count(block: &AdmittedBlock) -> eyre::Result<usize> {
-    alloy_rlp::decode_exact::<EthereumBlock>(&block.rlp)
+    alloy_rlp::decode_exact::<EezBlock>(&block.rlp)
         .map(|block| block.body.transactions.len())
         .map_err(|error| {
             eyre::eyre!(

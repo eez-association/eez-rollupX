@@ -74,6 +74,20 @@ pub struct RollupTiming {
 }
 
 impl RollupTiming {
+    /// Local proof/preparation budgets may differ between operators, but the
+    /// block and Sync cadence must equal the immutable genesis schedule.
+    pub fn validate_schedule(&self, schedule: &eez_protocol::l2::Schedule) -> DriverResult<()> {
+        self.validate()?;
+        if self.l1_block_time() != Duration::from_secs(schedule.l1_slot_seconds())
+            || self.l2_block_time() != Duration::from_secs(schedule.config().block_interval_seconds)
+        {
+            return Err(DriverError::timing_config(
+                "L1/L2 block timing must match config.rollupX in the genesis document",
+            ));
+        }
+        Ok(())
+    }
+
     /// Construct from raw values. Does not validate — call
     /// [`Self::validate`] before relying on derived methods, or use
     /// [`Self::from_env`] which validates as part of loading.
@@ -420,6 +434,46 @@ fn parse_optional_env(name: &str) -> DriverResult<Option<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_cadence_must_match_genesis_but_local_proving_budgets_may_differ() {
+        use alloy_primitives::B256;
+        use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
+        for (chain_id, step, positions) in [(1, 2, 6), (10200, 1, 5), (1337, 2, 2)] {
+            let schedule = Schedule::new(
+                DerivationConfig {
+                    block_interval_seconds: step,
+                    sync_interval_blocks: positions,
+                    l1_reference: GenesisL1Reference {
+                        chain_id,
+                        number: 0,
+                        hash: B256::with_last_byte(1),
+                        timestamp: 0,
+                        prev_randao: B256::ZERO,
+                    },
+                },
+                &alloy_consensus::Header::default(),
+            )
+            .unwrap();
+            let l1_ms = u32::try_from(schedule.l1_slot_seconds() * 1000).unwrap();
+            let l2_ms = u32::try_from(step * 1000).unwrap();
+            for proof_ms in [100, 400] {
+                RollupTiming::new(l1_ms, l2_ms, proof_ms, 100)
+                    .validate_schedule(&schedule)
+                    .unwrap();
+            }
+            assert!(
+                RollupTiming::new(l1_ms * 2, l2_ms, 100, 100)
+                    .validate_schedule(&schedule)
+                    .is_err()
+            );
+            assert!(
+                RollupTiming::new(l1_ms * 2, l2_ms * 2, 100, 100)
+                    .validate_schedule(&schedule)
+                    .is_err()
+            );
+        }
+    }
 
     fn mainnet() -> RollupTiming {
         // proof+slack = 5500 → future = 2, live = 3, trigger = +6s.

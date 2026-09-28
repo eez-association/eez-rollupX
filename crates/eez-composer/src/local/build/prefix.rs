@@ -2,7 +2,7 @@
 //! post-execution changes, so only the state *before* `finish` is reusable.
 use super::*;
 use crate::local::provider::StateSnapshotProvider;
-use reth_ethereum_primitives::{EthPrimitives, Receipt};
+use eez_primitives::{EezPrimitives, Receipt};
 use reth_evm::execute::BasicBlockBuilder;
 
 struct Checkpoint {
@@ -21,9 +21,10 @@ struct Checkpoint {
 /// group was rejected. Final block and signer replay remain independent.
 pub(crate) struct SyncPrefixHashes<'a> {
     provider: &'a dyn StateSnapshotProvider,
-    config: &'a EthEvmConfig,
+    config: &'a EezEvmConfig,
     parent: &'a SealedHeader<Header>,
     timestamp: u64,
+    prev_randao: B256,
     recipient: Address,
     raw: Vec<Bytes>,
     checkpoint: Option<Checkpoint>,
@@ -35,7 +36,12 @@ impl<'a> SyncPrefixHashes<'a> {
     pub(super) fn assert_state_matches_rebuild(&self) {
         let saved = self.checkpoint.as_ref().expect("checkpoint exists");
         let mut db = open_draft_db(self.provider, self.parent.hash(), None).unwrap();
-        let attributes = next_block_attributes(self.config, self.timestamp, self.recipient);
+        let attributes = next_block_attributes(
+            self.config,
+            self.timestamp,
+            self.prev_randao,
+            self.recipient,
+        );
         let mut builder = self
             .config
             .builder_for_next_block(&mut db, self.parent, attributes)
@@ -70,9 +76,10 @@ impl<'a> SyncPrefixHashes<'a> {
 
     pub(crate) fn new(
         provider: &'a dyn StateSnapshotProvider,
-        config: &'a EthEvmConfig,
+        config: &'a EezEvmConfig,
         parent: &'a SealedHeader<Header>,
         timestamp: u64,
+        prev_randao: B256,
         recipient: Address,
     ) -> Self {
         Self {
@@ -80,6 +87,7 @@ impl<'a> SyncPrefixHashes<'a> {
             config,
             parent,
             timestamp,
+            prev_randao,
             recipient,
             raw: Vec::new(),
             checkpoint: None,
@@ -142,7 +150,12 @@ impl<'a> SyncPrefixHashes<'a> {
             }
             None => (Vec::new(), None),
         };
-        let attributes = next_block_attributes(self.config, self.timestamp, self.recipient);
+        let attributes = next_block_attributes(
+            self.config,
+            self.timestamp,
+            self.prev_randao,
+            self.recipient,
+        );
         let env = self
             .config
             .next_evm_env(self.parent, &attributes)
@@ -154,10 +167,10 @@ impl<'a> SyncPrefixHashes<'a> {
         let evm = self.config.evm_with_env(&mut db, env);
         let mut builder: BasicBlockBuilder<
             '_,
-            <EthEvmConfig as ConfigureEvm>::BlockExecutorFactory,
+            <EezEvmConfig as ConfigureEvm>::BlockExecutorFactory,
             _,
             _,
-            EthPrimitives,
+            EezPrimitives,
         > = BasicBlockBuilder {
             executor: self.config.create_executor(evm, ctx.clone()),
             ctx,

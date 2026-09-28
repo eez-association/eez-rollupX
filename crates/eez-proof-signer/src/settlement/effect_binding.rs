@@ -115,11 +115,21 @@ impl<'batch> BoundEffect<'batch> {
 /// candidate positions.
 /// Construction remains local so this type can serve as validation evidence.
 pub(crate) struct BoundEffectSequence<'batch, 'settling> {
+    anchor_checkpoint: B256,
     effects: Vec<BoundEffect<'batch>>,
     settling_observations: &'settling SettlingBlockObservations,
 }
 
 impl<'batch, 'settling> BoundEffectSequence<'batch, 'settling> {
+    /// Only checkpoints already bound to replay, including the anchor carrier.
+    pub(crate) fn contains_checkpoint(&self, hash: B256) -> bool {
+        self.anchor_checkpoint == hash
+            || self
+                .effects
+                .iter()
+                .any(|effect| effect.recomputed_checkpoint == hash)
+    }
+
     pub(super) fn effects(&self) -> &[BoundEffect<'batch>] {
         &self.effects
     }
@@ -557,6 +567,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
             });
         }
         return Ok(BoundEffectSequence {
+            anchor_checkpoint: anchor_update.newRoot,
             effects: Vec::new(),
             settling_observations,
         });
@@ -672,6 +683,7 @@ pub(crate) fn bind_effects_to_execution<'batch, 'settling>(
     }
 
     Ok(BoundEffectSequence {
+        anchor_checkpoint: anchor_update.newRoot,
         effects: bound_effects,
         settling_observations,
     })

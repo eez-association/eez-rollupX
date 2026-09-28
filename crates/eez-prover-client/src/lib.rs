@@ -538,19 +538,27 @@ fn chunks_for(
 
     let header = ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+                parent_header_rlp: alloy_rlp::encode(&ctx.parent_provenance.parent),
+                accepted_l1_number: ctx.parent_provenance.accepted_l1_number,
+                live_slot_endpoint_headers_rlp: ctx
+                    .parent_provenance
+                    .live_slot_endpoints
+                    .iter()
+                    .map(alloy_rlp::encode)
+                    .collect(),
+            }),
             rollup_id: ctx.rollup_id,
             expected_validation_identity: expected_identity.to_vec(),
             from_block: ctx.from_block,
             to_block: ctx.to_block,
             post_batch: Some(PostBatch {
                 abi_calldata,
-                // Empty: the prover recomputes the hash and returns it; we don't
-                // pre-claim it (the batch determines it deterministically).
-                public_inputs_hash: Vec::new(),
-                l1_block_hash: ctx.l1_block_hash.map(|h| h.to_vec()).unwrap_or_default(),
                 posting_context: Some(eez_control_rpc::v1::L1PostingContext {
                     chain_id: ctx.l1_posting.chain_id,
                     target_timestamp: ctx.l1_posting.target_timestamp,
+                    parent_number: ctx.l1_posting.parent_number,
+                    parent_hash: ctx.l1_posting.parent_hash.to_vec(),
                 }),
                 blobs: ctx
                     .blobs
@@ -753,9 +761,13 @@ impl Prover for RemoteProver {
 fn request_hash(ctx: &ProvingContext, vkey: B256) -> ProverResult<B256> {
     let blob_hashes = eez_blob_codec::blob_versioned_hashes(&ctx.blobs)
         .map_err(|error| ProverError::Backend(format!("request blob commitments: {error}")))?;
-    let hashes =
-        eez_protocol::public_inputs_hashes_with_blob_hashes(&ctx.batch, vkey, &blob_hashes)
-            .map_err(|error| ProverError::Backend(format!("request public inputs: {error}")))?;
+    let hashes = eez_protocol::public_inputs_hashes_with_blob_hashes(
+        &ctx.batch,
+        vkey,
+        &blob_hashes,
+        ctx.l1_posting,
+    )
+    .map_err(|error| ProverError::Backend(format!("request public inputs: {error}")))?;
     match hashes.as_slice() {
         [hash] => Ok(*hash),
         _ => Err(ProverError::Backend(format!(
@@ -1401,10 +1413,16 @@ mod tests {
     fn test_context() -> ProvingContext {
         use eez_protocol::abi::{ExecutionEntrySol, RollupIdWithProofSystemsSol};
         ProvingContext {
+            parent_provenance: eez_protocol::l2::ParentProvenance {
+                parent: Default::default(),
+                accepted_l1_number: 0,
+                live_slot_endpoints: Vec::new(),
+            },
             rollup_id: 1,
             from_block: 1,
             to_block: 1,
             batch: eez_protocol::EvmBatch {
+                blockNumber: u64::MAX,
                 proofSystems: vec![address!("0000000000000000000000000000000000000055")],
                 rollupIdsWithProofSystems: vec![RollupIdWithProofSystemsSol {
                     rollupId: 1,
@@ -1416,8 +1434,9 @@ mod tests {
             },
             blobs: eez_blob_codec::pack(&[0, 1]).unwrap(),
             blocks: Arc::from([]),
-            l1_block_hash: None,
             l1_posting: eez_prover::L1PostingContext {
+                parent_number: 99,
+                parent_hash: B256::repeat_byte(0x42),
                 chain_id: 31337,
                 target_timestamp: 12345,
             },
@@ -1461,6 +1480,23 @@ mod tests {
             panic!("header first")
         };
         assert_eq!((header.from_block, header.to_block), (1, 2));
+        let provenance = header.parent_provenance.as_ref().unwrap();
+        assert_eq!(
+            provenance.parent_header_rlp,
+            alloy_rlp::encode(&ctx.parent_provenance.parent)
+        );
+        assert_eq!(
+            provenance.accepted_l1_number,
+            ctx.parent_provenance.accepted_l1_number
+        );
+        assert_eq!(
+            provenance.live_slot_endpoint_headers_rlp,
+            ctx.parent_provenance
+                .live_slot_endpoints
+                .iter()
+                .map(alloy_rlp::encode)
+                .collect::<Vec<_>>()
+        );
         for (number, chunk) in first[1..].iter().enumerate() {
             let number = number as u8 + 1;
             let Some(prove_chunk::Kind::Block(block)) = &chunk.kind else {
@@ -1578,7 +1614,6 @@ mod tests {
         let attester = key.address();
         let mut ctx = test_context();
         let l1_posting = ctx.l1_posting;
-        ctx.l1_block_hash = Some(B256::repeat_byte(0x42));
         ctx.blobs = eez_blob_codec::encode_native_payload(
             1,
             alloy_primitives::Bytes::from(vec![0; 8 * eez_blob_codec::DATA_BYTES_PER_BLOB + 100]),
@@ -1603,7 +1638,14 @@ mod tests {
         let batch = header.post_batch.unwrap();
         assert_eq!(batch.blobs.len(), 9);
         assert_eq!(batch.blobs, expected);
-        assert_eq!(batch.l1_block_hash, B256::repeat_byte(0x42).to_vec());
+        assert_eq!(
+            batch.posting_context.as_ref().unwrap().parent_hash,
+            l1_posting.parent_hash.to_vec()
+        );
+        assert_eq!(
+            batch.posting_context.as_ref().unwrap().parent_number,
+            l1_posting.parent_number
+        );
         assert_eq!(
             batch
                 .posting_context

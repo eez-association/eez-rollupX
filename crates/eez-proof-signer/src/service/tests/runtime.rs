@@ -92,9 +92,8 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
     use eez_control_rpc::v1::CapabilitiesRequest;
     let manifest = std::env::var("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
-    let path =
-        std::path::Path::new(&manifest).join("tests/fixtures/stateless-block-13/chain-config.json");
-    let loaded = eez_l1::chain_config::load_chain_document_with_digest(&path).unwrap();
+    let path = std::path::Path::new(&manifest).join("../../genesis.json");
+    let loaded = eez_l1::chain_config::load_l2_genesis(&path).unwrap();
     let digest = loaded.digest();
     let genesis = loaded.into_genesis();
     let expected_identity = eez_control_rpc::identity::ValidationContext {
@@ -142,7 +141,10 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
         assert_eq!(response.operations_tag, 0);
         assert_eq!(response.profile_id, 1);
         assert_eq!(response.validation_identity, expected_identity.to_vec());
-        assert_eq!(response.max_window_blocks, blocks.min(65_536) as u64);
+        assert_eq!(
+            response.max_window_blocks,
+            blocks.min(u32::MAX as usize) as u64
+        );
         assert_eq!(response.max_request_bytes, bytes as u64);
         assert_eq!(response.max_request_witness_items, items as u64);
         assert_eq!(response.max_message_bytes, bytes.min(268_435_456) as u64);
@@ -166,7 +168,7 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
             let mut first = header_chunk(1, 1);
             let header = header_mut(&mut first);
             header.rollup_id = 7;
-            header.to_block = 65_537;
+            header.to_block = blocks as u64 + 1;
             header.expected_validation_identity = expected_identity.to_vec();
             let status = server
                 .client()
@@ -175,7 +177,7 @@ async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_sl
                 .await
                 .unwrap_err();
             assert_eq!(status.code(), Code::ResourceExhausted);
-            assert!(status.message().contains("65536"), "{status}");
+            assert!(status.message().contains(&blocks.to_string()), "{status}");
             assert_eq!(state.attester.signing_calls(), 0);
         }
     }
@@ -340,12 +342,15 @@ async fn stream_shape_violations_are_invalid_arguments() {
     let server = TestServer::new(unused_validator()).await;
     let mut missing_witness = block_chunk(5, 0x04, 0x05);
     block_mut(&mut missing_witness).witness = None;
-    let mut nonempty_l1_block_hash = header_chunk(5, 5);
-    header_mut(&mut nonempty_l1_block_hash)
+    let mut invalid_l1_parent_hash = header_chunk(5, 5);
+    header_mut(&mut invalid_l1_parent_hash)
         .post_batch
         .as_mut()
         .unwrap()
-        .l1_block_hash = vec![0; 32];
+        .posting_context
+        .as_mut()
+        .unwrap()
+        .parent_hash = vec![0; 32];
 
     for (name, chunks) in [
         ("empty stream", vec![]),
@@ -368,6 +373,11 @@ async fn stream_shape_violations_are_invalid_arguments() {
             "header without post_batch",
             vec![ProveChunk {
                 kind: Some(prove_chunk::Kind::Header(ProveHeader {
+                    parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+                        parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
+                        accepted_l1_number: 0,
+                        live_slot_endpoint_headers_rlp: Vec::new(),
+                    }),
                     expected_validation_identity: Validator::stub(Vec::new())
                         .validation_identity(expected_rollup_id(1))
                         .to_vec(),
@@ -382,7 +392,7 @@ async fn stream_shape_violations_are_invalid_arguments() {
             "inverted bounds",
             vec![header_chunk(6, 5), block_chunk(5, 0x04, 0x05)],
         ),
-        ("nonempty l1 block hash", vec![nonempty_l1_block_hash]),
+        ("zero l1 parent hash", vec![invalid_l1_parent_hash]),
         ("missing witness", vec![header_chunk(5, 5), missing_witness]),
     ] {
         let status = server.prove(chunks).await;

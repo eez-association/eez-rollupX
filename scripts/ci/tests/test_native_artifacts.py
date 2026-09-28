@@ -275,11 +275,11 @@ class NativeArtifactTest(unittest.TestCase):
             native.export_e2e(self.root, self.root / "lean")
 
     def test_test_inventory_and_serialism_are_preserved(self):
-        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "derivable_operations", "chained_interstate", "partial_consumption",
+        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
                                          "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
                                          "queue_liveness", "queue_reorg",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence",
-                                         "ethereum_kzg_compatibility"])
+                                         "ethereum_kzg_compatibility", "issue35"])
         self.assertIn("kind(lib) | kind(bin)", native.SUITES["unit"])
         self.assertIn("binary(=causal_evidence)", native.SUITES["unit"])
         self.assertNotIn("--test-threads=1", self.run_archive().args[0])
@@ -291,6 +291,7 @@ class NativeArtifactTest(unittest.TestCase):
         discovered = {path.parent.name if path.name == "main.rs" else path.stem for path in paths}
         self.assertEqual(discovered, set(native.TARGETS))
         self.assertIn("package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility)", native.SUITES["unit"])
+        self.assertIn("package(=eez-payload-codec) & binary(=issue35)", native.SUITES["unit"])
 
     def test_every_archived_node_target_has_exactly_one_execution_suite(self):
         for binary in native.E2E_BINARIES:
@@ -301,6 +302,7 @@ class NativeArtifactTest(unittest.TestCase):
             self.assertIn(name, native.TARGETS)
         self.assertIn("binary(=settlement_policy_gas)", native.SUITES["cross-chain"])
         self.assertIn("binary(=derivable_operations)", native.SUITES["cross-chain"])
+        self.assertIn("binary(=native_system)", native.SUITES["cross-chain"])
         self.assertIn("binary(=dynamic_admission)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_liveness)", native.SUITES["cross-chain"])
         self.assertIn("binary(=queue_reorg)", native.SUITES["cross-chain"])

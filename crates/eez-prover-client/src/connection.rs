@@ -104,7 +104,7 @@ fn validate(
             "prover validation identity differs from local execution rules".into(),
         ));
     }
-    if !(1..=65_536).contains(&capabilities.max_window_blocks)
+    if !(1..=u64::from(u32::MAX)).contains(&capabilities.max_window_blocks)
         || capabilities.max_request_bytes == 0
         || capabilities.max_request_witness_items == 0
         || capabilities.max_message_bytes == 0

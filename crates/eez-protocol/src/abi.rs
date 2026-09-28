@@ -110,6 +110,14 @@ sol! {
 
     function staticCrossChainCall(address sourceAddress, bytes callData) external view returns (bytes);
 
+    /// Immutable registration and explicit owner reset are separate from
+    /// proof-authorized settlement. Derivation must not confuse these events.
+    event RollupCreated(uint64 indexed rollupId, address indexed rollupContract, bytes32 initialRoot);
+    event RootUpdated(uint64 indexed rollupId, bytes32 newRoot);
+
+    function rollups(uint64 rollupId) external view
+        returns (address rollupContract, bytes32 root, uint256 etherBalance);
+
     event BatchPosted(bytes32 sharedPublicInput, uint64[] rollupIds);
 
     event L2ExecutionPerformed(uint64 indexed rollupId, bytes32 newRoot, uint256 etherBalance);

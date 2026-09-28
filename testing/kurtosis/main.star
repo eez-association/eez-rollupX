@@ -62,14 +62,12 @@ def run(plan, args):
 
     poster_key = eez.get("poster_key", "")
     proof_signer_key = eez.get("proof_signer_key", "")
-    l2_system_key = eez.get("l2_system_key", "")
     if (
         poster_key in ["", "0xCHANGE_ME"]
         or proof_signer_key in ["", "0xCHANGE_ME"]
-        or l2_system_key in ["", "0xCHANGE_ME"]
     ):
         fail(
-            "set eez.poster_key, eez.proof_signer_key, and eez.l2_system_key in the args file "
+            "set eez.poster_key and eez.proof_signer_key in the args file "
             + "(set deterministic test keys in the selected args file)"
         )
 
@@ -146,7 +144,8 @@ def run(plan, args):
             "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
             "EEZ_L1_POSTER_KEY": poster_key,
             "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
-            "EEZ_L2_SYSTEM_KEY": l2_system_key,
+            "EEZ_L1_BLOCK_TIME_MS": str(eez.get("l1_block_time_ms", 12000)),
+            "EEZ_L2_BLOCK_TIME_MS": str(eez.get("l2_block_time_ms", 2000)),
             "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
             "EEZ_GENESIS_OUT": "/out/l2-genesis.json",
         },
@@ -188,8 +187,8 @@ def run(plan, args):
                 "/genesis": "el_cl_genesis_data",
             },
             env_vars={
+                "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
-                "EEZ_L2_SYSTEM_KEY": l2_system_key,
                 "RUST_LOG": eez.get("proof_signer_rust_log", "info"),
             },
             entrypoint=["/bin/sh", "-c"],
@@ -233,7 +232,6 @@ def run(plan, args):
         "EEZ_L2_XCHAIN_PORT": str(L2_XCHAIN_PORT),
         "EEZ_L2_AUTH_PORT": str(L2_ENGINE_PORT),
         "EEZ_L2_P2P_PORT": str(L2_P2P_PORT),
-        "EEZ_L2_SYSTEM_KEY": l2_system_key,
         "EEZL2_ADDRESS": "0x4200000000000000000000000000000000000007",
         "RUST_LOG": eez.get("node_rust_log", "info"),
     }

@@ -25,7 +25,6 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
         "EEZ_REGISTRY_ADDRESS",
         "EEZ_REGISTRY_DEPLOY_BLOCK",
         "EEZ_ROLLUP_ID",
-        "EEZ_L2_SYSTEM_KEY",
         "EEZL2_ADDRESS",
         "EEZ_L1_BLOCK_TIME_MS",
         "EEZ_L2_BLOCK_TIME_MS",

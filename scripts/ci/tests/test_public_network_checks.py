@@ -140,7 +140,7 @@ if raw_transaction_for http://unused "0x{'b' * 64}" "{self.root}"; then exit 77;
         self.env.update(EEZ_DEPLOYMENTS_FILE=str(deployment),
                         EEZ_L2_GENESIS=str(genesis), EEZ_L1_CHAIN_CONFIG="chiado",
                         EEZ_L1_BEACON_URL="http://beacon.invalid", EEZ_L2_BLOCK_TIME_MS="1000",
-                        EEZ_L2_SYSTEM_KEY="fixture", EEZ_PROOF_TIME_MS="1500",
+                        EEZ_PROOF_TIME_MS="1500",
                         EEZ_SUBMISSION_SLACK_MS="700")
         script = REPO / "testing/kurtosis/scripts/verify-policy-replay.sh"
         self.run_shell(f'''kurtosis() {{ exit 77; }}

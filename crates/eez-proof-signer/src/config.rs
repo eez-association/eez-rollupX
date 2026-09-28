@@ -15,7 +15,6 @@ use clap::Parser;
 
 use crate::attest::{Attester, NonZeroProofSystemVkey};
 use crate::service::{ServiceLimits, ServiceLimitsParams};
-use crate::settlement::SystemTransactionKey;
 
 /// An infallibly parsed CLI secret that retains only decoded bytes.
 ///
@@ -48,6 +47,24 @@ impl SecretKeyArg {
     }
 }
 
+/// Invalid endpoint syntax is retained only as absence so clap cannot echo
+/// credentials in either parsing errors or Debug output.
+#[derive(Clone)]
+struct RpcUrlArg(Option<url::Url>);
+impl FromStr for RpcUrlArg {
+    type Err = std::convert::Infallible;
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self(url::Url::parse(value).ok().filter(|u| {
+            matches!(u.scheme(), "http" | "https") && u.host_str().is_some()
+        })))
+    }
+}
+impl std::fmt::Debug for RpcUrlArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("<redacted>")
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(
     name = "eez-proof-signer",
@@ -58,12 +75,19 @@ struct Args {
     #[arg(long, env = "EEZ_PROOF_SIGNER_ADDR", default_value = "127.0.0.1:50061")]
     listen_addr: SocketAddr,
 
-    /// Path to an operator-configured Alloy `ChainConfig` or complete `Genesis` document.
+    /// Path to the complete operator-configured L2 `Genesis` document.
     #[arg(long = "chain-config", env = "EEZ_CHAIN_CONFIG")]
     chain_document_path: PathBuf,
     /// Trusted L1 profile: mainnet, chiado, or a genesis/ChainConfig file.
     #[arg(long = "l1-chain-config", env = "EEZ_L1_CHAIN_CONFIG")]
     l1_chain_document_path: PathBuf,
+
+    /// Operator-trusted canonical L1 source, independent from Composer claims.
+    #[arg(long = "l1-rpc-url", env = "EEZ_L1_RPC_URL", hide_env_values = true)]
+    l1_rpc_url: RpcUrlArg,
+    /// Deployed L1 EEZ registry whose accepted endpoints authorize this signer.
+    #[arg(long = "registry-address", env = "EEZ_REGISTRY_ADDRESS")]
+    registry_address: Address,
 
     /// Expected nonzero L1 rollup-registry ID this signer serves.
     ///
@@ -91,18 +115,12 @@ struct Args {
     #[arg(long = "attester-address", env = "EEZ_ATTESTER_ADDRESS")]
     expected_attester_address: Address,
 
-    /// Private secp256k1 key for the deployment-configured L2 system address,
-    /// used to reconstruct system transactions omitted from Sync-block DA.
-    #[arg(
-        long = "l2-system-key",
-        env = "EEZ_L2_SYSTEM_KEY",
-        value_name = "32-BYTE-HEX",
-        hide_env_values = true
-    )]
-    system_transaction_key: SecretKeyArg,
-
     /// L2 system address embedded in the deployed EEZL2 contract.
-    #[arg(long = "l2-system-address", env = "EEZ_L2_SYSTEM_ADDRESS")]
+    #[arg(
+        long = "l2-system-address",
+        env = "EEZ_L2_SYSTEM_ADDRESS",
+        default_value = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
+    )]
     expected_l2_system_address: Address,
 
     /// Expected non-zero proof-system contract selected by the operator.
@@ -151,18 +169,28 @@ struct Args {
 }
 
 /// Runtime configuration assembled from CLI and environment input.
-#[derive(Debug)]
 pub(crate) struct Config {
     pub(crate) listen_addr: SocketAddr,
     pub(crate) chain_document_path: PathBuf,
     pub(crate) l1_chain_document_path: PathBuf,
+    pub(crate) l1_rpc_url: url::Url,
+    pub(crate) registry_address: Address,
     /// Expected L1 rollup-registry ID, distinct from the L2 EIP-155 chain ID.
     pub(crate) expected_rollup_id: NonZeroU64,
-    /// Deployment-configured privileged L2 transaction signer.
+    /// Fixed native sender, checked against any deployment-supplied address.
     pub(crate) expected_l2_system_address: Address,
     pub(crate) attester: Attester,
-    pub(crate) system_transaction_key: SystemTransactionKey,
     pub(crate) limits: ServiceLimits,
+}
+
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Config")
+            .field("listen_addr", &self.listen_addr)
+            .field("expected_rollup_id", &self.expected_rollup_id)
+            .field("registry_address", &self.registry_address)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Config {
@@ -172,6 +200,19 @@ impl Config {
     }
 
     fn from_args(args: Args) -> eyre::Result<Self> {
+        eyre::ensure!(
+            args.expected_l2_system_address == eez_primitives::SYSTEM_ADDRESS,
+            "EEZL2 system address must equal the native protocol address {}",
+            eez_primitives::SYSTEM_ADDRESS,
+        );
+        eyre::ensure!(
+            !args.registry_address.is_zero(),
+            "L1 registry address must be nonzero"
+        );
+        let l1_rpc_url = args
+            .l1_rpc_url
+            .0
+            .ok_or_else(|| eyre::eyre!("L1 RPC URL must be an absolute HTTP(S) endpoint"))?;
         let attestation_private_key = args.attestation_key.into_key("attestation")?;
         let attester = Attester::new(
             attestation_private_key,
@@ -184,19 +225,15 @@ impl Config {
             attester.address() == args.expected_attester_address,
             "attestation key does not match the expected attester address"
         );
-        let system_transaction_key = SystemTransactionKey::new(
-            args.system_transaction_key.into_key("L2 system")?,
-            args.expected_l2_system_address,
-        )
-        .map_err(eyre::Report::new)?;
         Ok(Self {
             listen_addr: args.listen_addr,
+            l1_rpc_url,
+            registry_address: args.registry_address,
             chain_document_path: args.chain_document_path,
             l1_chain_document_path: args.l1_chain_document_path,
             expected_rollup_id: args.expected_rollup_id,
             expected_l2_system_address: args.expected_l2_system_address,
             attester,
-            system_transaction_key,
             limits: ServiceLimits::new(ServiceLimitsParams {
                 max_window_blocks: args.max_request_blocks,
                 max_window_bytes: args.max_request_bytes,

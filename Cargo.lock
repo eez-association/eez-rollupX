@@ -3116,9 +3116,11 @@ dependencies = [
  "async-trait",
  "eez-blob-codec",
  "eez-driver",
+ "eez-evm",
  "eez-evm-inspector",
  "eez-l1",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "eez-prover",
  "either",
@@ -3127,7 +3129,6 @@ dependencies = [
  "metrics-exporter-prometheus",
  "reth-chain-state",
  "reth-chainspec",
- "reth-ethereum-engine-primitives",
  "reth-ethereum-primitives",
  "reth-evm",
  "reth-evm-ethereum",
@@ -3168,15 +3169,14 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-sol-types",
  "eez-driver",
+ "eez-evm",
  "eez-l1",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "postcard",
  "reth-chainspec",
- "reth-ethereum-engine-primitives",
- "reth-ethereum-primitives",
  "reth-evm",
- "reth-evm-ethereum",
  "reth-libmdbx",
  "reth-payload-primitives",
  "reth-primitives-traits",
@@ -3202,15 +3202,16 @@ dependencies = [
  "alloy-rpc-types-engine",
  "alloy-sol-types",
  "async-trait",
+ "eez-evm",
  "eez-l1",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "eez-prover",
  "eyre",
  "reth-chainspec",
  "reth-engine-primitives",
  "reth-ethereum-engine-primitives",
- "reth-ethereum-primitives",
  "reth-evm",
  "reth-evm-ethereum",
  "reth-payload-builder",
@@ -3221,8 +3222,30 @@ dependencies = [
  "reth-storage-api",
  "reth-trie",
  "revm",
+ "serde_json",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "eez-evm"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-evm",
+ "alloy-genesis",
+ "alloy-primitives",
+ "alloy-rpc-types-engine",
+ "eez-primitives",
+ "eez-protocol",
+ "reth-chainspec",
+ "reth-evm",
+ "reth-evm-ethereum",
+ "reth-primitives-traits",
+ "reth-storage-errors",
+ "revm",
+ "serde_json",
 ]
 
 [[package]]
@@ -3244,18 +3267,17 @@ dependencies = [
  "alloy-eips",
  "alloy-primitives",
  "alloy-provider",
- "alloy-signer-local",
  "clap",
  "eez-deriver",
  "eez-driver",
+ "eez-evm",
  "eez-l1",
  "eez-node-common",
+ "eez-primitives",
  "eez-protocol",
  "eyre",
  "reth-chainspec",
- "reth-ethereum-engine-primitives",
  "reth-node-builder",
- "reth-node-ethereum",
  "reth-primitives-traits",
  "reth-storage-api",
  "thiserror 2.0.18",
@@ -3316,9 +3338,11 @@ dependencies = [
  "eez-control-rpc",
  "eez-deriver",
  "eez-driver",
+ "eez-evm",
  "eez-l1",
  "eez-node-common",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "eez-prover",
  "eez-prover-client",
@@ -3335,6 +3359,7 @@ dependencies = [
  "reth-chainspec",
  "reth-cli",
  "reth-db",
+ "reth-engine-local",
  "reth-ethereum-cli",
  "reth-ethereum-primitives",
  "reth-evm",
@@ -3364,33 +3389,53 @@ name = "eez-node-common"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-consensus-any",
  "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
+ "alloy-rpc-types-engine",
+ "alloy-rpc-types-eth",
  "clap",
  "dotenvy",
  "eez-deriver",
  "eez-driver",
+ "eez-evm",
  "eez-l1",
  "eez-payload-codec",
+ "eez-primitives",
  "eyre",
  "jsonrpsee",
  "mimalloc",
  "reth-basic-payload-builder",
  "reth-chainspec",
+ "reth-consensus-common",
  "reth-db",
+ "reth-engine-local",
+ "reth-engine-primitives",
+ "reth-errors",
  "reth-ethereum-cli",
+ "reth-ethereum-consensus",
  "reth-ethereum-engine-primitives",
  "reth-ethereum-payload-builder",
  "reth-ethereum-primitives",
  "reth-evm",
+ "reth-evm-ethereum",
+ "reth-execution-cache",
  "reth-node-api",
  "reth-node-builder",
+ "reth-node-ethereum",
+ "reth-payload-builder-primitives",
  "reth-payload-primitives",
  "reth-primitives-traits",
+ "reth-provider",
+ "reth-revm",
+ "reth-rpc",
+ "reth-rpc-convert",
  "reth-rpc-eth-api",
+ "reth-rpc-eth-types",
  "reth-storage-api",
  "reth-transaction-pool",
+ "revm",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -3421,6 +3466,7 @@ dependencies = [
  "eez-l1",
  "eez-node",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "eez-testkit",
  "eyre",
@@ -3428,6 +3474,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "prost",
+ "reqwest 0.12.28",
  "reth-chainspec",
  "serde",
  "serde_json",
@@ -3445,9 +3492,35 @@ dependencies = [
  "alloy-eips",
  "alloy-primitives",
  "alloy-rlp",
+ "eez-primitives",
  "proptest",
- "reth-ethereum-primitives",
+ "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "eez-primitives"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-eips",
+ "alloy-evm",
+ "alloy-network",
+ "alloy-primitives",
+ "alloy-rlp",
+ "alloy-rpc-types-engine",
+ "alloy-rpc-types-eth",
+ "alloy-serde",
+ "reth-codecs",
+ "reth-engine-primitives",
+ "reth-ethereum-engine-primitives",
+ "reth-ethereum-primitives",
+ "reth-payload-primitives",
+ "reth-primitives-traits",
+ "reth-rpc-traits",
+ "revm",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3466,8 +3539,10 @@ dependencies = [
  "eez-blob-codec",
  "eez-control-rpc",
  "eez-driver",
+ "eez-evm",
  "eez-l1",
  "eez-payload-codec",
+ "eez-primitives",
  "eez-protocol",
  "eyre",
  "hex",
@@ -3486,6 +3561,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tries",
+ "url",
 ]
 
 [[package]]
@@ -3500,6 +3576,7 @@ dependencies = [
  "alloy-sol-types",
  "eez-blob-codec",
  "eez-payload-codec",
+ "eez-primitives",
  "hex",
  "k256",
  "reth-ethereum-primitives",
@@ -3515,6 +3592,7 @@ dependencies = [
 name = "eez-prover"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
  "alloy-rpc-types-debug",
  "async-trait",
@@ -3528,6 +3606,7 @@ name = "eez-prover-client"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-signer",
  "alloy-signer-local",
  "alloy-sol-types",
@@ -3548,25 +3627,31 @@ name = "eez-testkit"
 version = "0.1.0"
 dependencies = [
  "alloy-consensus",
+ "alloy-consensus-any",
  "alloy-contract",
  "alloy-eips",
  "alloy-genesis",
  "alloy-network",
  "alloy-primitives",
  "alloy-provider",
+ "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
  "alloy-signer-local",
  "alloy-sol-types",
  "anyhow",
  "eez-blob-codec",
  "eez-control-rpc",
+ "eez-primitives",
  "eez-protocol",
  "http-body-util",
  "hyper",
  "hyper-util",
+ "jsonrpsee",
  "prost",
+ "reqwest 0.12.28",
  "reth-chainspec",
  "reth-db",
+ "reth-ethereum-primitives",
  "reth_gnosis",
  "serde",
  "serde_json",
@@ -11340,7 +11425,6 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 [[package]]
 name = "stateless"
 version = "0.1.0"
-source = "git+https://github.com/eez-association/stateless?rev=ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",
@@ -12277,7 +12361,6 @@ dependencies = [
 [[package]]
 name = "tries"
 version = "0.1.0"
-source = "git+https://github.com/eez-association/stateless?rev=ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
@@ -13556,7 +13639,6 @@ dependencies = [
 [[package]]
 name = "zeth-mpt"
 version = "0.1.0"
-source = "git+https://github.com/eez-association/stateless?rev=ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",

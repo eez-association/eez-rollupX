@@ -67,9 +67,10 @@ independently recomputed post-state root. The adapter carries those returned
 values into `BackendWindowOutput`; it does not promote a copied Composer or
 header claim merely by renaming it.
 
-The checkpoint-enabled path is used only when the final selection is non-empty.
-An empty selection uses ordinary Stateless validation and reports an empty
-vector; it does not authorize an effect position.
+The terminal block always uses checkpoint-enabled replay, including an empty
+selection, to expose its state after mandatory pre-execution. B[0] commits that
+state plus the ordinary transaction prefix. An empty checkpoint vector does
+not authorize an effect position. Preceding blocks use ordinary replay.
 
 ## One associated output per block
 

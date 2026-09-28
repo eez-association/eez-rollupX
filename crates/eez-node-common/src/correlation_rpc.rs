@@ -271,6 +271,10 @@ mod tests {
     }
 
     fn record() -> BatchCorrelation {
+        let endpoint_header = alloy_consensus::Header {
+            number: 200,
+            ..Default::default()
+        };
         BatchCorrelation {
             l1_block_number: 35,
             l1_block_hash: B256::repeat_byte(0x35),
@@ -283,9 +287,10 @@ mod tests {
                 },
                 L2BlockCorrelation {
                     number: 200,
-                    hash: B256::repeat_byte(0x20),
+                    hash: endpoint_header.hash_slow(),
                 },
             ],
+            endpoint_header,
         }
     }
 

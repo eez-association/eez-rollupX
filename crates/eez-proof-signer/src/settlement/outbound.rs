@@ -1,5 +1,7 @@
 //! Outbound event binding and settlement-effect authorization.
 
+use eez_protocol::entries::InboundSidecar;
+
 use std::fmt;
 use std::num::NonZeroU64;
 
@@ -313,9 +315,8 @@ pub(super) struct AuthorizedOutboundEffect {
     claimed_entry: ExecutionEntrySol,
     load_transaction_index: usize,
     user_transaction_index: usize,
-    callback_transaction_indices: Vec<usize>,
     derived_da_entry: OutboundSourceEntry,
-    derived_callback_entries: Vec<ExecutionEntrySol>,
+    derived_callback_entries: Vec<InboundSidecar>,
 }
 
 impl AuthorizedOutboundEffects {
@@ -353,10 +354,6 @@ impl AuthorizedOutboundEffect {
         self.user_transaction_index
     }
 
-    pub(super) fn callback_transaction_indices(&self) -> &[usize] {
-        &self.callback_transaction_indices
-    }
-
     #[cfg(test)]
     pub(super) fn derived_da_entry(&self) -> &ExecutionEntrySol {
         self.derived_da_entry
@@ -368,7 +365,7 @@ impl AuthorizedOutboundEffect {
         &self.derived_da_entry
     }
 
-    pub(super) fn derived_callback_entries(&self) -> &[ExecutionEntrySol] {
+    pub(super) fn derived_callback_entries(&self) -> &[InboundSidecar] {
         &self.derived_callback_entries
     }
 }
@@ -494,7 +491,6 @@ pub(crate) fn authorize_outbound_effects(
                         reason: "mixed outbound host must cover the complete source load".into(),
                     });
                 }
-                let mut callback_transaction_indices = Vec::new();
                 let mut callback_entries = Vec::new();
                 while let Some(candidate) = incoming.next_if(|candidate| {
                     candidate.transaction_index >= effect.callback_start_transaction_index()
@@ -509,8 +505,7 @@ pub(crate) fn authorize_outbound_effects(
                             ),
                         }
                     })?;
-                    callback_transaction_indices.push(candidate.transaction_index);
-                    callback_entries.push(observation.derived_da_entry.as_entry().clone());
+                    callback_entries.push(observation.derived_da_entry.as_sidecar().clone());
                 }
                 let mut effect_observations = Vec::new();
                 let host_covers_complete_load =
@@ -567,9 +562,6 @@ pub(crate) fn authorize_outbound_effects(
                         claimed_entry: effect.claimed_entry().clone(),
                         load_transaction_index,
                         user_transaction_index: effect.user_transaction_index(),
-                        callback_transaction_indices: callback_transaction_indices
-                            [callback_cursor..callback_end]
-                            .to_vec(),
                         derived_da_entry: source_entry.clone(),
                         derived_callback_entries: callback_entries[callback_cursor..callback_end]
                             .to_vec(),
@@ -603,7 +595,7 @@ fn unexpected_outbound_observation(observation: &OutboundEventObservation) -> Ou
 fn authorize_outbound_effect(
     effect: &BoundEffect<'_>,
     source_entries: &[OutboundSourceEntry],
-    callback_entries: &[ExecutionEntrySol],
+    callback_entries: &[InboundSidecar],
     observations: &[&OutboundEventObservation],
     expected_rollup_id: NonZeroU64,
     expected_l2_system_address: Address,
@@ -655,7 +647,11 @@ fn authorize_outbound_effect(
                 })?;
             let l2_entries = mutable
                 .into_iter()
-                .chain(callback_entries.iter().cloned())
+                .chain(
+                    callback_entries
+                        .iter()
+                        .map(|entry| entry.as_abi_entry().clone()),
+                )
                 .collect::<Vec<_>>();
             verify_nested_group(
                 entry,

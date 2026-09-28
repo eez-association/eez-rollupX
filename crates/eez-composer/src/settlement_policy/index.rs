@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use alloy_primitives::B256;
 use eez_l1::L2Endpoint;
-use eez_payload_codec::{DerivablePayloadSizer, derivable::Environment};
+use eez_payload_codec::v0::PayloadSizer;
 
 use super::PolicyError;
 
@@ -14,10 +14,8 @@ use super::PolicyError;
 pub(crate) struct BlockActivity {
     pub endpoint: L2Endpoint,
     pub parent_hash: B256,
-    /// The full block's RLP byte-string length when promoted to terminal.
-    pub encoded_item_bytes: u64,
-    /// This position represented as ordinary, before terminal promotion.
-    pub ordinary: DerivablePayloadSizer,
+    /// Exact contribution to the V0 columns, including terminal metadata.
+    pub ordinary: PayloadSizer,
     pub pure_transactions: u64,
 }
 
@@ -30,8 +28,6 @@ struct IndexedBlock {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub(crate) struct DaOverhead {
-    pub entry_items: usize,
-    pub group_items: usize,
     pub semantic_bytes: usize,
 }
 
@@ -42,9 +38,9 @@ pub(crate) struct ActivityIndex {
     anchor: Option<L2Endpoint>,
     anchor_prefix_pure_transactions: u64,
     blocks: BTreeMap<u64, IndexedBlock>,
-    // Aligned power-of-two ordinary summaries, through level 15. Larger ranges
-    // compose several entries so no cached summary exceeds the format ceiling.
-    summaries: BTreeMap<(u32, u64), DerivablePayloadSizer>,
+    // Aligned summaries through level 15 bound cache granularity. Larger
+    // admitted ranges compose multiple summaries; this is not a wire limit.
+    summaries: BTreeMap<(u32, u64), PayloadSizer>,
 }
 
 impl ActivityIndex {
@@ -59,7 +55,7 @@ impl ActivityIndex {
         mut load: impl FnMut(B256) -> Result<BlockActivity, PolicyError>,
     ) -> Result<bool, PolicyError> {
         let codec = (
-            eez_payload_codec::derivable::TAG,
+            eez_payload_codec::v0::VERSION,
             eez_blob_codec::PROTOCOL_VERSION,
         );
         let mut invalidated = self.codec != codec || self.anchor != Some(anchor);
@@ -156,11 +152,7 @@ impl ActivityIndex {
         Ok(invalidated)
     }
 
-    fn insert_summary(
-        &mut self,
-        number: u64,
-        summary: DerivablePayloadSizer,
-    ) -> Result<(), PolicyError> {
+    fn insert_summary(&mut self, number: u64, summary: PayloadSizer) -> Result<(), PolicyError> {
         self.summaries.insert((0, number), summary);
         for level in 1..=15 {
             let width = 1u64 << level;
@@ -180,14 +172,14 @@ impl ActivityIndex {
         Ok(())
     }
 
-    /// Compose [anchor + 1, end), selecting the initial environment anew. A byte
-    /// prefix subtraction cannot account for gaps or environment transitions.
-    fn ordinary_range(&self, end: u64) -> Result<DerivablePayloadSizer, PolicyError> {
+    /// Compose [anchor + 1, end). Byte subtraction cannot account for count
+    /// and metadata runs merging at the new range boundary.
+    fn ordinary_range(&self, end: u64) -> Result<PayloadSizer, PolicyError> {
         let Some((&first, _)) = self.blocks.first_key_value() else {
-            return Ok(DerivablePayloadSizer::default());
+            return Ok(PayloadSizer::default());
         };
         let mut cursor = first;
-        let mut summary = DerivablePayloadSizer::default();
+        let mut summary = PayloadSizer::default();
         while cursor < end {
             let remaining = end - cursor;
             let level = cursor.trailing_zeros().min(remaining.ilog2()).min(15);
@@ -246,10 +238,9 @@ impl ActivityIndex {
                 )
             })?;
         let ordinary = self.ordinary_range(endpoint.number)?;
-        let terminal = usize::try_from(block.block.encoded_item_bytes)
-            .map_err(|_| PolicyError::Arithmetic("historical terminal size"))?;
         let payload = ordinary
-            .encoded_len_from_items(&Environment::unused(), terminal, 0, 0)
+            .combine(&block.block.ordinary)
+            .and_then(|sum| sum.encoded_len())
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let stream = eez_blob_codec::native_stream_len(payload, 0)
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
@@ -259,13 +250,13 @@ impl ActivityIndex {
     /// Estimate the complete pending range plus the current terminal block.
     /// No blob allocations, padding, hashing, or semantic re-encoding occurs.
     #[cfg(test)]
-    pub fn estimated_stream_bytes(&self, terminal_item_bytes: usize) -> Result<u64, PolicyError> {
-        self.estimated_stream_bytes_with_overhead(terminal_item_bytes, DaOverhead::default())
+    pub fn estimated_stream_bytes(&self, terminal: &PayloadSizer) -> Result<u64, PolicyError> {
+        self.estimated_stream_bytes_with_overhead(terminal, DaOverhead::default())
     }
 
     pub fn estimated_stream_bytes_with_overhead(
         &self,
-        terminal_item_bytes: usize,
+        terminal: &PayloadSizer,
         overhead: DaOverhead,
     ) -> Result<u64, PolicyError> {
         let end = self.blocks.last_key_value().map_or(Ok(0), |(number, _)| {
@@ -275,12 +266,8 @@ impl ActivityIndex {
         })?;
         let ordinary = self.ordinary_range(end)?;
         let payload_bytes = ordinary
-            .encoded_len_from_items(
-                &Environment::unused(),
-                terminal_item_bytes,
-                overhead.entry_items,
-                overhead.group_items,
-            )
+            .combine(terminal)
+            .and_then(|sum| sum.encoded_len())
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let stream_bytes =
             eez_blob_codec::native_stream_len(payload_bytes, overhead.semantic_bytes)
@@ -293,10 +280,58 @@ impl ActivityIndex {
 mod tests {
     use super::*;
 
+    fn summary(block: &eez_primitives::Block) -> PayloadSizer {
+        eez_driver::derivation::operations_size(block).unwrap()
+    }
+
+    fn full_payload(blocks: &[Vec<u8>]) -> Vec<u8> {
+        use alloy_eips::Encodable2718;
+        use alloy_primitives::Bytes;
+        use eez_payload_codec::v0::{self, BlockRun};
+        let blocks = blocks
+            .iter()
+            .map(|bytes| alloy_rlp::decode_exact::<eez_primitives::Block>(bytes).unwrap())
+            .collect::<Vec<_>>();
+        let transactions = blocks
+            .iter()
+            .map(|block| {
+                block
+                    .body
+                    .transactions
+                    .iter()
+                    .map(|tx| Bytes::from(tx.encoded_2718()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        v0::encode(
+            &blocks
+                .iter()
+                .zip(&transactions)
+                .map(|(block, transactions)| BlockRun {
+                    blocks: 1,
+                    beneficiary: block.header.beneficiary,
+                    extra_data: &block.header.extra_data,
+                    transactions,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap()
+    }
+
+    // Opaque bytes are sufficient for cache accounting tests. Wire comparisons
+    // below use canonical signed transactions through full_payload instead.
+    fn opaque_summary(size: usize) -> PayloadSizer {
+        PayloadSizer::run(&eez_payload_codec::v0::BlockRun {
+            blocks: 1,
+            beneficiary: Default::default(),
+            extra_data: &[],
+            transactions: &[vec![0; size].into()],
+        })
+        .unwrap()
+    }
+
     #[test]
-    fn sparse_range_index_matches_dense_wire_after_anchor_changes_and_terminal_promotion() {
-        use alloy_rlp::Encodable as _;
-        use eez_payload_codec::derivable::{Payload, Record, RecordData};
+    fn sparse_range_index_matches_dense_wire_after_anchor_changes_and_metadata_runs() {
         let anchor = L2Endpoint {
             number: 0,
             hash: B256::ZERO,
@@ -304,23 +339,16 @@ mod tests {
         let mut previous = anchor.hash;
         let mut chain = Vec::new();
         let mut bodies = Vec::new();
-        let mut environments = Vec::new();
         for number in 1..=513 {
-            let mut environment = Environment::unused();
-            environment.timestamp_step_seconds = (number / 128) + 1;
-            let block = reth_ethereum_primitives::Block {
+            let block = eez_primitives::Block {
                 header: alloy_consensus::Header {
                     number,
                     parent_hash: previous,
+                    beneficiary: alloy_primitives::Address::with_last_byte((number / 128) as u8),
+                    extra_data: vec![(number / 17) as u8; (number % 33) as usize].into(),
                     ..Default::default()
                 },
                 ..Default::default()
-            };
-            let encoded = alloy_rlp::encode(&block);
-            let ordinary = if number % 17 == 0 {
-                DerivablePayloadSizer::full_block(&encoded, 0).unwrap()
-            } else {
-                DerivablePayloadSizer::derived_block(environment.clone(), &[]).unwrap()
             };
             chain.push(BlockActivity {
                 endpoint: L2Endpoint {
@@ -328,13 +356,11 @@ mod tests {
                     hash: block.header.hash_slow(),
                 },
                 parent_hash: previous,
-                encoded_item_bytes: encoded.as_slice().length() as u64,
-                ordinary,
+                ordinary: summary(&block),
                 pure_transactions: 0,
             });
             previous = block.header.hash_slow();
-            bodies.push(encoded);
-            environments.push(environment);
+            bodies.push(alloy_rlp::encode(&block));
         }
         let mut index = ActivityIndex::default();
         let end = chain.last().unwrap().endpoint;
@@ -360,47 +386,12 @@ mod tests {
                 })
                 .unwrap();
             for terminal in [start, (start + 128).min(512), 512] {
-                let initial = (start..terminal)
-                    .find(|p| (p + 1) % 17 != 0)
-                    .map_or_else(Environment::unused, |p| environments[p].clone());
-                let mut active = initial.clone();
-                let mut records = Vec::new();
-                let mut gap = 0;
-                for p in start..terminal {
-                    let data = if (p + 1) % 17 == 0 {
-                        Some(RecordData::FullBlock(bodies[p].clone().into()))
-                    } else if active != environments[p] {
-                        active = environments[p].clone();
-                        Some(RecordData::EnvironmentChange {
-                            environment: active.clone(),
-                            transactions: vec![],
-                        })
-                    } else {
-                        None
-                    };
-                    if let Some(data) = data {
-                        records.push(Record {
-                            empty_gap: gap,
-                            data,
-                        });
-                        gap = 0;
-                    } else {
-                        gap += 1;
-                    }
-                }
-                let payload = Payload::new(
-                    (terminal - start) as u64,
-                    initial,
-                    records,
-                    bodies[terminal].clone(),
-                    vec![],
+                let actual = eez_blob_codec::encode_native_stream(
+                    1,
+                    full_payload(&bodies[start..=terminal]).into(),
                     vec![],
                 )
-                .unwrap()
-                .encode()
                 .unwrap();
-                let actual =
-                    eez_blob_codec::encode_native_stream(1, payload.into(), vec![]).unwrap();
                 assert_eq!(
                     index
                         .historical_stream_bytes(chain[terminal].endpoint)
@@ -414,31 +405,8 @@ mod tests {
         }
     }
 
-    fn full_payload(blocks: &[Vec<u8>], entries: &[Vec<u8>], groups: &[u16]) -> Vec<u8> {
-        use eez_payload_codec::derivable::{Payload, Record, RecordData};
-        Payload::new(
-            blocks.len() as u64 - 1,
-            Environment::unused(),
-            blocks[..blocks.len() - 1]
-                .iter()
-                .map(|rlp| Record {
-                    empty_gap: 0,
-                    data: RecordData::FullBlock(rlp.clone().into()),
-                })
-                .collect(),
-            blocks.last().unwrap().clone(),
-            entries.to_vec(),
-            groups.to_vec(),
-        )
-        .unwrap()
-        .encode()
-        .unwrap()
-    }
-
     #[test]
     fn individually_fitting_blocks_can_exceed_capacity_before_the_first_sync_boundary() {
-        use alloy_rlp::Encodable as _;
-
         // Chiado's five-block Sync interval: three ordinary data blocks, then
         // two empty blocks. Only the last block is an eligible terminal.
         let budget = 2 * eez_blob_codec::DATA_BYTES_PER_BLOB;
@@ -469,16 +437,14 @@ mod tests {
             activity.push(BlockActivity {
                 endpoint: L2Endpoint { number, hash },
                 parent_hash,
-                encoded_item_bytes: body.as_slice().length() as u64,
-                ordinary: DerivablePayloadSizer::full_block(&body, block.body.transactions.len())
-                    .unwrap(),
+                ordinary: summary(&alloy_rlp::decode_exact(&body).unwrap()),
                 pure_transactions: block.body.transactions.len() as u64,
             });
             bodies.push(body);
             parent_hash = hash;
         }
         let measured_stream = |blocks: &[Vec<u8>]| {
-            let payload = full_payload(blocks, &[], &[]);
+            let payload = full_payload(blocks);
             eez_blob_codec::encode_native_stream(1, payload.into(), vec![])
                 .unwrap()
                 .blob_portion
@@ -515,7 +481,6 @@ mod tests {
 
     #[test]
     fn historical_prefix_sizes_match_encoding_after_anchor_advance_and_reorg() {
-        use alloy_rlp::Encodable as _;
         let mut parent_hash = B256::ZERO;
         let bodies: Vec<Vec<u8>> = [0, 55, 128, 126_976]
             .into_iter()
@@ -551,14 +516,13 @@ mod tests {
             .update(anchor, end, |hash| {
                 let n = hash[31];
                 let mut measured = block(n, n, n - 1, true);
-                measured.encoded_item_bytes = bodies[usize::from(n - 1)].as_slice().length() as u64;
                 measured.ordinary =
-                    DerivablePayloadSizer::full_block(&bodies[usize::from(n - 1)], 1).unwrap();
+                    summary(&alloy_rlp::decode_exact(&bodies[usize::from(n - 1)]).unwrap());
                 Ok(measured)
             })
             .unwrap();
         let oracle = |blocks: &[Vec<u8>]| {
-            let payload = full_payload(blocks, &[], &[]);
+            let payload = full_payload(blocks);
             eez_blob_codec::encode_native_stream(1, payload.into(), vec![])
                 .unwrap()
                 .blob_portion
@@ -592,9 +556,7 @@ mod tests {
         index
             .update(next_anchor, replacement, |_| {
                 let mut measured = block(4, 9, 3, false);
-                measured.encoded_item_bytes = replacement_body.as_slice().length() as u64;
-                measured.ordinary =
-                    DerivablePayloadSizer::full_block(&replacement_body, 0).unwrap();
+                measured.ordinary = summary(&alloy_rlp::decode_exact(&replacement_body).unwrap());
                 Ok(measured)
             })
             .unwrap();
@@ -608,15 +570,12 @@ mod tests {
     #[test]
     fn measured_fullness_includes_derivation_metadata_and_zero_valued_semantic_data() {
         use alloy_primitives::Bytes;
-        use alloy_rlp::Encodable;
         use eez_blob_codec::Message;
         let mut block = reth_ethereum_primitives::Block::default();
         block.header.number = 1;
         let terminal = alloy_rlp::encode(block);
         let index = ActivityIndex::default();
         for size in [0, 55, 128, 16_384, 126_976] {
-            let entries = vec![vec![0u8; size], vec![0u8; 128]];
-            let groups = vec![1u16, 128];
             let messages = vec![
                 Message::InitiateCrossChainTransaction {
                     chain_id: 1,
@@ -627,15 +586,16 @@ mod tests {
             let empty_stream =
                 eez_blob_codec::encode_native_stream(1, Bytes::new(), messages.clone()).unwrap();
             let overhead = DaOverhead {
-                entry_items: entries.iter().map(|entry| entry.as_slice().length()).sum(),
-                group_items: groups.iter().map(Encodable::length).sum(),
                 semantic_bytes: empty_stream.blob_portion.len()
                     - eez_blob_codec::native_stream_len(0, 0).unwrap(),
             };
             let estimated = index
-                .estimated_stream_bytes_with_overhead(terminal.as_slice().length(), overhead)
+                .estimated_stream_bytes_with_overhead(
+                    &summary(&alloy_rlp::decode_exact(&terminal).unwrap()),
+                    overhead,
+                )
                 .unwrap();
-            let operations = full_payload(std::slice::from_ref(&terminal), &entries, &groups);
+            let operations = full_payload(std::slice::from_ref(&terminal));
             let actual =
                 eez_blob_codec::encode_native_stream(1, operations.into(), messages).unwrap();
             assert_eq!(estimated, actual.blob_portion.len() as u64);
@@ -644,7 +604,9 @@ mod tests {
             assert!(
                 estimated
                     > index
-                        .estimated_stream_bytes(terminal.as_slice().length())
+                        .estimated_stream_bytes(&summary(
+                            &alloy_rlp::decode_exact(&terminal).unwrap()
+                        ))
                         .unwrap()
             );
         }
@@ -657,8 +619,7 @@ mod tests {
                 hash: B256::with_last_byte(hash),
             },
             parent_hash: B256::with_last_byte(parent),
-            encoded_item_bytes: 100,
-            ordinary: DerivablePayloadSizer::full_block(&[0; 100], 0).unwrap(),
+            ordinary: opaque_summary(100),
             pure_transactions: u64::from(pure),
         }
     }
@@ -671,22 +632,21 @@ mod tests {
         index
             .update(genesis, pending.endpoint, |_| Ok(pending.clone()))
             .unwrap();
-        let previous_size = index.estimated_stream_bytes(100).unwrap();
+        let previous_size = index.estimated_stream_bytes(&opaque_summary(100)).unwrap();
         index.codec.0 ^= 1;
         let mut reads = 0;
         index
             .update(genesis, pending.endpoint, |_| {
                 reads += 1;
                 Ok(BlockActivity {
-                    encoded_item_bytes: 200,
-                    ordinary: DerivablePayloadSizer::full_block(&[0; 200], 0).unwrap(),
+                    ordinary: opaque_summary(200),
                     ..pending.clone()
                 })
             })
             .unwrap();
         assert_eq!(reads, 1);
         assert_eq!(index.latest_pure(), Some(pending.endpoint));
-        assert!(index.estimated_stream_bytes(100).unwrap() > previous_size);
+        assert!(index.estimated_stream_bytes(&opaque_summary(100)).unwrap() > previous_size);
     }
 
     #[test]
@@ -712,7 +672,7 @@ mod tests {
         assert_eq!(reads, 2);
         assert_eq!(index.latest_pure(), Some(chain[0].endpoint));
         assert_eq!(index.pending_pure_transactions().unwrap(), 1);
-        let full_bytes = index.estimated_stream_bytes(100).unwrap();
+        let full_bytes = index.estimated_stream_bytes(&opaque_summary(100)).unwrap();
         assert!(
             !index
                 .update(genesis, chain[1].endpoint, |_| {
@@ -730,7 +690,7 @@ mod tests {
                 .unwrap(),
             "an append must not rescan the immutable encoding cache"
         );
-        assert!(index.estimated_stream_bytes(100).unwrap() > full_bytes);
+        assert!(index.estimated_stream_bytes(&opaque_summary(100)).unwrap() > full_bytes);
         assert!(
             index
                 .update(chain[0].endpoint, chain[2].endpoint, |_| {
@@ -741,7 +701,10 @@ mod tests {
         );
         assert_eq!(index.latest_pure(), None);
         assert_eq!(index.pending_pure_transactions().unwrap(), 0);
-        assert_eq!(index.estimated_stream_bytes(100).unwrap(), full_bytes);
+        assert_eq!(
+            index.estimated_stream_bytes(&opaque_summary(100)).unwrap(),
+            full_bytes
+        );
     }
 
     #[test]

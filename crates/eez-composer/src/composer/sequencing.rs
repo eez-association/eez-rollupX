@@ -43,7 +43,7 @@ fn item_limit(
         .checked_add(reserved)
         .ok_or("sequencing byte accounting overflow")?;
     let fits = |item: usize| -> Result<bool, String> {
-        let payload = eez_payload_codec::derivable::interval_payload_bound(
+        let payload = eez_payload_codec::v0::interval_payload_bound(
             total_blocks,
             fixed
                 .checked_add(item)
@@ -304,7 +304,7 @@ mod tests {
                 let limit = item_limit(capacity, 0, reserved, k).unwrap();
                 let length = |items| {
                     eez_blob_codec::native_stream_len(
-                        eez_payload_codec::derivable::interval_payload_bound(k, items).unwrap(),
+                        eez_payload_codec::v0::interval_payload_bound(k, items).unwrap(),
                         0,
                     )
                     .unwrap()

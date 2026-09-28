@@ -12,9 +12,7 @@ use eez_protocol::{Composition, RollupId};
 use reth_primitives_traits::BlockBody as _;
 use thiserror::Error;
 
-use super::{
-    AuthorizedInboundEffects, AuthorizedOutboundEffects, CanonicalPostBatch, EthereumBlock,
-};
+use super::{AuthorizedInboundEffects, AuthorizedOutboundEffects, CanonicalPostBatch, EezBlock};
 use crate::validate::ValidatedWindow;
 
 /// A native semantic stream did not reproduce the effects authorized from
@@ -130,7 +128,7 @@ pub(crate) fn verify_native_semantics_with_observations(
         });
     }
 
-    let settling_block: EthereumBlock =
+    let settling_block: EezBlock =
         alloy_rlp::decode_exact(validated_window.settling_block().block().rlp())
             .map_err(|error| SemanticBindingError::InvalidSettlingBlock(error.to_string()))?;
     let settling_transactions = settling_block
@@ -506,7 +504,7 @@ fn expected_outbound_sidecars(group: &[super::outbound::AuthorizedOutboundEffect
                 effect
                     .derived_callback_entries()
                     .iter()
-                    .map(ExecutionEntrySol::abi_encode),
+                    .map(eez_protocol::entries::InboundSidecar::encoded),
             )
         })
         .collect()

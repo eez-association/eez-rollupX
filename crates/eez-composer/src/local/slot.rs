@@ -17,8 +17,8 @@ use std::sync::Arc;
 use alloy_consensus::Header;
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_sol_types::SolCall;
+use eez_evm::EezEvmConfig;
 use reth_evm::{ConfigureEvm, Evm as _};
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::SealedHeader;
 use reth_revm::{database::StateProviderDatabase, db::State, db::bal::EvmDatabaseError};
 use reth_storage_api::EvmStateProviderAdapter;
@@ -114,7 +114,7 @@ pub struct L1SlotState {
     pub cache: CacheState,
     /// Enabled-policy target environment and actual poster frame context.
     /// Synthetic calls observe these values without charging transaction fees.
-    pub posting: Option<(reth_evm::EvmEnvFor<EthEvmConfig>, Address, u128)>,
+    pub posting: Option<(reth_evm::EvmEnvFor<EezEvmConfig>, Address, u128)>,
 }
 
 impl L1SlotState {
@@ -153,7 +153,7 @@ impl L1SlotState {
         seed: CacheState,
     ) -> ExecutorResult<(
         State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        reth_evm::EvmEnvFor<EthEvmConfig>,
+        reth_evm::EvmEnvFor<EezEvmConfig>,
     )> {
         let provider = client.chain_provider();
         let state_prov = provider
@@ -192,7 +192,7 @@ impl L1SlotState {
         client: &LocalChainClient,
     ) -> ExecutorResult<(
         State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        reth_evm::EvmEnvFor<EthEvmConfig>,
+        reth_evm::EvmEnvFor<EezEvmConfig>,
     )> {
         self.open_state(client, self.cache.clone())
     }
@@ -212,9 +212,9 @@ impl L1SlotState {
 /// survivor-accept. Changing the payload type breaks that hand-off.
 pub struct L1TargetSession {
     client: Arc<LocalChainClient>,
-    evm_config: EthEvmConfig,
+    evm_config: EezEvmConfig,
     state: State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-    evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
+    evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
     manager: Address,
     chain_id: u64,
     posting_origin: Option<Address>,
@@ -747,7 +747,7 @@ mod posting_frame_tests {
         let mut inspector = SkipTopFrame::new(NoOpInspector {});
         inspector.top_caller = Some(manager);
         inspector.top_gas_price = Some(37);
-        let mut result = EthEvmConfig::mainnet()
+        let mut result = EezEvmConfig::new(reth_chainspec::MAINNET.clone())
             .evm_with_env_and_inspector(database, env, inspector)
             .transact(TxEnv {
                 caller: poster,

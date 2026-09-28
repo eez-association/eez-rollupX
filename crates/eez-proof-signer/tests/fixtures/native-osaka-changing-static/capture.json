@@ -1,0 +1,19 @@
+{
+  "base": "dc9f50f8e9fa694c6bb5d2d1af9a4ca70e87447c",
+  "protocol_gitlink": "160000 commit 9d13218a355e7d543ca8a9927eea2962600b716d\teez-core-protocol",
+  "binaries_sha256": {
+    "target/debug/eez-composer": "09773ade913381dcf1ff4891e85d95037d885fbf5cf617eb7263b448c2c261aa",
+    "target/debug/eez-follower": "74aaafc05a2e5d901a40664f8ddaf01e4ab5b2e7bd93c7601a51f5f07f754fd1",
+    "target/debug/eez-proof-signer": "f3290842de8694afc56ec435b6c3ebd1bd07bb9c33547e2b81fa840b24baa85b"
+  },
+  "files_sha256": {
+    "chain-config.json": "9ca9a80927c78ea811aeb5315f2aab67cf7887ff6d16d75e700aa2cbba5d9ee3",
+    "cold-request.protobuf": "fa55b7654626c8961b8a8c550d3d4d34f3339505a527abeca6bd898c6db12800",
+    "identity.json": "97ce3ae062ac91934790dda8ee4be8c590e567b5fd673e733ff702da54156f07",
+    "l1-genesis.json": "7a89019b92be5da2a7e91185093036570b887770e3590e9690c17c7b41ffc4e7",
+    "l2-genesis.json": "e685b53e9ef6436baa647cfb98b0d76beebc41a4496ee4bfb50b5b419c58dcbb",
+    "request.protobuf": "41b90f712cf07aad29061545336941c2592b0fea7ee6a84cfea71d71edf38c38",
+    "response.json": "e3bee11624db5acdbf9c9d3fbf4bec07c405fb67d01640a438132ae0c29cd708"
+  },
+  "local_evidence": "artifacts/native-system-backport/e2e/profile-captures-1-executed-identity.json"
+}

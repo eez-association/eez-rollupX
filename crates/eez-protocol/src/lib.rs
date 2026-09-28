@@ -45,6 +45,7 @@ pub mod dialect;
 pub mod entries;
 pub mod error;
 pub mod executor;
+pub mod l2;
 pub mod outbound_gate;
 pub mod proof_plan;
 pub mod public_inputs;

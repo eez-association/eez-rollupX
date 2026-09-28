@@ -1,0 +1,78 @@
+{
+  "profile": "RollupX direct V0 with the two-byte count amendment",
+  "specReference": "eduadiez/rollupX#35; specs-draft 7c99bcf923e0ee0f867549a750d1ab1373bf845d Appendix D/G amended counts",
+  "vectors": [
+    {
+      "blocks": 1,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 26,
+      "operations": "0x0001000111111111111111111111111111111111111111110100"
+    },
+    {
+      "blocks": 2,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 26,
+      "operations": "0x0002c00211111111111111111111111111111111111111110200"
+    },
+    {
+      "blocks": 6,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 26,
+      "operations": "0x0006c40611111111111111111111111111111111111111110600"
+    },
+    {
+      "blocks": 64,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 26,
+      "operations": "0x0040fe4011111111111111111111111111111111111111114000"
+    },
+    {
+      "blocks": 65,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 27,
+      "operations": "0x0041ff414111111111111111111111111111111111111111114100"
+    },
+    {
+      "blocks": 600,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 31,
+      "operations": "0x00d804ffd804d8041111111111111111111111111111111111111111d80400"
+    },
+    {
+      "blocks": 43200,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 35,
+      "operations": "0x00c0d102ffc0d102c0d1021111111111111111111111111111111111111111c0d10200"
+    },
+    {
+      "blocks": 60000,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 35,
+      "operations": "0x00e0d403ffe0d403e0d4031111111111111111111111111111111111111111e0d40300"
+    },
+    {
+      "blocks": 4294967295,
+      "beneficiary": "0x1111111111111111111111111111111111111111",
+      "extraData": "0x",
+      "pureL2Transactions": 0,
+      "encodedBytes": 43,
+      "operations": "0x00ffffffff0fffffffffff0fffffffff0f1111111111111111111111111111111111111111ffffffff0f00"
+    }
+  ]
+}

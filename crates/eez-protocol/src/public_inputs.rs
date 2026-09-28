@@ -163,11 +163,14 @@ pub fn all_per_ps_hashes(
 /// supported batch profile.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PublicInputsError {
+    /// A target must identify a nonzero chain, parent hash and child timestamp.
+    #[error("invalid L1 execution context")]
+    InvalidL1Context,
     /// The proof plan reconstructed from the batch is malformed.
     #[error(transparent)]
     InvalidPlan(#[from] ProofPlanInvariantError),
     /// Manager-defined custom data for nonzero block numbers is not wired yet.
-    #[error("public-input hashing currently requires blockNumber == 0, got {block_number}")]
+    #[error("public-input hashing requires blockNumber == uint64.max, got {block_number}")]
     UnsupportedBlockNumber {
         /// Unsupported `batch.blockNumber` value.
         block_number: u64,
@@ -195,51 +198,71 @@ pub enum PublicInputsError {
     },
 }
 
-/// Compute every per-proof-system hash for the currently supported batch
-/// profile: block number zero, no sender binding, and no blobs.
-///
-/// The reference manager returns empty `customData` for block zero, so this
-/// helper supplies one empty custom-data value per rollup and binds `address(0)`.
-///
-/// # Errors
-///
-/// Returns [`PublicInputsError`] for unsupported batch features or malformed
-/// proof-system carriers.
-#[tracing::instrument(level = "debug", name = "public_inputs_hashes", skip_all, err)]
-pub fn public_inputs_hashes(batch: &EvmBatch, vkey: B256) -> Result<Vec<B256>, PublicInputsError> {
-    if batch.blockNumber != 0 {
-        return Err(PublicInputsError::UnsupportedBlockNumber {
-            block_number: batch.blockNumber,
-        });
+/// Exact L1 execution context for a latest-bound batch. Header authenticity is
+/// checked by runtime callers; this value provides shape validation and the
+/// pinned reference manager's `abi.encode(timestamp, parentBlockHash)` bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct L1PostingContext {
+    /// Configured execution network; authenticated independently by the signer.
+    pub chain_id: u64,
+    /// Canonical height of the target child's parent.
+    pub parent_number: u64,
+    /// Hash returned by `blockhash(block.number - 1)` at the target.
+    pub parent_hash: B256,
+    /// Exact timestamp required for inclusion; a later slot needs a new proof.
+    pub target_timestamp: u64,
+}
+
+impl L1PostingContext {
+    /// Reject missing identities and impossible child heights; this does not authenticate L1.
+    pub fn validate(self) -> Result<Self, PublicInputsError> {
+        if self.chain_id == 0
+            || self.parent_hash.is_zero()
+            || self.target_timestamp == 0
+            || self.parent_number == u64::MAX
+        {
+            return Err(PublicInputsError::InvalidL1Context);
+        }
+        Ok(self)
     }
-    if batch.bindMsgSenderInPublicInput {
-        return Err(PublicInputsError::UnsupportedSenderBinding);
+
+    /// Exact bytes returned by the pinned Rollup for `uint64.max`.
+    pub fn custom_data(self) -> Result<Bytes, PublicInputsError> {
+        self.validate()?;
+        Ok((
+            alloy_primitives::U256::from(self.target_timestamp),
+            self.parent_hash,
+        )
+            .abi_encode()
+            .into())
     }
+}
+
+/// Hash a latest-context batch without blobs. Runtime settlement uses the
+/// blob-aware form; both reject timeless and specific-block contexts.
+pub fn public_inputs_hashes(
+    batch: &EvmBatch,
+    vkey: B256,
+    context: L1PostingContext,
+) -> Result<Vec<B256>, PublicInputsError> {
     if !batch.blobIndices.is_empty() {
         return Err(PublicInputsError::UnsupportedBlobIndices {
             count: batch.blobIndices.len(),
         });
     }
-
-    public_inputs_hashes_with_blob_hashes(batch, vkey, &[])
+    public_inputs_hashes_with_blob_hashes(batch, vkey, &[], context)
 }
 
-/// Compute every per-proof-system hash with independently derived transaction
-/// blob hashes.
-///
-/// `transaction_blob_hashes` is the complete type-3 transaction blob set in
-/// transaction order. `batch.blobIndices` selects from it exactly as Solidity's
-/// `blobhash(index)` does. Callers must derive these hashes from the actual
-/// blobs; accepting composer-claimed hashes at this boundary is unsound.
-///
-/// The other initial-profile restrictions remain unchanged: block number zero,
-/// no sender binding, and empty manager custom data.
+/// Compute per-proof-system hashes, binding the exact target timestamp and L1
+/// parent through the pinned manager's latest-context sentinel. Callers derive
+/// transaction hashes from actual blobs; indices select those hashes in order.
 pub fn public_inputs_hashes_with_blob_hashes(
     batch: &EvmBatch,
     vkey: B256,
     transaction_blob_hashes: &[B256],
+    context: L1PostingContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
-    if batch.blockNumber != 0 {
+    if batch.blockNumber != u64::MAX {
         return Err(PublicInputsError::UnsupportedBlockNumber {
             block_number: batch.blockNumber,
         });
@@ -278,7 +301,7 @@ pub fn public_inputs_hashes_with_blob_hashes(
         .collect();
     let plan = ProofPlan {
         proof_systems: batch.proofSystems.clone(),
-        custom_data: vec![Bytes::new(); rollup_assignments.len()],
+        custom_data: vec![context.custom_data()?; rollup_assignments.len()],
         rollup_assignments,
         vk_matrix,
     };
@@ -461,9 +484,19 @@ mod tests {
         ));
     }
 
+    fn context() -> L1PostingContext {
+        L1PostingContext {
+            chain_id: 1,
+            parent_number: 99,
+            parent_hash: B256::with_last_byte(0xab),
+            target_timestamp: 1_700_000_000,
+        }
+    }
+
     fn carrier_batch() -> crate::abi::EvmBatch {
         use crate::abi::RollupIdWithProofSystemsSol;
         let mut batch = crate::abi::EvmBatch {
+            blockNumber: u64::MAX,
             proofSystems: vec![address!("00000000000000000000000000000000000000aa")],
             ..Default::default()
         };
@@ -475,10 +508,71 @@ mod tests {
     }
 
     #[test]
+    fn latest_context_matches_the_pinned_solidity_manager_vector() {
+        // Independent oracle: PublicInputsHashVectors.t.sol executes the real
+        // manager and rejects the same proof after either context field changes.
+        let hash = public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), context())
+            .unwrap()[0];
+        assert_eq!(
+            hash,
+            alloy_primitives::b256!(
+                "62573d0503b227019390ec8d00cc7fc808403e3b042ae02de710081bc20fee30"
+            )
+        );
+        for mutated in [
+            L1PostingContext {
+                target_timestamp: context().target_timestamp + 1,
+                ..context()
+            },
+            L1PostingContext {
+                parent_hash: B256::with_last_byte(0xac),
+                ..context()
+            },
+        ] {
+            assert_ne!(
+                hash,
+                public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), mutated)
+                    .unwrap()[0]
+            );
+        }
+        for number in [0, 1, u64::MAX - 1] {
+            let mut batch = carrier_batch();
+            batch.blockNumber = number;
+            assert!(matches!(
+                public_inputs_hashes(&batch, B256::with_last_byte(0x42), context()),
+                Err(PublicInputsError::UnsupportedBlockNumber { .. })
+            ));
+        }
+        for invalid in [
+            L1PostingContext {
+                parent_hash: B256::ZERO,
+                ..context()
+            },
+            L1PostingContext {
+                parent_number: u64::MAX,
+                ..context()
+            },
+            L1PostingContext {
+                chain_id: 0,
+                ..context()
+            },
+            L1PostingContext {
+                target_timestamp: 0,
+                ..context()
+            },
+        ] {
+            assert!(matches!(
+                public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), invalid),
+                Err(PublicInputsError::InvalidL1Context)
+            ));
+        }
+    }
+
+    #[test]
     fn per_ps_fold_matches_three_word_encoding() {
         let vkey = B256::repeat_byte(0x42);
-        let got = public_inputs_hashes(&carrier_batch(), vkey).unwrap()[0];
-        let custom_hash = custom_data_hash(RollupId(1), &Bytes::new());
+        let got = public_inputs_hashes(&carrier_batch(), vkey, context()).unwrap()[0];
+        let custom_hash = custom_data_hash(RollupId(1), &context().custom_data().unwrap());
         let shared =
             shared_public_input(&[], &[], &[], &Bytes::new(), &[custom_hash], Address::ZERO);
 
@@ -499,21 +593,21 @@ mod tests {
         let mut batch = carrier_batch();
         batch.blockNumber = 7;
         assert!(matches!(
-            public_inputs_hashes(&batch, vkey),
+            public_inputs_hashes(&batch, vkey, context()),
             Err(PublicInputsError::UnsupportedBlockNumber { block_number: 7 })
         ));
 
         let mut batch = carrier_batch();
         batch.bindMsgSenderInPublicInput = true;
         assert!(matches!(
-            public_inputs_hashes(&batch, vkey),
+            public_inputs_hashes(&batch, vkey, context()),
             Err(PublicInputsError::UnsupportedSenderBinding)
         ));
 
         let mut batch = carrier_batch();
         batch.blobIndices.push(alloy_primitives::U256::ZERO);
         assert!(matches!(
-            public_inputs_hashes(&batch, vkey),
+            public_inputs_hashes(&batch, vkey, context()),
             Err(PublicInputsError::UnsupportedBlobIndices { count: 1 })
         ));
     }
@@ -529,11 +623,12 @@ mod tests {
         let transaction_hashes = [B256::repeat_byte(0x11), B256::repeat_byte(0x22)];
 
         let got =
-            public_inputs_hashes_with_blob_hashes(&batch, vkey, &transaction_hashes).unwrap()[0];
+            public_inputs_hashes_with_blob_hashes(&batch, vkey, &transaction_hashes, context())
+                .unwrap()[0];
         let expected = all_per_ps_hashes(
             &ProofPlan {
                 proof_systems: batch.proofSystems.clone(),
-                custom_data: vec![Bytes::new()],
+                custom_data: vec![context().custom_data().unwrap()],
                 rollup_assignments: vec![RollupProofAssignment {
                     rollup_id: RollupId(1),
                     proof_system_indexes: vec![0],
@@ -555,7 +650,12 @@ mod tests {
         let mut batch = carrier_batch();
         batch.blobIndices = vec![alloy_primitives::U256::from(2)];
         assert!(matches!(
-            public_inputs_hashes_with_blob_hashes(&batch, B256::repeat_byte(0x42), &[B256::ZERO]),
+            public_inputs_hashes_with_blob_hashes(
+                &batch,
+                B256::repeat_byte(0x42),
+                &[B256::ZERO],
+                context()
+            ),
             Err(PublicInputsError::InvalidBlobIndex {
                 position: 0,
                 blob_count: 1,

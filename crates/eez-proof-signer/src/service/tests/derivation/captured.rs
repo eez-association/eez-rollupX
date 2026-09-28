@@ -16,7 +16,7 @@ fn chunks(bytes: &[u8]) -> Vec<ProveChunk> {
 async fn preparation_rejects_a_real_system_and_outbound_terminal_without_signing() {
     use eez_control_rpc::v1::{PrepareChunk, PrepareHeader, prepare_chunk};
 
-    let fixture = Fixture::load("derivable-native-mixed");
+    let fixture = Fixture::load("native-osaka-changing-static");
     let state = Arc::clone(&fixture.state);
     let server = TestServer::new(Arc::clone(&state)).await;
     let Some(prove_chunk::Kind::Block(terminal)) = fixture.input.last().unwrap().kind.clone()
@@ -82,7 +82,7 @@ fn inventory_native_proving_fixtures() {
                     "success": entry.success, "destination": entry.destinationRollupId,
                 })).collect::<Vec<_>>(),
                 "static_entries": batch.staticEntries.len(),
-                "sidecars": payload.l2_entries().len(), "groups": payload.outbound_group_sizes(),
+                "blocks": payload.block_count(), "ordinary_transactions": payload.transaction_count(),
             })
         );
     }
@@ -102,7 +102,7 @@ impl Fixture {
         TestServer::with_limits(
             Arc::clone(&self.state),
             ServiceLimits::new(ServiceLimitsParams {
-                max_window_blocks: nz(64),
+                max_window_blocks: nz(128),
                 max_window_bytes: nz(16 * 1024 * 1024),
                 max_window_witness_items: nz(100_000),
                 stream_idle_timeout: Duration::from_secs(5),
@@ -133,10 +133,15 @@ impl Fixture {
                             $name,
                             "/request.protobuf"
                         )),
-                        "chain-config.json" => include_bytes!(concat!(
+                        "l2-genesis.json" => include_bytes!(concat!(
                             "../../../../tests/fixtures/",
                             $name,
-                            "/chain-config.json"
+                            "/l2-genesis.json"
+                        )),
+                        "cold-request.protobuf" => include_bytes!(concat!(
+                            "../../../../tests/fixtures/",
+                            $name,
+                            "/cold-request.protobuf"
                         )),
                         "l1-genesis.json" => include_bytes!(concat!(
                             "../../../../tests/fixtures/",
@@ -149,9 +154,8 @@ impl Fixture {
             }};
         }
         let read: fn(&str) -> &[u8] = match name {
-            "derivable-native-mixed" => fixture!("derivable-native-mixed"),
-            "derivable-native-lookup" => fixture!("derivable-native-lookup"),
-            "derivable-native-changing-static" => fixture!("derivable-native-changing-static"),
+            "native-osaka-lookup" => fixture!("native-osaka-lookup"),
+            "native-osaka-changing-static" => fixture!("native-osaka-changing-static"),
             _ => panic!("unknown fixture"),
         };
         let identity: serde_json::Value = serde_json::from_slice(read("identity.json")).unwrap();
@@ -174,11 +178,11 @@ impl Fixture {
             .unwrap()
             .parse::<Address>()
             .unwrap();
-        let system_key = settlement::SystemTransactionKey::new(
-            b256!("6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1"),
+        assert_eq!(
             system_address,
-        )
-        .unwrap();
+            eez_primitives::SYSTEM_ADDRESS,
+            "fixture must be captured with the native protocol"
+        );
         assert_eq!(identity["gnosis_l1"], false);
         // The same intentionally public Anvil account #5 used by Testkit.
         let attester = crate::attest::Attester::new(
@@ -188,15 +192,17 @@ impl Fixture {
             system_address,
         )
         .unwrap();
+        let genesis = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name)
+            .join("l2-genesis.json");
+        assert_eq!(std::fs::read(&genesis).unwrap(), read("l2-genesis.json"));
         let state = Arc::new(
             ServiceState::new(
-                Validator::stateless_for_test(
-                    serde_json::from_slice(read("chain-config.json")).unwrap(),
-                    system_address,
-                ),
+                crate::service::l1::L1Authority::Synthetic,
+                Validator::stateless(&genesis, system_address).unwrap(),
                 expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
                 attester,
-                system_key,
                 Arc::new(reth_chainspec::ChainSpec::from(
                     serde_json::from_slice::<alloy_genesis::Genesis>(read("l1-genesis.json"))
                         .unwrap(),
@@ -204,13 +210,11 @@ impl Fixture {
             )
             .unwrap(),
         );
-        let input = if name == "derivable-native-changing-static" {
+        let input = {
             // The original request used cached ranges. These are the exact
             // preparation witnesses expanded for independent full execution;
             // no cache facts from the capturing process are imported.
-            let cold = include_bytes!(
-                "../../../../tests/fixtures/derivable-native-changing-static/cold-request.protobuf"
-            );
+            let cold = read("cold-request.protobuf");
             assert_eq!(
                 cold.len() as u64,
                 response["cold_request_bytes"].as_u64().unwrap()
@@ -232,8 +236,6 @@ impl Fixture {
                     .all(|chunk| matches!(chunk.kind, Some(prove_chunk::Kind::Block(_))))
             );
             cold
-        } else {
-            chunks(encoded)
         };
         let mut fixture = Self {
             input,
@@ -243,7 +245,34 @@ impl Fixture {
             ),
             signature: hex::decode(response["signature"].as_str().unwrap()).unwrap(),
         };
-        fixture.reencode_v0();
+        let native = native_payload(&mut fixture.input);
+        let semantics =
+            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
+                .unwrap();
+        let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+            &semantics,
+            eez_protocol::RollupId(1),
+            fixture.state.validator.chain_id(),
+        )
+        .unwrap();
+        let batch = settlement::decode_canonical_post_batch(
+            header_mut(&mut fixture.input[0])
+                .post_batch
+                .as_ref()
+                .unwrap()
+                .abi_calldata
+                .clone(),
+        )
+        .unwrap();
+        actions.bind_settlement(&batch).unwrap();
+        assert_eq!(fixture.digest(), fixture.expected_hash);
+        assert_eq!(
+            Signature::try_from(fixture.signature.as_slice())
+                .unwrap()
+                .recover_address_from_prehash(&fixture.expected_hash)
+                .unwrap(),
+            fixture.state.attester.address()
+        );
         fixture
     }
 
@@ -263,74 +292,10 @@ impl Fixture {
         .recompute_public_inputs_hash(
             self.state.attester.proof_system_vkey(),
             carrier.transaction_blob_hashes(),
+            crate::testkit::target_from_wire(post.posting_context.as_ref().unwrap()),
         )
         .unwrap()
         .into_inner()
-    }
-
-    // Adapt only these immutable captured kind-0/empty ordinary fixtures, in tests.
-    // No historical decoder is linked into the shipping signer. Original block
-    // witnesses, terminal, effects and semantic messages are never regenerated.
-    fn reencode_v0(&mut self) {
-        #[derive(alloy_rlp::RlpDecodable)]
-        struct CapturedTransactions {
-            gap: u64,
-            kind: u8,
-            transactions: Vec<Bytes>,
-        }
-        #[derive(alloy_rlp::RlpDecodable)]
-        struct Captured {
-            profile: u8,
-            count: u64,
-            environment: Environment,
-            records: Vec<CapturedTransactions>,
-            terminal: Vec<u8>,
-            entries: Vec<Vec<u8>>,
-            groups: Vec<u16>,
-        }
-        assert_eq!(self.digest(), self.expected_hash);
-        assert_eq!(
-            Signature::try_from(self.signature.as_slice())
-                .unwrap()
-                .recover_address_from_prehash(&self.expected_hash)
-                .unwrap(),
-            self.state.attester.address()
-        );
-        let mut native = native_payload(&mut self.input);
-        assert_eq!(native.operations[0], 3);
-        let old: Captured = alloy_rlp::decode_exact(&native.operations[1..]).unwrap();
-        assert_eq!(old.profile, 1);
-        let records = old
-            .records
-            .into_iter()
-            .map(|record| {
-                assert_eq!(
-                    record.kind, 0,
-                    "adapter only covers captured transaction records"
-                );
-                Record {
-                    empty_gap: record.gap,
-                    data: RecordData::Transactions(record.transactions),
-                }
-            })
-            .collect();
-        let new = Payload::new(
-            old.count,
-            old.environment,
-            records,
-            old.terminal,
-            old.entries,
-            old.groups,
-        )
-        .unwrap();
-        native.operations = new.encode().unwrap().into();
-        replace_native_payload(&mut self.input, native);
-        let new_hash = self.digest();
-        assert_ne!(
-            new_hash, self.expected_hash,
-            "changing DA changes the committed digest"
-        );
-        self.expected_hash = new_hash;
     }
 }
 
@@ -367,7 +332,7 @@ fn pipeline_error(state: &ServiceState, input: Vec<ProveChunk>) -> PipelineError
     let mut input = input.into_iter();
     let mut assembler = crate::window::WindowAssembler::start(
         crate::window::WindowLimits {
-            blocks: 64,
+            blocks: 128,
             payload_bytes: 16 * 1024 * 1024,
             witness_items: 100_000,
         },
@@ -387,6 +352,8 @@ fn pipeline_error(state: &ServiceState, input: Vec<ProveChunk>) -> PipelineError
         header.submitted_post_batch_calldata,
         header.submitted_blobs,
         maximum_blobs,
+        header.posting_context,
+        crate::service::l1::CandidateContext::Synthetic,
         tokio::time::Instant::now() + std::time::Duration::from_secs(30),
         &CancellationToken::default(),
     )
@@ -394,62 +361,75 @@ fn pipeline_error(state: &ServiceState, input: Vec<ProveChunk>) -> PipelineError
     .expect("mutated request must fail the full pipeline")
 }
 
-#[tokio::test]
-async fn previous_protocol_system_selectors_are_rejected_without_signing() {
-    // Only the DA wrapper is adapted to V0; the original execution bytes and
-    // system selectors must still fail the new protocol's authorization gate.
-    let fixture = Fixture::load("derivable-native-mixed");
-    let error = pipeline_error(&fixture.state, fixture.input.clone());
-    assert!(matches!(
-        error,
-        PipelineError::Settlement(SettlementPipelineError::InboundEffects(
-            settlement::InboundEffectError::MissingCandidate {
-                entry_index: 2,
-                transaction_index: 2
-            }
-        ))
-    ));
-    let server = fixture.server().await;
+#[test]
+fn previous_signed_system_deployment_is_rejected_before_replay() {
+    let identity: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/derivable-native-mixed/identity.json"
+    ))
+    .unwrap();
+    let system_address = identity["l2_system_address"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_ne!(system_address, eez_primitives::SYSTEM_ADDRESS);
+    let config = serde_json::from_str(include_str!(
+        "../../../../tests/fixtures/derivable-native-mixed/chain-config.json"
+    ))
+    .unwrap();
+    let error = ServiceState::new(
+        crate::service::l1::L1Authority::Synthetic,
+        Validator::stateless_for_test(
+            alloy_genesis::Genesis {
+                config,
+                ..Default::default()
+            },
+            system_address,
+        ),
+        expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
+        test_attester(),
+        crate::testkit::l1_chain_spec(),
+    )
+    .unwrap_err();
     assert_eq!(
-        server.prove(fixture.input).await.code(),
-        Code::FailedPrecondition
+        error.to_string(),
+        "validator does not use the native L2 system address"
     );
-    assert_eq!(fixture.state.attester.signing_calls(), 0);
 }
 
 #[tokio::test]
 async fn native_changing_reads_and_caught_revert_replay_original_execution_with_v0() {
-    for name in [
-        "derivable-native-changing-static",
-        "derivable-native-lookup",
-    ] {
+    for name in ["native-osaka-changing-static", "native-osaka-lookup"] {
         let mut fixture = Fixture::load(name);
         let native = native_payload(&mut fixture.input);
         let payload = Payload::decode(&native.operations).unwrap();
-        assert!((1..=64).contains(&payload.block_count()));
+        assert!((1..=128).contains(&payload.block_count()));
         let post = header_mut(&mut fixture.input[0])
             .post_batch
             .as_ref()
             .unwrap();
         let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+        let semantics =
+            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
+                .unwrap();
+        let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+            &semantics,
+            eez_protocol::RollupId(1),
+            fixture.state.validator.chain_id(),
+        )
+        .unwrap();
+        assert!(payload.block_count().is_multiple_of(5));
+        assert_eq!(batch.entries.len(), 2);
         if name.ends_with("changing-static") {
-            assert_eq!(payload.block_count(), 42);
-            assert_eq!(batch.entries.len(), 2);
-            assert_eq!(payload.l2_entries().len(), 5);
-            assert_eq!(payload.outbound_group_sizes(), [5]);
+            assert_eq!(actions.outbound().len(), 1);
+            let effects = &actions.outbound()[0].effects;
+            assert_eq!(effects.len(), 5);
             assert_eq!(batch.entries[1].l2ToL1Calls.len(), 5);
-            let read_hash =
-                eez_protocol::abi::L2StaticExecutionEntrySol::abi_decode(&payload.l2_entries()[1])
-                    .unwrap()
-                    .proxyEntryHash;
-            for (row, (position, value)) in
-                payload.l2_entries()[1..]
-                    .iter()
-                    .zip([(0, 5), (0, 5), (1, 79), (1, 79)])
+            let read_hash = effects[1].source_entry.as_static().unwrap().proxyEntryHash;
+            for (effect, (position, value)) in
+                effects[1..].iter().zip([(0, 5), (0, 5), (1, 79), (1, 79)])
             {
-                let entry = eez_protocol::abi::L2StaticExecutionEntrySol::abi_decode(row)
-                    .expect("native static row");
-                assert_eq!(entry.abi_encode(), *row);
+                let entry = effect.source_entry.as_static().unwrap();
                 assert_eq!(entry.expectedEntryIndex, U256::from(position));
                 assert_eq!(entry.proxyEntryHash, read_hash);
                 assert!(entry.success);
@@ -459,10 +439,9 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
                 );
             }
         } else {
-            assert_eq!(payload.block_count(), 5);
-            assert_eq!(batch.entries.len(), 2);
             assert!(!batch.entries[1].success);
-            assert!(payload.l2_entries().is_empty());
+            assert!(actions.inbound().is_empty());
+            assert!(actions.outbound().is_empty());
         }
         let server = fixture.server().await;
         let response = server.attest(fixture.input.clone()).await;
@@ -471,7 +450,7 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             fixture.expected_hash,
             fixture.state.attester.address(),
         );
-        assert_ne!(response.signature, fixture.signature);
+        assert_eq!(response.signature, fixture.signature);
         // Retrying the identical request must recompute the same result.
         let retry = server.attest(fixture.input).await;
         assert_eq!(retry, response);
@@ -480,62 +459,64 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
 }
 
 #[tokio::test]
-async fn native_mixed_sidecars_and_group_boundaries_cannot_be_changed_before_signing() {
-    let mut fixture = Fixture::load("derivable-native-changing-static");
+async fn native_action_source_gas_and_outcomes_cannot_be_changed_before_signing() {
+    let mut fixture = Fixture::load("native-osaka-changing-static");
     let original = native_payload(&mut fixture.input);
-    let p = Payload::decode(&original.operations).unwrap();
     let server = fixture.server().await;
-    for mutation in 0..8 {
-        let mut entries = p.l2_entries().to_vec();
-        let mut groups = p.outbound_group_sizes().to_vec();
-        match mutation {
-            0 => {
-                entries.pop();
-            }
-            1 => {
-                entries.push(entries[0].clone());
-            }
-            2 => entries.swap(0, 1),
-            3 => {
-                let last = entries[0].len() - 1;
-                entries[0][last] ^= 1;
-            }
-            4 => groups.clear(),
-            5 => groups[0] += 1,
-            6 | 7 => {
-                let mut after_write =
-                    eez_protocol::abi::L2StaticExecutionEntrySol::abi_decode(&entries[3]).unwrap();
-                assert_eq!(after_write.expectedEntryIndex, U256::from(1));
-                after_write.expectedEntryIndex = if mutation == 6 { U256::ZERO } else { U256::MAX };
-                entries[3] = after_write.abi_encode();
-            }
-            _ => unreachable!(),
-        }
-        let changed = Payload::new(
-            p.ordinary_block_count() as u64,
-            p.initial_environment().clone(),
-            p.records().to_vec(),
-            p.terminal_block().to_vec(),
-            entries,
-            groups,
-        )
-        .unwrap();
-        let mut input = fixture.input.clone();
+    for mutation in 0..3 {
         let mut native = original.clone();
-        native.operations = changed.encode().unwrap().into();
+        let mut changed = false;
+        for message in &mut native.semantic_messages {
+            use eez_blob_codec::Message;
+            match (mutation, message) {
+                (0, Message::Call { from_address, .. }) => {
+                    *from_address = Address::repeat_byte(0x99);
+                    changed = true;
+                }
+                (1, Message::StaticCall { gas, .. }) => {
+                    *gas = 1;
+                    changed = true;
+                }
+                (2, Message::ReturnSuccess { return_data }) => {
+                    *return_data = Bytes::from_static(b"forged");
+                    changed = true;
+                }
+                _ => {}
+            }
+            if changed {
+                break;
+            }
+        }
+        assert!(changed, "fixture must contain mutation target {mutation}");
+        let mut input = fixture.input.clone();
         replace_native_payload(&mut input, native);
-        // Repacking produces a valid carrier; the specific authorization gate
-        // must reject the changed sidecars/grouping after actual execution.
+        // The carrier and witness remain valid. Independent semantic binding
+        // must refute changes to the source, fixed gas profile, or result.
         let error = pipeline_error(&fixture.state, input.clone());
-        assert_eq!(error.gate(), "da_payload", "mutation {mutation}: {error:?}");
-        assert_eq!(server.prove(input).await.code(), Code::FailedPrecondition);
+        assert_eq!(
+            error.gate(),
+            if mutation == 1 {
+                "blob_da"
+            } else {
+                "blob_semantics"
+            },
+            "mutation {mutation}: {error:?}"
+        );
+        assert_eq!(
+            server.prove(input).await.code(),
+            if mutation == 1 {
+                Code::InvalidArgument
+            } else {
+                Code::FailedPrecondition
+            }
+        );
         assert_eq!(fixture.state.attester.signing_calls(), 0);
     }
 }
 
 #[tokio::test]
 async fn forged_native_lookup_outcome_reaches_observation_replay_and_never_signs() {
-    let mut fixture = Fixture::load("derivable-native-lookup");
+    let mut fixture = Fixture::load("native-osaka-lookup");
     let mut native = native_payload(&mut fixture.input);
     let forged = Bytes::from_static(b"forged revert output");
     let mut changed = 0;

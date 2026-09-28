@@ -11,14 +11,18 @@ use super::ServiceState;
 use crate::cancel::CancellationToken;
 use crate::{settlement, validate, window};
 
-/// A locally recomputed digest authorized by every settlement gate.
+/// A locally recomputed digest authorized by execution, settlement and fresh L1 gates.
 ///
-/// Its private field makes the complete settlement job the only constructor;
+/// Construction follows the RPC's final canonical L1 recheck;
 /// the attester therefore cannot accept a profile-only recomputation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AttestablePublicInputsHash(settlement::RecomputedPublicInputsHash);
 
 impl AttestablePublicInputsHash {
+    /// The caller has completed the target recheck after the full blocking job.
+    pub(super) const fn authorize(hash: settlement::RecomputedPublicInputsHash) -> Self {
+        Self(hash)
+    }
     /// Return the digest bytes after the full request pipeline authorized them.
     pub(crate) const fn into_inner(self) -> B256 {
         self.0.into_inner()
@@ -27,7 +31,7 @@ impl AttestablePublicInputsHash {
 
 /// Fully checked material that may cross the attestation boundary.
 pub(super) struct AttestationMaterial {
-    pub(super) attestable_public_inputs: AttestablePublicInputsHash,
+    pub(super) recomputed_public_inputs: settlement::RecomputedPublicInputsHash,
     pub(super) validated_window_pre_block_hash: B256,
     pub(super) validated_window_post_block_hash: B256,
 }
@@ -41,6 +45,8 @@ pub(super) enum PipelineError {
     Settlement(#[from] SettlementPipelineError),
     #[error("request deadline elapsed before settlement")]
     DeadlineBeforeSettlement,
+    #[error("candidate L1 authorization: {0}")]
+    L1Authorization(&'static str),
 }
 
 impl PipelineError {
@@ -48,6 +54,7 @@ impl PipelineError {
         match self {
             Self::Validation(_) => "validation",
             Self::Settlement(_) | Self::DeadlineBeforeSettlement => "settlement",
+            Self::L1Authorization(_) => "l1_authorization",
         }
     }
 
@@ -56,6 +63,7 @@ impl PipelineError {
             Self::Validation(_) => "execution",
             Self::Settlement(error) => error.gate(),
             Self::DeadlineBeforeSettlement => "deadline",
+            Self::L1Authorization(_) => "canonical_context",
         }
     }
 
@@ -76,6 +84,9 @@ impl PipelineError {
                 }
             },
             Self::Settlement(error) => error.status(),
+            Self::L1Authorization(_) => {
+                Status::failed_precondition("candidate L1 authorization rejected")
+            }
             Self::DeadlineBeforeSettlement => {
                 Status::deadline_exceeded("Prove request deadline exceeded")
             }
@@ -93,18 +104,22 @@ pub(super) fn validate_and_settle(
     submitted_post_batch_calldata: Vec<u8>,
     submitted_blobs: Vec<Vec<u8>>,
     maximum_blobs: usize,
+    posting_context: eez_protocol::public_inputs::L1PostingContext,
+    candidate_context: super::l1::CandidateContext,
     deadline: Instant,
     cancellation: &CancellationToken,
 ) -> Result<AttestationMaterial, PipelineError> {
     let validated_window = state.validator.validate_window(blocks, cancellation)?;
+    candidate_context
+        .check_execution(&validated_window)
+        .map_err(PipelineError::L1Authorization)?;
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
     }
     let (recomputed_public_inputs_hash, observation_claims) = run_settlement_with_observations(
         SettlementInput {
-            #[cfg(test)]
-            projected_test_oracle: state.projected_test_oracle,
             submitted_post_batch_calldata,
+            posting_context,
             submitted_blobs: &submitted_blobs,
             validated_window: &validated_window,
             expected_rollup_id: state.expected_rollup_id,
@@ -115,6 +130,7 @@ pub(super) fn validate_and_settle(
             cancellation,
         },
         maximum_blobs,
+        &candidate_context,
     )?;
     ensure_settlement_active(cancellation)?;
     if Instant::now() >= deadline {
@@ -130,7 +146,7 @@ pub(super) fn validate_and_settle(
         return Err(PipelineError::DeadlineBeforeSettlement);
     }
     Ok(AttestationMaterial {
-        attestable_public_inputs: AttestablePublicInputsHash(recomputed_public_inputs_hash),
+        recomputed_public_inputs: recomputed_public_inputs_hash,
         validated_window_pre_block_hash: validated_window.window_pre_block_hash(),
         validated_window_post_block_hash: validated_window.window_post_block_hash(),
     })
@@ -141,8 +157,7 @@ pub(super) fn validate_and_settle(
 /// The job consumes the submitted calldata at its decode boundary. Other large
 /// values remain borrowed from the validated window owned by the worker.
 pub(super) struct SettlementInput<'a> {
-    #[cfg(test)]
-    pub(super) projected_test_oracle: bool,
+    pub(super) posting_context: eez_protocol::public_inputs::L1PostingContext,
     pub(super) submitted_post_batch_calldata: Vec<u8>,
     pub(super) submitted_blobs: &'a [Vec<u8>],
     pub(super) validated_window: &'a validate::ValidatedWindow,
@@ -183,6 +198,8 @@ pub(super) enum SettlementPipelineError {
     BlobSemantics(#[from] settlement::SemanticBindingError),
     #[error(transparent)]
     ObservationReplay(#[from] validate::ObservationValidationError),
+    #[error("candidate canonical registry state: {0}")]
+    L1Authorization(&'static str),
     #[error("request cancelled")]
     Cancelled,
 }
@@ -203,6 +220,7 @@ impl SettlementPipelineError {
             Self::BlobSemantics(_) => "blob_semantics",
             Self::ObservationReplay(_) => "observation_replay",
             Self::Cancelled => "cancellation",
+            Self::L1Authorization(_) => "canonical_registry",
         }
     }
 
@@ -273,16 +291,12 @@ impl SettlementPipelineError {
             | Self::InboundEffects(_)
             | Self::OutboundEffects(_)
             | Self::BlobSemantics(_)
-            | Self::ObservationReplay(_) => (
+            | Self::ObservationReplay(_)
+            | Self::L1Authorization(_) => (
                 tonic::Code::FailedPrecondition,
                 "settlement validation rejected",
             ),
             Self::DaPayload(error) => match error {
-                #[cfg(test)]
-                settlement::DaPayloadError::TrailingBytes { .. } => (
-                    tonic::Code::InvalidArgument,
-                    "invalid blob operations payload",
-                ),
                 settlement::DaPayloadError::Decode { .. } => (
                     tonic::Code::InvalidArgument,
                     "invalid blob operations payload",
@@ -296,13 +310,8 @@ impl SettlementPipelineError {
                 settlement::DaPayloadError::BlockCount { .. }
                 | settlement::DaPayloadError::MissingReconstruction { .. }
                 | settlement::DaPayloadError::EnvironmentMismatch { .. }
-                | settlement::DaPayloadError::BlockRlpMismatch { .. }
-                | settlement::DaPayloadError::UnexpectedItems { .. }
                 | settlement::DaPayloadError::ProjectedTransactionCount { .. }
                 | settlement::DaPayloadError::TransactionMismatch { .. }
-                | settlement::DaPayloadError::MissingL2Entry { .. }
-                | settlement::DaPayloadError::L2EntryMismatch { .. }
-                | settlement::DaPayloadError::OutboundGroupSizes
                 | settlement::DaPayloadError::SyncBlockTransactionCount { .. }
                 | settlement::DaPayloadError::SyncBlockTransactionMismatch { .. } => (
                     tonic::Code::FailedPrecondition,
@@ -335,6 +344,7 @@ impl SettlementPipelineError {
 fn run_settlement_with_observations(
     input: SettlementInput<'_>,
     maximum_blobs: usize,
+    candidate_context: &super::l1::CandidateContext,
 ) -> Result<
     (
         settlement::RecomputedPublicInputsHash,
@@ -343,8 +353,7 @@ fn run_settlement_with_observations(
     SettlementPipelineError,
 > {
     let SettlementInput {
-        #[cfg(test)]
-        projected_test_oracle,
+        posting_context,
         submitted_post_batch_calldata,
         submitted_blobs,
         validated_window,
@@ -386,7 +395,10 @@ fn run_settlement_with_observations(
 
     let bound_effects = settlement::bind_effects_to_execution(
         &verified_state_chain,
-        validated_window.settling_pre_block_hash(),
+        settling_block
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
         settling_block.transaction_state_checkpoints(),
         &settling_observations,
     )?;
@@ -429,8 +441,6 @@ fn run_settlement_with_observations(
         &authorized_outbound_effects,
         &authorized_inbound_effects,
         system_transaction_reconstructor,
-        #[cfg(test)]
-        projected_test_oracle,
     )?;
     let observation_claims = settlement::verify_native_semantics_with_observations(
         verified_da.semantic_transactions(),
@@ -441,8 +451,20 @@ fn run_settlement_with_observations(
         expected_rollup_id,
     )?;
 
-    let recomputed_public_inputs_hash = checked_public_input_profile
-        .recompute_public_inputs_hash(proof_system_vkey, verified_da.transaction_blob_hashes())?;
+    candidate_context
+        .check_settlement(
+            &bound_effects,
+            u32::try_from(validated_window.preceding_blocks().len() + 1).map_err(|_| {
+                SettlementPipelineError::L1Authorization("candidate block count exceeds V0")
+            })?,
+            !verified_da.semantic_transactions().is_empty(),
+        )
+        .map_err(SettlementPipelineError::L1Authorization)?;
+    let recomputed_public_inputs_hash = checked_public_input_profile.recompute_public_inputs_hash(
+        proof_system_vkey,
+        verified_da.transaction_blob_hashes(),
+        posting_context,
+    )?;
     Ok((recomputed_public_inputs_hash, observation_claims))
 }
 
@@ -453,8 +475,11 @@ fn run_settlement_with_observations(
 pub(super) fn run_settlement(
     input: SettlementInput<'_>,
 ) -> Result<settlement::RecomputedPublicInputsHash, SettlementPipelineError> {
-    let (hash, observations) =
-        run_settlement_with_observations(input, eez_blob_codec::MAX_BLOBS_PER_TRANSACTION)?;
+    let (hash, observations) = run_settlement_with_observations(
+        input,
+        eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+        &super::l1::CandidateContext::Synthetic,
+    )?;
     assert!(
         observations.is_empty(),
         "pipeline fixture with observations must exercise validate_and_settle"

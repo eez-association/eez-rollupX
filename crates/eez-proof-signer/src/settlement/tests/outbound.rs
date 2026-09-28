@@ -452,12 +452,11 @@ fn outbound_bindings_require_a_preceding_load_and_outbound_first_order() {
             0,
             &outbound_batch.entries[1].l2ToL1Calls[0],
         ));
-    let missing_load_plan = effect_plan(&outbound_batch, &missing_load);
     assert_eq!(
-        authorize_outbound_effects(&missing_load_plan).err(),
-        Some(OutboundEffectError::MissingPrecedingSystemTransaction {
-            entry_index: 1,
-            transaction_index: 0,
+        verify_effect_prefix(&outbound_batch, B256::ZERO, &[], &missing_load).err(),
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 1,
+            observed: 0
         })
     );
 

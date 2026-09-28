@@ -173,7 +173,7 @@ mod tests {
                     .as_secs()
                     + 3600;
                 let timestamp = if mode == SyncSlotMode::Empty {
-                    1
+                    5
                 } else {
                     future
                 };
@@ -182,6 +182,7 @@ mod tests {
                     timestamp: timestamp - 1,
                     ..Default::default()
                 });
+                let l1_head = test_seed_head(&parent);
                 let (committer, commands) = crate::block_committer::test_committer(parent);
                 let calls = Arc::new(Mutex::new(Vec::new()));
                 let composer: SyncSlotComposerHandle = Arc::new(PolicyComposer {
@@ -197,7 +198,7 @@ mod tests {
                     1,
                     composer,
                     0,
-                    Arc::default(),
+                    Arc::clone(&l1_head),
                 );
                 let target = 5;
                 sequencer
@@ -226,6 +227,33 @@ mod tests {
             }
         }
     }
+    fn test_seed_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
+        use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
+        let timestamp = parent.timestamp.checked_sub(parent.number).unwrap();
+        let genesis = alloy_consensus::Header {
+            timestamp,
+            ..Default::default()
+        };
+        let schedule = Schedule::new(
+            DerivationConfig {
+                block_interval_seconds: 1,
+                sync_interval_blocks: 5,
+                l1_reference: GenesisL1Reference {
+                    chain_id: 1337,
+                    number: 0,
+                    hash: B256::repeat_byte(1),
+                    timestamp,
+                    prev_randao: B256::ZERO,
+                },
+            },
+            &genesis,
+        )
+        .unwrap();
+        let head = Arc::new(eez_l1::L1CanonicalHead::default());
+        head.restore_derivation(eez_l1::derivation::SeedHistory::new(schedule));
+        head
+    }
+
     #[tokio::test]
     async fn guarded_catchup_preserves_every_intermediate_empty_boundary() {
         for k in [5, 6, 12] {
@@ -236,6 +264,7 @@ mod tests {
                         timestamp: 100,
                         ..Default::default()
                     });
+                    let l1_head = test_seed_head(&parent);
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -250,7 +279,7 @@ mod tests {
                             calls: calls.clone(),
                         }),
                         0,
-                        Arc::default(),
+                        Arc::clone(&l1_head),
                     );
                     for _ in 0..=(k * 2) {
                         let parent = committer.last_header();
@@ -308,6 +337,7 @@ mod tests {
                         timestamp: timestamp - (target - start) + u64::from(case == "misaligned"),
                         ..Default::default()
                     });
+                    let l1_head = test_seed_head(&parent);
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -325,7 +355,7 @@ mod tests {
                             calls: Arc::clone(&calls),
                         }),
                         u64::from(case == "speculative_cap"),
-                        Arc::default(),
+                        Arc::clone(&l1_head),
                     );
                     sequencer
                         .advance_sync_slot(target, timestamp, 100)
@@ -373,16 +403,8 @@ mod tests {
     }
 }
 
-/// Builds [`EthPayloadAttributes`] for the next block.
-///
-/// Stage 1 produces minimal valid attributes: a strictly-increasing timestamp
-/// honoring the caller's target, a placeholder `prev_randao`, a
-/// caller-configured `suggested_fee_recipient`, and the post-Shanghai /
-/// post-Cancun fields filled in based on the chainspec.
-///
-/// Stage 3 will replace the placeholder `prev_randao` with an L1-derived
-/// value per the protocol spec (§13.14). Stage 4 will add a hook for
-/// composer-supplied system transactions.
+/// Builds payload attributes from captured, parent-derived time and RANDAO.
+/// The sequencer obtains both together from authenticated canonical history.
 #[derive(Debug, Clone)]
 pub struct EthAttributesBuilder<ChainSpec> {
     chain_spec: Arc<ChainSpec>,
@@ -411,20 +433,12 @@ impl<ChainSpec> EthAttributesBuilder<ChainSpec>
 where
     ChainSpec: EthChainSpec + EthereumHardforks + Send + Sync + 'static,
 {
-    /// Builds attributes for the block following `parent` with timestamp
-    /// `target_timestamp` (clamped upward to preserve strict monotonicity).
+    /// Build with the exact checked position; never clamp or normalize time.
     #[must_use]
-    pub fn build(
-        &self,
-        parent: &SealedHeader<ChainSpec::Header>,
-        target_timestamp: u64,
-    ) -> EthPayloadAttributes {
-        let timestamp = core::cmp::max(parent.timestamp().saturating_add(1), target_timestamp);
+    pub fn build(&self, timestamp: u64, prev_randao: B256) -> EthPayloadAttributes {
         EthPayloadAttributes {
             timestamp,
-            // TODO(stage 3): derive from L1 per spec §13.14. Zeroed for
-            // stage 1 — no security depends on prev_randao yet.
-            prev_randao: B256::ZERO,
+            prev_randao,
             suggested_fee_recipient: self.suggested_fee_recipient,
             withdrawals: self
                 .chain_spec
@@ -976,8 +990,10 @@ where
         self.composer
             .set_sequencing_target(self.rollup_id, sync_slot_height);
         let parent_hash = parent.hash();
-        let parent_ts = parent.timestamp();
-        let next_ts = parent_ts.saturating_add(self.timing.l2_block_time().as_secs());
+        let (next_ts, prev_randao) = self
+            .l1_head
+            .next_block_context(parent)
+            .map_err(DriverError::provider)?;
         if kind != SlotKind::Sync
             && parent.number().checked_add(1).is_some_and(|n| {
                 n % u64::from(self.timing.k()) == sync_slot_height % u64::from(self.timing.k())
@@ -1006,7 +1022,7 @@ where
                 )),
             };
         }
-        let attrs = self.attributes.build(parent, next_ts);
+        let attrs = self.attributes.build(next_ts, prev_randao);
         let timestamp = attrs.timestamp;
         let outcome = self.committer.commit_sequenced(parent_hash, attrs).await?;
         let block_number = outcome.header.number();

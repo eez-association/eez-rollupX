@@ -6,16 +6,19 @@ use eez_deriver::CorrelationStore;
 use std::sync::Arc;
 use std::{env, path::PathBuf};
 
-use clap::Parser as _;
 use mimalloc::MiMalloc;
-use reth_ethereum_cli::{chainspec::EthereumChainSpecParser, interface::Cli};
 use reth_node_builder::{NodeBuilder, WithLaunchContext};
 use tracing::{Level, event};
 
 #[cfg(feature = "l1-startup")]
 pub mod correlation_rpc;
 
+pub mod node;
+pub use node::EezNode;
 mod payload;
+mod payload_builder;
+mod pool_transaction;
+pub mod rpc;
 pub use payload::{EezPayloadBuilder, SequencingDataGuard};
 mod pool;
 pub use pool::EezPoolBuilder;
@@ -32,25 +35,12 @@ pub type L2NodeBuilder =
 #[derive(clap::Args, Debug, Clone)]
 pub struct NoRoleArgs {}
 
-/// Parse the shared reth CLI and layer role-specific arguments on top.
-///
-/// # Errors
-///
-/// Returns an error when command-line arguments are invalid.
-pub fn node_cli<Ext>() -> eyre::Result<Cli<EthereumChainSpecParser, Ext>>
-where
-    Ext: clap::Args + std::fmt::Debug,
-{
-    Ok(Cli::<EthereumChainSpecParser, Ext>::try_parse_from(
-        node_cli_arguments(),
-    )?)
-}
-
 #[cfg(feature = "l1-startup")]
 mod chain_cli;
 #[cfg(feature = "l1-startup")]
 pub use chain_cli::node_cli_with_chain_document;
 
+#[cfg(feature = "l1-startup")]
 fn node_cli_arguments() -> Vec<String> {
     let _ = dotenvy::dotenv();
     let _ = dotenvy::from_filename("deployments.env");
@@ -154,7 +144,7 @@ pub fn correlation_store(datadir: Option<&std::path::Path>) -> eyre::Result<Arc<
     Ok(Arc::new(store))
 }
 
-/// Blocks until L1 serves the configured history and matches the expected chain.
+/// Wait until L1 serves history and finality needed to authenticate the genesis reference.
 ///
 /// # Errors
 ///
@@ -165,6 +155,7 @@ pub async fn wait_for_l1_ready(
     l1_reader: &eez_l1::L1Reader,
     deploy_block: u64,
     expected_l1_chain_id: u64,
+    genesis_reference_number: u64,
 ) -> eyre::Result<()> {
     use std::time::Duration;
 
@@ -203,16 +194,26 @@ pub async fn wait_for_l1_ready(
                 (closer, format!("{remaining} blocks below the deploy block"))
             }
             Ok(state) => match l1_reader.serves_history(deploy_block).await {
-                Ok(true) if chain_verified => {
-                    event!(
-                        name: "eez.node.l1_ready",
-                        Level::INFO,
-                        head = state.head_block_number,
-                        deploy_block,
-                        "L1 source can serve our history",
-                    );
-                    return Ok(());
-                }
+                Ok(true) if chain_verified => match l1_reader.finalized_block().await {
+                    Ok(Some((number, _))) if number >= genesis_reference_number => {
+                        event!(
+                            name: "eez.node.l1_ready",
+                            Level::INFO,
+                            head = state.head_block_number,
+                            deploy_block,
+                            finalized = number,
+                            "L1 source can serve our history and finalized reference",
+                        );
+                        // Readiness is not authentication: the deriver separately
+                        // checks the exact canonical reference hash and seed.
+                        return Ok(());
+                    }
+                    Ok(_) => (false, "genesis reference is not finalized yet".to_string()),
+                    Err(err) => {
+                        last_err = Some(err.to_string());
+                        (false, "finality probe failed".to_string())
+                    }
+                },
                 Ok(true) => (false, "chain id not read yet".to_string()),
                 Ok(false) => (state.syncing, "does not serve the deploy block".to_string()),
                 Err(err) => {
@@ -244,8 +245,12 @@ pub async fn wait_for_l1_ready(
     }
 }
 
-/// Reject a configured pool gate that differs from the system transaction signer.
+/// Reject a configured address that differs from the native system identity.
 pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyre::Result<()> {
+    eyre::ensure!(
+        system_address == eez_primitives::SYSTEM_ADDRESS,
+        "native system address is fixed"
+    );
     match env::var("EEZ_L2_SYSTEM_ADDRESS") {
         Ok(raw) => {
             let configured: alloy_primitives::Address = raw
@@ -254,7 +259,7 @@ pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyr
                 .map_err(|error| eyre::eyre!("EEZ_L2_SYSTEM_ADDRESS malformed: {error}"))?;
             eyre::ensure!(
                 configured == system_address,
-                "EEZ_L2_SYSTEM_ADDRESS {configured} does not match EEZ_L2_SYSTEM_KEY"
+                "EEZ_L2_SYSTEM_ADDRESS {configured} does not match the fixed native system address"
             );
             Ok(())
         }

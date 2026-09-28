@@ -1,5 +1,10 @@
 # Two-byte DA counts for new RollupX networks
 
+Current-network contract (2026-09-28): [native transactions and direct V0](native-system-transactions.md)
+supersedes the historical wire/environment/system-transaction descriptions below.
+The old envelope is not a runtime option. Earlier validation remains evidence for
+its recorded revision only; current validation is in the linked implementation audit.
+
 | Field | Value |
 | --- | --- |
 | Design status | Implemented; based on main after PR #34 merged; validation is revision-specific below |

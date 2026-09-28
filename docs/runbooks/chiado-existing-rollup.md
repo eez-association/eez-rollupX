@@ -5,6 +5,12 @@ on Chiado. It uses the [packaged profile](../../docker-compose.chiado-node.yml):
 embedded L1, Composer/L2, local proof signer, and Lighthouse. For an unchanged
 installation, use [restart](chiado-deployment.md#restart-and-stop).
 
+This revision can join only a network created with the matching native `0x76`
+genesis and protocol format. It cannot join or upgrade the earlier signed-system
+deployment. For that network, retain its original revision, images, configuration
+and databases; the historical trial below does not validate this protocol change.
+See the [compatibility boundary](chiado-deployment.md#featureevents-protocol-compatibility).
+
 **Do not run deployment or regenerate genesis.** This profile derives settled L2
 history from L1 transactions and Beacon blobs; an existing L2 RPC URL alone is not
 a bootstrap source. Starting the node automatically enables sequencing and posting
@@ -38,7 +44,7 @@ Obtain these inputs from the existing network's operator:
 | --- | --- |
 | Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, manager/bridge addresses, system address, and initial block/state commitments. |
 | Runtime configuration | Compatible node/signer images, matching configuration checkout/protocol revision, and the network's settlement/admission settings. The packaged timing is 5-second L1 / 1-second L2, with EEZL2 at `0x4200000000000000000000000000000000000007`; a different profile needs its own configuration. |
-| System and attestation keys | `EEZ_L2_SYSTEM_KEY` for the deployed system address and `EEZ_PROOF_SIGNER_KEY` for the registered attester. Provision secrets privately. Fresh keys cannot replace these bindings; this Compose profile runs a local signer. |
+| System and attester bindings | The deployed system address must be `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`; no system private key exists. Supply `EEZ_PROOF_SIGNER_KEY` for the registered attester privately. A fresh attestation key cannot replace that binding; this Compose profile runs a local signer. |
 | Posting wallet | A dedicated `EEZ_L1_POSTER_KEY` funded with Chiado test xDAI. Do not share it with another active Composer or workload. No deployer key is needed. |
 | State/history source | Choose one L2 path below; obtain compatible L1 data and Beacon coverage for its replay range. Preserve the backup's source revision and last settled L1/L2 hashes. |
 
@@ -77,7 +83,7 @@ reconcile only the host paths
 locations. `FRESH_GENESIS=./datadir/genesis.json` must select that original genesis,
 despite the variable's name.
 
-Edit `.env` with the supplied system/attestation keys, this Composer's poster key,
+Edit `.env` with the supplied attestation key, this Composer's poster key,
 a synchronized Chiado `EEZ_L1_RPC_URL`, and the existing settlement settings.
 Use compatible [image references](chiado-deployment.md#image-selection) and the
 matching checkout: the default `:latest` may select an upgrade. Preserve existing

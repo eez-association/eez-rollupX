@@ -113,10 +113,11 @@ async fn mismatched_intermediate_transaction_da_payload_is_rejected() {
     ];
     let payload_source = vec![
         header_chunk(5, 6),
-        transaction_block_chunk(5, 0x04, 0x05, system_transaction()),
+        block_chunk(5, 0x04, 0x05),
         block_chunk(6, 0x05, 0x06),
     ];
     let mut batch = anchor_batch();
+    bind_anchor_commitments(&mut batch, 2);
     batch.callData = da_payload_for_window(&payload_source).into();
     replace_post_batch(&mut window, public_input_post_batch_for(batch));
 
@@ -249,10 +250,7 @@ async fn an_outbound_effect_without_an_observed_call_is_rejected() {
 async fn a_multi_block_effect_uses_the_penultimate_block_root() {
     let pre_settling_root = B256::repeat_byte(0x55);
     let final_root = B256::repeat_byte(0x66);
-    let inputs = [
-        AdmittedBlock::test(5, 0x04, 0x05),
-        AdmittedBlock::test(6, 0x05, 0x06),
-    ];
+    let inputs = [stub_block(5, 0x04, 0x05), stub_block(6, 0x05, 0x06)];
     let mut backend_output = backend_output_for(&inputs);
     backend_output.blocks[0].post_state_root = pre_settling_root;
     backend_output.blocks[1].post_state_root = final_root;
@@ -287,7 +285,7 @@ async fn a_root_update_final_block_hash_mismatch_is_rejected() {
     bind_anchor_commitments(&mut batch, 3);
     batch.entries[0].rootUpdates[0].newRoot = B256::repeat_byte(0xee);
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
-    batch.callData = settlement::encode_da_payload(&vec![Vec::new(); 3], &[]).into();
+    batch.callData = settlement::encode_da_payload(&vec![Vec::new(); 3]).into();
     let mut window = happy_window();
     replace_post_batch(&mut window, public_input_post_batch_for(batch));
 
@@ -365,22 +363,28 @@ async fn a_matching_nondefault_rollup_identity_is_attested() {
 }
 
 #[tokio::test]
-async fn the_composer_public_input_hash_cannot_control_the_attestation() {
-    let server = TestServer::new(inner(Validator::stub(vec![Ok(backend_output_for(
-        &happy_block_inputs(),
-    ))])))
-    .await;
-    let mut post_batch = public_input_post_batch();
-    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
-    let composer_claim = vec![0x99; 32];
-    post_batch.public_inputs_hash.clone_from(&composer_claim);
-    let mut window = happy_window();
-    replace_post_batch(&mut window, post_batch);
-
-    let response = server.attest(window).await;
-
-    assert_attestation(&response, expected_hash, test_attester().address());
-    assert_ne!(response.public_inputs_hash, composer_claim);
+async fn attestation_binds_the_exact_l1_parent_and_target_timestamp() {
+    for change_parent in [false, true] {
+        let server = TestServer::new(inner(Validator::stub(vec![Ok(backend_output_for(
+            &happy_block_inputs(),
+        ))])))
+        .await;
+        let mut post_batch = public_input_post_batch();
+        let original = recompute_test_public_inputs_hash(&post_batch);
+        let target = post_batch.posting_context.as_mut().unwrap();
+        if change_parent {
+            target.parent_hash[0] ^= 1;
+        } else {
+            target.target_timestamp += 1;
+        }
+        let expected = recompute_test_public_inputs_hash(&post_batch);
+        assert_ne!(original, expected);
+        let mut window = happy_window();
+        replace_post_batch(&mut window, post_batch);
+        let response = server.attest(window).await;
+        assert_attestation(&response, expected, test_attester().address());
+        assert_ne!(response.public_inputs_hash, original.to_vec());
+    }
 }
 
 #[tokio::test]
@@ -459,7 +463,7 @@ async fn a_successful_system_transaction_reaches_the_effect_prefix_gate() {
 
 #[tokio::test]
 async fn an_inbound_candidate_hidden_in_an_outbound_pair_is_rejected() {
-    let inputs = [AdmittedBlock::test(5, 0x04, 0x05)];
+    let inputs = [stub_block(5, 0x04, 0x05)];
     let mut backend_output = backend_output_for(&inputs);
     backend_output.blocks[0].set_transaction_results_for_test(vec![true, true]);
     backend_output.blocks[0]
@@ -570,7 +574,7 @@ async fn malformed_or_trailing_da_payload_is_an_invalid_argument() {
     ];
     let inner = inner(Validator::stub(backend_outputs));
     let server = TestServer::new(Arc::clone(&inner)).await;
-    let mut trailing = settlement::encode_da_payload(&vec![Vec::new(); 3], &[]);
+    let mut trailing = settlement::encode_da_payload(&vec![Vec::new(); 3]);
     trailing.push(0xff);
 
     for payload in [vec![0x00], trailing] {

@@ -59,6 +59,7 @@ mod tests {
     fn prove_header_round_trips_through_protobuf() {
         let chunk = ProveChunk {
             kind: Some(prove_chunk::Kind::Header(ProveHeader {
+                parent_provenance: None,
                 expected_validation_identity: vec![0; 32],
                 rollup_id: 7,
                 from_block: 10,

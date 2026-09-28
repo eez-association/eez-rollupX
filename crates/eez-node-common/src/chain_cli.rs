@@ -1,10 +1,10 @@
-//! Preserve the chain document used by the composer CLI through rule loading.
+//! Preserve the chain document used by both L2 roles through fixed-rule loading.
 
 use std::sync::{Arc, Mutex};
 
 use alloy_primitives::B256;
 use clap::{CommandFactory as _, FromArgMatches as _};
-use eez_l1::chain_config::{ChainDocumentKind, parse_chain_document_with_digest};
+use eez_l1::chain_config::parse_l2_genesis;
 use reth_chainspec::ChainSpec;
 use reth_ethereum_cli::{chainspec, interface::Cli};
 
@@ -62,13 +62,9 @@ fn parse_chain(value: &str) -> eyre::Result<(Arc<ChainSpec>, B256)> {
             Err(error) => return Err(error.into()),
         }
     };
-    let loaded = parse_chain_document_with_digest(&encoded)?;
-    eyre::ensure!(
-        loaded.kind() == ChainDocumentKind::Genesis,
-        "node --chain requires a full Genesis document"
-    );
+    let loaded = parse_l2_genesis(&encoded)?;
     let digest = loaded.digest();
-    let spec = Arc::new(ChainSpec::from_genesis(loaded.into_genesis()));
+    let spec = Arc::new(eez_evm::profile::chain_spec(loaded.into_genesis())?);
     if let Some(preset) = preset {
         // A preset with rules outside its genesis cannot share a document-only
         // namespace with the signer. Fail explicitly instead of guessing rules.
@@ -87,9 +83,12 @@ mod tests {
 
     #[test]
     fn actual_clap_chain_selection_preserves_document_and_execution_rules() {
-        let source =
-            r#"{"config":{"chainId":31337,"pragueTime":42},"gasLimit":"0x1c9c380","alloc":{}}"#;
-        let expected = parse_chain_document_with_digest(source.as_bytes()).unwrap();
+        let mut genesis: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
+        genesis["config"]["chainId"] = 31337.into();
+        let encoded = serde_json::to_string(&genesis).unwrap();
+        let source = encoded.as_str();
+        let expected = parse_l2_genesis(source.as_bytes()).unwrap();
         for arguments in [
             vec!["node", "--chain", source],
             vec!["node", "--dev", "--chain", source],
@@ -102,7 +101,11 @@ mod tests {
                 panic!("node command")
             };
             assert_eq!(node.chain.genesis.config.chain_id, 31337);
-            assert_eq!(node.chain.genesis.config.prague_time, Some(42));
+            assert_eq!(node.chain.genesis.config.osaka_time, Some(0));
+            assert_eq!(
+                node.chain.base_fee_params_at_timestamp(0),
+                reth_chainspec::BaseFeeParams::new(50, 2)
+            );
         }
     }
 

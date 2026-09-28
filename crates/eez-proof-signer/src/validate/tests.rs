@@ -4,7 +4,7 @@ use alloy_consensus::{SignableTransaction as _, TxLegacy};
 
 fn admitted_block(number: u64, hash: u8) -> AdmittedBlock {
     let mut input = AdmittedBlock::test(number, 0, hash);
-    input.rlp = alloy_rlp::encode(EthereumBlock::default());
+    input.rlp = alloy_rlp::encode(EezBlock::default());
     input
 }
 
@@ -14,12 +14,12 @@ fn admitted_block_with_transactions(number: u64, hash: u8, count: usize) -> Admi
             .into_signed(alloy_primitives::Signature::test_signature())
             .into();
     let body = alloy_consensus::BlockBody {
-        transactions: vec![transaction; count],
+        transactions: vec![transaction.into(); count],
         ..Default::default()
     };
 
     let mut input = admitted_block(number, hash);
-    input.rlp = alloy_rlp::encode(EthereumBlock::new(Default::default(), body));
+    input.rlp = alloy_rlp::encode(EezBlock::new(Default::default(), body));
     input
 }
 

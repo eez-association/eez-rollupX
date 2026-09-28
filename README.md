@@ -181,12 +181,12 @@ cargo run -p eez-node -- node \
 
 Select the non-default follower role explicitly. `EEZ_L1_CHAIN_ID` must match
 the numeric chain ID served by `EEZ_L1_RPC_URL`. A follower also requires the
-system signer and L2 execution identity so it can reconstruct Sync blocks:
+fixed native system address and L2 execution identity to reconstruct Sync blocks:
 
 ```bash
 # L1-derived follower; optionally add `--sequencer-rpc <URL>` after `node`.
 EEZ_L1_CHAIN_ID="<numeric-l1-chain-id>" \
-EEZ_L2_SYSTEM_KEY="<system-private-key>" \
+EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" \
 EEZL2_ADDRESS="<eezl2-contract-address>" \
 EEZ_ROLLUP_ID="<numeric-rollup-id>" \
 cargo run -p eez-follower -- node \

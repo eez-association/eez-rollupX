@@ -13,14 +13,11 @@
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
-pub mod checkpoint;
 pub mod correlation;
 pub mod deriver;
 pub mod error;
 mod l1_catch_up;
 
-#[doc(inline)]
-pub use checkpoint::ReconcileCheckpoint;
 #[doc(inline)]
 pub use correlation::{BatchCorrelation, CorrelationMatch, CorrelationStore, L2BlockCorrelation};
 #[doc(inline)]

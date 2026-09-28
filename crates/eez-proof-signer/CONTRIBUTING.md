@@ -56,8 +56,7 @@ See [architecture](docs/architecture.md),
 ## Non-negotiable invariants
 
 - Treat every Composer field as untrusted, including range and hash claims,
-  block RLP, witnesses, `PostBatch` calldata, and the wire
-  `public_inputs_hash`.
+  block RLP, witnesses, `PostBatch` calldata, parent provenance and posting context.
 - Never choose a range, skip a streamed block, generate a zk proof, submit an
   L1 transaction, or sign after any failed gate.
 - Re-derive block identity, execution results, roots, transaction outcomes,
@@ -65,13 +64,14 @@ See [architecture](docs/architecture.md),
 - Use fork-aware sender facts retained by Stateless. Settlement must not
   independently recover the same signatures under potentially different fork
   rules.
-- Keep the attestation key, expected attester address, L2 system-transaction
-  key, proof-system vkey, and proof-system address as explicit
-  operator-configured bindings.
+- Keep the attestation key, expected attester address, proof-system vkey, and
+  proof-system address as explicit operator-configured bindings. Native L2
+  transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
-- An attestation does not claim canonical ancestry, sequencer authority, live
-  L1 applicability, successful future L1 execution, dispatch mode, or the code
-  identity and funding mechanism at the pinned EEZL2 address.
+- Independently authenticate the accepted parent, seed and L1 target before
+  execution, and recheck the target before signing. An attestation still does
+  not guarantee future L1 inclusion, sequencer authority, dispatch mode, or
+  deployment code identity.
 
 ## Reuse canonical implementations
 
@@ -86,9 +86,9 @@ algorithms, including:
   interleave_sync_block_txs}`; and
 - the `prove.v1` schema in `crates/eez-control-rpc/proto/prove.proto`.
 
-System classification itself uses the backend's fork-aware recovered-sender
-evidence plus the exact transaction recipient. Do not replace it with a second
-settlement-side recovery merely to call a helper.
+System classification uses the backend's validated native-envelope evidence and
+the exact transaction recipient. Ordinary transactions retain fork-aware sender
+recovery; do not introduce a second settlement-side recovery.
 
 Shared Composer-oriented entry helpers are building blocks, not signer
 authorization gates. They do not replace the stricter canonical decoding,
@@ -138,6 +138,6 @@ RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --lock
 When changing the dependency, run the fork's checkpoint and trie checks at the
 exact proposed commit, following its
 [host validation instructions](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#eez-reth-compatibility-branch).
-Those crates are Git dependencies, so EEZ workspace tests do not execute their
-own tests. After updating the pin, rerun the signer checks above and the affected
-process tests with EEZ's root lockfile.
+Those crates live in the separate vendored workspace, so EEZ workspace tests do
+not execute their own tests. Follow [the vendored test command](../../vendor/README.md),
+then rerun the signer checks and affected process tests with EEZ's root lockfile.

@@ -13,6 +13,7 @@ eez-control-rpc.workspace = true
 eez-protocol.workspace    = true
 eez-blob-codec.workspace  = true
 
+alloy-rlp.workspace = true
 alloy-primitives.workspace = true
 alloy-sol-types.workspace  = true
 

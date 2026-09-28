@@ -13,7 +13,8 @@ flowchart LR
     C[Composer] -->|ProveChunk stream| RPC[service/rpc]
     RPC --> ING[service/stream]
     ING --> ADM[window admission]
-    ADM -->|AdmittedWindow| JOB[blocking validate_and_settle]
+    ADM --> L1[Authenticate L1 parent and context]
+    L1 -->|AdmittedWindow and CandidateContext| JOB[blocking validate_and_settle]
 
     CFG[Operator configuration] --> SVC[ProveSvc: limits and active request slot]
     CFG --> STATE[ServiceState: validator and configured identities]
@@ -24,11 +25,12 @@ flowchart LR
     ST -->|BackendWindowOutput| VAL[shared output checks]
     VAL -->|ValidatedWindow| SET[settlement binding and authorization]
     SET --> HASH[RecomputedPublicInputsHash]
-    HASH --> AUTH[AttestablePublicInputsHash]
+    HASH --> MATERIAL[AttestationMaterial]
+    MATERIAL --> RECHECK[Recheck L1 target]
+    RECHECK --> AUTH[AttestablePublicInputsHash]
 
     STATE --> ATT[Attester]
-    AUTH --> MATERIAL[AttestationMaterial]
-    MATERIAL --> ATT
+    AUTH --> ATT
     ATT -->|hash and signature| C
 ```
 
@@ -41,6 +43,7 @@ flowchart LR
 | [`service.rs`](../src/service.rs) | Shared immutable dependencies, limits, and the one active-request slot |
 | [`service/stream.rs`](../src/service/stream.rs) | Stream draining and transport-timeout normalization |
 | [`service/rpc.rs`](../src/service/rpc.rs) | Async orchestration, absolute deadline, worker lifetime, signing, response |
+| [`service/l1.rs`](../src/service/l1.rs) | Independent parent/seed/target authentication and post-validation target recheck |
 | [`service/settlement_job.rs`](../src/service/settlement_job.rs) | The synchronous validation-to-settlement handoff and error provenance |
 | [`window.rs`](../src/window.rs) | Incremental structural admission and aggregate resource accounting |
 | [`validate.rs`](../src/validate.rs) | Associated backend-output contract, shared cross-checks, `ValidatedWindow` normalization |
@@ -84,11 +87,10 @@ already validated facts but cannot manufacture missing execution evidence.
    effect claims. Settlement binds those claims into a `BoundEffectSequence`,
    then produces `AuthorizedInboundEffects` and `AuthorizedOutboundEffects`.
 6. After every settlement gate passes, the checked public-input profile
-   produces a locally computed `RecomputedPublicInputsHash`. The complete job
-   then promotes it to `AttestablePublicInputsHash`, whose private construction
-   records the stronger all-gates-passed guarantee. `AttestationMaterial`
-   carries that capability to the attester, which accepts neither a
-   profile-only recomputation nor Composer-provided hash bytes.
+   produces a locally computed `RecomputedPublicInputsHash`. The job returns it in
+   `AttestationMaterial`. After independently rechecking the canonical L1 target,
+   the async RPC promotes it to `AttestablePublicInputsHash`. The attester accepts
+   neither a profile-only recomputation nor Composer-provided hash bytes.
 
 This ownership reduction is intentional: once a witness has been consumed and
 its result checked, later layers should not continue carrying an alternative
@@ -102,7 +104,7 @@ untrusted representation of the same fact.
 | Operator configuration | Deployment authority for the chain document, expected rollup ID, configured proof-system vkey, proof-system and attester addresses, keys, and limits |
 | `BackendWindowOutput` | Security-critical backend result, consumed and contract-checked against the admitted input before settlement |
 | `eez_protocol`, Stateless, Reth | Canonical/security-critical implementation base pinned by the workspace |
-| Live L1 and L2 fork choice | Not observed by this process |
+| Configured canonical L1 source | Independently supplies accepted parent, live-slot occurrences, seed and target; rechecked before signing |
 
 The RPC transport has no peer authentication of its own. Network controls must
 ensure that only intended Composers can reach a non-loopback listener.
@@ -110,9 +112,9 @@ ensure that only intended Composers can reach a non-loopback listener.
 ## What the signature does not claim
 
 The signature says that this supplied transition and batch passed the active
-profile from the validated parent block hash. It does not establish canonical
-L2 ancestry, sequencer authorization, current L1 applicability, successful
-future L1 execution, immediate-versus-deferred dispatch, or independent code
+profile from an independently accepted parent under the named L1 context. It
+does not guarantee future canonicality or inclusion, sequencer authorization,
+successful future L1 execution, immediate-versus-deferred dispatch, or independent code
 identity at the pinned EEZL2 address. The exact normative boundary is in
 `SPEC.md`, especially the commitment authority and attestation sections.
 

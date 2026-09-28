@@ -33,7 +33,6 @@ source "$ENV_FILE"
 : "${EEZ_L1_RPC_URL:?EEZ_L1_RPC_URL not set in .env}"
 : "${EEZ_L1_POSTER_KEY:?EEZ_L1_POSTER_KEY not set in .env}"
 : "${EEZ_PROOF_SIGNER_KEY:?EEZ_PROOF_SIGNER_KEY not set in .env}"
-: "${EEZ_L2_SYSTEM_KEY:?EEZ_L2_SYSTEM_KEY not set in .env}"
 
 configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
 
@@ -45,9 +44,9 @@ EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
 PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
-EEZ_L2_SYSTEM_ADDRESS="$(cast wallet address --private-key "$EEZ_L2_SYSTEM_KEY")"
+EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
 if [[ "${AUTHORIZED_SIGNER,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]; then
-    echo "deploy: proof attestation and L2 system keys must be different" >&2
+    echo "deploy: proof attestation address must differ from the reserved native system address" >&2
     exit 1
 fi
 
@@ -123,8 +122,8 @@ compute_genesis_block_hash() {
 }
 
 # Render and check both genesis tools before spending deployment gas. This
-# fresh registry will register rollup 1; the deploy-block timestamp is applied
-# after the registry exists and before its genesis block hash is registered.
+# fresh registry will register rollup 1. Pin a finalized reference before the
+# first broadcast; deployment must not change genesis afterward.
 EXPECTED_ROLLUP_ID=1
 GENESIS_OUT="${EEZ_GENESIS_OUT:-$REPO/datadir/genesis.json}"
 GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.json}"
@@ -141,6 +140,65 @@ echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_S
 EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
 EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
 
+# One explicit new-network profile. The finalized L1 reference fixes the initial
+# seed and slot phase; it is not inferred from the later deployment receipt.
+REFERENCE_CHAIN_ID="$(cast chain-id --rpc-url "$EEZ_L1_RPC_URL")"
+case "$REFERENCE_CHAIN_ID" in
+    1)
+        : "${EEZ_L1_BLOCK_TIME_MS=12000}" "${EEZ_L2_BLOCK_TIME_MS=2000}"
+        ;;
+    10200)
+        : "${EEZ_L1_BLOCK_TIME_MS=5000}" "${EEZ_L2_BLOCK_TIME_MS=1000}"
+        ;;
+    *)
+        : "${EEZ_L1_BLOCK_TIME_MS:?private L1 genesis requires an explicit block cadence}"
+        : "${EEZ_L2_BLOCK_TIME_MS:?private L2 genesis requires an explicit block cadence}"
+        ;;
+esac
+GENESIS_TIMESTAMP_TMP="$(mktemp "${GENESIS_OUT}.tmp.XXXXXX")"
+cast block finalized --rpc-url "$EEZ_L1_RPC_URL" --json | python3 -c '
+import json, re, sys
+base, output, chain, l1_ms, l2_ms = sys.argv[1:]
+chain, l1_ms, l2_ms = int(chain), int(l1_ms), int(l2_ms)
+if chain <= 0 or l1_ms <= 0 or l2_ms <= 0 or l2_ms % 1000 or l1_ms % l2_ms:
+    raise SystemExit("deploy: invalid whole-second genesis cadence")
+step, positions = l2_ms // 1000, l1_ms // l2_ms
+if positions < 2 or positions > 0xffffffff or step > 0xffffffffffffffff:
+    raise SystemExit("deploy: invalid Sync interval")
+if (chain == 1 and (step, positions) != (2, 6)) or (chain == 10200 and (step, positions) != (1, 5)):
+    raise SystemExit("deploy: cadence conflicts with the settlement network profile")
+reference = json.load(sys.stdin)
+if not isinstance(reference, dict):
+    raise SystemExit("deploy: finalized reference is unavailable")
+def integer(name):
+    value = reference[name]
+    value = int(value, 0) if isinstance(value, str) else value
+    if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 0xffffffffffffffff:
+        raise SystemExit("deploy: invalid finalized reference " + name)
+    return value
+def hash32(name):
+    value = reference[name]
+    if not isinstance(value, str) or re.fullmatch(r"0x[0-9a-fA-F]{64}", value) is None:
+        raise SystemExit("deploy: invalid finalized reference " + name)
+    return value
+number, timestamp = integer("number"), integer("timestamp")
+hash_value, seed = hash32("hash"), hash32("mixHash")
+if int(hash_value, 16) == 0:
+    raise SystemExit("deploy: zero finalized reference hash")
+with open(base) as source:
+    genesis = json.load(source)
+genesis["timestamp"], genesis["mixHash"] = hex(timestamp), seed
+genesis["config"]["rollupX"] = {
+    "blockIntervalSeconds": step, "syncIntervalBlocks": positions,
+    "l1Reference": {"chainId": chain, "number": number, "hash": hash_value,
+                    "timestamp": timestamp, "prevRandao": seed}}
+with open(output, "w") as destination:
+    json.dump(genesis, destination, indent=2)
+    destination.write("\n")
+' "$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP" "$REFERENCE_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS"
+chmod --reference="$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP"
+mv "$GENESIS_TIMESTAMP_TMP" "$GENESIS_OUT"
+GENESIS_TIMESTAMP_TMP=""
 compute_genesis_block_hash "$GENESIS_OUT" >/dev/null
 
 # ── 1/5 DeployEEZ ────────────────────────────────────────────────────
@@ -179,44 +237,8 @@ ROLLUP_COUNTER="$(cast call "$EEZ_REGISTRY_ADDRESS" "rollupCounter()(uint256)" \
     echo "deploy: fresh EEZ registry unexpectedly has rollupCounter=$ROLLUP_COUNTER" >&2
     exit 1
 }
-# Align genesis time before computing the registered commitment. Unlike the
-# state trie root, the genesis block hash commits the timestamp and fork-aware
-# header fields.
-DEPLOY_BLOCK_TS_HEX="$(cast block "$EEZ_REGISTRY_DEPLOY_BLOCK" --rpc-url "$EEZ_L1_RPC_URL" --json | jq -r '.timestamp')"
-[[ -n "$DEPLOY_BLOCK_TS_HEX" && "$DEPLOY_BLOCK_TS_HEX" != "null" ]] || {
-    echo "deploy: failed to capture L1 block timestamp for $EEZ_REGISTRY_DEPLOY_BLOCK" >&2
-    exit 1
-}
-GENESIS_TIMESTAMP_TMP="$(mktemp "${GENESIS_OUT}.tmp.XXXXXX")"
-jq --arg timestamp "$DEPLOY_BLOCK_TS_HEX" '
-    .timestamp = $timestamp
-    | .config += {
-        homesteadBlock: 0,
-        eip150Block: 0,
-        eip155Block: 0,
-        eip158Block: 0,
-        byzantiumBlock: 0,
-        constantinopleBlock: 0,
-        petersburgBlock: 0,
-        istanbulBlock: 0,
-        muirGlacierBlock: 0,
-        berlinBlock: 0,
-        londonBlock: 0,
-        arrowGlacierBlock: 0,
-        grayGlacierBlock: 0,
-        mergeNetsplitBlock: 0,
-        shanghaiTime: 0,
-        cancunTime: 0,
-        pragueTime: 0,
-        osakaTime: 0,
-        terminalTotalDifficulty: 0,
-        terminalTotalDifficultyPassed: true
-    }
-' "$GENESIS_OUT" >"$GENESIS_TIMESTAMP_TMP"
-chmod --reference="$GENESIS_OUT" "$GENESIS_TIMESTAMP_TMP"
-mv "$GENESIS_TIMESTAMP_TMP" "$GENESIS_OUT"
-GENESIS_TIMESTAMP_TMP=""
-
+# The finalized-reference genesis was fully checked before any broadcast.
+# Registration commits that same document, without deployment-time mutation.
 FINAL_STATE_ROOT="$(compute_genesis_state_root "$GENESIS_OUT")"
 if [[ "${FINAL_STATE_ROOT,,}" != "${EEZ_L2_GENESIS_STATE_ROOT,,}" ]]; then
     echo "deploy: finalized genesis state root differs from the generated profile" >&2
@@ -236,7 +258,7 @@ fi
 echo "      blockHash  = $EEZ_INITIAL_BLOCK_HASH"
 echo "      stateRoot  = $EEZ_L2_GENESIS_STATE_ROOT"
 echo "      runtimeHash= $EEZ_L2_EEZL2_CODE_HASH"
-echo "      genesis.ts = $DEPLOY_BLOCK_TS_HEX ($(printf %d $DEPLOY_BLOCK_TS_HEX))"
+echo "      genesis.ts = $(jq -r .timestamp "$GENESIS_OUT") (finalized L1 reference)"
 
 # ── 4/5 RegisterRollup ──────────────────────────────────────────────
 echo "[4/5] RegisterRollup(initialBlockHash=$EEZ_INITIAL_BLOCK_HASH)"
@@ -296,8 +318,7 @@ EEZ_L2_BRIDGE_RECEIVER=$EEZ_L2_BRIDGE_RECEIVER
 
 # EEZL2 predeploy baked into genesis.json.
 EEZL2_ADDRESS=0x4200000000000000000000000000000000000007
-# Public deployment binding derived from EEZ_L2_SYSTEM_KEY. The secret key is
-# deliberately not written to this file.
+# Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
 EEZ_L2_EEZL2_CODE_HASH=$EEZ_L2_EEZL2_CODE_HASH
 EOF

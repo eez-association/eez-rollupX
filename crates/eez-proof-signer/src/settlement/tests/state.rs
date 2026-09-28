@@ -254,8 +254,8 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
         &[anchor, pre_settling, outbound_root, inbound_root],
         &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Inbound],
     );
-    let settling = settling_with_system_flags(vec![false, true]);
-    let checkpoints = [checkpoint(0, outbound_root), checkpoint(1, inbound_root)];
+    let settling = settling_with_system_flags(vec![true, false, true]);
+    let checkpoints = [checkpoint(1, outbound_root), checkpoint(2, inbound_root)];
 
     let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
     assert_eq!((facts.inbound_count(), facts.outbound_count()), (1, 1));
@@ -265,7 +265,7 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
             .iter()
             .map(|effect| (effect.entry_index(), effect.transaction_index()))
             .collect::<Vec<_>>(),
-        [(1, 0), (2, 1)]
+        [(1, 1), (2, 2)]
     );
 }
 
@@ -356,8 +356,8 @@ fn duplicate_roots_cannot_hide_reordered_effect_kinds() {
     let anchor = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
     let duplicate = B256::repeat_byte(0x0c);
-    let settling = settling_with_system_flags(vec![false, true]);
-    let checkpoints = [checkpoint(0, duplicate), checkpoint(1, duplicate)];
+    let settling = settling_with_system_flags(vec![true, false, true]);
+    let checkpoints = [checkpoint(1, duplicate), checkpoint(2, duplicate)];
 
     let mut valid = effect_batch(
         &[anchor, pre_settling, duplicate, duplicate],
@@ -378,7 +378,7 @@ fn duplicate_roots_cannot_hide_reordered_effect_kinds() {
         verify_effect_prefix(&reordered, pre_settling, &checkpoints, &settling,).err(),
         Some(EffectPrefixError::EffectKindMismatch {
             entry_index: 1,
-            transaction_index: 0,
+            transaction_index: 1,
             claimed: ClaimedEntryShape::Inbound,
             observed: ObservedEffectKind::Outbound,
         })
@@ -395,8 +395,8 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
         &[anchor, pre_settling, effect_root],
         &[ClaimedEntryShape::Outbound],
     );
-    let settling = settling_with_system_flags(vec![false]);
-    let valid_checkpoints = [checkpoint(0, effect_root)];
+    let settling = settling_with_system_flags(vec![true, false]);
+    let valid_checkpoints = [checkpoint(1, effect_root)];
 
     assert_eq!(
         verify_effect_prefix(&batch, wrong, &valid_checkpoints, &settling).err(),
@@ -416,7 +416,7 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
         verify_effect_prefix(
             &batch,
             pre_settling,
-            &[checkpoint(0, effect_root), checkpoint(1, effect_root)],
+            &[checkpoint(1, effect_root), checkpoint(2, effect_root)],
             &settling,
         )
         .err(),
@@ -429,21 +429,21 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
         verify_effect_prefix(
             &batch,
             pre_settling,
-            &[checkpoint(1, effect_root)],
+            &[checkpoint(2, effect_root)],
             &settling,
         )
         .err(),
         Some(EffectPrefixError::TransactionStateCheckpointIndexMismatch {
             checkpoint_index: 0,
-            expected: 0,
-            actual: 1,
+            expected: 1,
+            actual: 2,
         })
     );
     assert_eq!(
-        verify_effect_prefix(&batch, pre_settling, &[checkpoint(0, wrong)], &settling,).err(),
+        verify_effect_prefix(&batch, pre_settling, &[checkpoint(1, wrong)], &settling,).err(),
         Some(EffectPrefixError::EffectBlockHashMismatch {
             entry_index: 1,
-            transaction_index: 0,
+            transaction_index: 1,
             recomputed_checkpoint: wrong,
             claimed_block_hash: effect_root,
         })
@@ -456,8 +456,8 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
     let pre_settling = B256::repeat_byte(0x0b);
     let transaction_root = B256::repeat_byte(0x0c);
     let final_root = B256::repeat_byte(0x0d);
-    let settling = settling_with_system_flags(vec![false]);
-    let checkpoints = [checkpoint(0, transaction_root)];
+    let settling = settling_with_system_flags(vec![true, false]);
+    let checkpoints = [checkpoint(1, transaction_root)];
 
     let transaction_endpoint = effect_batch(
         &[anchor, pre_settling, transaction_root],
@@ -488,7 +488,7 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
         verify_effect_prefix(&final_endpoint, pre_settling, &checkpoints, &settling,).err(),
         Some(EffectPrefixError::EffectBlockHashMismatch {
             entry_index: 1,
-            transaction_index: 0,
+            transaction_index: 1,
             recomputed_checkpoint: transaction_root,
             claimed_block_hash: final_root,
         })

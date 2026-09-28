@@ -10,6 +10,7 @@ description            = "Shared Prover trait and proving inputs for composers a
 # EvmBatch in ProvingContext (the authoritative postBatch payload).
 eez-protocol.workspace       = true
 eez-blob-codec.workspace     = true
+alloy-consensus.workspace    = true
 alloy-primitives.workspace   = true
 # ExecutionWitness carried per block in ProvingContext.
 alloy-rpc-types-debug.workspace = true

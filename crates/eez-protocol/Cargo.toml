@@ -18,7 +18,8 @@ alloy-sol-types.workspace  = true
 alloy-network.workspace        = true
 # narrow ECDSA signing for the postBatch poster's proof system
 k256.workspace = true
-# signed L2 system txs (system_tx module)
+# Native L2 system transactions and ordinary outbound envelopes.
+eez-primitives.workspace     = true
 alloy-consensus.workspace    = true
 alloy-eips.workspace         = true
 alloy-signer-local.workspace = true

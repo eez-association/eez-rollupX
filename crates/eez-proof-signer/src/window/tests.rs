@@ -15,15 +15,21 @@ fn generous_limits() -> WindowLimits {
 #[test]
 fn format_ceiling_is_enforced_before_witnesses_even_with_an_unlimited_operator_quota() {
     let quota = limits(usize::MAX, 1024 * 1024, usize::MAX);
-    let maximum = WindowAssembler::start(quota, header(1, 65_536)).unwrap();
-    assert_eq!(maximum.declared_block_count, 65_536);
-    assert_eq!(maximum.blocks.capacity(), 0);
-    for span in [65_537, 1_000_000_000, u64::MAX] {
+    for span in [65_537, 1_000_000_000, u64::from(u32::MAX)] {
+        let maximum = WindowAssembler::start(quota, header(1, span)).unwrap();
+        assert_eq!(maximum.declared_block_count, span as usize);
+        assert_eq!(maximum.blocks.capacity(), 0);
+    }
+    for span in [u64::from(u32::MAX) + 1, u64::MAX] {
         assert!(matches!(
             WindowAssembler::start(quota, header(1, span)),
-            Err(WindowError::BlockLimit { max: 65_536, .. })
+            Err(WindowError::BlockLimit { max, .. }) if max == u32::MAX as usize
         ));
     }
+    assert!(matches!(
+        WindowAssembler::start(limits(65_536, 1024, 10), header(1, 65_537)),
+        Err(WindowError::BlockLimit { max: 65_536, .. })
+    ));
 }
 
 fn expected_rollup_id() -> NonZeroU64 {
@@ -42,6 +48,11 @@ fn start_checked(
 fn header(from: u64, to: u64) -> ProveChunk {
     ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+                parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
+                accepted_l1_number: 0,
+                live_slot_endpoint_headers_rlp: Vec::new(),
+            }),
             expected_validation_identity: vec![0; 32],
             rollup_id: 1,
             from_block: from,
@@ -177,14 +188,13 @@ fn block_admission_requires_the_expected_rollup_identity() {
 }
 
 #[test]
-fn discarded_composer_hash_still_counts_toward_the_payload_quota() {
+fn complete_calldata_counts_toward_the_payload_quota() {
     let mut header_chunk = header(5, 5);
     let Some(prove_chunk::Kind::Header(wire_header)) = &mut header_chunk.kind else {
         unreachable!();
     };
     let post_batch = wire_header.post_batch.as_mut().unwrap();
-    post_batch.abi_calldata = vec![0x42; 16];
-    post_batch.public_inputs_hash = vec![0x99; 256];
+    post_batch.abi_calldata = vec![0x42; 256];
     let encoded_len = prost::Message::encoded_len(&header_chunk);
 
     assert!(matches!(
@@ -195,7 +205,7 @@ fn discarded_composer_hash_still_counts_toward_the_payload_quota() {
     let accepted = WindowAssembler::start(limits(1, encoded_len, 1), header_chunk).unwrap();
     assert_eq!(
         accepted.header().submitted_post_batch_calldata,
-        vec![0x42; 16]
+        vec![0x42; 256]
     );
 }
 
@@ -371,7 +381,7 @@ fn enforces_the_aggregate_witness_item_limit() {
     let err = assembler.push(many_items).unwrap_err();
     assert!(matches!(
         err,
-        WindowError::WitnessItemLimit { attempted: 4, .. }
+        WindowError::WitnessItemLimit { attempted: 5, .. }
     ));
     assert!(err.is_resource_exhausted());
 }
@@ -412,21 +422,25 @@ fn rejects_a_header_without_post_batch() {
 }
 
 #[test]
-fn requires_an_empty_l1_block_hash() {
-    for actual in [1, 32] {
+fn requires_an_exact_nonzero_l1_parent_hash() {
+    for actual in [0, 1, 31, 32, 33] {
         let mut header_chunk = header(5, 5);
         let Some(prove_chunk::Kind::Header(wire_header)) = &mut header_chunk.kind else {
             unreachable!();
         };
-        wire_header.post_batch.as_mut().unwrap().l1_block_hash = vec![0; actual];
+        wire_header
+            .post_batch
+            .as_mut()
+            .unwrap()
+            .posting_context
+            .as_mut()
+            .unwrap()
+            .parent_hash = vec![0; actual];
 
         let err = WindowAssembler::start(generous_limits(), header_chunk)
             .err()
             .unwrap();
-        assert!(matches!(
-            err,
-            WindowError::NonemptyL1BlockHash { actual: error_len } if error_len == actual
-        ));
+        assert!(matches!(err, WindowError::InvalidPostingContext));
         assert!(!err.is_resource_exhausted());
     }
 
@@ -434,19 +448,72 @@ fn requires_an_empty_l1_block_hash() {
 }
 
 #[test]
-fn nonempty_l1_block_hash_precedes_the_block_quota() {
+fn invalid_l1_parent_precedes_the_block_quota() {
     let mut over_quota = header(5, 7);
     let Some(prove_chunk::Kind::Header(wire_header)) = &mut over_quota.kind else {
         unreachable!();
     };
-    wire_header.post_batch.as_mut().unwrap().l1_block_hash = vec![0; 32];
+    wire_header
+        .post_batch
+        .as_mut()
+        .unwrap()
+        .posting_context
+        .as_mut()
+        .unwrap()
+        .parent_hash = vec![0; 32];
 
     let err = WindowAssembler::start(limits(2, 1024, 10), over_quota)
         .err()
         .unwrap();
-    assert!(matches!(
-        err,
-        WindowError::NonemptyL1BlockHash { actual: 32 }
-    ));
+    assert!(matches!(err, WindowError::InvalidPostingContext));
     assert!(!err.is_resource_exhausted());
+}
+
+#[test]
+fn parent_provenance_is_required_exact_and_charged_before_witnesses() {
+    for case in 0..5 {
+        let mut chunk = header(1, 1);
+        let Some(prove_chunk::Kind::Header(header)) = &mut chunk.kind else {
+            unreachable!()
+        };
+        match case {
+            0 => header.parent_provenance = None,
+            1 => header
+                .parent_provenance
+                .as_mut()
+                .unwrap()
+                .parent_header_rlp
+                .push(0),
+            2 => header.parent_provenance.as_mut().unwrap().parent_header_rlp = vec![0; 1025],
+            3 => header
+                .parent_provenance
+                .as_mut()
+                .unwrap()
+                .live_slot_endpoint_headers_rlp
+                .push(vec![0xc0]),
+            4 => {
+                header
+                    .parent_provenance
+                    .as_mut()
+                    .unwrap()
+                    .live_slot_endpoint_headers_rlp = vec![Vec::new(); 4]
+            }
+            _ => unreachable!(),
+        }
+        let result = WindowAssembler::start(limits(1, 4096, 4), chunk);
+        if case == 4 {
+            assert!(matches!(
+                result,
+                Err(WindowError::WitnessItemLimit {
+                    attempted: 5,
+                    max: 4
+                })
+            ));
+        } else {
+            assert!(
+                matches!(result, Err(WindowError::InvalidParentProvenance)),
+                "case {case}"
+            );
+        }
+    }
 }

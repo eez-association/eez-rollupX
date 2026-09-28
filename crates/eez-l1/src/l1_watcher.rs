@@ -105,6 +105,8 @@ pub enum L1Event {
         /// Composer uses this to detect external batches (based mode).
         submitter: Address,
         operations_payload: Bytes,
+        /// Immutable actions authenticated by the same blob carrier as operations.
+        semantic_transactions: Arc<[eez_protocol::blob_semantics::SemanticTransaction]>,
         /// The originating postBatch tx's full `postAndVerifyBatch` input,
         /// captured from the tx fetched by (block, index) during the scan.
         /// The Deriver's reconcile fallback decodes `batch.entries`
@@ -836,6 +838,7 @@ impl L1Watcher {
                 tx_index: b.tx_index,
                 submitter: b.submitter,
                 operations_payload: b.operations_payload,
+                semantic_transactions: b.semantic_transactions,
                 post_batch_input: b.post_batch_input,
                 state_applied: b.state_applied,
                 settlement: b.settlement,
@@ -1705,6 +1708,7 @@ mod tests {
             tx_index: u64::from(tx),
             submitter: Address::ZERO,
             operations_payload: Bytes::new(),
+            semantic_transactions: Default::default(),
             transaction_blob_hashes: Vec::new(),
             post_batch_input: Bytes::new(),
             state_applied: true,

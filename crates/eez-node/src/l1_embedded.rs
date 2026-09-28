@@ -28,6 +28,52 @@ use reth_node_core::{
 /// split the two `send_raw_transaction` roundtrips across blocks.
 pub const TESTING_L1_BLOCK_TIME: std::time::Duration = std::time::Duration::from_secs(5);
 
+/// Mine on the genesis slot phase. Reth's default interval starts relative to
+/// process launch, which can include a timestamp-bound proof in the preceding
+/// slot. Skip delayed ticks instead of producing future blocks in a burst.
+pub fn testing_mining_interval(genesis: u64) -> Result<tokio::time::Interval> {
+    let now = tokio::time::Instant::now();
+    let wall = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+    let delay = testing_slot_delay(genesis, wall)?;
+    let mut interval = tokio::time::interval_at(now + delay, TESTING_L1_BLOCK_TIME);
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    Ok(interval)
+}
+
+fn testing_slot_delay(genesis: u64, sampled: std::time::Duration) -> Result<std::time::Duration> {
+    let elapsed = sampled
+        .checked_sub(std::time::Duration::from_secs(genesis))
+        .ok_or_else(|| eyre::eyre!("testing L1 clock precedes genesis"))?;
+    let remainder = std::time::Duration::new(
+        elapsed.as_secs() % TESTING_L1_BLOCK_TIME.as_secs(),
+        elapsed.subsec_nanos(),
+    );
+    // The whole-second period and modulus keep remainder strictly below it.
+    Ok(TESTING_L1_BLOCK_TIME
+        .checked_sub(remainder)
+        .expect("slot remainder is smaller than the period"))
+}
+
+/// Preserve the private miner's slot phase without moving its sampled clock
+/// into the future. The actual parent supplies the monotonic lower bound after
+/// clock jitter; sampling after missed slots or restart skips to the last slot.
+/// Real Ethereum/Gnosis consensus never uses this testing clock.
+pub fn testing_slot_timestamp(genesis: u64, parent: u64, sampled: u64) -> Result<u64> {
+    let elapsed = sampled
+        .checked_sub(genesis)
+        .ok_or_else(|| eyre::eyre!("testing L1 clock precedes genesis"))?;
+    let period = TESTING_L1_BLOCK_TIME.as_secs();
+    eyre::ensure!(
+        parent >= genesis && (parent - genesis).is_multiple_of(period),
+        "testing L1 parent is outside its genesis slot phase"
+    );
+    let completed_slot = genesis + (elapsed / period) * period;
+    let next = parent
+        .checked_add(period)
+        .ok_or_else(|| eyre::eyre!("testing L1 slot timestamp overflow"))?;
+    Ok(completed_slot.max(next))
+}
+
 /// Which L1 chain the embedded L1 NodeBuilder should serve. Selected
 /// by `EEZ_L1_CHAIN` env at startup; defaults to `Testing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,6 +261,56 @@ fn build_network_rpc_args(cfg: &EmbeddedL1Config) -> Result<(NetworkArgs, RpcSer
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn testing_miner_waits_for_the_next_genesis_aligned_slot() {
+        use std::time::Duration;
+        let genesis = 1002;
+        for (sampled, expected) in [
+            (Duration::from_secs(1002), Duration::from_secs(5)),
+            (Duration::from_millis(1006250), Duration::from_millis(750)),
+            (Duration::from_secs(1007), Duration::from_secs(5)),
+            (Duration::from_millis(1801750), Duration::from_millis(250)),
+        ] {
+            let delay = testing_slot_delay(genesis, sampled).unwrap();
+            assert_eq!(delay, expected);
+            let slot = sampled + delay;
+            assert_eq!(slot.subsec_nanos(), 0);
+            assert_eq!((slot.as_secs() - genesis) % 5, 0);
+            assert_eq!(
+                testing_slot_timestamp(genesis, genesis, slot.as_secs()).unwrap(),
+                slot.as_secs()
+            );
+        }
+        assert!(testing_slot_delay(genesis, Duration::from_secs(genesis - 1)).is_err());
+    }
+
+    #[test]
+    fn testing_l1_clock_preserves_phase_without_future_rounding() {
+        let genesis = 1002;
+        for (parent, sampled, expected) in [
+            (1002, 1007, 1007),
+            (1007, 1011, 1012), // Small wall-clock jitter still advances one slot.
+            (1002, 1013, 1012), // Startup delay: the last completed slot.
+            (1007, 1801, 1797), // Missed slots.
+            (1797, 1803, 1802), // Restart from the actual persisted parent.
+        ] {
+            let timestamp = testing_slot_timestamp(genesis, parent, sampled).unwrap();
+            assert_eq!(timestamp, expected);
+            assert!(timestamp > parent);
+            assert_eq!((timestamp - genesis) % 5, 0);
+            if sampled >= parent + 5 {
+                assert!(
+                    timestamp <= sampled,
+                    "a completed slot must not be rounded forward"
+                );
+            }
+        }
+        assert!(testing_slot_timestamp(genesis, genesis, genesis - 1).is_err());
+        assert!(testing_slot_timestamp(genesis, genesis + 1, 1020).is_err());
+        assert!(testing_slot_timestamp(0, 0, u64::MAX).is_ok());
+        assert!(testing_slot_timestamp(u64::MAX - 3, u64::MAX - 3, u64::MAX).is_err());
+    }
 
     #[test]
     fn only_private_miners_use_the_short_persistence_window() {

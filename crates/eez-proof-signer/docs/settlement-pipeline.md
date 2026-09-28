@@ -14,7 +14,7 @@ checkpoint, event, receipt status, or DA sidecar authorizes an effect by itself.
 | Submitted `PostBatch` calldata | Composer input; `CanonicalPostBatch` proves only complete canonical decoding |
 | `ValidatedWindow` | Cross-checked Stateless output plus exact admitted block bytes and locally derived evidence |
 | Expected rollup ID, configured proof-system address and proof-system vkey | Independent operator-configured deployment bindings |
-| `SystemTransactionReconstructor` | Operator-configured system key combined with chain ID, expected rollup ID, and the fixed EEZL2 address |
+| `SystemTransactionReconstructor` | Chain ID, expected rollup ID, and fixed native sender/EEZL2 destination; no key |
 
 ## Gate order
 
@@ -38,20 +38,22 @@ flowchart LR
     OUT --> DA
     PI --> HASH[RecomputedPublicInputsHash]
     DA --> HASH
-    HASH --> AUTH[AttestablePublicInputsHash]
-    AUTH --> MATERIAL[AttestationMaterial]
-    MATERIAL --> SIGN[Attest]
+    HASH --> MATERIAL[AttestationMaterial]
+    MATERIAL --> L1[Recheck canonical L1 target]
+    L1 --> AUTH[AttestablePublicInputsHash]
+    AUTH --> SIGN[Attest]
 ```
 
 1. `post_batch` exact-decodes and canonical round-trips the full calldata into
    `CanonicalPostBatch`. Its fields remain Composer claims.
 2. `CheckedPublicInputProfile` pins the supported one-rollup,
-   one-proof-system, timeless shape to the expected/configured deployment
+   one-proof-system, latest-context shape to the expected/configured deployment
    values. It retains the typed capability needed for later hash computation;
    it never accepts the wire hash as authoritative.
 3. `state_chain` requires exactly one expected-rollup ABI root update per entry
    and a continuous block-hash chain from
-   `ValidatedWindow.window_pre_block_hash` to `window_post_block_hash`.
+   the terminal ordinary-prefix block hash B[0] to `window_post_block_hash`.
+   B[0] includes mandatory pre-execution changes and is not the parent block.
 4. `blocks` consumes the validated system-sender flags, receipt outcomes,
    source-table loads, and outbound observations in exact transaction order. It rejects
    privileged/effect evidence in `preceding_blocks` and derives the
@@ -68,16 +70,19 @@ flowchart LR
    L2 source table recursively matches the L1 host entry and all recomputed
    L2-origin call hashes match the ordered EEZL2 receipt events. Exact
    `[load, user]` transaction-byte equality remains part of the DA gate in step 8.
-8. `da` exact-binds every sparse derivation record, the complete terminal block
-   and authorized sidecars to independently validated reconstruction facts. The
-   shipping path accepts only RollupX V0 tag 0/profile 1. Test-only projected fixtures use
-   an independent oracle to exercise lower settlement gates; they are not a
-   supported request format.
-9. Only after every gate passes does `CheckedPublicInputProfile` construct
-   `RecomputedPublicInputsHash`. The complete job then wraps it as
-   `AttestablePublicInputsHash`; `AttestationMaterial` carries that stronger
-   capability and the validated endpoint block hashes to the async RPC for signing
-   and audit logging.
+8. `da` binds the direct V0 count/metadata/ordinary-transaction columns and
+   authorized native action suffix to independently validated reconstruction
+   facts. Inner version 0 has no profile selector, full terminal block or raw
+   sidecar arrays. Tests use this same gate. Checked inbound sidecars remain
+   checked through canonical native byte reconstruction.
+9. The candidate's authenticated L1 context must match the validated parent,
+   complete interval, seed and registry commitment (including an already
+   consumed, independently validated terminal prefix). Observation replay must
+   reproduce the claimed static/reverted results.
+10. After all gates pass, the job returns `AttestationMaterial` with the locally
+    recomputed digest and validated endpoint hashes. The async RPC rechecks the
+    canonical L1 target, then constructs `AttestablePublicInputsHash` and signs.
+    Neither a profile-only hash nor Composer's wire digest grants that authority.
 
 ## Why the order matters
 
@@ -125,7 +130,7 @@ shapes and equations.
 | [`inbound.rs`](../src/settlement/inbound.rs) | Strict inbound observation and entry authorization |
 | [`outbound.rs`](../src/settlement/outbound.rs) | Event-to-entry outbound authorization |
 | [`da.rs`](../src/settlement/da.rs) | Borrowed payload parsing and exact transaction/sidecar reconstruction |
-| [`system_transactions.rs`](../src/settlement/system_transactions.rs) | System-key validation and `SystemTransactionReconstructor` context |
+| [`system_transactions.rs`](../src/settlement/system_transactions.rs) | Fixed native identity and `SystemTransactionReconstructor` context |
 
 ## Attestation boundary
 
@@ -138,5 +143,6 @@ local profile-checked computation, while only the complete settlement job can
 grant the attestable capability after every gate. The signing API accepts
 neither the weaker type nor the Composer-supplied wire hash. The signature
 proves neither that L1 will apply the transition nor that an expected outbound
-call will succeed in the future. Live-commitment checks, actual L1 execution, and
-dispatch scheduling remain outside this daemon's observation.
+call will succeed in the future. Canonical commitment and target checks observe
+the configured L1 source; future inclusion and dispatch remain outside this
+daemon's control.

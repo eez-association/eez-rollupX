@@ -9,7 +9,6 @@ FIXTURE_PROFILE="$REPO/testing/kurtosis/l2-genesis-profile.json"
 EXPECTED_FOUNDRY_VERSION="1.7.1"
 USE_GAS_LEFT=false
 EEZL2_ADDRESS="0x4200000000000000000000000000000000000007"
-DEFAULT_SYSTEM_BALANCE="0xd3c21bcecceda1000000"
 
 # Independent fixed vector for the canonical CrossChainProxy CREATE2 formula.
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
@@ -24,19 +23,18 @@ usage:
   scripts/update-eezl2-genesis.sh
   scripts/update-eezl2-genesis.sh --check
   scripts/update-eezl2-genesis.sh --render --rollup-id ID --system-address ADDRESS \
-      --output PATH [--base PATH] [--profile-output PATH] [--system-balance HEX]
+      --output PATH [--base PATH] [--profile-output PATH]
 
 The default mode regenerates the committed test genesis files from
 testing/kurtosis/l2-genesis-profile.json. --render creates a deployment-specific
 genesis without modifying committed files. Private keys are never accepted;
-the deployment derives the public system address before invoking this script.
+the deployment uses the reserved native system address.
 EOF
 }
 
 mode="update"
 rollup_id=""
 system_address=""
-system_balance=""
 base_genesis=""
 output=""
 profile_output=""
@@ -59,10 +57,6 @@ while (( $# > 0 )); do
             ;;
         --system-address)
             system_address="${2:-}"
-            shift 2
-            ;;
-        --system-balance)
-            system_balance="${2:-}"
             shift 2
             ;;
         --base)
@@ -102,9 +96,8 @@ if [[ "$mode" == "render" ]]; then
         exit 2
     }
     base_genesis="${base_genesis:-$REPO/genesis.json}"
-    system_balance="${system_balance:-$DEFAULT_SYSTEM_BALANCE}"
 else
-    [[ -z "$rollup_id$system_address$system_balance$base_genesis$output$profile_output" ]] || {
+    [[ -z "$rollup_id$system_address$base_genesis$output$profile_output" ]] || {
         usage
         exit 2
     }
@@ -114,7 +107,6 @@ else
     }
     rollup_id="$(jq -er '.rollupId | tostring' "$FIXTURE_PROFILE")"
     system_address="$(jq -er '.systemAddress' "$FIXTURE_PROFILE")"
-    system_balance="$(jq -er '.systemBalance' "$FIXTURE_PROFILE")"
 fi
 
 python3 - "$rollup_id" <<'PY'
@@ -133,12 +125,8 @@ if [[ ! "$system_address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
     exit 1
 fi
 system_address="$(cast to-check-sum-address "$system_address")"
-if [[ "${system_address,,}" == "0x0000000000000000000000000000000000000000" ]]; then
-    echo "system address must be non-zero" >&2
-    exit 1
-fi
-if [[ ! "$system_balance" =~ ^0x[0-9a-fA-F]+$ ]] || [[ "$system_balance" =~ ^0x0+$ ]]; then
-    echo "system balance must be a non-zero hexadecimal quantity" >&2
+if [[ "${system_address,,}" != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" ]]; then
+    echo "system address must be the reserved native address 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" >&2
     exit 1
 fi
 
@@ -323,9 +311,8 @@ render_genesis() {
         --arg predeploy "${EEZL2_ADDRESS,,}" \
         --arg runtime "$runtime" \
         --arg system_address "${system_address,,}" \
-        --arg system_balance "$system_balance" \
         '.alloc[$predeploy].code = $runtime
-         | .alloc[$system_address].balance = $system_balance' \
+         | del(.alloc[$system_address])' \
         "$base" >"$tmp"
     chmod --reference="$base" "$tmp"
     printf '%s\n' "$tmp"
@@ -339,7 +326,6 @@ write_profile() {
     jq -n \
         --argjson rollup_id "$rollup_id" \
         --arg system_address "$system_address" \
-        --arg system_balance "$system_balance" \
         --arg eezl2_address "$EEZL2_ADDRESS" \
         --arg runtime_hash "$runtime_hash" \
         --arg state_root "$state_root" \
@@ -348,7 +334,6 @@ write_profile() {
             schemaVersion: 1,
             rollupId: $rollup_id,
             systemAddress: $system_address,
-            systemBalance: $system_balance,
             useGasLeft: false,
             eezL2Address: $eezl2_address,
             runtimeCodeHash: $runtime_hash,
@@ -392,7 +377,7 @@ if [[ "$mode" == "check" ]]; then
     stale=0
     for index in "${!genesis_files[@]}"; do
         if ! cmp -s "${rendered_files[$index]}" "${genesis_files[$index]}"; then
-            echo "stale generated EEZL2 runtime or system funding: ${genesis_files[$index]}" >&2
+            echo "stale generated EEZL2 genesis: ${genesis_files[$index]}" >&2
             stale=1
         fi
     done

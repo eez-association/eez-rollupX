@@ -23,10 +23,10 @@
 use alloy_consensus::{BlockHeader, Header};
 use alloy_primitives::{B256, Bytes, U256, keccak256};
 use alloy_rpc_types_debug::ExecutionWitness;
+use eez_evm::EezEvmConfig;
+use eez_primitives::{Block, EezPrimitives};
 use eez_prover::BlockWitness;
-use reth_ethereum_primitives::{Block, EthPrimitives};
 use reth_evm::{ConfigureEvm, execute::Executor};
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::RecoveredBlock;
 use reth_revm::{database::StateProviderDatabase, witness::ExecutionWitnessRecord};
 use reth_storage_api::{
@@ -79,7 +79,7 @@ pub fn block_witness<P, E>(
 ) -> eyre::Result<BlockWitness>
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
-    E: ConfigureEvm<Primitives = EthPrimitives>,
+    E: ConfigureEvm<Primitives = EezPrimitives>,
 {
     let witness = block_execution_witness(provider, evm_config, block, mode)?;
     Ok(BlockWitness {
@@ -101,7 +101,7 @@ where
 /// reject claims that already disagree locally.
 pub fn block_witness_with_observations<P>(
     provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
     observations: &[BlockObservation],
@@ -132,7 +132,7 @@ where
 /// Propagates parent-state lookup, block execution, and observation failures.
 pub fn block_observation_outcomes<P>(
     provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
     observations: &[BlockObservation],
 ) -> eyre::Result<Vec<ObservedOutcome>>
@@ -159,7 +159,7 @@ pub fn block_execution_witness<P, E>(
 ) -> eyre::Result<ExecutionWitness>
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
-    E: ConfigureEvm<Primitives = EthPrimitives>,
+    E: ConfigureEvm<Primitives = EezPrimitives>,
 {
     let parent_hash = block.header().parent_hash();
     let block_number = block.header().number();
@@ -184,7 +184,7 @@ where
 
 fn block_execution_witness_with_observations<P>(
     provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
     mode: ExecutionWitnessMode,
     observations: &[BlockObservation],
@@ -371,10 +371,9 @@ mod tests {
     };
     use crate::observation::BlockObservation;
     use alloy_primitives::{Address, address};
+    use eez_evm::EezEvmConfig;
     use eez_protocol::settlement::FifoObservationClaim;
     use eez_protocol::{CallMode, RollupId};
-    use reth_chainspec::ChainSpecBuilder;
-    use reth_evm_ethereum::EthEvmConfig;
     use reth_primitives_traits::RecoveredBlock;
     use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
     use std::sync::Arc;
@@ -495,8 +494,16 @@ mod tests {
 
     #[test]
     fn observation_witness_includes_accounts_and_code_read_only_by_the_observation() {
-        let chain_spec = Arc::new(ChainSpecBuilder::mainnet().shanghai_activated().build());
-        let evm_config = EthEvmConfig::new(Arc::clone(&chain_spec));
+        let mut genesis: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
+        genesis["timestamp"] = serde_json::json!("0x3dc");
+        genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
+        genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
+        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);
+        let chain_spec = Arc::new(
+            eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap(),
+        );
+        let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec));
         let provider: MockEthProvider = MockEthProvider::new();
 
         let proxy = Address::repeat_byte(0x55);
@@ -520,6 +527,11 @@ mod tests {
             timestamp: 1_000,
             gas_limit: 30_000_000,
             base_fee_per_gas: Some(0),
+            withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
+            parent_beacon_block_root: Some(B256::ZERO),
+            requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
+            blob_gas_used: Some(0),
+            excess_blob_gas: Some(0),
             ..Default::default()
         };
         let parent_hash = parent.hash_slow();
@@ -532,9 +544,17 @@ mod tests {
                     timestamp: 1_012,
                     gas_limit: 30_000_000,
                     base_fee_per_gas: Some(0),
+                    withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
+                    parent_beacon_block_root: Some(B256::ZERO),
+                    requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
+                    blob_gas_used: Some(0),
+                    excess_blob_gas: Some(0),
                     ..Default::default()
                 },
-                Default::default(),
+                alloy_consensus::BlockBody {
+                    withdrawals: Some(Default::default()),
+                    ..Default::default()
+                },
             ),
             Vec::new(),
         );

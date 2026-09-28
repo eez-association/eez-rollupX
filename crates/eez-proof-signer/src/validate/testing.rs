@@ -15,7 +15,7 @@ impl SettlementBlockEvidence {
     /// RLP itself and rejects such a block, so no manufactured facts cross the
     /// checked boundary.
     pub(crate) fn from_rlp_for_test(rlp: &[u8]) -> Self {
-        let system_sender_flags = alloy_rlp::decode_exact::<EthereumBlock>(rlp)
+        let system_sender_flags = alloy_rlp::decode_exact::<EezBlock>(rlp)
             .map(|block| {
                 block
                     .body
@@ -30,6 +30,7 @@ impl SettlementBlockEvidence {
             })
             .unwrap_or_default();
         Self {
+            ordinary_prefix_hash: B256::ZERO,
             system_sender_flags,
             observed_outbound_events: Vec::new(),
         }
@@ -168,7 +169,9 @@ pub(crate) fn backend_output_for(blocks: &[AdmittedBlock]) -> BackendWindowOutpu
             .map(|block| {
                 let decoded_transaction_count = decode_transaction_count(block).unwrap_or_default();
                 BackendBlockOutput {
-                    reconstruction: None,
+                    reconstruction: alloy_rlp::decode_exact::<EezBlock>(&block.rlp).ok().map(
+                        |decoded| ReconstructedBlock::for_test(block.claimed_hash, &decoded.header),
+                    ),
                     decoded_number: block.declared_number,
                     decoded_parent_hash: block.claimed_parent_hash,
                     computed_hash: block.claimed_hash,
@@ -176,7 +179,8 @@ pub(crate) fn backend_output_for(blocks: &[AdmittedBlock]) -> BackendWindowOutpu
                     receipt_successes: vec![true; decoded_transaction_count],
                     transaction_state_checkpoints: Vec::new(),
                     post_state_root: B256::ZERO,
-                    settlement_evidence: SettlementBlockEvidence::from_rlp_for_test(&block.rlp),
+                    settlement_evidence: SettlementBlockEvidence::from_rlp_for_test(&block.rlp)
+                        .with_ordinary_prefix_for_test(block.claimed_hash),
                 }
             })
             .collect(),

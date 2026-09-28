@@ -73,6 +73,19 @@ impl L1Reader {
         self
     }
 
+    /// Authenticate the new network's immutable genesis reference through the
+    /// same bounded, operator-configured canonical source used for settlement.
+    pub async fn derivation_source(
+        &self,
+        schedule: eez_protocol::l2::Schedule,
+    ) -> Result<
+        crate::derivation::DerivationSource<alloy_provider::DynProvider>,
+        crate::derivation::DerivationError,
+    > {
+        crate::derivation::DerivationSource::authenticate(self.build_provider().erased(), schedule)
+            .await
+    }
+
     /// Creates bounded `BatchPosted` log chunks from `from_block` to the
     /// current L1 head. Call [`Self::next_batch_log_chunk`] to consume it.
     ///

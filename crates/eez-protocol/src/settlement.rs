@@ -425,18 +425,22 @@ pub fn fifo_transaction_root_plan(
     })
 }
 
-/// A sync-block transaction is a system transaction iff its recovered signer
-/// matches the deployment's system address and it targets `EEZL2`.
-/// The proof signer and composer must use the same deployment values so their
-/// pair-end positions, and therefore per-effect settlement block hashes, agree.
+/// Classify the native envelope, recovered sender and target together. A legacy
+/// transaction claiming the reserved sender cannot acquire system semantics.
+/// Deployment parameters must match the fixed native protocol addresses.
 #[must_use]
 pub fn is_system_tx(
+    tx_type: u8,
     signer: Address,
     to: Option<Address>,
     expected_system_address: Address,
     eezl2_address: Address,
 ) -> bool {
-    signer == expected_system_address && to == Some(eezl2_address)
+    tx_type == eez_primitives::SYSTEM_TX_TYPE
+        && expected_system_address == eez_primitives::SYSTEM_ADDRESS
+        && eezl2_address == eez_primitives::EEZL2_ADDRESS
+        && signer == expected_system_address
+        && to == Some(eezl2_address)
 }
 
 /// Pair-end tx positions in a sync block — one per settled cross-chain effect,
@@ -572,27 +576,37 @@ mod tests {
     }
 
     #[test]
-    fn system_transaction_identity_uses_deployment_addresses() {
-        let system_address = address!("1111111111111111111111111111111111111111");
-        let eezl2_address = address!("2222222222222222222222222222222222222222");
+    fn system_transaction_identity_requires_native_type_and_fixed_addresses() {
+        let system_address = eez_primitives::SYSTEM_ADDRESS;
+        let eezl2_address = eez_primitives::EEZL2_ADDRESS;
 
         assert!(is_system_tx(
+            eez_primitives::SYSTEM_TX_TYPE,
             system_address,
             Some(eezl2_address),
             system_address,
             eezl2_address,
         ));
         assert!(!is_system_tx(
+            eez_primitives::SYSTEM_TX_TYPE,
             address!("3333333333333333333333333333333333333333"),
             Some(eezl2_address),
             system_address,
             eezl2_address,
         ));
         assert!(!is_system_tx(
+            eez_primitives::SYSTEM_TX_TYPE,
             system_address,
             Some(address!("4444444444444444444444444444444444444444")),
             system_address,
             eezl2_address,
+        ));
+        assert!(!is_system_tx(
+            0,
+            system_address,
+            Some(eezl2_address),
+            system_address,
+            eezl2_address
         ));
     }
 

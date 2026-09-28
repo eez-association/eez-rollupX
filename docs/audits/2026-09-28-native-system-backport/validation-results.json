@@ -1,0 +1,168 @@
+{
+  "base_commit": "0b7beed5ca48157d720d6685435ba2121c1e9c1e",
+  "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "log_availability": "Detailed logs and source manifests are local-only; commands and digests are retained here. Do not assume ignored artifacts are available in another checkout.",
+  "runtime_source_manifest_sha256": "47d3b7fee2c4da2561acb5f630062ac2c82fce3cadb15ed5b95c0d920a59c6cc",
+  "inventoried_runtime_source_files": 873,
+  "process_identity": {
+    "exit_codes": {
+      "resume": 0,
+      "slots": 0,
+      "multiblob": 0,
+      "cold_four_node": 0,
+      "cross_chain": 0
+    },
+    "source_unchanged": true,
+    "executables": {
+      "target/debug/eez-composer": "2444c9b5a50875bf07ad287f2a314c692573cc11a0e5c83dca7c6e935726a2a0",
+      "target/debug/eez-follower": "bc806d82280b35bfdfbaf276a32000c2ad66b2efc20c18c831887c519ae45f20",
+      "target/debug/eez-proof-signer": "d7dacf1f52719022f7d1606b8f6194de337244b99a36449723eaea64c9d67472"
+    }
+  },
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked --offline --workspace --exclude eez-node-e2e --no-fail-fast",
+      "local_only_log": "artifacts/native-system-backport/logs/workspace-tests-v0-2.log",
+      "sha256": "8a8d0fde60edde574b0f89ff9cf8e850b6787d7a34c42594cb63b79f5b81f346",
+      "result": "pass",
+      "passed": 1277,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets --all-features --keep-going -- -D warnings",
+      "local_only_log": "artifacts/native-system-backport/logs/clippy-workspace-v0-9.log",
+      "sha256": "35afad6d0e078ffcd280ac0d95abb6a925869e394be25f5d75363931bfef087d",
+      "result": "pass"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test partial_consumption --test chained_interstate --test queue_reorg --no-fail-fast -- --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-ownership-1.log",
+      "sha256": "67c0a7aa45cc73bf5fbff9e9e909a518108b15e9246a8c114c6047cebb93c357",
+      "result": "one test decoder failure, fixed and repeated in post42-resume-2",
+      "passed": 10,
+      "failed": 1,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test partial_consumption valid_blob_batch_resumes_at_middle_group_in_same_l1_block -- --exact --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-resume-2.log",
+      "sha256": "e89bed5bfab0277372fba015130615d8afd2b94c84c77d4c86bfc224e17f61f3",
+      "result": "pass",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test dynamic_admission -- skipped_slot late_original --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-skipped-slots-1.log",
+      "sha256": "727ed0b6d17e98837c990060c353fee3cbcd61561aa1a08008fb86527f510c97",
+      "result": "pass",
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test settlement_policy retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_replays -- --exact --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-multiblob-1.log",
+      "sha256": "8438b13caee8e5d4a1f84cc55bc783cf9d696941648d9ac7179150697add80c3",
+      "result": "pass",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test derivable_operations --test native_system --no-fail-fast -- --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-cold-four-node-1.log",
+      "sha256": "3c58b254afc7d36f602a608f7d40a8c183f03ff4a88920a1c527fb5c90d49e23",
+      "result": "pass",
+      "passed": 4,
+      "failed": 0,
+      "ignored": 3
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test cross_chain -- reverting_destination inbound_nested outbound_changing_static inbound_value_and_calldata real_signer_rejects --test-threads=1",
+      "local_only_log": "artifacts/native-system-backport/logs/post42-cross-chain-1.log",
+      "sha256": "06d069a1ee0f1897ec306429cc65d9cbd4f24b00df55dc093d900c309a462d67",
+      "result": "pass",
+      "passed": 7,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "forge test --root contracts",
+      "local_only_log": "artifacts/native-system-backport/logs/contracts-test-final.log",
+      "sha256": "5b82b1d1e9b7ab97474ad2cafd957af4d6bf46be07e7f40d2e8f666d141402eb",
+      "result": "pass"
+    },
+    {
+      "command": "forge test --root eez-core-protocol --no-match-path 'script/*' --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'",
+      "local_only_log": "artifacts/native-system-backport/logs/core-test-final.log",
+      "sha256": "c97176bed73d393908fbeceacd18d6b4b5c2ea2dbae7c76f23fd7d53c6abdcd3",
+      "result": "pass"
+    },
+    {
+      "command": "unset PK; BASE_PORT=24000 BASE_CHAIN_ID=52337 bash scripts/ci/run-protocol-anvil.sh",
+      "local_only_log": "artifacts/native-system-backport/logs/protocol-anvil-v0-2.log",
+      "sha256": "b18028f78f1228db799b49c9c8575299b91f94c84e5c0e1d8ff4550f541d15b2",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "local_only_log": "artifacts/native-system-backport/logs/ci-tooling-v0-2.log",
+      "sha256": "e08ef2b9ed126e2a6930547e5a2d53e485af1f479818331a151869205d8a76fd",
+      "result": "pass"
+    },
+    {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -p test_native_artifacts.py -v",
+      "local_only_log": "artifacts/native-system-backport/logs/native-artifacts-final.log",
+      "sha256": "ab211dcb445f66635b5bd8a4fd81ab00e7b67eacdff074169f869051ee9c8926",
+      "result": "pass"
+    },
+    {
+      "command": "forge fmt --check --root contracts",
+      "local_only_log": "artifacts/native-system-backport/logs/contracts-fmt-final.log",
+      "sha256": "3d6b18e935875f46247ba62765bf9a0e296e03a08fde4393c8b9fe32c5bb5eac",
+      "result": "baseline failure in two unchanged Solidity files"
+    },
+    {
+      "command": "forge fmt --check contracts/test/PublicInputsHashVectors.t.sol",
+      "local_only_log": "artifacts/native-system-backport/logs/contracts-changed-fmt-final.log",
+      "sha256": "6f85e41b56cfeeb5ebd7655e40822449733e318d7a413b8f346c8c638838c356",
+      "result": "pass"
+    },
+    {
+      "command": "cargo +1.95.0 build --locked --offline -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --bin eez-composer --bin eez-follower --bin eez-proof-signer --example genesis_state_root --example genesis_block_hash --example e2e-causal-verify --example verify_blob_evidence",
+      "local_only_log": "artifacts/native-system-backport/logs/shipping-build-final.log",
+      "sha256": "15bdeeca14a334b2f9eecba6446a3c15a4a1279e572074226235d073757609ab",
+      "result": "pass"
+    },
+    {
+      "command": "RUSTDOCFLAGS='-D warnings' cargo +1.95.0 doc --locked --offline -p eez-proof-signer --no-deps",
+      "local_only_log": "artifacts/native-system-backport/logs/signer-rustdoc-final.log",
+      "sha256": "77a8c9b8910e44dc549a4a28e44107b1f490abec37b86d864d4bda410770c2af",
+      "result": "pass"
+    },
+    {
+      "command": "CARGO_NET_OFFLINE=true RUSTUP_TOOLCHAIN=1.95.0 bash scripts/update-eezl2-genesis.sh --check",
+      "local_only_log": "artifacts/native-system-backport/logs/genesis-check-final.log",
+      "sha256": "1fd88ae7a5200fc9eac7509d055ddbb39b76647ca4eca526f37a4c9b666d9934",
+      "result": "pass"
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "local_only_log": "artifacts/native-system-backport/logs/rust-fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "result": "pass"
+    },
+    {
+      "command": "CARGO_TARGET_DIR=\"$PWD/target\" cargo +1.95.0 test --locked --offline --manifest-path vendor/stateless/Cargo.toml -p stateless -p tries",
+      "local_only_log": "artifacts/native-system-backport/logs/stateless-final.log",
+      "sha256": "b870f21da610a9d002acdd66b64440e6942e1b0db5fc04f2c0b51ea82e0699e3",
+      "result": "pass",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    }
+  ]
+}

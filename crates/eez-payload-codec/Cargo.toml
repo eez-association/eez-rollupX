@@ -4,17 +4,18 @@ version.workspace      = true
 edition.workspace      = true
 license.workspace      = true
 rust-version.workspace = true
-description            = "Sparse derivable ChainOperation payload codec."
+description            = "Canonical direct V0 ChainOperation payload codec."
 
 [dependencies]
+eez-primitives.workspace            = true
 alloy-consensus.workspace           = true
 alloy-eips.workspace                = true
 alloy-primitives.workspace          = true
 alloy-rlp.workspace                 = true
-reth-ethereum-primitives.workspace = true
 thiserror.workspace                 = true
 
 [dev-dependencies]
+serde_json.workspace = true
 alloy-primitives.workspace = true
 proptest = "1"
 

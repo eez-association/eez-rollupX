@@ -87,10 +87,12 @@ fn trailing_bytes_are_rejected() {
 }
 
 #[test]
-fn signer_hash_matches_the_two_argument_protocol_api() {
+fn signer_hash_matches_the_context_bound_protocol_api() {
     let batch = target_anchor_batch();
     let proof_system_vkey = test_proof_system_vkey();
-    let expected = public_inputs_hashes(&batch, proof_system_vkey.get()).unwrap()[0];
+    let expected =
+        public_inputs_hashes(&batch, proof_system_vkey.get(), crate::testkit::l1_target()).unwrap()
+            [0];
 
     let result = recompute_public_input_hash(
         &batch,
@@ -170,7 +172,12 @@ fn root_update_endpoints_are_committed_and_bound_to_reexecution() {
 #[test]
 fn proofs_are_not_an_input_to_the_hash_gate() {
     let mut batch = carrier_batch();
-    let expected = public_inputs_hashes(&batch, test_proof_system_vkey().get()).unwrap()[0];
+    let expected = public_inputs_hashes(
+        &batch,
+        test_proof_system_vkey().get(),
+        crate::testkit::l1_target(),
+    )
+    .unwrap()[0];
     batch.proofs = vec![Bytes::from_static(b"ignored"), Bytes::from(vec![0xaa; 65])];
 
     let result = recompute_public_input_hash(
@@ -302,12 +309,20 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
             .expect("blob indices are not a structural-profile violation");
 
     assert!(matches!(
-        profile.recompute_public_inputs_hash(test_proof_system_vkey(), &[]),
+        profile.recompute_public_inputs_hash(
+            test_proof_system_vkey(),
+            &[],
+            crate::testkit::l1_target()
+        ),
         Err(PublicInputError::Computation(_))
     ));
     assert!(
         profile
-            .recompute_public_inputs_hash(test_proof_system_vkey(), &[B256::repeat_byte(0x44)],)
+            .recompute_public_inputs_hash(
+                test_proof_system_vkey(),
+                &[B256::repeat_byte(0x44)],
+                crate::testkit::l1_target()
+            )
             .is_ok()
     );
 }

@@ -23,8 +23,8 @@ chmod 600 .env
 ```
 
 Edit `.env`: set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
-proof-signer, and L2-system keys. Proof/system keys must differ; keep the poster
-separate from the proof signer. Fund the poster with test xDAI; it also deploys
+proof-signer keys. Keep the poster separate from the proof signer. Native L2
+transactions use a fixed address and need no key. Fund the poster with test xDAI; it also deploys
 unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 
 The example enables the [live Chiado policy/timing preset](chiado-deployment.md#1-configure):

@@ -29,10 +29,10 @@ services:
       - ./deployments.env
     environment:
       EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50081}
+      EEZ_L1_RPC_URL: http://127.0.0.1:18645
       EEZ_CHAIN_CONFIG: /app/genesis.json
       EEZ_L1_CHAIN_CONFIG: /l1-genesis/genesis.json
       EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
-      EEZ_L2_SYSTEM_KEY: "${EEZ_L2_SYSTEM_KEY:?set EEZ_L2_SYSTEM_KEY}"
       RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
     volumes:
       - ${L1_GENESIS_DIR:?point at the enclave's l1-genesis artifact}:/l1-genesis:ro

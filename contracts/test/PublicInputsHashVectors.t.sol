@@ -54,6 +54,39 @@ contract PublicInputsHashVectorsTest is Test {
     bytes32 private constant ALL_DIMENSIONS_PUBLIC_INPUT =
         0x18742f97fac6fcd3ca33e57739399b92eb55a4cf3465327a9dd274199ef677ef;
 
+    function testLatestContextBindsTimestampAndParentHash() external {
+        vm.roll(100);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xab)));
+        EEZ eez = new EEZ(address(0xDEAD));
+        MockProofSystem proofSystem = new MockProofSystem();
+        uint64 rollupId = _registerRollup(eez, _singleton(proofSystem), _singleton(bytes32(uint256(0x42))));
+        ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
+        batch.blockNumber = type(uint64).max;
+        batch.proofSystems = _addresses(_singleton(proofSystem));
+        batch.proofs = _proofs(1);
+        batch.rollupIdsWithProofSystems = _assignments1(rollupId, 0);
+        bytes[] memory data = new bytes[](1);
+        data[0] = abi.encode(uint256(1_700_000_000), bytes32(uint256(0xab)));
+        bytes32 shared = _shared(batch, data, address(0));
+        bytes32 publicInput = _publicInput(shared, _singleton(rollupId), _singleton(bytes32(uint256(0x42))));
+        assertEq(publicInput, 0x62573d0503b227019390ec8d00cc7fc808403e3b042ae02de710081bc20fee30);
+        proofSystem.setExpectedPublicInputsHash(publicInput);
+        eez.postAndVerifyBatch(batch);
+
+        vm.warp(1_700_000_001);
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xac)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.setBlockhash(99, bytes32(uint256(0xab)));
+        batch.blockNumber = 0;
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+    }
+
     function testEmptyEntryVector() external {
         EEZ eez = new EEZ(address(0xDEAD));
         MockProofSystem proofSystem = new MockProofSystem();

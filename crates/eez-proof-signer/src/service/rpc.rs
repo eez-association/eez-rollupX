@@ -113,8 +113,8 @@ impl Prover for ProveSvc {
         // the per-message ceiling. No permit, witness, or attestable value is
         // acquired/constructed here.
         Ok(Response::new(eez_control_rpc::v1::CapabilitiesResponse {
-            operations_tag: u32::from(eez_payload_codec::derivable::TAG),
-            profile_id: u32::from(eez_payload_codec::derivable::PROFILE),
+            operations_tag: u32::from(eez_payload_codec::v0::VERSION),
+            profile_id: 1,
             validation_identity: self.state.validation_identity.to_vec(),
             max_window_blocks: window.blocks as u64,
             max_request_bytes: window.payload_bytes as u64,
@@ -166,8 +166,23 @@ impl Prover for ProveSvc {
             submitted_post_batch_calldata,
             submitted_blobs,
             posting_context,
+            parent_provenance,
         } = header;
         let maximum_blobs = self.state.posting_blob_limit(&posting_context)?;
+        let (candidate_context, target_recheck) = timeout_at(
+            timing.deadline,
+            self.state
+                .l1_authority
+                .authenticate(posting_context, parent_provenance),
+        )
+        .await
+        .map_err(|_| {
+            timing.deadline_exceeded(
+                "l1_authentication",
+                "Prove deadline exceeded authenticating L1",
+                None,
+            )
+        })??;
         timing.ensure_before_deadline(
             "pipeline",
             "Prove request deadline exceeded before request pipeline",
@@ -184,6 +199,8 @@ impl Prover for ProveSvc {
                 submitted_post_batch_calldata,
                 submitted_blobs,
                 maximum_blobs,
+                posting_context,
+                candidate_context,
                 request_permit,
                 pipeline_started,
                 timing,
@@ -191,7 +208,19 @@ impl Prover for ProveSvc {
             .await?;
         // Keep the exclusive slot through signing and response construction.
         let _active_request_guard = request_permit;
-        let attestable_public_inputs_hash = attestation_material.attestable_public_inputs;
+        timeout_at(timing.deadline, target_recheck.revalidate())
+            .await
+            .map_err(|_| {
+                timing.deadline_exceeded(
+                    "l1_revalidation",
+                    "Prove deadline exceeded rechecking L1",
+                    Some(pipeline_started),
+                )
+            })??;
+        let attestable_public_inputs_hash =
+            super::settlement_job::AttestablePublicInputsHash::authorize(
+                attestation_material.recomputed_public_inputs,
+            );
 
         timing.ensure_before_deadline(
             "attestation",
@@ -322,6 +351,8 @@ impl ProveSvc {
         submitted_post_batch_calldata: Vec<u8>,
         submitted_blobs: Vec<Vec<u8>>,
         maximum_blobs: usize,
+        posting_context: eez_protocol::public_inputs::L1PostingContext,
+        candidate_context: super::l1::CandidateContext,
         request_permit: OwnedSemaphorePermit,
         pipeline_started: Instant,
         timing: RequestTiming,
@@ -366,6 +397,8 @@ impl ProveSvc {
                     submitted_post_batch_calldata,
                     submitted_blobs,
                     maximum_blobs,
+                    posting_context,
+                    candidate_context,
                     deadline,
                     &worker_cancellation,
                 )

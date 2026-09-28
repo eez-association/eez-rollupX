@@ -24,8 +24,8 @@ use alloy_eips::BlockHashOrNumber;
 use alloy_primitives::{B256, Bytes};
 use alloy_rpc_types_debug::ExecutionWitness;
 use eez_driver::witness::{ExecutionWitnessMode, block_witness};
+use eez_primitives::{Block, EezPrimitives};
 use eez_prover::{BlockWitness, ProvingWitnessSource};
-use reth_ethereum_primitives::{Block, EthPrimitives};
 use reth_evm::ConfigureEvm;
 use reth_libmdbx::{DatabaseFlags, Environment, Geometry, WriteFlags};
 use reth_storage_api::{BlockReader, HeaderProvider, StateProviderFactory, TransactionVariant};
@@ -409,15 +409,22 @@ pub struct NodeWitnessSource<P, E> {
     store: WitnessStore,
     provider: P,
     evm_config: E,
+    correlations: Arc<eez_deriver::CorrelationStore>,
 }
 
 impl<P, E> NodeWitnessSource<P, E> {
     #[must_use]
-    pub const fn new(store: WitnessStore, provider: P, evm_config: E) -> Self {
+    pub const fn new(
+        store: WitnessStore,
+        provider: P,
+        evm_config: E,
+        correlations: Arc<eez_deriver::CorrelationStore>,
+    ) -> Self {
         Self {
             store,
             provider,
             evm_config,
+            correlations,
         }
     }
 }
@@ -435,10 +442,46 @@ where
         + HeaderProvider<Header = Header>
         + Send
         + Sync,
-    E: ConfigureEvm<Primitives = EthPrimitives> + Send + Sync,
+    E: ConfigureEvm<Primitives = EezPrimitives> + Send + Sync,
 {
     fn ensure_ready(&self) -> Result<(), String> {
         self.store.ensure_ready().map_err(|error| error.to_string())
+    }
+
+    fn parent_provenance(
+        &self,
+        parent: Header,
+        live_slot: Option<(u64, B256)>,
+    ) -> Result<eez_protocol::l2::ParentProvenance, String> {
+        let hash = parent.hash_slow();
+        let accepted_l1_number = if parent.number == 0 {
+            0
+        } else {
+            let matched = self
+                .correlations
+                .by_endpoint_hash(hash)?
+                .ok_or("accepted parent is missing from the endpoint correlation index")?;
+            matched.l1_block_number
+        };
+        let live_slot_endpoints = if let Some((number, canonical_hash)) = live_slot {
+            self.correlations
+                .by_l1_number(number)?
+                .into_iter()
+                .map(|batch| {
+                    if batch.l1_block_hash != canonical_hash {
+                        return Err("live-slot correlation belongs to a replaced L1 block".into());
+                    }
+                    Ok(batch.endpoint_header)
+                })
+                .collect::<Result<Vec<_>, String>>()?
+        } else {
+            Vec::new()
+        };
+        Ok(eez_protocol::l2::ParentProvenance {
+            parent,
+            accepted_l1_number,
+            live_slot_endpoints,
+        })
     }
 
     fn block_witness(&self, number: u64, hash: B256) -> Result<BlockWitness, String> {
@@ -469,7 +512,7 @@ fn build_block_witness<P, E>(
 ) -> Result<BlockWitness, String>
 where
     P: BlockReader<Block = Block> + StateProviderFactory + HeaderProvider<Header = Header>,
-    E: ConfigureEvm<Primitives = EthPrimitives>,
+    E: ConfigureEvm<Primitives = EezPrimitives>,
 {
     let block = provider
         .recovered_block(id, TransactionVariant::WithHash)
@@ -499,7 +542,7 @@ pub async fn run_capture<P, E, F>(
         + Send
         + Sync
         + 'static,
-    E: ConfigureEvm<Primitives = EthPrimitives> + Clone + Send + Sync + 'static,
+    E: ConfigureEvm<Primitives = EezPrimitives> + Clone + Send + Sync + 'static,
     F: Fn() -> u64 + Send + 'static,
 {
     while let Some(endpoint) = rx.recv().await {
@@ -679,8 +722,8 @@ mod tests {
 
     #[tokio::test]
     async fn queued_captures_reuse_durable_witnesses_and_skip_only_below_finalized() {
+        use eez_evm::EezEvmConfig;
         use reth_chainspec::ChainSpecBuilder;
-        use reth_evm_ethereum::EthEvmConfig;
         use reth_provider::test_utils::MockEthProvider;
         for (number, stored, must_fail) in [(9, false, false), (10, true, false), (10, false, true)]
         {
@@ -700,8 +743,8 @@ mod tests {
             run_capture(
                 rx,
                 Arc::clone(&store),
-                MockEthProvider::<EthPrimitives>::new(),
-                EthEvmConfig::new(Arc::new(
+                MockEthProvider::<EezPrimitives>::new(),
+                EezEvmConfig::new(Arc::new(
                     ChainSpecBuilder::mainnet().shanghai_activated().build(),
                 )),
                 || 10,
@@ -795,8 +838,8 @@ mod tests {
 
     #[test]
     fn canonical_witness_hit_reorg_and_missing_input_preserve_retained_data() {
+        use eez_evm::EezEvmConfig;
         use reth_chainspec::ChainSpecBuilder;
-        use reth_evm_ethereum::EthEvmConfig;
         use reth_provider::test_utils::MockEthProvider;
         let directory = tempfile::tempdir().unwrap();
         let original = sample(2);
@@ -806,15 +849,16 @@ mod tests {
             extra_data: Bytes::from_static(b"replacement"),
             ..Default::default()
         });
-        let config = EthEvmConfig::new(Arc::new(
+        let config = EezEvmConfig::new(Arc::new(
             ChainSpecBuilder::mainnet().shanghai_activated().build(),
         ));
         {
             let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
             let source = NodeWitnessSource::new(
                 Arc::clone(&store),
-                MockEthProvider::<EthPrimitives>::new(),
+                MockEthProvider::<EezPrimitives>::new(),
                 config.clone(),
+                Arc::new(eez_deriver::CorrelationStore::in_memory()),
             );
             store.put(&original).unwrap();
             assert_eq!(
@@ -835,8 +879,9 @@ mod tests {
         let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
         let source = NodeWitnessSource::new(
             Arc::clone(&store),
-            MockEthProvider::<EthPrimitives>::new(),
+            MockEthProvider::<EezPrimitives>::new(),
             config,
+            Arc::new(eez_deriver::CorrelationStore::in_memory()),
         );
         assert_eq!(
             source.block_witness(2, original.hash).unwrap().rlp,

@@ -1,0 +1,7 @@
+{
+  "gnosis_l1": false,
+  "l2_system_address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076",
+  "proof_system": "0x71c95911e9a5d330f4d621842ec243ee1343292e",
+  "rollup_id": 1,
+  "vkey": "0x0000000000000000000000009965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+}

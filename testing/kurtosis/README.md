@@ -503,8 +503,8 @@ a pruned snapshot can otherwise appear healthy until in-memory caches disappear
 on restart. Rebuilding an index does not restore already-pruned history.
 
 Replay additionally requires `EEZ_L2_GENESIS`, `EEZ_L1_CHAIN_CONFIG` (`chiado`
-for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the deployed
-`EEZ_L2_SYSTEM_KEY`. Use the actual proof/slack timing values when supplied.
+for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the fixed native
+`EEZ_L2_SYSTEM_ADDRESS` (`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`). Use the actual proof/slack timing values when supplied.
 An existing canonical post satisfies wave bootstrap readiness; each measured
 wave still counts only posts occurring after its own baseline. State-ordering
 checks wait for canonical safe L2 receipts before recording their Sync height:
