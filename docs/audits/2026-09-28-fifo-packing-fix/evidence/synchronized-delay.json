@@ -1,0 +1,487 @@
+[
+  {
+    "variant": "baseline",
+    "harness_sha256": "ce35e3e0343b324222545c7641afdff4159bf0c2f0223bca586ff084a8758257",
+    "exit_code": 101,
+    "total_pause_seconds": 0.8863682399969548,
+    "pause_after_observed_proof_request_seconds": 0.8502532679704018,
+    "proof_durations_ms": [
+      2880.101279,
+      17.897182,
+      21.723717999999998,
+      22.425939999999997
+    ],
+    "signer_kzg_initialization_ms": [],
+    "events": [
+      {
+        "candidate": "768409-1790590979419:1:0",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33592,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {
+            "l1_tx_gas_budget": 1
+          },
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 1,
+          "entry_discount": 0,
+          "examined_count": 2,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 2821048,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 2,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.31754,
+          "projected_gas": 2791224,
+          "reason": "l1_tx_gas_budget",
+          "selection_filtered_count": 2,
+          "simulation_count": 2,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 50.479672,
+          "blobs": 1,
+          "deadline_ms": 1790590982900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 63,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3419.0,
+          "witness_preparation_ms": 2.474688,
+          "witnesses": 56
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 2880.101279
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:1",
+        "kind": "summary",
+        "detail": {
+          "accepted": 0,
+          "calldata_bound_gas": 26688,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 3,
+          "entry_discount": 0,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 26688,
+          "full_estimate_gas": 207688,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 2,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 0,
+          "prefix_hash_ms": 0.0,
+          "projected_gas": 181000,
+          "reason": "pipeline_time",
+          "selection_filtered_count": 0,
+          "simulation_count": 0,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:2",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33604,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": true,
+          "companion_gas": 0,
+          "deferred": 0,
+          "entry_discount": 0,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 2821060,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 2,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.702189,
+          "projected_gas": 2791236,
+          "reason": "preparation_probe_limit",
+          "selection_filtered_count": 2,
+          "simulation_count": 1,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:2",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 49.970051,
+          "blobs": 1,
+          "deadline_ms": 1790590992900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 62,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3600.113787,
+          "remaining_ms": 3430.70421,
+          "witness_preparation_ms": 1.923576,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:2",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 17.897182
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:3",
+        "kind": "summary",
+        "detail": {
+          "accepted": 0,
+          "calldata_bound_gas": 26688,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 2,
+          "entry_discount": 0,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 26688,
+          "full_estimate_gas": 207688,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 1,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 0,
+          "prefix_hash_ms": 0.0,
+          "projected_gas": 181000,
+          "reason": "pipeline_time",
+          "selection_filtered_count": 0,
+          "simulation_count": 0,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:4",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33604,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": true,
+          "companion_gas": 0,
+          "deferred": 0,
+          "entry_discount": 300000,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 332566,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 1,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.887435,
+          "projected_gas": 302742,
+          "reason": "preparation_probe_limit",
+          "selection_filtered_count": 1,
+          "simulation_count": 1,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:4",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 119.43643700000001,
+          "blobs": 1,
+          "deadline_ms": 1790591002900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 133,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3600.113787,
+          "remaining_ms": 3301.0,
+          "witness_preparation_ms": 2.0281219999999998,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:4",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 21.723717999999998
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:5",
+        "kind": "summary",
+        "detail": {
+          "accepted": 0,
+          "calldata_bound_gas": 26688,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 1,
+          "entry_discount": 0,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 26688,
+          "full_estimate_gas": 207688,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 0,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 0,
+          "prefix_hash_ms": 0.0,
+          "projected_gas": 181000,
+          "reason": "pipeline_time",
+          "selection_filtered_count": 0,
+          "simulation_count": 0,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:6",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33604,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": true,
+          "companion_gas": 0,
+          "deferred": 0,
+          "entry_discount": 0,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 632566,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 0,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.370874,
+          "projected_gas": 602742,
+          "reason": "snapshot_exhausted",
+          "selection_filtered_count": 0,
+          "simulation_count": 1,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:6",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 48.281951,
+          "blobs": 1,
+          "deadline_ms": 1790591012900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 58,
+          "proof_estimate_basis": "covering_sample",
+          "proof_estimate_ms": 3600.113787,
+          "remaining_ms": 3395.0,
+          "witness_preparation_ms": 2.4977430000000003,
+          "witnesses": 10
+        }
+      },
+      {
+        "candidate": "768409-1790590979419:1:6",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 22.425939999999997
+        }
+      }
+    ],
+    "test_log_sha256": "a4f53d0ef80d8a45047f2e043993eef086c45e6a88f99f17be335aa455e11bb7"
+  },
+  {
+    "variant": "candidate",
+    "harness_sha256": "ad1d79eebf9f6c3062d6e1d900b6af9b77870143cf92742e5a67ecf326743e0d",
+    "exit_code": 0,
+    "total_pause_seconds": 0.8998610189883038,
+    "pause_after_observed_proof_request_seconds": 0.8501948630437255,
+    "proof_durations_ms": [
+      883.646018,
+      24.968194
+    ],
+    "signer_kzg_initialization_ms": [
+      2134.8714480000003
+    ],
+    "events": [
+      {
+        "candidate": "773032-1790591068407:1:0",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33592,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {
+            "l1_tx_gas_budget": 1
+          },
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 1,
+          "entry_discount": 0,
+          "examined_count": 2,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 2821048,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 2,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.747966,
+          "projected_gas": 2791224,
+          "reason": "l1_tx_gas_budget",
+          "selection_filtered_count": 2,
+          "simulation_count": 2,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "773032-1790591068407:1:0",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 63.826823000000005,
+          "blobs": 1,
+          "deadline_ms": 1790591071900,
+          "groups": 1,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 81,
+          "proof_estimate_basis": "configured_seed",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3411.653896,
+          "witness_preparation_ms": 2.604896,
+          "witnesses": 58
+        }
+      },
+      {
+        "candidate": "773032-1790591068407:1:0",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 883.646018
+        }
+      },
+      {
+        "candidate": "773032-1790591068407:1:1",
+        "kind": "summary",
+        "detail": {
+          "accepted": 3,
+          "calldata_bound_gas": 47436,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 0,
+          "entry_discount": 0,
+          "examined_count": 3,
+          "fifo_bypassed": false,
+          "fifo_prefix_len": null,
+          "fifo_trigger": null,
+          "framing_reserve_gas": 36096,
+          "full_estimate_gas": 3670816,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 0,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 6,
+          "prefix_hash_ms": 2.525104,
+          "projected_gas": 3634720,
+          "reason": "snapshot_exhausted",
+          "selection_filtered_count": 0,
+          "simulation_count": 3,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate": "773032-1790591068407:1:1",
+        "kind": "proof_requested",
+        "detail": {
+          "blob_preparation_ms": 107.88613099999999,
+          "blobs": 1,
+          "deadline_ms": 1790591076900,
+          "groups": 3,
+          "nominal_preparation_ms": 1500,
+          "post_reserve_ms": 150.0,
+          "preparation_ms": 133,
+          "proof_estimate_basis": "scaled_sample",
+          "proof_estimate_ms": 2000.0,
+          "remaining_ms": 3239.517602,
+          "witness_preparation_ms": 1.7517120000000002,
+          "witnesses": 5
+        }
+      },
+      {
+        "candidate": "773032-1790591068407:1:1",
+        "kind": "proof_received",
+        "detail": {
+          "proof_ms": 24.968194
+        }
+      }
+    ],
+    "test_log_sha256": "9404e226b8d7ead7e536b661a3cd054841267cda7992d1e2942173b84a664e3e"
+  }
+]

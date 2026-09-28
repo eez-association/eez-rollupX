@@ -14,6 +14,26 @@
 
 ### September 28 live trial findings
 
+**Additional timing follow-up, in progress:** candidate `cf3407b` passes the
+correctness cases but its paired 128-source tight-window runs used 4/4 posts
+(Ethereum/Gnosis), versus baseline 3/2. Keep these results as regressions, not
+performance parity. Logs show an old one-group proof still extrapolated to the
+configured 500 ms ceiling after 22–39-group proofs completed in 42–67 ms. Crossing
+the previously observed group count abruptly restores that high reserve and
+causes repeated FIFO rebuilding. These cases did not inherit a pool boundary,
+so they do not establish that clearing the boundary caused the regression.
+
+For an extrapolated request, ignore a smaller sample's scaling term only when
+another sample covers at least as much of every requested work dimension,
+strictly more of one, and took at least as long. Clip observed counts at the
+requested counts solely for that comparison: surplus old history cannot prevent
+learning from a measured wider batch with sufficient history for this request.
+Retain incomparable or more expensive observations, the slowest observed proof
+floor, 25% headroom, configured cap, 32-sample bound and actual deadline checks.
+Regress the measured discontinuity, unseen witness/blob growth, expensive sparse
+samples and overflow before repeating tight-window and live comparisons. No
+packing assertion or deadline is relaxed.
+
 **Authorized CI follow-up:** initialize the signer's existing default KZG
 settings in one awaited blocking startup worker before opening the RPC listener.
 The first-request lazy initialization can inflate the conservative proof history
@@ -25,7 +45,7 @@ post, and pass the same delayed-first-proof check and cold fitting-wave tests.
 This is a reproduced failure mechanism; missing CI artifacts prevent attributing
 the entire historical CI delay to KZG alone.
 
-**Authorized follow-up, in progress:** retain both the first and last source
+**Follow-up implemented at `cf3407b`, native/live validation in progress:** retain both the first and last source
 identity of a FIFO repair prefix. Canonical consumption of its first source
 allows the next opportunity to consider the remaining queue in its original
 order, including sources beyond the old boundary. Receipt observations, proof

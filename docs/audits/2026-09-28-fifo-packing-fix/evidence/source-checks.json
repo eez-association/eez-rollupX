@@ -1,0 +1,93 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "fmt",
+      "--all",
+      "--check"
+    ],
+    "exit_code": 0,
+    "seconds": 0.9913134460221045
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "seconds": 20.221983694995288
+  },
+  {
+    "name": "signer-check",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "check",
+      "--locked",
+      "-p",
+      "eez-proof-signer",
+      "--all-targets"
+    ],
+    "exit_code": 0,
+    "seconds": 52.92710388102569
+  },
+  {
+    "name": "signer-clippy-all-features",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "clippy",
+      "--locked",
+      "-p",
+      "eez-proof-signer",
+      "--all-targets",
+      "--all-features",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit_code": 0,
+    "seconds": 9.162447759998031
+  },
+  {
+    "name": "signer-doc",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "doc",
+      "--locked",
+      "-p",
+      "eez-proof-signer",
+      "--no-deps"
+    ],
+    "exit_code": 0,
+    "seconds": 7.749825301987585
+  },
+  {
+    "name": "native-harness",
+    "command": [
+      "cargo",
+      "+1.95.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "settlement_policy_gas",
+      "--no-run",
+      "--message-format=json"
+    ],
+    "exit_code": 0,
+    "seconds": 39.26184757205192
+  }
+]

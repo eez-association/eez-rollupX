@@ -233,12 +233,34 @@ impl TimingHistory {
     }
 
     fn extrapolate(&self, workload: Workload) -> Option<(Duration, Duration)> {
-        self.0
-            .lock()
-            .unwrap()
+        let samples = self.0.lock().unwrap();
+        let observed = samples.iter().map(|(_, elapsed)| *elapsed).max()?;
+        let supplied = |sample: &Workload| {
+            [
+                sample.groups.min(workload.groups),
+                sample.blobs.min(workload.blobs),
+                sample.witnesses.min(workload.witnesses),
+            ]
+        };
+        let scaled = samples
             .iter()
+            .filter(|(sample, elapsed)| {
+                let covered = supplied(sample);
+                // A wider measured proof supersedes a cheaper sparse sample's
+                // extrapolation once it supplies at least as much of every
+                // requested dimension. Surplus old history is irrelevant to
+                // this comparison, but unseen history/blob growth and more
+                // expensive sparse proofs retain their own scaling terms.
+                // Strict dominance preserves at least one of the 32 samples.
+                !samples.iter().any(|(other, other_elapsed)| {
+                    let other = supplied(other);
+                    other_elapsed >= elapsed
+                        && other != covered
+                        && other.iter().zip(covered).all(|(a, b)| *a >= b)
+                })
+            })
             .map(|(sample, elapsed)| {
-                let scaled = [
+                [
                     (workload.groups, sample.groups),
                     (workload.blobs, sample.blobs),
                     (workload.witnesses, sample.witnesses),
@@ -257,18 +279,15 @@ impl TimingHistory {
                         None => Duration::MAX,
                     }
                 })
-                .fold(*elapsed, Duration::max);
-                (scaled, *elapsed)
+                .fold(*elapsed, Duration::max)
             })
-            .reduce(|(scaled, observed), (next_scaled, next_observed)| {
-                (scaled.max(next_scaled), observed.max(next_observed))
-            })
-            .map(|(scaled, observed)| {
-                (
-                    scaled.saturating_add(scaled / 4),
-                    observed.saturating_add(observed / 4),
-                )
-            })
+            .max()
+            .unwrap_or(observed)
+            .max(observed);
+        Some((
+            scaled.saturating_add(scaled / 4),
+            observed.saturating_add(observed / 4),
+        ))
     }
 }
 
@@ -278,9 +297,10 @@ pub(crate) struct ProofPrediction {
 }
 
 /// Bounded histories with 25% headroom. Proofs outside observed coverage scale
-/// by the largest workload ratio, capped at the greater of the bootstrap estimate
-/// and the observed proof floor. Scaling must never price a larger request below
-/// an already observed slower proof.
+/// non-dominated samples by the largest workload ratio, capped at the greater
+/// of the bootstrap estimate and the observed proof floor. Dominance is relative
+/// to the requested dimensions and cannot discard a more expensive sample.
+/// Scaling never prices a larger request below an observed slower proof.
 /// This avoids returning to a prohibitive cold allocation for each new witness
 /// count while keeping the shared deadline authoritative. Finalization requires
 /// covering samples because envelope/preflight cost need not scale like proof work.
@@ -860,6 +880,101 @@ mod tests {
     }
 
     const TEST_NOW_MS: u64 = 1_700_000_000_000;
+
+    #[test]
+    fn measured_wider_proof_supersedes_sparse_scaling_for_covered_history() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(500);
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 1,
+                witnesses: 10,
+            },
+            Duration::from_millis(17),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 22,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(43),
+        );
+        let request = Workload {
+            groups: 110,
+            blobs: 2,
+            witnesses: 5,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, request),
+            Duration::from_micros(268_750),
+            "the measured wider proof must replace the one-group scaling term"
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    witnesses: 20,
+                    ..request
+                }
+            ),
+            configured,
+            "a shorter history sample cannot replace the longer history observation"
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 3,
+                witnesses: 5,
+            },
+            Duration::from_millis(40),
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    blobs: 3,
+                    ..request
+                }
+            ),
+            configured,
+            "a sample with more physical blobs remains relevant"
+        );
+    }
+
+    #[test]
+    fn expensive_sparse_proof_remains_a_scaling_observation() {
+        let timings = PipelineTimings::default();
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 1,
+                witnesses: 10,
+            },
+            Duration::from_millis(600),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 22,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(43),
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                Duration::from_millis(500),
+                Workload {
+                    groups: 110,
+                    blobs: 2,
+                    witnesses: 5
+                },
+            ),
+            Duration::from_millis(750),
+            "a cheap wider sample cannot erase a slower sparse proof"
+        );
+    }
 
     #[test]
     fn proof_calibration_scales_each_dimension_and_retains_bounded_history() {

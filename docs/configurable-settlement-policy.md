@@ -123,9 +123,18 @@ next group does not invalidate the accepted prefix's clean sample. Proof and
 finalization retain at most 32 observations per rollup and stage, with 25%
 headroom. Proof samples covering the requested group, physical blob and witness
 block counts are used directly. Otherwise, observed durations scale upward by
-the largest ratio across those three dimensions (zero counts use a denominator
-of one), capped at the greater of the configured proof seed and the slowest
-observed proof with headroom, with a 25 ms floor. A larger request never scales
+the largest ratio across those three dimensions. From `strict-fifo-7`, a sample's
+scaling term is superseded only by an observation that took at least as long and
+supplies at least as much of every requested dimension, strictly more of one.
+Observed counts are clipped to the request only for this comparison: excess
+history in an old sparse sample cannot prevent learning from a wider measured
+batch with sufficient history. Incomparable observations, including greater
+witness/blob coverage or a more expensive sparse proof, retain their scaling
+terms. This avoids multiplying fixed overhead from a one-group observation after
+larger proofs have been measured. All observations still contribute to the
+slowest measured proof floor. Scaling uses a denominator of one for zero observed
+counts. The prediction is capped at the greater of the configured proof seed and
+the slowest observed proof with headroom, with a 25 ms floor. A larger request never scales
 below an already observed slower proof. With no proof
 observations the configured seed applies. This is a scheduling estimate, not a
 proof completion guarantee; the shared deadline remains authoritative. Each proof
@@ -267,6 +276,7 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
+`strict-fifo-7` adds the request-relative proof scaling described above;
 `strict-fifo-6` releases a retained repair boundary on canonical head progress;
 `strict-fifo-5` introduced FIFO prefix repair alongside the five-failure submission tolerance
 introduced by `confirmed-failure-backoff-4`. It retains the capacity minimum
@@ -696,5 +706,9 @@ scheduling. Version 6 needs only a Composer upgrade; signers, followers and
 collectors can run mixed versions under the unchanged wire/event schema.
 Reorg reconciliation restores source ownership and order; a cleared scheduling
 boundary does not authorize execution, eviction, or canonical completion.
+Version 7 changes only Composer's in-memory proof timing estimate. It retains
+version 6's FIFO behavior, existing event fields and all actual deadline gates.
+Rollback restores the older extrapolation; no queue, database or wire migration
+is required, and older collectors continue to accept the version string.
 The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.
