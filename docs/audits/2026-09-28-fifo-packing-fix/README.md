@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Date / status | September 28, 2026; fixes implemented, candidate process/live/CI validation pending |
-| Scope | Release a partially consumed FIFO repair boundary; prevent lazy KZG initialization from inflating first-proof admission samples |
+| Date / status | September 28, 2026; refined release built; correctness, live and CI validation in progress |
+| Scope | Release a partially consumed FIFO repair boundary; initialize signer KZG before readiness; learn proof scaling from wider measured workloads |
 | Baseline / PR | Fork `eduadiez/rollupX`, PR #42; head `802dfb1a827025eaa68cee895f46d8729ad66ffc`, base `fd77a2ebc147850333171045dbd263ec74156268` |
 | Protocol | Clean initialized `9d13218a355e7d543ca8a9927eea2962600b716d`, unchanged |
-| Candidate | `cf3407b9c05ec04e24586c5d131a65a1aa2c9dc8` |
+| Candidates | Initial `cf3407b9c05ec04e24586c5d131a65a1aa2c9dc8`; refined `ca370742920852ad1105df4e40d70625d8749145` |
 | Environment | Rust 1.95.0, locked dependencies, Foundry 1.7.1; disposable native Gnosis Prague networks |
 | Contracts | [Settlement policy](../../configurable-settlement-policy.md), [signer specification](../../../crates/eez-proof-signer/SPEC.md), [proposal](../../proposals/cross-chain-admission-throughput.md) |
 | Prior evidence | [Chiado trial](../2026-09-28-chiado-strict-fifo/README.md); older results do not validate this candidate |
@@ -166,3 +166,137 @@ manual profile excluded. Regressions retain expensive sparse samples, unseen
 history and larger blob observations; existing overflow/deadline tests pass.
 Workspace/all-target Clippy also passes. New release/performance/live/CI results
 are still required for this refinement; `cf3407b` results do not validate it.
+
+## Refined release comparison
+
+The refined images use committed source `ca370742920852ad1105df4e40d70625d8749145`
+and the same release recipe/features as both earlier variants. Node image
+`eez-node:ca37074-fifo-progress-local` has SHA-256
+`a37c649f6fc2943fcec2f288f6d7be4ea2e4dc9537821fab96acd18829b9d806`;
+signer image `eez-proof-signer:ca37074-fifo-progress-local` has SHA-256
+`efc9939694bb54d9cf08122ded58a72e45b6fcad3a8072deb483d34fd0968b66`.
+Composer executable SHA-256 is
+`d94b44eb528bbfa5d0ca5eed56e1678ddc5a196ea8586fae8c5072ea50d7ad7b`;
+signer and follower executables are byte-identical to the initial candidate.
+The frozen test harnesses are also unchanged. Local records are under
+`artifacts/fifo-packing-fix-20260928/refined/`.
+
+All four paired tight-window cases passed effects, FIFO, nonce and independent
+follower assertions. Each row below excludes the intentional one-source fixture
+post and measures 128 sources. No discarded non-FIFO candidate reached proving.
+
+| Fork | Baseline posts / source counts | Refined posts / source counts |
+| --- | --- | --- |
+| Ethereum | 3 / 39, 39, 50 | 2 / 39, 89 |
+| Gnosis | 3 / 20, 1, 107 | 2 / 19, 109 |
+
+[Both the original regression and refined comparison](evidence/packing-comparisons.json)
+are retained. Baseline Gnosis used two posts in the first pair and three here;
+shared-host timing and deadline variation prevent interpreting one pair as a
+guaranteed percentage gain. The refined candidate removes the observed repeated
+small-batch pattern in this comparison. Broader correctness, fitting-wave
+latency, the same-day Chiado pair and CI are still pending.
+
+The final release subsequently passed all [12 correctness cases](evidence/refined-correctness.json)
+without retries, including semantic assertions and independent follower replay.
+Both discarded non-FIFO candidates were stopped before proving. The
+[synchronized first-proof delay](evidence/refined-delay.json) also passed on this
+release: the first proof took 872.459 ms with the 850 ms injected pause, the
+second took 30.432 ms, and the unchanged assertions required two posts with
+1+3 sources. The baseline's synchronized four-post failure remains recorded above.
+
+The [fitting-wave pair](evidence/refined-fitting.json) passed four selected
+process cases, with two 30-source waves in each case. Each variant settled 120
+sources in four posts, with no calibration post or admission cut. All eight
+retained receipt gas costs matched native preflight, and every signed limit used
+exactly 5% over required gas. Complete admission bounds and framing matched in
+every pair; small calldata/receipt differences reflect the fresh fixtures.
+
+| Fitting-wave measurement | Baseline | Refined |
+| --- | ---: | ---: |
+| Mean preparation | 151.00 ms | 142.25 ms |
+| Mean proof | 43.62 ms | 47.47 ms |
+| Mean finalization | 66.41 ms | 84.83 ms |
+| Mean delivery | 17.82 ms | 19.11 ms |
+| Mean start-to-delivery | 280.38 ms | 295.59 ms |
+
+[Per-wave observations](evidence/refined-fitting-waves.csv) retain the increases,
+including a 170.55 ms candidate finalization sample. Mean pipeline time increased
+5.4%; individual paired ratios range 0.887–1.227. This small shared-host sample
+preserves packing but does not establish latency parity or rule out a secondary
+timing regression. No local compiler or other native suite ran during the paired
+measurement. The live pair is needed to assess source throughput and retained
+FIFO tails under the actual workload.
+
+## Canonical-post synchronization in the liveness fixture
+
+[CI 36411833402](https://github.com/eduadiez/rollupX/actions/runs/36411833402)
+passed the runtime producer, lint, all four cross-chain shards, three embedded
+shards and Kurtosis (completed at 12:43 UTC). Embedded shard 1 failed
+`gnosis_blocked_outbound_balance_allows_independent_auto_work`: it expected one
+L1 post while the count was still zero. Its first source nonce had advanced in
+the optimistic L2 Sync block. The assertion ran at 11:42:41.237 UTC, while the
+acknowledged bundle targeted 11:42:43 UTC. Those observations did not yet prove
+canonical L1 consumption.
+
+The unchanged frozen harness reproduced the same assertion locally against the
+`ca37074` release. The shared fee/balance fixture now waits for its exact expected
+canonical post count together with the blocked-source and nonce conditions.
+The original count and subsequent recovery/effect checks are retained. This is
+a test synchronization correction; the deployed runtime code is unchanged.
+
+All six affected cases passed with the rebuilt harness without retries.
+[Failure, executable identity and fixed-case results](evidence/canonical-wait-regression.json)
+are retained. The original CI failure remains a failure; the edited harness
+still requires a new full CI run.
+
+## Live baseline and transport failure
+
+The first same-day baseline attempt (`20260928-112913`) failed ordinary L1
+deployment transport for 46 jobs after three 15-second client timeouts. It sent
+only 804 of the intended 870 sources. All 804 were subsequently attributed to
+canonical settlements and the queue drained. The remaining semantic verification
+was interrupted only then; this attempt is **not a valid performance baseline or
+a semantic pass**. Its logs, partial canonical measurements and explicit
+disposition are retained locally in `live-baseline/`.
+
+The temporary ordinary-L1 adapter had waited for upstream acknowledgement before
+returning local mempool acceptance. Its replacement returns the local hash and
+owns forwarding of the identical signed bytes in a bounded queue (2,048 pending
+requests, eight workers, five upstream request starts/second). Duplicate requests
+share the same pending work; retryable transport failures have five attempts.
+The staged runner still requires canonical deployment receipts before sending
+the measured wave. A controlled blocked-upstream probe checked prompt local
+acknowledgement, single duplicate ownership and completion accounting. This is
+task-local transport tooling, not a node or protocol modification.
+
+The fresh baseline (`20260928-115327`) used the same private workload profile,
+770 jobs / 870 sources, preparation concurrency 200, send concurrency 28 and
+5% gas margin. All 2,812 setup transactions mined and all 870 source submissions
+succeeded. The adapter drained with zero failed broadcasts. All 870 sources
+(520 inbound / 350 outbound) were canonically attributed to 33 posts in blocks
+23269333–23269373, using 173,929,920 postBatch gas. Send plus receipt monitoring
+took 219.723 seconds; three L1 slots were skipped between first and last post.
+
+Repeated attribution was identical, and all 33 receipts matched the independent
+L1 endpoint by hash, block, status and gas. Grafana's actual panel queries returned
+all 33 canonical post rows and 870 accepted-source estimate rows (2,353 source
+attempt rows in total). Semantic verification is still running; this record does
+not yet claim a complete verified baseline or candidate deployment.
+
+At the operator's request to parallelize, verification was increased from four
+to sixteen workers after the timed workload and canonical checks had finished.
+Only the task's verification scheduler was paused; its active checks drained
+normally. All 269 completed checks were retained and no semantic check was
+interrupted. The remaining checks use the pinned runner's existing
+`--verify-only` mode with `SKIP_VERIFIED=1`, holding the same protocol wallet lock
+on inherited FD 200 for the complete invocation. This path cannot fund, deploy,
+resume or resend transactions. The original wrapper ended with signal 15 during
+this controlled handoff; its exit is not reported as a passing full run.
+
+A private copy of the workload profile changes only `VERIFY_PARALLEL=16`;
+the operator's original profile remains intact. The continuation checks that
+all source/deployment transaction CSVs remain byte-identical and that all 770
+distinct semantic jobs finish successfully. The candidate will use sixteen
+verification workers from startup, with the same measured preparation/send
+settings. Verification completion is recorded separately from transaction timing.

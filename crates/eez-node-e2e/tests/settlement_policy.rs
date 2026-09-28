@@ -423,9 +423,14 @@ async fn assert_source_deferral_recovery(
             .request("eez_getCrossChainQueueStatus", ())
             .await?;
         let expected_nonce = u64::from(funding);
+        // Outbound nonce advancement and the blocked suffix can become visible
+        // with the optimistic Sync block, before its L1 target is mined.
+        // Observe the funding split's canonical post before checking its count.
         Ok((queue["blocked"].as_u64().is_some_and(|n| n > 0)
-            && source.get_transaction_count(signer.address()).await? == expected_nonce)
-            .then_some(()))
+            && source.get_transaction_count(signer.address()).await? == expected_nonce
+            && batches_posted(&world.l1_rpc(), world.dep.eez_address, 0).await?
+                == usize::from(funding))
+        .then_some(()))
     })
     .await
     .unwrap_or_else(|error| {

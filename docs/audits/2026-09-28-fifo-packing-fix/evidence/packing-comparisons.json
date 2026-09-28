@@ -1,0 +1,199 @@
+{
+  "baseline_source": "b2ff3b894faa509fe310b6b6d38781d335f8f5fc",
+  "initial_candidate_source": "cf3407b9c05ec04e24586c5d131a65a1aa2c9dc8",
+  "refined_candidate_source": "ca370742920852ad1105df4e40d70625d8749145",
+  "baseline_production_matches_pr_head": "802dfb1a827025eaa68cee895f46d8729ad66ffc",
+  "conditions": "Same hash-verified release recipe/features; serial paired 128-source native workload per fork, excluding the intentional one-source fixture post. Effects, FIFO and follower assertions enabled. Shared host and dynamic deadlines introduce run variation.",
+  "initial_tight": [
+    {
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "baseline",
+      "duration_seconds": 51.488280709018,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 4,
+        "fifo_prefix_rebuild": 2
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "pipeline_time": 1
+      },
+      "fifo_bypass_candidates": 2,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        39,
+        39,
+        50
+      ],
+      "measured_sources": 128,
+      "measured_posts": 3
+    },
+    {
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "candidate",
+      "duration_seconds": 59.60897822701372,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 5,
+        "fifo_prefix_rebuild": 4
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "pipeline_time": 3
+      },
+      "fifo_bypass_candidates": 4,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        39,
+        39,
+        39,
+        11
+      ],
+      "measured_sources": 128,
+      "measured_posts": 4
+    },
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "candidate",
+      "duration_seconds": 58.76100314303767,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 3,
+        "fifo_prefix_rebuild": 11,
+        "pipeline_time": 2
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 1,
+        "pipeline_time": 9
+      },
+      "fifo_bypass_candidates": 11,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        22,
+        22,
+        22,
+        62
+      ],
+      "measured_sources": 128,
+      "measured_posts": 4
+    },
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "baseline",
+      "duration_seconds": 46.845869672019035,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 3,
+        "fifo_prefix_rebuild": 4
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 1,
+        "pipeline_time": 2
+      },
+      "fifo_bypass_candidates": 4,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        18,
+        110
+      ],
+      "measured_sources": 128,
+      "measured_posts": 2
+    }
+  ],
+  "refined_tight": [
+    {
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "baseline",
+      "duration_seconds": 51.40438700700179,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 4,
+        "fifo_prefix_rebuild": 3
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "pipeline_time": 2
+      },
+      "fifo_bypass_candidates": 3,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        39,
+        39,
+        50
+      ],
+      "measured_sources": 128,
+      "measured_posts": 3
+    },
+    {
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "candidate",
+      "duration_seconds": 50.00396649102913,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 3,
+        "fifo_prefix_rebuild": 1
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1
+      },
+      "fifo_bypass_candidates": 1,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        39,
+        89
+      ],
+      "measured_sources": 128,
+      "measured_posts": 2
+    },
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "candidate",
+      "duration_seconds": 49.64795265602879,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 3,
+        "fifo_prefix_rebuild": 5
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 1,
+        "pipeline_time": 3
+      },
+      "fifo_bypass_candidates": 5,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        19,
+        109
+      ],
+      "measured_sources": 128,
+      "measured_posts": 2
+    },
+    {
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "variant": "baseline",
+      "duration_seconds": 51.500988952000625,
+      "cutoff_reasons": {
+        "snapshot_exhausted": 3,
+        "fifo_prefix_rebuild": 6,
+        "pipeline_time": 1
+      },
+      "fifo_triggers": {
+        "l1_tx_gas_budget": 1,
+        "l1_bundle_gas_budget": 1,
+        "pipeline_time": 4
+      },
+      "fifo_bypass_candidates": 6,
+      "bypassed_candidates_requested_proof": 0,
+      "included_source_counts": [
+        1,
+        20,
+        1,
+        107
+      ],
+      "measured_sources": 128,
+      "measured_posts": 3
+    }
+  ]
+}
