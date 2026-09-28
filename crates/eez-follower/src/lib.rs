@@ -110,7 +110,12 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
                 .pool(EezPoolBuilder::new(system_address))
                 .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder::default())),
         )
-        .with_add_ons(eez_node_common::rpc::eez_add_ons())
+        .with_add_ons(eez_node_common::rpc::eez_add_ons(
+            eez_node_common::rpc::EezEthApiBuilder::new(
+                Arc::clone(&l1_head),
+                Arc::clone(&correlations),
+            ),
+        ))
         .extend_rpc_modules(move |ctx| {
             correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
         })

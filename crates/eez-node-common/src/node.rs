@@ -183,6 +183,6 @@ impl<N: FullNodeTypes<Types = Self>> reth_node_builder::Node<N> for EezNode {
     }
 
     fn add_ons(&self) -> Self::AddOns {
-        crate::rpc::eez_add_ons()
+        crate::rpc::eez_add_ons(Default::default())
     }
 }

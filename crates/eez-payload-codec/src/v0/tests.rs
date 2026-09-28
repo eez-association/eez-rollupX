@@ -325,7 +325,7 @@ proptest! {
         prop_assert_eq!(terminal.beneficiary, last.beneficiary);
         prop_assert_eq!(terminal.extra_data, last.extra_data);
         prop_assert_eq!(terminal.transactions.collect::<Vec<_>>(), last.transactions.iter().map(Bytes::as_ref).collect::<Vec<_>>());
-        prop_assert_eq!(payload.encode().unwrap(), wire);
+        prop_assert_eq!(payload.encoded(), wire.as_slice());
     }
 
     #[test]

@@ -10,7 +10,7 @@ fn issue35_six_hundred_empty_blocks_use_the_exact_direct_v0_body() {
     assert_eq!(wire.len(), 31);
     let payload = Payload::decode(&wire).expect("issue #35 direct V0 fixture must decode");
     assert_eq!(payload.block_count(), 600);
-    assert_eq!(payload.encode().unwrap(), wire);
+    assert_eq!(payload.encoded(), wire.as_slice());
 }
 
 #[test]

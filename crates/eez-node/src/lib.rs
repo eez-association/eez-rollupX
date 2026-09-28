@@ -724,7 +724,12 @@ async fn launch_composer(
                     EezPayloadBuilder::default().with_data_guard(data_guard.clone()),
                 )),
         )
-        .with_add_ons(eez_node_common::rpc::eez_add_ons())
+        .with_add_ons(eez_node_common::rpc::eez_add_ons(
+            eez_node_common::rpc::EezEthApiBuilder::new(
+                Arc::clone(&l1_head),
+                Arc::clone(&correlations),
+            ),
+        ))
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;

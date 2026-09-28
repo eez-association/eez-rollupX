@@ -1205,3 +1205,11 @@ to their local source adaptation. No external package version/source pair change
 The final diff includes no protocol gitlink or original-worktree edits. Its one
 inherited Rust formatting adjustment is identified above; PR #42's own commits,
 cache/recovery architecture and changes are not included as task additions.
+
+
+### Authorized review follow-up
+
+The subsequent [pending RPC and API simplification review](follow-up-review.md)
+records the fix for live-anchor pending simulation, boot-readiness gating, the
+immutable EVM schedule cache, and removal of the redundant checked-payload copy
+API. Its evidence is separate from the original implementation freeze above.

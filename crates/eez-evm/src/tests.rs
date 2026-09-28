@@ -709,3 +709,22 @@ fn issue35_fixed_fields_are_enforced_on_block_and_engine_execution() {
         assert!(config.next_evm_env(&parent, &invalid).is_err());
     }
 }
+
+#[test]
+fn schedule_cache_preserves_profile_errors_and_l1_simulation() {
+    let valid = config();
+    let mut genesis = valid.chain_spec().genesis().clone();
+    genesis.config.extra_fields.remove("rollupX");
+    let spec = Arc::new(ChainSpec::from(genesis));
+    let header = block(0, 1).into_block().header;
+    let rollup = EezEvmConfig::new(spec.clone());
+    // A repeated/clone request must retain the error, not turn a failed cache
+    // initialization into a missing validation step.
+    for config in [&rollup, &rollup.clone()] {
+        let error = config.evm_env(&header).unwrap_err();
+        assert!(error.to_string().contains("missing config.rollupX"));
+    }
+    EezEvmConfig::for_l1_simulation(spec)
+        .evm_env(&header)
+        .unwrap();
+}

@@ -32,7 +32,11 @@ use reth_primitives_traits::{
     SealedBlock, SealedHeader, SignedTransaction, transaction::error::InvalidTransactionError,
 };
 use reth_storage_errors::any::AnyError;
-use std::{borrow::Cow, fmt, sync::Arc};
+use std::{
+    borrow::Cow,
+    fmt,
+    sync::{Arc, OnceLock},
+};
 
 mod evm;
 pub use evm::EezEvmFactory;
@@ -101,6 +105,9 @@ pub struct EezEvmConfig<C = ChainSpec> {
     ethereum: EthEvmConfig<C>,
     executor: EezBlockExecutorFactory<C>,
     layer: ExecutionLayer,
+    // The chain spec is immutable. Cache decoding (including errors), while
+    // retaining per-block validation and keeping L1 simulation profile-free.
+    schedule: Arc<OnceLock<Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError>>>,
 }
 
 impl<C> EezEvmConfig<C> {
@@ -119,11 +126,20 @@ impl<C> EezEvmConfig<C> {
             ethereum: EthEvmConfig::new(chain_spec.clone()),
             executor: EezBlockExecutorFactory::new(chain_spec, layer),
             layer,
+            schedule: Arc::new(OnceLock::new()),
         }
     }
 
     pub fn chain_spec(&self) -> &Arc<C> {
         self.ethereum.chain_spec()
+    }
+}
+
+impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
+    fn schedule(&self) -> Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError> {
+        *self
+            .schedule
+            .get_or_init(|| profile::schedule(self.chain_spec().as_ref()))
     }
 }
 
@@ -147,7 +163,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
     fn evm_env(&self, header: &Header) -> Result<EvmEnv, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             eez_protocol::l2::validate_header(header).map_err(AnyError::new)?;
-            profile::schedule(self.chain_spec().as_ref())
+            self.schedule()
                 .and_then(|schedule| schedule.validate_position(header))
                 .map_err(AnyError::new)?;
         }
@@ -161,7 +177,8 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
     ) -> Result<EvmEnv, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             profile::validate_next(parent, attributes).map_err(AnyError::new)?;
-            let (_, timestamp) = profile::schedule(self.chain_spec().as_ref())
+            let (_, timestamp) = self
+                .schedule()
                 .and_then(|schedule| schedule.next(parent))
                 .map_err(AnyError::new)?;
             if attributes.timestamp != timestamp {
@@ -183,7 +200,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static> C
     ) -> Result<EthBlockExecutionCtx<'a>, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             eez_protocol::l2::validate_header(block.header()).map_err(AnyError::new)?;
-            profile::schedule(self.chain_spec().as_ref())
+            self.schedule()
                 .and_then(|schedule| schedule.validate_position(block.header()))
                 .map_err(AnyError::new)?;
             if block.body().withdrawals.is_none() {
@@ -244,7 +261,7 @@ impl<C: EthExecutorSpec + EthChainSpec<Header = Header> + Hardforks + 'static>
     fn evm_env_for_payload(&self, payload: &ExecutionData) -> Result<EvmEnvFor<Self>, Self::Error> {
         if self.layer == ExecutionLayer::Rollup {
             profile::validate_payload(payload).map_err(AnyError::new)?;
-            profile::schedule(self.chain_spec().as_ref())
+            self.schedule()
                 .and_then(|schedule| {
                     schedule.validate_coordinates(
                         payload.payload.block_number(),

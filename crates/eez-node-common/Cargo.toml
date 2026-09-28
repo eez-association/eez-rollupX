@@ -67,5 +67,9 @@ reth-rpc-convert.workspace = true
 reth-rpc-eth-types.workspace = true
 revm.workspace = true
 
+[dev-dependencies]
+alloy-provider.workspace = true
+alloy-transport = "=2.5.0"
+
 [lints]
 workspace = true

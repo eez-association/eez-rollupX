@@ -161,11 +161,6 @@ impl<'a> Payload<'a> {
         self.wire
     }
 
-    /// Canonical decoding requires exact byte equality; no normalization occurs.
-    pub fn encode(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.wire.to_vec())
-    }
-
     pub fn transactions(&self) -> Transactions<'a> {
         Transactions {
             lengths: self.lengths,

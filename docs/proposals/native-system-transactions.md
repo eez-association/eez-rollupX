@@ -188,6 +188,15 @@ recover this provenance, not just a height or last observed receipt. Candidate
 and prefix-cache environments must capture a fixed seed for their actual parent;
 a mutable global seed cannot change a draft already being executed.
 
+When no executed pending payload is available, RPC simulation derives the next
+position and seed from the same canonical history as block construction. Both
+Composer and follower wire that shared history into their RPC builder. Pending
+simulation returns an error until seed provenance is initialized and boot
+catch-up has completed through the existing public-query readiness gate; it cannot
+infer a descendant seed from the parent's `mixHash`. A history rebuild after
+reorg or restart is visible to subsequent simulations. The EVM caches only the
+immutable genesis schedule, never a mutable seed or per-block validation result.
+
 A bounded implementation can use the existing canonical accepted block-hash
 commitment as its parent trust boundary, without downloading historical blobs or
 revalidating the whole accepted L2 chain in the signer. An accepted parent's
