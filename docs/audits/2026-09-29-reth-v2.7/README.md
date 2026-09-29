@@ -1,8 +1,29 @@
 # PR #44: Reth v2.7.0 and local CI validation
 
-Status: local functional validation complete; PR update and GitHub CI confirmation pending. The live run required recovery of an interrupted local test environment, described below.
+## Current results
+
+The changes are published in [PR #44](https://github.com/eduadiez/rollupX/pull/44).
+Local functional validation passed; GitHub CI must pass before merging. Exact
+revision identities, commands, original failures and corrections follow below.
+
+| Validation | Result and limits |
+| --- | --- |
+| Packaged candidate `ea17be9` | Producer, artifact/genesis verification and 1,293 release unit tests passed; three manual utilities ignored |
+| Runtime process suites | 36 embedded tests passed; cross-chain initially 73/74, then both corrected follower cases passed; explicit exclusions retained below |
+| Live protocol and independent evidence | 32/32 scenario assertions and 32/32 corrected evidence checks passed, plus 40 cross-chain operations and state chaining |
+| Fresh follower | Canonical-L1-only replay matched 126 blocks and three receipts |
+| Final CI-helper cleanup | 12 tests, workspace Clippy and formatting passed; two retained witness inputs produce byte-identical output |
+| Remaining gate | GitHub CI for the current PR head; the local devnet required manual recovery after runner interruption |
+
+The latest cleanup makes the pre-transaction state root mandatory in the CI
+helper and covers the empty-block boundary. Production node/prover code is
+unchanged. The full release producer and live suites were not repeated for this
+cleanup; focused tests and exact retained-input replay validate its behavior.
+Logs are local-only under `artifacts/reth-v2.7-review/helper-cleanup`.
+
 The [upgrade contract](../../proposals/reth-v2.7-upgrade.md) defines scope and
-acceptance. No public network or operator service was changed.
+acceptance. No public network or operator service was changed. The history below
+retains failed attempts; it must not be read as a clean first-pass result.
 
 ## Source and environment
 

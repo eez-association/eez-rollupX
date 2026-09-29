@@ -54,7 +54,7 @@ pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
         &block,
         &receipts,
         &roots,
-        Some(replay.checkpoints.pre_transaction_state_root),
+        replay.checkpoints.pre_transaction_state_root,
     )
 }
 
@@ -121,7 +121,7 @@ fn reconstruct(
     block: &Block,
     receipts: &[ReceiptEnvelope],
     roots: &[B256],
-    pre_transaction_root: Option<B256>,
+    pre_transaction_root: B256,
 ) -> Result<Value, Box<dyn Error>> {
     let txs = &block.body.transactions;
     if roots.len() != txs.len() || receipts.len() != txs.len() {
@@ -147,29 +147,27 @@ fn reconstruct(
     }
     if calculate_transaction_root(txs) != block.header.transactions_root
         || calculate_receipt_root(receipts) != block.header.receipts_root
-        || roots.last().copied().or(pre_transaction_root) != Some(block.header.state_root)
+        || roots.last().copied().unwrap_or(pre_transaction_root) != block.header.state_root
     {
         return Err(
             "prefix evidence disagrees with terminal transaction/receipt/state roots".into(),
         );
     }
-    let mut prefixes = Vec::with_capacity(txs.len() + usize::from(pre_transaction_root.is_some()));
-    if let Some(root) = pre_transaction_root {
-        let mut header = block.header.clone();
-        header.state_root = root;
-        header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
-        header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
-        header.logs_bloom = Bloom::ZERO;
-        header.gas_used = 0;
-        if header.blob_gas_used.is_some() {
-            header.blob_gas_used = Some(0);
-        }
-        let hash = header.hash_slow();
-        if txs.is_empty() && hash != block.header.hash_slow() {
-            return Err("empty prefix differs from the canonical empty block".into());
-        }
-        prefixes.push(json!({"transaction_index": null, "transaction_count": 0, "hash": hash, "state_root": root}));
+    let mut prefixes = Vec::with_capacity(txs.len() + 1);
+    let mut header = block.header.clone();
+    header.state_root = pre_transaction_root;
+    header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+    header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+    header.logs_bloom = Bloom::ZERO;
+    header.gas_used = 0;
+    if header.blob_gas_used.is_some() {
+        header.blob_gas_used = Some(0);
     }
+    let hash = header.hash_slow();
+    if txs.is_empty() && hash != block.header.hash_slow() {
+        return Err("empty prefix differs from the canonical empty block".into());
+    }
+    prefixes.push(json!({"transaction_index": null, "transaction_count": 0, "hash": hash, "state_root": pre_transaction_root}));
     let mut bloom = Bloom::ZERO;
     let mut gas = 0;
     let mut blob_gas = 0_u64;
@@ -275,10 +273,12 @@ mod tests {
         }
     }
 
+    const PRE_TRANSACTION_ROOT: B256 = B256::repeat_byte(0x33);
+
     fn verify_recorded_roots(input: &Value) -> Result<Value, Box<dyn Error>> {
         let (block, receipts) = decode(input)?;
         let roots: Vec<B256> = serde_json::from_value(required(input, "/state_roots")?.clone())?;
-        reconstruct(&block, &receipts, &roots, None)
+        reconstruct(&block, &receipts, &roots, PRE_TRANSACTION_ROOT)
     }
 
     fn fixture() -> (Block, Vec<ReceiptEnvelope>, Vec<B256>) {
@@ -338,22 +338,22 @@ mod tests {
     fn reconstructs_intermediate_and_terminal_headers() {
         let (block, receipts, roots) = fixture();
         let output = verify_recorded_roots(&input(&block, &receipts, &roots)).unwrap();
-        assert_eq!(output["prefixes"].as_array().unwrap().len(), 2);
-        assert_ne!(output["prefixes"][0]["hash"], output["block_hash"]);
-        assert_eq!(output["prefixes"][1]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"].as_array().unwrap().len(), 3);
+        assert_ne!(output["prefixes"][1]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
         let mut prefix = block.header.clone();
         prefix.state_root = roots[0];
         prefix.transactions_root = calculate_transaction_root(&block.body.transactions[..1]);
         prefix.receipts_root = calculate_receipt_root(&receipts[..1]);
         prefix.gas_used = 21_000;
-        assert_eq!(output["prefixes"][0]["hash"], json!(prefix.hash_slow()));
+        assert_eq!(output["prefixes"][1]["hash"], json!(prefix.hash_slow()));
     }
 
     #[test]
     fn pre_transaction_prefix_uses_terminal_height_and_pre_execution_state() {
         let (block, receipts, roots) = fixture();
-        let before = B256::repeat_byte(0x33);
-        let output = reconstruct(&block, &receipts, &roots, Some(before)).unwrap();
+        let before = PRE_TRANSACTION_ROOT;
+        let output = reconstruct(&block, &receipts, &roots, before).unwrap();
         assert_eq!(output["prefixes"][0]["transaction_count"], 0);
         assert_eq!(output["prefixes"][0]["state_root"], json!(before));
         assert_ne!(
@@ -367,6 +367,21 @@ mod tests {
         header.gas_used = 0;
         assert_eq!(output["prefixes"][0]["hash"], json!(header.hash_slow()));
         assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
+    }
+
+    #[test]
+    fn empty_block_has_one_prefix_bound_to_its_pre_transaction_root() {
+        let (mut block, _, _) = fixture();
+        block.body.transactions.clear();
+        block.header.state_root = PRE_TRANSACTION_ROOT;
+        block.header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        block.header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        block.header.gas_used = 0;
+        let output = reconstruct(&block, &[], &[], PRE_TRANSACTION_ROOT).unwrap();
+        assert_eq!(output["prefixes"].as_array().unwrap().len(), 1);
+        assert_eq!(output["prefixes"][0]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"][0]["transaction_count"], 0);
+        assert!(reconstruct(&block, &[], &[], B256::ZERO).is_err());
     }
 
     #[test]
@@ -385,7 +400,7 @@ mod tests {
         block.header.receipts_root = calculate_receipt_root(&receipts);
         assert_eq!(receipts[0].encoded_2718()[0], 0x76);
         let output = verify_recorded_roots(&input(&block, &receipts, &roots)).unwrap();
-        assert_eq!(output["prefixes"][1]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
         receipts[0].receipt.tx_type = EezTxType::Ethereum(alloy_consensus::TxType::Legacy);
         block.header.receipts_root = calculate_receipt_root(&receipts);
         assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
@@ -394,12 +409,20 @@ mod tests {
     #[test]
     fn rejects_incomplete_or_inconsistent_replay_evidence() {
         let (block, receipts, roots) = fixture();
-        assert!(reconstruct(&block, &receipts[..1], &roots, None).is_err());
-        assert!(reconstruct(&block, &receipts, &roots[..1], None).is_err());
-        assert!(reconstruct(&block, &receipts, &[roots[0], B256::ZERO], None).is_err());
+        assert!(reconstruct(&block, &receipts[..1], &roots, PRE_TRANSACTION_ROOT).is_err());
+        assert!(reconstruct(&block, &receipts, &roots[..1], PRE_TRANSACTION_ROOT).is_err());
+        assert!(
+            reconstruct(
+                &block,
+                &receipts,
+                &[roots[0], B256::ZERO],
+                PRE_TRANSACTION_ROOT
+            )
+            .is_err()
+        );
         let mut reordered = receipts.clone();
         reordered.reverse();
-        assert!(reconstruct(&block, &reordered, &roots, None).is_err());
+        assert!(reconstruct(&block, &reordered, &roots, PRE_TRANSACTION_ROOT).is_err());
         for field in [
             "transactions_root",
             "receipts_root",
