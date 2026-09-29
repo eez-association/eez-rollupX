@@ -79,6 +79,12 @@ pulls the Ethereum client images. It can take several minutes. The command retur
 after Kurtosis has deployed the contracts and started the network services. It
 leaves the enclave running.
 
+Before deployment, startup waits up to 30 minutes for the canonical L1 RPC to
+return a finalized block. That block supplies the native L2 genesis reference;
+an open RPC port alone is insufficient. If finality stays unavailable, startup
+fails before deployment broadcasts. The deployment script still validates the
+header and genesis commitments; it never substitutes `latest` for `finalized`.
+
 ### 3. Check the deployment
 
 ```bash

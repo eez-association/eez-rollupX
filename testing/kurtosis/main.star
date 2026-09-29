@@ -136,6 +136,25 @@ def run(plan, args):
         store=[StoreSpec(src="/jwt/jwtsecret", name="eez-jwt")],
     )
 
+    # RPC availability precedes finality on a fresh L1. Deployment pins its
+    # genesis reference before broadcasting and validates the returned header.
+    # Mainnet-preset epochs can take more than 15 minutes to finalize at startup.
+    plan.wait(
+        service_name=l1_el.service_name,
+        recipe=PostHttpRequestRecipe(
+            port_id="rpc",
+            endpoint="/",
+            body='{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["finalized",false]}',
+            extract={"available": '.error == null and (.result | type == "object")'},
+        ),
+        field="extract.available",
+        assertion="==",
+        target_value=True,
+        interval="2s",
+        timeout="1800s",
+        description="wait for the canonical L1 finalized genesis reference",
+    )
+
     # Deploy protocol contracts and emit /out/deployments.env + /out/l2-genesis.json.
     deploy = plan.run_sh(
         description="deploy EEZ contracts + generate L2 genesis on the shared L1",
