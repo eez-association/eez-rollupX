@@ -13,7 +13,7 @@ use eez_blob_codec::{
     BLOB_BYTES, Blob, MAX_BLOBS_PER_TRANSACTION, blob_kzg_commitments, blob_versioned_hashes,
     decode_native_payload,
 };
-use eez_protocol::abi::postAndVerifyBatchCall;
+use eez_protocol::abi::{ProofSystemBatchPerVerificationEntriesSol, postAndVerifyBatchCall};
 use eez_protocol::{CallMode, ExecutionOutcome};
 use serde_json::{Value, json};
 
@@ -131,6 +131,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     {
         return Err(format!("batch does not prove expected rollup {rollup_id}").into());
     }
+
+    let settlement_claim = settlement_claim(&posted.batch, rollup_id)?;
 
     let sidecars = required(sidecar_response, "/data")?
         .as_array()
@@ -278,8 +280,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             "blob_versioned_hashes": transaction_blob_hashes,
             "kzg_commitments": selected_commitments,
             "abi_call_data_bytes": posted.batch.callData.len(),
+            "settlement_claim": settlement_claim,
             "payload": {
                 "bytes": native.operations.len(),
+                "operations": format!("0x{}", hex::encode(&native.operations)),
                 "semantic_transaction_count": semantic_transactions.len(),
                 "semantic_action_count": semantic_transactions
                     .iter()
@@ -299,6 +303,30 @@ fn run() -> Result<(), Box<dyn Error>> {
         }))?
     );
     Ok(())
+}
+
+// These are calldata claims, not evidence that every deferred effect settled.
+// Consumers must bind them to canonical execution before using the window.
+fn settlement_claim(
+    batch: &ProofSystemBatchPerVerificationEntriesSol,
+    rollup_id: u64,
+) -> Result<Value, Box<dyn Error>> {
+    let anchor = batch.entries.first().ok_or("batch has no anchor")?;
+    if !eez_protocol::settlement::is_root_only_entry(anchor, rollup_id) {
+        return Err("batch does not start with the expected rollup's root-only anchor".into());
+    }
+    let pre = anchor.rootUpdates[0].currentRoot;
+    let mut previous = pre;
+    for entry in &batch.entries {
+        let [update] = entry.rootUpdates.as_slice() else {
+            return Err("evidence supports exactly one rollup update per entry".into());
+        };
+        if update.rollupId != rollup_id || update.currentRoot != previous {
+            return Err("batch has a foreign or discontinuous commitment chain".into());
+        }
+        previous = update.newRoot;
+    }
+    Ok(json!({"pre_block_hash": pre, "post_block_hash": previous}))
 }
 
 fn required<'a>(value: &'a Value, pointer: &str) -> Result<&'a Value, Box<dyn Error>> {
@@ -341,4 +369,50 @@ fn decode_hex_string(raw: &str, field: &str) -> Result<Bytes, Box<dyn Error>> {
         .strip_prefix("0x")
         .ok_or_else(|| format!("{field} is missing its 0x prefix"))?;
     Ok(hex::decode(hexadecimal)?.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eez_protocol::{
+        EntryRollingHash,
+        abi::{ExecutionEntrySol, RootUpdateSol},
+    };
+
+    #[test]
+    fn settlement_endpoints_require_the_forks_continuous_single_rollup_chain() {
+        let pre = B256::repeat_byte(1);
+        let post = B256::repeat_byte(2);
+        let anchor = ExecutionEntrySol {
+            rootUpdates: vec![RootUpdateSol {
+                rollupId: 1,
+                currentRoot: pre,
+                newRoot: post,
+                etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
+            }],
+            destinationRollupId: 1,
+            success: true,
+            rollingHash: EntryRollingHash::seed_for_l1([(1, pre)], B256::ZERO).current(),
+            ..Default::default()
+        };
+        let mut batch = ProofSystemBatchPerVerificationEntriesSol {
+            entries: vec![anchor.clone()],
+            ..Default::default()
+        };
+        assert_eq!(
+            settlement_claim(&batch, 1).unwrap(),
+            json!({
+                "pre_block_hash": pre, "post_block_hash": post,
+            })
+        );
+        assert!(settlement_claim(&batch, 2).is_err());
+        batch.entries.push(anchor);
+        assert!(settlement_claim(&batch, 1).is_err());
+        batch.entries[1].rootUpdates[0].currentRoot = post;
+        assert!(settlement_claim(&batch, 1).is_ok());
+        batch.entries[1].rootUpdates[0].rollupId = 2;
+        assert!(settlement_claim(&batch, 1).is_err());
+        batch.entries.clear();
+        assert!(settlement_claim(&batch, 1).is_err());
+    }
 }

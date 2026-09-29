@@ -60,7 +60,7 @@ resolve_base() {
 # Keep the cache path stable for Actions, but never reuse a local job directory.
 # Only transport/ belongs to the cache; the authoritative checkout and plan do not.
 state_dir="$REPO/.ci-cargo-state"
-inputs=(Cargo.toml Cargo.lock crates vendor contracts/test/PostBatchGasPins.t.sol
+inputs=(Cargo.toml Cargo.lock crates contracts/test/PostBatchGasPins.t.sol
         .config/nextest.toml scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh)
 state_build=(docker buildx build --builder default --platform linux/amd64 --progress plain
              --provenance=false -f Dockerfile.runtime --build-arg EEZ_COMPILER_CACHE=none

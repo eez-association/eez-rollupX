@@ -249,20 +249,33 @@ class SettlementEnvironmentTest(unittest.TestCase):
                 exec(compile(command_setup, "signer-command", "exec"), namespace)
 
 class SettlementReadinessTest(unittest.TestCase):
-    def run_readiness(self, log, log_status=0):
+    def run_readiness(self, log, log_status=0, gate="settlement"):
         script = (REPO / "testing/kurtosis/run-ci.sh").read_text()
-        start = script.index('while (( SECONDS < deadline )); do\n    node_logs=')
-        end = script.index('\necho "==> running native cross-chain wave suite"', start)
+        boundaries = {
+            "settlement": ('while (( SECONDS < deadline )); do\n    node_logs=',
+                           '\necho "==> running native cross-chain wave suite"', "eez-node"),
+            "relay": ('relay_deadline=', '\necho "==> refreshing relay housekeeper', "mev-relay-api"),
+            "builder": ('builder_deadline=', '\n# Canonical replay proves readiness', "fixture-builder"),
+        }
+        first, last, service = boundaries[gate]
+        start = script.index(first)
+        end = script.index(last, start)
         setup = r'''
 deadline=$((SECONDS + 60))
 KURTOSIS_ENCLAVE=fixture-ci
+KURTOSIS_BUILDER_SERVICE=fixture-builder
 kurtosis() {
-    [[ "$*" == "service logs fixture-ci eez-node" ]] || return 99
-    cat "$READINESS_LOG"
+    if [[ "$*" == "service logs --all fixture-ci $READINESS_SERVICE" ]]; then
+        cat "$READINESS_LOG"
+    elif [[ "$*" == "service logs fixture-ci $READINESS_SERVICE" ]]; then
+        tail -n 200 "$READINESS_LOG"
+    else
+        return 99
+    fi
     return "$READINESS_LOG_STATUS"
 }
 timeout() { shift; "$@"; }
-sleep() { SECONDS=$deadline; }
+sleep() { SECONDS=$((SECONDS + 1000)); }
 '''
         with tempfile.TemporaryDirectory(prefix="eez-readiness.") as temporary:
             path = Path(temporary) / "node.log"
@@ -270,9 +283,32 @@ sleep() { SECONDS=$deadline; }
             return subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", setup + script[start:end]],
                 env={**os.environ, "READINESS_LOG": str(path),
+                     "READINESS_SERVICE": service,
                      "READINESS_LOG_STATUS": str(log_status)},
                 capture_output=True, text=True, timeout=10,
             )
+
+    def test_readiness_survives_startup_evidence_leaving_the_default_log_tail(self):
+        signals = {
+            "relay": "validator registrations call processed numRegistrations=128",
+            "builder": "Updated validator registrations len=128",
+            "settlement": '{"event_name":"eez.deriver.safe.advanced"}',
+        }
+        for gate, signal in signals.items():
+            with self.subTest(gate=gate):
+                log = signal + "\n" + "later unrelated service activity\n" * 250
+                result = self.run_readiness(log, gate=gate)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_empty_registration_sets_do_not_open_readiness_gates(self):
+        for gate, log in (
+            ("relay", "validator registrations call processed numRegistrations=0 numRegistrationsNew=0"),
+            ("builder", "Updated validator registrations len=0"),
+        ):
+            with self.subTest(gate=gate):
+                result = self.run_readiness(log, gate=gate)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("timeout", result.stderr)
 
     def test_canonical_safe_advance_makes_the_network_ready(self):
         log = '\x1b[36m[eez-node]\x1b[0m ' + json.dumps({"fields": {

@@ -264,16 +264,23 @@ which this protocol does not currently define.
 
 Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream v2.7.0 commit
 `3d592ece6de8c4559987416a544fc215fd6d6921`, which includes the
-forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Related
-local dependency ports are described in
-[`vendor/README.md`](vendor/README.md). Private `testing` and `testing-gnosis`
-L1 miners retain the previous two-block persistence threshold, without state
+forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Gnosis uses unmodified
+[upstream PR #138](https://github.com/gnosischain/reth_gnosis/pull/138), and Stateless
+uses the [native replay compatibility branch](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
+The checked-in lockfile resolves these dependencies. Private `testing` and
+`testing-gnosis` L1 miners retain the previous two-block persistence threshold, without state
 masking or an in-memory buffer. They have no consensus peers to recover a lost
 chain after a crash. Consensus-driven `devnet` and `chiado` launchers use Reth's
 upstream persistence defaults. Recent unpersisted blocks can still be lost on
 an abrupt stop; database persistence is not durable queue recovery.
 
+The upstream default build features require LLVM 22, Polly, Clang 22 and `m4`.
+Docker builds install them automatically. For a Debian/Ubuntu source build:
+
 ```bash
+sudo bash scripts/ci/install-llvm.sh
+export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+export PATH="$LLVM_SYS_221_PREFIX/bin:$PATH"
 cargo +1.95.0 build --locked --workspace
 cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings
 cargo +1.95.0 test --locked --workspace                  # Rust; `cd contracts && forge test` for Solidity

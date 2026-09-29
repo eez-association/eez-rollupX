@@ -2029,7 +2029,12 @@ where
         if scanned != parent || endpoint.number >= attempt.sync_height {
             return Ok(());
         }
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self
+            .inner
+            .committer
+            .begin_reconcile()
+            .await
+            .map_err(|error| error.to_string())?;
         if !rollup.l1_head.generation_is(snapshot.generation)
             || self
                 .inner
@@ -2227,7 +2232,12 @@ where
                 None
             });
         }
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self
+            .inner
+            .committer
+            .begin_reconcile()
+            .await
+            .map_err(|error| error.to_string())?;
         if !rollup.l1_head.generation_is(snapshot.generation)
             || submitter
                 .canonical_block_hash(at.number)

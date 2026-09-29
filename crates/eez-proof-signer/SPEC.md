@@ -9,9 +9,9 @@ EEZ protocol.
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
 `9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses the
-[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3),
-pinned to commit `ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3`. Its
-[documented adaptations](../../vendor/README.md) preserve the transaction
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
+pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
+[recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
 checkpoints required by this profile; the root lockfile selects the runtime
 dependency graph. This dependency port does not extend the admitted proof profile.
 

@@ -737,13 +737,24 @@ Missing or orphaned L2 blocks fail verification; they do not count as absence.
 Shared lookup tables are matched by one exact scenario key, not by total table
 size. The L1 lookup verifiers require a canonical call trace proving the exact
 proxy/registry call and returned or reverted bytes. Intermediate L2 pins are
-reconstructed from transaction-prefix headers and anchored to the blob's
-terminal block. These CI-only, RPC-backed checks require L1
-`debug_traceTransaction` and L2 `debug_getRawBlock`, `debug_getRawReceipts` and
-`debug_intermediateRoots` (already available in the test topology). Replay state
-roots come from the test node; this is integration evidence, not a separate
-stateless proof. Do not expose debug APIs publicly for this purpose. Raw trace,
-prefix input and selected-root evidence are retained for diagnosis.
+reconstructed from transaction-prefix headers, including the position before
+its first transaction. V0 operations carry counts and ordinary transaction
+bytes, not block headers: the collector binds the calldata's endpoint claims to
+canonical L2 blocks and checks their height difference against the V0 count.
+A successful L1 posting alone does not establish that every deferred effect
+settled.
+
+These CI-only checks require L1 `debug_traceTransaction` and L2
+`debug_getRawBlock`, `debug_getRawReceipts`, `debug_executionWitnessByBlockHash`
+and `debug_chainConfig` (available in the test topology). The helper runs
+Stateless with the native L2 EVM, verifies the full block and receipts, and
+reconstructs prefix headers from replayed roots. The empty prefix includes
+pre-execution state updates; the parent block's state root cannot replace it.
+Chain configuration and canonicality still come from the test-node RPCs, so
+this is integration evidence and does not authorize a production proof.
+Do not expose debug APIs publicly for this purpose. Raw trace, witness/prefix
+input and selected-root evidence are retained for diagnosis. The helper's
+regressions run in the release unit-test archive.
 
 After updating the protocol pin, regenerate the committed genesis artifacts
 with `bash scripts/update-eezl2-genesis.sh` and verify them with `--check`.

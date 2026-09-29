@@ -44,6 +44,11 @@ alloy-network.workspace               = true
 alloy-rlp.workspace                   = true
 alloy-transport                      = { version = "2", default-features = false }
 eez-payload-codec.workspace          = true
+eez-primitives.workspace             = true
+eez-evm.workspace                    = true
+reth-chainspec.workspace             = true
+reth-primitives-traits.workspace     = true
+stateless-reth.workspace             = true
 reth-ethereum-primitives.workspace   = true
 
 [lints]

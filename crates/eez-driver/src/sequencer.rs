@@ -55,17 +55,15 @@ const FCU_REFRESH: Duration = Duration::from_secs(1);
 /// window keeps recent ancestors alive for the Deriver's replay.
 pub const DEFAULT_MAX_SPECULATIVE_DEPTH: u64 = 64;
 
-/// Log a benign stale-parent skip: the Deriver advanced the canonical
-/// head between our snapshot and the engine FCU, so this commit
-/// targeted a no-longer-canonical parent. The caller bails (its
-/// backfill loop or the whole trigger) and the next trigger rebuilds
-/// from the fresh head. `phase` names the commit site for attribution.
-fn log_stale_parent(phase: &str) {
+/// Reconciliation can replace the parent or its authenticated execution seed
+/// after composition. Stop this trigger and rebuild from the current context
+/// on the next one. `phase` identifies the commit site.
+fn log_stale_candidate(phase: &str) {
     event!(
-        name: "eez.sequencer.stale_parent",
+        name: "eez.sequencer.stale_candidate",
         Level::DEBUG,
         phase,
-        "deriver advanced the chain under this commit; bailing — next trigger rebuilds from fresh head",
+        "execution context changed before commit; next trigger rebuilds the candidate",
     );
 }
 
@@ -148,6 +146,11 @@ mod tests {
                 number: parent.header.number + 1,
                 timestamp,
                 transactions_root: alloy_consensus::constants::EMPTY_ROOT_HASH,
+                mix_hash: if self.result == "stale-seed" {
+                    B256::repeat_byte(0x55)
+                } else {
+                    B256::ZERO
+                },
                 ..Default::default()
             });
             SyncSlotOutcome::Built(Box::new(SyncSlotBlock {
@@ -166,7 +169,7 @@ mod tests {
     #[tokio::test]
     async fn explicit_policy_outcomes_never_use_sync_pool_fallback() {
         for mode in [SyncSlotMode::Steady, SyncSlotMode::Empty] {
-            for result in ["end", "empty", "stale"] {
+            for result in ["end", "empty", "stale", "stale-seed"] {
                 let future = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -210,7 +213,7 @@ mod tests {
                 assert_eq!(*calls.lock().unwrap(), vec![mode]);
                 assert!(commands[..live].iter().all(|command| *command == "pool"));
                 match result {
-                    "end" | "stale" => {
+                    "end" | "stale" | "stale-seed" => {
                         assert_eq!(commands.len(), live, "{mode:?}/{result}");
                         assert_eq!(committer.last_header().number, target - 1);
                     }
@@ -630,8 +633,8 @@ where
             .await
         {
             Ok(()) => Ok(()),
-            Err(err) if err.is_stale_parent() => {
-                log_stale_parent("live_tick");
+            Err(err) if err.is_stale_candidate() => {
+                log_stale_candidate("live_tick");
                 Ok(())
             }
             Err(err) => Err(err),
@@ -734,8 +737,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("catchup.live");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("catchup.live");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -783,8 +786,8 @@ where
                     crate::SyncSlotOutcome::EndTick => return Ok(()),
                 };
                 if let Err(err) = self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
-                    if err.is_stale_parent() {
-                        log_stale_parent("catchup.sync.prebuilt");
+                    if err.is_stale_candidate() {
+                        log_stale_candidate("catchup.sync.prebuilt");
                         return Ok(());
                     }
                     return Err(err);
@@ -802,8 +805,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("slot.live");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("slot.live");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -819,8 +822,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("slot.future");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("slot.future");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -901,8 +904,8 @@ where
                 };
                 match self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
                     Ok(()) => {}
-                    Err(err) if err.is_stale_parent() => {
-                        log_stale_parent("slot.sync.prebuilt");
+                    Err(err) if err.is_stale_candidate() => {
+                        log_stale_candidate("slot.sync.prebuilt");
                         return Ok(());
                     }
                     Err(err) => return Err(err),
@@ -947,7 +950,7 @@ where
         // `commit_derived` doesn't take the lock itself (only
         // `commit_sequenced` does, and the Deriver already holds it via
         // `begin_reconcile`), so hold it here too.
-        let _reconcile_guard = self.committer.begin_reconcile().await;
+        let _reconcile_guard = self.committer.begin_reconcile().await?;
         // Stale-parent check under the lock, like commit_sequenced: the
         // Deriver (or a failed-batch recovery) can move the head between
         // compose and commit, and a prebuilt block on a stale parent
@@ -956,6 +959,13 @@ where
         let built_parent = built.header.parent_hash();
         if current_head != built_parent {
             return Err(DriverError::stale_parent(built_parent, current_head));
+        }
+        let (timestamp, seed) = self
+            .l1_head
+            .next_block_context(&self.committer.last_header())
+            .map_err(DriverError::provider)?;
+        if built.header.timestamp != timestamp || built.header.mix_hash != seed {
+            return Err(DriverError::stale_context(built_parent));
         }
         let block_number = built.header.number();
         let block_hash = built.header.hash();
@@ -990,7 +1000,7 @@ where
         self.composer
             .set_sequencing_target(self.rollup_id, sync_slot_height);
         let parent_hash = parent.hash();
-        let (next_ts, prev_randao) = self
+        let (next_ts, _) = self
             .l1_head
             .next_block_context(parent)
             .map_err(DriverError::provider)?;
@@ -1022,9 +1032,17 @@ where
                 )),
             };
         }
-        let attrs = self.attributes.build(next_ts, prev_randao);
-        let timestamp = attrs.timestamp;
-        let outcome = self.committer.commit_sequenced(parent_hash, attrs).await?;
+        let outcome = self
+            .committer
+            .commit_sequenced(parent_hash, || {
+                let (timestamp, seed) = self
+                    .l1_head
+                    .next_block_context(parent)
+                    .map_err(DriverError::provider)?;
+                Ok(self.attributes.build(timestamp, seed))
+            })
+            .await?;
+        let timestamp = outcome.header.timestamp();
         let block_number = outcome.header.number();
         let block_hash = outcome.header.hash();
 

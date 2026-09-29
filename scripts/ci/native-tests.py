@@ -33,12 +33,13 @@ TARGETS = [*E2E_TARGETS,
 # tests need that variant; archive them last, without any node targets.
 ARCHIVES = {
     "native-tests.tar.zst": ["--workspace", "--exclude", "eez-composer", "--lib",
-                             "--bin", "eez-proof-signer",
+                             "--bin", "eez-proof-signer", "--example", "verify_blob_evidence",
                              *[arg for target in TARGETS for arg in ("--test", target)]],
     "composer-unit-tests.tar.zst": ["--package", "eez-composer", "--lib"],
 }
 SUITES = {
     "unit": "kind(lib) | kind(bin) | "
+            "(package(=eez-l1) & binary(=verify_blob_evidence)) | "
             "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors) | binary(=causal_evidence))) | "
             "(package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility)) | "
             "(package(=eez-payload-codec) & binary(=issue35))",

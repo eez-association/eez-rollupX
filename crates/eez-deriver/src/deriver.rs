@@ -505,7 +505,7 @@ where
         // Sync would leave a system-transaction barrier no attempt can recover.
         // A delayed-settlement composer must nevertheless retain its ordinary
         // history: losing volatile policy intent does not discard included txs.
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self.inner.committer.begin_reconcile().await?;
         let cursor = self.inner.l1_head.cursor();
         let local_head = self
             .inner
@@ -608,7 +608,7 @@ where
     /// Returns the inclusive L1 block covered: the scan's endpoint, or the
     /// tip when the range was empty (nothing below it can hold our events).
     async fn catch_up_inner(&self) -> DeriverResult<u64> {
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self.inner.committer.begin_reconcile().await?;
         self.inner.l1_head.invalidate_scan();
         let old_cursor = self.inner.l1_head.cursor();
         let anchor = self.revalidate_index_tail().await?;
@@ -1423,7 +1423,7 @@ where
                 if self.inner.scan_needs_resync.load(Ordering::Acquire) {
                     return self.catch_up().await;
                 }
-                let _guard = self.inner.committer.begin_reconcile().await;
+                let _guard = self.inner.committer.begin_reconcile().await?;
                 self.finish_scan(block_number, Some(block_hash)).await
             }
             L1Event::Reorg {
@@ -1485,7 +1485,7 @@ where
         // deriver would replay the unsettled range, reorg L2, then fail
         // `check_claimed_state` as a spurious divergence.
         if settlement.is_empty() {
-            let _guard = self.inner.committer.begin_reconcile().await;
+            let _guard = self.inner.committer.begin_reconcile().await?;
             self.inner.l1_head.publish(self.batch_evidence(
                 eez_l1::L1BlockRef {
                     number: l1_block_number,
@@ -1517,7 +1517,7 @@ where
             "on_batch_posted entered; awaiting reconcile lock",
         );
         // Acquire lock to prevent sequencing during multi-block derivation
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self.inner.committer.begin_reconcile().await?;
         event!(
             name: "eez.deriver.batch_posted.lock_acquired",
             Level::INFO,
@@ -1744,7 +1744,7 @@ where
     ) -> DeriverResult<()> {
         // Delivered Reorg events already carry the surviving canonical L1
         // ancestor; hash-tail auditing is reserved for missed reorgs.
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self.inner.committer.begin_reconcile().await?;
 
         if common_ancestor_number
             < self

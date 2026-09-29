@@ -1,4 +1,4 @@
-# Node builds use Cargo.{toml,lock}, crates/, and vendor/.
+# Node builds use Cargo.{toml,lock} and crates/.
 # Everything else (esp. the 20 GB chiado snapshot + target/) must stay out
 # of the build context or `docker build` ships it to the daemon.
 .git/

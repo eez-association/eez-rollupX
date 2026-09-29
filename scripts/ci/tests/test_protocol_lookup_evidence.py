@@ -18,6 +18,7 @@ KEY, ROOT, L1_HASH, USER, POST = ["0x" + char * 64 for char in "12345"]
 SOURCE, DESTINATION, REGISTRY, MANAGER = ["0x" + char * 40 for char in "abcd"]
 PROXY = "0x" + "e" * 40
 LOAD = "0x" + "7" * 64
+PARENT = "0x" + "8" * 64
 RETURN = "0x" + "0" * 63 + "1"
 REVERT = "0x08c379a0"  # Fixture data; the real collector computes ABI Error(string).
 ABI_RETURN = "0x" + f"{32:064x}{32:064x}{1:064x}"
@@ -41,8 +42,10 @@ def fixture(scenario):
         "decoded": [[[], [] if static else [mutable], [static_entry] if static else [], 0, 0]],
         "blob": {
             "verified": True,
+            "settlement_claim": dict(pre_block_hash=PARENT, post_block_hash=ROOT),
             "payload": {
-                "blocks": [dict(number=100, representation="terminal", hash=ROOT)],
+                "block_count": 1,
+                "count_runs": [dict(blocks=1, transactions_per_block=0)],
                 "semantic_transactions": [{"origin_chain": 0, "tx_data": "0xraw", "actions": [{
                     "parent_index": None, "kind": "StaticCall" if static else "Call",
                     "source_chain": 0, "target_chain": 1, "from_address": SOURCE,
@@ -74,7 +77,7 @@ with open(os.environ["LOOKUP_CALLS"], "a") as out:
     out.write(json.dumps([pathlib.Path(sys.argv[0]).name] + args) + "\n")
 if pathlib.Path(sys.argv[0]).name == "forge":
     assert "Verify.s.sol:VerifyL2Absent" in args[1], args
-    first = str(f["blob"]["payload"]["blocks"][0]["number"])
+    first = "100"
     end = str(f["l2_head"])
     assert "--broadcast" not in args and args[-4:] == [first, end, "0x" + "d"*40, "[0x" + "1"*64 + "]"], args
     sys.exit(1 if f.get("unexpected_delivery") else 0)
@@ -128,20 +131,24 @@ elif command == "rpc":
     if rpc == "eth_getTransactionByHash": value = f["transactions"][args[2]]
     elif rpc == "eth_getTransactionReceipt": value = f["receipts"][args[2]]
     elif rpc == "eth_getBlockByNumber": value = f["block"]
+    elif rpc == "eth_getBlockByHash":
+        value = (dict(hash="0x" + "8"*64, number="0x63") if args[2] == "0x" + "8"*64
+                 else dict(hash=f["l2_hash"], number=hex(f["l2_head"])))
     elif rpc == "debug_traceTransaction":
         assert args[2] == "0x" + "4"*64 and json.loads(args[3])["tracer"] == "callTracer", args
         if f.get("trace_unavailable"): sys.exit(1)
         value = f["trace"]
     elif rpc == "debug_getRawBlock": value = "0x00"
     elif rpc == "debug_getRawReceipts": value = []
-    elif rpc == "debug_intermediateRoots": value = []
+    elif rpc in ("debug_executionWitnessByBlockHash", "debug_chainConfig"): value = {}
     else: raise AssertionError(args)
 elif command == "to-dec": value = str(int(args[1], 0))
 elif command == "decode-calldata": value = f["load_decoded"] if args[2].startswith("loadExecutionTable(") else f["decoded"]
 elif command == "block-number": value = str(f["l2_head"])
 elif command == "block":
     if "--full" in args: value = f["l2_block"]
-    else: value = f["l2_hash"] if args[-1] == "http://l2.invalid" else f.get("final_l1_hash", f["block"]["hash"])
+    elif args[-1] == "http://l2.invalid": value = "0x" + "8"*64 if args[1] == "99" else f["l2_hash"]
+    else: value = f.get("final_l1_hash", f["block"]["hash"])
 else: raise AssertionError(args)  # Includes any accidental transaction broadcast.
 print(json.dumps(value) if command == "rpc" or isinstance(value, (dict, list)) else value)
 '''
@@ -216,15 +223,12 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                 self.assertEqual(evidence["system_transactions"], [])
                 self.assertNotIn("--broadcast", self.calls.read_text())
 
-    def test_derivable_window_is_anchored_by_its_canonical_terminal(self):
+    def test_v0_window_is_bound_to_canonical_endpoint_heights(self):
         for scenario in ("topLevelStaticCounter", "revertCounter"):
             with self.subTest(scenario=scenario):
                 data = fixture(scenario)
-                data["blob"]["payload"]["blocks"] = [
-                    dict(number=100, representation="derived", timestamp_step_seconds=2,
-                         transaction_count=0),
-                    dict(number=101, representation="terminal", hash=ROOT),
-                ]
+                data["blob"]["payload"].update(
+                    block_count=2, count_runs=[dict(blocks=2, transactions_per_block=0)])
                 data["l2_head"] = 101
                 result = self.run_fixture(scenario, data)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -232,26 +236,20 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                 self.assertEqual(evidence["causal_graph"]["l2_absence_range"],
                                  {"from": 100, "to": 101})
 
-    def test_rejects_malformed_derivable_windows(self):
+    def test_rejects_malformed_or_unbound_v0_windows(self):
         mutations = {
-            "number gap": lambda blocks: blocks[1].update(number=102),
-            "terminal not last": lambda blocks: blocks.reverse(),
-            "missing terminal": lambda blocks: blocks[1].update(representation="derived",
-                                                                  timestamp_step_seconds=2,
-                                                                  transaction_count=0),
-            "unknown representation": lambda blocks: blocks[0].update(representation="future"),
+            "height mismatch": lambda f: f.update(l2_head=101),
+            "missing endpoint": lambda f: f["blob"]["settlement_claim"].pop("post_block_hash"),
+            "wrong parent": lambda f: f["blob"]["settlement_claim"].update(pre_block_hash=ZERO),
+            "oversized count": lambda f: f["blob"]["payload"].update(block_count=4294967296),
+            "empty runs": lambda f: f["blob"]["payload"].update(count_runs=[]),
+            "run coverage": lambda f: f["blob"]["payload"]["count_runs"][0].update(blocks=2),
+            "invalid pure count": lambda f: f["blob"]["payload"]["count_runs"][0].update(transactions_per_block=16384),
         }
         for name, mutate in mutations.items():
             with self.subTest(mutation=name):
                 data = fixture("revertCounter")
-                blocks = [
-                    dict(number=100, representation="derived", timestamp_step_seconds=2,
-                         transaction_count=0),
-                    dict(number=101, representation="terminal", hash=ROOT),
-                ]
-                mutate(blocks)
-                data["blob"]["payload"]["blocks"] = blocks
-                data["l2_head"] = 102
+                mutate(data)
                 result = self.run_fixture("revertCounter", data)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertFalse(self.output.exists())
@@ -306,7 +304,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
             "wrong semantic result": lambda f: f["blob"]["payload"]["semantic_transactions"][0]["actions"][0].update(success=True),
             "extra semantic action": lambda f: f["blob"]["payload"]["semantic_transactions"][0]["actions"].append({}),
             "semantic trigger missing": lambda f: f["blob"]["payload"]["semantic_transactions"][0].update(tx_data="0xother"),
-            "wrong blob root": lambda f: f["blob"]["payload"]["blocks"][0].update(hash=ZERO),
+            "wrong blob root": lambda f: f["blob"]["settlement_claim"].update(post_block_hash=ZERO),
             "orphaned L2 block": lambda f: f.update(l2_hash=ZERO),
             "unexpected L2 delivery": lambda f: f.update(unexpected_delivery=True),
             "L1 reorg during collection": lambda f: f.update(final_l1_hash=ZERO),
@@ -410,17 +408,19 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
 
     def test_lookup_accepts_reconstructed_prefix_but_not_an_unbound_pin(self):
         for scenario in ("revertCounter", "topLevelStaticCounter"):
-            for failure in (None, "missing", "duplicate", "replay_failure"):
+            for failure in (None, "empty_prefix", "missing", "duplicate", "replay_failure"):
                 with self.subTest(scenario=scenario, failure=failure):
                     data = fixture(scenario)
-                    data["blob"]["payload"]["blocks"][0]["hash"] = ZERO
+                    data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
                     data["l2_hash"] = ZERO
-                    data["prefixes"] = [dict(hash=ROOT, transaction_index=3)]
+                    data["prefixes"] = [dict(hash=ROOT, transaction_index=3, transaction_count=4)]
+                    if failure == "empty_prefix":
+                        data["prefixes"] = [dict(hash=ROOT, transaction_index=None, transaction_count=0)]
                     if failure == "missing": data["prefixes"] = []
                     if failure == "duplicate": data["prefixes"] *= 2
                     if failure == "replay_failure": data["prefix_failure"] = True
                     result = self.run_fixture(scenario, data)
-                    if failure:
+                    if failure not in (None, "empty_prefix"):
                         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertFalse(self.output.exists())
                     else:

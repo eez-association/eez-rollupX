@@ -460,7 +460,7 @@ class NativeRelocationTest(unittest.TestCase):
                 shutil.copy2(REPO / path, dest)
             (repo / "Cargo.toml").write_text('[workspace]\nresolver="2"\nmembers=["crates/*"]\n'
                                            '[profile.release]\nlto="thin"\nstrip="symbols"\n')
-            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec")
+            packages = ("eez-node", "eez-follower", "eez-node-e2e", "eez-proof-signer", "eez-protocol", "eez-composer", "eez-blob-codec", "eez-l1", "eez-payload-codec")
             for name in packages:
                 package = repo / "crates" / name
                 (package / "src").mkdir(parents=True)
@@ -494,6 +494,15 @@ class NativeRelocationTest(unittest.TestCase):
                 (package / "src/lib.rs").write_text(source)
                 (package / "tests/fixtures").mkdir(parents=True)
                 (package / "tests/fixtures/fixture.txt").write_text("relocated fixture")
+            example = repo / "crates/eez-l1/examples/verify_blob_evidence.rs"
+            example.parent.mkdir()
+            example.write_text('''
+fn main() {}
+#[test] fn prefix_regression_is_in_the_unit_archive() {
+    let root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    std::fs::write(format!("{root}/prefix.executed"), "passed").unwrap();
+}
+''')
             signer = repo / "crates/eez-proof-signer/src/main.rs"
             signer.write_text('fn main() { println!("signer"); }\n#[test] fn signer_is_tested() { assert_eq!(2+2,4); }\n')
             node = repo / "crates/eez-node-e2e"
@@ -540,7 +549,7 @@ fn check_node(bin: NodeBinary) {
             for target in node_targets:
                 (node / f"tests/{target}.rs").write_text(test_source)
             for target in (target for target in native.TARGETS if target not in node_targets):
-                package = "eez-blob-codec" if target == "ethereum_kzg_compatibility" else "eez-protocol"
+                package = {"ethereum_kzg_compatibility": "eez-blob-codec", "issue35": "eez-payload-codec"}.get(target, "eez-protocol")
                 (repo / f"crates/{package}/tests/{target}.rs").write_text('''
 #[test] fn fixture_is_relocated() {
     let root = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -612,7 +621,10 @@ fn check_node(bin: NodeBinary) {
                 env["CARGO_TARGET_DIR"] = str(root / f"extract-{suite}")
                 payload = artifact if suite == "unit" else lean
                 command = [sys.executable, "scripts/ci/native-tests.py", "run", str(payload), "--suite", suite]
-                result = subprocess.run(command, cwd=consumer, env=env, check=True, capture_output=True, text=True)
+                result = subprocess.run(command, cwd=consumer, env=env, capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                if suite == "unit":
+                    self.assertEqual((consumer / "crates/eez-l1/prefix.executed").read_text(), "passed")
                 if suite != "unit":
                     def passed(result):
                         return set(re.findall(r"PASS .*? (eez-node-e2e::\S+ \S+)", result.stderr))

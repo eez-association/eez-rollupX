@@ -41,7 +41,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "testing/kurtosis/Dockerfile.deploy", "testing/kurtosis/Dockerfile.deploy.dockerignore",
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
-                "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
+                "scripts/ci/install-nextest.sh", "scripts/ci/install-llvm.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
                 "contracts/test/PostBatchGasPins.t.sol",
             ):
                 path = repo / name
@@ -64,7 +64,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-payload-codec": {},
             }
             (repo / "Cargo.toml").write_text(
-                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\nexclude = ["vendor/fixture-port"]\n'
+                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
                 '[profile.release]\nlto = "thin"\nstrip = true\ncodegen-units = 16\n'
             )
             (repo / "Cargo.lock").write_text("version = 4\n" + "".join(
@@ -99,16 +99,17 @@ class RuntimeDockerTest(unittest.TestCase):
                 for path, output in targets.items():
                     target = package / path
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(f'fn main() {{ println!("{output}"); }}\n')
+                    target.write_text(f'fn main() {{ println!("{output}"); }}\n'
+                                      '#[test] fn example_unit_test() { assert_eq!(2+2,4); }\n')
 
-            port = repo / "vendor/fixture-port"
+            port = repo / "crates/fixture-port"
             (port / "src").mkdir(parents=True)
             (port / "Cargo.toml").write_text(
                 '[package]\nname = "fixture-port"\nversion = "0.1.0"\nedition = "2021"\n')
             (port / "src/lib.rs").write_text('pub const NAME: &str = "eez-follower";\n')
             follower_package = repo / "crates/eez-follower"
             with (follower_package / "Cargo.toml").open("a") as manifest:
-                manifest.write('[dependencies]\nfixture-port = { path = "../../vendor/fixture-port" }\n')
+                manifest.write('[dependencies]\nfixture-port = { path = "../fixture-port" }\n')
             (follower_package / "build-value.txt").write_text("")
             (follower_package / "obsolete.txt").write_text("must disappear after source deletion")
             (follower_package / "build.rs").write_text(

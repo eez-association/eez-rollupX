@@ -498,6 +498,24 @@ async fn prove_cold_window(
         final_chunks.push(range);
     }
     final_chunks.push(terminal_chunk);
+    // Preparation can finish at the very end of an L1 slot. Observe a fresh
+    // canonical parent before timing the proof, leaving the next slot for the
+    // exact-target post instead of racing the fixture's block producer.
+    let target_wait_started = Instant::now();
+    let previous = l1
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(l1
+            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+            .await?
+            .filter(|head| head.header.hash != previous.header.hash))
+    })
+    .await
+    .unwrap();
+    let target_wait = target_wait_started.elapsed();
     let final_repetitions = if history_ceiling == Some(65_536) {
         21
     } else {
@@ -573,7 +591,10 @@ async fn prove_cold_window(
             break;
         }
     }
-    let proof_ms = proof_started.elapsed().as_millis();
+    let proof_ms = proof_started
+        .elapsed()
+        .saturating_sub(target_wait)
+        .as_millis();
     let mut sorted_final_times = final_times.clone();
     sorted_final_times.sort_unstable();
     let percentile =
@@ -595,6 +616,7 @@ async fn prove_cold_window(
             "physical_blobs": blobs.len(), "streamed_blocks": streamed,
             "request_bytes_generated": request_bytes, "witness_items_generated": witness_items,
             "stream_and_proof_ms": proof_ms, "success": outcome.is_ok(),
+            "target_wait_ms": target_wait.as_millis(),
             "warm_repetitions": final_repetitions.saturating_sub(1),
             "producer_prepared": producer_prepared, "cache_misses": cache_misses,
             "final_proof_median_ms": percentile(50), "final_proof_p95_ms": percentile(95),

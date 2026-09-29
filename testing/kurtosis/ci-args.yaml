@@ -64,9 +64,9 @@ eez:
   proof_signer_key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
   l1_block_time_ms: 12000
   l2_block_time_ms: 2000
-  # The trigger opens at T-6000 after rounding to the L2 grid. Reserve 4s
-  # for proving, leaving 1500ms for composition/witness/blob preparation
-  # before the proof-start cutoff. Submit by T-500 with two Future blocks.
+  # The trigger opens at T-6000 after rounding to the L2 grid. Plan 4s for
+  # proving and 1500ms for composition/witness/blob preparation; both share
+  # the actual T-500 submission deadline, with two Future blocks.
   proof_time_ms: 4000
   submission_slack_ms: 500
   bundle_submission_lead_ms: 7500

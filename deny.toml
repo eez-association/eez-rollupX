@@ -41,6 +41,7 @@ unknown-git = "deny"
 # pinned in the workspace Cargo.toml.
 allow-git = [
     "https://github.com/paradigmxyz/reth",
+    "https://github.com/paradigmxyz/revmc",
     "https://github.com/eez-association/stateless",
     "https://github.com/gnosischain/reth_gnosis",
     "https://github.com/gnosischain/rust-primitives.git",

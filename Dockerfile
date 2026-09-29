@@ -4,13 +4,17 @@
 # dependency-layer caching — reth is a large, rarely-changing tree, so
 # the cooked-deps layer is reused across code changes.
 #
-# The build is self-contained in `crates/`, `vendor/`, and `Cargo.{toml,lock}`; the
+# The build is self-contained in `crates/` and `Cargo.{toml,lock}`; the
 # Solidity protocol submodule and `contracts/` are NOT needed (ABI is
 # inline `sol!`). Contract deploys are a separate `forge` step (see
 # scripts/deploy.sh + README).
 
 # ── chef base: toolchain + system deps reth/mdbx/secp256k1 need ───────
 FROM rust:1.95-bookworm AS chef
+COPY scripts/ci/install-llvm.sh /usr/local/lib/eez/install-llvm.sh
+RUN bash /usr/local/lib/eez/install-llvm.sh
+ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+ENV PATH="/usr/lib/llvm-22/bin:${PATH}"
 RUN apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold \
     && rm -rf /var/lib/apt/lists/* \
@@ -28,7 +32,6 @@ WORKDIR /build
 FROM chef AS planner
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY vendor ./vendor
 RUN cargo chef prepare --recipe-path recipe.json
 
 # ── builder: cook deps (cached), then build eez-node ─────────────────
@@ -48,7 +51,6 @@ ARG BUILD_PROFILE=release
 COPY --from=planner /build/recipe.json recipe.json
 # Chef omits excluded workspaces from its skeleton; their path dependencies
 # must exist before cook resolves the workspace graph.
-COPY vendor ./vendor
 # Slow, cache-friendly layer: only re-runs when the dep graph changes.
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
@@ -58,7 +60,6 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharin
 # Workspace sources; only this layer rebuilds on first-party code changes.
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-COPY vendor ./vendor
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=eez-node-target,target=/build/target,sharing=locked \

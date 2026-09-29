@@ -191,9 +191,11 @@ L2="$l2" bash "$HERE/scripts/verify-eezl2-deployment.sh"
 # empty proposer-duty set and the builder silently drops otherwise-valid
 # bundles. Wait for the relay API to persist registrations, then refresh the
 # stateless housekeeper so it rebuilds proposer duties from that database state.
+# Read all startup logs: the finalized-genesis wait can outlast the default
+# 200-line tail, even though registration has already succeeded.
 relay_deadline=$((SECONDS + ${EEZ_CI_RELAY_TIMEOUT_SECS:-180}))
 while (( SECONDS < relay_deadline )); do
-    relay_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" mev-relay-api 2>/dev/null || true)"
+    relay_logs="$(timeout 10s kurtosis service logs --all "$KURTOSIS_ENCLAVE" mev-relay-api 2>/dev/null || true)"
     if grep -qE 'validator registrations call processed.*numRegistrations(New)?=[1-9][0-9]*' <<<"$relay_logs"; then
         break
     fi
@@ -210,7 +212,7 @@ kurtosis service start "$KURTOSIS_ENCLAVE" mev-relay-housekeeper
 
 builder_deadline=$((SECONDS + ${EEZ_CI_BUILDER_TIMEOUT_SECS:-90}))
 while (( SECONDS < builder_deadline )); do
-    builder_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" "$KURTOSIS_BUILDER_SERVICE" 2>/dev/null || true)"
+    builder_logs="$(timeout 10s kurtosis service logs --all "$KURTOSIS_ENCLAVE" "$KURTOSIS_BUILDER_SERVICE" 2>/dev/null || true)"
     builder_logs="$(sed 's/\x1b\[[0-9;]*m//g' <<<"$builder_logs")"
     if grep -qE 'Updated validator registrations.*len=[1-9][0-9]*' <<<"$builder_logs"; then
         break
@@ -224,7 +226,7 @@ done
 
 # Canonical replay proves readiness; an observer receipt alone does not.
 while (( SECONDS < deadline )); do
-    node_logs="$(timeout 10s kurtosis service logs "$KURTOSIS_ENCLAVE" eez-node 2>/dev/null || true)"
+    node_logs="$(timeout 10s kurtosis service logs --all "$KURTOSIS_ENCLAVE" eez-node 2>/dev/null || true)"
     if grep -Fq '"event_name":"eez.deriver.safe.advanced"' <<<"$node_logs"; then
         break
     fi

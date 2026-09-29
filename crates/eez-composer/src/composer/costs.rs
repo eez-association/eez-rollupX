@@ -268,7 +268,12 @@ where
         } else {
             Coverage::default()
         };
-        let _guard = self.inner.committer.begin_reconcile().await;
+        let _guard = self
+            .inner
+            .committer
+            .begin_reconcile()
+            .await
+            .map_err(|error| error.to_string())?;
         if !rollup.l1_head.generation_is(snapshot.generation)
             || submitter
                 .canonical_block_hash(at.number)

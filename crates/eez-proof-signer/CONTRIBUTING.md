@@ -98,8 +98,7 @@ execution binding, value, call-hash, and outcome checks in `settlement/`.
 ## Pinned Stateless fork
 
 The production dependency pins the
-[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3);
-its provenance is recorded in [`vendor/README.md`](../../vendor/README.md).
+[EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
 This crate consumes it through the root workspace dependency. The fork exposes the computed pre-state and post-state roots and
 selected transaction-state checkpoints while preserving upstream
 Stateless/Reth consensus and execution validation.
@@ -138,7 +137,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --lock
 
 When changing the dependency, run the fork's checkpoint and trie checks at the
 exact proposed commit, following its
-[host validation instructions](https://github.com/eez-association/stateless/tree/ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3#eez-reth-compatibility-branch).
-Those crates live in the separate vendored workspace, so EEZ workspace tests do
-not execute their own tests. Follow [the vendored test command](../../vendor/README.md),
-then rerun the signer checks and affected process tests with EEZ's root lockfile.
+[host validation instructions](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch).
+Those crates live in a separate repository, so EEZ workspace tests do not execute
+their own tests. Run the fork checks in its exact pinned checkout, then rerun
+the signer checks and affected process tests with EEZ's root lockfile.
