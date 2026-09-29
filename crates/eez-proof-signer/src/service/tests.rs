@@ -5,6 +5,7 @@ mod attestation;
 mod derivation;
 mod golden;
 mod pipeline;
+mod preparation;
 mod runtime;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};

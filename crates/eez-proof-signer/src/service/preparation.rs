@@ -10,7 +10,7 @@ use tokio::time::{Instant, timeout, timeout_at};
 use tonic::{Code, Request, Response, Status, Streaming};
 use tracing::info;
 
-use super::ProveSvc;
+use super::{ProveSvc, rpc::WorkerGuard};
 use crate::cancel::CancellationToken;
 use crate::window::{AdmittedBlock, AdmittedBlocks};
 
@@ -20,7 +20,7 @@ pub(super) async fn prepare(
     service: &ProveSvc,
     request: Request<Streaming<PrepareChunk>>,
 ) -> Result<Response<PrepareResponse>, Status> {
-    let _preparation_slot = Arc::clone(&service.preparation_slot)
+    let preparation_slot = Arc::clone(&service.preparation_slot)
         .try_acquire_owned()
         .map_err(|_| Status::unavailable("another preparation stream is active"))?;
     let mut stream = request.into_inner();
@@ -28,7 +28,7 @@ pub(super) async fn prepare(
     let deadline = Instant::now()
         .checked_add(service.limits.request_timeout())
         .ok_or_else(|| Status::internal("preparation timeout is out of range"))?;
-    let first = next(&mut stream, idle)
+    let first = next(&mut stream, idle, deadline)
         .await?
         .ok_or_else(|| Status::invalid_argument("empty preparation stream"))?;
     let mut bytes = first.encoded_len();
@@ -68,7 +68,7 @@ pub(super) async fn prepare(
     let limits = service.limits.window_limits();
     let mut items = 0usize;
     let mut admitted: Vec<AdmittedBlock> = Vec::with_capacity(count as usize);
-    while let Some(chunk) = next(&mut stream, idle).await? {
+    while let Some(chunk) = next(&mut stream, idle, deadline).await? {
         bytes = bytes
             .checked_add(chunk.encoded_len())
             .ok_or_else(|| Status::resource_exhausted("preparation byte accounting overflow"))?;
@@ -115,7 +115,6 @@ pub(super) async fn prepare(
         ));
     }
 
-    let cancellation = CancellationToken::default();
     let mut prepared = Vec::with_capacity(admitted.len());
     // One block per permit is intentional: an admitted final proof gets the
     // worker at the next block boundary and cannot be starved by a 64-block prep.
@@ -127,24 +126,31 @@ pub(super) async fn prepare(
         .await
         .map_err(|_| Status::deadline_exceeded("preparation deadline exceeded"))?
         .map_err(|_| Status::internal("validation worker closed"))?;
+        check_deadline(deadline)?;
         let state = Arc::clone(&service.state);
-        let cancellation = cancellation.clone();
+        let cancellation = CancellationToken::default();
+        let worker_cancellation = cancellation.clone();
         let work = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            state.validator.prepare_ordinary(
-                AdmittedBlocks::from_preparation(block),
-                identity,
-                &cancellation,
-            )
+            check_deadline(deadline)?;
+            state
+                .validator
+                .prepare_ordinary(
+                    AdmittedBlocks::from_preparation(block),
+                    identity,
+                    &worker_cancellation,
+                )
+                .map_err(|error| {
+                    Status::failed_precondition(format!("ordinary preparation rejected: {error}"))
+                })
         });
+        let _worker_guard = WorkerGuard::new(work.abort_handle(), cancellation);
         let facts = timeout_at(deadline, work)
             .await
             .map_err(|_| Status::deadline_exceeded("preparation deadline exceeded"))?
-            .map_err(|_| Status::internal("preparation worker failed"))?
-            .map_err(|error| {
-                Status::failed_precondition(format!("ordinary preparation rejected: {error}"))
-            })?;
-        prepared.extend(facts);
+            .map_err(|_| Status::internal("preparation worker failed"))?;
+        check_deadline(deadline)?;
+        prepared.extend(facts?);
         tokio::task::yield_now().await;
     }
 
@@ -160,11 +166,22 @@ pub(super) async fn prepare(
     );
     let lease_lifetime = service.limits.lease_lifetime();
     let cache = Arc::clone(&service.prepared_cache);
-    let (lease_id, published_count, cache_entries, cache_bytes, active_leases) =
-        tokio::task::spawn_blocking(move || {
+    check_deadline(deadline)?;
+    let cancellation = CancellationToken::default();
+    let worker_cancellation = cancellation.clone();
+    let publication = tokio::task::spawn_blocking(move || {
+        // Retain admission while a detached worker waits for the cache lock;
+        // otherwise repeated timeouts could accumulate unbounded publishers.
+        let result = (|| {
             let mut cache = cache
                 .lock()
                 .map_err(|_| Status::internal("prepared cache lock poisoned"))?;
+            // A dropped JoinHandle cannot stop a running blocking task. Reject
+            // expired/cancelled work under the lock before the atomic update.
+            check_deadline(deadline)?;
+            if worker_cancellation.is_cancelled() {
+                return Err(Status::cancelled("preparation cancelled"));
+            }
             let lease_id = cache
                 .publish_with_lease(prepared, requested_lease, identity, lease_lifetime)
                 .map_err(|error| Status::resource_exhausted(format!("prepared cache: {error}")))?;
@@ -175,9 +192,15 @@ pub(super) async fn prepare(
             let (entries, bytes) = cache.usage();
             let leases = cache.lease_count();
             Ok::<_, Status>((lease_id, published_count, entries, bytes, leases))
-        })
+        })();
+        (preparation_slot, result)
+    });
+    let _publication_guard = WorkerGuard::new(publication.abort_handle(), cancellation);
+    let (_preparation_slot, published) = timeout_at(deadline, publication)
         .await
-        .map_err(|_| Status::internal("prepared cache worker failed"))??;
+        .map_err(|_| Status::deadline_exceeded("preparation deadline exceeded"))?
+        .map_err(|_| Status::internal("prepared cache worker failed"))?;
+    let (lease_id, published_count, cache_entries, cache_bytes, active_leases) = published?;
     let response = PrepareResponse {
         validation_identity: identity.to_vec(),
         first_number: endpoints.0,
@@ -197,6 +220,7 @@ pub(super) async fn prepare(
         active_leases,
         "ordinary range validated and retained"
     );
+    check_deadline(deadline)?;
     Ok(Response::new(response))
 }
 
@@ -295,8 +319,23 @@ fn retain_blocking(
 async fn next(
     stream: &mut Streaming<PrepareChunk>,
     idle: std::time::Duration,
+    deadline: Instant,
 ) -> Result<Option<PrepareChunk>, Status> {
-    timeout(idle, stream.message())
+    check_deadline(deadline)?;
+    let message = timeout_at(deadline, timeout(idle, stream.message()))
         .await
-        .map_err(|_| Status::deadline_exceeded("preparation stream idle timeout"))?
+        .map_err(|_| Status::deadline_exceeded("preparation deadline exceeded"))?
+        .map_err(|_| Status::deadline_exceeded("preparation stream idle timeout"))?;
+    check_deadline(deadline)?;
+    message
+}
+
+fn check_deadline(deadline: Instant) -> Result<(), Status> {
+    // timeout_at polls a ready inner future before its timer. Check phase
+    // boundaries explicitly so buffered input or ready work cannot bypass expiry.
+    if Instant::now() >= deadline {
+        Err(Status::deadline_exceeded("preparation deadline exceeded"))
+    } else {
+        Ok(())
+    }
 }

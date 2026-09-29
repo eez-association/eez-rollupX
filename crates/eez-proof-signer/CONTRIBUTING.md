@@ -27,8 +27,8 @@ rather than replace it.
 
 - Production always uses the in-process Stateless backend. No alternative
   backend is selectable; the stub backend exists only in tests.
-- Exactly one request may be active across all connections. An overlap is
-  rejected, not queued. The request permit covers ingestion through response
+- Exactly one final `Prove` request may be active across all connections. An
+  overlap is rejected, not queued. The request permit covers ingestion through response
   construction and remains with a running detached worker until it exits.
 - Validation and settlement run in one blocking task. Cancellation is
   cooperative between non-interruptible units; graceful shutdown waits for
