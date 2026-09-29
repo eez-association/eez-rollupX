@@ -1,17 +1,56 @@
 use super::*;
 use alloy_consensus::{SignableTransaction, TxEnvelope, TxLegacy, transaction::Recovered};
-use alloy_primitives::{Bytes, LogData, TxKind};
+use alloy_primitives::{Bytes, LogData, TxKind, U256};
 use alloy_provider::ProviderBuilder;
 use alloy_rpc_types_eth::{Block, Log, Transaction};
+use alloy_sol_types::SolEvent;
 use alloy_transport::mock::Asserter;
 use eez_protocol::abi::{
     BatchPosted, EtherDeltaSol, ExecutionEntrySol, L2ExecutionPerformed,
     ProofSystemBatchPerVerificationEntriesSol, RollupIdWithProofSystemsSol, RootUpdateSol,
     postAndVerifyBatchCall,
 };
-use eez_protocol::l2::Schedule;
 
 const REGISTRY: Address = Address::repeat_byte(0x11);
+
+#[tokio::test]
+async fn genesis_context_needs_no_registration_history_scan() {
+    let (schedule, reference) = super::super::tests::fixture();
+    let replies = Asserter::new();
+    super::super::tests::startup_replies(&replies, &reference);
+    let source = DerivationSource::authenticate(
+        ProviderBuilder::new().connect_mocked_client(replies.clone()),
+        schedule,
+    )
+    .await
+    .unwrap();
+    let head = super::super::tests::block(14, 1016, 11);
+    let parent = Header {
+        timestamp: 1000,
+        mix_hash: reference.header.mix_hash,
+        ..Default::default()
+    };
+    replies.push_success(&head);
+    registry(&replies, parent.hash_slow());
+    replies.push_success(&head);
+    let checked = source
+        .proof_context(
+            REGISTRY,
+            1,
+            target(&head),
+            ParentProvenance {
+                parent: parent.clone(),
+                accepted_l1_number: 0,
+                live_slot_endpoints: vec![],
+            },
+        )
+        .await
+        .expect("configured genesis and pinned registry state need no lifetime log scan");
+    assert_eq!(checked.parent(), &parent);
+    assert_eq!(checked.registry_root(), parent.hash_slow());
+    assert_eq!(checked.descendant_seed(), reference.header.mix_hash);
+    assert!(replies.read_q().is_empty());
+}
 
 fn log(data: LogData, containing: &Block, index: u64, tx_hash: B256) -> Log {
     Log {
@@ -43,21 +82,6 @@ fn parent() -> Header {
         base_fee_per_gas: Some(1_000_000_000),
         ..Default::default()
     }
-}
-
-fn registration(replies: &Asserter, schedule: Schedule, reference: &Block) {
-    replies.push_success(&vec![log(
-        RollupCreated {
-            rollupId: 1,
-            rollupContract: Address::repeat_byte(0x22),
-            initialRoot: schedule.genesis_hash(),
-        }
-        .encode_log_data(),
-        reference,
-        0,
-        B256::with_last_byte(1),
-    )]);
-    replies.push_success(reference);
 }
 
 /// Serve actual ABI batch transactions and settlement logs through the shared
@@ -151,7 +175,7 @@ fn target(block: &Block) -> L1PostingContext {
 }
 
 #[tokio::test]
-async fn genesis_proof_requires_actual_registration_and_current_target() {
+async fn genesis_proof_requires_consistent_canonical_target() {
     let (schedule, reference) = super::super::tests::fixture();
     let replies = Asserter::new();
     super::super::tests::startup_replies(&replies, &reference);
@@ -169,7 +193,6 @@ async fn genesis_proof_requires_actual_registration_and_current_target() {
     };
     for stale_after_read in [false, true] {
         replies.push_success(&head);
-        registration(&replies, schedule, &reference);
         registry(&replies, parent.hash_slow());
         replies.push_success(&if stale_after_read {
             super::super::tests::block(14, 1016, 12)
@@ -236,7 +259,6 @@ async fn catchup_parent_keeps_prior_live_seed_and_requires_complete_ordered_endp
     earlier.state_root = B256::with_last_byte(0x34);
     for case in 0..6 {
         replies.push_success(&head);
-        registration(&replies, schedule, &reference);
         replies.push_success(&catchup);
         endpoints(&replies, &catchup, &[parent.hash_slow()]);
         replies.push_success(&catchup); // binary search middle
@@ -306,7 +328,6 @@ async fn missed_l1_slot_cannot_refresh_seed_or_accept_fabricated_endpoints() {
     let parent = parent();
     for forged in [false, true] {
         replies.push_success(&head);
-        registration(&replies, schedule, &reference);
         replies.push_success(&catchup);
         endpoints(&replies, &catchup, &[parent.hash_slow()]);
         replies.push_success(&catchup);
@@ -339,76 +360,78 @@ async fn missed_l1_slot_cannot_refresh_seed_or_accept_fabricated_endpoints() {
 }
 
 #[tokio::test]
-async fn false_parent_manual_reset_wrong_genesis_and_source_failures_are_distinct() {
+async fn false_parent_wrong_genesis_and_source_failures_remain_rejected() {
     let (schedule, reference) = super::super::tests::fixture();
-    let replies = Asserter::new();
-    super::super::tests::startup_replies(&replies, &reference);
-    let source = DerivationSource::authenticate(
-        ProviderBuilder::new().connect_mocked_client(replies.clone()),
-        schedule,
-    )
-    .await
-    .unwrap();
-    let head = super::super::tests::block(12, 1008, 9);
-    for case in 0..5 {
+    for case in 0..4 {
+        let replies = Asserter::new();
+        super::super::tests::startup_replies(&replies, &reference);
+        let source = DerivationSource::authenticate(
+            ProviderBuilder::new().connect_mocked_client(replies.clone()),
+            schedule,
+        )
+        .await
+        .unwrap();
+        let head = super::super::tests::block(12, 1008, 9);
         replies.push_success(&head);
+        let mut supplied = ParentProvenance {
+            parent: parent(),
+            accepted_l1_number: 12,
+            live_slot_endpoints: vec![],
+        };
         match case {
+            // A root hash alone (including one set by the owner) never supplies
+            // the settlement occurrence needed for a non-genesis parent.
             0 => {
-                registration(&replies, schedule, &reference);
                 replies.push_success(&head);
                 endpoints(&replies, &head, &[]);
             }
-            1 => replies.push_success(&vec![log(
-                RootUpdated {
-                    rollupId: 1,
-                    newRoot: parent().hash_slow(),
-                }
-                .encode_log_data(),
-                &head,
-                0,
-                B256::ZERO,
-            )]),
-            2 => replies.push_success(&vec![log(
-                RollupCreated {
-                    rollupId: 1,
-                    rollupContract: REGISTRY,
-                    initialRoot: B256::ZERO,
-                }
-                .encode_log_data(),
-                &reference,
-                0,
-                B256::ZERO,
-            )]),
-            3 => replies.push_failure_msg("unavailable (private endpoint must not leak)"),
-            4 => replies.push_success(&Vec::<Log>::new()),
+            1 => {
+                supplied.parent = Header {
+                    timestamp: 1000,
+                    mix_hash: reference.header.mix_hash,
+                    state_root: B256::repeat_byte(0x55),
+                    ..Default::default()
+                };
+                supplied.accepted_l1_number = 0;
+            }
+            2 => replies.push_failure_msg("private endpoint must not leak"),
+            3 => {
+                supplied.parent = Header {
+                    timestamp: 1000,
+                    mix_hash: reference.header.mix_hash,
+                    ..Default::default()
+                };
+                supplied.accepted_l1_number = 0;
+                replies.push_success(&Bytes::from(vec![0; 96]));
+            }
             _ => unreachable!(),
         }
         let result = source
-            .proof_context(
-                REGISTRY,
-                1,
-                target(&head),
-                ParentProvenance {
-                    parent: parent(),
-                    accepted_l1_number: 12,
-                    live_slot_endpoints: vec![],
-                },
-            )
+            .proof_context(REGISTRY, 1, target(&head), supplied)
             .await;
         let expected = match case {
             0 => "parent is not an accepted endpoint",
-            1 => "manual registry root reset is unsupported",
-            2 => "registration does not match genesis",
-            4 => "genesis registration absent",
-            3 => {
+            1 => {
                 assert!(matches!(
                     result,
-                    Err(ProofContextError::Source(DerivationError::Unavailable(
-                        "rollup registration history"
+                    Err(ProofContextError::Source(DerivationError::Profile(
+                        eez_protocol::l2::ProfileError(
+                            "header does not occupy its genesis-derived position"
+                        )
                     )))
                 ));
                 continue;
             }
+            2 => {
+                assert!(matches!(
+                    result,
+                    Err(ProofContextError::Source(DerivationError::Unavailable(
+                        "canonical header RPC"
+                    )))
+                ));
+                continue;
+            }
+            3 => "rollup is not registered",
             _ => unreachable!(),
         };
         assert!(

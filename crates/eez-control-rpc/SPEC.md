@@ -8,7 +8,7 @@ block-hash commitments, and the grouped-call ABI with position-bound L2 static
 entries. Composer MUST preserve each L2 static `expectedEntryIndex` in the load
 and the enclosing semantic DA; the Signer independently binds it to ordered
 execution. Prove now requires parent provenance and the named L1 posting context.
-The obsolete claimed-hash fields are removed. Validation identity schema 3 and the new validator
+The obsolete claimed-hash fields are removed. Validation identity schema 4 and the new validator
 revision separate cached facts and reject mixed-version peers. Old L2 call
 selectors and static sidecars are incompatible. See [protocol compatibility](../eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility)
 for the fresh-network boundary.
@@ -267,7 +267,7 @@ The first streamed chunk MUST contain exactly one `ProveHeader`:
   agreed during capability discovery. Missing values are rejected; there is no
   older-server or implicit identity mode.
 - `parent_provenance` MUST carry the exact RLP parent header, its accepted L1
-  height (zero for registered genesis), and every accepted endpoint header in
+  height (zero for configured genesis), and every accepted endpoint header in
   the parent's possible live L1 slot in settlement order. These are untrusted
   hints, independently checked by the signer. The signer bounds each header to
   1024 bytes and charges all headers against the request byte and item quotas.

@@ -26,8 +26,7 @@ flowchart LR
     VAL -->|ValidatedWindow| SET[settlement binding and authorization]
     SET --> HASH[RecomputedPublicInputsHash]
     HASH --> MATERIAL[AttestationMaterial]
-    MATERIAL --> RECHECK[Recheck L1 target]
-    RECHECK --> AUTH[AttestablePublicInputsHash]
+    MATERIAL --> AUTH[AttestablePublicInputsHash]
 
     STATE --> ATT[Attester]
     AUTH --> ATT
@@ -43,7 +42,7 @@ flowchart LR
 | [`service.rs`](../src/service.rs) | Shared immutable dependencies, limits, and the one active-request slot |
 | [`service/stream.rs`](../src/service/stream.rs) | Stream draining and transport-timeout normalization |
 | [`service/rpc.rs`](../src/service/rpc.rs) | Async orchestration, absolute deadline, worker lifetime, signing, response |
-| [`service/l1.rs`](../src/service/l1.rs) | Independent parent/seed/target authentication and post-validation target recheck |
+| [`service/l1.rs`](../src/service/l1.rs) | Independent parent/seed authentication at the named canonical L1 block |
 | [`service/settlement_job.rs`](../src/service/settlement_job.rs) | The synchronous validation-to-settlement handoff and error provenance |
 | [`window.rs`](../src/window.rs) | Incremental structural admission and aggregate resource accounting |
 | [`validate.rs`](../src/validate.rs) | Associated backend-output contract, shared cross-checks, `ValidatedWindow` normalization |
@@ -88,8 +87,8 @@ already validated facts but cannot manufacture missing execution evidence.
    then produces `AuthorizedInboundEffects` and `AuthorizedOutboundEffects`.
 6. After every settlement gate passes, the checked public-input profile
    produces a locally computed `RecomputedPublicInputsHash`. The job returns it in
-   `AttestationMaterial`. After independently rechecking the canonical L1 target,
-   the async RPC promotes it to `AttestablePublicInputsHash`. The attester accepts
+   `AttestationMaterial`. The async RPC promotes it to `AttestablePublicInputsHash`
+   under the request deadline, with no additional L1 reads. The attester accepts
    neither a profile-only recomputation nor Composer-provided hash bytes.
 
 This ownership reduction is intentional: once a witness has been consumed and
@@ -104,7 +103,7 @@ untrusted representation of the same fact.
 | Operator configuration | Deployment authority for the chain document, expected rollup ID, configured proof-system vkey, proof-system and attester addresses, keys, and limits |
 | `BackendWindowOutput` | Security-critical backend result, consumed and contract-checked against the admitted input before settlement |
 | `eez_protocol`, Stateless, Reth | Canonical/security-critical implementation base pinned by the workspace |
-| Configured canonical L1 source | Independently supplies accepted parent, live-slot occurrences, seed and target; rechecked before signing |
+| Configured canonical L1 source | Independently supplies accepted parent, live-slot occurrences, seed and target before replay; the signature binds this context |
 
 The RPC transport has no peer authentication of its own. Network controls must
 ensure that only intended Composers can reach a non-loopback listener.

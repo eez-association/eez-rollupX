@@ -11,15 +11,15 @@ use super::ServiceState;
 use crate::cancel::CancellationToken;
 use crate::{settlement, validate, window};
 
-/// A locally recomputed digest authorized by execution, settlement and fresh L1 gates.
+/// A locally recomputed digest authorized by execution, settlement and L1 context gates.
 ///
-/// Construction follows the RPC's final canonical L1 recheck;
+/// Construction follows the complete request pipeline;
 /// the attester therefore cannot accept a profile-only recomputation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AttestablePublicInputsHash(settlement::RecomputedPublicInputsHash);
 
 impl AttestablePublicInputsHash {
-    /// The caller has completed the target recheck after the full blocking job.
+    /// The caller has completed the full job with its authenticated L1 context.
     pub(super) const fn authorize(hash: settlement::RecomputedPublicInputsHash) -> Self {
         Self(hash)
     }

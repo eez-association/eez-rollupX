@@ -39,8 +39,7 @@ flowchart LR
     PI --> HASH[RecomputedPublicInputsHash]
     DA --> HASH
     HASH --> MATERIAL[AttestationMaterial]
-    MATERIAL --> L1[Recheck canonical L1 target]
-    L1 --> AUTH[AttestablePublicInputsHash]
+    MATERIAL --> AUTH[AttestablePublicInputsHash]
     AUTH --> SIGN[Attest]
 ```
 
@@ -80,8 +79,9 @@ flowchart LR
    consumed, independently validated terminal prefix). Observation replay must
    reproduce the claimed static/reverted results.
 10. After all gates pass, the job returns `AttestationMaterial` with the locally
-    recomputed digest and validated endpoint hashes. The async RPC rechecks the
-    canonical L1 target, then constructs `AttestablePublicInputsHash` and signs.
+    recomputed digest and validated endpoint hashes. The async RPC constructs
+    `AttestablePublicInputsHash` and signs under the deadline, without another
+    L1 read. The signature retains the exact authenticated parent/timestamp binding.
     Neither a profile-only hash nor Composer's wire digest grants that authority.
 
 ## Why the order matters

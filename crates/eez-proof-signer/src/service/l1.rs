@@ -5,7 +5,7 @@ use alloy_primitives::Address;
 use eez_l1::{
     L1Reader, L1ReaderConfig,
     derivation::{
-        DerivationError, DerivationSource,
+        DerivationError,
         proof::{AuthenticatedProofContext, ProofContextError},
     },
 };
@@ -61,7 +61,7 @@ impl L1Authority {
         &self,
         target: L1PostingContext,
         supplied: ParentProvenance,
-    ) -> Result<(CandidateContext, TargetRecheck), Status> {
+    ) -> Result<CandidateContext, Status> {
         match self {
             Self::Canonical {
                 reader,
@@ -80,40 +80,10 @@ impl L1Authority {
                     .proof_context(*registry, *rollup_id, target, supplied)
                     .await
                     .map_err(proof_status)?;
-                Ok((
-                    CandidateContext::Canonical(Box::new(context)),
-                    TargetRecheck::Canonical { source, target },
-                ))
+                Ok(CandidateContext::Canonical(Box::new(context)))
             }
             #[cfg(test)]
-            Self::Synthetic => Ok((CandidateContext::Synthetic, TargetRecheck::Synthetic)),
-        }
-    }
-}
-
-// Production has only the canonical variant; the empty variant is test-only.
-#[cfg_attr(test, allow(clippy::large_enum_variant))]
-pub(super) enum TargetRecheck {
-    Canonical {
-        source: DerivationSource,
-        target: L1PostingContext,
-    },
-    #[cfg(test)]
-    Synthetic,
-}
-
-impl TargetRecheck {
-    /// Called after expensive execution and observation replay, before the only
-    /// production construction of an attestable hash.
-    pub(super) async fn revalidate(self) -> Result<(), Status> {
-        match self {
-            Self::Canonical { source, target } => source
-                .current_target(target)
-                .await
-                .map(|_| ())
-                .map_err(proof_status),
-            #[cfg(test)]
-            Self::Synthetic => Ok(()),
+            Self::Synthetic => Ok(CandidateContext::Synthetic),
         }
     }
 }

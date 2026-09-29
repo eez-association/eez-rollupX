@@ -9,8 +9,10 @@ The operator supplies the required fresh-network genesis, expected rollup ID,
 canonical L1 RPC source and registry address, proof-system address and vkey, and
 attestation key. Startup validates local relationships. Each Prove independently
 authenticates its accepted parent, live-slot seed and target L1 context through
-that source, then rechecks the target before signing. Deployment automation must
-still verify the manager's proof-system registration, vkey and attester bindings.
+that source before replay. Signing performs no further L1 reads; an already
+stale signature cannot be used under a different L1 parent or timestamp.
+Deployment automation must still verify the manager's proof-system registration,
+vkey and attester bindings.
 
 The daemon uses the attestation key only after all execution, settlement and L1
 checks pass, signing with raw/prehash ECDSA and no EIP-191 prefix. Native L2 system
@@ -51,8 +53,12 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-This format requires matching Composer, follower and signer versions on a new
-network. See the [fresh-network boundary](../SPEC.md#mixed-outbound-profile-compatibility).
+Validation identity schema 4 requires matching Composer and signer binaries;
+an old peer is rejected during capability negotiation. This simplification
+changes no genesis, database, DA bytes or historical replay rules. Upgrade the
+Composer and signer together; rollback requires reverting both. The original
+native V0 format still requires a matching fresh-network deployment. See the
+[fresh-network boundary](../SPEC.md#mixed-outbound-profile-compatibility).
 
 The idle timeout covers each wait for the next chunk or EOF. The absolute
 request deadline covers ingestion through signing. Both are checked for

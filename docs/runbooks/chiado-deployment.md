@@ -681,9 +681,14 @@ The fresh-network signer requires `EEZ_L1_RPC_URL` and the deployed
 `EEZ_REGISTRY_ADDRESS`, alongside its L1 profile and full L2 genesis. Packaged
 Compose supplies the local embedded L1 RPC and loads the registry from
 `deployments.env`; Kurtosis supplies its canonical L1 execution RPC. The source
-must serve finalized headers, registration/settlement logs and transactions from
-the configured genesis reference, and registry state at the current parent hash.
+must serve the finalized genesis reference, canonical headers, the settlement
+logs/transactions needed for parent and live-slot authentication, and registry
+state at the named parent hash. The signer performs no lifetime registration/reset
+log scan or post-replay freshness query.
 The signer may start before that source is ready, but cannot sign until it can
-authenticate these facts. Manual registry root resets are unsupported. See the
+authenticate these facts. This does not add recovery from manual registry root
+resets. Composer and signer must use matching validation identity schema 4;
+upgrade or roll back both binaries together. No new genesis or database change
+is introduced by this signer simplification. See the
 [signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
 reorg behavior. This wiring has no legacy-source or offline-signing fallback.

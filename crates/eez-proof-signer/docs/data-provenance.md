@@ -109,8 +109,9 @@ DA passed the complete settlement job.
 
 The async RPC wraps the recomputed digest in this stronger type only after
 execution, state-chain validation, effect/DA binding and independent L1
-authorization pass, and the canonical L1 target is rechecked after the worker
-returns. `Attester::sign` accepts only this type rather
+authorization pass. On-chain verification binds the signature to the authenticated
+L1 parent hash and timestamp; the signer does not recheck tip freshness after
+replay. `Attester::sign` accepts only this type rather
 than `RecomputedPublicInputsHash` or an arbitrary `B256`, so a profile-only or
 Composer-supplied digest cannot cross the signing boundary by accident.
 

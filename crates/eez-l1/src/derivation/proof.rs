@@ -3,13 +3,13 @@
 //! accepted endpoint headers are hash-bound to actual registry settlement.
 
 use alloy_consensus::Header;
-use alloy_eips::{BlockId, BlockNumberOrTag};
-use alloy_primitives::{Address, B256, U256};
+use alloy_eips::BlockId;
+use alloy_primitives::{Address, B256};
 use alloy_provider::Provider;
-use alloy_rpc_types_eth::{Filter, TransactionRequest};
-use alloy_sol_types::{SolCall, SolEvent};
+use alloy_rpc_types_eth::TransactionRequest;
+use alloy_sol_types::SolCall;
 use eez_protocol::{
-    abi::{RollupCreated, RootUpdated, rollupsCall},
+    abi::rollupsCall,
     l2::{AnchorKind, validate_header},
     public_inputs::L1PostingContext,
 };
@@ -23,7 +23,7 @@ pub use eez_protocol::l2::ParentProvenance;
 pub enum ProofContextError {
     #[error(transparent)]
     Source(#[from] DerivationError),
-    #[error("L1 proof target is no longer the canonical head")]
+    #[error("L1 proof target is no longer canonical")]
     StaleTarget,
     #[error("invalid candidate provenance: {0}")]
     Invalid(&'static str),
@@ -77,7 +77,8 @@ impl AuthenticatedProofContext {
 impl<P: Provider> DerivationSource<P> {
     /// Authenticate a target, the accepted L2 parent and its descendant seed.
     /// The caller owns the request deadline around these reads. The target is
-    /// checked again after reads, and must be rechecked after expensive replay.
+    /// checked again after reads for a coherent canonical snapshot. Later head
+    /// changes are handled by the on-chain parent/timestamp signature binding.
     pub async fn proof_context(
         &self,
         registry: Address,
@@ -96,7 +97,7 @@ impl<P: Provider> DerivationSource<P> {
                 "configured registry or chain identity",
             ));
         }
-        let l1_parent = self.current_target(target).await?;
+        let l1_parent = self.canonical_target(target).await?;
         if target.target_timestamp <= l1_parent.header.timestamp
             || target
                 .target_timestamp
@@ -112,10 +113,9 @@ impl<P: Provider> DerivationSource<P> {
             validate_header(&supplied.parent).map_err(DerivationError::from)?;
         }
         let parent_hash = supplied.parent.hash_slow();
-        self.check_registration(registry, rollup_id, target).await?;
         if supplied.parent.number == 0 {
             if parent_hash != self.schedule.genesis_hash() || supplied.accepted_l1_number != 0 {
-                return Err(ProofContextError::Invalid("registered genesis parent"));
+                return Err(ProofContextError::Invalid("configured genesis parent"));
             }
         } else {
             let number = supplied.accepted_l1_number;
@@ -195,7 +195,7 @@ impl<P: Provider> DerivationSource<P> {
         if state.rollupContract.is_zero() || state.root.is_zero() {
             return Err(ProofContextError::Invalid("rollup is not registered"));
         }
-        self.current_target(target).await?;
+        self.canonical_target(target).await?;
         Ok(AuthenticatedProofContext {
             target,
             parent: supplied.parent,
@@ -205,18 +205,20 @@ impl<P: Provider> DerivationSource<P> {
         })
     }
 
-    /// Revalidation after replay prevents signing against a replaced snapshot.
-    /// The signature's latest-context binding also prevents later inclusion
-    /// under a different parent or child timestamp.
-    pub async fn current_target(
+    /// Pin the named canonical block, without requiring it to remain the tip.
+    /// Extending this block does not change its authenticated history. Replacing
+    /// it during the reads must still invalidate the snapshot.
+    async fn canonical_target(
         &self,
         target: L1PostingContext,
     ) -> Result<AuthenticatedL1Header, ProofContextError> {
-        if target.chain_id != self.schedule.config().l1_reference.chain_id {
-            return Err(ProofContextError::Invalid("L1 target chain"));
+        if target.parent_number < self.schedule.config().l1_reference.number {
+            return Err(ProofContextError::Invalid(
+                "L1 target predates genesis reference",
+            ));
         }
-        let latest = fetch(&self.provider, target.chain_id, BlockNumberOrTag::Latest).await?;
-        if latest.reference()
+        let parent = self.header_at(target.parent_number).await?;
+        if parent.reference()
             != (L1BlockRef {
                 number: target.parent_number,
                 hash: target.parent_hash,
@@ -224,7 +226,7 @@ impl<P: Provider> DerivationSource<P> {
         {
             return Err(ProofContextError::StaleTarget);
         }
-        Ok(latest)
+        Ok(parent)
     }
 
     async fn header_at(&self, number: u64) -> Result<AuthenticatedL1Header, DerivationError> {
@@ -302,64 +304,6 @@ impl<P: Provider> DerivationSource<P> {
             }
         }
         Ok(endpoints)
-    }
-
-    async fn check_registration(
-        &self,
-        registry: Address,
-        rollup_id: u64,
-        target: L1PostingContext,
-    ) -> Result<(), ProofContextError> {
-        let logs = self
-            .provider
-            .get_logs(
-                &Filter::new()
-                    .address(registry)
-                    .event_signature(vec![
-                        RollupCreated::SIGNATURE_HASH,
-                        RootUpdated::SIGNATURE_HASH,
-                    ])
-                    .topic1(B256::from(U256::from(rollup_id)))
-                    .from_block(self.schedule.config().l1_reference.number)
-                    .to_block(target.parent_number),
-            )
-            .await
-            .map_err(|_| DerivationError::Unavailable("rollup registration history"))?;
-        let mut registered = false;
-        for log in logs {
-            if log.removed {
-                return Err(ProofContextError::StaleTarget);
-            }
-            if log.topic0() == Some(&RootUpdated::SIGNATURE_HASH) {
-                return Err(ProofContextError::Invalid(
-                    "manual registry root reset is unsupported",
-                ));
-            }
-            let event = RollupCreated::decode_log(&log.inner)
-                .map_err(|_| ProofContextError::Invalid("registration event"))?;
-            if registered
-                || event.rollupId != rollup_id
-                || event.initialRoot != self.schedule.genesis_hash()
-            {
-                return Err(ProofContextError::Invalid(
-                    "registration does not match genesis",
-                ));
-            }
-            let number = log
-                .block_number
-                .ok_or(ProofContextError::Invalid("registration block number"))?;
-            let hash = log
-                .block_hash
-                .ok_or(ProofContextError::Invalid("registration block hash"))?;
-            if number > target.parent_number || self.header_at(number).await?.hash != hash {
-                return Err(ProofContextError::StaleTarget);
-            }
-            registered = true;
-        }
-        if !registered {
-            return Err(ProofContextError::Invalid("genesis registration absent"));
-        }
-        Ok(())
     }
 }
 

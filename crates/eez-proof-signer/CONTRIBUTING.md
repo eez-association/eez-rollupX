@@ -69,7 +69,8 @@ See [architecture](docs/architecture.md),
   transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
 - Independently authenticate the accepted parent, seed and L1 target before
-  execution, and recheck the target before signing. An attestation still does
+  execution. Keep the signature bound to that exact parent hash and timestamp;
+  there is no post-replay freshness RPC. An attestation still does
   not guarantee future L1 inclusion, sequencer authority, dispatch mode, or
   deployment code identity.
 

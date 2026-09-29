@@ -1,0 +1,120 @@
+{
+  "pr42_head": "cf8500e80cc10b58ab6acd59b2125dd098aa770c",
+  "merged_main": "de5030c782e29ff07150b2728c7b564fd607f802",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "before_changes": "db0b4af71770f88b1e6aee819b76194f54c54e1e",
+  "tests": {
+    "rust": {
+      "passed": 525,
+      "failed": 0,
+      "ignored": 2
+    },
+    "solidity": {
+      "passed": 84,
+      "failed": 0,
+      "skipped": 0
+    },
+    "process": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0
+    }
+  },
+  "checks": {
+    "rustfmt": "passed",
+    "clippy_workspace_all_targets_all_features": "passed",
+    "signer_rustdoc_warnings_denied": "passed",
+    "diff_check": "passed",
+    "edited_solidity_format": "passed",
+    "full_solidity_format": "two unchanged baseline failures"
+  },
+  "source_files_checked": 396,
+  "source_manifest_sha256": "4787758c0d73552c0c7d38494007ecf8d2a6351aa59d404128439af37fb8a881",
+  "executables": [
+    {
+      "path": "target/debug/eez-composer",
+      "sha256": "59b104820e63527e302dba8d4b0f6ac6b086ea51e64ae75ffbd4dc4cd100c180"
+    },
+    {
+      "path": "target/debug/eez-follower",
+      "sha256": "7a5fcadfb6375ffab02a0c1ada204d5c443ea29f44674a13ade287aede31c98a"
+    },
+    {
+      "path": "target/debug/eez-proof-signer",
+      "sha256": "5208e3404f2f601d6d11d1a56cc1bb9cb490d1194169ce6d5cbfdf92ebf59a52"
+    },
+    {
+      "path": "target/debug/deps/cross_chain-90ac72918f58bb7e",
+      "sha256": "f7fd6253b0746534d9025d6b4f9f0e378d09aae71dc87b4c0b0de7ffc8e57c0e"
+    }
+  ],
+  "identity_vectors": [
+    {
+      "schema": 3,
+      "rlp": "0xf8959765657a2e76616c69646174696f6e2d6964656e74697479030107827a69941111111111111111111111111111111111111111942222222222222222222222222222222222222222a033333333333333333333333333333333333333333333333333333333333333338a666978747572652d7631a04444444444444444444444444444444444444444444444444444444444444444",
+      "keccak": "0x303b28abb401cfa94ff0b07cd02b5e5a7febc04be3b7164d5aac453d75910f68"
+    },
+    {
+      "schema": 4,
+      "rlp": "0xf8959765657a2e76616c69646174696f6e2d6964656e74697479040107827a69941111111111111111111111111111111111111111942222222222222222222222222222222222222222a033333333333333333333333333333333333333333333333333333333333333338a666978747572652d7631a04444444444444444444444444444444444444444444444444444444444444444",
+      "keccak": "0x560be4be5fd4adbc54538ec169b719288efb543fabc9cb94e2d072b276ad41d9"
+    }
+  ],
+  "logs": [
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-before.log",
+      "sha256": "c34f1123efd326de0d37e58caa9d2469e7b40d2dbc28c88356a59c895b64530e",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-packages-3.log",
+      "sha256": "88ecfb37457b1687f1bf47608f9037d0ebc5bdb411da821f1c72b8fff84b784e",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-service-final.log",
+      "sha256": "ad413af8f9a7ed9946a4f254ad81059cfc9ccd8828ab06bc78e52796ecb83191",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-clippy-2.log",
+      "sha256": "10f42896789ea3ad70cf5a7e02f1e47b6361bac54f6566b0ad2e3af3292cd366",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-rustdoc.log",
+      "sha256": "b8f1e94803e3997f12bdc54b48228f4909e18e313ea478547a55156ecdba747f",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-contracts.log",
+      "sha256": "a12b86b1017c12fa41957f49a761994dbfff9089c74e4d8d573664ccaaf5c5bb",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-forge-build.log",
+      "sha256": "b7dd5e474795ce7dfc0c4cd902f7fe1321638f00103e56818b4d3dcf699e6f34",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-forge-fmt.log",
+      "sha256": "3d6b18e935875f46247ba62765bf9a0e296e03a08fde4393c8b9fe32c5bb5eac",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-e2e-rejection.log",
+      "sha256": "e0643f934c0e38a2838106d5f6421b555a427bc701925873100a32dadbea2fa2",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-e2e-replay.log",
+      "sha256": "5a9e4e5193b15dff7ef4ccb3a982f298bf63b6e9d418a82000c2abdcb9507d7d",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/native-system-backport/logs/l1-simplification-identity-vectors.json",
+      "sha256": "f7e3fa2a0152df45ba174b227abbf9ab1fce3739a790988e4b1f7242d3e5b5de",
+      "availability": "local-only"
+    }
+  ]
+}

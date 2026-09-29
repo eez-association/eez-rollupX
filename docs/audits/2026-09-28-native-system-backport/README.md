@@ -13,6 +13,10 @@ The [implementation map](implementation-map.md) records upstream dispositions an
 the purpose of each meaningful file group. Entries below are chronological; later
 corrections supersede earlier pending statuses without erasing failure evidence.
 
+The [September 29 signer simplification](signer-simplification.md) records the
+rebase onto PR #42 head `cf8500e`, removal of redundant L1 checks, and validation
+of that later revision. The results below remain evidence for their dated source.
+
 ## Final result
 
 The approved `0x76`/nonce/2M contract, checked inbound reconstruction and direct V0

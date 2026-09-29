@@ -87,6 +87,48 @@ contract PublicInputsHashVectorsTest is Test {
         eez.postAndVerifyBatch(batch);
     }
 
+    function testECDSAProofRemainsBoundToItsL1ContextAfterSigning() external {
+        vm.roll(100);
+        vm.warp(1_700_000_000);
+        bytes32 parentHash = bytes32(uint256(0xab));
+        vm.setBlockhash(99, parentHash);
+        uint256 signerKey = 0xA11CE;
+        address signer = vm.addr(signerKey);
+        bytes32[] memory vkeys = _singleton(bytes32(uint256(uint160(signer))));
+        EEZ eez = new EEZ(address(0xDEAD));
+        ECDSAProofSystem proofSystem = new ECDSAProofSystem(signer);
+        address[] memory proofSystems = new address[](1);
+        proofSystems[0] = address(proofSystem);
+        Rollup rollup = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        uint64 rollupId = eez.registerRollup(address(rollup), bytes32(uint256(0x1111)));
+        ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
+        batch.blockNumber = type(uint64).max;
+        batch.proofSystems = proofSystems;
+        batch.rollupIdsWithProofSystems = _assignments1(rollupId, 0);
+        batch.proofs = new bytes[](1);
+        bytes[] memory context = new bytes[](1);
+        context[0] = abi.encode(uint256(1_700_000_000), parentHash);
+        bytes32 signedHash = _publicInput(_shared(batch, context, address(0)), _singleton(rollupId), vkeys);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, signedHash);
+        batch.proofs[0] = abi.encodePacked(r, s, v);
+        eez.postAndVerifyBatch(batch);
+
+        // Reuse the same actual ECDSA signature after a skipped slot, a reorg,
+        // and an ordinary head extension. No signer freshness RPC is involved.
+        vm.warp(1_700_000_012);
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xac)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.setBlockhash(99, parentHash);
+        vm.roll(101);
+        vm.setBlockhash(100, bytes32(uint256(0xad)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+    }
+
     function testEmptyEntryVector() external {
         EEZ eez = new EEZ(address(0xDEAD));
         MockProofSystem proofSystem = new MockProofSystem();

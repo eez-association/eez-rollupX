@@ -78,8 +78,10 @@ locally recomputed public-input hash only under all rules in this document.
 
 The signer independently authenticates the accepted parent, live-anchor seed,
 registry root and target L1 context through its configured canonical source.
-It rechecks that target before signing. This establishes the named parent and
-context at observation time; it is not a finality or future-inclusion guarantee.
+The reads are checked against the named canonical L1 block before replay.
+Signing does not query L1 again or require that block to remain the tip. The
+on-chain latest-context binding enforces the exact parent hash and inclusion
+timestamp. Authentication is not a finality or future-inclusion guarantee.
 
 The signature does **not** establish:
 
@@ -144,7 +146,8 @@ Values are classified as follows:
 | Stateless/Reth output | Security-critical derived evidence. It MUST be consumed and checked against the corresponding admitted blocks before settlement uses it. |
 | Pinned EEZ contracts | Authoritative for on-chain ABI layouts, selectors, hashes, and execution behavior. |
 | `eez-protocol` mirrors | Shared local implementations used by the signer; they MUST match the pinned contracts and independent vectors. |
-| Live L1/L2 network state | Not queried by the signer. |
+| Configured L1 source | Supplies canonical headers, accepted settlement occurrences and registry state at the named L1 parent. It is operator-trusted, never selected by Composer. |
+| L2 execution state | Supplied as witnesses and independently replayed; no live L2 RPC or full L2 database is required. |
 
 Names in code and diagnostics SHOULD preserve this distinction. Composer values
 SHOULD be described as `claimed`, `declared`, or `submitted`; replay results as
@@ -360,21 +363,33 @@ exhaustion are required. Headers count against aggregate witness items as well
 as the protobuf byte quota. Decoding confers no acceptance authority.
 
 Under the existing request permit and deadline, the signer authenticates the
-finalized genesis reference, registered genesis, parent acceptance through the
-shared complete settlement-attribution scanner, current L1 target, and registry
-state at that exact target hash. Canonical timestamps locate at most one possible
-live slot. Every accepted endpoint in that slot must match the supplied list;
+finalized genesis reference, configured genesis or parent acceptance through the
+shared complete settlement-attribution scanner, named canonical L1 parent, and
+registry state at that exact target hash. Canonical timestamps locate at most
+one possible live slot. Every accepted endpoint in that slot must match the supplied list;
 an earlier live variant refreshes descendants even if the parent was later
-accepted as catch-up. Manual `RootUpdated` owner resets are unsupported.
-Source unavailability returns `Unavailable`; a replaced target returns `Aborted`.
+accepted as catch-up. The target hash is checked at its canonical height both
+before and after these reads; normal head extension does not invalidate it.
+Source unavailability returns `Unavailable`; a replaced target during
+authentication returns `Aborted`.
 Neither error carries an eviction hint.
 
 All replayed headers, including prepared cache hits, must extend the authenticated
 parent and carry its independently established descendant seed. The registry
 root must equal that parent or a terminal prefix independently bound by execution
-and settlement gates. After blocking execution and observation replay finish,
-the signer rechecks the target before constructing an attestable digest. Startup
-and `Capabilities` do not require a ready RPC or grant signing authority.
+and settlement gates. No registration-to-tip or lifetime `RootUpdated` scan is
+performed. Operator configuration establishes the genesis trust root; a
+non-genesis parent still requires an actual accepted settlement occurrence.
+A manual root assignment alone cannot authorize a parent or bypass the registry
+root comparison. This does not implement node recovery from owner resets.
+
+After blocking execution and observation replay finish, the signer constructs
+an attestable digest without another L1 read. A head change or RPC outage after
+authentication does not invalidate completed work; the returned signature may
+already be unusable for inclusion, which the on-chain context check enforces.
+The request deadline, exclusive permit and all execution/settlement gates remain
+in force. Startup and `Capabilities` do not require a ready RPC or grant signing
+authority.
 
 ### 5.2 Blocks
 
@@ -820,7 +835,7 @@ encoding, events and proxy/runtime bytecode. This backport retains that pin and
 adds keyless native transactions, direct V0 operations, the required genesis
 profile and authenticated L1 context. Prove requires parent provenance and
 posting context; obsolete claimed-hash fields are removed. Validation identity
-schema 3 rejects mixed-version peers. Old selectors and wire formats MUST fail
+schema 4 rejects mixed-version peers. Old selectors and wire formats MUST fail
 closed; no historical reader or in-place contract/genesis migration is provided.
 
 Deploy matching contracts, rendered genesis, Composer, Signer and followers as

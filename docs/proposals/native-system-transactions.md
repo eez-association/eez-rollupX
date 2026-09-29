@@ -4,7 +4,7 @@
 | --- | --- |
 | Design status | Implemented for the owner-selected RollupX profile; native-format conflict resolved by the task owner on 2026-09-28. This is not acceptance of the upstream draft specification. Validation and wider-draft limits are recorded in the audit. |
 | Date | 2026-09-28 |
-| Source baseline | PR #42, `feat/cross-chain-admission-throughput`, `0b7beed5ca48157d720d6685435ba2121c1e9c1e` (advanced from `ca37074` through `dc9f50f` and `c8260ce`; the final base adds bounded consecutive-slot recovery) |
+| Source baseline | Merged PR #42: `main` at `de5030c782e29ff07150b2728c7b564fd607f802`, with the same tree as final PR head `cf8500e80cc10b58ab6acd59b2125dd098aa770c` (2026-09-29) |
 | Protocol baseline | `9d13218a355e7d543ca8a9927eea2962600b716d` |
 | Related work | [Upstream #154](https://github.com/eez-association/eez-rollup0/pull/154), [upstream #162](https://github.com/eez-association/eez-rollup0/pull/162), [issue #35](https://github.com/eduadiez/rollupX/issues/35), [implementation audit](../audits/2026-09-28-native-system-backport/README.md) |
 
@@ -217,7 +217,7 @@ Later same-height catch-up acceptances cannot erase a live refresh. Reorgs chang
 the canonical slot and invalidate its former occurrences.
 
 The parent itself still needs independent canonical acceptance (or the configured
-registered genesis). The timestamp lookup does not turn a claimed header or a
+genesis). The timestamp lookup does not turn a claimed header or a
 manual registry root reset into an accepted endpoint. Candidate blocks require
 full independent execution. This avoids an additional historical-provenance wire
 format while preserving the same-height partial-consumption safety boundary.
@@ -246,6 +246,31 @@ no old checkpoint migration.
 The wider Appendix D.2 manager/wrapper domain and trigger restrictions remain
 separate requirements to audit and report. Reusing the pinned latest-context
 primitive would not establish full draft manager conformance.
+
+### Signer simplification (accepted owner direction, 2026-09-29)
+
+Authenticate the parent and live-anchor seed at the named canonical L1 block
+before replay, preserving exact settlement attribution and the registry-root
+comparison. Read that block by height before and after authentication to detect
+replacement; do not require it to be the latest head. The on-chain latest-context
+binding already prevents using the signature under another parent/timestamp.
+Remove the post-replay freshness RPC and its service handoff type. Keep the
+request deadline, worker permit, independent execution and settlement gates.
+
+Remove the lifetime registration/reset scan. Configured genesis is the trust
+root, non-genesis parents require actual canonical settlement acceptance, and
+the registry root at the named L1 hash must be the parent or a validated terminal
+prefix. Historical owner resets no longer independently veto a proof; an arbitrary
+assigned root does not supply acceptance evidence. Node reset/recovery support
+is not extended. This uses the existing trusted L1 RPC, with no new source cache,
+background index, persistent state or offline witness format.
+
+Regressions must cover absence of the history scan and latest-head queries,
+canonical replacement during authentication, source loss after authentication,
+registry/seed mismatches, permit release, and on-chain rejection of a signature
+under a changed parent or timestamp. Validation identity schema 4 separates the
+changed admission policy; Composer and signer update together. Genesis, database,
+DA encoding, public-input hashing and historical replay are unchanged.
 
 ### Wider draft conformance dispositions (#35 section F)
 

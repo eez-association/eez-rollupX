@@ -16,9 +16,7 @@ stateDiagram-v2
     L1Authentication --> BlockingPipeline: authenticated parent, seed and target
     L1Authentication --> Idle: rejection or deadline
     Ingesting --> Idle: rejection, cancellation, or timeout
-    BlockingPipeline --> L1Recheck: AttestationMaterial and request permit
-    L1Recheck --> Signing: target still canonical
-    L1Recheck --> Idle: stale target or deadline
+    BlockingPipeline --> Signing: AttestationMaterial and request permit
     BlockingPipeline --> Idle: pipeline rejection or worker failure
     BlockingPipeline --> DetachedWorker: RPC exits after worker starts
     DetachedWorker --> Idle: cancellation boundary or completion
@@ -45,9 +43,10 @@ stateDiagram-v2
 6. That task runs validation and settlement together. Returning the request
    permit with `AttestationMaterial` transfers exclusivity back to the async
    request.
-7. The async request rechecks the canonical L1 target under the deadline,
-   creates `AttestablePublicInputsHash`, signs it, builds `ProveResponse`, and
-   then releases the request permit.
+7. The async request checks the deadline, creates `AttestablePublicInputsHash`,
+   signs it, builds `ProveResponse`, and then releases the request permit. It
+   performs no further L1 reads. The signature remains bound to the authenticated
+   parent hash and target timestamp even if L1 changes while replay runs.
 
 ## Three independent bounds
 

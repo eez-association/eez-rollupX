@@ -169,7 +169,7 @@ impl Prover for ProveSvc {
             parent_provenance,
         } = header;
         let maximum_blobs = self.state.posting_blob_limit(&posting_context)?;
-        let (candidate_context, target_recheck) = timeout_at(
+        let candidate_context = timeout_at(
             timing.deadline,
             self.state
                 .l1_authority
@@ -208,15 +208,9 @@ impl Prover for ProveSvc {
             .await?;
         // Keep the exclusive slot through signing and response construction.
         let _active_request_guard = request_permit;
-        timeout_at(timing.deadline, target_recheck.revalidate())
-            .await
-            .map_err(|_| {
-                timing.deadline_exceeded(
-                    "l1_revalidation",
-                    "Prove deadline exceeded rechecking L1",
-                    Some(pipeline_started),
-                )
-            })??;
+        // The authenticated snapshot is bound into the signature's exact L1
+        // parent/timestamp. A later head change affects on-chain applicability,
+        // not the validity of the completed execution and settlement checks.
         let attestable_public_inputs_hash =
             super::settlement_job::AttestablePublicInputsHash::authorize(
                 attestation_material.recomputed_public_inputs,
