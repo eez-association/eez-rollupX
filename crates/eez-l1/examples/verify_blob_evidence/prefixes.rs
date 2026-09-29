@@ -1,6 +1,6 @@
 //! CI-only prefix reconstruction from the test node's execution witness and
-//! chain configuration. Stateless replays pre-execution changes and every
-//! transaction; receipts/body are bound to the canonical terminal header.
+//! chain configuration and deployed genesis. Stateless replays pre-execution
+//! changes and every transaction; receipts/body are bound to the canonical terminal header.
 //! Chain identity/canonicality still rely on the surrounding RPC-backed check.
 
 use std::{error::Error, sync::Arc};
@@ -26,13 +26,7 @@ use super::{required, required_b256, required_hex_bytes};
 pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
     let (block, receipts) = decode(input)?;
     let witness = serde_json::from_value(required(input, "/witness")?.clone())?;
-    let config = serde_json::from_value(required(input, "/chain_config")?.clone())?;
-    let mut spec = reth_chainspec::ChainSpec::from_genesis(alloy_genesis::Genesis {
-        config,
-        ..Default::default()
-    });
-    spec.base_fee_params = eez_protocol::l2::BASE_FEE_PARAMS.into();
-    let spec = Arc::new(spec);
+    let spec = replay_spec(input)?;
     let indices: Vec<_> = (0..block.body.transactions.len()).collect();
     let replay = stateless_reth::stateless_validation_recovered_with_state_checkpoints(
         block.clone().try_into_recovered()?,
@@ -61,6 +55,23 @@ pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
         &roots,
         Some(replay.checkpoints.pre_transaction_state_root),
     )
+}
+
+fn replay_spec(input: &Value) -> Result<Arc<reth_chainspec::ChainSpec>, Box<dyn Error>> {
+    let genesis: alloy_genesis::Genesis =
+        serde_json::from_value(required(input, "/genesis")?.clone())?;
+    let config: alloy_genesis::ChainConfig =
+        serde_json::from_value(required(input, "/chain_config")?.clone())?;
+    if genesis.config != config {
+        return Err("deployed genesis configuration differs from RPC chain configuration".into());
+    }
+    // The execution schedule depends on the actual genesis header, including
+    // its timestamp and L1 reference. Chain configuration alone is insufficient.
+    let spec = eez_evm::profile::chain_spec(genesis)?;
+    if spec.genesis_header.hash() != required_b256(input, "/genesis_hash")? {
+        return Err("deployed genesis differs from the canonical RPC genesis hash".into());
+    }
+    Ok(Arc::new(spec))
 }
 
 fn decode(input: &Value) -> Result<(Block, Vec<ReceiptEnvelope>), Box<dyn Error>> {
@@ -187,6 +198,56 @@ mod tests {
     use alloy_primitives::{Signature, U256};
     use eez_primitives::EezTxType;
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
+
+    fn profile_input() -> Value {
+        let genesis: alloy_genesis::Genesis =
+            serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
+        let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
+        json!({"chain_config": genesis.config, "genesis": genesis,
+            "genesis_hash": spec.genesis_header.hash()})
+    }
+
+    #[test]
+    fn witness_replay_preserves_the_nonzero_genesis_schedule() {
+        let input = profile_input();
+        let spec = replay_spec(&input).unwrap();
+        let mut header = spec.genesis_header.clone().into_header();
+        assert!(header.timestamp > 0);
+        let schedule = eez_evm::profile::schedule(spec.as_ref()).unwrap();
+        let (number, timestamp) = schedule.next(&header).unwrap();
+        header.number = number;
+        header.timestamp = timestamp;
+        schedule.validate_position(&header).unwrap();
+    }
+
+    #[test]
+    fn replay_rejects_mismatched_or_invalid_genesis_without_repair() {
+        for (pointer, value, error) in [
+            (
+                "/genesis_hash",
+                json!(B256::ZERO),
+                "canonical RPC genesis hash",
+            ),
+            (
+                "/chain_config/chainId",
+                json!(999),
+                "RPC chain configuration",
+            ),
+            (
+                "/genesis/timestamp",
+                json!("0x0"),
+                "genesis precedes its L1 reference",
+            ),
+            ("/genesis/gasLimit", json!("0x1"), "gas limit"),
+        ] {
+            let mut input = profile_input();
+            *input.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                replay_spec(&input).unwrap_err().to_string().contains(error),
+                "{pointer}"
+            );
+        }
+    }
 
     fn verify_recorded_roots(input: &Value) -> Result<Value, Box<dyn Error>> {
         let (block, receipts) = decode(input)?;

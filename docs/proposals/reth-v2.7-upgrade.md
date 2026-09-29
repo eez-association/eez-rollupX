@@ -85,3 +85,9 @@ retaining trace, table, receipt, KZG and absence checks. Keep supplied settlemen
 claims separate from execution evidence. Decode native transactions and receipts
 when reconstructing prefix headers. The independent follower check consumes V0
 and compares ordinary bytes, metadata, ancestry and terminal commitments.
+
+The witness-based CI prefix helper must retain the deployed genesis, not only
+RPC chain configuration: L2 block positions depend on its timestamp and L1
+reference. Use the existing profile validator and bind the supplied genesis to
+the node's canonical genesis hash and configuration. Reject missing or
+inconsistent inputs before replay; do not supply synthetic genesis defaults.

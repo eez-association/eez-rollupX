@@ -93,6 +93,9 @@ if pathlib.Path(sys.argv[0]).name == "blob":
     assert args[0] == "--prefixes", args
     if f.get("prefix_failure"): sys.exit(1)
     request = json.loads(pathlib.Path(args[1]).read_text())
+    assert request["genesis"] == {"config": {}, "timestamp": "0x1234"}, request
+    assert request["genesis_hash"] == "0x" + "8"*64, request
+    assert request["chain_config"] == {}, request
     print(json.dumps({"verified":True, "block_hash":request["block_hash"], "prefixes":f.get("prefixes", [])}))
     sys.exit(0)
 command = args[0]
@@ -130,7 +133,8 @@ elif command == "rpc":
     rpc = args[1]
     if rpc == "eth_getTransactionByHash": value = f["transactions"][args[2]]
     elif rpc == "eth_getTransactionReceipt": value = f["receipts"][args[2]]
-    elif rpc == "eth_getBlockByNumber": value = f["block"]
+    elif rpc == "eth_getBlockByNumber":
+        value = dict(hash="0x" + "8"*64, number="0x0") if args[2] == "0x0" else f["block"]
     elif rpc == "eth_getBlockByHash":
         value = (dict(hash="0x" + "8"*64, number="0x63") if args[2] == "0x" + "8"*64
                  else dict(hash=f["l2_hash"], number=hex(f["l2_head"])))
@@ -185,12 +189,15 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.data = self.root / "fixture.json"
         self.output = self.root / "evidence.json"
         self.calls = self.root / "calls.jsonl"
+        self.genesis = self.root / "genesis.json"
+        self.genesis.write_text(json.dumps({"config": {}, "timestamp": "0x1234"}))
         self.env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                     "LOOKUP_FIXTURE": str(self.data), "LOOKUP_CALLS": str(self.calls),
                     "L1_RPC": "http://l1.invalid", "L2_RPC": "http://l2.invalid", "ROLLUPS": REGISTRY,
                     "MANAGER_L2": MANAGER, "ROLLUP_ID": "1", "PROTOCOL_COMMIT": "fixture-pin",
                     "CAUSAL_VERIFIER": str(tools / "causal"),
-                    "BEACON_URL": "http://beacon.invalid", "BLOB_VERIFIER": str(tools / "blob")}
+                    "BEACON_URL": "http://beacon.invalid", "BLOB_VERIFIER": str(tools / "blob"),
+                    "EEZ_L2_GENESIS": str(self.genesis)}
 
     def run_fixture(self, scenario, data=None, complete=True, log_transform=None):
         self.data.write_text(json.dumps(data or fixture(scenario)))
@@ -408,7 +415,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
 
     def test_lookup_accepts_reconstructed_prefix_but_not_an_unbound_pin(self):
         for scenario in ("revertCounter", "topLevelStaticCounter"):
-            for failure in (None, "empty_prefix", "missing", "duplicate", "replay_failure"):
+            for failure in (None, "empty_prefix", "missing", "duplicate", "replay_failure", "missing_genesis"):
                 with self.subTest(scenario=scenario, failure=failure):
                     data = fixture(scenario)
                     data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
@@ -419,6 +426,8 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                     if failure == "missing": data["prefixes"] = []
                     if failure == "duplicate": data["prefixes"] *= 2
                     if failure == "replay_failure": data["prefix_failure"] = True
+                    self.env["EEZ_L2_GENESIS"] = str(
+                        self.root / "absent-genesis.json" if failure == "missing_genesis" else self.genesis)
                     result = self.run_fixture(scenario, data)
                     if failure not in (None, "empty_prefix"):
                         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)

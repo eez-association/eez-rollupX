@@ -22,10 +22,14 @@ cast rpc debug_getRawBlock "$hash" --rpc-url "$L2_RPC" >"$scratch/block.json"
 cast rpc debug_getRawReceipts "$hash" --rpc-url "$L2_RPC" >"$scratch/receipts.json"
 cast rpc debug_executionWitnessByBlockHash "$hash" --rpc-url "$L2_RPC" >"$scratch/witness.json"
 cast rpc debug_chainConfig --rpc-url "$L2_RPC" >"$scratch/config.json"
-jq -n --arg hash "$hash" --slurpfile block "$scratch/block.json" \
+genesis_hash="$(cast rpc eth_getBlockByNumber 0x0 false --rpc-url "$L2_RPC" | jq -er '.hash')"
+jq -n --arg hash "$hash" --arg genesis_hash "$genesis_hash" \
+    --slurpfile genesis "${EEZ_L2_GENESIS:?set the deployed L2 genesis path}" \
+    --slurpfile block "$scratch/block.json" \
     --slurpfile receipts "$scratch/receipts.json" --slurpfile witness "$scratch/witness.json" \
     --slurpfile config "$scratch/config.json" \
-    '{block_hash:$hash, block_rlp:$block[0], receipts_rlp:$receipts[0], witness:$witness[0], chain_config:$config[0]}' \
+    '{block_hash:$hash, block_rlp:$block[0], receipts_rlp:$receipts[0], witness:$witness[0],
+      chain_config:$config[0], genesis:$genesis[0], genesis_hash:$genesis_hash}' \
     >"${output%.json}.input.json"
 "$BLOB_VERIFIER" --prefixes "${output%.json}.input.json" >"$scratch/prefixes.json"
 jq -e --arg root "$root" --arg hash "$hash" '

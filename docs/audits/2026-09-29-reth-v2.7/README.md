@@ -384,3 +384,68 @@ registry package/version/checksum changes and one Reth v2.7.0 Git source identit
 
 The final shipping build and full release/devnet checks below must validate this
 new pin; earlier vendored-candidate results are retained as historical evidence.
+
+Candidate `a35c63531c97206aa37e233b53cb6f7e8b59548a` passed both default-feature
+and all-feature strict workspace Clippy, formatting, signer Rustdoc, dependency
+policy checks, all 278 default tooling checks (five opt-in skips), and both real
+Docker packaging fixtures. The actual release producer and artifact verifier
+passed. The two release unit archives passed **1,001 + 290 tests**, with three
+manual utilities ignored. All **36 embedded release tests passed** in 2,353.014
+seconds; the separate live-enclave replay case remains explicitly ignored in
+that lane. Genesis matches the committed fixtures using the verified release
+helper. Full cross-chain and live devnet/replay validation remain in progress.
+
+An additional CLI loader probe rendered help but returned status 1 for Composer
+and follower. The previous `6387e3d` images reproduce both exits, and main
+already propagates Clap's display-help result through the same CLI parser. The
+signer returns status 0 in both images. This is existing CLI behavior; no runtime
+library-loading failure occurred and no unrelated CLI change was introduced.
+
+The owned `eez-reth27-pr44-published` devnet reached finality after 25m46s,
+deployed the final image, verified genesis/contract bindings, and observed
+canonical settlement. Local orchestration defers cleanup for a subsequent fresh
+follower replay and waits for serial native suites before starting workloads.
+All CI assertions remain intact. The extra replay executes the verified release
+test binary rather than compiling a substitute. Copies and their digests are
+recorded in `validation.json`; the outer runner owns enclave cleanup.
+
+The final cross-chain run exposed a test-readiness race in
+`outbound_mixed_static_reads_and_write_settle_together`. The fresh follower
+reconstructed the exact expected block and advanced its safe head, but the test
+issued pending `eth_call` before startup finished validating L1 history. The RPC
+correctly returned `L1 derivation is still validating/catching up`. The original
+failure, logs and datadir are retained. The test now reads state within its
+existing bounded convergence poll, retaining the exact block-hash/safe-head
+requirements and asserting the returned value afterward. No production gate or
+assertion was relaxed. The corrected target passes strict Clippy and both affected process cases pass
+in 76.93 seconds against checksum-verified, unchanged release binaries. Its
+source patch and test-binary digests are retained separately. The complete
+original cross-chain run finished in 3,701.298 seconds with **73 passed, one
+failed, three ignored**; the only failure was this readiness race. The first
+failure is retained rather than reported as a clean first pass.
+
+## Deployed-genesis gap in CI prefix replay
+
+The final-pin devnet passed all four native wave modes (40 cross-chain operations),
+state chaining, and all 32 selected upstream scenario assertions. Independent
+evidence passed 30/32. `revertCounter` and `topLevelStaticCounter` reached
+Stateless witness replay but failed with `ProfileError("genesis precedes its L1
+reference")`. The helper had combined the node's actual chain configuration with
+a default genesis header whose timestamp was zero. The production validator
+correctly rejected that profile. The first failure, both lookup inputs/witnesses,
+and the complete service logs are retained. The outer runner removed only its
+owned enclave; extra blob/fresh-follower replay was not reached.
+
+The CI helper now uses the deployed full genesis through the existing L2 profile
+constructor and checks it against the node's canonical genesis hash and chain
+configuration. The shell caller supplies the deployment artifact's genesis, or
+the explicitly supplied genesis for local-deployment mode, before executing
+network scenarios. Invalid values are rejected; no timestamp is synthesized and
+no production signer validation is bypassed. New regressions cover the nonzero
+genesis schedule and reject hash/configuration mismatches, zeroed timestamps,
+noncanonical gas limits and missing genesis files. All 11 helper tests and 16
+lookup-shell tests pass. Packaged/live confirmation remains pending.
+
+All-feature strict workspace Clippy and the complete tooling suite pass after
+this correction: **279 passed, five opt-in skips**. The 23 protocol-runner tests
+include fail-before-preparation checks for missing/empty/unreadable genesis paths.

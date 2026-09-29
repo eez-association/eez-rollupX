@@ -109,7 +109,23 @@
     "upstream-clippy-b0.log": "4538c5fc4874f1340b575e2bb1cd1c212a50e5b1394518b721f339c69af807c7",
     "upstream-source-runtime.sha256": "e046799a66b91596dc5b0167bf14c89c60a495462307b55d8b1587ef255adc9d",
     "upstream-tooling-b0-final.log": "73c1c3beb8be7df0a242c0e3e53c56f477eb0a0c42534baeedb1f05336885178",
-    "seed-driver-final.log": "2107a877c791376e589590b1521108a1afd1c25422d7866941d32458d9e50456"
+    "seed-driver-final.log": "2107a877c791376e589590b1521108a1afd1c25422d7866941d32458d9e50456",
+    "final-pin-clippy.log": "72ae0b09402615c71da7513b41f40115792707ebe0d80cc65d8618470aa13ef4",
+    "final-pin-clippy-default.log": "dea40354b0a7c1e5852ab5d7ec298dff9ea2b239f47a2b77e675ca876ecf4e26",
+    "final-pin-tooling.log": "2f35b41087c79bde323a4c4207d3b3fa863cb436ec214643fd3502124ad2c0c2",
+    "final-pin-docker-fixtures.log": "223dbb283db17f204e700d411bb2e58c3392885d01bcece20051fdb2b0e56bd3",
+    "final-pin-deny.log": "2e54c5ab1504ee82a263ff45bbe59a20d806c58c7d06c1d366f2679cebdac896",
+    "final-pin-audit.log": "3f11224b3120d8573b2950daf82904bfb5eaf69f5e86971c6027420f13d1db39",
+    "final-pin-signer-doc.log": "47d462d2e6c83c48eb6f8df291b321948786c6ad9b1a9eb1a901cac8623e2d1f",
+    "release-published/producer.log": "f9e418e53c2d6b39cbbb2684e5b4805de51de1a772e56d5c448c31887946a66d",
+    "release-published/verify-artifacts.log": "5af7cd5b012ece1129598c8a19516b3f489be48eb2e418e0e94171f685d9d371",
+    "release-published/unit.log": "c2d6b8b71cb25747b2bb39761665c6bef30f0cb2007f0a2d1f3b76a8c0803cab",
+    "release-published/embedded.log": "97bf81e62f8426dbf8346e016042836aa27983169c969bd13c071135e81f3468",
+    "release-published/export-e2e.log": "a664e6c9b4068603c85e13787f6866b253ec8e1ea5ea488667485e49710c12a5",
+    "release-published/genesis.log": "1fd88ae7a5200fc9eac7509d055ddbb39b76647ca4eca526f37a4c9b666d9934",
+    "release-published/cli-help-probes.json": "fbdb63ccb6d309eba917d995f713c621df0067b38541bcc78fc70e997da695e2",
+    "release-published/run-ci-retain.sh": "b66275393a5ba0180a0c756e89eeb70375e78aac7c318443e0a2b4fc54f2bf2a",
+    "release-published/verify-policy-release.sh": "4f6fa9e0cf45c2fe5ee3c1bd0054798ff2db36a64994763aff745488ec558ca3"
   },
   "process_validation": "6387e3d complete: embedded passed; cross-chain and Kurtosis failed as recorded. Updated candidate validation pending.",
   "finality_bound_rationale": {
@@ -256,6 +272,171 @@
     "stateless": "0bda6b200c1eb4689c147c080c3c248b50be2ea8",
     "vendor_removed": true,
     "registry_delta": [],
-    "release_validation": "pending"
+    "release_validation": "incomplete: all process regressions validated, CI prefix-helper genesis correction needs packaged/live validation",
+    "runtime_candidate": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+    "checks": {
+      "final-pin-clippy": 0,
+      "final-pin-clippy-default": 0,
+      "final-pin-tooling": 0,
+      "final-pin-docker-fixtures": 0,
+      "final-pin-deny": 0,
+      "final-pin-audit": 0,
+      "final-pin-signer-doc": 0,
+      "final-pin-settlement-config": 0
+    },
+    "tooling": {
+      "passed": 278,
+      "skipped": 5,
+      "seconds": 172.099
+    },
+    "docker_fixture_tests": {
+      "passed": 2,
+      "seconds": 42.184
+    },
+    "release_units": {
+      "main": 1001,
+      "composer": 290,
+      "ignored": 3
+    },
+    "embedded": {
+      "passed": 36,
+      "ignored": 1,
+      "seconds": 2353.014
+    },
+    "cross_chain": {
+      "status": "completed before test-only correction",
+      "first_failure": {
+        "test": "outbound_mixed_static_reads_and_write_settle_together",
+        "seconds": 39.155,
+        "error": "eth_call rejected because L1 derivation is still validating/catching up",
+        "cause": "Test awaited reconstructed block and safe head, then read pending state before startup readiness opened.",
+        "fix": "Keep the state read inside the existing bounded convergence poll; assert its exact returned value outside the poll.",
+        "scope": "test-only; validation pending",
+        "log": "release-published/cross-chain.log",
+        "datadir": "release-published/cross-chain-datadirs/eez-node-mixed-outbound-follower-3462555-LWLAvQ",
+        "fix_validation": "Both affected cases pass after correction on checksum-verified, unchanged runtime binaries."
+      },
+      "passed": 73,
+      "failed": 1,
+      "ignored": 3,
+      "seconds": 3701.298,
+      "ignored_cases": {
+        "ethereum_native_large_history_cold_checkpoint": "explicit large-history feasibility run, excluded from CI defaults",
+        "gnosis_native_large_history_cold_checkpoint": "explicit large-history feasibility run, excluded from CI defaults",
+        "retained_native_history_cold_checkpoint": "requires separately retained large history and metadata"
+      }
+    },
+    "kurtosis": {
+      "result": "failed evidence gate",
+      "native_waves": "all four modes passed; 40 cross-chain operations total",
+      "state_chaining": "passed",
+      "upstream_scenarios_passed": 32,
+      "independent_evidence_passed": 30,
+      "independent_evidence_failed": [
+        "revertCounter",
+        "topLevelStaticCounter"
+      ],
+      "cause": "CI witness-prefix helper combined actual chain configuration with default genesis timestamp zero; stateless replay correctly rejected the invalid derivation profile.",
+      "error": "ProfileError(\"genesis precedes its L1 reference\")",
+      "enclave_cleanup": "owned enclave removed by outer runner after failure; logs and lookup input/witness evidence retained"
+    },
+    "finality_seconds": 1546.048724365,
+    "independent_policy_replay": "not run: gated by failed protocol evidence checks",
+    "genesis": "unchanged; checked using final packaged helper",
+    "cli_help": "Composer/follower render help with status 1 on both previous and final runtime images; signer returns 0 on both. Existing CLI wrapper behavior, not a loader failure.",
+    "local_orchestration": "Copy of run-ci.sh defers cleanup to the outer runner and gates workloads until cross-chain.status exists; copied replay wrapper executes the verified archived test binary instead of rebuilding.",
+    "runtime_manifest": {
+      "schema": 2,
+      "root_commit": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+      "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+      "base_images": {
+        "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+        "runtime": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "published": false,
+      "images": {
+        "node": {
+          "reference": "ghcr.io/eduadiez/rollupx-node:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:b9e3e43fa04232a9758944d7de6382825c91825ab6cdb7d723c416c08672624d"
+        },
+        "signer": {
+          "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:c940fef89b41611b8027b395fd3810f48ca0bd482f7ae5a62005b032efece03b"
+        },
+        "deploy": {
+          "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:58e5298a85f4a282e123f2c5a618b8babd6319d75ec420ebb424730fcebbacbe"
+        }
+      },
+      "binaries_sha256": "5a918bcd2377aac29f12b719e4ee2caad6e8df16831f9e9c127900f2a4bef395"
+    },
+    "test_manifest": {
+      "schema": 3,
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "nextest": "0.9.143",
+      "rust": "1.95.0",
+      "archives_sha256": {
+        "native-tests.tar.zst": "8066de8ae5de2285cc371716f888091ede4b02def0f441c4e1242b2828e687c0",
+        "composer-unit-tests.tar.zst": "d599cd71406503fb5da50a8a8f4370e386a102b0328e9d58f7957e87555f7d41"
+      },
+      "runtime_sha256": {
+        "eez-composer": "7c2cbd5bb305c4d1f670b25f62b334d977709a0e4f35550c05fdb957abf540bd",
+        "eez-follower": "b06b5fb7fe2ec822c0207ac4adec293115dd6396fd43735596bcfa860841c2b5",
+        "eez-proof-signer": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec"
+      },
+      "glibc": "glibc 2.36",
+      "root_commit": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "runtime_archive_sha256": "5a918bcd2377aac29f12b719e4ee2caad6e8df16831f9e9c127900f2a4bef395"
+    },
+    "follower_readiness_correction": {
+      "scope": "test-only",
+      "format": "passed",
+      "clippy": "passed",
+      "build": "passed",
+      "process_tests": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "seconds": 76.93,
+        "log": "release-published/follower-readiness.log"
+      },
+      "selection": [
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "outbound_mixed_static_reads_and_write_settle_together"
+      ],
+      "runtime": "checksum-verified a35c635 release binaries; production source unchanged",
+      "test_identity_record": "release-published/follower-readiness.sha256"
+    },
+    "remote_recheck": {
+      "main": "de5030c782e29ff07150b2728c7b564fd607f802",
+      "pr42_head": "cf8500e80cc10b58ab6acd59b2125dd098aa770c",
+      "gnosis_138_head": "9517ba3b3c139ed43d3e0814b60ec67b95e163d7",
+      "stateless": "0bda6b200c1eb4689c147c080c3c248b50be2ea8",
+      "pr44_push_dry_run": "passed; remote not updated"
+    }
+  },
+  "genesis_replay_correction": {
+    "scope": "CI evidence helper, shell caller and directly required tests/docs; runtime node and signer source unchanged",
+    "behavior": "Use deployed full genesis through existing native profile validator; compare to canonical RPC genesis hash and RPC chain configuration before witness replay.",
+    "helper_tests_passed": 11,
+    "shell_lookup_tests_passed": 16,
+    "packaged_live_validation": "pending",
+    "clippy_all_features": "passed",
+    "tooling": {
+      "passed": 279,
+      "skipped": 5,
+      "seconds": 147.369
+    },
+    "protocol_runner_tests_passed": 23
   }
 }

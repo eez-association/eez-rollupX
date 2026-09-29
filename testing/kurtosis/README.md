@@ -501,14 +501,17 @@ retaining real inclusion, KZG, decoded payload and correlation assertions. Set
 omits explorer checks. Native Beacon/KZG verification remains required.
 
 Independent protocol checks require L1/L2 `debug` APIs, including raw blocks,
-receipts and intermediate execution roots. Mined raw transactions missing from
+receipts, execution witnesses and chain configuration. Lookup-prefix replay also
+requires the deployed `EEZ_L2_GENESIS` file; the collector checks its genesis hash
+and configuration against the node before replay. Kurtosis supplies this file
+from the deployment artifact. Mined raw transactions missing from
 `eth_getRawTransactionByHash` are recovered from the exact raw-block position
 and must hash to the expected canonical transaction before matching blob data.
 Retain transaction lookup indexes and receipt/state history in the L1 client;
 a pruned snapshot can otherwise appear healthy until in-memory caches disappear
 on restart. Rebuilding an index does not restore already-pruned history.
 
-Replay additionally requires `EEZ_L2_GENESIS`, `EEZ_L1_CHAIN_CONFIG` (`chiado`
+Fresh-follower replay also requires `EEZ_L1_CHAIN_CONFIG` (`chiado`
 for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the fixed native
 `EEZ_L2_SYSTEM_ADDRESS` (`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`). Use the actual proof/slack timing values when supplied.
 An existing canonical post satisfies wave bootstrap readiness; each measured

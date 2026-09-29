@@ -340,13 +340,17 @@ print("RESULT injected: PASS")'''))
         (scripts / "runtime-tools.sh").write_text('resolve_runtime_tool() { echo /bin/true; }\n')
         (scripts.parent / "ports.sh").write_text(
             "EEZ_DEVNET_L1_RPC=l1\nEEZ_DEVNET_L2_RPC=l2\nEEZ_DEVNET_L1_FRONT=f1\nEEZ_DEVNET_L2_FRONT=f2\n")
-        (self.upstream / "prepare-network.sh").write_text("exit 0\n")
+        (self.upstream / "prepare-network.sh").write_text('touch "$FIXTURE_PREPARED"\n')
         self.tool("git", '#!/bin/sh\ncase "$*" in *ls-files*) echo "160000 aaaa 0 file";; *) echo aaaa;; esac\n')
         self.tool("curl", '#!/bin/sh\nexit 0\n')
         self.tool("kurtosis", '''#!/bin/sh
 case "$1 $2" in
     'port print') echo 'http://beacon';;
-    'files download') echo 'EEZ_REGISTRY_ADDRESS=registry' > "$5/deployments.env";;
+    'files download')
+        echo 'EEZ_REGISTRY_ADDRESS=registry' > "$5/deployments.env"
+        if [ "${OMIT_DEPLOYED_GENESIS:-0}" != 1 ]; then
+            echo '{"source":"deployment-fixture"}' > "$5/l2-genesis.json"
+        fi;;
     *) exit 1;;
 esac
 ''')
@@ -363,13 +367,16 @@ esac
         # Evidence I/O boundary: insist the collector gets THIS run's log.
         (scripts / "collect-protocol-e2e-evidence.sh").write_text('''set -eu
 [[ -s "$3" && "$3" == */network.*/* ]] || exit 9
+jq -e '.source == "deployment-fixture"' "$EEZ_L2_GENESIS" >/dev/null
 [[ "$1" != "${BAD_EVIDENCE:-}" ]] || exit 17
 jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified: true},
     blob_da: {verified: true}, claims: {blob_kzg_authenticated: true,
     native_semantics_decoded: true, semantic_trigger_bytes_bound: true}}' > "$4"
 ''')
         self.env.update(EEZ_CI_RESULT_DIR=str(self.root / "artifacts"), PK="source-key",
-                        EEZ_PROTOCOL_MAX_PARALLEL="2")
+                        EEZ_PROTOCOL_MAX_PARALLEL="2",
+                        FIXTURE_PREPARED=str(self.root / "prepared"),
+                        EEZ_L2_GENESIS=str(self.root / "unrelated-genesis.json"))
         return scripts / "run-protocol-e2e.sh"
 
     def run_outer(self, wrapper):
@@ -378,6 +385,24 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
 
     def summary(self):
         return json.loads((self.root / "artifacts/protocol-e2e/summary.json").read_text())
+
+    def test_genesis_is_required_before_network_preparation(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        deployments = self.root / "local-deployments.env"
+        deployments.write_text("EEZ_REGISTRY_ADDRESS=registry\n")
+        for local, supplied in ((False, None), (True, None), (True, ""),
+                                (True, "missing.json"), (True, str(self.root))):
+            with self.subTest(local=local, supplied=supplied):
+                self.env.update(OMIT_DEPLOYED_GENESIS="1", EEZ_USE_LOCAL_DEPLOYMENTS=str(int(local)),
+                                EEZ_DEPLOYMENTS_FILE=str(deployments))
+                self.env.pop("EEZ_L2_GENESIS", None)
+                if supplied is not None:
+                    self.env["EEZ_L2_GENESIS"] = supplied
+                result = self.run_outer(wrapper)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("genesis", result.stderr)
+                self.assertFalse((self.root / "prepared").exists())
 
     def test_full_wrapper_accounts_for_every_pinned_scenario_and_keeps_evidence_gate(self):
         # Discovery and default eligibility follow the current pin.
