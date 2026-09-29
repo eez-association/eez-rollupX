@@ -46,9 +46,9 @@ impl fmt::Display for NonZeroProofSystemVkey {
 /// attestation configuration. The proof-system vkey is deliberately
 /// independent from the signing address: deployments may register a
 /// proof-system-specific vkey.
-/// The signing address must also differ from the deployment-configured L2
-/// system address, whose key has separate authority to create system
-/// transactions.
+/// The attestation key signs validated public inputs. Native system transactions
+/// use a fixed reserved sender and require no signature or private key. The
+/// attester address must remain distinct from that reserved identity.
 pub(crate) struct Attester {
     #[cfg(test)]
     signing_calls: std::sync::atomic::AtomicUsize,
@@ -98,8 +98,6 @@ impl Attester {
         }
         let signer = EcdsaProofSigner::from_private_key(attestation_private_key)
             .map_err(|_| AttesterConfigError::InvalidPrivateKey)?;
-        // System-transaction signing and public-input attestation are separate
-        // authorities; one key must never confer both capabilities.
         if signer.address() == expected_l2_system_address {
             return Err(AttesterConfigError::ReservedSystemAddress);
         }
@@ -128,7 +126,7 @@ impl Attester {
         self.expected_proof_system
     }
 
-    /// Return the deployment identity excluded from attestation authority.
+    /// Return the reserved native sender excluded from the attestation identity.
     pub(crate) const fn expected_l2_system_address(&self) -> Address {
         self.expected_l2_system_address
     }

@@ -257,14 +257,14 @@ fn inspect_decoded_settling_block(
         .zip(receipt_successes)
         .enumerate()
     {
-        // The reserved system signer may authorize only top-level calls to EEZL2.
+        // Settlement retains the native sender's restriction to top-level EEZL2 calls.
         if is_system_sender && transaction.to() != Some(EEZL2_ADDRESS) {
             return Err(BlockInspectionError::ReservedSystemSender {
                 index: transaction_index,
             });
         }
-        // The target is already pinned, so reserved signer plus the inbound
-        // selector fully identifies an inbound candidate.
+        // With the target pinned, the protocol-supplied sender and inbound
+        // selector identify an inbound candidate; authorization follows later.
         let is_inbound_candidate = is_system_sender
             && transaction
                 .input()
