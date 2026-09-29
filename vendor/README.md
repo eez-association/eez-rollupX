@@ -1,14 +1,15 @@
 # Reth dependency ports
 
-Reth itself is unmodified upstream commit
-`444e867155c2a7a4c028e479ca7201b0b6871579`, containing
-[#27429](https://github.com/paradigmxyz/reth/pull/27429). Its package version is
-still 2.5.2; the commit identifies the tested post-v2.6.0 source.
+Reth itself is unmodified upstream v2.7.0 commit
+`3d592ece6de8c4559987416a544fc215fd6d6921`, containing
+the forkchoice fix [#27429](https://github.com/paradigmxyz/reth/pull/27429).
+All three ports use that same revision. The [upgrade contract](../docs/proposals/reth-v2.7-upgrade.md)
+tracks local validation and the fresh-network compatibility boundary.
 
 | Directory | Upstream | Base revision | Local changes |
 | --- | --- | --- | --- |
 | reth-gnosis | [gnosischain/reth_gnosis](https://github.com/gnosischain/reth_gnosis) | `3482cbe6ed962830d71b154773c9209267edf1dd` | Dependency/API alignment; retain interpreter features for the custom Gnosis EVM |
-| stateless | [eez-association/stateless](https://github.com/eez-association/stateless) | `ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3` | Generalize recovered-block and receipt types for native transactions; expose the post-pre-execution checkpoint for terminal B[0] |
+| stateless | [eez-association/stateless](https://github.com/eez-association/stateless) | `ffe41a37f67b7d77a4f32c19d7fcbd10ca7ea0f3` | Align Reth v2.7.0; generalize recovered-block and receipt types for native transactions; expose the post-pre-execution checkpoint for terminal B[0] |
 | gnosis-primitives | [gnosischain/rust-primitives](https://github.com/gnosischain/rust-primitives) | `6fd87e36685bc2b5b11136c5d591aa195095595f` | Match Reth/REVM/Alloy types |
 
 Cargo builds these local sources. The [Reth-Gnosis](patches/reth-gnosis.patch) and

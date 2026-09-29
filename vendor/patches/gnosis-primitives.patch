@@ -9,11 +9,11 @@
 -reth-tracing = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
 -reth-chainspec = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
 -reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", tag = "v2.5.1" }
-+reth = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579", default-features = false }
-+reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
-+reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
-+reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
-+reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "444e867155c2a7a4c028e479ca7201b0b6871579" }
++reth = { git = "https://github.com/paradigmxyz/reth", rev = "3d592ece6de8c4559987416a544fc215fd6d6921", default-features = false }
++reth-db = { git = "https://github.com/paradigmxyz/reth", rev = "3d592ece6de8c4559987416a544fc215fd6d6921" }
++reth-tracing = { git = "https://github.com/paradigmxyz/reth", rev = "3d592ece6de8c4559987416a544fc215fd6d6921" }
++reth-chainspec = { git = "https://github.com/paradigmxyz/reth", rev = "3d592ece6de8c4559987416a544fc215fd6d6921" }
++reth-cli-commands = { git = "https://github.com/paradigmxyz/reth", rev = "3d592ece6de8c4559987416a544fc215fd6d6921" }
  
  # Independent crates
 -reth-codecs = { version = "0.6.0", default-features = false }

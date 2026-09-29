@@ -262,8 +262,8 @@ which this protocol does not currently define.
 
 ## Build, test, teardown
 
-Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream commit
-`444e867155c2a7a4c028e479ca7201b0b6871579`, which includes the post-v2.6.0
+Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream v2.7.0 commit
+`3d592ece6de8c4559987416a544fc215fd6d6921`, which includes the
 forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Related
 local dependency ports are described in
 [`vendor/README.md`](vendor/README.md). Private `testing` and `testing-gnosis`
