@@ -1580,9 +1580,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .unwrap();
         // Ownership records the reconciliation snapshot, which can be newer
         // than inclusion when the fixture releases a delayed head and catches up.
-        let observed = owner["ownership"]["canonical"]["number"]
-            .as_u64()
-            .unwrap();
+        let observed = owner["ownership"]["canonical"]["number"].as_u64().unwrap();
         assert!(observed >= target_height);
         let anchor = l1
             .get_block_by_number(observed.into())

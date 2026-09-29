@@ -11,6 +11,11 @@
 | Contract | [Replacement design](../../proposals/skipped-slot-speculative-retry.md), [RPC ownership](../../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission) |
 | Live reproduction | Five-minute Chiado run, preserved in the [PR #42 description](https://github.com/eduadiez/rollupX/pull/42); detailed local report in `docs/audits/2026-09-28-chiado-five-minute-spam/` |
 
+September 29 follow-up: new-head CI failed formatting and both ordinary-burst
+recovery assertions. The [test synchronization correction](../2026-09-29-ci-recovery-synchronization/README.md)
+records reproduction, the corrected local process results and remaining CI
+validation. The dated results below remain evidence for their recorded revisions.
+
 The previous scheduler exhausted its one-replacement allowance after two missing
 slots, leaving produced targets 23272510 and 23272544 without attempts. Admission
 had not rejected those targets; no trigger was emitted. Four other submitted

@@ -1,0 +1,99 @@
+{
+  "baseline_source": "0b7beed5ca48157d720d6685435ba2121c1e9c1e",
+  "runtime_source": "ba4cbabca056302875715e9e060e7b803c5c282c",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "test_filter": "ordinary_burst_is_budgeted_across_sync_intervals",
+  "test_threads": 1,
+  "baseline": {
+    "passed": 0,
+    "failed": 2,
+    "ignored": 0,
+    "failures": {
+      "ethereum": "missing historical Sync asserted before RPC recovery observed",
+      "gnosis": "fixture slot-alignment assertion: remainder 1 instead of 0"
+    },
+    "exit_code": 101,
+    "duration_seconds": 125.23585697199451
+  },
+  "candidate": {
+    "passed": 2,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 29,
+    "exit_code": 0,
+    "duration_seconds": 298.1635924539878
+  },
+  "checks": {
+    "rustfmt": "passed",
+    "workspace_all_targets_clippy": "passed",
+    "forge_build_contracts": "passed",
+    "diff_check": "passed"
+  },
+  "runtime_identity": [
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-composer",
+      "sha256": "62b61151516195d6a434ce8c37d7df35fc16ecea9eb018b545e3081112e2f7a5"
+    },
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-follower",
+      "sha256": "c89dd2ed6eaa4f6202d710bb192a98aceb0091fa881a3c26348f0560ae30261c"
+    },
+    {
+      "path": "artifacts/consecutive-skips-20260928/releases/candidate/eez-proof-signer",
+      "sha256": "400bbfb016c3c1f54be17f986ac117919633dc87fec01d60778c1dd8b6cf24a5"
+    }
+  ],
+  "harnesses": {
+    "baseline": {
+      "path": "artifacts/pr42-ci-fix-20260929/baseline/settlement_policy",
+      "sha256": "42d30abc7ea1c3f1a35ef3f7dea7f3ccb312ee5899ddd633738bc99dc0e8c498"
+    },
+    "candidate": {
+      "path": "artifacts/pr42-ci-fix-20260929/candidate/settlement_policy",
+      "sha256": "b8c427a4581f561fe1da1e3f1411a846cd5f8574d3452bed05ab7196cae99dd4"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/baseline/test.log",
+      "sha256": "caa86db7bc1d0b321fae537c5f5894bac6a478279d6cff69fdbbef0828096940",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/candidate/test.log",
+      "sha256": "5c20c224057355dd6df526e52fcd6c702b87d38cbc1767a2185bdb9c8012a190",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/baseline-format.log",
+      "sha256": "dfa470411e00a12996ee943645f9ebb1f5fb89cfbb50362ab5d5e4c3be25fd02",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/candidate-format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/clippy.log",
+      "sha256": "f7771f81431ba23a4bec141ff837c7e1f89ee71d7f90228c9d5f5aafc27c4a57",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/ci/109077884681.log",
+      "sha256": "3ab73a1febdd9d58eee7ce3aa9f7bce218d732f28f50ca0550fdb974a1cc56b1",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/ci/109097456721.log",
+      "sha256": "732c8ba6956791fb4f76cd3ea5dd4c2de4125258397695e6e7bd4251c2a6bffc",
+      "availability": "local-only, ignored by Git"
+    },
+    {
+      "path": "artifacts/pr42-ci-fix-20260929/ci/109097456819.log",
+      "sha256": "446bb5f308daf0bd2c53b7569da8cb58cc5c5a290aa05aef11d23d0165b01a6b",
+      "availability": "local-only, ignored by Git"
+    }
+  ],
+  "test_patch_sha256": "cb6476c4e29ccef347891bcac5435449bb81862b6b91def2ba648a1a883d68d9"
+}

@@ -2471,35 +2471,45 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         .timestamp;
     // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
     // actual empty Sync construction, never assume height % K == 0.
-    let signals = world.node.signals_since(0).unwrap();
     // Recovery may finish in Steady mode once it reaches a usable future slot.
     // Prove that a missing historical boundary was rebuilt after the outage,
-    // rather than requiring a structural-only Catchup terminal.
-    let rebuilt_timestamp = world
-        .node
-        .signals_since(recovery_cursor)
-        .unwrap()
-        .iter()
-        .filter(|event| event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Empty")
-        .filter_map(|event| event.fields["timestamp"].as_u64())
-        .find(|timestamp| *timestamp > stalled_l2_timestamp && *timestamp <= recovery_l1_timestamp)
-        .unwrap_or_else(|| panic!(
-            "RPC recovery did not rebuild a missing historical Sync boundary in ({stalled_l2_timestamp}, {recovery_l1_timestamp}]{}",
-            world.settlement_diagnostics(),
-        ));
-    let rebuilt_number = (rebuilt_timestamp - genesis) / l2_seconds;
-    let rebuilt = l2
-        .get_block_by_number(rebuilt_number.into())
-        .full()
-        .await
-        .unwrap()
-        .unwrap();
+    // rather than requiring a structural-only Catchup terminal. Cached retry
+    // slots can already satisfy the receipt/height waits before RPC recovers;
+    // wait for this recovery event and its committed block explicitly.
+    let (rebuilt_timestamp, rebuilt) = wait_for(TIMEOUT, || async {
+        let rebuilt_timestamp = world
+            .node
+            .signals_since(recovery_cursor)?
+            .iter()
+            .filter(|event| {
+                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Empty"
+            })
+            .filter_map(|event| event.fields["timestamp"].as_u64())
+            .find(|timestamp| *timestamp > stalled_l2_timestamp && *timestamp <= recovery_l1_timestamp);
+        let Some(timestamp) = rebuilt_timestamp else {
+            return Ok(None);
+        };
+        let number = (timestamp - genesis) / l2_seconds;
+        Ok(l2
+            .get_block_by_number(number.into())
+            .full()
+            .await?
+            .map(|block| (timestamp, block)))
+    })
+    .await
+    .unwrap_or_else(|error| panic!(
+        "RPC recovery did not rebuild a missing historical Sync boundary in ({stalled_l2_timestamp}, {recovery_l1_timestamp}]: {error:#}{}",
+        world.settlement_diagnostics(),
+    ));
     assert_eq!(rebuilt.header.timestamp, rebuilt_timestamp);
     assert!(
         rebuilt.transactions.is_empty(),
         "recovered Sync boundary must be empty on the canonical L2"
     );
-    let boundaries = signals
+    let boundaries = world
+        .node
+        .signals_since(0)
+        .unwrap()
         .into_iter()
         .filter(|event| event.name == "eez.composer.sync_slot.invoked")
         .map(|event| (event.fields["timestamp"].as_u64().unwrap() - genesis) / l2_seconds)
