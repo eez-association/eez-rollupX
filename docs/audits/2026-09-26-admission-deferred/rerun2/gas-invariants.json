@@ -1,0 +1,12 @@
+{
+  "canonical_postings": 27,
+  "canonical_sources": 870,
+  "native_postbatch_used_equals_receipt": 27,
+  "canonical_postbatch_required_fits_signed_limit": 27,
+  "admission_estimate_covers_native_required": 27,
+  "native_inbound_companion_used_equals_canonical_source_receipt": 520,
+  "inbound_companion_required_fits_declared_limit": 520,
+  "indexer_inbound_source_receipt_gas_missing": 50,
+  "cutoff_counts_match": true,
+  "source_postbatch_gas_allocation_claimed": false
+}

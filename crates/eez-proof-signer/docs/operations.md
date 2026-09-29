@@ -51,6 +51,15 @@ canonical status code without parsing its message.
 
 ## Deadlines and shutdown
 
+Before opening the RPC listener, the daemon initializes the default KZG tables
+used by the blob codec. Allow this initialization in startup/readiness timeouts;
+`eez.signer.kzg.ready` records its duration as `initialization_ms`. It runs once
+per process in an awaited blocking worker and does not submit a calibration
+batch or skip proof validation. Initialization failure prevents readiness.
+The existing request deadlines and graceful shutdown rules begin after serving.
+Composer and signer upgrades can be ordered independently; an older signer
+still pays this setup cost during its first request after restart.
+
 The idle timeout covers each wait for the next chunk or EOF. The absolute
 request deadline covers ingestion through signing. Both are checked for
 monotonic-clock overflow at startup.

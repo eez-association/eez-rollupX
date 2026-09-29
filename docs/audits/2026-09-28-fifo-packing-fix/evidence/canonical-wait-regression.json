@@ -1,0 +1,58 @@
+{
+  "runtime_source": "ca370742920852ad1105df4e40d70625d8749145",
+  "ci_run": 36411833402,
+  "ci_job": 108909273670,
+  "failure": "speculative outbound nonce observed before canonical L1 post; expected 1 post, observed 0",
+  "ci_assertion_at": "2026-09-28T11:42:41.237Z",
+  "ci_target_timestamp": "2026-09-28T11:42:43Z",
+  "local_unchanged_harness": [
+    {
+      "test": "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+      "status": "failed",
+      "exit_code": 101,
+      "duration_seconds": 41.437054778973106
+    }
+  ],
+  "fix": "wait for the exact canonical L1 post count together with the blocked-source and nonce conditions; original assertions retained",
+  "rebuilt_harness": {
+    "base_revision": "ca370742920852ad1105df4e40d70625d8749145",
+    "source_sha256": "9511626a2d0465f5e788477815495be500e0c224073bfe7855792db53910d234",
+    "patch_sha256": "e27f72e3a188131eab8cf4a8991666341991fc23086c8c8d3a9a858ea8c305e6",
+    "harness_sha256": "8526daa04a52359d9872723ede9ce6e15ccf7f6a2b0e38847ae85960612c6b2a",
+    "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test settlement_policy --no-run --message-format=json"
+  },
+  "fixed_cases": [
+    {
+      "test": "gnosis_blocked_outbound_balance_allows_independent_auto_work",
+      "status": "passed",
+      "duration_seconds": 57.40853374399012
+    },
+    {
+      "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+      "status": "passed",
+      "duration_seconds": 65.3754809150123
+    },
+    {
+      "test": "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+      "status": "passed",
+      "duration_seconds": 61.11387358902721
+    },
+    {
+      "test": "underfunded_companion_keeps_its_signed_bytes_until_external_funding_arrives",
+      "status": "passed",
+      "duration_seconds": 65.55605080997339
+    },
+    {
+      "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "status": "passed",
+      "duration_seconds": 56.342708175012376
+    },
+    {
+      "test": "underpriced_companion_keeps_its_nonce_until_the_user_authorizes_replacement",
+      "status": "passed",
+      "duration_seconds": 63.3201820430113
+    }
+  ],
+  "retries": 0,
+  "ci_job_log_sha256": "0cbbbf84d9a714cd017d9d125b235c0f998eec4ad78e5971cc11d8a6e328c5c2"
+}

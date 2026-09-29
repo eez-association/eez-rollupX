@@ -1,0 +1,128 @@
+[
+  {
+    "group": "basis",
+    "name": "bounded_protocol",
+    "sources": 520,
+    "estimate_gas": 146691338,
+    "receipt_gas": 73319028,
+    "estimate_receipt_ratio": 2.00072671448945,
+    "source_simulation_gas": 23035898,
+    "callback_simulation_gas": 10910940,
+    "protocol_reserve_gas": 112744500,
+    "basis_counts": {
+      "bounded_protocol": 520
+    }
+  },
+  {
+    "group": "family",
+    "name": "counter",
+    "sources": 100,
+    "estimate_gas": 21057100,
+    "receipt_gas": 13174400,
+    "estimate_receipt_ratio": 1.598334649016274,
+    "source_simulation_gas": 7044100,
+    "callback_simulation_gas": 0,
+    "protocol_reserve_gas": 14013000,
+    "basis_counts": {
+      "bounded_protocol": 100
+    }
+  },
+  {
+    "group": "family",
+    "name": "counter-multi-tx",
+    "sources": 150,
+    "estimate_gas": 30641550,
+    "receipt_gas": 16355334,
+    "estimate_receipt_ratio": 1.8734897128973336,
+    "source_simulation_gas": 7142050,
+    "callback_simulation_gas": 0,
+    "protocol_reserve_gas": 23499500,
+    "basis_counts": {
+      "bounded_protocol": 150
+    }
+  },
+  {
+    "group": "family",
+    "name": "multi-call-nested",
+    "sources": 50,
+    "estimate_gas": 31955006,
+    "receipt_gas": 11970356,
+    "estimate_receipt_ratio": 2.6695117505277204,
+    "source_simulation_gas": 1416406,
+    "callback_simulation_gas": 3482600,
+    "protocol_reserve_gas": 27056000,
+    "basis_counts": {
+      "bounded_protocol": 50
+    }
+  },
+  {
+    "group": "family",
+    "name": "multi-call-twice",
+    "sources": 50,
+    "estimate_gas": 17721652,
+    "receipt_gas": 6593952,
+    "estimate_receipt_ratio": 2.687561571573466,
+    "source_simulation_gas": 1268652,
+    "callback_simulation_gas": 0,
+    "protocol_reserve_gas": 16453000,
+    "basis_counts": {
+      "bounded_protocol": 50
+    }
+  },
+  {
+    "group": "family",
+    "name": "nestedCounter",
+    "sources": 50,
+    "estimate_gas": 11958800,
+    "receipt_gas": 6162600,
+    "estimate_receipt_ratio": 1.9405445753415766,
+    "source_simulation_gas": 1058000,
+    "callback_simulation_gas": 2168800,
+    "protocol_reserve_gas": 8732000,
+    "basis_counts": {
+      "bounded_protocol": 50
+    }
+  },
+  {
+    "group": "family",
+    "name": "reentrant",
+    "sources": 20,
+    "estimate_gas": 5997880,
+    "receipt_gas": 3325043,
+    "estimate_receipt_ratio": 1.8038503562209571,
+    "source_simulation_gas": 533940,
+    "callback_simulation_gas": 921940,
+    "protocol_reserve_gas": 4542000,
+    "basis_counts": {
+      "bounded_protocol": 20
+    }
+  },
+  {
+    "group": "family",
+    "name": "revertCounter",
+    "sources": 50,
+    "estimate_gas": 10717750,
+    "receipt_gas": 6966708,
+    "estimate_receipt_ratio": 1.5384238868630635,
+    "source_simulation_gas": 3514750,
+    "callback_simulation_gas": 0,
+    "protocol_reserve_gas": 7203000,
+    "basis_counts": {
+      "bounded_protocol": 50
+    }
+  },
+  {
+    "group": "family",
+    "name": "revertFromOtherChain",
+    "sources": 50,
+    "estimate_gas": 16641600,
+    "receipt_gas": 8770635,
+    "estimate_receipt_ratio": 1.8974224785320561,
+    "source_simulation_gas": 1058000,
+    "callback_simulation_gas": 4337600,
+    "protocol_reserve_gas": 11246000,
+    "basis_counts": {
+      "bounded_protocol": 50
+    }
+  }
+]

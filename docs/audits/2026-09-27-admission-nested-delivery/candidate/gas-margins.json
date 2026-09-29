@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-09-27T14:59:03.486266+00:00",
+  "source_revision": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+  "image_id": "sha256:c7c573ebae39468480cfc197e67bc55029709bfd925973b5aadc70e0b85d04dc",
+  "live_postbatch_gas_margin_bps": 500,
+  "code_default_postbatch_gas_margin_bps": 2000,
+  "fixed_admission_reserve_gas": 600000,
+  "source_postings": 25,
+  "sizing_gap_gas": {
+    "min": 25264,
+    "mean": 81816.96,
+    "max": 122808
+  },
+  "fixed_reserve_over_max_observed_gap": 4.885675200312683,
+  "signed_over_preflight_required": {
+    "min": 1.05,
+    "max": 1.0500003139036287
+  },
+  "postbatch_transaction_cap": 16777216,
+  "observed_planning_cap": 15378300,
+  "planning_formula": "floor(16777216 * 10000 / (10000 + 500)) - 600000",
+  "all_final_signed_limits_match_margin": true,
+  "hypothetical_200k_reserve": {
+    "extra_planning_gas": 400000,
+    "covers_observed_sizing_gaps": true,
+    "universal_bound_established": false
+  },
+  "recommendation": "Retain the deployed 5% final signing margin. Replace fixed admission overhead with candidate-dependent framing/proof/metadata sizing, preserving exact final execution and network caps. No margin or reserve change was deployed during this round.",
+  "all_completed_source_bundle_projection_attempts": 28,
+  "max_observed_entries": 59,
+  "max_observed_blobs": 2,
+  "all_canonical_sizing_gaps_equal_additional_calldata_gas": true
+}

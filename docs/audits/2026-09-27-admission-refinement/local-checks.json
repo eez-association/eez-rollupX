@@ -1,0 +1,60 @@
+{
+  "runtime_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+  "test_correction_revision": "2d64c7d",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "checks": {
+    "composer": {
+      "local_log": "artifacts/admission-refinement/composer-final.log",
+      "sha256": "099fc3264878e5e2455abec99b303ae3403bce6cf277095b5a071d9db031c9d2",
+      "results": [
+        "test result: ok. 264 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.18s"
+      ]
+    },
+    "indexer": {
+      "local_log": "artifacts/admission-refinement/indexer-final.log",
+      "sha256": "8a2a9bfe03b838df370adafaba540ac93db400f38a8cf9f738136f8cf7ed6745",
+      "results": [
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+        "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+        "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.71s",
+        "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+      ]
+    },
+    "workspace_clippy": {
+      "local_log": "artifacts/admission-refinement/clippy.log",
+      "sha256": "9947c98d89cf669bd45f27c84ced41e708262c0668a592def304f34574e57169",
+      "results": [
+        "Finished `dev` profile [optimized + debuginfo] target(s) in 10.91s"
+      ]
+    },
+    "workspace_clippy_test_correction": {
+      "local_log": "artifacts/admission-refinement/clippy-test-correction.log",
+      "sha256": "143e9d88539df7ac684afce794c8bfc4edf936b03a670dcac7c7ef0fd0c5ced8",
+      "results": [
+        "Finished `dev` profile [optimized + debuginfo] target(s) in 39.61s"
+      ]
+    },
+    "indexer_clippy": {
+      "local_log": "artifacts/admission-refinement/indexer-clippy.log",
+      "sha256": "02b940cb02ddf0282d0620eb3a4d624047e117dffcf6828d326d156cda3c2218",
+      "results": [
+        "Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.43s"
+      ]
+    },
+    "contracts": {
+      "local_log": "artifacts/admission-refinement/contracts-all.log",
+      "sha256": "da8f57471b43223abc8b64a9a65596db80018d311ea66a4860d20f5a318655c0",
+      "results": [
+        "Ran 10 test suites in 1.14s (2.66s CPU time): 69 tests passed, 0 failed, 0 skipped (69 total tests)"
+      ]
+    }
+  }
+}

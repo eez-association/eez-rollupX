@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-09-27T14:17:07.878528+00:00",
+  "images": [
+    {
+      "image": "eez-node:aa515c8-shipping-local",
+      "image_id": "sha256:c7c573ebae39468480cfc197e67bc55029709bfd925973b5aadc70e0b85d04dc",
+      "source": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "73c6d7908f7c00b79c572978ef134d5c1565b5d1a226a3c5dcb52fc5f5a44497  /usr/local/bin/eez-composer",
+        "f6919c2445718d5a7143f9b6444a64d08e98740a8c00981aa05333dd9c0d6a3f  /usr/local/bin/eez-follower",
+        "498f59d0c5ae5b5aad35bfb1de8f85857a205fd6014083206ea7da36c4d3f93f  /usr/local/bin/eez-genesis-state-root",
+        "0eb6d3fb9bfcf6451cc5d12bb402370a0b375e8f69cbddac229004fdab3c3b13  /usr/local/bin/eez-genesis-block-hash"
+      ]
+    },
+    {
+      "image": "eez-proof-signer:aa515c8-shipping-local",
+      "image_id": "sha256:a2bb938c1f51007fd31782b2a8543e41543875a248b1e1c09635da72e7ccdf14",
+      "source": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "c84a2fe6454fe95a10f67414b297720c646bc05db6c679c4779192a359de2e68  /usr/local/bin/eez-proof-signer"
+      ]
+    },
+    {
+      "image": "eez-deploy:aa515c8-shipping-local",
+      "image_id": "sha256:5f96a946052700391249821daecdc926148eb1caa28f3f0ad4d3431b5c86d4fe",
+      "source": "aa515c8720f7943df2d9d0ec147e2252ace1a21f",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64"
+    }
+  ],
+  "original_genesis_matches": {
+    "eez-genesis-block-hash": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+    "eez-genesis-state-root": "0x6b5837ca86d97b30ee9e3b69fb1c7ad29c64a3f97861ad2b240de7931dbe1dad"
+  }
+}

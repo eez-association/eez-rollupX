@@ -1,0 +1,52 @@
+[
+  {
+    "path": "target/debug/eez-composer",
+    "size_bytes": 742768816,
+    "sha256": "ba71febdf42e8f7f078f6d98e3bf7bc0647654c410fb3af41c4c1da42cbc0827"
+  },
+  {
+    "path": "target/debug/eez-follower",
+    "size_bytes": 632851488,
+    "sha256": "b66a7a99f1919297e300e7c24373e7d478f483bbe74b84c0c822df2f4bfdcd54"
+  },
+  {
+    "path": "target/debug/eez-proof-signer",
+    "size_bytes": 455558912,
+    "sha256": "bc02742d632c1bdeac5a57ccbb0f67971e85e8f84c6e4f79cd6d18a27b599dc5"
+  },
+  {
+    "path": "target/debug/deps/dynamic_admission-6915341cab43fd8e",
+    "size_bytes": 453226440,
+    "sha256": "43a292cd01b61440cc28592a03795d3aa5dc13ccd08052b7abc9cba2e30428a7"
+  },
+  {
+    "path": "target/debug/deps/partial_consumption-19b71bfaefd0d7bb",
+    "size_bytes": 452817968,
+    "sha256": "af5a3afab1b8eebfce8a7372a27cac4339ec894b861b57f7401d9beb20e4bdcd"
+  },
+  {
+    "path": "target/debug/deps/queue_liveness-4ea62ef70cb6cfab",
+    "size_bytes": 452374720,
+    "sha256": "8994f1138cc0edafc931bb78563d414ce2acc318b9431c989bd3dce391c4d4a7"
+  },
+  {
+    "path": "target/debug/deps/queue_reorg-4369b235ad4982f1",
+    "size_bytes": 452340672,
+    "sha256": "43bf061dae6d42039bd3c90c77b828c5f58c61c98d74348072250cd4cd3b5270"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy-9661580098b414ac",
+    "size_bytes": 457182056,
+    "sha256": "7872d5ebff21c0acd8bede0e1d5b0d24bc6e22b682f7b0faad60a3fc4a82d72b"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_cost-3580eea3e39b4668",
+    "size_bytes": 452892576,
+    "sha256": "573d7b4ccb8439c385549e74d5625941140e761c0235578f60b5bc564266cbda"
+  },
+  {
+    "path": "target/debug/deps/settlement_policy_gas-867cb4f57bea1329",
+    "size_bytes": 452636200,
+    "sha256": "731cd5dc4ce3e4ebe78605994516559ce1999f15470ebbf017bfac5a049d3e44"
+  }
+]

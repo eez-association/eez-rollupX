@@ -1,0 +1,33 @@
+{
+  "baseline_source": "7c90266a5fe8cfdb46b249c61079badc2dce71a3",
+  "candidate_source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+  "source_count_each": 870,
+  "semantic_jobs_passed_each": 770,
+  "throughput_change_percent": 19.998569700292634,
+  "source_window_change_percent": -16.66567339114198,
+  "posting_count_change_percent": -9.999999999999998,
+  "postbatch_receipt_gas_change_percent": 1.35107987685108,
+  "candidate_first_post_sources": 29,
+  "candidate_largest_post_sources": 62,
+  "canonical_stop_reasons": {
+    "pipeline_time": 4,
+    "l1_tx_gas_budget": 13,
+    "selection_or_queue_exhausted": 8,
+    "l1_bundle_gas_budget": 2
+  },
+  "cohorts_per_revision": 1,
+  "live_independent_follower_replay": false,
+  "native_independent_follower_replay": true,
+  "observed_l1_block_gas_limits": {
+    "baseline": {
+      "minimum": 17016600,
+      "maximum": 17436843,
+      "median": 17208630.5
+    },
+    "candidate": {
+      "minimum": 17521957,
+      "maximum": 17919685,
+      "median": 17711052
+    }
+  }
+}

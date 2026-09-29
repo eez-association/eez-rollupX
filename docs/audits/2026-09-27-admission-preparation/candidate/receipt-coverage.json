@@ -1,0 +1,8 @@
+{
+  "canonical_sources": 870,
+  "inbound_companions": 520,
+  "enriched_receipts": 520,
+  "all_enriched_gas_matches_independent_canonical_receipts": true,
+  "all_outer_receipts_successful": true,
+  "limits": "Outer receipt success is not semantic success; the separate full workload verification establishes its asserted effects."
+}

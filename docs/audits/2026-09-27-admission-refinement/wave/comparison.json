@@ -1,0 +1,82 @@
+{
+  "baseline": {
+    "runtime_revision": "e5b2cde65c9166ceae87bd4ee723820ed63ea5f6",
+    "sources": 870,
+    "canonical_postbatches": 28,
+    "send_plus_monitor_seconds": 166.54,
+    "sources_per_second": 5.223970217365197,
+    "sources_per_postbatch": 31.071428571428573,
+    "preparation_median_ms": 483.0,
+    "preparation_max_ms": 744.0,
+    "skipped_slots": 2,
+    "produced_blocks_without_wave_post": 2,
+    "postbatch_admission_receipt_ratio": 1.476523374063441,
+    "postbatch_receipt_gas": 176867771,
+    "postbatch_estimate_gas": 261149398,
+    "source_estimate_events": 8768,
+    "source_capacity_check_events": 0,
+    "source_attempt_rows": 8771,
+    "gas_refusals_with_full_simulation": 7672,
+    "cutoffs": {
+      "pipeline_time": 3,
+      "submission_backoff": 2,
+      "l1_tx_gas_budget": 5,
+      "l1_bundle_gas_budget": 17,
+      "snapshot_exhausted": 1
+    },
+    "preflight_receipt_max_abs_difference": 0,
+    "fifo_count_cutoffs": 0,
+    "cold_timing_probes": 0,
+    "nominal_preparation_overruns": 0,
+    "companion_estimate_gas": 168392914,
+    "companion_receipt_gas": 73277802,
+    "companion_estimate_receipt_ratio": 2.298007164570793,
+    "multicall_ratios": {
+      "multi-call-nested": 3.117785803529987,
+      "multi-call-twice": 3.027122528483781
+    }
+  },
+  "candidate": {
+    "runtime_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+    "sources": 870,
+    "canonical_postbatches": 26,
+    "send_plus_monitor_seconds": 152.93,
+    "sources_per_second": 5.688877264107761,
+    "sources_per_postbatch": 33.46153846153846,
+    "preparation_median_ms": 456.0,
+    "preparation_max_ms": 673.0,
+    "skipped_slots": 3,
+    "produced_blocks_without_wave_post": 2,
+    "postbatch_admission_receipt_ratio": 1.3481421162700338,
+    "postbatch_receipt_gas": 176047373,
+    "postbatch_estimate_gas": 237336878,
+    "source_estimate_events": 2406,
+    "source_capacity_check_events": 6601,
+    "source_attempt_rows": 9007,
+    "gas_refusals_with_full_simulation": 1360,
+    "cutoffs": {
+      "pipeline_time": 2,
+      "l1_tx_gas_budget": 5,
+      "l1_bundle_gas_budget": 16,
+      "submission_backoff": 2,
+      "snapshot_exhausted": 1
+    },
+    "preflight_receipt_max_abs_difference": 0,
+    "fifo_count_cutoffs": 0,
+    "cold_timing_probes": 0,
+    "nominal_preparation_overruns": 0,
+    "companion_estimate_gas": 144838010,
+    "companion_receipt_gas": 73277898,
+    "companion_estimate_receipt_ratio": 1.9765579247374154,
+    "multicall_ratios": {
+      "multi-call-nested": 2.6695050559697067,
+      "multi-call-twice": 2.6120319515873276
+    }
+  },
+  "limits": [
+    "One historical baseline and one candidate live wave; not randomized or repeated A/B runs.",
+    "Mutable history/storage, fees, available slots and block gas limits differ.",
+    "Refundable prefunding changed from 0.0035 to 0.0033 xDAI; other workload settings identical.",
+    "Full 870-source live independent follower replay was not run; native suites include independent replay."
+  ]
+}

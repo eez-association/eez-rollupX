@@ -1,0 +1,119 @@
+{
+  "checked_at": "2026-09-27T12:42:13.726602+00:00",
+  "baseline_runtime": "6c171fdb3221a6d6183e113e9d05e4c7f657099b",
+  "candidate_runtime": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "comparison": {
+    "canonical_sources": [
+      870,
+      870
+    ],
+    "source_bearing_postings": [
+      28,
+      24
+    ],
+    "source_window_seconds": [
+      206.023,
+      178.474
+    ],
+    "sources_per_second": [
+      4.22282948991132,
+      4.874659614285554
+    ],
+    "throughput_increase_fraction": 0.15435861806201467,
+    "elapsed_decrease_fraction": 0.13371808002019192,
+    "companion_estimate_receipt_ratio": [
+      2.00072671448945,
+      1.827741987807618
+    ],
+    "total_canonical_postings_during_measured_interval": [
+      28,
+      25
+    ]
+  },
+  "candidate_attempts": {
+    "historical_prefix_selected": 2,
+    "canonical_cross_chain": 24,
+    "submitted_cross_chain_omitted": 4,
+    "source_fee_wait": 3,
+    "skipped_slot": 3
+  },
+  "window_total_canonical_postings": 25,
+  "history_only_canonical_postings": 1,
+  "history_only_gas": 109117,
+  "history_reason": "Two-blob capacity of unsettled ordinary predecessor data; first submission omitted, second canonical. No calibration warmup.",
+  "confirmed_failure_observations": [
+    {
+      "timestamp": "2026-09-27T12:30:01.151839Z",
+      "rollup_id": 1,
+      "submitted_groups": 36,
+      "consecutive_failures": 1,
+      "backoff_threshold": 5
+    },
+    {
+      "timestamp": "2026-09-27T12:30:16.151049Z",
+      "rollup_id": 1,
+      "submitted_groups": 51,
+      "consecutive_failures": 1,
+      "backoff_threshold": 5
+    },
+    {
+      "timestamp": "2026-09-27T12:31:26.170042Z",
+      "rollup_id": 1,
+      "submitted_groups": 16,
+      "consecutive_failures": 1,
+      "backoff_threshold": 5
+    },
+    {
+      "timestamp": "2026-09-27T12:32:36.168826Z",
+      "rollup_id": 1,
+      "submitted_groups": 28,
+      "consecutive_failures": 1,
+      "backoff_threshold": 5
+    }
+  ],
+  "max_observed_submission_failure_streak": 1,
+  "backoff_reductions": 0,
+  "source_fee_waits": [
+    {
+      "target_block": 23254130,
+      "queued": 421,
+      "remaining_inbound_sources": 421,
+      "source_max_fee_per_gas_wei": 15,
+      "target_base_fee_per_gas_wei": 16
+    },
+    {
+      "target_block": 23254140,
+      "queued": 187,
+      "remaining_inbound_sources": 187,
+      "source_max_fee_per_gas_wei": 15,
+      "target_base_fee_per_gas_wei": 16
+    },
+    {
+      "target_block": 23254143,
+      "queued": 120,
+      "remaining_inbound_sources": 120,
+      "source_max_fee_per_gas_wei": 15,
+      "target_base_fee_per_gas_wei": 16
+    }
+  ],
+  "canonical_cutoffs": {
+    "l1_tx_gas_budget": 9,
+    "l1_bundle_gas_budget": 14,
+    "snapshot_exhausted": 1
+  },
+  "canonical_mean_preparation_ms": 392.6846160416667,
+  "runtime_log_sha256": "e2fd3a49ba4c203cc63673cb53f4a04d4d881255d0799cae268ac928bf378c70",
+  "limits": [
+    "One live wave per revision, identical workload/build/concurrency but different source arrival order, chain state, gas limits, fee conditions and slot production. Do not attribute the entire elapsed change to code.",
+    "The generic target classifier lists both historical-prefix candidates as produced_without_candidate; refined classification joins posting lifecycle and canonical receipts.",
+    "Four isolated canonical incomplete source settlements occurred; controlled native tests establish fifth and sixth failure boundaries.",
+    "Full-wave independent follower replay is not performed; native process tests include independent replay."
+  ],
+  "individual_companion_estimate_receipt_ratio": {
+    "count": 520,
+    "min": 1.0834724921059025,
+    "max": 3.5917045799211404,
+    "below_receipt": 0
+  }
+}

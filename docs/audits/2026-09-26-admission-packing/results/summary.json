@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-09-26T23:45:56.913785+00:00",
+  "cohort_basis": "candidates that examined at least one of the 870 fresh wave sources",
+  "attempted_sources": 870,
+  "canonical_sources": 870,
+  "all_candidates": 33,
+  "canonical_candidates": 28,
+  "candidates_in_send_to_last_settlement_window": 33,
+  "window_candidates_without_wave_source_events": [],
+  "all_sequences_complete": true,
+  "source_attempt_rows": 8771,
+  "unique_wave_sources_with_estimates": 870,
+  "source_decisions_across_attempts": {
+    "Accepted": 1093,
+    "Gas deferred": 7672,
+    "pipeline_time": 3,
+    "Not accepted after gas check": 3
+  },
+  "estimate_reasons_canonical_entries": {
+    "immediate_evidence_unavailable": 300,
+    "deferred_storage": 653,
+    "immediate_registered": 50,
+    "general_reserve_lower": 17
+  },
+  "batch_discount_revoked_canonical_sources": 0,
+  "cold_timing_probes": 0,
+  "gas": {
+    "admission_gas": 261149398,
+    "full_projection_gas": 263224214,
+    "preflight_gas_used": 176867771,
+    "preflight_gas_required": 181504571,
+    "signed_gas_limit": 190579815,
+    "canonical_receipt_gas": 176867771
+  },
+  "admission_receipt_ratio": 1.476523374063441,
+  "admission_required_ratio": 1.438803422752367,
+  "preflight_receipt_max_abs_difference": 0,
+  "preflight_required_fits_signed_limits": true,
+  "nominal_preparation_overruns": 0
+}

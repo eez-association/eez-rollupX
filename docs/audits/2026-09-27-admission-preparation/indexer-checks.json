@@ -1,0 +1,108 @@
+[
+  {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "fmt",
+      "--manifest-path",
+      "monitoring/indexer/Cargo.toml",
+      "--check"
+    ],
+    "started_at": "2026-09-27T10:29:28.383604+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:29:28.604243+00:00",
+    "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "test_results": []
+  },
+  {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "clippy",
+      "--locked",
+      "--manifest-path",
+      "monitoring/indexer/Cargo.toml",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "started_at": "2026-09-27T10:29:28.604459+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:29:29.862933+00:00",
+    "log_sha256": "41896ad70287c37315ff6df2a6a86c9f43fa7bf2a08de505497aa86de8e71f4b",
+    "test_results": []
+  },
+  {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "--manifest-path",
+      "monitoring/indexer/Cargo.toml"
+    ],
+    "started_at": "2026-09-27T10:29:29.863191+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:29:34.617750+00:00",
+    "log_sha256": "f31b1b5567bccf17a6ee6ffe278625c77d752c61b3f877a840bbc7559a06b1c6",
+    "test_results": [
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s",
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+      "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+      "test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s",
+      "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+      "test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.21s",
+      "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+    ]
+  },
+  {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "--manifest-path",
+      "monitoring/indexer/Cargo.toml",
+      "--test",
+      "admission",
+      "--",
+      "--ignored",
+      "--test-threads=1"
+    ],
+    "started_at": "2026-09-27T10:29:34.618025+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:29:34.923667+00:00",
+    "log_sha256": "cf1417826390b6e99f1a4d7a095ebfa71285497eb37ff74244ef675631964fdb",
+    "test_results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.16s"
+    ]
+  },
+  {
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "--manifest-path",
+      "monitoring/indexer/Cargo.toml",
+      "--test",
+      "recovery",
+      "--",
+      "--ignored",
+      "--test-threads=1"
+    ],
+    "started_at": "2026-09-27T10:29:34.923961+00:00",
+    "exit_code": 0,
+    "finished_at": "2026-09-27T10:29:35.316925+00:00",
+    "log_sha256": "e56df55c67e9a9daa9a2dca76abe85efac2cdfe6bddaca6962b3ac65cf978993",
+    "test_results": [
+      "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.25s"
+    ]
+  }
+]

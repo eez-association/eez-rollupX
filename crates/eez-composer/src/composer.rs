@@ -45,8 +45,9 @@ use tracing::{Level, event};
 use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
-    BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession, build::SyncBlockState,
-    build_sync_block, sync_block_hashes_at_positions,
+    BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
+    build::{SyncBlockState, SyncPrefixHashes},
+    build_sync_block,
 };
 use crate::optimistic::AttemptId;
 use crate::optimistic::OptimisticallyIncluded;
@@ -164,6 +165,7 @@ pub struct CrossChainWiring {
 type SlotSessions =
     HashMap<eez_protocol::RollupId, Box<dyn eez_protocol::TargetExecutionSession + Send>>;
 
+#[derive(Clone, Copy)]
 struct CompositionGas {
     source: u64,
     l1_target: u64,
@@ -343,9 +345,11 @@ impl std::fmt::Debug for CrossChainWiring {
     }
 }
 
-/// Failed settlement attempts before a held user_tx is evicted as probable
-/// poison. This covers both relay drops and proof requests that still fail
-/// after their retry episode. After this many failures, the transaction and
+/// Failed prover/immediate relay rejection episodes before a held user_tx is
+/// evicted as probable poison. Automatic admission's canonical settlement
+/// failures use `MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS` so a reduced retry can follow
+/// the fifth exclusion. Both paths charge the same cumulative source counter.
+/// After the applicable bound is reached, the transaction and
 /// its nonce-dependent suffix are evicted so they cannot block the FIFO queue
 /// indefinitely.
 ///
@@ -357,15 +361,13 @@ impl std::fmt::Debug for CrossChainWiring {
 /// bundle's inclusion block.
 pub const MAX_BUNDLE_ATTEMPTS: u32 = 3;
 
+pub(crate) const SUBMISSION_BACKOFF_THRESHOLD: u32 = 5;
+
 /// Stand-in for `proofs[0]` when sizing before the prover runs (ECDSA is 65 B).
 const MAX_PROOF_BYTES: usize = 128;
 
 #[cfg(test)]
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
-
-/// The final check prices ABI framing, proof and root metadata the drain cannot
-/// see, so the drain must stop earlier. Observed framing gap: 230k.
-const POSTBATCH_DRAIN_MARGIN: u64 = 600_000;
 
 /// Execution for a batch with just the leading immediate entry, calldata aside.
 /// Measured 139k, 10% slack; pinned by `contracts/test/PostBatchGasPins.t.sol`.
@@ -376,8 +378,9 @@ const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
 const POSTBATCH_ENTRY_GAS_PIN: u64 = 370_000;
 
 #[cfg(test)]
-const MIN_VIABLE_POSTBATCH_GAS: u64 =
-    projected_postbatch_gas(2, 0, 0).saturating_add(POSTBATCH_DRAIN_MARGIN);
+fn minimum_viable_postbatch_gas() -> u64 {
+    projected_postbatch_gas(2, 0, 0).saturating_add(gas::framing::base(64))
+}
 
 /// EIP-7623 calldata floor — below it the tx is invalid and dies at simulation.
 fn calldata_floor_gas(calldata: &[u8]) -> u64 {
@@ -404,14 +407,19 @@ const fn projected_postbatch_gas(entry_count: u64, calldata_gas: u64, target_gas
 }
 
 /// What one accepted held tx adds to the postBatch projection, per term.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct TxL1Gas {
+    estimate_reasons: gas::EstimateReasons,
     /// `batch.entries` rows it contributes, each costing [`POSTBATCH_ENTRY_GAS_PIN`].
     entries: u64,
     /// Saving justified by a bounded entry shape and canonical-parent evidence.
     entry_discount: u64,
     /// Standard-rate gas for every byte it puts in the postBatch calldata.
     calldata_gas: u64,
+    /// Additional final calldata: root/hash rewrites and enclosing entry offsets.
+    framing_gas: u64,
+    /// Static entries make the final execution projection use general pins.
+    general: bool,
     /// Probed cost of the target call EEZ.sol runs inline (outbound only).
     target_gas: u64,
 }
@@ -437,12 +445,18 @@ fn projected_tx_l1_gas(
 ) -> TxL1Gas {
     use alloy_sol_types::SolValue as _;
     TxL1Gas {
+        estimate_reasons: gas::EstimateReasons::unavailable(batch_entries.len() as u64),
         entries: batch_entries.len() as u64,
         entry_discount: 0,
         calldata_gas: batch_entries
             .iter()
             .map(|entry| calldata_gas(&entry.abi_encode()))
             .fold(0, u64::saturating_add),
+        framing_gas: batch_entries
+            .iter()
+            .map(gas::framing::mutable)
+            .fold(0, u64::saturating_add),
+        general: false,
         target_gas,
     }
 }
@@ -452,10 +466,18 @@ fn projected_tx_l1_gas(
 /// bundle execution establishes actual gas consumption and complete effects.
 #[derive(Debug, Clone, Copy)]
 struct PostBatchGasBudget {
+    /// Maximum complete pre-margin estimate, including framing and any floor.
     cap: u64,
     /// Running total, seeded with the leading immediate entry every postBatch
     /// carries. The projection is linear, so costs just add.
     projected: u64,
+    calldata_gas: u64,
+    framing_gas: u64,
+    floor_active: bool,
+    general: bool,
+    /// The shaped projection does not charge a generic entry for the anchor.
+    /// Restore it if a static pool forces final sizing onto general pins.
+    anchor_discount: u64,
     entries: u64,
     entry_discount: u64,
     block_cap: u64,
@@ -468,10 +490,20 @@ struct PostBatchGasBudget {
 }
 
 impl PostBatchGasBudget {
+    #[cfg(test)]
     fn new(max_gas: u64) -> Self {
+        Self::with_calldata_limits(max_gas, 64, true)
+    }
+
+    fn with_calldata_limits(max_gas: u64, maximum_blobs: usize, floor_active: bool) -> Self {
         Self {
-            cap: max_gas.saturating_sub(POSTBATCH_DRAIN_MARGIN),
+            cap: max_gas,
             projected: projected_postbatch_gas(1, 0, 0),
+            calldata_gas: 0,
+            framing_gas: gas::framing::base(maximum_blobs),
+            floor_active,
+            general: maximum_blobs > 64,
+            anchor_discount: 0,
             entries: 0,
             entry_discount: 0,
             block_cap: u64::MAX,
@@ -482,10 +514,70 @@ impl PostBatchGasBudget {
         }
     }
 
+    fn use_projection(&mut self, initial_gas: u64) {
+        self.projected = if self.general {
+            initial_gas.saturating_add(POSTBATCH_ENTRY_GAS_PIN)
+        } else {
+            self.anchor_discount = POSTBATCH_ENTRY_GAS_PIN;
+            initial_gas
+        };
+    }
+
+    fn full_estimate(&self) -> u64 {
+        let standard = self.projected.saturating_add(self.framing_gas);
+        if self.floor_active {
+            standard.max(gas::framing::floor(
+                self.calldata_gas.saturating_add(self.framing_gas),
+            ))
+        } else {
+            standard
+        }
+    }
+
     /// Charge `cost` if it fits. `false` leaves the projection untouched, so the
-    /// caller can defer this tx and stop draining.
+    /// caller can retain this group and try another independent source.
     fn try_accept(&mut self, cost: TxL1Gas) -> bool {
         self.try_accept_with_companion(cost, 0, 0)
+    }
+
+    /// Establish a nonfit in the admission model without source execution using
+    /// its least expensive shapes and zero new companion consumption. Valid
+    /// inbound composition contains mutable or static entries (finalize rejects
+    /// empty calls). Static-only sources need no mutable entry, but force general
+    /// execution pins, so both possibilities must fail before skipping execution.
+    /// Use the same admission arithmetic, including discount revocation
+    /// and each signed transaction's start envelope; never cache a simulated
+    /// price across changed parents or accepted prefixes.
+    fn minimum_rejection(&self, inbound: bool, declared: u64) -> Option<&'static str> {
+        if self.entries == 0 {
+            return None;
+        }
+        let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
+            entries: 1,
+            entry_discount: POSTBATCH_ENTRY_GAS_PIN - gas::minimum_entry_gas(!inbound),
+            calldata_gas: 0,
+            target_gas: 0,
+            ..Default::default()
+        };
+        let mut next = *self;
+        if next.try_accept_with_companion(cost, if inbound { declared } else { 0 }, 0) {
+            return None;
+        }
+        if inbound {
+            let mut static_only = *self;
+            if static_only.try_accept_with_companion(
+                TxL1Gas {
+                    general: true,
+                    ..Default::default()
+                },
+                declared,
+                0,
+            ) {
+                return None;
+            }
+        }
+        next.rejected_constraint
     }
 
     /// Previous queue storage is temporary work, not evidence that a source
@@ -513,7 +605,8 @@ impl PostBatchGasBudget {
         estimated_companion_gas: u64,
     ) -> bool {
         let entries = self.entries.saturating_add(cost.entries);
-        let discount = if entries < gas::MAX_SHAPED_ENTRIES {
+        let general = self.general || cost.general;
+        let discount = if !general && entries < gas::MAX_SHAPED_ENTRIES {
             self.entry_discount.saturating_add(cost.entry_discount)
         } else {
             0
@@ -526,6 +619,7 @@ impl PostBatchGasBudget {
             .and_then(|gas| gas.checked_add(cost.target_gas))
             .and_then(|gas| gas.checked_add(self.entry_discount))
             .and_then(|gas| gas.checked_add(self.projected))
+            .and_then(|gas| gas.checked_add(if general { self.anchor_discount } else { 0 }))
             .and_then(|gas| gas.checked_sub(discount));
         let Some(next) = next else {
             self.rejected_constraint = Some("l1_tx_gas_budget");
@@ -536,16 +630,21 @@ impl PostBatchGasBudget {
             return false;
         };
         let required = required.max(self.companion_required_gas);
-        if next > self.cap
+        let mut next_budget = *self;
+        next_budget.projected = next;
+        next_budget.framing_gas = self.framing_gas.saturating_add(cost.framing_gas);
+        next_budget.calldata_gas = self.calldata_gas.saturating_add(cost.calldata_gas);
+        let full_estimate = next_budget.full_estimate();
+        if full_estimate == u64::MAX
+            || full_estimate > self.cap
             || declared_companion_gas > self.transaction_cap
             || estimated_companion_gas > declared_companion_gas
         {
             self.rejected_constraint = Some("l1_tx_gas_budget");
             return false;
         }
-        if next
-            .checked_add(POSTBATCH_DRAIN_MARGIN)
-            .and_then(|gas| gas.checked_add(required))
+        if full_estimate
+            .checked_add(required)
             .is_none_or(|gas| gas > self.block_cap)
         {
             self.rejected_constraint = Some("l1_bundle_gas_budget");
@@ -553,6 +652,12 @@ impl PostBatchGasBudget {
         }
         self.rejected_constraint = None;
         self.projected = next;
+        self.calldata_gas = next_budget.calldata_gas;
+        self.framing_gas = next_budget.framing_gas;
+        self.general = general;
+        if general {
+            self.anchor_discount = 0;
+        }
         self.entries = entries;
         self.entry_discount = discount;
         // estimated <= declared, whose addition was checked above.
@@ -565,18 +670,53 @@ impl PostBatchGasBudget {
 #[allow(clippy::too_many_arguments)]
 fn trace_admission_budget(
     config: Option<&gas_trace::Config>,
+    candidate: &crate::admission_events::Candidate,
     source_hash: B256,
     parent: B256,
     direction: &'static str,
     before: PostBatchGasBudget,
     after: PostBatchGasBudget,
     cost: TxL1Gas,
-    source_sim_gas: u64,
+    entries: &[eez_protocol::abi::ExecutionEntrySol],
+    simulated: CompositionGas,
     companion_limit: u64,
-    companion_estimate: u64,
+    companion_estimate: gas::CompanionEstimate,
     prior_cleanup: u64,
     gas_gate_accepted: bool,
 ) {
+    let detail = serde_json::json!({
+        "kind": "admission_budget", "source_hash": source_hash, "direction": direction,
+        "l1_parent": parent,"fixed_drain_reserve_gas": 0,
+        "framing_reserve_gas":cost.framing_gas,
+        "framing_reserve_before":before.framing_gas,
+        "framing_reserve_after":gas_gate_accepted.then_some(after.framing_gas),
+        "full_estimate_before":before.full_estimate(),
+        "full_estimate_after":gas_gate_accepted.then_some(after.full_estimate()),
+        "gas_gate_accepted": gas_gate_accepted, "constraint": after.rejected_constraint,
+        "projected_before": before.projected,
+        "projected_after": gas_gate_accepted.then_some(after.projected),
+        "initial_queue_cleanup": prior_cleanup,
+        "entry_count": cost.entries,
+        "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
+        "entry_discount": cost.entry_discount,
+        "estimate_reasons": cost.estimate_reasons.json(),
+        "batch_discount_revoked": before.general || cost.general || before.entries.saturating_add(cost.entries) >= gas::MAX_SHAPED_ENTRIES,
+        "entry_reserve_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries).saturating_sub(cost.entry_discount),
+        "l1_call_count": entries.iter().map(|e| e.l2ToL1Calls.len() + e.expectedL1ToL2Calls.iter().map(|r| r.l2ToL1Calls.len()).sum::<usize>()).sum::<usize>(),
+        "nested_result_count": entries.iter().map(|e| e.expectedL1ToL2Calls.len()).sum::<usize>(),
+        "calldata_gas": cost.calldata_gas,
+        "l1_target_sim_gas": cost.target_gas,
+        "source_sim_gas": simulated.source,
+        "companion_declared_gas": companion_limit,
+        "companion_sim_gas": if direction == "inbound" { simulated.source } else { 0 },
+        "companion_target_sim_gas": if direction == "inbound" { simulated.l1_target } else { 0 },
+        "companion_estimate_gas": companion_estimate.gas,
+        "companion_protocol_reserve_gas": companion_estimate.protocol_reserve,
+        "companion_estimate_basis": companion_estimate.basis,
+        "postbatch_planning_cap": before.cap,
+        "whole_block_cap": before.block_cap,
+    });
+    candidate.emit("source_estimate", detail.clone());
     let Some(config) = config.filter(|config| config.selects(source_hash)) else {
         return;
     };
@@ -588,23 +728,7 @@ fn trace_admission_budget(
     else {
         return;
     };
-    gas_trace::emit(serde_json::json!({
-        "kind": "admission_budget", "source_hash": source_hash, "direction": direction,
-        "gas_gate_accepted": gas_gate_accepted, "constraint": after.rejected_constraint,
-        "projected_before": before.projected,
-        "projected_after": gas_gate_accepted.then_some(after.projected),
-        "initial_queue_cleanup": prior_cleanup,
-        "entry_count": cost.entries,
-        "entry_pin_gas": POSTBATCH_ENTRY_GAS_PIN.saturating_mul(cost.entries),
-        "entry_discount": cost.entry_discount,
-        "calldata_gas": cost.calldata_gas,
-        "l1_target_sim_gas": cost.target_gas,
-        "source_sim_gas": source_sim_gas,
-        "companion_declared_gas": companion_limit,
-        "companion_sim_gas": companion_estimate,
-        "postbatch_planning_cap": before.cap,
-        "whole_block_cap": before.block_cap,
-    }));
+    gas_trace::emit(detail);
 }
 
 /// What the drain can do with a pair wanting `declared` gas on a Sync block
@@ -913,6 +1037,91 @@ fn defer_source(
     pool.record_blocked(&held, condition, source_state);
     selection.block(idx);
     deferred.push((idx, held));
+}
+
+/// Capacity misses retain ownership and stop younger admission across both
+/// phases. Older sources may still be simulated to complete the FIFO prefix;
+/// retain each refusal's reason across a later deadline or provider abort.
+#[derive(Default)]
+struct CapacityDeferrals {
+    groups: Vec<(usize, HeldTx)>,
+    reasons: std::collections::BTreeMap<&'static str, usize>,
+    last_reason: Option<&'static str>,
+    minimum_check_count: usize,
+}
+
+impl CapacityDeferrals {
+    /// Early deferral uses only this candidate's budgets and the admission
+    /// model's minimum group cost. Never use it on an empty candidate: normal simulation must still
+    /// classify malformed or individually unpostable sources there.
+    fn minimum_check(
+        &mut self,
+        candidate: &crate::admission_events::Candidate,
+        held: &HeldTx,
+        budget: PostBatchGasBudget,
+        l2_used: u64,
+        system_gas: u64,
+    ) -> Option<&'static str> {
+        if budget.entries == 0 {
+            return None;
+        }
+        let inbound = held.direction == Direction::Inbound;
+        let declared = declared_gas_limit(&held.raw_tx);
+        let l2_minimum = if inbound {
+            // A static-only lookup needs no L2 delivery transaction.
+            0
+        } else {
+            system_gas.saturating_add(declared)
+        };
+        let reason = if block_gas_fit(l2_used, l2_minimum, BUILDER_GAS_LIMIT) == BlockGasFit::Accept
+        {
+            budget.minimum_rejection(inbound, declared)?
+        } else {
+            "l2_block_capacity"
+        };
+        self.minimum_check_count += 1;
+        candidate.emit(
+            "source_capacity_check",
+            serde_json::json!({
+                "source_hash":held.hash,"direction":if inbound {"inbound"} else {"outbound"},
+                "constraint":reason,"basis":"minimum_admission_cost",
+                "minimum_entry_gas":if inbound {0} else {gas::minimum_entry_gas(true)},
+                "minimum_mutable_entry_gas":gas::minimum_entry_gas(!inbound),
+                "minimum_static_general_fallback":inbound,
+                "projected_before":budget.projected,"postbatch_planning_cap":budget.cap,
+                "companion_prefix_gas":budget.companion_gas,
+                "companion_required_gas":budget.companion_required_gas,
+                "companion_declared_gas":if inbound {declared} else {0},
+                "fixed_drain_reserve_gas":0,
+                "framing_reserve_gas":budget.framing_gas,"full_estimate_gas":budget.full_estimate(),
+                "whole_block_cap":budget.block_cap,"transaction_cap":budget.transaction_cap,
+                "l2_used_gas":l2_used,"minimum_l2_gas":l2_minimum,"l2_block_cap":BUILDER_GAS_LIMIT,
+            }),
+        );
+        Some(reason)
+    }
+
+    fn defer(
+        &mut self,
+        selection: &mut selection::Selection,
+        candidate: &crate::admission_events::Candidate,
+        idx: usize,
+        held: HeldTx,
+        reason: &'static str,
+    ) {
+        candidate.emit(
+            "source_outcome",
+            serde_json::json!({
+                "source_hash":held.hash,"position":idx,"reason":reason,
+            }),
+        );
+        // Capacity is a batch constraint, not a source eligibility condition.
+        // Retain this group and every younger source without charging attempts.
+        selection.cut(idx);
+        self.groups.push((idx, held));
+        *self.reasons.entry(reason).or_default() += 1;
+        self.last_reason = Some(reason);
+    }
 }
 
 alloy_sol_types::sol! {
@@ -1441,6 +1650,13 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
+    fn has_cross_chain_work(&self, rollup_id: u64) -> bool {
+        self.inner
+            .rollups
+            .get(&rollup_id)
+            .is_some_and(|rollup| !rollup.held_pool.is_empty())
+    }
+
     fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64) {
         self.inner
             .policy
@@ -1633,6 +1849,7 @@ where
             .begin(pool_len_before, self.inner.emission.timing, bundle_target);
         if let Some(limit) = self.inner.max_user_txs_per_bundle {
             automatic.selected = limit.min(pool_len_before);
+            automatic.selection_limit_reason = Some("configured_count_limit");
         }
         let max_user_txs = automatic.selected;
         let drained = if max_user_txs > 0 {
@@ -1640,6 +1857,10 @@ where
         } else {
             pool.pop_n(max_user_txs)
         };
+        if drained.len() < automatic.selected {
+            automatic.selected = drained.len();
+            automatic.selection_limit_reason = Some("fifo_prefix_limit");
+        }
         // When the pool is empty, do not return early. This slot attempts a
         // minimal postBatch whose leading immediate entry advances L1's stored
         // commitment to the empty Sync block's hash. Without it, L1's view
@@ -1797,7 +2018,8 @@ where
             .as_millis();
         let deadline = u128::from(old_timestamp) * 1_000 + timing.proof_window_open().as_millis();
         let cutoff = (u128::from(timestamp) * 1_000).saturating_sub(
-            timing.proof_time().as_millis() + timing.submission_slack().as_millis(),
+            crate::prover_retry::POST_PROOF_RESERVE.as_millis()
+                + timing.submission_slack().as_millis(),
         );
         if now < deadline || now >= cutoff {
             return Ok(());
@@ -2185,30 +2407,40 @@ where
             at,
             &outcomes,
             charge,
-            MAX_BUNDLE_ATTEMPTS,
+            if self.inner.max_user_txs_per_bundle.is_none() {
+                admission::MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS
+            } else {
+                MAX_BUNDLE_ATTEMPTS
+            },
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
-        if self.inner.max_user_txs_per_bundle.is_none()
-            && submission_backoff_required(&outcomes, skipped_slot)
-        {
-            let next_selection_max = self.inner.automatic_admission[&rollup_id]
-                .lock()
-                .unwrap()
-                .submission_failed(attempt.txs.len());
-            event!(name: "eez.composer.admission.submission_backoff", Level::INFO,
-                event_name = "eez.composer.admission.submission_backoff", rollup_id,
-                submitted_groups = attempt.txs.len(), next_selection_max,
-                "canonical reconciliation left incomplete sources; reducing the next automatic selection");
-        } else if skipped_slot
-            && !outcomes.is_empty()
-            && outcomes
-                .iter()
-                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. }))
-        {
+        if self.inner.max_user_txs_per_bundle.is_none() && !outcomes.is_empty() && !skipped_slot {
+            let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
+            if !submission_backoff_required(&outcomes, false) {
+                automatic.submission_completed();
+            } else if charge {
+                let next_selection_max = automatic.submission_failed(attempt.txs.len());
+                event!(name: "eez.composer.admission.submission_failure", Level::INFO,
+                    event_name = "eez.composer.admission.submission_failure", rollup_id,
+                    submitted_groups = attempt.txs.len(),
+                    consecutive_failures = automatic.submission_failures,
+                    backoff_threshold = SUBMISSION_BACKOFF_THRESHOLD,
+                    next_selection_max,
+                    "confirmed incomplete settlement recorded for automatic admission");
+                if let Some(next_selection_max) = next_selection_max {
+                    event!(name: "eez.composer.admission.submission_backoff", Level::INFO,
+                        event_name = "eez.composer.admission.submission_backoff", rollup_id,
+                        submitted_groups = attempt.txs.len(), next_selection_max,
+                        consecutive_failures = automatic.submission_failures,
+                        "repeated incomplete settlements; reducing the next automatic selection");
+                }
+            }
+        }
+        if skipped_slot && !outcomes.is_empty() {
             event!(name: "eez.composer.admission.skipped_slot", Level::INFO,
                 event_name = "eez.composer.admission.skipped_slot", rollup_id,
                 submitted_groups = attempt.txs.len(), target = ?attempt.dispatched_target,
-                "canonical target slot was skipped and all sources remain retryable; retaining automatic selection");
+                "canonical target slot was skipped; source dispositions do not measure this candidate capacity");
         }
         event!(name: "eez.composer.settlement.reconciled", Level::INFO,
             event_name = "eez.composer.settlement.reconciled",
@@ -2280,6 +2512,19 @@ where
                 format!("unknown rollup_id {rollup_id} in compose_cross_chain_batch")
             })?;
         let pool = rollup.held_pool.as_ref();
+        admission.witness_count(rollup.l1_head.settlement_snapshot().endpoint.map_or(
+            usize::MAX,
+            |endpoint| {
+                usize::try_from(
+                    parent_header
+                        .number
+                        .saturating_sub(endpoint.number)
+                        .saturating_add(1),
+                )
+                .unwrap_or(usize::MAX)
+            },
+        ));
+
         let state = rollup
             .l2_provider
             .state_by_block_hash(parent_hash)
@@ -2330,6 +2575,31 @@ where
                 )
                 .await;
         }
+        let candidate = {
+            let mut previous = admission.previous_candidate.lock().unwrap();
+            let candidate = Arc::new(crate::admission_events::Candidate::new(
+                ctx.l1_chain_id,
+                self.inner.posting.registry,
+                rollup_id,
+                parent_hash,
+                bundle_target,
+                drained.len(),
+                pool.len(),
+                (
+                    admission.selected.min(drained.len()),
+                    admission.selection_limit_reason.filter(|reason| {
+                        admission.selected < drained.len() || *reason == "fifo_prefix_limit"
+                    }),
+                ),
+                self.inner
+                    .max_user_txs_per_bundle
+                    .is_none()
+                    .then_some(admission.submission_failures),
+                previous.clone(),
+            ));
+            *previous = Some(candidate.id.clone());
+            candidate
+        };
 
         drop(state);
 
@@ -2354,23 +2624,26 @@ where
                 txs,
             )
         };
-        // Compute each effect's canonical prefix hash once, while admission is
-        // measuring elapsed work. Replaying all prefixes after the drain hid a
-        // quadratic cost in its final-tail estimate. Full blocks, witnesses and
-        // proofs still use the canonical builder below.
-        let hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
+        // Candidate-local execution checkpoints avoid rerunning every earlier
+        // transaction at each effect boundary. A changed prospective prefix
+        // invalidates reuse; final block and proof replay stay independent.
+        let mut prefix_hashes = SyncPrefixHashes::new(
+            rollup.l2_provider.as_ref(),
+            &self.inner.evm_config,
+            parent_header,
+            timestamp,
+            suggested_fee_recipient,
+        );
+        let mut prefix_hash_elapsed = std::time::Duration::ZERO;
+        let mut hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
+            let started = std::time::Instant::now();
             let txs: Vec<_> = prefix.iter().chain(group).cloned().collect();
             let positions: Vec<_> = positions.iter().map(|p| prefix.len() + p).collect();
-            sync_block_hashes_at_positions(
-                rollup.l2_provider.as_ref(),
-                &self.inner.evm_config,
-                parent_header,
-                timestamp,
-                suggested_fee_recipient,
-                &txs,
-                &positions,
-            )
-            .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>())
+            let result = prefix_hashes
+                .at_positions(&txs, &positions)
+                .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>());
+            prefix_hash_elapsed += started.elapsed();
+            result
         };
         let composition_quote = self
             .inner
@@ -2485,7 +2758,11 @@ where
             .gas_budget(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
         let estimated_budget = self.inner.posting.fees.estimate_budget(gas_budget);
-        let mut budget = PostBatchGasBudget::new(estimated_budget);
+        let mut budget = PostBatchGasBudget::with_calldata_limits(
+            estimated_budget,
+            self.posting_blob_allowance(bundle_target, 0)?,
+            self.inner.posting.calldata_floor_active(bundle_target),
+        );
         // This separate view never receives accepted speculative effects.
         // Failed lookups or unsupported prior queues retain conservative pins.
         let provider = local.l1_entry.chain_provider();
@@ -2508,7 +2785,7 @@ where
             None
         };
         if let Some(projection) = &gas_projection {
-            budget.projected = projection.initial_gas();
+            budget.use_projection(projection.initial_gas());
         }
         let prior_cleanup = gas_projection.as_ref().map_or(0, |p| p.cleanup_gas);
         event!(name: "eez.composer.admission.gas_projection", Level::INFO,
@@ -2522,13 +2799,17 @@ where
             .posting
             .transaction_gas_cap(l1_state.anchor.header(), bundle_target)
             .map_err(|error| error.to_string())?;
-        // Set by a budget cut: the tx that did not fit plus everything after it,
-        // owed back to the pool unpenalized.
+        // A deadline stops the drain; a capacity miss excludes every younger
+        // source. Both sets remain owned and are restored without an attempt.
         let mut deferred: Vec<(usize, HeldTx)> = Vec::new();
-        // Cost of the tx that tripped the budget, for the cut event.
+        let mut capacity = CapacityDeferrals::default();
+        let mut simulation_count = 0usize;
+        let mut gas_constraint = None;
+        // First gas refusal for the legacy cut event. If no group fits, this
+        // describes the head considered for the existing unfittable eviction.
+        // Individual observations retain all later constraints and costs.
         let mut rejected_cost: Option<u64> = None;
-        // Set instead when it was the L2 block's gas, not the postBatch's, that
-        // ran out. The two are mutually exclusive: the first refusal ends the drain.
+        // Retain diagnostics even when a later independent group fits.
         let mut block_gas_cut: Option<BlockGasCut> = None;
         let mut admission_cut: Option<&str> = None;
         let mut blob_budget = match build_sync_block(
@@ -2598,6 +2879,10 @@ where
         };
         pool.begin_evaluation(source_state);
         let snapshot = drained.clone();
+        // Observations follow examined work. Re-emitting every untouched suffix
+        // on each candidate would make retained telemetry quadratic in backlog.
+        let mut examined = std::collections::HashSet::new();
+        let mut selection_filtered = 0usize;
         let (outbounds, mut inbounds): (Vec<(usize, HeldTx)>, Vec<(usize, HeldTx)>) = drained
             .into_iter()
             .enumerate()
@@ -2612,10 +2897,26 @@ where
         let mut out_iter = outbounds.into_iter();
         while let Some((idx, held)) = out_iter.next() {
             if !selection.consider(idx) {
+                selection_filtered += 1;
                 continue;
             }
+            examined.insert(idx);
+            candidate.emit(
+                "source_selected",
+                serde_json::json!({"source_hash":held.hash,
+                "position":idx,"timing_basis":"source_checks","direction":match held.direction {
+                    Direction::Inbound => "inbound", Direction::Outbound => "outbound",
+                }}),
+            );
             if !pool.claim(&held) {
-                selection.block(idx);
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
+                );
+                // A replacement is still older queued work. Revisit a fresh
+                // snapshot rather than treating its chain as ineligible.
+                selection.cut(idx);
+                admission_cut = Some("snapshot_changed");
                 continue;
             }
             let baseline = source_nonce(&held)?;
@@ -2626,8 +2927,8 @@ where
                 selection.discard(idx);
                 continue;
             }
-            if !admission.can_start_group(survivors.len()) {
-                admission_cut = Some("preparation_time");
+            if !admission.can_check_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
                 deferred = abort_rest(
                     Some((idx, held)),
                     &mut out_iter,
@@ -2649,6 +2950,36 @@ where
                 );
                 poison.push(held);
                 continue;
+            }
+            if let Some(reason) = capacity.minimum_check(
+                &candidate,
+                &held,
+                budget,
+                draft.gas_used(),
+                stf_cfg.l2_gas_limit,
+            ) {
+                if reason == "l2_block_capacity" {
+                    block_gas_cut = Some(BlockGasCut {
+                        gas_used: draft.gas_used(),
+                        declared: stf_cfg
+                            .l2_gas_limit
+                            .saturating_add(declared_gas_limit(&held.raw_tx)),
+                    });
+                } else if gas_constraint.is_none() {
+                    gas_constraint = Some(reason);
+                    rejected_cost = Some(gas::minimum_entry_gas(true));
+                }
+                capacity.defer(&mut selection, &candidate, idx, held, reason);
+                continue;
+            }
+            if !admission.can_start_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
+                deferred = abort_rest(
+                    Some((idx, held)),
+                    &mut out_iter,
+                    std::mem::take(&mut inbounds),
+                );
+                break;
             }
             let contexts = L1TargetSession::new(&l1_state, local.l1_entry.clone())
                 .map_err(|e| format!("L1TargetSession::new: {e}"))
@@ -2675,6 +3006,7 @@ where
             let sessions = seed_session(cc.entry_rollup_id, l1_exec);
             let (state, env) = l2_fork.state_and_env();
             let env = env.clone();
+            simulation_count += 1;
             let sim = compose_crosschain(
                 cc,
                 eez_protocol::RollupId(rollup_id),
@@ -2902,12 +3234,14 @@ where
                                 gas_used: draft.gas_used(),
                                 declared,
                             });
-                            deferred = abort_rest(
-                                Some((idx, held)),
-                                &mut out_iter,
-                                std::mem::take(&mut inbounds),
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
                             );
-                            break;
+                            continue;
                         }
                         BlockGasFit::Unfittable => {
                             event!(
@@ -2930,7 +3264,7 @@ where
                     // the cap the whole bundle dies silently (invariant 7).
                     let established = match (&mut gas_projection, &mut gas_parent) {
                         (Some(projection), Some(parent)) => {
-                            match projection.simple_immediate(
+                            match projection.immediate_evidence(
                                 &l1_entries,
                                 &composition.actions,
                                 parent,
@@ -2952,15 +3286,17 @@ where
                     let gas_accepted = next_budget.try_accept(cost);
                     trace_admission_budget(
                         self.inner.gas_trace.as_ref(),
+                        &candidate,
                         held.hash,
                         l1_state.anchor.hash(),
                         "outbound",
                         budget,
                         next_budget,
                         cost,
-                        gas.source,
+                        &l1_entries,
+                        gas,
                         0,
-                        0,
+                        gas::CompanionEstimate::declared(0),
                         prior_cleanup,
                         gas_accepted,
                     );
@@ -2968,14 +3304,19 @@ where
                         if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
                             admission_cut = Some("prior_queue_cleanup");
                         }
-                        budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(cost.total());
-                        deferred = abort_rest(
-                            Some((idx, held)),
-                            &mut out_iter,
-                            std::mem::take(&mut inbounds),
-                        );
-                        break;
+                        if gas_constraint.is_none() {
+                            gas_constraint = next_budget.rejected_constraint;
+                            rejected_cost = Some(cost.total());
+                        }
+                        let reason = if budget.blocked_by_cleanup(cost, 0, 0, prior_cleanup) {
+                            "prior_queue_cleanup"
+                        } else {
+                            next_budget
+                                .rejected_constraint
+                                .unwrap_or("l1_tx_gas_budget")
+                        };
+                        capacity.defer(&mut selection, &candidate, idx, held, reason);
+                        continue;
                     }
                     // ── ACCEPT ───────────────────────────────────────
                     // Block first, state second: a pair evicted at append must
@@ -3022,17 +3363,18 @@ where
                         bundle_target,
                     ) {
                         Ok(Some((next, false))) if !survivors.is_empty() => {
-                            admission_cut = Some("composition_blob_limit");
                             event!(name: "eez.composer.admission.blob_cut", Level::INFO,
                                 event_name = "eez.composer.admission.blob_cut", rollup_id,
                                 companion_blobs = next.companion_blobs,
                                 "terminal Sync would exceed the target's remaining blob allowance");
-                            deferred = abort_rest(
-                                Some((idx, held)),
-                                &mut out_iter,
-                                std::mem::take(&mut inbounds),
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "composition_blob_limit",
                             );
-                            break;
+                            continue;
                         }
                         Ok(next) => next.map(|(next, _)| next),
                         Err(error) => {
@@ -3068,7 +3410,7 @@ where
                     if let Some(next) = next_blob
                         && !admission.can_finish_group(survivors.len() + 1, next.required_blobs()?)
                     {
-                        admission_cut = Some("preparation_time");
+                        admission_cut = Some("pipeline_time");
                         deferred = abort_rest(
                             Some((idx, held)),
                             &mut out_iter,
@@ -3209,6 +3551,11 @@ where
                     // L1). The L1 settlement is `outbound_entries`, spliced
                     // separately with dest=rid.
                     semantic_transactions.push(semantic);
+                    candidate.emit(
+                        "source_accepted",
+                        serde_json::json!({"source_hash":held.hash,
+                        "position":idx,"projected_gas":budget.projected}),
+                    );
                     selection.accept(idx);
                     pool.record_ready(&held, source_state);
                     survivors.push((idx, held));
@@ -3217,6 +3564,11 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
+                    candidate.emit(
+                        "source_outcome",
+                        serde_json::json!({"source_hash":held.hash,
+                        "reason":"source_condition","condition":condition}),
+                    );
                     defer_source(
                         pool,
                         &mut selection,
@@ -3269,10 +3621,26 @@ where
         let mut in_iter = inbounds.into_iter();
         while let Some((idx, held)) = in_iter.next() {
             if !selection.consider(idx) {
+                selection_filtered += 1;
                 continue;
             }
+            examined.insert(idx);
+            candidate.emit(
+                "source_selected",
+                serde_json::json!({"source_hash":held.hash,
+                "position":idx,"timing_basis":"source_checks","direction":match held.direction {
+                    Direction::Inbound => "inbound", Direction::Outbound => "outbound",
+                }}),
+            );
             if !pool.claim(&held) {
-                selection.block(idx);
+                candidate.emit(
+                    "source_outcome",
+                    serde_json::json!({"source_hash":held.hash,"reason":"ownership_changed"}),
+                );
+                // A replacement is still older queued work. Revisit a fresh
+                // snapshot rather than treating its chain as ineligible.
+                selection.cut(idx);
+                admission_cut = Some("snapshot_changed");
                 continue;
             }
             let baseline = source_nonce(&held)?;
@@ -3283,8 +3651,8 @@ where
                 selection.discard(idx);
                 continue;
             }
-            if !admission.can_start_group(survivors.len()) {
-                admission_cut = Some("preparation_time");
+            if !admission.can_check_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
             }
@@ -3304,6 +3672,30 @@ where
                 continue;
             }
 
+            if let Some(reason) = capacity.minimum_check(
+                &candidate,
+                &held,
+                budget,
+                draft.gas_used(),
+                stf_cfg.l2_gas_limit,
+            ) {
+                if reason == "l2_block_capacity" {
+                    block_gas_cut = Some(BlockGasCut {
+                        gas_used: draft.gas_used(),
+                        declared: stf_cfg.l2_gas_limit,
+                    });
+                } else if gas_constraint.is_none() {
+                    gas_constraint = Some(reason);
+                    rejected_cost = Some(gas::minimum_entry_gas(false));
+                }
+                capacity.defer(&mut selection, &candidate, idx, held, reason);
+                continue;
+            }
+            if !admission.can_start_group(survivors.len()) {
+                admission_cut = Some("pipeline_time");
+                deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
+                break;
+            }
             let contexts = draft
                 .fork()
                 .map_err(|e| format!("SyncBlockState::fork: {e}"))
@@ -3325,6 +3717,7 @@ where
                 }
             };
             let sessions = seed_session(eez_protocol::RollupId(rollup_id), probe);
+            simulation_count += 1;
             let sim = compose_crosschain(
                 cc,
                 cc.entry_rollup_id,
@@ -3389,8 +3782,14 @@ where
                                 gas_used: draft.gas_used(),
                                 declared,
                             });
-                            deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                            break;
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
+                            );
+                            continue;
                         }
                         BlockGasFit::Unfittable => {
                             event!(
@@ -3418,22 +3817,40 @@ where
                             projection.cost(&composition.source.batch.entries, 0, false, None)
                         },
                     );
-                    let (companion_limit, companion_gas) =
-                        (declared_gas_limit(&held.raw_tx), gas.source);
+                    let mut cost = cost;
+                    for entry in &composition.source.batch.staticEntries {
+                        let (calldata, framing) = gas::framing::static_entry(entry);
+                        cost.calldata_gas = cost.calldata_gas.saturating_add(calldata);
+                        cost.framing_gas = cost.framing_gas.saturating_add(framing);
+                        cost.general = true;
+                    }
+                    let companion_limit = declared_gas_limit(&held.raw_tx);
+                    let companion_estimate = match (&mut gas_projection, &mut gas_parent) {
+                        (Some(projection), Some(parent)) => projection.companion_estimate(
+                            &composition.source.batch.entries, &composition.actions, gas, companion_limit, parent,
+                        ).unwrap_or_else(|error| {
+                            event!(Level::DEBUG, %error, "companion gas evidence unavailable; reserving signed limit");
+                            gas::CompanionEstimate::declared(companion_limit)
+                        }),
+                        _ => gas::CompanionEstimate::declared(companion_limit),
+                    };
+                    let companion_gas = companion_estimate.gas;
                     let mut next_budget = budget;
                     let gas_accepted =
                         next_budget.try_accept_with_companion(cost, companion_limit, companion_gas);
                     trace_admission_budget(
                         self.inner.gas_trace.as_ref(),
+                        &candidate,
                         held.hash,
                         l1_state.anchor.hash(),
                         "inbound",
                         budget,
                         next_budget,
                         cost,
-                        gas.source,
+                        &composition.source.batch.entries,
+                        gas,
                         companion_limit,
-                        companion_gas,
+                        companion_estimate,
                         prior_cleanup,
                         gas_accepted,
                     );
@@ -3446,10 +3863,24 @@ where
                         ) {
                             admission_cut = Some("prior_queue_cleanup");
                         }
-                        budget.rejected_constraint = next_budget.rejected_constraint;
-                        rejected_cost = Some(cost.total());
-                        deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                        break;
+                        if gas_constraint.is_none() {
+                            gas_constraint = next_budget.rejected_constraint;
+                            rejected_cost = Some(cost.total());
+                        }
+                        let reason = if budget.blocked_by_cleanup(
+                            cost,
+                            companion_limit,
+                            companion_gas,
+                            prior_cleanup,
+                        ) {
+                            "prior_queue_cleanup"
+                        } else {
+                            next_budget
+                                .rejected_constraint
+                                .unwrap_or("l1_tx_gas_budget")
+                        };
+                        capacity.defer(&mut selection, &candidate, idx, held, reason);
+                        continue;
                     }
                     // ── ACCEPT ───────────────────────────────────────
                     let deliveries = match eez_protocol::system_tx::build_inbound_system_txs(
@@ -3505,9 +3936,14 @@ where
                         bundle_target,
                     ) {
                         Ok(Some((_, false))) if !survivors.is_empty() => {
-                            admission_cut = Some("composition_blob_limit");
-                            deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
-                            break;
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "composition_blob_limit",
+                            );
+                            continue;
                         }
                         Ok(next) => next.map(|(next, _)| next),
                         Err(error) => {
@@ -3535,7 +3971,7 @@ where
                     if let Some(next) = next_blob
                         && !admission.can_finish_group(survivors.len() + 1, next.required_blobs()?)
                     {
-                        admission_cut = Some("preparation_time");
+                        admission_cut = Some("pipeline_time");
                         deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                         break;
                     }
@@ -3579,7 +4015,7 @@ where
                     }
                     budget = next_budget;
                     if let Some(projection) = &mut gas_projection {
-                        projection.accept_deferred(composition.source.batch.entries.len());
+                        projection.accept_deferred(&composition.source.batch.entries);
                     }
                     blob_budget = next_blob;
                     effect_hashes.extend(group_hashes);
@@ -3601,6 +4037,11 @@ where
                     );
                     semantic_transactions.push(semantic);
                     survivor_comps.push((composition, held.hash));
+                    candidate.emit(
+                        "source_accepted",
+                        serde_json::json!({"source_hash":held.hash,
+                        "position":idx,"projected_gas":budget.projected}),
+                    );
                     selection.accept(idx);
                     pool.record_ready(&held, source_state);
                     survivors.push((idx, held));
@@ -3609,6 +4050,11 @@ where
                     let condition = source_condition(&e)
                         .expect("matched source condition")
                         .clone();
+                    candidate.emit(
+                        "source_outcome",
+                        serde_json::json!({"source_hash":held.hash,
+                        "reason":"source_condition","condition":condition}),
+                    );
                     defer_source(
                         pool,
                         &mut selection,
@@ -3673,31 +4119,77 @@ where
                 source_deferred.push((idx, held.clone()));
             }
         }
-        if let Some(chain) = selection.resume_chain()
-            && let Some(tx) = snapshot
-                .iter()
-                .find(|tx| (tx.sender, tx.direction) == chain)
-        {
-            pool.resume_discovery_at(tx);
-        }
         admission
             .source_deferred(!source_deferred.is_empty() || !selection.fee_blocked().is_empty());
         self.cancel_historical_predecessor_groups(
             rollup_id,
             source_deferred.iter().map(|(_, held)| held.hash),
         );
+        for (index, held) in deferred
+            .iter()
+            .filter(|(index, _)| examined.contains(index))
+        {
+            candidate.emit(
+                "source_outcome",
+                serde_json::json!({"source_hash":held.hash,"position":index,
+                "reason":admission_cut.unwrap_or("pipeline_time")}),
+            );
+        }
+        for &index in selection
+            .fee_blocked()
+            .iter()
+            .filter(|index| examined.contains(*index))
+        {
+            candidate.emit(
+                "source_outcome",
+                serde_json::json!({"source_hash":snapshot[index].hash,"reason":"source_fee"}),
+            );
+        }
         requeue_unprocessed(pool, rollup_id, &poison_gaps, source_deferred);
 
         // ── Deferred work: settle what fits, keep the rest held. ──────
         // Normal under load. Before the poison sweep, so an eviction here rides
         // the same nonce cascade.
-        let deferred_was_empty = deferred.is_empty();
-        admission.phase_finished(
-            survivors.len(),
-            !deferred.is_empty(),
-            selection.fifo_bypassed(),
+        let resource_reason = capacity.last_reason;
+        // Canonical execution may have spent capacity on younger outbounds
+        // before reaching an older inbound. Such a candidate cannot be posted.
+        let fifo_prefix_len = selection.fifo_prefix_len();
+        let fifo_bypassed = selection.fifo_bypassed();
+        deferred.extend(capacity.groups);
+        admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
+        let prefix_hash_executed_tx_count = prefix_hashes.executed_transactions;
+        drop(prefix_hashes);
+        candidate.duration("prefix_hashing", prefix_hash_elapsed);
+        candidate.emit(
+            "summary",
+            serde_json::json!({
+                "accepted":survivors.len(), "deferred":deferred.len(),
+                "examined_count":examined.len(),
+                "not_examined_count":snapshot.len().saturating_sub(examined.len()),
+                "selection_filtered_count":selection_filtered,
+                "source_fee_count":selection.fee_blocked().len(),
+                "capacity_deferrals":capacity.reasons,
+                "minimum_check_count":capacity.minimum_check_count,
+                "simulation_count":simulation_count,
+                "prefix_hash_ms":prefix_hash_elapsed.as_secs_f64()*1000.0,
+                "prefix_hash_executed_tx_count":prefix_hash_executed_tx_count,
+                "fifo_bypassed":fifo_bypassed,
+                "fifo_prefix_len":fifo_prefix_len,
+                "fifo_trigger":fifo_prefix_len.and(admission_cut.or(resource_reason)),
+                "reason":admission.stop_reason(transient.as_ref().map(|_| "transient_compose").or(fifo_prefix_len.map(|_| "fifo_prefix_rebuild")).or(admission_cut).or(resource_reason), survivors.len(), snapshot.len()),
+                "projected_gas":budget.projected,"entry_discount":budget.entry_discount,
+                "framing_reserve_gas":budget.framing_gas,
+                "full_estimate_gas":budget.full_estimate(),
+                "calldata_bound_gas":budget.calldata_gas.saturating_add(budget.framing_gas),
+                "calldata_floor_active":budget.floor_active,
+                "general_execution_reserve":budget.general,
+                "gas_margin_bps":self.inner.posting.fees.gas_margin_bps,
+                "planning_cap":budget.cap,"whole_block_cap":budget.block_cap,
+                "companion_gas":budget.companion_gas,
+                "cold_timing_probe":admission.used_cold_timing_probe(),
+            }),
         );
-        if !deferred.is_empty() {
+        if transient.is_none() && !deferred.is_empty() {
             let deferred_count = deferred.len();
             let accepted_count = survivors.len();
             // A block-gas cut needs gas on the block, which needs an accepted tx,
@@ -3706,7 +4198,9 @@ where
                 accepted_count > 0 || block_gas_cut.is_none(),
                 "a block-gas cut cannot happen with nothing accepted"
             );
-            if let Some(constraint) = admission_cut {
+            if let Some(constraint) = admission_cut
+                .or(resource_reason.filter(|reason| *reason == "composition_blob_limit"))
+            {
                 event!(name: "eez.composer.admission.cut", Level::INFO,
                     event_name = "eez.composer.admission.cut", rollup_id,
                     accepted_count, deferred_count, constraint,
@@ -3727,12 +4221,12 @@ where
                     prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
-                    constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
+                    constraint = gas_constraint.unwrap_or("l1_tx_gas_budget"),
                     operator_gas_cap = self.inner.emission.max_gas,
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
                     companion_gas = budget.companion_gas,
-                    planning_margin = POSTBATCH_DRAIN_MARGIN,
+                    planning_margin = budget.framing_gas,
                     tx_hash = %head.hash,
                     "one complete group exceeds the resolved L1 gas budget; applying existing admission and nonce-chain rejection",
                 );
@@ -3762,12 +4256,12 @@ where
                     prior_cleanup_gas = prior_cleanup,
                     rejected_cost = rejected_cost.unwrap_or(0),
                     budget = budget.cap,
-                    constraint = budget.rejected_constraint.unwrap_or("l1_tx_gas_budget"),
+                    constraint = gas_constraint.unwrap_or("l1_tx_gas_budget"),
                     operator_gas_cap = self.inner.emission.max_gas,
                     network_transaction_gas_max = budget.transaction_cap,
                     block_gas_budget = budget.block_cap,
                     companion_gas = budget.companion_gas,
-                    planning_margin = POSTBATCH_DRAIN_MARGIN,
+                    planning_margin = budget.framing_gas,
                     "L1 gas budget reached; complete deferred groups remain queued without a failed attempt",
                 );
             }
@@ -3803,17 +4297,10 @@ where
             }
         }
 
-        if transient.is_none() && !deferred.is_empty() {
-            requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
-        }
-
         // ── Transient abort: re-queue survivors + remainder, minimal. ──
-        // A cut empties the inbound queue, so phase 2 can't also fail here.
-        // Asserted so a future edit can't double-push the survivors.
-        debug_assert!(
-            transient.is_none() || deferred_was_empty,
-            "budget cut and transient abort are mutually exclusive"
-        );
+        // Earlier capacity misses are disjoint from the failing remainder.
+        // Restore all three sets together so a later provider failure cannot
+        // strand their composing reservations or alter their nonce order.
         if let Some((err, rest)) = transient {
             event!(
                 name: "eez.composer.phase2.transient",
@@ -3824,6 +4311,7 @@ where
                 "transient compose failure; re-queueing and degrading to minimal postBatch this slot",
             );
             let mut requeue = survivors;
+            requeue.extend(deferred);
             requeue.extend(rest);
             self.cancel_historical_predecessor_groups(
                 rollup_id,
@@ -3844,6 +4332,46 @@ where
                 .await;
         }
 
+        if let Some(prefix_len) = fifo_prefix_len {
+            // Rebuild all effects from the pinned parent; dropping younger
+            // outbound effects from already-simulated inbounds is unsound.
+            // Strictly fewer snapshot users bound recursion, and the shared
+            // admission attempt retains the original absolute deadline.
+            self.cancel_historical_predecessor_groups(
+                rollup_id,
+                snapshot.iter().map(|held| held.hash),
+            );
+            pool.retry_fifo_prefix(&snapshot, prefix_len);
+            admission.rebuilding();
+            // Refresh exact envelopes after restoration. Replacements and
+            // recovered predecessors may have arrived during simulation.
+            let retry = pool.candidates();
+            if retry.is_empty() || retry.len() >= snapshot.len() {
+                // A concurrent recovery can enlarge the prefix. Keep the
+                // boundary for a fresh opportunity rather than recurse without
+                // a strict size decrease or drop a required predecessor.
+                return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+            }
+            let retry_after_error = retry.clone();
+            let result = Box::pin(self.compose_cross_chain_batch(
+                cc,
+                rollup_id,
+                retry,
+                parent_header,
+                timestamp,
+                suggested_fee_recipient,
+                bundle_target,
+                admission,
+            ))
+            .await;
+            if result.is_err() {
+                pool.requeue_composing(retry_after_error);
+            }
+            return result;
+        }
+
+        requeue_unprocessed(pool, rollup_id, &poison_gaps, deferred);
+
         // Nothing composed (all evicted or over budget). Still post a minimal
         // batch so L1 keeps tracking L2's progression.
         if survivors.is_empty() {
@@ -3852,6 +4380,11 @@ where
                 event!(name: "eez.composer.admission.deferred", Level::INFO,
                     event_name = "eez.composer.admission.deferred", rollup_id, constraint,
                     "no group admitted within this opportunity; users remain pending");
+                if constraint == "pipeline_time" {
+                    // A time-constrained cross-chain candidate must not consume
+                    // the remaining window by substituting an empty L1 batch.
+                    return Ok(self.build_empty_slot_block(rollup, parent_header, timestamp));
+                }
             } else {
                 let evicted = poison.len();
                 event!(
@@ -4100,6 +4633,7 @@ where
                 gas_projection.as_ref(),
                 bundle_target,
                 Some(admission),
+                Some(Arc::clone(&candidate)),
                 preparation_started_ms,
             )
             .await;
@@ -4638,6 +5172,7 @@ where
                 None,
                 bundle_target,
                 None,
+                None,
                 preparation_started_ms,
             )
             .await;
@@ -4854,6 +5389,7 @@ where
                     0, // no inline outbound target calls
                     None,
                     bundle_target,
+                    None,
                     None,
                     preparation_started_ms,
                 )
@@ -5080,6 +5616,7 @@ where
         gas_projection: Option<&gas::Projection>,
         bundle_target: BundleTarget,
         admission: Option<&admission::Attempt>,
+        candidate: Option<Arc<crate::admission_events::Candidate>>,
         preparation_started_ms: u64,
     ) -> Result<(Bytes, crate::posting_events::PreparationTiming), PreparePostBatchError> {
         use alloy_sol_types::SolCall;
@@ -5899,19 +6436,18 @@ where
                 projection.batch_gas(&batch, calldata_gas(&projected), outbound_target_gas)
             },
         );
-        let floor_active = match bundle_target {
-            BundleTarget::Exact { timestamp, .. } => {
-                use reth_chainspec::EthereumHardforks as _;
-                posting
-                    .chain
-                    .evm_config
-                    .chain_spec()
-                    .is_prague_active_at_timestamp(timestamp)
-            }
-            BundleTarget::NextBlock => true,
-        };
+        let floor_active = posting.calldata_floor_active(bundle_target);
         if floor_active {
             projected_gas = projected_gas.max(calldata_floor_gas(&projected));
+        }
+        if let Some(candidate) = &candidate {
+            candidate.emit(
+                "full_projection",
+                serde_json::json!({"projected_gas":projected_gas,
+                "calldata_bytes":projected.len(),"calldata_gas":calldata_gas(&projected),
+                "calldata_floor_gas":calldata_floor_gas(&projected),"gas_ceiling":ceiling,
+                "entries":batch.entries.len(),"blobs":blob_count}),
+            );
         }
         match posting.fees.declared_gas(projected_gas, ceiling) {
             Ok(_) => {}
@@ -5962,8 +6498,9 @@ where
             maximum_blobs,
         )
         .map_err(|error| format!("prepare postBatch blob sidecar: {error}"))?;
+        let blob_preparation_elapsed = blob_preparation_started.elapsed();
         if let Some(attempt) = admission {
-            attempt.blobs_prepared(blob_count, blob_preparation_started.elapsed());
+            attempt.blobs_prepared(blob_count, blob_preparation_elapsed);
         }
 
         // Prove the assembled window (proofs[] empty — not part of the
@@ -5976,6 +6513,7 @@ where
         // The encoded payload and compact ancestry identities are sufficient;
         // release the full-block vector before materializing witness inputs.
         drop(block_rlps);
+        let witness_started = std::time::Instant::now();
         let (block_witnesses, observed_outcomes) = match self.inner.witness_source.as_ref() {
             // Remote-prover mode. Intermediate blocks `[from..sync)` are committed
             // (served by the witness store); a freshly-built endpoint isn't, so
@@ -6077,6 +6615,7 @@ where
                 (Vec::new(), outcomes)
             }
         };
+        let witness_elapsed = witness_started.elapsed();
         if let Some(mismatch) =
             first_observation_mismatch(&observation_schedule, &observed_outcomes)?
         {
@@ -6120,24 +6659,80 @@ where
         }
         let preparation_elapsed_ms = preparation_started.elapsed().as_secs_f64() * 1000.0;
         let proof_gate_ms = crate::prover_retry::unix_time_millis();
-        let proof_cutoff_ms =
-            crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target);
+        let workload = crate::prover_retry::Workload {
+            groups: semantic_transactions.len(),
+            blobs: proving_ctx.blobs.len(),
+            witnesses: proving_ctx.blocks.len(),
+        };
+        let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
+            attempt.timings.post_reserve(workload)
+        });
+        let deadline = admission.and_then(|attempt| attempt.deadline);
+        let proof_cutoff_ms = if deadline.is_some() {
+            None
+        } else {
+            crate::prover_retry::proof_start_cutoff_ms(self.inner.emission.timing, bundle_target)
+        };
         let mut preparation_timing = crate::posting_events::PreparationTiming {
             preparation_started: preparation_started_ms,
             proof_requested: proof_cutoff_ms
                 .is_none_or(|cutoff| proof_gate_ms <= cutoff)
                 .then_some(proof_gate_ms),
             proof_received: None,
+            proof_received_at: None,
+            candidate,
+            deadline,
+            workload,
+            timings: admission.map(|a| Arc::clone(&a.timings)),
         };
-        let proof = match prove_with_retry_at(
-            self.inner.prover.as_ref(),
-            proving_ctx,
-            self.inner.emission.timing,
-            bundle_target,
-            proof_gate_ms,
-        )
-        .await
-        {
+        if let Some(candidate) = &preparation_timing.candidate {
+            let prediction = admission.map(|attempt| {
+                attempt
+                    .timings
+                    .proof_prediction(self.inner.emission.timing.proof_time(), workload)
+            });
+            candidate.emit(
+                "proof_requested",
+                serde_json::json!({"deadline_ms":deadline.map(|d|d.unix_ms),
+                "remaining_ms":deadline.map(|d|d.remaining().as_secs_f64()*1000.0),
+                "post_reserve_ms":post_reserve.as_secs_f64()*1000.0,
+                "proof_estimate_ms":prediction.as_ref().map(|p|p.duration.as_secs_f64()*1000.0),
+                "proof_estimate_basis":prediction.as_ref().map(|p|p.basis),
+                "nominal_preparation_ms":self.inner.emission.timing.preparation_time().as_millis(),
+                "preparation_ms":proof_gate_ms.saturating_sub(preparation_started_ms),
+                "blob_preparation_ms":blob_preparation_elapsed.as_secs_f64()*1000.0,
+                "witness_preparation_ms":witness_elapsed.as_secs_f64()*1000.0,
+                "groups":workload.groups,"blobs":workload.blobs,"witnesses":workload.witnesses}),
+            );
+            candidate.duration(
+                "preparation",
+                std::time::Duration::from_millis(
+                    proof_gate_ms.saturating_sub(preparation_started_ms),
+                ),
+            );
+        }
+        let proof_started = std::time::Instant::now();
+        let proof_result = if let Some(deadline) = deadline {
+            crate::prover_retry::prove_with_shared_deadline(
+                self.inner.prover.as_ref(),
+                proving_ctx,
+                self.inner.emission.timing,
+                bundle_target,
+                deadline,
+                post_reserve,
+            )
+            .await
+        } else {
+            prove_with_retry_at(
+                self.inner.prover.as_ref(),
+                proving_ctx,
+                self.inner.emission.timing,
+                bundle_target,
+                proof_gate_ms,
+            )
+            .await
+        };
+        let proof = match proof_result {
             Ok(proof) => proof,
             Err(error) => {
                 let reason = if proof_cutoff_ms.is_some_and(|cutoff| proof_gate_ms > cutoff) {
@@ -6154,6 +6749,14 @@ where
                         eez_prover::ProverError::Backend(_) => "prover_backend",
                     }
                 };
+                if let Some(attempt) = admission
+                    && deadline.is_some_and(|d| d.remaining() <= post_reserve)
+                {
+                    attempt.window_exhausted();
+                }
+                if let Some(candidate) = &preparation_timing.candidate {
+                    candidate.emit("proof_failed", serde_json::json!({"reason":reason,"proof_ms":proof_started.elapsed().as_secs_f64()*1000.0}));
+                }
                 let mut detail = preparation_timing.detail();
                 detail["reason"] = serde_json::json!(reason);
                 detail["preparation_ms"] = serde_json::json!(preparation_elapsed_ms);
@@ -6190,6 +6793,20 @@ where
             }
         };
         preparation_timing.proof_received = Some(crate::prover_retry::unix_time_millis());
+        preparation_timing.proof_received_at = Some(std::time::Instant::now());
+        if let Some(attempt) = admission {
+            attempt
+                .timings
+                .observe_proof(workload, proof_started.elapsed());
+        }
+        if let Some(candidate) = &preparation_timing.candidate {
+            candidate.duration("proof", proof_started.elapsed());
+            candidate.emit(
+                "proof_received",
+                serde_json::json!({"proof_ms":proof_started.elapsed().as_secs_f64()*1000.0}),
+            );
+        }
+
         if !rollup.l1_head.generation_is(policy_anchor.generation) {
             return Err("canonical settlement evidence changed during proving".into());
         }
@@ -6377,9 +6994,9 @@ fn ensure_batch_registry_native(
     Ok(())
 }
 
-/// Only a canonically proven skipped target with every source still retryable
-/// is unrelated to submission capacity. Partial application, spent nonces and
-/// ordinary exclusions retain the existing conservative learning behavior.
+/// A canonically proven skipped target does not measure submission capacity,
+/// including when replacement attempts consumed some sources. Produced targets
+/// retain the existing conservative learning for incomplete source outcomes.
 fn submission_backoff_required(
     outcomes: &[crate::optimistic::SourceOutcome],
     skipped_slot: bool,
@@ -6391,11 +7008,11 @@ fn submission_backoff_required(
             SourceOutcome::Terminal(TerminalReason::Committed | TerminalReason::SourceCompleted)
         )
     };
-    outcomes.iter().any(|outcome| !completed(outcome))
-        && !(skipped_slot
-            && outcomes
-                .iter()
-                .all(|outcome| matches!(outcome, SourceOutcome::Retryable { .. })))
+    // Consecutive canonical headers proved that this target was never built.
+    // Source completion elsewhere (including a replacement) is not a capacity
+    // observation for this candidate. Its dispositions remain fully reconciled;
+    // a partially applied replacement is evaluated under its own produced target.
+    !skipped_slot && outcomes.iter().any(|outcome| !completed(outcome))
 }
 
 /// Mutable consumption belongs to the most recent batch for this rollup in
@@ -6499,7 +7116,20 @@ async fn observe_bundle_outcome(
             preparation_timing.detail(),
         );
     }
+    let finalization_started = std::time::Instant::now();
+    let signing_elapsed = preparation_timing
+        .proof_received_at
+        .map_or(std::time::Duration::ZERO, |at| at.elapsed());
     let preparation = async {
+        if preparation_timing
+            .deadline
+            .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
+        {
+            return Err((
+                "pipeline_deadline",
+                "shared window exhausted before finalization".into(),
+            ));
+        }
         if let Some(reason) = submitter
             .policy_submission_failure(target)
             .await
@@ -6519,7 +7149,7 @@ async fn observe_bundle_outcome(
                     "prepared attempt no longer owns this submission".to_owned(),
                 )
             })?;
-        let (prepared, quote, _) = posting
+        let (prepared, quote, execution) = posting
             .finalize(
                 bundle.clone(),
                 target,
@@ -6529,24 +7159,87 @@ async fn observe_bundle_outcome(
             )
             .await
             .map_err(|error| ("final_pricing_failed", error.to_string()))?;
+        if preparation_timing
+            .deadline
+            .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
+        {
+            return Err((
+                "pipeline_deadline",
+                "shared finalization window exhausted".into(),
+            ));
+        }
         let hash = post_batch_blob_transaction_hash(&prepared[0])
             .map_err(|error| ("invalid_envelope", error))?;
         let id = optimistic
             .replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())
             .map_err(|error| ("ledger_update_failed", error))?;
-        Ok::<_, (&str, String)>((prepared, quote, id))
+        Ok::<_, (&str, String)>((prepared, quote, id, execution))
+    };
+    let preparation = if let Some(deadline) = preparation_timing.deadline {
+        tokio::time::timeout(
+            deadline
+                .remaining()
+                .saturating_sub(crate::prover_retry::DELIVERY_RESERVE),
+            preparation,
+        )
+        .await
+        .unwrap_or_else(|_| {
+            Err((
+                "pipeline_deadline",
+                "shared finalization window exhausted".into(),
+            ))
+        })
+    } else {
+        preparation.await
+    };
+    let preflight_elapsed = finalization_started.elapsed();
+    let finalization_elapsed = signing_elapsed.saturating_add(preflight_elapsed);
+    if let Some(candidate) = &preparation_timing.candidate {
+        candidate.duration("finalization", finalization_elapsed);
     }
-    .await;
     let fee_quote = match preparation {
-        Ok((prepared, quote, id)) => {
+        Ok((prepared, quote, id, execution)) => {
+            if let Some(timings) = &preparation_timing.timings {
+                timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
+            }
+            let detail = serde_json::json!({"candidate_id":preparation_timing.candidate.as_ref().map(|c|&c.id),
+                "preflight_gas_used":execution.gas_used.get(..1),"preflight_gas_required":execution.gas_required.get(..1),
+                "signed_gas_limits":execution.gas_limits.get(..1),"finalization_ms":finalization_elapsed.as_secs_f64()*1000.0,
+                "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0});
+            if let Some(candidate) = &preparation_timing.candidate {
+                let mut detail = detail.clone();
+                detail["transaction_hash"] = serde_json::json!(id.post_batch_hash);
+                candidate.emit("preflight", detail);
+                // One bounded event per companion; large bundles must not turn
+                // the posting event into an oversized uncollectable log line.
+                for (index, hash) in execution.transaction_hashes.iter().enumerate().skip(1) {
+                    candidate.emit(
+                        "source_preflight",
+                        serde_json::json!({"source_hash":hash,
+                        "preflight_used_gas":execution.gas_used.get(index),
+                        "preflight_required_gas":execution.gas_required.get(index),
+                        "signed_limit_gas":execution.gas_limits.get(index)}),
+                    );
+                }
+            }
             bundle = prepared;
             attempt_id = id;
             if let Some(events) = &events {
-                events.emit("repriced", id.post_batch_hash, serde_json::json!({}));
+                events.emit("repriced", id.post_batch_hash, detail);
             }
             quote
         }
         Err((reason, error)) => {
+            if reason == "pipeline_deadline"
+                && let Some(timings) = &preparation_timing.timings
+            {
+                // A censored sample is a lower bound on finishing work. Preserve
+                // it with headroom so the next selection reserves more time.
+                timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
+            }
+            if let Some(candidate) = &preparation_timing.candidate {
+                candidate.emit("preflight_failed", serde_json::json!({"reason":reason}));
+            }
             measurements.preflight_failed();
             if let Some(events) = &events {
                 events.emit(
@@ -6573,27 +7266,80 @@ async fn observe_bundle_outcome(
     let recorder = Arc::clone(&optimistic);
     let dispatch_measurements = Arc::clone(&measurements);
     let dispatch_events = events.clone();
-    let record_dispatch = move |block, timestamp| match recorder.observe(
-        attempt_id,
-        SubmissionObservation::Dispatched { block, timestamp },
-    ) {
-        Ok(true) => {
-            dispatch_measurements.dispatch(block, timestamp);
-            if let Some(events) = &dispatch_events {
-                events.dispatch(attempt_id.post_batch_hash, block, timestamp);
-            }
-            Ok(())
+    let dispatch_deadline = preparation_timing.deadline;
+    let dispatch_candidate = preparation_timing.candidate.clone();
+    let record_dispatch = move |block, timestamp| {
+        if dispatch_deadline.is_some_and(|d| d.remaining().is_zero()) {
+            return Err(eez_l1::L1Error::Submission(
+                "shared submission window exhausted".into(),
+            ));
         }
-        Ok(false) => Err(eez_l1::L1Error::Submission(
-            "attempt was superseded before dispatch".into(),
-        )),
-        Err(error) => Err(eez_l1::L1Error::Submission(format!(
-            "cannot record dispatch: {error}"
-        ))),
+        if let Some(candidate) = &dispatch_candidate {
+            candidate.emit(
+                "dispatch",
+                serde_json::json!({"transaction_hash":attempt_id.post_batch_hash,
+                "remaining_ms":dispatch_deadline.map(|d|d.remaining().as_secs_f64()*1000.0)}),
+            );
+        }
+        match recorder.observe(
+            attempt_id,
+            SubmissionObservation::Dispatched { block, timestamp },
+        ) {
+            Ok(true) => {
+                dispatch_measurements.dispatch(block, timestamp);
+                if let Some(events) = &dispatch_events {
+                    events.dispatch(attempt_id.post_batch_hash, block, timestamp);
+                }
+                Ok(())
+            }
+            Ok(false) => Err(eez_l1::L1Error::Submission(
+                "attempt was superseded before dispatch".into(),
+            )),
+            Err(error) => Err(eez_l1::L1Error::Submission(format!(
+                "cannot record dispatch: {error}"
+            ))),
+        }
     };
-    let outcome = submitter
-        .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
-        .await;
+    let outcome = if let Some(deadline) = preparation_timing.deadline {
+        let candidate = preparation_timing.candidate.clone();
+        submitter
+            .send_bundle_quoted_before(
+                &bundle,
+                target,
+                fee_quote,
+                record_dispatch,
+                deadline.instant(),
+                move |delivery| {
+                    if let Some(candidate) = candidate {
+                        // Exact targets do not carry the transport's optional
+                        // derived-parent guard. The quote was checked against
+                        // the canonical head immediately before dispatch.
+                        let expected_parent_hash = delivery.expected_parent_hash.or_else(|| {
+                            (fee_quote.sample.number.checked_add(1) == Some(delivery.target_block))
+                                .then_some(fee_quote.sample.hash)
+                        });
+                        candidate.duration("delivery", delivery.elapsed);
+                        candidate.emit(
+                            "delivery",
+                            serde_json::json!({"transaction_hash":attempt_id.post_batch_hash,
+                        "delivery_ms":delivery.elapsed.as_secs_f64()*1000.0,
+                        "acknowledged":delivery.acknowledged,
+                        "relay_bundle_hash":delivery.relay_bundle_hash,
+                        "ack_remaining_ms":delivery.remaining.as_secs_f64()*1000.0,
+                        "target_block":delivery.target_block,
+                        "target_timestamp":delivery.target_timestamp,
+                        "expected_parent_hash":expected_parent_hash,
+                        "transaction_count":delivery.transaction_count}),
+                        );
+                    }
+                },
+            )
+            .await
+    } else {
+        submitter
+            .send_bundle_quoted(&bundle, target, fee_quote, record_dispatch)
+            .await
+    };
     measurements.outcome(outcome.as_ref().ok());
     if let Some(events) = &events {
         let (stage, detail) = match &outcome {
@@ -6706,7 +7452,10 @@ mod tests {
         let entry = outbound_entry();
         let cost = projected_tx_l1_gas(std::slice::from_ref(&entry), l1_target_gas(&actions));
         assert_eq!(cost.target_gas, 170_000);
-        let cap = projected_postbatch_gas(1, 0, 0) + POSTBATCH_DRAIN_MARGIN + cost.total();
+        let cap = projected_postbatch_gas(1, 0, 0)
+            + gas::framing::base(64)
+            + cost.total()
+            + cost.framing_gas;
         assert!(PostBatchGasBudget::new(cap).try_accept(cost));
 
         actions[1] = gas_action(0, 1, Some(0), u64::MAX, true);
@@ -6735,7 +7484,7 @@ mod tests {
     }
 
     #[test]
-    fn proven_skipped_slot_retains_capacity_only_when_every_source_can_retry() {
+    fn proven_skipped_slot_retains_capacity_even_when_sources_complete_elsewhere() {
         use crate::optimistic::{SourceOutcome, TerminalReason};
         let retry = SourceOutcome::Retryable { source_nonce: 4 };
         assert!(!submission_backoff_required(&[retry, retry], true));
@@ -6751,8 +7500,8 @@ mod tests {
             TerminalReason::PoolDiscarded,
         ] {
             assert!(
-                submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),
-                "partial or independent source consumption must preserve backoff: {reason:?}"
+                !submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),
+                "a skipped target cannot measure capacity: {reason:?}"
             );
         }
     }
@@ -6769,10 +7518,145 @@ mod tests {
                 ],
                 skipped_slot,
             ));
+            assert_eq!(
+                submission_backoff_required(
+                    &[SourceOutcome::Terminal(TerminalReason::SourceReverted)],
+                    skipped_slot
+                ),
+                !skipped_slot
+            );
             assert!(submission_backoff_required(
-                &[SourceOutcome::Terminal(TerminalReason::SourceReverted)],
-                skipped_slot,
+                &[
+                    SourceOutcome::Retryable { source_nonce: 4 },
+                    SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects)
+                ],
+                false
             ));
+        }
+    }
+
+    #[test]
+    fn minimum_capacity_keeps_static_only_work_eligible_at_a_full_l2_block() {
+        use alloy_consensus::{SignableTransaction, TxEnvelope, TxLegacy};
+        use alloy_eips::eip2718::Encodable2718;
+        let mut source = held(Address::repeat_byte(1), Direction::Inbound, 0, 1);
+        let raw = TxEnvelope::from(
+            TxLegacy {
+                gas_limit: 100_000,
+                ..Default::default()
+            }
+            .into_signed(alloy_primitives::Signature::new(
+                U256::from(1),
+                U256::from(2),
+                false,
+            )),
+        );
+        source.raw_tx = Bytes::from(raw.encoded_2718());
+        let candidate = crate::admission_events::Candidate::new(
+            10200,
+            Address::repeat_byte(9),
+            1,
+            B256::repeat_byte(8),
+            BundleTarget::NextBlock,
+            1,
+            1,
+            (1, None),
+            Some(0),
+            None,
+        );
+        let mut budget = PostBatchGasBudget::new(1_000_000);
+        budget.entries = 1;
+        budget.general = true;
+        budget.cap = budget.full_estimate() + 5_000;
+        let mut capacity = CapacityDeferrals::default();
+        assert_eq!(
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            None
+        );
+        assert_eq!(capacity.minimum_check_count, 0);
+        source.direction = Direction::Outbound;
+        assert_eq!(
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            Some("l2_block_capacity")
+        );
+        assert_eq!(capacity.minimum_check_count, 1);
+    }
+
+    #[test]
+    fn minimum_capacity_check_keeps_empty_and_fitting_candidates_eligible() {
+        let minimum = gas::minimum_entry_gas(true);
+        let mut budget = PostBatchGasBudget::new(1_000_000);
+        // The first source must reach ordinary classification even if malformed
+        // or individually unpostable. Capacity misses cannot evict it early.
+        assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
+        budget.entries = 1;
+        budget.projected = budget.cap - budget.framing_gas - minimum;
+        assert_eq!(budget.minimum_rejection(false, u64::MAX), None);
+        budget.projected += 1;
+        assert_eq!(budget.minimum_rejection(false, 0), Some("l1_tx_gas_budget"));
+    }
+
+    #[test]
+    fn minimum_capacity_check_preserves_signed_prefix_envelopes_and_smaller_work() {
+        let mut budget = PostBatchGasBudget::new(16_777_216);
+        budget.entries = 5;
+        budget.transaction_cap = 16_777_216;
+        budget.projected = 6_000_000;
+        budget.companion_gas = 9_500_000;
+        budget.companion_required_gas = 9_600_000;
+        budget.block_cap = budget.full_estimate() + budget.companion_gas + 1_000_000 - 1;
+        let before = budget;
+        assert_eq!(
+            budget.minimum_rejection(true, 1_000_000),
+            Some("l1_bundle_gas_budget")
+        );
+        assert_eq!(budget.minimum_rejection(true, 100_000), None);
+        assert_eq!(budget.projected, before.projected);
+        assert_eq!(budget.companion_gas, before.companion_gas);
+        assert_eq!(budget.companion_required_gas, before.companion_required_gas);
+        budget.companion_gas = 0;
+        budget.companion_required_gas = 16_000_000;
+        assert_eq!(
+            budget.minimum_rejection(true, 100_000),
+            Some("l1_bundle_gas_budget")
+        );
+    }
+
+    #[test]
+    fn minimum_capacity_check_is_no_stricter_than_supported_entry_prices() {
+        for inbound in [false, true] {
+            let minimum = gas::minimum_entry_gas(!inbound);
+            for entries in [1, 2, 126, 127, 128] {
+                for remaining in [0, minimum - 1, minimum, minimum + 1, 1_000_000] {
+                    let mut budget = PostBatchGasBudget::new(16_777_216);
+                    budget.entries = entries;
+                    budget.projected = budget.cap - remaining;
+                    budget.entry_discount = entries * 100_000;
+                    budget.block_cap = 17_000_000;
+                    budget.companion_gas = 1_000_000;
+                    for added in [1, 2, 4] {
+                        for extra in [0, 21_000, 200_000] {
+                            let cost = TxL1Gas {
+                                estimate_reasons: Default::default(),
+                                entries: added,
+                                entry_discount: added * (POSTBATCH_ENTRY_GAS_PIN - minimum),
+                                calldata_gas: extra,
+                                target_gas: extra,
+                                ..Default::default()
+                            };
+                            let mut next = budget;
+                            let fits = next.try_accept_with_companion(
+                                cost,
+                                if inbound { 1_000_000 } else { 0 },
+                                if inbound { 150_000 } else { 0 },
+                            );
+                            if fits {
+                                assert_eq!(budget.minimum_rejection(inbound, 1_000_000), None);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -6782,10 +7666,12 @@ mod tests {
         budget.block_cap = 17_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 1,
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(budget.try_accept_with_companion(cost, 8_000_000, 8_000_000));
         let accepted = budget;
@@ -6801,10 +7687,12 @@ mod tests {
         budget.block_cap = 60_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 0,
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(!budget.try_accept_with_companion(cost, 16_777_217, 16_777_217));
         assert_eq!(budget.companion_gas, 0);
@@ -6819,10 +7707,12 @@ mod tests {
         budget.block_cap = 17_000_000;
         budget.transaction_cap = 16_777_216;
         let cost = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 1,
             entry_discount: 0,
             calldata_gas: 5_000,
             target_gas: 0,
+            ..Default::default()
         };
         for _ in 0..17 {
             assert!(budget.try_accept_with_companion(cost, 1_000_000, 160_000));
@@ -6847,13 +7737,16 @@ mod tests {
         let mut budget = PostBatchGasBudget::new(16_777_216);
         budget.block_cap = 10_000_000;
         let free = TxL1Gas {
+            estimate_reasons: Default::default(),
             entries: 0,
             entry_discount: 0,
             calldata_gas: 0,
             target_gas: 0,
+            ..Default::default()
         };
         assert!(budget.try_accept_with_companion(free, 8_000_000, 21_000));
         assert!(budget.try_accept_with_companion(free, 100_000, 21_000));
+        budget.block_cap = budget.full_estimate() + 8_000_000 + 3 * POSTBATCH_ENTRY_GAS_PIN - 1;
         let accepted = budget;
         assert!(!budget.try_accept(TxL1Gas { entries: 3, ..free }));
         assert_eq!(budget.projected, accepted.projected);
@@ -6932,6 +7825,70 @@ mod tests {
             sender,
             nonce,
             direction,
+        }
+    }
+
+    #[test]
+    fn capacity_cuts_retain_the_fifo_suffix_without_attempts() {
+        for reason in [
+            "l1_tx_gas_budget",
+            "l1_bundle_gas_budget",
+            "l2_block_capacity",
+            "composition_blob_limit",
+        ] {
+            let pool = HeldPool::new(Default::default());
+            let users = vec![
+                held(Address::repeat_byte(1), Direction::Outbound, 0, 1),
+                held(Address::repeat_byte(2), Direction::Outbound, 0, 2),
+                held(Address::repeat_byte(2), Direction::Outbound, 1, 3),
+                held(Address::repeat_byte(3), Direction::Inbound, 0, 4),
+            ];
+            for user in &users {
+                pool.push_contiguous(user.clone(), 0).unwrap();
+            }
+            let mut selection = selection::Selection::new(&users, 4, 0, 0);
+            let candidate = crate::admission_events::Candidate::new(
+                10200,
+                Address::repeat_byte(9),
+                1,
+                B256::repeat_byte(8),
+                BundleTarget::NextBlock,
+                4,
+                4,
+                (4, None),
+                Some(0),
+                None,
+            );
+            assert!(selection.consider(0));
+            assert!(pool.claim(&users[0]));
+            selection.accept(0);
+            assert!(selection.consider(1));
+            assert!(pool.claim(&users[1]));
+            let mut capacity = CapacityDeferrals::default();
+            capacity.defer(&mut selection, &candidate, 1, users[1].clone(), reason);
+            assert!(!selection.consider(2));
+            assert!(!selection.consider(3));
+            assert!(!selection.fifo_bypassed());
+            // Returning the accepted prefix after an infrastructure abort must
+            // also preserve the untouched suffix and the refused group.
+            let mut requeue = vec![(0, users[0].clone())];
+            requeue.extend(capacity.groups);
+            requeue_unprocessed(&pool, 1, &[], requeue);
+            let recovered = pool.candidates();
+            let mut recovered_hashes: Vec<_> = recovered.iter().map(|t| t.hash).collect();
+            recovered_hashes.sort();
+            let mut expected_hashes: Vec<_> = users.iter().map(|t| t.hash).collect();
+            expected_hashes.sort();
+            assert_eq!(recovered_hashes, expected_hashes);
+            // Recovered groups return to the pool front. The unclaimed suffix
+            // can move relative to an independent chain, but not its own root.
+            let position = |hash| recovered.iter().position(|t| t.hash == hash).unwrap();
+            assert!(position(users[1].hash) < position(users[2].hash));
+            for user in recovered {
+                assert_eq!(user.attempts, 0);
+                assert!(pool.claim(&user), "no composing reservation stranded");
+            }
+            assert_eq!(capacity.reasons[reason], 1);
         }
     }
 
@@ -7410,13 +8367,15 @@ mod tests {
     /// Any ceiling the clamp accepts must let the drain take at least one tx.
     #[test]
     fn the_lowest_accepted_ceiling_still_admits_one_held_tx() {
-        let mut budget = PostBatchGasBudget::new(MIN_VIABLE_POSTBATCH_GAS);
+        let mut budget = PostBatchGasBudget::new(minimum_viable_postbatch_gas());
         assert!(
             budget.try_accept(TxL1Gas {
+                estimate_reasons: Default::default(),
                 entries: 1,
                 entry_discount: 0,
                 calldata_gas: 0,
                 target_gas: 0,
+                ..Default::default()
             }),
             "the lowest accepted ceiling admits no tx — every drain would evict \
              its first held tx as poison",
@@ -7672,14 +8631,11 @@ mod tests {
         assert_eq!(cost.calldata_gas, encoded);
 
         let mut budget = PostBatchGasBudget::new(DEFAULT_MAX_POSTBATCH_GAS);
-        // The drain leaves the belt's margin below the cap, or the belt refuses
-        // what the drain accepted and the same set requeues forever.
-        assert_eq!(
-            budget.cap,
-            DEFAULT_MAX_POSTBATCH_GAS - POSTBATCH_DRAIN_MARGIN
-        );
-        let per_tx = POSTBATCH_ENTRY_GAS_PIN + cost.calldata_gas + cost.target_gas;
-        let expected = (budget.cap - budget.projected) / per_tx;
+        // Framing is now charged per candidate, while the cap retains the
+        // complete pre-margin transaction budget.
+        assert_eq!(budget.cap, DEFAULT_MAX_POSTBATCH_GAS);
+        let per_tx = cost.total() + cost.framing_gas;
+        let expected = (budget.cap - budget.full_estimate()) / per_tx;
         let mut accepted = 0u64;
         // The drain never offers more than the per-bundle cap.
         while accepted < 50 && budget.try_accept(cost) {

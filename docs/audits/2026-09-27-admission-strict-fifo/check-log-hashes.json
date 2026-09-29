@@ -1,0 +1,46 @@
+[
+  {
+    "path": "artifacts/admission-strict-fifo/composer-unit.log",
+    "sha256": "3fdc6d83730ef31d6a4675c94cad56b6d248cf877d9bb338696de84e46bd46ff"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/composer-unit-fixed.log",
+    "sha256": "0591edc578a66f61751fb273ef052a4bc78b331678e8f95e4bc886391e3d2f94"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/clippy.log",
+    "sha256": "44234c0fe3fcef9b587b44e68dff0e17006886d3299fb6d85e603583fe8e0277"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/clippy-followup.log",
+    "sha256": "c281a4a991dda24dbe0fb36d70f90c6bbbd5f92317900f7f6ca9bf7d0f6d38b3"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/indexer.log",
+    "sha256": "972d8b1b5328875f39404a6f32f9d02ca46dd5f66b680a141e7dad24c2ee506e"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/indexer-native.log",
+    "sha256": "d0f4fd0c913bd4c932f524f8c65b56cb8bbb1bc5beccc27d645ccc11a01444f9"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/forge-build.log",
+    "sha256": "163240c4e3d9da011c656829e7b3a2ef8ed72c41339d132fa2d7db894be56ba7"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/native-build-current.log",
+    "sha256": "55433d8617b3078f1798b6a8c16ca955c468a4385fc948b07df0e3f6ac60c1c4"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/native-build-followup.log",
+    "sha256": "2a06d3e321ce98b3c158c4ba9f94516898c85146b0804dbb36d57e1930968e90"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/fmt.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo/indexer-fmt.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

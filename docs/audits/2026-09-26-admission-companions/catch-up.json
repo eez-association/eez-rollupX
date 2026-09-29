@@ -1,0 +1,18 @@
+{
+  "prepared_at": "2026-09-26T20:35:55.185003+00:00",
+  "start_block": 23243768,
+  "start_hash": "0x559a3d7add2d0b15b2c56a1965802b776ff74a93c76c1184b8aa04c582c14577",
+  "end_block": 23243796,
+  "end_hash": "0x3bbcd6613c4f387b6df4dff069e9f3fd97a69a6aff0afa470fe74d091ca54602",
+  "beacon_slot": "25011730",
+  "payloads": 28,
+  "validated": 28,
+  "all_valid": true,
+  "forkchoice_owner": "Lighthouse",
+  "source_helper": "artifacts/admission-companions/recover-engine-rpc-gap.py",
+  "helper_sha256": "fbd980fdfc4efb7fb41d2a2d2365361cbd471eaca98e45f421ba8e5045dc3a33",
+  "evidence": {
+    "prepared.json": "fac14cdfc6f05eff87527d3244eee24aa37a82909c34e6cb076fba2f4a188f5f",
+    "import-results.json": "2f48e601b51a22bc1a7f304e3d2ca0b6c0e1aa625ac375e2e4e0f7024a28be47"
+  }
+}

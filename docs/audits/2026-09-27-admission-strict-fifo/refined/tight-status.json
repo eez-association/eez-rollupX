@@ -1,0 +1,99 @@
+{
+  "harness": {
+    "dynamic_admission": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+      "sha256": "7a9d7b97f38724ee4084d957c73a6075cc35be0adcebdb2feb57b71e28508a52"
+    },
+    "settlement_policy": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy",
+      "sha256": "7d15ee7882b134987198836e4167e499cf874c6e6cd7063aba20cac178d02391"
+    },
+    "partial_consumption": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/partial_consumption",
+      "sha256": "02ca957dbc296bf67bf12b3e2f1550806c6507db3c0f2d31a4f4dc0fbe877734"
+    },
+    "settlement_policy_gas": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/settlement_policy_gas-followup",
+      "sha256": "ce35e3e0343b324222545c7641afdff4159bf0c2f0223bca586ff084a8758257"
+    },
+    "queue_liveness": {
+      "path": "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/queue_liveness",
+      "sha256": "f3e7b8228849f1738cf90cf91b5965a2b1910057aa8c3eb0672857bc8be98892"
+    }
+  },
+  "cases": [
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/tight/01-baseline-ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T21:32:40.915914+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.25751739600673,
+      "finished_at": "2026-09-27T21:33:32.173620+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/tight/02-candidate-ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T21:33:32.178656+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.08404558402253,
+      "finished_at": "2026-09-27T21:34:23.262854+00:00"
+    },
+    {
+      "variant": "candidate",
+      "suite": "dynamic_admission",
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/tight/03-candidate-gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T21:34:23.267768+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 46.731855330988765,
+      "finished_at": "2026-09-27T21:35:09.999842+00:00"
+    },
+    {
+      "variant": "baseline",
+      "suite": "dynamic_admission",
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "command": [
+        "/home/edu/Development/rollupX/artifacts/admission-strict-fifo/harness/dynamic_admission",
+        "--exact",
+        "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+        "--test-threads=1",
+        "--nocapture"
+      ],
+      "artifacts": "artifacts/admission-strict-fifo-refined/tight/04-baseline-gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T21:35:10.004884+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 47.175927548028994,
+      "finished_at": "2026-09-27T21:35:57.189647+00:00"
+    }
+  ],
+  "status": "completed"
+}

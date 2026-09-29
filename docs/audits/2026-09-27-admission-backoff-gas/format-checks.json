@@ -1,0 +1,12 @@
+{
+  "checked_at": "2026-09-27T13:06:05.826265+00:00",
+  "whole_contract_format_exit": 1,
+  "preexisting_files": [
+    "contracts/src/ECDSAProofSystem.sol",
+    "contracts/script/DeployRollup.s.sol"
+  ],
+  "unchanged_since_task_baseline": true,
+  "edited_PostBatchGasPins_format_exit": 0,
+  "local_log": "artifacts/admission-backoff-gas/contracts-format.log",
+  "sha256": "62b001a939e4626b3b8abe69ad1620a8a8377b27095fa1432c1d52ad447ff7df"
+}

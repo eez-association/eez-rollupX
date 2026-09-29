@@ -1,0 +1,31 @@
+{
+  "source_revision": "e556e1208612d957b5732aae602c59c4ac24dd9f",
+  "fixture_patch_sha256": "de2eee9392c19a9afd252f8ba053486c0dfec9b2100e92ad0ac390d27fbaa6c3",
+  "production_sources_unchanged": true,
+  "command": [
+    "cargo",
+    "+1.94.0",
+    "test",
+    "--locked",
+    "-p",
+    "eez-node-e2e",
+    "--test",
+    "settlement_policy_gas",
+    "--",
+    "--test-threads=1",
+    "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups"
+  ],
+  "status": "finished",
+  "started_at": "2026-09-27T18:03:34.696290+00:00",
+  "exit_code": 0,
+  "finished_at": "2026-09-27T18:08:17.764665+00:00",
+  "tests": {
+    "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups": "ok",
+    "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups": "ok"
+  },
+  "passed": 2,
+  "failed": 0,
+  "ignored": 0,
+  "log_sha256": "ab91dd5c140d3bfd82d923311a714f3227ef61b8b81709ec755ea840a6b55925"
+}

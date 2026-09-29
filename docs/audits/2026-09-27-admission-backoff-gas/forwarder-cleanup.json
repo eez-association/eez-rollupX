@@ -1,0 +1,7 @@
+{
+  "checked_at": "2026-09-27T12:48:08.122152+00:00",
+  "pid": 3204370,
+  "script_identity_matched": true,
+  "signal": "SIGTERM",
+  "only_task_owned_forwarder_stopped": true
+}

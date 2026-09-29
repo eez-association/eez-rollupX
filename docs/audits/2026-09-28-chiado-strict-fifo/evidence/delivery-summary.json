@@ -1,0 +1,39 @@
+{
+  "deliveries": 35,
+  "acknowledged": 35,
+  "relay_identifiers": 0,
+  "classifications": {
+    "included_target": 29,
+    "skipped_target_slot": 5,
+    "produced_target_without_post": 1
+  },
+  "groups": [
+    {
+      "classification": "included_target",
+      "count": 29,
+      "delivery_ms_mean": 198.39732510344828,
+      "ack_remaining_ms_min": 94.881664,
+      "ack_remaining_ms_median": 697.2938720000001,
+      "parent_matches": 29,
+      "block_gas_fraction_mean": 0.47836248047477525
+    },
+    {
+      "classification": "produced_target_without_post",
+      "count": 1,
+      "delivery_ms_mean": 198.164204,
+      "ack_remaining_ms_min": 730.896299,
+      "ack_remaining_ms_median": 730.896299,
+      "parent_matches": 1,
+      "block_gas_fraction_mean": 0.005972762924355415
+    },
+    {
+      "classification": "skipped_target_slot",
+      "count": 5,
+      "delivery_ms_mean": 195.809314,
+      "ack_remaining_ms_min": 113.787769,
+      "ack_remaining_ms_median": 712.8735800000001,
+      "parent_matches": 5,
+      "block_gas_fraction_mean": 0.12322026401006997
+    }
+  ]
+}

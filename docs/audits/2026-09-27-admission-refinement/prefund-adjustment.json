@@ -1,0 +1,8 @@
+{
+  "baseline_prefund_xdai": "0.0035",
+  "candidate_prefund_xdai": "0.0033",
+  "profile_otherwise_byte_identical": true,
+  "initial_extra_source_funding_needed_xdai": "0.114244181413572905",
+  "extra_poster_funding": false,
+  "basis": "Recorded prior signed gas-plus-value sum maximum fits 0.0033 on both layers; current readiness and runtime transaction affordability remain authoritative"
+}

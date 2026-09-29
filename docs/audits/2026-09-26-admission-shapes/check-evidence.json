@@ -1,0 +1,122 @@
+{
+  "recorded_at": "2026-09-26T12:36:29.437231+00:00",
+  "availability": "Bulk logs are local-only and unavailable to another checkout. Hashes identify retained evidence, not independently retrievable artifacts.",
+  "files": [
+    {
+      "local_only_path": "artifacts/admission-shapes/gas-baseline.log",
+      "sha256": "0454a8b286e70a0e14344a330e5706ff72fd005dd9f6c7c26ea244db33755a69",
+      "bytes": 11199
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/gas-complex-max-data.log",
+      "sha256": "89b1c58d796d40cc23db3bb40de84a9aa53084f372fe08df4b4ed56400b51a63",
+      "bytes": 3296
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/composer-final.log",
+      "sha256": "7fbae4a618047389756dd3d0e2b73bae0bc6082dce4b6ceb5ceccd2be32c3254",
+      "bytes": 35314
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/indexer-admission-final.log",
+      "sha256": "7ded36b95ee1eeda2dfd0c5d480b9e873bd5ec49821f899c96d330e0fef1b76a",
+      "bytes": 498
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/contracts-final.log",
+      "sha256": "3b399cf944ef0566dc66ee58c8e0dd003a7e5a380034c4b65361dec239c3e739",
+      "bytes": 15897
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/gas-final-cancun.log",
+      "sha256": "e228bb52517292f0785edadd8366e09cf2c6dbfb4706a8b99cb39b753ffe0ee4",
+      "bytes": 13403
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/gas-final-prague.log",
+      "sha256": "a200df90ba42cce8108a64067323cb50f5a83b450eaba6a15ad84422ecbc9a5a",
+      "bytes": 13403
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/gas-final-osaka.log",
+      "sha256": "b28b099bb3ce3417d9bf0d6eae58f41ae3a8af814b6249446a9f4a22d34190b6",
+      "bytes": 13403
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/native-multicall-instrumented.log",
+      "sha256": "dab4396101c319fd96b62c6c95fd3e7cfe1359791f90d32bf752007fc59c261e",
+      "bytes": 23326
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/workspace-clippy-final.log",
+      "sha256": "e2612e3859b41d044bf2703445380a4ca26e6d15bafcfd7793ea66624030f512",
+      "bytes": 11849
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/indexer-clippy-final.log",
+      "sha256": "402f77c076094c88cc777053ceae9a38cbd891554f4aba9953a6e961cb54b16d",
+      "bytes": 155
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/rust-format-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/contract-format-final.log",
+      "sha256": "62b001a939e4626b3b8abe69ad1620a8a8377b27095fa1432c1d52ad447ff7df",
+      "bytes": 1779
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/changed-contract-format-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/grafana-browser-cached.log",
+      "sha256": "f99c128de5841a3e4054308eac5452b750ca88d001da85eb56d00c19427c90d4",
+      "bytes": 149
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/native-final-admission-gas-cost.log",
+      "sha256": "aeae26d7415185c098ce267145db9f11a82b364cfc2438133b485205e281570d",
+      "bytes": 38698
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/native-final-settlement_policy.log",
+      "sha256": "b0346be69bdf5104fba576595d3f18a11d24b4be42a38c0cd89fa9a612ee95a3",
+      "bytes": 24030
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/native-final-cross_chain.log",
+      "sha256": "bb6134b32a63a399eaf817cf2e1b365113e029016972cd6078145623f678ffb0",
+      "bytes": 24010
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/grafana-candidate-browser.log",
+      "sha256": "c942c95104f7c79ce6a5b5ba24e7a63d2d7db71a3664456599c92990f5a5f23d",
+      "bytes": 284
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/candidate/run.private.log",
+      "sha256": "f43596a029fbe00bf236026839b2ca4d42471252c26337147d27224f277680f9",
+      "bytes": 82725
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/candidate/measure-canonical-final.log",
+      "sha256": "2ddec68b76a368474a38fe3ac4820793450bfaa710f122209f80349f7765a23e",
+      "bytes": 848
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/deployment-verification-tip-race.log",
+      "sha256": "945a900f057e944754e77b4c0f1341676732ff1d7018e91f4dbb5bcf20655f5a",
+      "bytes": 419
+    },
+    {
+      "local_only_path": "artifacts/admission-shapes/deployment-verification-final.log",
+      "sha256": "6650596cc99dd3f0d87a02e1ef2f6e7738cd5e8288e205e173173aa56e5bf899",
+      "bytes": 1993
+    }
+  ],
+  "finalized_at": "2026-09-26T13:45:17.727859+00:00"
+}

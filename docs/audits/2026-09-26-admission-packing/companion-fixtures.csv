@@ -1,0 +1,82 @@
+evm_revision,test,shape,measured_caller_frame_gas,protocol_reserve,reserve_div_measured
+cancun,testCompanionNestedMaximumQueue,nested companion rows / callbacks 4 0,1720910,1990000,1.1564
+cancun,testCompanionNestedRevertedSpan,nested companion rows / callbacks 4 3,756196,1474000,1.9492
+cancun,testCompanionNestedRevertedSpanRepeatedIdentity,nested companion rows / callbacks 4 3,1924216,2482000,1.2899
+cancun,testCompanionNestedRows,nested companion rows / callbacks 1 0,146065,268000,1.8348
+cancun,testCompanionNestedRows,nested companion rows / callbacks 2 0,181579,338000,1.8614
+cancun,testCompanionNestedRows,nested companion rows / callbacks 3 0,221049,408000,1.8457
+cancun,testCompanionNestedRows,nested companion rows / callbacks 4 0,264476,478000,1.8073
+cancun,testCompanionNestedRows,nested companion rows / callbacks 4 3,454741,766000,1.6845
+cancun,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,352625,606000,1.7185
+cancun,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,363208,618000,1.7015
+cancun,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,1531228,1626000,1.0619
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 0,74794,114000,1.5242
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 9,95395,150000,1.5724
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 0,121801,198000,1.6256
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 9,142402,234000,1.6432
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 0,166826,282000,1.6904
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 9,187427,318000,1.6967
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 0,211870,366000,1.7275
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 9,232471,402000,1.7292
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 0,256931,450000,1.7514
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,277532,486000,1.7511
+cancun,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,275788,486000,1.7622
+cancun,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 4 0,1019852,2064000,2.0238
+cancun,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 2 125,827017,2024000,2.4473
+cancun,testCompanionSequentialRoots,companion roots / skipped 4 0,984400,1824000,1.8529
+cancun,testCompanionSequentialRoots,companion roots / skipped 2 125,786153,1904000,2.4219
+cancun,testCompanionSequentialRootsRepeatedIdentity,companion roots / skipped 4 124,2417716,7824000,3.2361
+prague,testCompanionNestedMaximumQueue,nested companion rows / callbacks 4 0,1720910,1990000,1.1564
+prague,testCompanionNestedRevertedSpan,nested companion rows / callbacks 4 3,756196,1474000,1.9492
+prague,testCompanionNestedRevertedSpanRepeatedIdentity,nested companion rows / callbacks 4 3,1924216,2482000,1.2899
+prague,testCompanionNestedRows,nested companion rows / callbacks 1 0,146065,268000,1.8348
+prague,testCompanionNestedRows,nested companion rows / callbacks 2 0,181579,338000,1.8614
+prague,testCompanionNestedRows,nested companion rows / callbacks 3 0,221049,408000,1.8457
+prague,testCompanionNestedRows,nested companion rows / callbacks 4 0,264476,478000,1.8073
+prague,testCompanionNestedRows,nested companion rows / callbacks 4 3,454741,766000,1.6845
+prague,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,352625,606000,1.7185
+prague,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,363208,618000,1.7015
+prague,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,1531228,1626000,1.0619
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 0,74794,114000,1.5242
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 9,95395,150000,1.5724
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 0,121801,198000,1.6256
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 9,142402,234000,1.6432
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 0,166826,282000,1.6904
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 9,187427,318000,1.6967
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 0,211870,366000,1.7275
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 9,232471,402000,1.7292
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 0,256931,450000,1.7514
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,277532,486000,1.7511
+prague,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,275788,486000,1.7622
+prague,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 4 0,1019852,2064000,2.0238
+prague,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 2 125,827017,2024000,2.4473
+prague,testCompanionSequentialRoots,companion roots / skipped 4 0,984400,1824000,1.8529
+prague,testCompanionSequentialRoots,companion roots / skipped 2 125,786153,1904000,2.4219
+prague,testCompanionSequentialRootsRepeatedIdentity,companion roots / skipped 4 124,2417716,7824000,3.2361
+osaka,testCompanionNestedMaximumQueue,nested companion rows / callbacks 4 0,1720910,1990000,1.1564
+osaka,testCompanionNestedRevertedSpan,nested companion rows / callbacks 4 3,756196,1474000,1.9492
+osaka,testCompanionNestedRevertedSpanRepeatedIdentity,nested companion rows / callbacks 4 3,1924216,2482000,1.2899
+osaka,testCompanionNestedRows,nested companion rows / callbacks 1 0,146065,268000,1.8348
+osaka,testCompanionNestedRows,nested companion rows / callbacks 2 0,181579,338000,1.8614
+osaka,testCompanionNestedRows,nested companion rows / callbacks 3 0,221049,408000,1.8457
+osaka,testCompanionNestedRows,nested companion rows / callbacks 4 0,264476,478000,1.8073
+osaka,testCompanionNestedRows,nested companion rows / callbacks 4 3,454741,766000,1.6845
+osaka,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,352625,606000,1.7185
+osaka,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,363208,618000,1.7015
+osaka,testCompanionQueueScanAndRevertedResults,companion calls / skipped 0 126,1531228,1626000,1.0619
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 0,74794,114000,1.5242
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 0 9,95395,150000,1.5724
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 0,121801,198000,1.6256
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 1 9,142402,234000,1.6432
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 0,166826,282000,1.6904
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 2 9,187427,318000,1.6967
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 0,211870,366000,1.7275
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 3 9,232471,402000,1.7292
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 0,256931,450000,1.7514
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,277532,486000,1.7511
+osaka,testCompanionRegisteredCallbackLadder,companion calls / skipped 4 9,275788,486000,1.7622
+osaka,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 4 0,1019852,2064000,2.0238
+osaka,testCompanionRevertedCallbackSpanSizes,companion roots / skipped 2 125,827017,2024000,2.4473
+osaka,testCompanionSequentialRoots,companion roots / skipped 4 0,984400,1824000,1.8529
+osaka,testCompanionSequentialRoots,companion roots / skipped 2 125,786153,1904000,2.4219
+osaka,testCompanionSequentialRootsRepeatedIdentity,companion roots / skipped 4 124,2417716,7824000,3.2361

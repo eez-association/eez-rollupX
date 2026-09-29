@@ -1,0 +1,321 @@
+{
+  "outcomes": {
+    "canonical_candidate": 26,
+    "skipped_slot": 3,
+    "produced_without_candidate": 2
+  },
+  "accepted_sources_in_noncanonical_attempts": 174,
+  "limit": "Canonical observations distinguish skipped targets and omitted candidates; relay acknowledgment does not establish builder inclusion or its omission reason.",
+  "attempts": [
+    {
+      "candidate_id": "1-1790498663106:1:0",
+      "target_block": 23251717,
+      "target_time": "2026-09-27T08:44:25+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 28,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 507.467961,
+      "delivery_ms": 170.187882
+    },
+    {
+      "candidate_id": "1-1790498663106:1:1",
+      "target_block": 23251718,
+      "target_time": "2026-09-27T08:44:30+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 804.8408999999999,
+      "delivery_ms": 168.937735
+    },
+    {
+      "candidate_id": "1-1790498663106:1:2",
+      "target_block": 23251719,
+      "target_time": "2026-09-27T08:44:35+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 36,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 818.605657,
+      "delivery_ms": 173.007152
+    },
+    {
+      "candidate_id": "1-1790498663106:1:3",
+      "target_block": 23251720,
+      "target_time": "2026-09-27T08:44:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 54,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 481,
+      "delivery_ms": 182.165498
+    },
+    {
+      "candidate_id": "1-1790498663106:1:4",
+      "target_block": 23251721,
+      "target_time": "2026-09-27T08:44:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 33,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 515.305773,
+      "delivery_ms": 179.76260299999998
+    },
+    {
+      "candidate_id": "1-1790498663106:1:5",
+      "target_block": 23251722,
+      "target_time": "2026-09-27T08:44:50+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 33,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 623.642569,
+      "delivery_ms": 176.31686399999998
+    },
+    {
+      "candidate_id": "1-1790498663106:1:6",
+      "target_block": 23251723,
+      "target_time": "2026-09-27T08:44:55+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 34,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 633.971411,
+      "delivery_ms": 171.580811
+    },
+    {
+      "candidate_id": "1-1790498663106:1:7",
+      "target_block": 23251724,
+      "target_time": "2026-09-27T08:45:00+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 38,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 851,
+      "delivery_ms": 171.151054
+    },
+    {
+      "candidate_id": "1-1790498663106:1:8",
+      "target_block": 23251725,
+      "target_time": "2026-09-27T08:45:05+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 38,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 661.7807310000001,
+      "delivery_ms": 173.665344
+    },
+    {
+      "candidate_id": "1-1790498663106:1:9",
+      "target_block": 23251726,
+      "target_time": "2026-09-27T08:45:10+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 43,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 774,
+      "delivery_ms": 176.378799
+    },
+    {
+      "candidate_id": "1-1790498663106:1:10",
+      "target_block": 23251727,
+      "target_time": "2026-09-27T08:45:15+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 48,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 722,
+      "delivery_ms": 182.325106
+    },
+    {
+      "candidate_id": "1-1790498663106:1:11",
+      "target_block": 23251727,
+      "target_time": "2026-09-27T08:45:20+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 48,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 668.5884100000001,
+      "delivery_ms": 176.47586700000002
+    },
+    {
+      "candidate_id": "1-1790498663106:1:12",
+      "target_block": 23251728,
+      "target_time": "2026-09-27T08:45:25+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 43,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 642.916562,
+      "delivery_ms": 173.999082
+    },
+    {
+      "candidate_id": "1-1790498663106:1:13",
+      "target_block": 23251729,
+      "target_time": "2026-09-27T08:45:30+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 37,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 779.788001,
+      "delivery_ms": 173.148558
+    },
+    {
+      "candidate_id": "1-1790498663106:1:14",
+      "target_block": 23251729,
+      "target_time": "2026-09-27T08:45:35+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 37,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 760.942662,
+      "delivery_ms": 180.957935
+    },
+    {
+      "candidate_id": "1-1790498663106:1:15",
+      "target_block": 23251730,
+      "target_time": "2026-09-27T08:45:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 18,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1023.808404,
+      "delivery_ms": 167.589615
+    },
+    {
+      "candidate_id": "1-1790498663106:1:16",
+      "target_block": 23251731,
+      "target_time": "2026-09-27T08:45:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 801,
+      "delivery_ms": 174.87502
+    },
+    {
+      "candidate_id": "1-1790498663106:1:17",
+      "target_block": 23251732,
+      "target_time": "2026-09-27T08:45:50+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 15,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 721.506725,
+      "delivery_ms": 172.938319
+    },
+    {
+      "candidate_id": "1-1790498663106:1:18",
+      "target_block": 23251733,
+      "target_time": "2026-09-27T08:45:55+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 16,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 698.982487,
+      "delivery_ms": 180.148919
+    },
+    {
+      "candidate_id": "1-1790498663106:1:19",
+      "target_block": 23251734,
+      "target_time": "2026-09-27T08:46:00+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 19,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 773.9573429999999,
+      "delivery_ms": 180.259257
+    },
+    {
+      "candidate_id": "1-1790498663106:1:20",
+      "target_block": 23251735,
+      "target_time": "2026-09-27T08:46:05+00:00",
+      "outcome": "skipped_slot",
+      "accepted": 26,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 743,
+      "delivery_ms": 177.918591
+    },
+    {
+      "candidate_id": "1-1790498663106:1:21",
+      "target_block": 23251735,
+      "target_time": "2026-09-27T08:46:10+00:00",
+      "outcome": "produced_without_candidate",
+      "accepted": 26,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 676,
+      "delivery_ms": 175.6489
+    },
+    {
+      "candidate_id": "1-1790498663106:1:22",
+      "target_block": 23251736,
+      "target_time": "2026-09-27T08:46:15+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 13,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1024,
+      "delivery_ms": 167.69571299999998
+    },
+    {
+      "candidate_id": "1-1790498663106:1:23",
+      "target_block": 23251737,
+      "target_time": "2026-09-27T08:46:20+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 28,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 556,
+      "delivery_ms": 176.70946800000002
+    },
+    {
+      "candidate_id": "1-1790498663106:1:24",
+      "target_block": 23251738,
+      "target_time": "2026-09-27T08:46:25+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 45,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 720,
+      "delivery_ms": 181.974904
+    },
+    {
+      "candidate_id": "1-1790498663106:1:25",
+      "target_block": 23251739,
+      "target_time": "2026-09-27T08:46:30+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 35,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 993.613729,
+      "delivery_ms": 175.442224
+    },
+    {
+      "candidate_id": "1-1790498663106:1:26",
+      "target_block": 23251740,
+      "target_time": "2026-09-27T08:46:35+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 38,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 1038,
+      "delivery_ms": 172.763368
+    },
+    {
+      "candidate_id": "1-1790498663106:1:27",
+      "target_block": 23251741,
+      "target_time": "2026-09-27T08:46:40+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 27,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 821.7989100000001,
+      "delivery_ms": 181.931865
+    },
+    {
+      "candidate_id": "1-1790498663106:1:28",
+      "target_block": 23251742,
+      "target_time": "2026-09-27T08:46:45+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 34,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 888,
+      "delivery_ms": 181.240702
+    },
+    {
+      "candidate_id": "1-1790498663106:1:29",
+      "target_block": 23251743,
+      "target_time": "2026-09-27T08:46:50+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 47,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 744,
+      "delivery_ms": 180.34484
+    },
+    {
+      "candidate_id": "1-1790498663106:1:30",
+      "target_block": 23251744,
+      "target_time": "2026-09-27T08:46:55+00:00",
+      "outcome": "canonical_candidate",
+      "accepted": 44,
+      "relay_acknowledged": "true",
+      "dispatch_remaining_ms": 810,
+      "delivery_ms": 177.582134
+    }
+  ]
+}

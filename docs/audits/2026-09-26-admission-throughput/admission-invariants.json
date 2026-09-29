@@ -1,0 +1,10 @@
+{
+  "canonical_projection_ledgers_checked": 27,
+  "all_initial_plus_accepted_deltas_equal_summary": true,
+  "canonical_receipts_within_signed_gas_limits": 27,
+  "attempts": 34,
+  "complete_attempt_histories": 34,
+  "acknowledgements_before_cutoff": 34,
+  "minimum_dispatch_remaining_ms": 210,
+  "minimum_observed_delivery_headroom_ms": 35.82885999999999
+}

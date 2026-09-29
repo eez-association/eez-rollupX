@@ -1,0 +1,444 @@
+{
+  "canonical_stability": {
+    "checked_at": "2026-09-26T20:51:35.970497+00:00",
+    "canonical_source_attributions_unchanged": 870,
+    "canonical_postings_unchanged": 33,
+    "external_canonical_receipts_match": 33
+  },
+  "budget_reconciliation": {
+    "estimator_versions": [
+      "companion-storage-4"
+    ],
+    "candidate_companion_budget_reconciliations": 39,
+    "gas_cutoffs_reconstructed": 30
+  },
+  "admission_summary": {
+    "checked_at": "2026-09-26T20:48:02.725244+00:00",
+    "postings": 33,
+    "postings_with_complete_estimates": 33,
+    "canonical_sources": 870,
+    "canonical_sources_with_accepted_estimates": 870,
+    "source_attempt_rows": 1008,
+    "admission_stop_reasons": {
+      "l1_tx_gas_budget": 7,
+      "fifo_fairness_limit": 2,
+      "l1_bundle_gas_budget": 19,
+      "pipeline_time": 2,
+      "submission_backoff": 2,
+      "snapshot_exhausted": 1
+    },
+    "selection_limit_reasons": {
+      "uncapped": 22,
+      "fifo_fairness_limit": 9,
+      "submission_backoff": 2
+    },
+    "new_shape_fields_complete": true,
+    "nominal_preparation_overruns": 0,
+    "admission_gas_total": 258721542,
+    "receipt_gas_total": 175340686,
+    "history_complete": true,
+    "collector": [
+      {
+        "checked_at": "2026-09-26T20:48:01.675743+00:00",
+        "healthy": true
+      }
+    ]
+  },
+  "detail/summary": {
+    "checked_at": "2026-09-26T20:49:10.745874+00:00",
+    "cohort_basis": "candidates that examined at least one of the 870 fresh wave sources",
+    "attempted_sources": 870,
+    "canonical_sources": 870,
+    "all_candidates": 39,
+    "canonical_candidates": 33,
+    "candidates_in_send_to_last_settlement_window": 39,
+    "window_candidates_without_wave_source_events": [],
+    "all_sequences_complete": true,
+    "source_attempt_rows": 1008,
+    "unique_wave_sources_with_estimates": 870,
+    "source_decisions_across_attempts": {
+      "Accepted": 976,
+      "Gas deferred": 30,
+      "pipeline_time": 2
+    },
+    "estimate_reasons_canonical_entries": {
+      "immediate_evidence_unavailable": 300,
+      "deferred_storage": 653,
+      "immediate_registered": 50,
+      "general_reserve_lower": 17
+    },
+    "batch_discount_revoked_canonical_sources": 0,
+    "cold_timing_probes": 0,
+    "gas": {
+      "admission_gas": 258721542,
+      "full_projection_gas": 260846762,
+      "preflight_gas_used": 175340686,
+      "preflight_gas_required": 178873943,
+      "signed_gas_limit": 187817655,
+      "canonical_receipt_gas": 175340686
+    },
+    "admission_receipt_ratio": 1.4755362711424547,
+    "admission_required_ratio": 1.446390333107377,
+    "preflight_receipt_max_abs_difference": 0,
+    "preflight_required_fits_signed_limits": true,
+    "nominal_preparation_overruns": 0
+  },
+  "detail/attempt_outcomes": {
+    "counts": {
+      "canonical": 33,
+      "excluded_from_produced_block": 2,
+      "absent_slot": 4
+    },
+    "noncanonical": [
+      {
+        "candidate_id": "1-1790455383105:1:17",
+        "target_time": "2026-09-26T20:44:30+00:00",
+        "accepted": 12,
+        "outcome": "excluded_from_produced_block",
+        "relay_acknowledged": "true",
+        "produced_block": 23243892,
+        "produced_block_transactions": 1,
+        "produced_block_gas_used": 119137
+      },
+      {
+        "candidate_id": "1-1790455383105:1:23",
+        "target_time": "2026-09-26T20:45:00+00:00",
+        "accepted": 31,
+        "outcome": "absent_slot",
+        "relay_acknowledged": "true",
+        "produced_block": null,
+        "produced_block_transactions": null,
+        "produced_block_gas_used": null
+      },
+      {
+        "candidate_id": "1-1790455383105:1:24",
+        "target_time": "2026-09-26T20:45:05+00:00",
+        "accepted": 31,
+        "outcome": "excluded_from_produced_block",
+        "relay_acknowledged": "true",
+        "produced_block": 23243898,
+        "produced_block_transactions": 0,
+        "produced_block_gas_used": 0
+      },
+      {
+        "candidate_id": "1-1790455383105:1:34",
+        "target_time": "2026-09-26T20:45:55+00:00",
+        "accepted": 14,
+        "outcome": "absent_slot",
+        "relay_acknowledged": "true",
+        "produced_block": null,
+        "produced_block_transactions": null,
+        "produced_block_gas_used": null
+      },
+      {
+        "candidate_id": "1-1790455383105:1:36",
+        "target_time": "2026-09-26T20:46:05+00:00",
+        "accepted": 9,
+        "outcome": "absent_slot",
+        "relay_acknowledged": "true",
+        "produced_block": null,
+        "produced_block_transactions": null,
+        "produced_block_gas_used": null
+      },
+      {
+        "candidate_id": "1-1790455383105:1:37",
+        "target_time": "2026-09-26T20:46:10+00:00",
+        "accepted": 9,
+        "outcome": "absent_slot",
+        "relay_acknowledged": "true",
+        "produced_block": null,
+        "produced_block_transactions": null,
+        "produced_block_gas_used": null
+      }
+    ]
+  },
+  "grafana_live": {
+    "checked_at": "2026-09-26T20:53:44.727941+00:00",
+    "dashboard_uid": "eez-admission",
+    "panel_id": 3,
+    "wave_attempt_rows": 1008,
+    "canonical_sources": 870,
+    "inbound_estimate_and_receipt_rows": 520,
+    "live_query_error": null,
+    "fields": [
+      "time",
+      "candidate_id",
+      "source_hash",
+      "direction",
+      "position",
+      "decision",
+      "gas_constraint",
+      "source_checks_and_simulation_ms",
+      "source_simulation_gas",
+      "l1_target_simulation_gas",
+      "entry_count",
+      "l1_call_count",
+      "nested_result_count",
+      "estimate_reasons",
+      "batch_discount_revoked",
+      "entry_reserve_gas",
+      "entry_pin_gas",
+      "entry_discount",
+      "calldata_gas",
+      "companion_declared_gas",
+      "companion_simulation_gas",
+      "companion_estimate_gas",
+      "companion_protocol_reserve_gas",
+      "companion_estimate_basis",
+      "source_preflight_gas",
+      "source_required_gas",
+      "canonical_source_receipt_gas",
+      "source_receipt_coverage",
+      "source_receipt_success",
+      "projected_before",
+      "projected_after",
+      "accepted_delta_gas",
+      "postbatch_hash",
+      "canonical_l1_block",
+      "reason",
+      "history"
+    ]
+  },
+  "canonical_summary": {
+    "checked_at": "2026-09-26T20:51:32.389918+00:00",
+    "source_count": 870,
+    "canonical_by_layer": {
+      "L1": 520,
+      "L2": 350
+    },
+    "moved_source_heights": 1,
+    "source_window_seconds": 199.54,
+    "sources_per_second": 4.3600280645484615,
+    "postings_with_sources": 33,
+    "sources_per_post": [
+      36,
+      36,
+      36,
+      36,
+      48,
+      41,
+      43,
+      35,
+      28,
+      16,
+      33,
+      12,
+      35,
+      12,
+      37,
+      12,
+      36,
+      6,
+      18,
+      13,
+      13,
+      13,
+      15,
+      44,
+      44,
+      38,
+      27,
+      22,
+      34,
+      14,
+      14,
+      14,
+      9
+    ],
+    "first_l1_block": 23243875,
+    "last_l1_block": 23243910,
+    "skipped_slots_between_first_last": 4,
+    "produced_blocks_between_first_last": 36,
+    "post_batch_gas_total": 175340686,
+    "bulk_send_to_canonical_settlement_ms": {
+      "p50": 66286.0,
+      "p95": 163786.0,
+      "max": 198786,
+      "send_duration_ms": 1288,
+      "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+    }
+  },
+  "final_health": {
+    "checked_at": "2026-09-26T21:00:45.328610+00:00",
+    "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+    "services": {
+      "eez-node": {
+        "image_id": "sha256:efa887627148264c7c3a4378cc3fe3b13526cafd776870307c525d0c1d0a59b4",
+        "running": true,
+        "health": null
+      },
+      "eez-proof-signer": {
+        "image_id": "sha256:32eace4d05970066a22fa449f1fc07b168921d829d373c22a48e5ef089957be3",
+        "running": true,
+        "health": "healthy"
+      },
+      "eez-indexer": {
+        "image_id": "sha256:6ae79bf2bdc5b67e2134f8b61b3e4659140dcc0e94ab0db1f7d64af9d9802411",
+        "running": true,
+        "health": null
+      }
+    },
+    "heads": {
+      "L1": {
+        "number": 23244069,
+        "hash": "0xd2acf67aea8f42a4ee90317657c5549443011f8b5802aa749f8efdf8784c9447",
+        "age_seconds": 0.3804144859313965,
+        "syncing": false
+      },
+      "L2": {
+        "number": 96240,
+        "hash": "0x7caa2a93d43b29b49a88eb46d0742e43ee3bf2ccbf88737583b4bed9f894f583",
+        "age_seconds": 0.6860020160675049,
+        "syncing": false
+      }
+    },
+    "l1_matches_external_canonical": true,
+    "external_comparison_height": 23244068,
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1790455578128,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0xb64566b753f838df28475fb257dcd0b15c5983352955b053aa2fb0a6ea2dfb9d",
+          "number": 23243910
+        },
+        "observedAtMs": 1790455580896
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0xd2e4c66bdc37451264d2d8624e626736ccae4480f54fc9b3f8b7be861670465f",
+          "number": 23243909
+        },
+        "l2": {
+          "hash": "0x74bcfc31d18e2742c0fa05d380fd1a25fc3211411e20217222a4e003a66d31ef",
+          "number": 95374
+        }
+      },
+      "unknown": 0
+    },
+    "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+    "dotenv_unchanged_except_two_images": true
+  },
+  "images": {
+    "checked_at": "2026-09-26T19:04:50.089337+00:00",
+    "images": [
+      {
+        "image": "eez-indexer:e57c7a5-shipping-local",
+        "image_id": "sha256:6ae79bf2bdc5b67e2134f8b61b3e4659140dcc0e94ab0db1f7d64af9d9802411",
+        "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+        "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "platform": "linux/amd64"
+      },
+      {
+        "image": "eez-node:e57c7a5-shipping-local",
+        "image_id": "sha256:efa887627148264c7c3a4378cc3fe3b13526cafd776870307c525d0c1d0a59b4",
+        "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+        "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "platform": "linux/amd64",
+        "binaries": [
+          "dbf5a357413712dd4f2fd7504c7b952c9f75b0d0c8e22cd571decf96139eb948  /usr/local/bin/eez-composer",
+          "f6919c2445718d5a7143f9b6444a64d08e98740a8c00981aa05333dd9c0d6a3f  /usr/local/bin/eez-follower",
+          "498f59d0c5ae5b5aad35bfb1de8f85857a205fd6014083206ea7da36c4d3f93f  /usr/local/bin/eez-genesis-state-root",
+          "0eb6d3fb9bfcf6451cc5d12bb402370a0b375e8f69cbddac229004fdab3c3b13  /usr/local/bin/eez-genesis-block-hash"
+        ]
+      },
+      {
+        "image": "eez-proof-signer:e57c7a5-shipping-local",
+        "image_id": "sha256:32eace4d05970066a22fa449f1fc07b168921d829d373c22a48e5ef089957be3",
+        "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+        "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "platform": "linux/amd64",
+        "binaries": [
+          "c84a2fe6454fe95a10f67414b297720c646bc05db6c679c4779192a359de2e68  /usr/local/bin/eez-proof-signer"
+        ]
+      },
+      {
+        "image": "eez-deploy:e57c7a5-shipping-local",
+        "image_id": "sha256:49818529dc2e28c4f1109c4b02a1f463e1a8a3a333c667147c4132555c90e3cd",
+        "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+        "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+        "platform": "linux/amd64"
+      }
+    ],
+    "original_genesis_matches": {
+      "eez-genesis-block-hash": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+      "eez-genesis-state-root": "0x6b5837ca86d97b30ee9e3b69fb1c7ad29c64a3f97861ad2b240de7931dbe1dad"
+    }
+  },
+  "build_plan": {
+    "source_revision": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+    "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "submodules": [
+      {
+        "path": "eez-core-protocol",
+        "revision": "9d13218a355e7d543ca8a9927eea2962600b716d"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts",
+        "revision": "5fd1781b1454fd1ef8e722282f86f9293cacf256"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/erc4626-tests",
+        "revision": "232ff9ba8194e406967f52ecc5cb52ed764209e9"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/forge-std",
+        "revision": "3b20d60d14b343ee4f908cb8079495c07f5e8981"
+      },
+      {
+        "path": "eez-core-protocol/lib/openzeppelin-contracts/lib/halmos-cheatcodes",
+        "revision": "7328abe100445fc53885c21d0e713b95293cf14c"
+      }
+    ],
+    "context": "/tmp/eez-admission-companions-build-e57c7a5",
+    "build_profile": "release",
+    "cargo_jobs": 4,
+    "rust": "1.94.0",
+    "created_at": "2026-09-26T18:49:56.214550+00:00",
+    "tag": "e57c7a5-shipping-local",
+    "build_selection": "Same archived local shipping recipe as baseline 85f3691, matching Dockerfile.runtime package/bin/example selection; no CI artifact substitution",
+    "lockfiles": {
+      "Cargo.lock": "fdf8d3df53500a9b57519b4c1f4d2a01818a619042d9811ead4b76b5e7a3f230",
+      "monitoring/indexer/Cargo.lock": "3613a60b928ca28b999578569c7709d375dae63487364dc8ee7f2d770315b2ea"
+    },
+    "recipes": {
+      "Dockerfile": "2740ded69939c61a9f11c1b3695f58f6423f517527caf0724d6aff74bbece4d2",
+      "testing/kurtosis/Dockerfile.deploy": "679ae195ef47fcd9639d5900e70c36f5703d2d3c3975902c44db0a3dea6db51d",
+      "monitoring/indexer/Dockerfile": "9348d119aa12027cc4c46b5ca20623a5d4ac477c95f3b7845c251e485608d494"
+    }
+  },
+  "host": {
+    "host_before": {
+      "logical_cpus": 22,
+      "load_average": [
+        3.65625,
+        5.12548828125,
+        7.78515625
+      ],
+      "memory_kib": {
+        "MemTotal": 63866800,
+        "MemAvailable": 52832960,
+        "SwapFree": 680652
+      }
+    },
+    "host_after": {
+      "logical_cpus": 22,
+      "load_average": [
+        4.8681640625,
+        4.8583984375,
+        7.330078125
+      ],
+      "memory_kib": {
+        "MemTotal": 63866800,
+        "MemAvailable": 46932936,
+        "SwapFree": 686728
+      }
+    }
+  }
+}

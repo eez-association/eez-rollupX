@@ -1,0 +1,49 @@
+{
+  "checked_at": "2026-09-27T17:22:42.197116+00:00",
+  "from_ms": 1790529369597,
+  "to_ms": 1790529517000,
+  "panels": [
+    {
+      "id": 1,
+      "rows": 29,
+      "new_fields": [
+        "admission_including_framing_gas",
+        "calldata_bound_gas",
+        "calldata_floor_active",
+        "framing_reserve_gas",
+        "gas_margin_percent",
+        "general_execution_reserve"
+      ],
+      "new_field_nonnull_rows": {
+        "calldata_floor_active": 29,
+        "gas_margin_percent": 29,
+        "framing_reserve_gas": 29,
+        "general_execution_reserve": 29,
+        "calldata_bound_gas": 29,
+        "admission_including_framing_gas": 29
+      }
+    },
+    {
+      "id": 3,
+      "rows": 10000,
+      "new_fields": [
+        "framing_reserve_after",
+        "framing_reserve_before",
+        "framing_reserve_gas",
+        "full_estimate_after",
+        "full_estimate_before",
+        "minimum_mutable_entry_gas",
+        "minimum_static_general_fallback"
+      ],
+      "new_field_nonnull_rows": {
+        "full_estimate_before": 3302,
+        "framing_reserve_gas": 3302,
+        "full_estimate_after": 1020,
+        "minimum_static_general_fallback": 6698,
+        "minimum_mutable_entry_gas": 6698,
+        "framing_reserve_after": 1020,
+        "framing_reserve_before": 3302
+      }
+    }
+  ]
+}

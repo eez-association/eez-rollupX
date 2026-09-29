@@ -1,0 +1,28 @@
+{
+  "checked_at": "2026-09-26T11:13:53.468109+00:00",
+  "external_canonical_posting_receipts_verified": 27,
+  "dotenv_unchanged_except_two_image_references": true,
+  "services": {
+    "eez-node": {
+      "image_id": "sha256:e4b506c10d7b3cfb0b89c9f9b72a196f52a91e24ef83078bd3b0565fac4ce551",
+      "running": true,
+      "health": null
+    },
+    "eez-proof-signer": {
+      "image_id": "sha256:cb79158c6219f1de01af4b874ade326d9a3f4325be0eee083e8840cf5de0cd85",
+      "running": true,
+      "health": "healthy"
+    },
+    "eez-indexer": {
+      "image_id": "sha256:ed6110a67333ee8c27e1a8ab4280e821ccd1e28cb15f38aa0fcfb1ac4577c253",
+      "running": true,
+      "health": null
+    }
+  },
+  "queue": {
+    "queued": 0,
+    "inFlight": 0,
+    "blocked": 0,
+    "unknown": 0
+  }
+}

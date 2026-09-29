@@ -1,0 +1,229 @@
+[
+  {
+    "local_log": "artifacts/admission-backoff-gas/focused-native/logs/eez-node-node-3149627-2.log",
+    "sha256": "02836a41b9c2c34bcf4a86f3f903fe4e14efd5df94720f84dfeb8729c906ea97",
+    "events": [
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 1
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 1
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 1,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 2,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 3,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 4,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 5,
+        "backoff_threshold": 5,
+        "next_selection_max": 2
+      },
+      {
+        "event": "eez.composer.admission.submission_backoff",
+        "submitted_groups": 4,
+        "next_selection_max": 2,
+        "consecutive_failures": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 2
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 2
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 2
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 2
+      }
+    ]
+  },
+  {
+    "local_log": "artifacts/admission-backoff-gas/focused-native/logs/eez-node-node-3231224-10.log",
+    "sha256": "4e95e1abbd68802dcae3ae72e9db84086801cfe503a944e1c052d9f8940a238e",
+    "events": [
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 1
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 1
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 1,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 2,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 3,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 4,
+        "backoff_threshold": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 4
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 4
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 4,
+        "consecutive_failures": 5,
+        "backoff_threshold": 5,
+        "next_selection_max": 2
+      },
+      {
+        "event": "eez.composer.admission.submission_backoff",
+        "submitted_groups": 4,
+        "next_selection_max": 2,
+        "consecutive_failures": 5
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 2
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 2
+      },
+      {
+        "event": "eez.composer.admission.submission_failure",
+        "submitted_groups": 2,
+        "consecutive_failures": 6,
+        "backoff_threshold": 5,
+        "next_selection_max": 1
+      },
+      {
+        "event": "eez.composer.admission.submission_backoff",
+        "submitted_groups": 2,
+        "next_selection_max": 1,
+        "consecutive_failures": 6
+      },
+      {
+        "event": "eez.composer.sync_slot.drain",
+        "selection_limit": 1
+      },
+      {
+        "event": "eez.composer.admission.prepared",
+        "accepted": 1
+      }
+    ]
+  }
+]

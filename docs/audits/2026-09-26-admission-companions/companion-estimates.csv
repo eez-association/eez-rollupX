@@ -1,0 +1,9 @@
+family,sources,basis,companion_simulation_gas,companion_protocol_reserve_gas,companion_estimate_gas,canonical_source_receipt_gas,estimate_receipt_ratio,underestimated_sources
+counter,100,bounded_protocol,7044100,15800000,22844100,13174400,1.7339764998785523,0
+counter-multi-tx,150,bounded_protocol,6937050,25394000,32331050,16391958,1.972372672013923,0
+multi-call-nested,50,declared_limit,1416454,,50000000,11970404,4.176968463219787,0
+multi-call-twice,50,declared_limit,1268664,,50000000,6593964,7.582692292526923,0
+nestedCounter,50,bounded_protocol,1058000,11334000,12392000,6162600,2.010839580696459,0
+reentrant,20,declared_limit,533940,,20000000,3311309,6.03990748069721,0
+revertCounter,50,bounded_protocol,3514750,8060000,11574750,7007910,1.6516693279451362,0
+revertFromOtherChain,50,declared_limit,1058000,,50000000,8740878,5.720249155748427,0

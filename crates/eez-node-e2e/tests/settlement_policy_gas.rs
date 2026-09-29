@@ -7,7 +7,7 @@ use alloy_primitives::{Address, B256, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
-    ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_4, CrossChainWorld, NativeL1Profile, NodeBinary,
+    ANVIL_KEY_1, ANVIL_KEY_2, ANVIL_KEY_4, CrossChainWorld, IValue, NativeL1Profile, NodeBinary,
     NodeConfig, NodeHandle, TARGET_DEPLOYER, batches_posted, create_l2_cross_chain_proxy,
     onchain_nonce, setup_cross_chain_with_profile, sign_and_send, wait_for, wait_for_latest_height,
     wait_for_safe_prefix_convergence,
@@ -118,12 +118,15 @@ async fn outbound(world: &CrossChainWorld, key: &str, proxy: Address) -> B256 {
 }
 
 async fn assert_gas_first(profile: NativeL1Profile) {
+    // Cold SSTORE execution alone costs 5,304,000 gas, above the operator cap
+    // regardless of the configured margin or admission framing allowance.
+    const OVERSIZED_WRITES: u16 = 240;
     let world = setup_cross_chain_with_profile(profile, &env())
         .await
         .unwrap();
     let (target_a, proxy_a) = expensive_target(&world, 100).await;
     let (target_b, proxy_b) = expensive_target(&world, 100).await;
-    let (oversized, oversized_proxy) = expensive_target(&world, 180).await;
+    let (oversized, oversized_proxy) = expensive_target(&world, OVERSIZED_WRITES).await;
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let follower = NodeHandle::start(
@@ -252,7 +255,9 @@ async fn assert_gas_first(profile: NativeL1Profile) {
             .is_none()
     );
     assert_eq!(
-        l1.get_storage_at(oversized, U256::from(179)).await.unwrap(),
+        l1.get_storage_at(oversized, U256::from(OVERSIZED_WRITES - 1))
+            .await
+            .unwrap(),
         U256::ZERO
     );
     assert!(
@@ -276,6 +281,297 @@ async fn ethereum_low_byte_expensive_new_proxies_split_only_complete_groups() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_low_byte_expensive_new_proxies_split_only_complete_groups() {
     assert_gas_first(NativeL1Profile::GnosisPrague).await;
+}
+
+async fn older_inbound_before_capacity_filling_outbound(profile: NativeL1Profile) {
+    let mut settings = env();
+    settings.extend([
+        ("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()),
+        // The outbound fits alone but leaves less than one inbound entry's
+        // admission reserve. Both sources are individually executable.
+        ("EEZ_MAX_POSTBATCH_GAS", "3000000".into()),
+        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_PROOF_TIME_MS", "2000".into()),
+    ]);
+    let world = setup_cross_chain_with_profile(profile, &settings)
+        .await
+        .unwrap();
+    let (target, proxy) = expensive_target(&world, 100).await;
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower = NodeHandle::start(
+        "fifo-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let inbound_nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
+    quiet_sync(&world).await;
+    let cursor = world.node.signal_cursor().unwrap();
+    let inbound = sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_2,
+        l1.get_chain_id().await.unwrap(),
+        inbound_nonce,
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let outbound = outbound(&world, ANVIL_KEY_4, proxy).await;
+    let incoming = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(inbound).await?)
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+    let outgoing = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(outbound).await?)
+    })
+    .await
+    .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+    assert!(incoming.status() && outgoing.status());
+    let inbound_root = incoming
+        .inner
+        .logs()
+        .iter()
+        .filter(|log| log.address() == world.cfg.eez_address)
+        .find_map(|log| {
+            eez_protocol::abi::L2ExecutionPerformed::decode_log(&log.inner)
+                .ok()
+                .filter(|event| event.rollupId == world.cfg.rollup_id)
+                .map(|event| event.newRoot)
+        })
+        .expect("inbound must commit its delivery root on L1");
+    let inbound_block = wait_for(TIMEOUT, || async {
+        Ok(l2.get_block_by_hash(inbound_root).await?)
+    })
+    .await
+    .unwrap();
+    let through = inbound_block
+        .header
+        .number
+        .max(outgoing.block_number.unwrap());
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], through, TIMEOUT)
+        .await
+        .unwrap();
+    assert!(
+        inbound_block.header.number < outgoing.block_number.unwrap(),
+        "the older inbound must settle before the younger outbound when both cannot fit{}",
+        world.settlement_diagnostics()
+    );
+    assert_eq!(
+        eez_testkit::l2_value(&world.l2_rpc(), world.value_l2)
+            .await
+            .unwrap(),
+        U256::from(77)
+    );
+    assert_eq!(
+        l1.get_storage_at(target, U256::from(99)).await.unwrap(),
+        U256::from(1)
+    );
+    assert_eq!(
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+        inbound_nonce + 1
+    );
+    let events: Vec<serde_json::Value> = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let discarded = events
+        .iter()
+        .find(|e| e["kind"] == "summary" && e["detail"]["reason"] == "fifo_prefix_rebuild")
+        .expect("the fixture must exercise repair of canonical outbound-first admission");
+    assert_eq!(discarded["detail"]["fifo_prefix_len"], 1);
+    assert!(
+        events
+            .iter()
+            .any(|e| e["kind"] == "started" && e["rebuild_of"] == discarded["candidate_id"])
+    );
+    assert!(
+        !events
+            .iter()
+            .any(|e| e["kind"] == "proof_requested"
+                && e["candidate_id"] == discarded["candidate_id"]),
+        "a non-FIFO candidate must never reach proving"
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_older_inbound_precedes_capacity_filling_outbound() {
+    older_inbound_before_capacity_filling_outbound(NativeL1Profile::EthereumOsaka).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_older_inbound_precedes_capacity_filling_outbound() {
+    older_inbound_before_capacity_filling_outbound(NativeL1Profile::GnosisPrague).await;
+}
+
+/// A capacity cut retains the complete FIFO suffix, including cheaper work
+/// from independent senders. Source-condition deferrals have separate coverage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work() {
+    let mut settings = env();
+    settings.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()));
+    // Isolate gas packing from the first cold proof of deployment history.
+    // The 3,600 ms total including slack fits this fixture's 4,000 ms Future
+    // region. Deadline behavior has separate regressions in dynamic_admission.
+    settings.extend([
+        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_PROOF_TIME_MS", "2000".into()),
+    ]);
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &settings)
+        .await
+        .unwrap();
+    // This is a fresh signer process, with no earlier post to initialize KZG.
+    // Readiness must pay that cost before any real batch consumes its deadline.
+    let startup = world.proof_signer.log_tail(1_000);
+    let initialized = startup.find("eez.signer.kzg.ready").unwrap();
+    let serving = startup.find("serving Prove").unwrap();
+    assert!(initialized < serving);
+    let (target_a, proxy_a) = expensive_target(&world, 100).await;
+    let (target_b, proxy_b) = expensive_target(&world, 100).await;
+    let (target_c, proxy_c) = expensive_target(&world, 1).await;
+    let (target_successor, proxy_successor) = expensive_target(&world, 1).await;
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower = NodeHandle::start(
+        "packing-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let b_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
+    quiet_sync(&world).await;
+    let cursor = world.node.signal_cursor().unwrap();
+    let first = outbound(&world, ANVIL_KEY_2, proxy_a).await;
+    let deferred = outbound(&world, ANVIL_KEY_4, proxy_b).await;
+    let successor = sign_and_send(
+        &world.l2_xchain(),
+        ANVIL_KEY_4,
+        world.l2_chain_id,
+        b_nonce + 1,
+        Some(proxy_successor),
+        U256::ZERO,
+        vec![0x12, 0x34, 0x56, 0x78],
+        600_000,
+    )
+    .await
+    .unwrap();
+    let independent = outbound(&world, ANVIL_KEY_1, proxy_c).await;
+    let mut receipts = Vec::new();
+    for hash in [first, deferred, successor, independent] {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "packing source missing: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        receipts.push(receipt);
+    }
+    let through = receipts
+        .iter()
+        .map(|r| r.block_number.unwrap())
+        .max()
+        .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], through, TIMEOUT)
+        .await
+        .unwrap();
+    let events = world.node.signals_since(cursor).unwrap();
+    let admission: Vec<serde_json::Value> = events
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let start = admission.iter().find(|e| e["kind"] == "started").unwrap();
+    assert_eq!(
+        start["detail"]["selected"], 4,
+        "all four must reach the same initial snapshot"
+    );
+    let candidate = &start["candidate_id"];
+    assert!(admission.iter().any(|e| &e["candidate_id"] == candidate
+        && e["kind"] == "source_estimate"
+        && e["detail"]["source_hash"] == deferred.to_string()
+        && e["detail"]["constraint"] == "l1_tx_gas_budget"));
+    let summary = admission
+        .iter()
+        .find(|e| e["kind"] == "summary" && &e["candidate_id"] == candidate)
+        .unwrap();
+    assert_eq!(
+        summary["detail"]["capacity_deferrals"]["l1_tx_gas_budget"],
+        1
+    );
+    assert_eq!(summary["detail"]["fifo_bypassed"], false);
+    assert!(
+        receipts[3].block_number > receipts[0].block_number,
+        "younger cheap work must not pass the older capacity-deferred group"
+    );
+    assert!(receipts[1].block_number > receipts[0].block_number);
+    assert!(receipts[2].block_number >= receipts[1].block_number);
+    if receipts[2].block_hash == receipts[1].block_hash {
+        assert!(receipts[2].transaction_index > receipts[1].transaction_index);
+    }
+    assert!(receipts[3].block_number >= receipts[2].block_number);
+    if receipts[3].block_hash == receipts[2].block_hash {
+        assert!(receipts[3].transaction_index > receipts[2].transaction_index);
+    }
+    for (target, slot) in [
+        (target_a, 99),
+        (target_b, 99),
+        (target_c, 0),
+        (target_successor, 0),
+    ] {
+        assert_eq!(
+            l1.get_storage_at(target, U256::from(slot)).await.unwrap(),
+            U256::from(1)
+        );
+    }
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
+        b_nonce + 2
+    );
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        2
+    );
+    let attempt_counts: Vec<Vec<u32>> = events
+        .iter()
+        .filter(|e| e.name == "eez.composer.bundle.dispatched")
+        .map(|e| serde_json::from_str(e.fields["attempt_counts"].as_str().unwrap()).unwrap())
+        .collect();
+    assert_eq!(
+        attempt_counts,
+        vec![vec![0], vec![0, 0, 0]],
+        "FIFO splits the four sources 1+3 without charging capacity deferrals"
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
 }
 
 /// A low-byte L1 source performs expensive local storage writes before calling
@@ -401,6 +697,36 @@ async fn assert_companion_gas_first(profile: NativeL1Profile) {
         "missing complete-group bundle cut: {}",
         world.settlement_diagnostics()
     );
+    let admission: Vec<serde_json::Value> = events
+        .iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let cheap = admission
+        .iter()
+        .find(|event| {
+            event["kind"] == "source_capacity_check"
+                && event["detail"]["constraint"] == "l1_bundle_gas_budget"
+        })
+        .expect("the signed companion prefix must reject before source simulation");
+    assert_eq!(cheap["detail"]["basis"], "minimum_admission_cost");
+    assert_eq!(cheap["detail"]["companion_declared_gas"], 16_600_000);
+    assert!(
+        !admission
+            .iter()
+            .any(|event| event["candidate_id"] == cheap["candidate_id"]
+                && event["kind"] == "source_estimate"
+                && event["detail"]["source_hash"] == cheap["detail"]["source_hash"]),
+        "a cheap refusal must not run source simulation or report a fabricated estimate"
+    );
+    let summary = admission
+        .iter()
+        .find(|event| event["candidate_id"] == cheap["candidate_id"] && event["kind"] == "summary")
+        .unwrap();
+    assert_eq!(summary["detail"]["minimum_check_count"], 1);
+    assert_eq!(summary["detail"]["simulation_count"], 1);
     let dispatches: Vec<_> = events
         .iter()
         .filter(|event| event.name == "eez.composer.bundle.dispatched")

@@ -1,0 +1,21 @@
+{
+  "requested_at": "2026-09-26T16:11:21.013547+00:00",
+  "checkout": "61611e399c89f2e33c5c4ea1c7999f20beb876fd",
+  "runtime": "85f3691cb9c7ccbf8c0b8700576733283e5af7fc",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "no_runtime_restart": true,
+  "same_runtime_processes": true,
+  "timing_calibration": "retained process-local observations from preceding wave",
+  "worker_prefunding_xdai": {
+    "first_candidate": "0.0045",
+    "rerun": "0.00445"
+  },
+  "prefunding_change_only": true,
+  "extra_poster_to_source_funding": false,
+  "operator_profile_sha256": "e4668167a80249e1f439adadceefaded049acb79d2c18f4c65627d84c685a013",
+  "runtime_env_sha256": "d1539c89d97a1eaf0ff8a8515e37843ceb2ebd98439d64d396eace092adaee84",
+  "fresh_source_transactions": 870,
+  "source_hashes_reused_from_first_candidate": 0,
+  "run_exit_code": 1,
+  "finished_at": "2026-09-26T16:44:16.870506+00:00"
+}

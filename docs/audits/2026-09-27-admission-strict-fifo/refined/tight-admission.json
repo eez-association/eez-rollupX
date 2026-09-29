@@ -1,0 +1,180 @@
+[
+  {
+    "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+    "variant": "baseline",
+    "duration_seconds": 51.25751739600673,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 2,
+      "l1_tx_gas_budget": 1,
+      "pipeline_time": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 2,
+    "bypassed_candidates_requested_proof": 2,
+    "included_source_counts": [
+      1,
+      39,
+      63,
+      26
+    ],
+    "included": [
+      {
+        "candidate_id": "3072821-1790544794304:1:0",
+        "sources": 1,
+        "l1_block": 7,
+        "timestamp_ms": 1790544796618
+      },
+      {
+        "candidate_id": "3072821-1790544794304:1:1",
+        "sources": 39,
+        "l1_block": 8,
+        "timestamp_ms": 1790544801681
+      },
+      {
+        "candidate_id": "3072821-1790544794304:1:2",
+        "sources": 63,
+        "l1_block": 9,
+        "timestamp_ms": 1790544806777
+      },
+      {
+        "candidate_id": "3072821-1790544794304:1:3",
+        "sources": 26,
+        "l1_block": 10,
+        "timestamp_ms": 1790544811715
+      }
+    ],
+    "measured_sources": 128,
+    "measured_posts": 3
+  },
+  {
+    "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+    "variant": "candidate",
+    "duration_seconds": 51.08404558402253,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 4,
+      "fifo_prefix_rebuild": 3
+    },
+    "fifo_triggers": {
+      "l1_tx_gas_budget": 1,
+      "pipeline_time": 2
+    },
+    "fifo_bypass_candidates": 3,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      39,
+      39,
+      50
+    ],
+    "included": [
+      {
+        "candidate_id": "3074979-1790544845303:1:0",
+        "sources": 1,
+        "l1_block": 7,
+        "timestamp_ms": 1790544847607
+      },
+      {
+        "candidate_id": "3074979-1790544845303:1:2",
+        "sources": 39,
+        "l1_block": 8,
+        "timestamp_ms": 1790544852735
+      },
+      {
+        "candidate_id": "3074979-1790544845303:1:5",
+        "sources": 39,
+        "l1_block": 9,
+        "timestamp_ms": 1790544857827
+      },
+      {
+        "candidate_id": "3074979-1790544845303:1:6",
+        "sources": 50,
+        "l1_block": 10,
+        "timestamp_ms": 1790544862717
+      }
+    ],
+    "measured_sources": 128,
+    "measured_posts": 3
+  },
+  {
+    "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+    "variant": "candidate",
+    "duration_seconds": 46.731855330988765,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 3,
+      "fifo_prefix_rebuild": 5
+    },
+    "fifo_triggers": {
+      "l1_tx_gas_budget": 1,
+      "l1_bundle_gas_budget": 1,
+      "pipeline_time": 3
+    },
+    "fifo_bypass_candidates": 5,
+    "bypassed_candidates_requested_proof": 0,
+    "included_source_counts": [
+      1,
+      20,
+      108
+    ],
+    "included": [
+      {
+        "candidate_id": "3077162-1790544896304:1:0",
+        "sources": 1,
+        "l1_block": 7,
+        "timestamp_ms": 1790544898910
+      },
+      {
+        "candidate_id": "3077162-1790544896304:1:6",
+        "sources": 20,
+        "l1_block": 8,
+        "timestamp_ms": 1790544903685
+      },
+      {
+        "candidate_id": "3077162-1790544896304:1:7",
+        "sources": 108,
+        "l1_block": 9,
+        "timestamp_ms": 1790544908788
+      }
+    ],
+    "measured_sources": 128,
+    "measured_posts": 2
+  },
+  {
+    "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+    "variant": "baseline",
+    "duration_seconds": 47.175927548028994,
+    "cutoff_reasons": {
+      "snapshot_exhausted": 2,
+      "l1_tx_gas_budget": 1
+    },
+    "fifo_triggers": {},
+    "fifo_bypass_candidates": 1,
+    "bypassed_candidates_requested_proof": 1,
+    "included_source_counts": [
+      1,
+      72,
+      56
+    ],
+    "included": [
+      {
+        "candidate_id": "3079249-1790544943303:1:0",
+        "sources": 1,
+        "l1_block": 7,
+        "timestamp_ms": 1790544945405
+      },
+      {
+        "candidate_id": "3079249-1790544943303:1:1",
+        "sources": 72,
+        "l1_block": 8,
+        "timestamp_ms": 1790544950566
+      },
+      {
+        "candidate_id": "3079249-1790544943303:1:2",
+        "sources": 56,
+        "l1_block": 9,
+        "timestamp_ms": 1790544955548
+      }
+    ],
+    "measured_sources": 128,
+    "measured_posts": 2
+  }
+]

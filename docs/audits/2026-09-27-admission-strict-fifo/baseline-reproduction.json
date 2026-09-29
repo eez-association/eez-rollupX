@@ -1,0 +1,332 @@
+[
+  {
+    "case": "independent-gas",
+    "artifacts": "artifacts/admission-strict-fifo/baseline-gas-native",
+    "admission": [
+      {
+        "candidate_id": "2831375-1790539390411:1:0",
+        "kind": "started",
+        "detail": {
+          "queued": 4,
+          "selected": 4,
+          "selection_limit": 4,
+          "selection_limit_reason": null,
+          "submission_backoff_threshold": 5,
+          "submission_failure_streak": 0
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:0",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 0,
+          "source_hash": "0xea6dc5c06fbb5be0f725d94720cf67112c486146f0d5262b97456eae838ea183",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:0",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 1,
+          "source_hash": "0xbf9f42a757fcb93f16ff746c2acf69d155434026eae8ef47ae01d52f50535e31",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:0",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 3,
+          "source_hash": "0x8175e2c16eb7ff6f644a6440a35d655c8414d35e7f5785fc15bbdd91fd540771",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:0",
+        "kind": "summary",
+        "detail": {
+          "accepted": 2,
+          "calldata_bound_gas": 40508,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {
+            "l1_tx_gas_budget": 1
+          },
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 1,
+          "entry_discount": 0,
+          "examined_count": 3,
+          "fifo_bypassed": true,
+          "framing_reserve_gas": 32960,
+          "full_estimate_gas": 3245926,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 1,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 4,
+          "prefix_hash_ms": 0.773628,
+          "projected_gas": 3212966,
+          "reason": "l1_tx_gas_budget",
+          "selection_filtered_count": 1,
+          "simulation_count": 3,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:1",
+        "kind": "started",
+        "detail": {
+          "queued": 2,
+          "selected": 2,
+          "selection_limit": 2,
+          "selection_limit_reason": null,
+          "submission_backoff_threshold": 5,
+          "submission_failure_streak": 0
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:1",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 0,
+          "source_hash": "0xbf9f42a757fcb93f16ff746c2acf69d155434026eae8ef47ae01d52f50535e31",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:1",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 1,
+          "source_hash": "0x3c82d189144b6ae2c0e14ae9997890f8753a05a77920ace2801b56e4c9c7754a",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2831375-1790539390411:1:1",
+        "kind": "summary",
+        "detail": {
+          "accepted": 2,
+          "calldata_bound_gas": 40520,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 0,
+          "entry_discount": 0,
+          "examined_count": 2,
+          "fifo_bypassed": false,
+          "framing_reserve_gas": 32960,
+          "full_estimate_gas": 3245938,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 0,
+          "planning_cap": 4761904,
+          "prefix_hash_executed_tx_count": 4,
+          "prefix_hash_ms": 0.678665,
+          "projected_gas": 3212978,
+          "reason": "snapshot_exhausted",
+          "selection_filtered_count": 0,
+          "simulation_count": 2,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      }
+    ],
+    "log_hashes": [
+      {
+        "path": "artifacts/admission-strict-fifo/baseline-gas-native/logs/eez-proof-signer-2831344-0.log",
+        "sha256": "e926dc4db31f7fd06a1d93177cc5607809e4b0957051aee46d94046edab58172"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/baseline-gas-native/logs/eez-node-packing-gas-follower-2831344-3.log",
+        "sha256": "8e0f2a578ba1cc32e8529c8fb17cbefec75d7a1e4db2a106fa19c932710a1fff"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/baseline-gas-native/logs/eez-node-node-2831344-2.log",
+        "sha256": "6db9580e6545f3d0a71dffec754203c9f0b338e3378b532c00849f9339fb63e0"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/baseline-gas-native/logs/builder-stub-2831344-1.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  {
+    "case": "mixed-directions",
+    "artifacts": "artifacts/admission-strict-fifo/reproduction/01-baseline-gnosis_older_inbound_precedes_capacity_filling_outbound",
+    "admission": [
+      {
+        "candidate_id": "2883356-1790540596406:1:0",
+        "kind": "started",
+        "detail": {
+          "queued": 2,
+          "selected": 2,
+          "selection_limit": 2,
+          "selection_limit_reason": null,
+          "submission_backoff_threshold": 5,
+          "submission_failure_streak": 0
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:0",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "outbound",
+          "position": 1,
+          "source_hash": "0x0185eaea85a2f374f2016e95cf172d1c0cbc4cab42bf8c3b4cafb6f9b90f466d",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:0",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "inbound",
+          "position": 0,
+          "source_hash": "0x2b959d820b9c8e16f360e7cad321d3df3938f6e2835955b09dadb0b796dfd581",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:0",
+        "kind": "source_capacity_check",
+        "detail": {
+          "basis": "minimum_admission_cost",
+          "companion_declared_gas": 400000,
+          "companion_prefix_gas": 0,
+          "companion_required_gas": 0,
+          "constraint": "l1_tx_gas_budget",
+          "direction": "inbound",
+          "fixed_drain_reserve_gas": 0,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 2821060,
+          "l2_block_cap": 30000000,
+          "l2_used_gas": 277313,
+          "minimum_entry_gas": 0,
+          "minimum_l2_gas": 0,
+          "minimum_mutable_entry_gas": 65000,
+          "minimum_static_general_fallback": true,
+          "postbatch_planning_cap": 2857142,
+          "projected_before": 2791236,
+          "source_hash": "0x2b959d820b9c8e16f360e7cad321d3df3938f6e2835955b09dadb0b796dfd581",
+          "transaction_cap": 18446744073709551615,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:0",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 33604,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {
+            "l1_tx_gas_budget": 1
+          },
+          "cold_timing_probe": false,
+          "companion_gas": 0,
+          "deferred": 1,
+          "entry_discount": 0,
+          "examined_count": 2,
+          "fifo_bypassed": true,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 2821060,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 1,
+          "not_examined_count": 0,
+          "planning_cap": 2857142,
+          "prefix_hash_executed_tx_count": 2,
+          "prefix_hash_ms": 0.763678,
+          "projected_gas": 2791236,
+          "reason": "l1_tx_gas_budget",
+          "selection_filtered_count": 0,
+          "simulation_count": 1,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:1",
+        "kind": "started",
+        "detail": {
+          "queued": 1,
+          "selected": 1,
+          "selection_limit": 1,
+          "selection_limit_reason": null,
+          "submission_backoff_threshold": 5,
+          "submission_failure_streak": 0
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:1",
+        "kind": "source_selected",
+        "detail": {
+          "direction": "inbound",
+          "position": 0,
+          "source_hash": "0x2b959d820b9c8e16f360e7cad321d3df3938f6e2835955b09dadb0b796dfd581",
+          "timing_basis": "source_checks"
+        }
+      },
+      {
+        "candidate_id": "2883356-1790540596406:1:1",
+        "kind": "summary",
+        "detail": {
+          "accepted": 1,
+          "calldata_bound_gas": 32272,
+          "calldata_floor_active": true,
+          "capacity_deferrals": {},
+          "cold_timing_probe": false,
+          "companion_gas": 96110,
+          "deferred": 0,
+          "entry_discount": 100000,
+          "examined_count": 1,
+          "fifo_bypassed": false,
+          "framing_reserve_gas": 29824,
+          "full_estimate_gas": 483272,
+          "gas_margin_bps": 500,
+          "general_execution_reserve": false,
+          "minimum_check_count": 0,
+          "not_examined_count": 0,
+          "planning_cap": 2857142,
+          "prefix_hash_executed_tx_count": 1,
+          "prefix_hash_ms": 0.368726,
+          "projected_gas": 453448,
+          "reason": "snapshot_exhausted",
+          "selection_filtered_count": 0,
+          "simulation_count": 1,
+          "source_fee_count": 0,
+          "whole_block_cap": 30000000
+        }
+      }
+    ],
+    "log_hashes": [
+      {
+        "path": "artifacts/admission-strict-fifo/reproduction/01-baseline-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/builder-stub-2883136-1.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/reproduction/01-baseline-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-fifo-gas-follower-2883136-3.log",
+        "sha256": "9fcb248e1785a53c97f989eefdea67cff5a627535b0d63a2f764d982c505852f"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/reproduction/01-baseline-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-proof-signer-2883136-0.log",
+        "sha256": "7e806063f3fdb6b17091f406124a88dfacdb00cbbdbcf14c23a35a64e4fc7efc"
+      },
+      {
+        "path": "artifacts/admission-strict-fifo/reproduction/01-baseline-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-node-2883136-2.log",
+        "sha256": "8113587d5846dab3e853a18a53b4972a014029be931db730e49c8c60bb2f6579"
+      }
+    ]
+  }
+]

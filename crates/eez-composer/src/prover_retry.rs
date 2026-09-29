@@ -157,6 +157,222 @@ pub(crate) fn proof_start_cutoff_ms(timing: RollupTiming, target: BundleTarget) 
     )
 }
 
+/// One exact-target window shared by preparation, proof and submission. The
+/// monotonic bound never moves forward when the wall clock moves backwards;
+/// forward clock corrections can only shorten the remaining target window.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct PipelineDeadline {
+    pub unix_ms: u64,
+    monotonic: Instant,
+}
+
+impl PipelineDeadline {
+    pub fn new(timing: RollupTiming, target: BundleTarget, now_ms: u64) -> Option<Self> {
+        let BundleTarget::Exact { timestamp, .. } = target else {
+            return None;
+        };
+        let slack = u64::try_from(timing.submission_slack().as_millis()).unwrap_or(u64::MAX);
+        let unix_ms = timestamp.saturating_mul(1000).saturating_sub(slack);
+        Some(Self {
+            unix_ms,
+            monotonic: Instant::now() + Duration::from_millis(unix_ms.saturating_sub(now_ms)),
+        })
+    }
+
+    pub fn instant(self) -> Instant {
+        Instant::now() + self.remaining()
+    }
+
+    pub fn remaining(self) -> Duration {
+        self.monotonic
+            .saturating_duration_since(Instant::now())
+            .min(Duration::from_millis(
+                self.unix_ms.saturating_sub(unix_time_millis()),
+            ))
+    }
+}
+
+/// Bootstrap allowance for signed-envelope construction, two ordered native
+/// preflights and relay delivery. Observed finalization samples may raise it.
+/// This is separate from relay slack, which remains outside the usable window.
+pub(crate) const POST_PROOF_RESERVE: Duration = Duration::from_millis(150);
+pub(crate) const DELIVERY_RESERVE: Duration = Duration::from_millis(25);
+
+/// Work dimensions bound reuse and upward scaling of a timing observation.
+/// Samples are local to the running binary/prover and disappear on restart.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Workload {
+    pub groups: usize,
+    pub blobs: usize,
+    pub witnesses: usize,
+}
+
+#[derive(Default, Debug)]
+struct TimingHistory(std::sync::Mutex<std::collections::VecDeque<(Workload, Duration)>>);
+impl TimingHistory {
+    fn observe(&self, workload: Workload, elapsed: Duration) {
+        let mut samples = self.0.lock().unwrap();
+        if samples.len() == 32 {
+            samples.pop_front();
+        }
+        samples.push_back((workload, elapsed));
+    }
+    fn estimate(&self, workload: Workload) -> Option<Duration> {
+        self.0
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(sample, _)| {
+                sample.groups >= workload.groups
+                    && sample.blobs >= workload.blobs
+                    && sample.witnesses >= workload.witnesses
+            })
+            .map(|(_, elapsed)| *elapsed)
+            .max()
+            .map(|d| d.saturating_add(d / 4))
+    }
+
+    fn extrapolate(&self, workload: Workload) -> Option<(Duration, Duration)> {
+        let samples = self.0.lock().unwrap();
+        let observed = samples.iter().map(|(_, elapsed)| *elapsed).max()?;
+        let supplied = |sample: &Workload| {
+            [
+                sample.groups.min(workload.groups),
+                sample.blobs.min(workload.blobs),
+                sample.witnesses.min(workload.witnesses),
+            ]
+        };
+        let scaled = samples
+            .iter()
+            .filter(|(sample, elapsed)| {
+                let covered = supplied(sample);
+                // A wider measured proof supersedes a cheaper sparse sample's
+                // extrapolation once it supplies at least as much of every
+                // requested dimension. Surplus old history is irrelevant to
+                // this comparison, but unseen history/blob growth and more
+                // expensive sparse proofs retain their own scaling terms.
+                // Strict dominance preserves at least one of the 32 samples.
+                !samples.iter().any(|(other, other_elapsed)| {
+                    let other = supplied(other);
+                    other_elapsed >= elapsed
+                        && other != covered
+                        && other.iter().zip(covered).all(|(a, b)| *a >= b)
+                })
+            })
+            .map(|(sample, elapsed)| {
+                [
+                    (workload.groups, sample.groups),
+                    (workload.blobs, sample.blobs),
+                    (workload.witnesses, sample.witnesses),
+                ]
+                .into_iter()
+                .filter(|(requested, observed)| *requested > (*observed).max(1))
+                .map(|(requested, observed)| {
+                    let nanos = elapsed
+                        .as_nanos()
+                        .checked_mul(requested as u128)
+                        .map(|n| n.div_ceil(observed.max(1) as u128));
+                    match nanos.filter(|n| *n <= Duration::MAX.as_nanos()) {
+                        Some(n) => {
+                            Duration::new((n / 1_000_000_000) as u64, (n % 1_000_000_000) as u32)
+                        }
+                        None => Duration::MAX,
+                    }
+                })
+                .fold(*elapsed, Duration::max)
+            })
+            .max()
+            .unwrap_or(observed)
+            .max(observed);
+        Some((
+            scaled.saturating_add(scaled / 4),
+            observed.saturating_add(observed / 4),
+        ))
+    }
+}
+
+pub(crate) struct ProofPrediction {
+    pub duration: Duration,
+    pub basis: &'static str,
+}
+
+/// Bounded histories with 25% headroom. Proofs outside observed coverage scale
+/// non-dominated samples by the largest workload ratio, capped at the greater
+/// of the bootstrap estimate and the observed proof floor. Dominance is relative
+/// to the requested dimensions and cannot discard a more expensive sample.
+/// Scaling never prices a larger request below an observed slower proof.
+/// This avoids returning to a prohibitive cold allocation for each new witness
+/// count while keeping the shared deadline authoritative. Finalization requires
+/// covering samples because envelope/preflight cost need not scale like proof work.
+#[derive(Default, Debug)]
+pub(crate) struct PipelineTimings {
+    proof: TimingHistory,
+    finalization: TimingHistory,
+}
+impl PipelineTimings {
+    pub fn proof_estimate(&self, configured: Duration, workload: Workload) -> Duration {
+        self.proof_prediction(configured, workload).duration
+    }
+    pub fn proof_prediction(&self, configured: Duration, workload: Workload) -> ProofPrediction {
+        let (duration, basis) = if let Some(estimate) = self.proof.estimate(workload) {
+            (estimate, "covering_sample")
+        } else if let Some((estimate, observed_floor)) = self.proof.extrapolate(workload) {
+            (
+                estimate.min(configured.max(observed_floor)),
+                "scaled_sample",
+            )
+        } else {
+            return ProofPrediction {
+                duration: configured,
+                basis: "configured_seed",
+            };
+        };
+        ProofPrediction {
+            duration: duration.max(Duration::from_millis(25)),
+            basis,
+        }
+    }
+    pub fn post_reserve(&self, workload: Workload) -> Duration {
+        self.finalization
+            .estimate(workload)
+            .map(|d| d.saturating_add(DELIVERY_RESERVE))
+            .unwrap_or(POST_PROOF_RESERVE)
+            .max(POST_PROOF_RESERVE)
+    }
+    pub fn observe_proof(&self, workload: Workload, elapsed: Duration) {
+        self.proof.observe(workload, elapsed);
+    }
+    pub fn observe_finalization(&self, workload: Workload, elapsed: Duration) {
+        self.finalization.observe(workload, elapsed);
+    }
+}
+
+pub(crate) async fn prove_with_shared_deadline(
+    prover: &dyn Prover,
+    ctx: ProvingContext,
+    timing: RollupTiming,
+    target: BundleTarget,
+    deadline: PipelineDeadline,
+    reserve: Duration,
+) -> Result<Bytes, ProverError> {
+    let budget = deadline.remaining().saturating_sub(reserve);
+    if budget.is_zero() {
+        return Err(ProverError::Retryable {
+            kind: RetryableProverError::DeadlineExceeded,
+            message: "shared settlement window exhausted before proving".into(),
+        });
+    }
+    prove_with_retry_window(
+        prover,
+        ctx,
+        timing,
+        target,
+        budget,
+        Some((deadline, reserve)),
+    )
+    .await
+}
+
 /// Exponential backoff with ±20% wall-clock jitter and a fixed cap.
 fn prover_retry_backoff(failed_attempt: u32) -> Duration {
     let jitter_seed = u64::from(
@@ -202,14 +418,38 @@ pub(crate) async fn prove_with_retry_at(
     now_ms: u64,
 ) -> Result<Bytes, ProverError> {
     let budget = retry_budget(timing, target, now_ms)?;
+    prove_with_retry_window(prover, ctx, timing, target, budget, None).await
+}
+
+async fn prove_with_retry_window(
+    prover: &dyn Prover,
+    ctx: ProvingContext,
+    timing: RollupTiming,
+    target: BundleTarget,
+    budget: Duration,
+    shared: Option<(PipelineDeadline, Duration)>,
+) -> Result<Bytes, ProverError> {
     let retry_deadline = Instant::now() + budget;
     let mut attempt = 1_u32;
 
     loop {
-        let attempt_timeout = match target {
-            BundleTarget::NextBlock => retry_deadline.saturating_duration_since(Instant::now()),
-            BundleTarget::Exact { .. } => timing.proof_time(),
+        let attempt_timeout = if let Some((deadline, reserve)) = shared {
+            deadline
+                .remaining()
+                .saturating_sub(reserve)
+                .min(retry_deadline.saturating_duration_since(Instant::now()))
+        } else {
+            match target {
+                BundleTarget::NextBlock => retry_deadline.saturating_duration_since(Instant::now()),
+                BundleTarget::Exact { .. } => timing.proof_time(),
+            }
         };
+        if shared.is_some() && attempt_timeout.is_zero() {
+            return Err(ProverError::Retryable {
+                kind: RetryableProverError::DeadlineExceeded,
+                message: "shared settlement window exhausted".into(),
+            });
+        }
         let result = match timeout(attempt_timeout, prover.prove(ctx.clone())).await {
             Ok(result) => result,
             Err(_) => Err(ProverError::Retryable {
@@ -640,6 +880,371 @@ mod tests {
     }
 
     const TEST_NOW_MS: u64 = 1_700_000_000_000;
+
+    #[test]
+    fn measured_wider_proof_supersedes_sparse_scaling_for_covered_history() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(500);
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 1,
+                witnesses: 10,
+            },
+            Duration::from_millis(17),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 22,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(43),
+        );
+        let request = Workload {
+            groups: 110,
+            blobs: 2,
+            witnesses: 5,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, request),
+            Duration::from_micros(268_750),
+            "the measured wider proof must replace the one-group scaling term"
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    witnesses: 20,
+                    ..request
+                }
+            ),
+            configured,
+            "a shorter history sample cannot replace the longer history observation"
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 3,
+                witnesses: 5,
+            },
+            Duration::from_millis(40),
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    blobs: 3,
+                    ..request
+                }
+            ),
+            configured,
+            "a sample with more physical blobs remains relevant"
+        );
+    }
+
+    #[test]
+    fn expensive_sparse_proof_remains_a_scaling_observation() {
+        let timings = PipelineTimings::default();
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 1,
+                witnesses: 10,
+            },
+            Duration::from_millis(600),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 22,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(43),
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                Duration::from_millis(500),
+                Workload {
+                    groups: 110,
+                    blobs: 2,
+                    witnesses: 5
+                },
+            ),
+            Duration::from_millis(750),
+            "a cheap wider sample cannot erase a slower sparse proof"
+        );
+    }
+
+    #[test]
+    fn proof_calibration_scales_each_dimension_and_retains_bounded_history() {
+        let timings = PipelineTimings::default();
+        let small = Workload {
+            groups: 10,
+            blobs: 1,
+            witnesses: 5,
+        };
+        let configured = Duration::from_millis(450);
+        assert_eq!(
+            timings.proof_prediction(configured, small).basis,
+            "configured_seed"
+        );
+        timings.observe_proof(small, Duration::from_millis(80));
+        assert_eq!(
+            timings.proof_prediction(configured, small).basis,
+            "covering_sample"
+        );
+        assert_eq!(
+            timings.proof_estimate(configured, small),
+            Duration::from_millis(100)
+        );
+        for (large, expected_ms) in [
+            (
+                Workload {
+                    groups: 11,
+                    ..small
+                },
+                110,
+            ),
+            (Workload { blobs: 2, ..small }, 200),
+            (
+                Workload {
+                    witnesses: 6,
+                    ..small
+                },
+                120,
+            ),
+            (
+                Workload {
+                    groups: 20,
+                    blobs: 3,
+                    witnesses: 10,
+                },
+                300,
+            ),
+            (
+                Workload {
+                    groups: usize::MAX,
+                    ..small
+                },
+                450,
+            ),
+        ] {
+            let prediction = timings.proof_prediction(configured, large);
+            assert_eq!(prediction.basis, "scaled_sample");
+            assert_eq!(prediction.duration, Duration::from_millis(expected_ms));
+        }
+        timings.observe_proof(small, Duration::from_millis(400));
+        for _ in 0..30 {
+            timings.observe_proof(small, Duration::from_millis(80));
+        }
+        assert_eq!(
+            timings.proof_estimate(configured, small),
+            Duration::from_millis(500)
+        );
+        timings.observe_proof(small, Duration::from_millis(80));
+        timings.observe_proof(small, Duration::from_millis(80));
+        assert_eq!(timings.proof.0.lock().unwrap().len(), 32);
+        assert_eq!(
+            timings.proof_estimate(configured, small),
+            Duration::from_millis(100)
+        );
+    }
+
+    #[test]
+    fn proof_extrapolation_handles_zero_dimensions_and_saturates_overflow() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(450);
+        timings.observe_proof(Workload::default(), Duration::from_millis(10));
+        let workload = Workload {
+            groups: 1,
+            blobs: 2,
+            witnesses: 0,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, workload),
+            Duration::from_millis(25)
+        );
+        timings.observe_proof(Workload::default(), Duration::MAX);
+        let huge = Workload {
+            groups: usize::MAX,
+            ..workload
+        };
+        assert_eq!(timings.proof_estimate(configured, huge), Duration::MAX);
+        // Covered slow observations remain authoritative even above the seed.
+        assert_eq!(
+            timings.proof_estimate(configured, Workload::default()),
+            Duration::MAX
+        );
+        // Proof scaling does not train the finalization history.
+        assert_eq!(timings.post_reserve(huge), POST_PROOF_RESERVE);
+    }
+
+    #[test]
+    fn scaling_never_prices_larger_work_below_a_slow_observation() {
+        let timings = PipelineTimings::default();
+        let small = Workload {
+            groups: 1,
+            blobs: 1,
+            witnesses: 2,
+        };
+        timings.observe_proof(small, Duration::from_millis(600));
+        let configured = Duration::from_millis(450);
+        assert_eq!(
+            timings.proof_estimate(configured, small),
+            Duration::from_millis(750)
+        );
+        assert_eq!(
+            timings.proof_estimate(
+                configured,
+                Workload {
+                    witnesses: 3,
+                    ..small
+                }
+            ),
+            Duration::from_millis(750)
+        );
+    }
+
+    #[derive(Debug)]
+    struct SlowSuccess {
+        duration: Duration,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Prover for SlowSuccess {
+        async fn prove(&self, _ctx: ProvingContext) -> Result<Bytes, ProverError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(self.duration).await;
+            Ok(Bytes::from_static(b"proof"))
+        }
+        fn vkey(&self) -> B256 {
+            B256::ZERO
+        }
+    }
+
+    fn virtual_deadline(remaining_ms: u64) -> PipelineDeadline {
+        // The virtual clock owns elapsed time; a distant wall-clock bound avoids
+        // coupling paused-time tests to real scheduler delays.
+        PipelineDeadline {
+            unix_ms: unix_time_millis() + 60_000,
+            monotonic: Instant::now() + Duration::from_millis(remaining_ms),
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn preparation_overrun_keeps_the_same_candidate_when_the_complete_pipeline_fits() {
+        let start = Instant::now();
+        let deadline = virtual_deadline(1450);
+        let prover = SlowSuccess {
+            duration: Duration::from_millis(100),
+            calls: AtomicUsize::new(0),
+        };
+        tokio::time::advance(Duration::from_millis(1200)).await;
+        let proof = prove_with_shared_deadline(
+            &prover,
+            test_context(),
+            test_timing(),
+            BundleTarget::Exact {
+                block: 5,
+                timestamp: 1,
+            },
+            deadline,
+            POST_PROOF_RESERVE,
+        )
+        .await
+        .unwrap();
+        assert_eq!(proof, Bytes::from_static(b"proof"));
+        assert_eq!(prover.calls.load(Ordering::Relaxed), 1);
+        tokio::time::advance(Duration::from_millis(100 + 20)).await;
+        assert_eq!(start.elapsed(), Duration::from_millis(1420));
+        assert_eq!(deadline.remaining(), Duration::from_millis(30));
+        tokio::time::advance(Duration::from_millis(29)).await;
+        assert!(!deadline.remaining().is_zero());
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(deadline.remaining().is_zero());
+        let error = prove_with_shared_deadline(
+            &prover,
+            test_context(),
+            test_timing(),
+            BundleTarget::Exact {
+                block: 5,
+                timestamp: 1,
+            },
+            deadline,
+            Duration::ZERO,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ProverError::Retryable {
+                kind: RetryableProverError::DeadlineExceeded,
+                ..
+            }
+        ));
+        assert_eq!(prover.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fast_preparation_lends_time_to_proof_and_retries_cannot_reset_the_window() {
+        let prover = SlowSuccess {
+            duration: Duration::from_millis(800),
+            calls: AtomicUsize::new(0),
+        };
+        let target = BundleTarget::Exact {
+            block: 5,
+            timestamp: 1,
+        };
+        let deadline = virtual_deadline(1450);
+        tokio::time::advance(Duration::from_millis(100)).await;
+        assert!(
+            prove_with_shared_deadline(
+                &prover,
+                test_context(),
+                test_timing(),
+                target,
+                deadline,
+                POST_PROOF_RESERVE
+            )
+            .await
+            .is_ok()
+        );
+        let start = Instant::now();
+        let deadline = virtual_deadline(500);
+        let stalled = DelayedFailureThenStallProver::default();
+        let error = prove_with_shared_deadline(
+            &stalled,
+            test_context(),
+            test_timing(),
+            target,
+            deadline,
+            Duration::from_millis(50),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ProverError::Retryable {
+                kind: RetryableProverError::DeadlineExceeded,
+                ..
+            }
+        ));
+        assert_eq!(start.elapsed(), Duration::from_millis(450));
+        assert_eq!(stalled.calls.load(Ordering::Relaxed), 2);
+        assert_eq!(deadline.remaining(), Duration::from_millis(50));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn clock_correction_cannot_extend_the_shared_window() {
+        let mut deadline = virtual_deadline(500);
+        tokio::time::advance(Duration::from_millis(400)).await;
+        deadline.unix_ms += 10_000; // wall clock moves backwards relative to target
+        assert_eq!(deadline.remaining(), Duration::from_millis(100));
+        deadline.unix_ms = unix_time_millis().saturating_sub(1);
+        assert!(deadline.remaining().is_zero());
+    }
 
     #[tokio::test(start_paused = true)]
     async fn retryable_prover_error_retries_the_complete_operation() {

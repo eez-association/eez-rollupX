@@ -1,0 +1,17 @@
+{
+  "postbatches": 25,
+  "bundle_limited_postbatches": 14,
+  "parent_budget_min_gas": 17453689,
+  "parent_budget_max_gas": 17762955,
+  "all_actual_signed_start_envelopes_fit": true,
+  "all": {
+    "estimate_budget_fraction": 0.9097035548058524,
+    "actual_used_budget_fraction": 0.5696754261192021,
+    "actual_start_budget_fraction": 0.6137109036117652
+  },
+  "bundle_limited": {
+    "estimate_budget_fraction": 0.9889884074645167,
+    "actual_used_budget_fraction": 0.521406767780057,
+    "actual_start_budget_fraction": 0.5703620602142121
+  }
+}

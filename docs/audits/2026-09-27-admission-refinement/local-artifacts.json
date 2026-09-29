@@ -1,0 +1,98 @@
+[
+  {
+    "path": "artifacts/admission-refinement/composer-final.log",
+    "bytes": 26391,
+    "sha256": "099fc3264878e5e2455abec99b303ae3403bce6cf277095b5a071d9db031c9d2",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/clippy.log",
+    "bytes": 318,
+    "sha256": "9947c98d89cf669bd45f27c84ced41e708262c0668a592def304f34574e57169",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/clippy-test-correction.log",
+    "bytes": 11849,
+    "sha256": "143e9d88539df7ac684afce794c8bfc4edf936b03a670dcac7c7ef0fd0c5ced8",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/indexer-final.log",
+    "bytes": 4626,
+    "sha256": "8a2a9bfe03b838df370adafaba540ac93db400f38a8cf9f738136f8cf7ed6745",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/indexer-clippy.log",
+    "bytes": 155,
+    "sha256": "02b940cb02ddf0282d0620eb3a4d624047e117dffcf6828d326d156cda3c2218",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/contracts-all.log",
+    "bytes": 6242,
+    "sha256": "da8f57471b43223abc8b64a9a65596db80018d311ea66a4860d20f5a318655c0",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/native.log",
+    "bytes": 890517,
+    "sha256": "fed887ccc7f9ac590953dbb8d55840912df70301064920b2dcb1e62a1a753fed",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/native-followup.log",
+    "bytes": 29508,
+    "sha256": "d32bbbb496c8a20ce69a3683cfa0380cae5057eeca05e784a32ba73026d90ad1",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/verify-live-first.log",
+    "bytes": 5090,
+    "sha256": "0e372dc37ef71429a0393a77bb36bd153a0797daa067fc1c529d2bd790d7d2cc",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/verify-live-corrected.log",
+    "bytes": 1533,
+    "sha256": "f1ea272c7c61dc5d8ba95e2e918273ae2494993d137484bde64ed74e8de2e9ce",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/verify-live-final.log",
+    "bytes": 1994,
+    "sha256": "e323f3b688dc67005eb4b83d5bc9e4ddd7a9559eb4e3aea3d0b34798a0f1b8be",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/candidate/run.private.log",
+    "bytes": 82755,
+    "sha256": "919152600470e6e3014759d8986453b1cc8b7eb6965e83e48efb05b0c28fda1a",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/candidate/detail/events.private.json",
+    "bytes": 30543274,
+    "sha256": "aead1496209fb729ab698e069692f8390a15b2b3d3ca77be895b6628aef5598c",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/candidate/detail/source-estimates.csv",
+    "bytes": 395854,
+    "sha256": "9126f8c5ea7ed55afaa6a64937adf31b2df0c23c085a1a4e69765cfa1443f447",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/candidate/source-admission.csv",
+    "bytes": 4001684,
+    "sha256": "8b949d6e008f6dcc83f6741d6bfe299423952c5cff023a763f181f5dbc140e1b",
+    "availability": "local only; not included in another checkout"
+  },
+  {
+    "path": "artifacts/admission-refinement/candidate/detail/minimum-checks.csv",
+    "bytes": 1541679,
+    "sha256": "2c9edafaf34cfc07f4bd2f55b25672bee585a0547193c93e76cad5d340040ed6",
+    "availability": "local only; not included in another checkout"
+  }
+]

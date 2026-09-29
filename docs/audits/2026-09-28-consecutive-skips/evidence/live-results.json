@@ -1,0 +1,309 @@
+{
+  "runtime_source_revision": "ba4cbabca056302875715e9e060e7b803c5c282c",
+  "protocol_revision": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "started_at": "2026-09-28T18:24:15.272641+00:00",
+  "send_finished_at": "2026-09-28T18:29:15.302139+00:00",
+  "finished_at": "2026-09-28T18:29:21.358628+00:00",
+  "duration_seconds": 300.02953023201553,
+  "pairs": 57,
+  "sources": 114,
+  "canonical_postbatches": 51,
+  "grafana": {
+    "Included at target": "50/60 (83.3%)",
+    "Network slot skipped": "4/60 (6.7%)",
+    "Block produced without inclusion": "6/60 (10.0%)",
+    "Preparation failed": "0/60 (0.0%)"
+  },
+  "grafana_query_window": {
+    "from_ms": 1790619860000,
+    "to_ms": 1790620155001
+  },
+  "produced_block_coverage": {
+    "included": 50,
+    "produced": 56,
+    "percent": 89.28571428571429
+  },
+  "all_scheduled_slot_coverage": {
+    "included": 50,
+    "scheduled": 60,
+    "percent": 83.33333333333334
+  },
+  "no_attempt_targets": 0,
+  "consecutive_skips_observed": false,
+  "live_limit": "All four skipped slots were isolated; consecutive-skip recovery is established by controlled process tests, not this live window.",
+  "historical_semantic_checks": 306,
+  "semantic_checks_passed": true,
+  "canonical_stability": {
+    "checked_at": "2026-09-28T18:30:40.669586+00:00",
+    "canonical_source_attributions_unchanged": 114,
+    "canonical_postings_unchanged": 51,
+    "external_canonical_receipts_match": 51
+  },
+  "counters_before": {
+    "inbound": {
+      "source_counter": 216,
+      "cached_return": 216,
+      "destination_counter": 216
+    },
+    "outbound": {
+      "source_counter": 216,
+      "cached_return": 216,
+      "destination_counter": 216
+    }
+  },
+  "counters_after": {
+    "inbound": {
+      "source_counter": 273,
+      "cached_return": 273,
+      "destination_counter": 273
+    },
+    "outbound": {
+      "source_counter": 273,
+      "cached_return": 273,
+      "destination_counter": 273
+    }
+  },
+  "final_queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790620158106,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xacb1a7b6c61fcc0d0103c42a412fdc4bbb0ef255dc76dc9fb3f9581e020eda8c",
+        "number": 23273565
+      },
+      "observedAtMs": 1790620160898
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x5a85b8f8581d4ae615cb30a1ef41b868033d47e304da801be757ce53c9c63e08",
+        "number": 23273564
+      },
+      "l2": {
+        "hash": "0x125f1af4957766eb8c43cd94b1200c2d13c4cff051fab1b092b7c2683c874fcf",
+        "number": 259954
+      }
+    },
+    "unknown": 0
+  },
+  "funding_transactions": 0,
+  "last_source_target_timestamp": 1790620160,
+  "final_post_outside_measurement_window": true,
+  "admission": {
+    "attempts_all": 61,
+    "attempts_in_target_window": 60,
+    "window_outcomes": {
+      "included": 50,
+      "skipped_slot": 4,
+      "produced_without_inclusion": 6
+    },
+    "all_attempts_relay_acknowledged": true,
+    "all_attempts_admitted_entire_snapshot": true,
+    "admission_cutoff_counts": {
+      "snapshot_exhausted": 61
+    },
+    "capacity_deferrals": 0,
+    "fifo_bypasses": 0,
+    "produced_misses_expected_parent_matched": true,
+    "produced_misses_minimum_ack_remaining_ms": 946.030509,
+    "produced_misses_maximum_ack_remaining_ms": 997.501036,
+    "inclusion_limit": "Relay acknowledgement does not establish proposer inclusion. These records cannot distinguish relay forwarding, builder selection, proposer policy or payload timing.",
+    "pipeline_ms": {
+      "preparation_ms": {
+        "mean": 184.68852459016392,
+        "p95": 208.0,
+        "max": 419
+      },
+      "proof_ms": {
+        "mean": 23.631403508196723,
+        "p95": 32.940887000000004,
+        "max": 46.697083
+      },
+      "finalization_ms": {
+        "mean": 101.8305471147541,
+        "p95": 126.301006,
+        "max": 175.027043
+      },
+      "delivery_ms": {
+        "mean": 164.1123400819672,
+        "p95": 167.82070199999998,
+        "max": 169.091295
+      }
+    },
+    "complete_admission_gas": 22472460,
+    "actual_postbatch_gas": 11334510,
+    "complete_admission_to_actual_ratio": 1.9826582710677392,
+    "cohort_companion_estimate_gas": 6237237,
+    "cohort_companion_actual_gas": 5560008,
+    "cohort_companion_estimate_ratio": 1.1218036017214363,
+    "all_postbatch_predictions_exact": true,
+    "all_signed_limits_five_percent": true,
+    "cohort_sources": 114,
+    "background_sources": 0,
+    "all_admitted_sources_in_shared_posts": 114
+  },
+  "grafana_estimate_panels": [
+    {
+      "id": 1,
+      "total_rows": 61,
+      "canonical_cohort_rows": 51,
+      "fields_checked": [
+        "admission_including_framing_gas",
+        "canonical_receipt_gas",
+        "fifo_prefix_len",
+        "fifo_trigger",
+        "framing_reserve_gas",
+        "gas_margin_percent",
+        "policy_version"
+      ],
+      "cohort_nonnull": {
+        "policy_version": 51,
+        "admission_including_framing_gas": 51,
+        "fifo_prefix_len": 0,
+        "fifo_trigger": 0,
+        "gas_margin_percent": 51,
+        "framing_reserve_gas": 51,
+        "canonical_receipt_gas": 51
+      }
+    },
+    {
+      "id": 3,
+      "total_rows": 138,
+      "canonical_cohort_rows": 114,
+      "fields_checked": [
+        "framing_reserve_after",
+        "framing_reserve_before",
+        "framing_reserve_gas",
+        "full_estimate_after",
+        "full_estimate_before",
+        "minimum_mutable_entry_gas",
+        "minimum_static_general_fallback"
+      ],
+      "cohort_nonnull": {
+        "minimum_mutable_entry_gas": 0,
+        "framing_reserve_after": 114,
+        "framing_reserve_before": 114,
+        "framing_reserve_gas": 114,
+        "full_estimate_after": 114,
+        "minimum_static_general_fallback": 0,
+        "full_estimate_before": 114
+      }
+    }
+  ],
+  "runtime_checks": {
+    "runtimes": {
+      "eez-node-chiado": {
+        "image_unchanged": true,
+        "not_restarted": true,
+        "log_levels": {
+          "INFO": 6900,
+          "WARN": 34
+        }
+      },
+      "eez-proof-signer-chiado": {
+        "image_unchanged": true,
+        "not_restarted": true,
+        "log_levels": {
+          "INFO": 317
+        }
+      }
+    },
+    "fee_quotes": 183,
+    "all_quotes_cover_base_plus_tip_and_blob_base": true,
+    "execution_base_fee_wei": [
+      7
+    ],
+    "priority_fee_wei": [
+      1000000000
+    ],
+    "execution_fee_cap_wei": [
+      1000000014
+    ],
+    "blob_base_fee_wei": [
+      1000000000,
+      1124999975
+    ],
+    "blob_fee_cap_wei": [
+      2000000000,
+      2249999950
+    ]
+  },
+  "produced_misses": [
+    {
+      "target_utc": "2026-09-28T18:25:40+00:00",
+      "target_timestamp": 1790619940,
+      "slot": 25044728,
+      "block": 23273524,
+      "composer_attempt": true,
+      "no_relay_data": false,
+      "first_bundle_bid_offset_ms": -57.881,
+      "reason": "blob_bid_eligible_after_header_request",
+      "header_request_ms": 26,
+      "blob_bid_eligible_ms": 78,
+      "late_by_ms": 52
+    },
+    {
+      "target_utc": "2026-09-28T18:25:50+00:00",
+      "target_timestamp": 1790619950,
+      "slot": 25044730,
+      "block": 23273526,
+      "composer_attempt": true,
+      "no_relay_data": true,
+      "first_bundle_bid_offset_ms": null,
+      "reason": "no_mev_boost_relay_data"
+    },
+    {
+      "target_utc": "2026-09-28T18:26:20+00:00",
+      "target_timestamp": 1790619980,
+      "slot": 25044736,
+      "block": 23273532,
+      "composer_attempt": true,
+      "no_relay_data": true,
+      "first_bundle_bid_offset_ms": null,
+      "reason": "no_mev_boost_relay_data"
+    },
+    {
+      "target_utc": "2026-09-28T18:27:00+00:00",
+      "target_timestamp": 1790620020,
+      "slot": 25044744,
+      "block": 23273540,
+      "composer_attempt": true,
+      "no_relay_data": true,
+      "first_bundle_bid_offset_ms": null,
+      "reason": "no_mev_boost_relay_data"
+    },
+    {
+      "target_utc": "2026-09-28T18:28:25+00:00",
+      "target_timestamp": 1790620105,
+      "slot": 25044761,
+      "block": 23273556,
+      "composer_attempt": true,
+      "no_relay_data": true,
+      "first_bundle_bid_offset_ms": null,
+      "reason": "no_mev_boost_relay_data"
+    },
+    {
+      "target_utc": "2026-09-28T18:29:15+00:00",
+      "target_timestamp": 1790620155,
+      "slot": 25044771,
+      "block": 23273564,
+      "composer_attempt": true,
+      "no_relay_data": false,
+      "first_bundle_bid_offset_ms": 884.624,
+      "reason": "no_bid_at_header_then_past_slot_rejection",
+      "header_request_ms": 21,
+      "builder_bid_ms": 884.624,
+      "relay_request_start_ms": 887,
+      "relay_rejection": "submission for past slot"
+    }
+  ],
+  "independent_live_replay": false,
+  "independent_live_kzg_recomputation": false,
+  "external_builder_modified": false,
+  "performance_limit": "Same release recipe, workload and unchanged runtime settings; sequential windows on a shared host with different network slots and proposers. The rate delta is not an isolated causal throughput benchmark."
+}

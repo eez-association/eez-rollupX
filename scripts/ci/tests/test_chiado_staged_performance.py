@@ -1,4 +1,5 @@
 """Exercise the runner's real profile boundary without keys, RPC or wallet use."""
+import ast
 import os
 from pathlib import Path
 import shlex
@@ -11,15 +12,48 @@ import unittest
 REPO = Path(__file__).resolve().parents[3]
 
 
+class StagedFundingTest(unittest.TestCase):
+    def setUp(self):
+        source = (REPO / "scripts/run-chiado-staged-performance.sh").read_text()
+        python = source.split("python3 - <<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+        tree = ast.parse(python)
+        function = next(n for n in tree.body
+                        if isinstance(n, ast.FunctionDef) and n.name == "funding_requirement")
+        namespace = {}
+        exec(compile(ast.Module(body=[function], type_ignores=[]), str(REPO), "exec"), namespace)
+        self.requirement = namespace["funding_requirement"]
+
+    def test_funded_pool_needs_no_faucet_reserve(self):
+        self.assertEqual(self.requirement([3300] * 770, 3300, 3300, 100), (0, 0))
+
+    def test_only_deficient_workers_count_and_chunk_boundary_is_exact(self):
+        target = 3_300_000_000_000_000
+        for deficient, chunks in [(1, 1), (100, 1), (101, 2)]:
+            balances = [target - 10] * deficient + [target] * (770 - deficient)
+            self.assertEqual(self.requirement(balances, target, target, 100),
+                             (10 * deficient + chunks * 5 * 10**16 + 10**17, deficient))
+
+    def test_floor_equal_or_above_skips_worker_even_below_target(self):
+        self.assertEqual(self.requirement([2000, 2500, 4000, 1999], 3300, 2000, 100),
+                         (1301 + 5 * 10**16 + 10**17, 1))
+
+    def test_empty_pool_retains_original_full_requirement(self):
+        self.assertEqual(self.requirement([0] * 770, 3_300_000_000_000_000,
+                                         3_300_000_000_000_000, 100),
+                         (3_041_000_000_000_000_000, 770))
+
+
 class StagedPerformanceConfigTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="eez-staged-config-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         (self.root / "scripts").mkdir()
+        (self.root / "contracts").mkdir()
         (self.root / "eez-core-protocol").mkdir()
         self.script = self.root / "scripts/run-chiado-staged-performance.sh"
         shutil.copy2(REPO / "scripts/run-chiado-staged-performance.sh", self.script)
+        shutil.copy2(REPO / "scripts/chiado-forge.sh", self.root / "scripts/chiado-forge.sh")
         self.tools = self.root / "tools"
         self.tools.mkdir()
         self.marker = self.root / "tool-invoked"
@@ -67,3 +101,33 @@ class StagedPerformanceConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("Unknown argument: --resend", result.stderr)
         self.assertFalse(self.marker.exists())
+
+    def test_verify_mode_reaches_the_locked_runner_and_check_never_sends(self):
+        args_file = self.root / "runner-args"
+        lock_file = self.root / "lock-observed"
+        for name, body in {
+            "cast": "echo 0x" + "11" * 20,
+            "python3": "exit 0",
+            "flock": "touch " + shlex.quote(str(lock_file)),
+        }.items():
+            (self.tools / name).write_text("#!/bin/sh\n" + body + "\n")
+        runner = self.root / "eez-core-protocol/script/e2e/run/network-staged.sh"
+        runner.parent.mkdir(parents=True)
+        runner.write_text("#!/bin/bash\nset -eu\n"
+                          + "test -f " + shlex.quote(str(lock_file)) + "\n"
+                          + '[[ $(type -t forge) == function ]]\n'
+                          + 'test "$EEZ_CHIADO_CONTRACTS_ROOT" = '
+                          + shlex.quote(str(self.root / "contracts")) + "\n"
+                          + "printf '%s\\n' \"$@\" > " + shlex.quote(str(args_file)) + "\n")
+        for args, verify in (((), False), (("--verify",), True)):
+            with self.subTest(args=args):
+                result = self.run_helper(args=args)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                forwarded = args_file.read_text().splitlines()
+                self.assertEqual("--no-verify" in forwarded, not verify)
+                self.assertIn("counter:100", forwarded)
+                self.assertIn("revertFromOtherChainL2:50", forwarded)
+        args_file.unlink()
+        result = self.run_helper(args=("--verify", "--check"))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse(args_file.exists())

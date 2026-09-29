@@ -1,0 +1,198 @@
+[
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/01-candidate-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-node-3083512-2.log",
+    "sha256": "424ace0b5895e69d23a8652021ae799cc651dad9d7c52b719f5d7d7e582a3b88"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/01-candidate-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-fifo-gas-follower-3083512-3.log",
+    "sha256": "be25c2ca128c7c833bc53c93b00f650fb51844cbddedb2913e026df0a4a15e33"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/01-candidate-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/builder-stub-3083512-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/01-candidate-gnosis_older_inbound_precedes_capacity_filling_outbound/logs/eez-proof-signer-3083512-0.log",
+    "sha256": "c17214d511229eb5a85cfc937ab87cd556f5bad8e7d26bedd44a04a5c787a5df"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/02-candidate-ethereum_older_inbound_precedes_capacity_filling_outbound/logs/builder-stub-3085763-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/02-candidate-ethereum_older_inbound_precedes_capacity_filling_outbound/logs/eez-proof-signer-3085763-0.log",
+    "sha256": "720bd2648d0317a2b476589d38e3fc91f0b9c0e114dea10695f795d8404b9cc7"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/02-candidate-ethereum_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-node-3085763-2.log",
+    "sha256": "a238c417da60558dfad653d522898d2b942dd12cbc61378375da3617776795a7"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/02-candidate-ethereum_older_inbound_precedes_capacity_filling_outbound/logs/eez-node-fifo-gas-follower-3085763-3.log",
+    "sha256": "2caab5504ece0f7dead375288830f405cdcfcbd32bf26f95a3e081a90d12aef2"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/03-candidate-gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work/logs/builder-stub-3087992-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/03-candidate-gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work/logs/eez-node-node-3087992-2.log",
+    "sha256": "8f6418d63df1426c9f6da3bec703e48df4bc235699a929ddead87452befdcae2"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/03-candidate-gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work/logs/eez-proof-signer-3087992-0.log",
+    "sha256": "757243ea1d7facdbf5f06b84360325a012efe61d20a13abe94136d39266bb5fd"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/03-candidate-gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work/logs/eez-node-packing-gas-follower-3087992-3.log",
+    "sha256": "09faa41254441b880093b98d12f4d69e81858dbcfcdeb2314d451e0016f79549"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/04-candidate-ethereum_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-node-node-3090461-2.log",
+    "sha256": "abc977b7cf9fd709f6c05856d18c70e421a553da59dd0022d2ee4be8d07ba96d"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/04-candidate-ethereum_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-node-policy-gas-follower-3090461-3.log",
+    "sha256": "f206c722cba8e1531015efd8e9458c559d14a3804edf669a1d1b920298cb27b1"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/04-candidate-ethereum_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-proof-signer-3090461-0.log",
+    "sha256": "a2c7177a57208c30bd539e7a7b94d31d1ce3f2e5fccac447eee6afac7f95f9f3"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/04-candidate-ethereum_low_byte_expensive_new_proxies_split_only_complete_groups/logs/builder-stub-3090461-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/05-candidate-gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-node-policy-gas-follower-3093269-3.log",
+    "sha256": "e5c327fc8216ae603abe61a1ea41cebdb29938ad3955b4b7c7657d4022f1bcd2"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/05-candidate-gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-node-node-3093269-2.log",
+    "sha256": "0ecdc9c3e03ad2194714006aee9ea49b0ba7f7b50f7c8b347167635bae77d728"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/05-candidate-gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/logs/builder-stub-3093269-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/05-candidate-gnosis_low_byte_expensive_new_proxies_split_only_complete_groups/logs/eez-proof-signer-3093269-0.log",
+    "sha256": "1df9b68b387d9a2e5377461114238043b113d53033e82dbfcebb0a2af63adfdd"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/06-candidate-gnosis_blocked_fee_sender_does_not_starve_independent_auto_work/logs/eez-proof-signer-3096064-0.log",
+    "sha256": "06b4c48ec0d19561265d74df1b77f57c734eeee0389701c395ed6acf42605aaa"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/06-candidate-gnosis_blocked_fee_sender_does_not_starve_independent_auto_work/logs/builder-stub-3096064-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/06-candidate-gnosis_blocked_fee_sender_does_not_starve_independent_auto_work/logs/eez-node-source-fee-follower-3096064-3.log",
+    "sha256": "9f8f778bc905a408042b743f81dfeee2a6f75ad34f2806ee53f2e18120c96522"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/06-candidate-gnosis_blocked_fee_sender_does_not_starve_independent_auto_work/logs/eez-node-node-3096064-2.log",
+    "sha256": "6090e03639a3abd1bee6ec416000b653e6119e7dc57a328d15479816743d6c24"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/07-candidate-ethereum_blocked_outbound_balance_allows_independent_limit_one_work/logs/eez-node-source-fee-follower-3098378-3.log",
+    "sha256": "3153205b7f2648390c14a26892aa4492bf750c053d370b82a0b9471a3dc1fb05"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/07-candidate-ethereum_blocked_outbound_balance_allows_independent_limit_one_work/logs/eez-proof-signer-3098378-0.log",
+    "sha256": "7f1ef3d253e273da7e67d79e9628984f56922b7c616494b95dfe033c7becc212"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/07-candidate-ethereum_blocked_outbound_balance_allows_independent_limit_one_work/logs/builder-stub-3098378-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/07-candidate-ethereum_blocked_outbound_balance_allows_independent_limit_one_work/logs/eez-node-node-3098378-2.log",
+    "sha256": "71ea5e474f515536eee517e556efe83708c6b7b07ba2d1b2c06233d2469179d7"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/08-candidate-ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-proof-signer-3100757-0.log",
+    "sha256": "615940b818efd2154523b2c7fb2b359a5debf2ed9fd646fba9e81b234793f489"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/08-candidate-ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-node-queue-follower-3100757-3.log",
+    "sha256": "fa3555d9a0f6f4b75b8ad6971778527f4788e0b2699cd6d920c52bb44aef0430"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/08-candidate-ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/builder-stub-3100757-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/08-candidate-ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-node-node-3100757-2.log",
+    "sha256": "a8acc64187b54accbe3cf38a09d21f976cefe6fde9a7faf1f70aab5c8515e403"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/09-candidate-gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-node-node-3103559-2.log",
+    "sha256": "9e36c7a9e1feb00e7ca965e5f918e0aa8994fbb8d0ed363adc4b9f997a80597c"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/09-candidate-gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/builder-stub-3103559-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/09-candidate-gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-node-queue-follower-3103559-3.log",
+    "sha256": "18ddbccc7f6be07d2b1c5f0400957ed1d94393eac894868dc0dfc5cec354dc99"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/09-candidate-gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding/logs/eez-proof-signer-3103559-0.log",
+    "sha256": "a5ecc71f35d1cfa5d214da086e138d02444a9df8a7041d6dd0ef7862dcf595f4"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/10-candidate-valid_blob_batch_resumes_at_middle_group_in_same_l1_block/logs/builder-stub-3106366-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/10-candidate-valid_blob_batch_resumes_at_middle_group_in_same_l1_block/logs/eez-proof-signer-3106366-0.log",
+    "sha256": "222c0eaccbf70ae62edbc9d5bfca11ee85962cddcb93ea754c965e4a9be334bd"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/10-candidate-valid_blob_batch_resumes_at_middle_group_in_same_l1_block/logs/eez-node-valid-resume-follower-3106366-3.log",
+    "sha256": "ac92a866bfe1c6250dfe59d2d152097c2705ba4003e39016ce481a7fe78f5f21"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/10-candidate-valid_blob_batch_resumes_at_middle_group_in_same_l1_block/logs/eez-node-node-3106366-2.log",
+    "sha256": "ab5d81dc2a4509534c205c493e58f363e51840319394f98c6ab5980253e7e443"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/11-candidate-automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts/logs/eez-node-node-3108503-2.log",
+    "sha256": "81d0b2335b9f47cdf1738c629203164117a234cfad369c7a5ba363e8380398be"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/11-candidate-automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts/logs/eez-proof-signer-3108503-0.log",
+    "sha256": "17a967f3b44809e611b811576310cafacb6c78b7c80f43a22ecc953db09997dc"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/11-candidate-automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts/logs/builder-stub-3108503-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/11-candidate-automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts/logs/eez-node-auto-blob-follower-3108503-3.log",
+    "sha256": "b08e84b8dbd3dae1ec94e4f748b4d285b7f3d0b4bdcfdeaecfb7caaecba10921"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users/logs/l1-consensus-3110936-2.log",
+    "sha256": "712dba3308f4f24af1a388f65884c124750b2c79814322fb4a3cd3a718d7669a"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users/logs/eez-proof-signer-3110936-0.log",
+    "sha256": "e745b2d4cd77b69d7752c555b102699091b3319ba6a1ffc4a413b0b2ee15ae67"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users/logs/eez-node-node-3110936-3.log",
+    "sha256": "27725335c395fe7a7c8676f5e215658f9cdba5a73ddcbf91bbf3aa86c17aa5aa"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users/logs/eez-node-skipped-slot-follower-3110936-4.log",
+    "sha256": "b5cf4f044cb4e3a16cdf0d651c6f6383ba13682b32a4e8cb938487ce4f99c51e"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/correctness/12-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users/logs/builder-stub-3110936-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

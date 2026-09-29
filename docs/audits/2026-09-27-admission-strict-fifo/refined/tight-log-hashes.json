@@ -1,0 +1,66 @@
+[
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/01-baseline-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-auto-follower-3072790-3.log",
+    "sha256": "3b2af599d7e2ed4cfa77ca3c6dcc6a726b569afe54209344b485788a54eb816f"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/01-baseline-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-node-3072790-2.log",
+    "sha256": "b981e5d4adeda0e4f42162a44e7603e823d6c0cad8cf41f1c7530726a561fbb7"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/01-baseline-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/builder-stub-3072790-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/01-baseline-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-proof-signer-3072790-0.log",
+    "sha256": "3e92ab2d2c4732add20051102622cd4c5802b839b301dc4089ec55f2beb49a57"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/02-candidate-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-proof-signer-3074948-0.log",
+    "sha256": "cf2c6a0f4010d270d669318d1b30003082ab0e75cc1b2490fe82a172e16a1b22"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/02-candidate-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-auto-follower-3074948-3.log",
+    "sha256": "17fe40cd388efa2002972a08940299e4710931f29b291a3c9f88a3332b89f94d"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/02-candidate-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-node-3074948-2.log",
+    "sha256": "85401cc70cdb977622b4b0faa8c500c54e13c19d4c0bb7b4142f12327dc31824"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/02-candidate-ethereum_explicit_preparation_mixed_wave_after_small_post_replays/logs/builder-stub-3074948-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/03-candidate-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-auto-follower-3077131-3.log",
+    "sha256": "655612089d89c8fbc5b89a0de50a7a785616271770ed170d3fa091352a929c24"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/03-candidate-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-node-3077131-2.log",
+    "sha256": "33086084f37bf88e63073c9fe9a71ea7c31ee07a094b763a3df9ea1cc14b74bb"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/03-candidate-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/builder-stub-3077131-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/03-candidate-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-proof-signer-3077131-0.log",
+    "sha256": "2cb1548c75f0528871542bf9939152ab07aed7e19c9c99b30048fbec964e2420"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/04-baseline-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-auto-follower-3079199-3.log",
+    "sha256": "e610e486fcc1348f5944145a27a9d6a8b36f7483119e4e941658a2aab9966874"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/04-baseline-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-node-node-3079199-2.log",
+    "sha256": "242dbe5b976954902e628facbf8077ee94a42f5a917a6b44ce845af62e339b42"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/04-baseline-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/builder-stub-3079199-1.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "artifacts/admission-strict-fifo-refined/tight/04-baseline-gnosis_explicit_preparation_mixed_wave_after_small_post_replays/logs/eez-proof-signer-3079199-0.log",
+    "sha256": "0c304e54d6a01b4583f954cb19d44790d9f147a5c004fa23c0ed22797387c5a5"
+  }
+]

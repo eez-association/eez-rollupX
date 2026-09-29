@@ -90,7 +90,7 @@ def main():
     fcu(head['hash'])
     write('ready.json', {'head': head['hash'], 'number': head['number']})
     alternatives = {}
-    skipped_timestamp = None
+    skipped_timestamps = set()
     delayed_timestamp = None
     delayed_payload = None
     while True:
@@ -125,7 +125,7 @@ def main():
                     or requested <= int(head['timestamp'], 16)
                     or (requested - args.genesis_time) % args.block_seconds):
                 raise ValueError('skip request must identify a future aligned slot')
-            skipped_timestamp = requested
+            skipped_timestamps.add(requested)
             write('skip-slot-armed.json', pending)
         request_path = args.control / 'reorg.json'
         if request_path.exists():
@@ -145,7 +145,7 @@ def main():
                 'replacement': {'number': head['number'], 'hash': head['hash']}})
         now = int(time.time())
         timestamp = args.genesis_time + ((now - args.genesis_time) // args.block_seconds) * args.block_seconds
-        if timestamp <= int(head['timestamp'], 16) or timestamp == skipped_timestamp:
+        if timestamp <= int(head['timestamp'], 16) or timestamp in skipped_timestamps:
             time.sleep(0.05)
             continue
         built = build(head, timestamp)

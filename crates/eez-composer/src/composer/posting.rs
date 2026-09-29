@@ -76,10 +76,23 @@ pub(super) struct BundleExecution {
     /// Receipt gas, after refunds and the calldata floor, for fee accounting.
     pub gas_used: Vec<u64>,
     /// Gas needed before refunds, respecting the calldata floor, for limit sizing.
-    gas_required: Vec<u64>,
+    pub gas_required: Vec<u64>,
+    pub gas_limits: Vec<u64>,
+    pub transaction_hashes: Vec<B256>,
 }
 
 impl PostingRuntime {
+    pub fn calldata_floor_active(&self, target: BundleTarget) -> bool {
+        match target {
+            BundleTarget::Exact { timestamp, .. } => self
+                .chain
+                .evm_config
+                .chain_spec()
+                .is_prague_active_at_timestamp(timestamp),
+            BundleTarget::NextBlock => true,
+        }
+    }
+
     pub fn native_currency(&self) -> &'static str {
         if self.chain.gnosis_evm_config.is_some() {
             "xDAI"
@@ -579,6 +592,14 @@ where
         .map_err(|e| PostingError::Unavailable(e.to_string()))?;
     let mut gas_used = Vec::with_capacity(transactions.len());
     let mut gas_required = Vec::with_capacity(transactions.len());
+    let gas_limits = transactions.iter().map(|tx| tx.gas_limit()).collect();
+    let transaction_hashes = transactions
+        .iter()
+        .map(|tx| {
+            use alloy_consensus::transaction::TxHashRef as _;
+            *tx.tx_hash()
+        })
+        .collect();
     let mut final_root = None;
     for (index, transaction) in transactions.into_iter().enumerate() {
         gas_trace::set_tx_index(index);
@@ -635,6 +656,8 @@ where
     Ok(BundleExecution {
         gas_used,
         gas_required,
+        gas_limits,
+        transaction_hashes,
     })
 }
 

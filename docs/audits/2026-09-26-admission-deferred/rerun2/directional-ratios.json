@@ -1,0 +1,18 @@
+{
+  "outbound_only": {
+    "postings": 8,
+    "admission_gas": 121328244,
+    "preflight_gas_required": 100629322,
+    "canonical_receipt_gas": 100629322,
+    "admission_to_receipt": 1.2056947377624188,
+    "admission_to_required": 1.2056947377624188
+  },
+  "has_inbound": {
+    "postings": 19,
+    "admission_gas": 153735418,
+    "preflight_gas_required": 81589132,
+    "canonical_receipt_gas": 77376608,
+    "admission_to_receipt": 1.9868461796619463,
+    "admission_to_required": 1.8842634335171013
+  }
+}

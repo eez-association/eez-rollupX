@@ -1,0 +1,50 @@
+{
+  "started_at": "2026-09-26T20:33:16.557475+00:00",
+  "source": "e57c7a545671d9fab082a2cb524859d75f55ef12",
+  "mode": "runtime",
+  "queue_before": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790443138110,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0x90c76a5d3eab07d9a7e3de508124866c40b3738fca186be2071a1c73d06e0adc",
+        "number": 23241662
+      },
+      "observedAtMs": 1790443141007
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0xca3aa4c9696fc8252ce15d8754679aa955132f247683a89ee1d6770e10c72490",
+        "number": 23241661
+      },
+      "l2": {
+        "hash": "0x106445ff98dfb8f6a970063bad77d3b38789aff4a6abee6adb12b993e9c7cddd",
+        "number": 82934
+      }
+    },
+    "unknown": 0
+  },
+  "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+  "old_images": {
+    "eez-node": "sha256:6db0ad2d2a470e11bfb1f0f35e49e103c65eef0eb9fccb951176d37130371f2f",
+    "eez-proof-signer": "sha256:8e2077def8877379ac074cf79328c78607f1ee0250111bb7b76a2884798c56cf"
+  },
+  "stopped_exit_code": 0,
+  "new_images": {
+    "eez-node": "sha256:efa887627148264c7c3a4378cc3fe3b13526cafd776870307c525d0c1d0a59b4",
+    "eez-proof-signer": "sha256:32eace4d05970066a22fa449f1fc07b168921d829d373c22a48e5ef089957be3"
+  },
+  "container_ids": {
+    "eez-node": "714d7dc5f8d37d2b567e06710951e377993bfe86e4d03278d9817fb4be20c98f",
+    "eez-proof-signer": "cbd2cf1a5a3eb38bd17129783a3ffa93b51966ba49282fb7c0db2ebca6a46f56"
+  },
+  "mounts_preserved": true,
+  "environment_preserved": true,
+  "finished_at": "2026-09-26T20:33:24.360733+00:00"
+}

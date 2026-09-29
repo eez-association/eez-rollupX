@@ -2039,7 +2039,8 @@ impl NodeHandle {
         // env_clear alone does not stop dotenv searching parent directories.
         isolate_dotenv(datadir)?;
         let signal_filter = std::env::var("EEZ_TEST_LOG").unwrap_or_else(|_| {
-            "warn,eez_node=info,eez_l1=info,eez_composer=info,eez_deriver=info".to_string()
+            "warn,eez_node=info,eez_l1=info,eez_composer=info,eez_deriver=info,eez_posting=info"
+                .to_string()
         });
         // Each role binary loads dotenv files from its working directory. Running from
         // the datadir prevents repository settings from changing the explicit
@@ -4694,11 +4695,18 @@ impl CrossChainWorld {
 
     /// Accept the next bundle at the relay without including it on L1.
     pub fn drop_next_bundle(&self) -> Result<()> {
+        self.drop_next_bundles(1)
+    }
+
+    /// Acknowledge a bounded series of bundles without including them, allowing
+    /// process tests to observe consecutive canonical exclusions and recovery.
+    pub fn drop_next_bundles(&self, count: u32) -> Result<()> {
+        anyhow::ensure!((1..=6).contains(&count), "drop count must be in 1..=6");
         std::fs::write(
             self.builder_stub
                 .capture_dir()
                 .join("control/drop-next.json"),
-            b"{}",
+            serde_json::to_vec(&serde_json::json!({"remaining": count}))?,
         )?;
         Ok(())
     }

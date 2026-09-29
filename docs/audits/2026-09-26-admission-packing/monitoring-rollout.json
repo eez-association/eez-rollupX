@@ -1,0 +1,10 @@
+{
+  "source": "e5b2cde65c9166ceae87bd4ee723820ed63ea5f6",
+  "started_at": "2026-09-26T22:24:03.450227+00:00",
+  "old_image": "sha256:6ae79bf2bdc5b67e2134f8b61b3e4659140dcc0e94ab0db1f7d64af9d9802411",
+  "history_counts_before": "28078|4",
+  "new_image": "sha256:9b53490c4f365987c41caab23d614468552f0f14772e7bcb02759749da72776d",
+  "mounts_environment_command_preserved": true,
+  "history_counts_after": "28078|4",
+  "finished_at": "2026-09-26T22:24:06.607970+00:00"
+}

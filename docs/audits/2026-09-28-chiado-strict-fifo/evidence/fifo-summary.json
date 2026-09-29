@@ -1,0 +1,66 @@
+{
+  "candidates": 67,
+  "proved_candidates": 35,
+  "canonical_candidates": 29,
+  "proved_fifo_bypasses": 0,
+  "discarded_fifo_rebuilds": 32,
+  "discarded_rebuild_trigger_counts": {
+    "l1_tx_gas_budget": 21,
+    "l1_bundle_gas_budget": 3,
+    "pipeline_time": 8
+  },
+  "retained_prefix_canonical_posts": 7,
+  "small_retained_prefix_posts": [
+    {
+      "l1_block": "23266425",
+      "sources": 3,
+      "inbound": 3,
+      "outbound": 0
+    },
+    {
+      "l1_block": "23266429",
+      "sources": 2,
+      "inbound": 2,
+      "outbound": 0
+    },
+    {
+      "l1_block": "23266431",
+      "sources": 13,
+      "inbound": 13,
+      "outbound": 0
+    },
+    {
+      "l1_block": "23266435",
+      "sources": 3,
+      "inbound": 3,
+      "outbound": 0
+    },
+    {
+      "l1_block": "23266446",
+      "sources": 1,
+      "inbound": 1,
+      "outbound": 0
+    }
+  ],
+  "preparation_ms": {
+    "median": 269,
+    "max": 474
+  },
+  "proof_ms": {
+    "median": 90.55797,
+    "max": 165.130202
+  },
+  "gas_totals": {
+    "complete_admission_bound_gas": 237333762,
+    "full_projection_gas": 235315954,
+    "preflight_gas_used": 173212787,
+    "preflight_gas_required": 175540787,
+    "signed_gas_limit": 184317838,
+    "receipt_gas": 173212787,
+    "framing_reserve_gas": 4103232
+  },
+  "full_admission_receipt_ratio": 1.3701861514415792,
+  "fifo_observation_limit": "Concurrent sender output is not a total ingress order. This checks every emitted candidate invariant plus canonical direction distribution; controlled native older-source regressions provide ordering evidence.",
+  "discarded_pre_summary_elapsed_ms": 3563.874554,
+  "discarded_timing_basis": "Sum of discarded candidate start-to-summary intervals only; finished events include recursive replacements and must not be summed."
+}

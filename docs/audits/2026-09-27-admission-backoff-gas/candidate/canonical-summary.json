@@ -1,0 +1,180 @@
+{
+  "checked_at": "2026-09-27T12:34:55.119133+00:00",
+  "run": "eez-core-protocol/tmp/e2e-staged-net/20260927-122320",
+  "source_count": 870,
+  "canonical_by_layer": {
+    "L1": 520,
+    "L2": 350
+  },
+  "moved_source_heights": 87,
+  "source_window_seconds": 178.474,
+  "sources_per_second": 4.874659614285554,
+  "postings_with_sources": 24,
+  "sources_per_post": [
+    36,
+    36,
+    46,
+    51,
+    31,
+    34,
+    37,
+    39,
+    36,
+    51,
+    52,
+    39,
+    25,
+    16,
+    17,
+    24,
+    29,
+    47,
+    37,
+    40,
+    27,
+    40,
+    52,
+    28
+  ],
+  "first_l1_block": 23254117,
+  "last_l1_block": 23254147,
+  "skipped_slots_between_first_last": 3,
+  "produced_blocks_between_first_last": 31,
+  "post_batch_gas_total": 177292623,
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790512358116,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0x19df085350372416a398986d67df5c7047baa39943fae3ce61bb46f2af436ddc",
+        "number": 23254147
+      },
+      "observedAtMs": 1790512361167
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0xca3a618fdc57e93142ad5378592295763af4f582d56d2fa50a45256cba092c2b",
+        "number": 23254146
+      },
+      "l2": {
+        "hash": "0x6ade66a93143c8aa9782d7b5eddc85298871ed6cf54be195bfee43edddf47b67",
+        "number": 152154
+      }
+    },
+    "unknown": 0
+  },
+  "phases": [
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "build",
+      "start_ms": "1790511800237",
+      "end_ms": "1790511800429",
+      "duration_ms": "192",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "fund",
+      "start_ms": "1790511800430",
+      "end_ms": "1790511820499",
+      "duration_ms": "20069",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "nonce-barrier",
+      "start_ms": "1790511820500",
+      "end_ms": "1790511822121",
+      "duration_ms": "1621",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan-inputs",
+      "start_ms": "1790511822122",
+      "end_ms": "1790511822960",
+      "duration_ms": "838",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan",
+      "start_ms": "1790511822961",
+      "end_ms": "1790511874464",
+      "duration_ms": "51503",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-send",
+      "start_ms": "1790511874464",
+      "end_ms": "1790512163985",
+      "duration_ms": "289521",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-mine",
+      "start_ms": "1790512163986",
+      "end_ms": "1790512174924",
+      "duration_ms": "10938",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-liveness",
+      "start_ms": "1790512174925",
+      "end_ms": "1790512177582",
+      "duration_ms": "2657",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "finish",
+      "start_ms": "1790512182309",
+      "end_ms": "1790512182321",
+      "duration_ms": "12",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "send",
+      "start_ms": "1790512182353",
+      "end_ms": "1790512183642",
+      "duration_ms": "1289",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "monitor",
+      "start_ms": "1790512183643",
+      "end_ms": "1790512360828",
+      "duration_ms": "177185",
+      "status": "pass"
+    }
+  ],
+  "bulk_send_to_canonical_settlement_ms": {
+    "p50": 72647.0,
+    "p95": 167647.0,
+    "max": 177647,
+    "send_duration_ms": 1289,
+    "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+  }
+}

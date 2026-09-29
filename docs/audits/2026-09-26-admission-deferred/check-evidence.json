@@ -1,0 +1,82 @@
+{
+  "gas-baseline.log": {
+    "sha256": "0e82a6375f752fbcbbdd798dc507c81eb7b442a8a65cc55b653ab347d8567121",
+    "tail": [
+      "Suite result: ok. 34 passed; 0 failed; 0 skipped; finished in 305.92ms (2.95s CPU time)",
+      "",
+      "Ran 1 test suite in 310.47ms (305.92ms CPU time): 34 tests passed, 0 failed, 0 skipped (34 total tests)"
+    ]
+  },
+  "composer-final.log": {
+    "sha256": "998f4515da8c29ee79ef438d944b15de3f507a6a853ab1f604dfd4f27436e51e",
+    "tail": [
+      "",
+      "test result: ok. 251 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.18s",
+      ""
+    ]
+  },
+  "clippy-final.log": {
+    "sha256": "caa872c2497cd2ca2221153a36615ebb8b653c70a423c315f15149bd0098facd",
+    "tail": [
+      "    Checking eez-node v0.1.0 (/home/edu/Development/rollupX/crates/eez-node)",
+      "    Checking eez-node-e2e v0.1.0 (/home/edu/Development/rollupX/crates/eez-node-e2e)",
+      "    Finished `dev` profile [optimized + debuginfo] target(s) in 36.64s"
+    ]
+  },
+  "indexer-clippy.log": {
+    "sha256": "47bdc9bb0ae2fcc05acd78d0109c1811549d3738def620c37a9694e9533668ab",
+    "tail": [
+      "    Checking eez-indexer v0.1.0 (/home/edu/Development/rollupX/monitoring/indexer)",
+      "    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.22s"
+    ]
+  },
+  "indexer-db-first.log": {
+    "sha256": "e1cb6dca764d7ae70d935642a91e255846ed0248db4907097d009d17128ba6ed",
+    "tail": [
+      "",
+      "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s",
+      ""
+    ]
+  },
+  "gas-final4-cancun.log": {
+    "sha256": "895c01827b26eba947cce5470638ce5f915d27de40ad8824e7f11394da59c498",
+    "tail": [
+      "Suite result: ok. 39 passed; 0 failed; 0 skipped; finished in 1.86s (7.96s CPU time)",
+      "",
+      "Ran 1 test suite in 1.87s (1.86s CPU time): 39 tests passed, 0 failed, 0 skipped (39 total tests)"
+    ]
+  },
+  "gas-final4-prague.log": {
+    "sha256": "d10b24efcc826f6a0a8770b3342729113a36d40f0409cbd2eb01dc517326f5cd",
+    "tail": [
+      "Suite result: ok. 39 passed; 0 failed; 0 skipped; finished in 1.03s (6.86s CPU time)",
+      "",
+      "Ran 1 test suite in 1.03s (1.03s CPU time): 39 tests passed, 0 failed, 0 skipped (39 total tests)"
+    ]
+  },
+  "gas-final4-osaka.log": {
+    "sha256": "c6ef62063af6c0631b577851e357b3476b2b143e1281cbe98531778d5630c84a",
+    "tail": [
+      "Suite result: ok. 39 passed; 0 failed; 0 skipped; finished in 1.17s (7.69s CPU time)",
+      "",
+      "Ran 1 test suite in 1.17s (1.17s CPU time): 39 tests passed, 0 failed, 0 skipped (39 total tests)"
+    ]
+  },
+  "contracts-final.log": {
+    "sha256": "a75d096d6db1c68346b8592425d383bf1dbbf40762c45cd23670cadcf26be589",
+    "tail": [
+      "Suite result: ok. 39 passed; 0 failed; 0 skipped; finished in 1.01s (6.62s CPU time)",
+      "",
+      "Ran 10 test suites in 1.01s (1.67s CPU time): 58 tests passed, 0 failed, 0 skipped (58 total tests)"
+    ]
+  },
+  "contracts-format-all.log": {
+    "sha256": "62b001a939e4626b3b8abe69ad1620a8a8377b27095fa1432c1d52ad447ff7df",
+    "exit_code": 1,
+    "unchanged_baseline_files": [
+      "contracts/src/ECDSAProofSystem.sol",
+      "contracts/script/DeployRollup.s.sol"
+    ],
+    "changed_fixture_passes": true
+  }
+}

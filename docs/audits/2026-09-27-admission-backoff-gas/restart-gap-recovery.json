@@ -1,0 +1,12 @@
+{
+  "prepared_at": "2026-09-27T12:21:05.062819+00:00",
+  "start_block": 23254002,
+  "start_hash": "0x6d981c91358db1def3b2fa3211f1b96ac2bd909aff6dbd3842507068b76c36c8",
+  "end_block": 23254021,
+  "end_hash": "0x8d6db74e770dac7c7121fd167b8d19948266a53e0075dc8d0821095e65aeaead",
+  "beacon_slot": "25023072",
+  "imported_payloads": 19,
+  "all_engine_results_valid": true,
+  "fork_choice_owner": "Lighthouse",
+  "first_read_only_failure": "Incomplete upstream block response; no import performed"
+}

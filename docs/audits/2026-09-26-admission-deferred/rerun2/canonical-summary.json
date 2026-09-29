@@ -1,0 +1,201 @@
+{
+  "checked_at": "2026-09-26T17:22:30.104775+00:00",
+  "run": "eez-core-protocol/tmp/e2e-staged-net/20260926-170439",
+  "source_count": 870,
+  "canonical_by_layer": {
+    "L1": 520,
+    "L2": 350
+  },
+  "moved_source_heights": 77,
+  "source_window_seconds": 213.527,
+  "sources_per_second": 4.074426184978949,
+  "postings_with_sources": 27,
+  "sources_per_post": [
+    18,
+    36,
+    36,
+    36,
+    36,
+    48,
+    11,
+    40,
+    40,
+    31,
+    33,
+    31,
+    36,
+    18,
+    37,
+    18,
+    36,
+    13,
+    36,
+    13,
+    60,
+    29,
+    61,
+    10,
+    37,
+    36,
+    34
+  ],
+  "first_l1_block": 23241627,
+  "last_l1_block": 23241662,
+  "skipped_slots_between_first_last": 6,
+  "produced_blocks_between_first_last": 36,
+  "post_batch_gas_total": 178005930,
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790443138110,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0x90c76a5d3eab07d9a7e3de508124866c40b3738fca186be2071a1c73d06e0adc",
+        "number": 23241662
+      },
+      "observedAtMs": 1790443141007
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0xca3aa4c9696fc8252ce15d8754679aa955132f247683a89ee1d6770e10c72490",
+        "number": 23241661
+      },
+      "l2": {
+        "hash": "0x106445ff98dfb8f6a970063bad77d3b38789aff4a6abee6adb12b993e9c7cddd",
+        "number": 82934
+      }
+    },
+    "unknown": 0
+  },
+  "phases": [
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "build",
+      "start_ms": "1790442279549",
+      "end_ms": "1790442279714",
+      "duration_ms": "165",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "fund",
+      "start_ms": "1790442279715",
+      "end_ms": "1790442290375",
+      "duration_ms": "10660",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "nonce-barrier",
+      "start_ms": "1790442290376",
+      "end_ms": "1790442292042",
+      "duration_ms": "1666",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan-inputs",
+      "start_ms": "1790442292043",
+      "end_ms": "1790442292880",
+      "duration_ms": "837",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "plan",
+      "start_ms": "1790442292881",
+      "end_ms": "1790442336756",
+      "duration_ms": "43875",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-send",
+      "start_ms": "1790442336757",
+      "end_ms": "1790442910488",
+      "duration_ms": "573731",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-mine",
+      "start_ms": "1790442910488",
+      "end_ms": "1790442920495",
+      "duration_ms": "10007",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "deploy-liveness",
+      "start_ms": "1790442920496",
+      "end_ms": "1790442923052",
+      "duration_ms": "2556",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "finish",
+      "start_ms": "1790442927975",
+      "end_ms": "1790442927986",
+      "duration_ms": "11",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "send",
+      "start_ms": "1790442928017",
+      "end_ms": "1790442929326",
+      "duration_ms": "1309",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "monitor",
+      "start_ms": "1790442929327",
+      "end_ms": "1790443141545",
+      "duration_ms": "212218",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "verify",
+      "start_ms": "1790443141550",
+      "end_ms": "1790443829281",
+      "duration_ms": "687731",
+      "status": "pass"
+    },
+    {
+      "attempt": "1",
+      "scope": "run",
+      "name": "total",
+      "start_ms": "1790442279540",
+      "end_ms": "1790443829285",
+      "duration_ms": "1549745",
+      "status": "pass"
+    }
+  ],
+  "bulk_send_to_canonical_settlement_ms": {
+    "p50": 91983.0,
+    "p95": 206983.0,
+    "max": 211983,
+    "send_duration_ms": 1309,
+    "basis": "Canonical postBatch timestamp minus bulk send start; per-source send uncertainty is at most the bulk send duration."
+  }
+}

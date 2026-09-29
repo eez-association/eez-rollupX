@@ -1,0 +1,32 @@
+[
+  {
+    "number": 23241075,
+    "hash": "0xf644bd3db8f5cc02e5e3075435f23025f4b54e40bca18fcd35fa2983ef4ab5d8",
+    "timestamp": 1790439825,
+    "gasLimit": 17116508,
+    "gasUsed": 0,
+    "blobGasUsed": 0,
+    "transactions": 0,
+    "unused_block_gas": 17116508
+  },
+  {
+    "number": 23241076,
+    "hash": "0x1191ba99093448a41237b7e70b1b76580f9c9abe5eb41bfb5d04c88527385fa7",
+    "timestamp": 1790439835,
+    "gasLimit": 17099794,
+    "gasUsed": 116183,
+    "blobGasUsed": 0,
+    "transactions": 1,
+    "unused_block_gas": 16983611
+  },
+  {
+    "number": 23241077,
+    "hash": "0xa3c4da15eb4bb378601e93939a574e0b94083e6f070bf0ee1ed48ec30bd427b4",
+    "timestamp": 1790439840,
+    "gasLimit": 17083096,
+    "gasUsed": 0,
+    "blobGasUsed": 0,
+    "transactions": 0,
+    "unused_block_gas": 17083096
+  }
+]

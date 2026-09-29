@@ -1,0 +1,19 @@
+{
+  "requested_at": "2026-09-26T17:04:00.405486+00:00",
+  "checkout": "6f5ace2c09290075e27328e2cc31e50b7305f28f",
+  "runtime": "85f3691cb9c7ccbf8c0b8700576733283e5af7fc",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "no_runtime_restart": true,
+  "worker_prefunding_xdai": {
+    "prior_rerun": "0.00445",
+    "this_run": "0.004"
+  },
+  "initial_readiness_shortfall_xdai": "0.305556056771081423",
+  "prefunding_change_only": true,
+  "extra_poster_to_source_funding": false,
+  "preserved_inputs": {
+    "data/.env": "d1539c89d97a1eaf0ff8a8515e37843ceb2ebd98439d64d396eace092adaee84",
+    "eez-core-protocol/chain.env": "e4668167a80249e1f439adadceefaded049acb79d2c18f4c65627d84c685a013",
+    "data/admission-deferred-rerun-20260926/wave.env": "34753006f41e0c9617abd9505ef5042d131fa700e9edc6db55a1c929ca9b20c0"
+  }
+}

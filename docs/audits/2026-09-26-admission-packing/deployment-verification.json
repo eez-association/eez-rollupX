@@ -1,0 +1,52 @@
+{
+  "checked_at": "2026-09-26T23:33:46.675304+00:00",
+  "source": "e5b2cde65c9166ceae87bd4ee723820ed63ea5f6",
+  "services": {
+    "eez-node": {
+      "image_id": "sha256:9fd6816b4050f0d7cc80f8f85a2ae738fedce1a1a461b63db03a2155cb16aa06",
+      "running": true,
+      "health": null
+    },
+    "eez-proof-signer": {
+      "image_id": "sha256:642d6df2c76f60d506b86b557d2fa8e7974105f9110e612ac453807d0ba4093b",
+      "running": true,
+      "health": "healthy"
+    },
+    "eez-indexer": {
+      "image_id": "sha256:9b53490c4f365987c41caab23d614468552f0f14772e7bcb02759749da72776d",
+      "running": true,
+      "health": null
+    }
+  },
+  "heads": {
+    "L1": {
+      "number": 23245733,
+      "hash": "0xc1a8ae49524ad125bb3d6e0f7f9aa81aad5ac65c753ac60deb8868ea39dcae7b",
+      "age_seconds": 1.7268595695495605,
+      "syncing": false
+    },
+    "L2": {
+      "number": 105421,
+      "hash": "0xb8be5ca1a7596a47da7ee01629e1d01bd0f369e1d3ff22724b48f1a29eddc0f7",
+      "age_seconds": 0.9449648857116699,
+      "syncing": false
+    }
+  },
+  "l1_matches_external_canonical": true,
+  "external_comparison_height": 23245732,
+  "queue": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": null,
+    "inFlight": 0,
+    "lastCanonicalCompletion": null,
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": null,
+    "unknown": 0
+  },
+  "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+  "dotenv_unchanged_except_two_images": true
+}

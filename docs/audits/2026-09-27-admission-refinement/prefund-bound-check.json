@@ -1,0 +1,14 @@
+{
+  "L1": {
+    "maximum_sum_signed_gas_and_value_wei": 3000000042000000,
+    "job": "counter-multi-tx-9",
+    "proposed_prefund_wei": 3300000000000000,
+    "fits": true
+  },
+  "L2": {
+    "maximum_sum_signed_gas_and_value_wei": 15000000,
+    "job": "revertFromOtherChainL2-9",
+    "proposed_prefund_wei": 3300000000000000,
+    "fits": true
+  }
+}

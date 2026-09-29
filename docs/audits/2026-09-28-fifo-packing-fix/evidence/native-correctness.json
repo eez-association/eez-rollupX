@@ -1,0 +1,98 @@
+[
+  {
+    "test": "gnosis_older_inbound_precedes_capacity_filling_outbound",
+    "suite": "settlement_policy_gas",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 54.237516326014884,
+    "exit_code": 0
+  },
+  {
+    "test": "ethereum_older_inbound_precedes_capacity_filling_outbound",
+    "suite": "settlement_policy_gas",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 58.76193959702505,
+    "exit_code": 0
+  },
+  {
+    "test": "gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work",
+    "suite": "settlement_policy_gas",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 64.55133252602536,
+    "exit_code": 0
+  },
+  {
+    "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "suite": "settlement_policy_gas",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 73.84431524999673,
+    "exit_code": 0
+  },
+  {
+    "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+    "suite": "settlement_policy_gas",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 73.53499459300656,
+    "exit_code": 0
+  },
+  {
+    "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+    "suite": "settlement_policy",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 56.194834769004956,
+    "exit_code": 0
+  },
+  {
+    "test": "ethereum_blocked_outbound_balance_allows_independent_limit_one_work",
+    "suite": "settlement_policy",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 59.25129610701697,
+    "exit_code": 0
+  },
+  {
+    "test": "ethereum_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "suite": "queue_liveness",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 68.74037439702079,
+    "exit_code": 0
+  },
+  {
+    "test": "gnosis_escrow_wait_allows_independent_senders_and_later_inbound_funding",
+    "suite": "queue_liveness",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 68.96000367600936,
+    "exit_code": 0
+  },
+  {
+    "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+    "suite": "partial_consumption",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 48.04311062803026,
+    "exit_code": 0
+  },
+  {
+    "test": "automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts",
+    "suite": "dynamic_admission",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 63.16719833598472,
+    "exit_code": 0
+  },
+  {
+    "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "suite": "dynamic_admission",
+    "variant": "candidate",
+    "status": "passed",
+    "duration_seconds": 56.047681138967164,
+    "exit_code": 0
+  }
+]

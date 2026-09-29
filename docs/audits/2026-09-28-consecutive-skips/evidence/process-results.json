@@ -1,0 +1,224 @@
+[
+  {
+    "variant": "baseline",
+    "suite": "dynamic_admission",
+    "test": "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "expected_failure": true,
+    "failure_assertion": "no next-slot replacement dispatch",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/baseline-corrected/01-baseline-consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "started_at": "2026-09-28T17:58:51.377382+00:00",
+    "status": "failed",
+    "exit_code": 101,
+    "duration_seconds": 60.55760791996727,
+    "finished_at": "2026-09-28T17:59:51.935272+00:00",
+    "run": "baseline-corrected",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-regressions/01-candidate-consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "started_at": "2026-09-28T18:05:40.355533+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 56.11667295801453,
+    "finished_at": "2026-09-28T18:06:36.472377+00:00",
+    "run": "candidate-regressions",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "late_original_after_multiple_replacements_retains_users_and_follower_parity",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "late_original_after_multiple_replacements_retains_users_and_follower_parity",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-regressions/02-candidate-late_original_after_multiple_replacements_retains_users_and_follower_parity",
+    "started_at": "2026-09-28T18:06:36.478113+00:00",
+    "status": "failed",
+    "exit_code": 101,
+    "duration_seconds": 64.17130026698578,
+    "finished_at": "2026-09-28T18:07:40.658086+00:00",
+    "run": "candidate-regressions",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-remaining/01-candidate-automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+    "started_at": "2026-09-28T18:09:18.852124+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 56.61318037001183,
+    "finished_at": "2026-09-28T18:10:15.465926+00:00",
+    "run": "candidate-remaining",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-remaining/02-candidate-late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+    "started_at": "2026-09-28T18:10:15.469900+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 55.52098383603152,
+    "finished_at": "2026-09-28T18:11:10.991108+00:00",
+    "run": "candidate-remaining",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission",
+      "--exact",
+      "historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-remaining/03-candidate-historical_blob_prefix_preserves_the_skipped_slot_replacement_target",
+    "started_at": "2026-09-28T18:11:10.996469+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 81.9262452070252,
+    "finished_at": "2026-09-28T18:12:32.922954+00:00",
+    "run": "candidate-remaining",
+    "harness_sha256": "dcd7e088dce46b5c22a83c769f7106d9e58d5a43b7e370bd1c2ec0ca4f578773"
+  },
+  {
+    "variant": "candidate",
+    "suite": "partial_consumption",
+    "test": "partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/partial_consumption",
+      "--exact",
+      "partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-recovery/01-candidate-partial_prefix_keeps_unconsumed_users_and_receipt_costs",
+    "started_at": "2026-09-28T18:12:34.137076+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 57.94644278596388,
+    "finished_at": "2026-09-28T18:13:32.083713+00:00",
+    "run": "candidate-recovery",
+    "harness_sha256": "c9429711806509aee77a3db975477e42da4144535a169dc74deb20c68ef30209"
+  },
+  {
+    "variant": "candidate",
+    "suite": "partial_consumption",
+    "test": "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/partial_consumption",
+      "--exact",
+      "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-recovery/02-candidate-restart_after_partial_keeps_accounting_and_rebuilds_intent",
+    "started_at": "2026-09-28T18:13:32.087250+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 71.08250194502762,
+    "finished_at": "2026-09-28T18:14:43.180520+00:00",
+    "run": "candidate-recovery",
+    "harness_sha256": "c9429711806509aee77a3db975477e42da4144535a169dc74deb20c68ef30209"
+  },
+  {
+    "variant": "candidate",
+    "suite": "queue_reorg",
+    "test": "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/queue_reorg",
+      "--exact",
+      "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-recovery/03-candidate-native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+    "started_at": "2026-09-28T18:14:43.185619+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 56.98945722403005,
+    "finished_at": "2026-09-28T18:15:40.175307+00:00",
+    "run": "candidate-recovery",
+    "harness_sha256": "449d7840a23e4e31cdae186a69dd3e41717936f460cd1b6179717bc365b121d2"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission-v2",
+      "--exact",
+      "consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-corrected/01-candidate-consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block",
+    "started_at": "2026-09-28T18:15:42.226327+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 56.24744554696372,
+    "finished_at": "2026-09-28T18:16:38.474051+00:00",
+    "run": "candidate-corrected",
+    "harness_sha256": "60d98f054e881f34f3f0559f7146cd1b5cde573a0e10fd7ff85998e737bbd983"
+  },
+  {
+    "variant": "candidate",
+    "suite": "dynamic_admission",
+    "test": "late_original_after_multiple_replacements_retains_users_and_follower_parity",
+    "command": [
+      "/home/edu/Development/rollupX/artifacts/consecutive-skips-20260928/harness/dynamic_admission-v2",
+      "--exact",
+      "late_original_after_multiple_replacements_retains_users_and_follower_parity",
+      "--test-threads=1",
+      "--nocapture"
+    ],
+    "artifacts": "artifacts/consecutive-skips-20260928/candidate-corrected/02-candidate-late_original_after_multiple_replacements_retains_users_and_follower_parity",
+    "started_at": "2026-09-28T18:16:38.479257+00:00",
+    "status": "passed",
+    "exit_code": 0,
+    "duration_seconds": 76.4082295409753,
+    "finished_at": "2026-09-28T18:17:54.887845+00:00",
+    "run": "candidate-corrected",
+    "harness_sha256": "60d98f054e881f34f3f0559f7146cd1b5cde573a0e10fd7ff85998e737bbd983"
+  }
+]

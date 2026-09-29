@@ -58,6 +58,30 @@ async fn check_bounded_fee_history_priority(profile: NativeL1Profile) {
         let tx = l1.get_transaction_by_hash(hash).await.unwrap().unwrap();
         let receipt = l1.get_transaction_receipt(hash).await.unwrap().unwrap();
         assert!(receipt.status());
+        let repriced = world
+            .node
+            .signals_since(0)
+            .unwrap()
+            .into_iter()
+            .filter(|event| event.name == "eez.composer.posting.v1")
+            .map(|event| {
+                serde_json::from_str::<serde_json::Value>(
+                    event.fields["posting_event"].as_str().unwrap(),
+                )
+                .unwrap()
+            })
+            .find(|event| {
+                event["stage"] == "repriced" && event["transaction_hash"] == serde_json::json!(hash)
+            })
+            .expect("included transaction must retain its final native pricing evidence");
+        let required = repriced["detail"]["preflight_gas_required"][0]
+            .as_u64()
+            .unwrap();
+        assert_eq!(
+            tx.inner.gas_limit(),
+            (required * 10_500).div_ceil(10_000),
+            "the absent setting must reach final signing as the 5% default"
+        );
         let block = l1
             .get_block_by_hash(receipt.block_hash.unwrap())
             .await

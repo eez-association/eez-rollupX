@@ -1,0 +1,13 @@
+{
+  "prepared_at": "2026-09-27T08:32:44.017077+00:00",
+  "start_block": 23251576,
+  "start_hash": "0x032e6c9e370b5dd5436e22821d44760f922c9901c3f011d185b6a07bc8f5951b",
+  "end_block": 23251593,
+  "end_hash": "0x89a989254d5f0710d2261ef8422924ddff9b39905cc2226264c53fe7a66722df",
+  "beacon_slot": "25020332",
+  "imported_payloads": 17,
+  "all_engine_results_valid": true,
+  "beacon_retained_fork_choice": true,
+  "prepared_sha256": "204b37c3c9ed3e51af8358fd72e8df4e8cc07302681c81ebf755875c80046ab2",
+  "results_sha256": "ab99633864ed2245df8e4b714716fad40773584a7e2121467d71c5c084205ddc"
+}

@@ -1,0 +1,12 @@
+{
+  "prepared_at": "2026-09-27T10:01:06.397474+00:00",
+  "start_block": 23252456,
+  "start_hash": "0x2d85918788b64f1891acf0f9065a6a92927784e28a9edda5bca56f4d92e76d80",
+  "end_block": 23252521,
+  "end_hash": "0x01306dab21ddb3d8ef36bb487b83a3b2e78410ecd2c84c88bb6e242fad2b6497",
+  "beacon_slot": "25021392",
+  "validated_payloads": 65,
+  "all_engine_valid": true,
+  "forkchoice_owner": "Lighthouse",
+  "first_readonly_fetch_failure": "incomplete RPC result; no Engine mutation; subsequent complete fetch verified independently"
+}

@@ -13,6 +13,105 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_mins(4);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn existing_proxy_multicall_estimate_reaches_final_post_and_replays() {
+    use eez_testkit::ISetterWrapper;
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
+        .await
+        .unwrap();
+    let follower = NodeHandle::start(
+        "multi-gas-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
+    for wave in 0..2 {
+        let cursor = world.node.signal_cursor().unwrap();
+        let value = U256::from(70 + wave);
+        let hash = sign_and_send(
+            &world.l2_xchain(),
+            ANVIL_KEY_4,
+            world.l2_chain_id,
+            nonce + wave,
+            Some(world.outbound_wrapper),
+            U256::ZERO,
+            ISetterWrapper::setSameValueTwiceCall { v: value }.abi_encode(),
+            1_200_000,
+        )
+        .await
+        .unwrap();
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        wait_for_safe_prefix_convergence(
+            &[&world.node, &follower],
+            receipt.block_number.unwrap(),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            l2_value(&world.l1_rpc(), world.outbound_value)
+                .await
+                .unwrap(),
+            value
+        );
+        let completed = ISetterWrapper::new(
+            world.outbound_wrapper,
+            ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap()),
+        )
+        .completedProxyCalls()
+        .call()
+        .await
+        .unwrap();
+        assert_eq!(completed, U256::from(2 * (wave + 1)));
+        let events: Vec<serde_json::Value> = world
+            .node
+            .signals_since(cursor)
+            .unwrap()
+            .iter()
+            .filter(|e| e.name == "eez.composer.admission.v1")
+            .map(|e| serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap())
+            .collect();
+        let estimate = events
+            .iter()
+            .find(|e| {
+                e["kind"] == "source_estimate" && e["detail"]["source_hash"] == hash.to_string()
+            })
+            .unwrap();
+        assert_eq!(estimate["detail"]["l1_call_count"], 2);
+        assert_eq!(
+            estimate["detail"]["entry_reserve_gas"],
+            if wave == 0 { 370_000 } else { 110_000 }
+        );
+        let cid = &estimate["candidate_id"];
+        let summary = events
+            .iter()
+            .find(|e| &e["candidate_id"] == cid && e["kind"] == "summary")
+            .unwrap();
+        assert_eq!(summary["detail"]["reason"], "snapshot_exhausted");
+        let projection = events
+            .iter()
+            .find(|e| &e["candidate_id"] == cid && e["kind"] == "full_projection")
+            .unwrap();
+        assert!(
+            projection["detail"]["projected_gas"].as_u64().unwrap() < 1_000_000,
+            "bounded projection reaches final sizing"
+        );
+    }
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 sol! {
     #[sol(rpc)]
     interface IDeferredQueue {
@@ -245,6 +344,7 @@ async fn single_sync_wave(
     outbound_count: u64,
     waves: u64,
     empty_inbound_return_data: bool,
+    warmup: bool,
 ) {
     let mut config = env();
     // These waves test gas/blob fit, not a 500-ms throughput guarantee on every
@@ -282,26 +382,28 @@ async fn single_sync_wave(
         .unwrap();
     let chain = l1.get_chain_id().await.unwrap();
     let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
-    let warm = sign_and_send(
-        &world.l1_xchain(),
-        ANVIL_KEY_2,
-        chain,
-        nonce,
-        Some(inbound_proxy),
-        U256::ZERO,
-        IValue::setValueCall { v: U256::ZERO }.abi_encode(),
-        2_000_000,
-    )
-    .await
-    .unwrap();
-    assert!(
-        wait_for(TIMEOUT, || async {
-            Ok(l1.get_transaction_receipt(warm).await?)
-        })
+    if warmup {
+        let warm = sign_and_send(
+            &world.l1_xchain(),
+            ANVIL_KEY_2,
+            chain,
+            nonce,
+            Some(inbound_proxy),
+            U256::ZERO,
+            IValue::setValueCall { v: U256::ZERO }.abi_encode(),
+            2_000_000,
+        )
         .await
-        .unwrap()
-        .status()
-    );
+        .unwrap();
+        assert!(
+            wait_for(TIMEOUT, || async {
+                Ok(l1.get_transaction_receipt(warm).await?)
+            })
+            .await
+            .unwrap()
+            .status()
+        );
+    }
     let registry = IDeferredQueue::new(world.cfg.eez_address, &l1);
     let outbound_nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
     let mut previous_sync = None;
@@ -310,7 +412,11 @@ async fn single_sync_wave(
         // Every prior queue is fully consumed but remains in storage. The
         // following post replaces active bounds and may overwrite retained
         // slots; cursor == length does not mean there is no stored payload.
-        let previous_entries = if wave == 0 { 1 } else { inbound_count };
+        let previous_entries = if wave == 0 {
+            u64::from(warmup)
+        } else {
+            inbound_count
+        };
         assert_eq!(
             registry
                 .queueLength(world.cfg.rollup_id)
@@ -350,7 +456,7 @@ async fn single_sync_wave(
                         &world.l1_xchain(),
                         ANVIL_KEY_2,
                         chain,
-                        nonce + 1 + wave * inbound_count + i,
+                        nonce + u64::from(warmup) + wave * inbound_count + i,
                         Some(inbound_proxy),
                         U256::ZERO,
                         IValue::setValueCall {
@@ -519,7 +625,7 @@ async fn single_sync_wave(
         );
         assert_eq!(
             onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
-            nonce + 1 + (wave + 1) * inbound_count
+            nonce + u64::from(warmup) + (wave + 1) * inbound_count
         );
         assert_eq!(
             onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
@@ -542,6 +648,101 @@ async fn single_sync_wave(
             U256::from(inbound_count)
         );
         let events = world.node.signals_since(cursor).unwrap();
+        // The production caller must budget protocol work omitted by source
+        // simulation while retaining the original signed transaction limit.
+        let companion_estimates: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|e| e.name == "eez.composer.admission.v1")
+            .map(|e| serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap())
+            .filter(|e: &serde_json::Value| {
+                e["kind"] == "source_estimate" && e["detail"]["direction"] == "inbound"
+            })
+            .collect();
+        assert_eq!(companion_estimates.len(), inbound_count as usize);
+        for estimate in &companion_estimates {
+            assert_eq!(estimate["estimator_version"], "candidate-framing-10");
+            let detail = &estimate["detail"];
+            assert_eq!(detail["companion_estimate_basis"], "bounded_protocol");
+            assert_eq!(detail["companion_sim_gas"], detail["source_sim_gas"]);
+            let reserve = detail["companion_protocol_reserve_gas"].as_u64().unwrap();
+            assert!(reserve >= 70_000);
+            assert_eq!(
+                detail["companion_estimate_gas"].as_u64().unwrap(),
+                detail["companion_sim_gas"].as_u64().unwrap()
+                    + detail["companion_target_sim_gas"].as_u64().unwrap()
+                    + reserve
+            );
+            assert!(
+                detail["companion_estimate_gas"].as_u64().unwrap()
+                    < detail["companion_declared_gas"].as_u64().unwrap()
+            );
+        }
+        if wave > 0 && inbound_count > 0 {
+            let estimates: Vec<serde_json::Value> = events
+                .iter()
+                .filter(|e| e.name == "eez.composer.admission.v1")
+                .map(|e| {
+                    serde_json::from_str(e.fields["admission_event"].as_str().unwrap()).unwrap()
+                })
+                .filter(|e: &serde_json::Value| {
+                    e["kind"] == "source_estimate" && e["detail"]["direction"] == "inbound"
+                })
+                .collect();
+            assert_eq!(estimates.len(), inbound_count as usize);
+            assert!(
+                estimates
+                    .iter()
+                    .any(|e| e["detail"]["estimate_reasons"]["deferred_storage"]
+                        .as_u64()
+                        .is_some_and(|n| n > 0)),
+                "retained storage pricing must reach native settlement"
+            );
+            for estimate in estimates {
+                assert_eq!(estimate["estimator_version"], "candidate-framing-10");
+                assert_eq!(estimate["detail"]["batch_discount_revoked"], false);
+                assert!(estimate["detail"]["entry_reserve_gas"].as_u64().unwrap() < 370_000);
+            }
+        }
+        let admission: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.name == "eez.composer.admission.v1")
+            .map(|event| {
+                serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+            })
+            .collect();
+        let summary = admission
+            .iter()
+            .find(|event| event["kind"] == "summary")
+            .unwrap();
+        let projection = admission
+            .iter()
+            .find(|event| event["kind"] == "full_projection")
+            .unwrap();
+        assert!(
+            projection["detail"]["projected_gas"].as_u64().unwrap()
+                <= summary["detail"]["full_estimate_gas"].as_u64().unwrap(),
+            "incremental framing must cover the production batch's final sizing"
+        );
+        assert!(summary["detail"]["framing_reserve_gas"].as_u64().unwrap() < 600_000);
+        let deliveries: Vec<serde_json::Value> = events
+            .iter()
+            .filter(|event| event.name == "eez.composer.admission.v1")
+            .map(|event| {
+                serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+            })
+            .filter(|event: &serde_json::Value| event["kind"] == "delivery")
+            .collect();
+        assert_eq!(deliveries.len(), 1);
+        let delivery = &deliveries[0]["detail"];
+        assert_eq!(delivery["acknowledged"], true);
+        assert_eq!(
+            delivery["transaction_count"].as_u64(),
+            Some(inbound_count + 1)
+        );
+        assert!(delivery["ack_remaining_ms"].as_f64().unwrap() >= 0.0);
+        assert!(delivery["target_block"].as_u64().unwrap() > 0);
+        assert!(delivery["target_timestamp"].as_u64().unwrap() > 0);
+        assert!(delivery["expected_parent_hash"].as_str().is_some());
         let dispatched: Vec<_> = events
             .iter()
             .filter(|e| e.name == "eez.composer.bundle.dispatched")
@@ -578,12 +779,12 @@ async fn single_sync_wave(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1, false).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 1, false, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1, false).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 1, false, true).await;
 }
 
 /// Two 40-source batches each fit one Sync. The second replaces a consumed but
@@ -591,24 +792,24 @@ async fn gnosis_fitting_thirty_request_wave_settles_in_one_sync() {
 /// 80 sources are independently replayed by the follower.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2, false).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 24, 16, 2, false, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2, false).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 24, 16, 2, false, true).await;
 }
 
 /// Empty return data uses short Solidity byte storage. Both 45-source waves
 /// must fit, including the second post's overwrite of retained bounded slots.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true).await;
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 45, 0, 2, true, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay() {
-    single_sync_wave(NativeL1Profile::GnosisPrague, 45, 0, 2, true).await;
+    single_sync_wave(NativeL1Profile::GnosisPrague, 45, 0, 2, true, true).await;
 }
 
 /// A source can depend on an ordinary L2 predecessor seen on the unsafe
@@ -632,9 +833,12 @@ async fn automatic_admission_static_only_exclusion_preserves_ordinary_descendant
 async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     let mut config = env();
     config.push(("RUST_LOG", "info,txpool=debug,engine::tree=debug".into()));
-    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &config)
-        .await
-        .unwrap();
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        NativeL1Profile::GnosisPrague,
+        &config,
+    )
+    .await
+    .unwrap();
     let follower = NodeHandle::start(
         "auto-predecessor-follower",
         &NodeConfig {
@@ -718,22 +922,29 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     let mut held = wait_for(TIMEOUT, || async { world.held_bundle() })
         .await
         .unwrap();
+    // A relay response can time out before the first ordinary descendant is
+    // built. Hold canonical observations independently so this fixture really
+    // creates a descendant of the unconfirmed Sync before authorizing recovery.
+    world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    let dispatched = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.name == "eez.composer.bundle.dispatched")
+        .unwrap();
+    let sync_hash = dispatched.fields["sync_hash"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let sync_height = dispatched.fields["sync_height"].as_u64().unwrap();
     if static_only {
-        let dispatched = world
-            .node
-            .signals_since(cursor)
-            .unwrap()
-            .into_iter()
-            .find(|e| e.name == "eez.composer.bundle.dispatched")
-            .unwrap();
-        let hash = dispatched.fields["sync_hash"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let block = wait_for(TIMEOUT, || async { Ok(l2.get_block_by_hash(hash).await?) })
-            .await
-            .unwrap();
+        let block = wait_for(TIMEOUT, || async {
+            Ok(l2.get_block_by_hash(sync_hash).await?)
+        })
+        .await
+        .unwrap();
         assert!(
             block.transactions.is_empty(),
             "static-only source must produce an empty Sync"
@@ -757,6 +968,17 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     .await
     .unwrap();
     assert!(original.status());
+    assert!(original.block_number.unwrap() > sync_height);
+    assert_eq!(
+        l2.get_block_by_number(sync_height.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        sync_hash,
+        "the ordinary predecessor must descend from the still-unconfirmed Sync"
+    );
     let outbound = sign_and_send(
         &world.l2_xchain(),
         ANVIL_KEY_4,
@@ -774,6 +996,7 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
     // the original post or its companions can enter L1 through it.
     held["params"][0]["txs"] = serde_json::json!([]);
     world.release_bundle(&held).unwrap();
+    world.fail_rpc_methods(&[]).unwrap();
     let replayed = wait_for(TIMEOUT, || async {
         Ok(l2
             .get_transaction_receipt(predecessor)
@@ -870,7 +1093,21 @@ async fn orphaned_predecessor(initial_outbound: bool, static_only: bool) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_source() {
+async fn automatic_selection_preserves_capacity_after_one_exclusion() {
+    consecutive_exclusions(1).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_selection_backs_off_after_five_exclusions_and_retries_every_source() {
+    consecutive_exclusions(5).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix() {
+    consecutive_exclusions(6).await;
+}
+
+async fn consecutive_exclusions(failures: u32) {
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
         .await
         .unwrap();
@@ -938,10 +1175,70 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
     .await
     .unwrap();
     let cursor = world.node.signal_cursor().unwrap();
-    world.drop_next_bundle().unwrap();
+    world.drop_next_bundles(failures).unwrap();
     let mut hashes = Vec::new();
     for i in 1..=4 {
         hashes.push(send(&world, chain, nonce + i, i + 1).await);
+    }
+    if failures == 6 {
+        wait_for(TIMEOUT, || async {
+            Ok(world
+                .node
+                .signals_since(cursor)?
+                .iter()
+                .any(|e| {
+                    e.name == "eez.composer.admission.submission_failure"
+                        && e.fields["consecutive_failures"] == 6
+                        && e.fields["submitted_groups"] == 2
+                })
+                .then_some(()))
+        })
+        .await
+        .unwrap();
+        let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+        let queue: serde_json::Value = l2
+            .client()
+            .request("eez_getCrossChainQueueStatus", ())
+            .await
+            .unwrap();
+        for field in ["queued", "inFlight", "blocked", "unknown"] {
+            assert_eq!(
+                queue[field], 0,
+                "exhaustion must release the complete nonce suffix"
+            );
+        }
+        for hash in &hashes {
+            assert!(l1.get_transaction_receipt(*hash).await.unwrap().is_none());
+        }
+        assert_eq!(
+            onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
+            nonce + 1
+        );
+        assert_eq!(
+            l2_value(&follower.l2_rpc_url(), world.value_l2)
+                .await
+                .unwrap(),
+            U256::from(1)
+        );
+        // Exhaustion is explicit disposition. Fresh user resubmission can
+        // reacquire the same signed nonce without historical owners erasing it.
+        let resubmitted = send(&world, chain, nonce + 1, 2).await;
+        assert_eq!(resubmitted, hashes[0]);
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l1.get_transaction_receipt(resubmitted).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        wait_for(TIMEOUT, || async {
+            Ok(
+                (l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(2))
+                    .then_some(()),
+            )
+        })
+        .await
+        .unwrap();
+        return;
     }
     for hash in hashes {
         let receipt = wait_for(TIMEOUT, || async {
@@ -975,48 +1272,78 @@ async fn automatic_selection_shrinks_after_an_excluded_bundle_and_retries_every_
         "the learned one-blob allowance must admit all four queued sources"
     );
     let events = world.node.signals_since(cursor).unwrap();
-    let backoff = events
+    let observed: Vec<_> = events
         .iter()
-        .position(|e| {
-            e.name == "eez.composer.admission.submission_backoff"
-                && e.fields["submitted_groups"] == 4
-                && e.fields["next_selection_max"] == 2
-        })
-        .unwrap_or_else(|| {
-            panic!(
-                "expected measured submission backoff{}",
-                world.settlement_diagnostics()
-            )
-        });
+        .enumerate()
+        .filter(|(_, e)| e.name == "eez.composer.admission.submission_failure")
+        .collect();
+    assert_eq!(
+        observed.len(),
+        failures as usize,
+        "{}",
+        world.settlement_diagnostics()
+    );
+    for (index, (_, event)) in observed.iter().enumerate() {
+        assert_eq!(event.fields["submitted_groups"], 4);
+        assert_eq!(event.fields["consecutive_failures"], index + 1);
+        assert_eq!(event.fields["backoff_threshold"], 5);
+        if index < 4 {
+            assert!(
+                event
+                    .fields
+                    .get("next_selection_max")
+                    .is_none_or(serde_json::Value::is_null)
+            );
+        } else {
+            assert_eq!(event.fields["next_selection_max"], 2);
+        }
+    }
+    let backoffs: Vec<_> = events
+        .iter()
+        .filter(|e| e.name == "eez.composer.admission.submission_backoff")
+        .collect();
+    assert_eq!(backoffs.len(), usize::from(failures == 5));
+    let backoff = observed.last().unwrap().0;
+    let expected = if failures == 5 { 2 } else { 4 };
     let next = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.sync_slot.drain")
         .unwrap();
     assert_eq!(
-        next.fields["selection_limit"], 2,
-        "backoff must affect actual runtime selection"
+        next.fields["selection_limit"], expected,
+        "only the fifth confirmed failure may reduce runtime selection"
     );
     let prepared = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.admission.prepared")
         .unwrap();
     assert_eq!(
-        prepared.fields["accepted"], 2,
+        prepared.fields["accepted"], expected,
         "the composer must enforce the reduced limit on complete groups"
     );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn automatic_selection_survives_a_canonically_skipped_slot_without_shrinking() {
-    next_slot_replacement(false).await;
+    next_slot_replacement(false, 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_original_settlement_replaces_the_timeout_branch_without_losing_users() {
-    next_slot_replacement(true).await;
+    next_slot_replacement(true, 1).await;
 }
 
-async fn next_slot_replacement(delayed_original: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block() {
+    next_slot_replacement(false, 2).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn late_original_after_multiple_replacements_retains_users_and_follower_parity() {
+    next_slot_replacement(true, 4).await;
+}
+
+async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.
     let mut config = env();
@@ -1097,7 +1424,12 @@ async fn next_slot_replacement(delayed_original: bool) {
     if delayed_original {
         world.hold_next_bundle().unwrap();
     } else {
-        world.drop_next_bundle().unwrap();
+        // This fixture forwards raw transactions into the EL pool, which does
+        // not enforce relay timestamp pins. Drop every deliberately skipped
+        // target so an older replacement cannot land in the final test slot.
+        world
+            .drop_next_bundles(u32::try_from(skipped_slots).unwrap())
+            .unwrap();
     }
     let mut hashes = Vec::new();
     for offset in 1..=4 {
@@ -1133,13 +1465,15 @@ async fn next_slot_replacement(delayed_original: bool) {
             .unwrap();
         world.release_bundle(&dropped).unwrap();
     } else {
-        world
-            .l1_reorg_control
-            .as_mut()
-            .unwrap()
-            .skip_slot(target_timestamp)
-            .await
-            .unwrap();
+        for slot in 0..skipped_slots {
+            world
+                .l1_reorg_control
+                .as_mut()
+                .unwrap()
+                .skip_slot(target_timestamp + 5 * slot)
+                .await
+                .unwrap();
+        }
     }
     let original_receipt = wait_for(TIMEOUT, || async {
         Ok(l2.get_transaction_receipt(hashes[0]).await?)
@@ -1160,12 +1494,12 @@ async fn next_slot_replacement(delayed_original: bool) {
     )
     .await
     .unwrap();
-    wait_for(Duration::from_secs(12), || async {
+    wait_for(Duration::from_secs(5 * skipped_slots + 7), || async {
         let events = world.node.signals_since(cursor)?;
         Ok(events.into_iter().find(|event| {
             event.name == "eez.submitter.bundle.dispatch"
                 && event.fields["target_block"] == target_height
-                && event.fields["target_timestamp"] == target_timestamp + 5
+                && event.fields["target_timestamp"] == target_timestamp + 5 * skipped_slots
         }))
     })
     .await
@@ -1205,7 +1539,7 @@ async fn next_slot_replacement(delayed_original: bool) {
         if delayed_original {
             target_timestamp
         } else {
-            target_timestamp + 5
+            target_timestamp + 5 * skipped_slots
         }
     );
     let mut settled_block = None;
@@ -1235,7 +1569,7 @@ async fn next_slot_replacement(delayed_original: bool) {
                 assert_ne!(receipt.block_hash, original_receipt.block_hash);
                 assert_eq!(
                     receipt.block_number.unwrap(),
-                    original_receipt.block_number.unwrap() + 5
+                    original_receipt.block_number.unwrap() + 5 * skipped_slots
                 );
             }
         }
@@ -1244,7 +1578,30 @@ async fn next_slot_replacement(delayed_original: bool) {
             .request("eez_getCrossChainTransaction", (*hash,))
             .await
             .unwrap();
-        assert_eq!(owner["ownership"]["canonical"]["number"], target_height);
+        // Ownership records the reconciliation snapshot, which can be newer
+        // than inclusion when the fixture releases a delayed head and catches up.
+        let observed = owner["ownership"]["canonical"]["number"].as_u64().unwrap();
+        assert!(observed >= target_height);
+        let anchor = l1
+            .get_block_by_number(observed.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            owner["ownership"]["canonical"]["hash"],
+            serde_json::json!(anchor.header.hash)
+        );
+        let settlement: serde_json::Value = l2
+            .client()
+            .request("eez_getSettlementByL2Block", (receipt.block_hash.unwrap(),))
+            .await
+            .unwrap();
+        assert_eq!(settlement["canonicalL2"], true);
+        assert_eq!(settlement["l1BlockNumber"], format!("{target_height:#x}"));
+        assert_eq!(
+            settlement["l1BlockHash"],
+            serde_json::json!(landed.header.hash)
+        );
         let block = receipt.block_number.unwrap();
         assert_eq!(
             *settled_block.get_or_insert(block),
@@ -1520,4 +1877,16 @@ async fn automatic_blob_cut_keeps_complete_nonce_ordered_groups_for_later_posts(
             serde_json::from_str(e.fields["attempt_counts"].as_str().unwrap()).unwrap();
         assert!(attempts.iter().all(|n| *n == 0));
     }
+}
+
+/// No calibration post is sent. Each cold process must settle the complete
+/// fitting wave in its first batch, then repeat with retained queue storage.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn gnosis_cold_and_warm_fitting_waves_have_no_calibration_post() {
+    single_sync_wave(NativeL1Profile::GnosisPrague, 17, 13, 2, false, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_cold_and_warm_fitting_waves_have_no_calibration_post() {
+    single_sync_wave(NativeL1Profile::EthereumOsaka, 17, 13, 2, false, false).await;
 }

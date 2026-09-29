@@ -1,0 +1,51 @@
+{
+  "started_at": "2026-09-27T12:19:06.985076+00:00",
+  "source": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "mode": "runtime",
+  "validation_gate": "269 Composer tests, gas fixtures on three forks, workspace Clippy and eight process cases; broader regressions after devnet measurement per user request",
+  "queue_before": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790503913112,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xe265feb57db3cd81034ee65e1f2c1c6bb3a1db6802cb2449414365dc1d86cd5e",
+        "number": 23252638
+      },
+      "observedAtMs": 1790503916012
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x4ea91c223f941ffe7f1321f30ad31c22cb4b96d55e4e1e230e82b68e950e62da",
+        "number": 23252637
+      },
+      "l2": {
+        "hash": "0xf492ee804554b506b4484e4a470060a6f8f93a9391e4fbd12ad5624a1d102ab9",
+        "number": 143709
+      }
+    },
+    "unknown": 0
+  },
+  "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+  "old_images": {
+    "eez-node": "sha256:4eb5800924a6c1e67d832569a658eb807cfeac46f24abea11bff69b3640d6282",
+    "eez-proof-signer": "sha256:029834d56ca40c31d618872e08db04686fa78086a7a4f67cb7619555b00ca54c"
+  },
+  "stopped_exit_code": 0,
+  "new_images": {
+    "eez-node": "sha256:7e097ac8fe4716f0613845edfd555d455cfb4604c316f6696517bc88103431ed",
+    "eez-proof-signer": "sha256:442a106f32092e4fae54ab953ba2359e25201ee46b667d35c1df3b85d7745d9f"
+  },
+  "container_ids": {
+    "eez-node": "fbe77fe1f822c169a1acf43c8eed0ad22feda0793e152feec77a204e1fc82653",
+    "eez-proof-signer": "d3644b0ac6060696f973c0fbc16ce062da5451350ce0b74e52f9e69784525dd2"
+  },
+  "mounts_preserved": true,
+  "environment_preserved": true,
+  "finished_at": "2026-09-27T12:19:14.717658+00:00"
+}

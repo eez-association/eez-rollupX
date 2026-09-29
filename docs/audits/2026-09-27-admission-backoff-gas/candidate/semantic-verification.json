@@ -1,0 +1,31 @@
+{
+  "checked_at": "2026-09-27T12:48:04.812852+00:00",
+  "source_revision": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "protocol_run": "20260927-122320",
+  "semantic_jobs_passed": 770,
+  "semantic_jobs_failed": 0,
+  "semantic_jobs_skipped": 0,
+  "families": {
+    "counter": 100,
+    "counter-multi-tx": 50,
+    "counterL2": 100,
+    "multi-call-nested": 50,
+    "multi-call-nestedL2": 50,
+    "multi-call-twice": 50,
+    "multi-call-twiceL2": 50,
+    "nestedCounter": 50,
+    "nestedCounterL2": 50,
+    "reentrant": 20,
+    "revertCounter": 50,
+    "revertCounterL2": 50,
+    "revertFromOtherChain": 50,
+    "revertFromOtherChainL2": 50
+  },
+  "runner_exit_code": 0,
+  "source_transactions_sent": 870,
+  "initial_receipts": 870,
+  "run_log_sha256": "1da5e1ccb3e13cadc48292040abd3002f8f04c18917cb753b32c1069677e0f67",
+  "per_job_log_digests_sha256": "0b6d6a448fa6757a1d11d634580bc3dbe4c2471f18ada292d3857e65d478ca68",
+  "runner_finished_at": "2026-09-27T12:47:16.665207+00:00",
+  "full_wave_independent_follower_replay": false
+}

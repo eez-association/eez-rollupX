@@ -441,7 +441,8 @@ counter; transport retries within an episode do not each charge it. At
 `MAX_BUNDLE_ATTEMPTS = 3`, it evicts exhausted candidates and their same-sender,
 same-direction nonce suffixes, including queued and in-flight reservations.
 Independent senders and the opposite direction remain eligible. Invalid actionable
-hints receive the same bounded opaque-rejection handling. A potentially valid
+hints receive the same bounded opaque-rejection handling. Automatic submitted-attempt reconciliation has a separate six-failure bound
+described in §8; both paths use the same cumulative source counter. A potentially valid
 candidate may be evicted to restore progress and then requires resubmission.
 Construction failures, skipped slots, and source-condition waits (including
 insufficient escrow) do not charge this counter. Repeated funding checks cannot
@@ -502,10 +503,27 @@ authenticated.
 ### 6.3 Retry procedure and settlement cutoff
 
 The reference Composer starts backoff at 100 ms, doubles its base up to 1,000 ms,
-and applies ±20% jitter. For an exact L1 target, the latest attempt start reserves
-both the configured proof-time budget and submission slack. Each attempt has its
-own proof-time timeout. The `NextBlock` mode instead bounds the complete proving
-episode by the proof-time budget.
+and applies ±20% jitter. Cross-chain candidates with an exact L1 target share
+one exclusive deadline: target timestamp minus submission slack. Preparation
+and proof settings are planning allocations. Crossing the preparation allocation
+MUST NOT discard an accepted candidate or substitute an empty L1 posting while
+proving and post-proof work still fit. A proof operation may exceed its planning
+allocation by using time left by preparation. Its timeout, stream/cache repair,
+and retries share the original remaining window minus the post-proof reserve;
+retries MUST NOT reset the deadline. The monotonic bound MUST NOT be extended by
+a backward wall-clock correction; forward corrections may shorten it.
+
+Reserve signing, response validation, ordered native preflight and delivery.
+Recheck the exact target, canonical parent and exclusive deadline before relay
+dispatch. A timed-out delivery after dispatch is uncertain submission, not
+proof of exclusion. A timed-out signer RPC does not release the server's worker
+permit before that worker exits. No parallel proof race is introduced.
+
+Ordinary-only exact-target posting retains the configured full-proof start
+reserve and per-attempt timeout. `NextBlock` bounds the complete proving episode
+by the proof-time budget. Older Composers retain these older timing semantics
+for cross-chain candidates too; this scheduling change does not change the wire
+schema, signer validation or historical follower decoding.
 
 For a retryable status, each retry MUST open a new `Prove` call and resend the
 complete header and block stream. The Composer SHOULD use exponential backoff
@@ -609,6 +627,14 @@ one indivisible replay group.
 
 Eligible omitted users return to the held pool in FIFO order. A conclusive
 settlement failure charges each eligible user's bounded retry policy once.
+Automatic admission permits six cumulative charged failures at reconciliation,
+so five consecutive confirmed incomplete settlements can trigger a smaller
+sixth attempt. Numeric admission retains three. Prover/immediate relay rejection
+keeps the §6.1 bound on the same source counter; no transition resets that counter.
+The per-rollup admission streak resets only after complete canonical settlement
+of a nonempty source batch, and skips uncertain or canonically skipped targets.
+Admission preparation, acknowledgement and progress elsewhere are not source
+completion. See the [admission policy](../../docs/configurable-settlement-policy.md).
 Infrastructure-only failures do not charge that policy. Only an exhausted,
 still-unspent source nonce creates a dependent nonce gap. The pool transfers
 ownership and reservations under one lock. Historical attempts cannot
@@ -621,13 +647,22 @@ Invalid ownership transitions leave the prior state unchanged.
 
 At the next slot's preparation deadline, the Composer MAY replace its active
 speculative L2 suffix if the expected L1 block is still absent. The current
-implementation permits one such replacement per observed L1 head and requires
+implementation permits up to four such replacements per observed L1 head and requires
 completed canonical derivation through the unchanged parent. This deadline is
 not a failure verdict: retain the original envelope, manifest, target, observer
 and signed users until canonical reconciliation. Returning those users to the
 held pool for recomposition MUST preserve reservations and retry counters. Old
 results MUST NOT release users owned by a newer attempt. Canonical source
 evidence can still complete users whose replacement preparation did not finish.
+
+Each replacement advances exactly one slot from the current attempt, with at
+most five scheduled opportunities on one parent including the original. The
+scheduler and submission gate share the same bound. After exhaustion, wait for a
+new canonical head; do not release users or charge a failure from timer expiry.
+Retain every historical attempt until canonical reconciliation, including when
+the earliest original settles after several replacements. Older Composers retain
+the previous one-replacement bound; this extension needs no wire, signer, follower
+or storage migration and rollback restores the smaller scheduling allowance.
 
 The replacement uses a fresh proof, the next slot's exact timestamp and the same
 poster nonce. Replace the original nonempty Sync with an empty Sync and rebuild

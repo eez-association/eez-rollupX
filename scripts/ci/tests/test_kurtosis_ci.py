@@ -116,6 +116,9 @@ class SettlementEnvironmentTest(unittest.TestCase):
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000"}
         self.assertEqual(configure(values), values)
+        for margin in ("", "500", "2000", "bad"):
+            explicit = dict(values, EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=margin)
+            self.assertEqual(configure(explicit), explicit)
         without_priority_bound = dict(values)
         without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
         with self.assertRaises(ValueError):
@@ -141,6 +144,7 @@ class SettlementEnvironmentTest(unittest.TestCase):
             with self.subTest(filename=filename):
                 args = yaml.safe_load((REPO / "testing/kurtosis" / filename).read_text())
                 values = args["eez"]["settlement_env"]
+                self.assertEqual(values["EEZ_L1_POSTBATCH_GAS_MARGIN_BPS"], "500")
                 self.assertTrue(self.REQUIRED.issubset(values))
                 self.assertTrue(all(isinstance(value, str) for value in values.values()))
 

@@ -1,0 +1,11 @@
+{
+  "target_slots": 34,
+  "outcomes": {
+    "ordinary_history_post": 1,
+    "source_post": 25,
+    "no_eligible_source": 4,
+    "skipped_slot": 2,
+    "acknowledged_bundle_omitted": 2
+  },
+  "skipped_slots_with_no_eligible_source": 1
+}

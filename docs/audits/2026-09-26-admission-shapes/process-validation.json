@@ -1,0 +1,145 @@
+{
+  "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "test_format_only_changes_after_source": true,
+  "passed": 39,
+  "failed": 0,
+  "ignored": 0,
+  "runs": [
+    {
+      "index": 0,
+      "case": {
+        "name": "admission-gas-cost",
+        "targets": [
+          "dynamic_admission",
+          "settlement_policy_gas",
+          "settlement_policy_cost"
+        ],
+        "filters": [],
+        "expected": 27
+      },
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "test",
+        "--locked",
+        "-j",
+        "4",
+        "-p",
+        "eez-node-e2e",
+        "--test",
+        "dynamic_admission",
+        "--test",
+        "settlement_policy_gas",
+        "--test",
+        "settlement_policy_cost",
+        "--",
+        "--test-threads=1"
+      ],
+      "started_at": "2026-09-26T12:14:23.038157+00:00",
+      "status": "passed",
+      "log": "native-final-admission-gas-cost.log",
+      "exit_code": 0,
+      "finished_at": "2026-09-26T12:46:31.665326+00:00",
+      "passed": 27,
+      "failed": 0,
+      "ignored": 0,
+      "log_sha256": "aeae26d7415185c098ce267145db9f11a82b364cfc2438133b485205e281570d"
+    },
+    {
+      "index": 1,
+      "case": {
+        "name": "settlement_policy",
+        "targets": [
+          "settlement_policy"
+        ],
+        "filters": [
+          "interval_preserves_execution_but_waits_below_all_thresholds",
+          "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+          "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+          "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+          "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+          "gnosis_fee_waits_do_not_consume_the_first_outbound_selection"
+        ],
+        "expected": 6
+      },
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "test",
+        "--locked",
+        "-j",
+        "4",
+        "-p",
+        "eez-node-e2e",
+        "--test",
+        "settlement_policy",
+        "--",
+        "--test-threads=1",
+        "--exact",
+        "interval_preserves_execution_but_waits_below_all_thresholds",
+        "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+        "fee_rpc_outage_then_dropped_bundle_preserves_due_activity_until_canonical_replay",
+        "cross_chain_group_alone_makes_its_finite_historical_predecessor_due",
+        "restart_after_intermediate_prefix_discards_old_intent_and_uses_current_rules",
+        "gnosis_fee_waits_do_not_consume_the_first_outbound_selection"
+      ],
+      "started_at": "2026-09-26T12:46:31.665507+00:00",
+      "status": "passed",
+      "log": "native-final-settlement_policy.log",
+      "exit_code": 0,
+      "finished_at": "2026-09-26T12:58:09.151537+00:00",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "log_sha256": "b0346be69bdf5104fba576595d3f18a11d24b4be42a38c0cd89fa9a612ee95a3"
+    },
+    {
+      "index": 2,
+      "case": {
+        "name": "cross_chain",
+        "targets": [
+          "cross_chain"
+        ],
+        "filters": [
+          "both_directions_return_value_and_wrapper_success_repeated_waves",
+          "outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+          "inbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+          "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+          "outbound_changing_static_reads_and_write_settle_and_replay",
+          "mismatched_actionable_rejection_retains_the_candidate"
+        ],
+        "expected": 6
+      },
+      "command": [
+        "cargo",
+        "+1.94.0",
+        "test",
+        "--locked",
+        "-j",
+        "4",
+        "-p",
+        "eez-node-e2e",
+        "--test",
+        "cross_chain",
+        "--",
+        "--test-threads=1",
+        "--exact",
+        "both_directions_return_value_and_wrapper_success_repeated_waves",
+        "outbound_multiple_proxy_calls_in_one_transaction_preserve_ordered_results",
+        "inbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+        "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "mismatched_actionable_rejection_retains_the_candidate"
+      ],
+      "started_at": "2026-09-26T12:58:09.151745+00:00",
+      "status": "passed",
+      "log": "native-final-cross_chain.log",
+      "exit_code": 0,
+      "finished_at": "2026-09-26T13:06:57.371877+00:00",
+      "passed": 6,
+      "failed": 0,
+      "ignored": 0,
+      "log_sha256": "bb6134b32a63a399eaf817cf2e1b365113e029016972cd6078145623f678ffb0"
+    }
+  ]
+}

@@ -1,0 +1,146 @@
+[
+  {
+    "path": "artifacts/admission-framing/composer-shape-final.log",
+    "sha256": "25021eecbad1da483f3e786169b8ec21646346c161fb6691e8f039f9b1003e37",
+    "size_bytes": 27825,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/units-shape-minimum.log",
+    "sha256": "c5d43a40429e5a80f2af4674b36c3d3ecb4a98d15c4e899d257ce238a024d1be",
+    "size_bytes": 51400,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/clippy-shape-final.log",
+    "sha256": "883c296a2c842a9905dd47c03c492f44aa446699cf8d529b08510955572c5283",
+    "size_bytes": 318,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/focused-native.log",
+    "sha256": "1b7823c199248180a3dd233b1ec8a6253d3dcd7c531a65b8465ed3f02d781f11",
+    "size_bytes": 24761,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/analyze-framing.py",
+    "sha256": "e562d227de1469651ac500d406c00b5e351cc2c6a2d57c0c9c42ea287cc80362",
+    "size_bytes": 3879,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/analyze-minimum-checks.py",
+    "sha256": "2d85270b7bbf4118a4c9e4295c96aa9b4ea25450bf0134c4c2eb5da321198dc7",
+    "size_bytes": 2622,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/analyze-bundle-budgets.py",
+    "sha256": "998b58b6439e39cf512ab06228ec1c65bb531cc7b9db5dde2cac8f35a396f3af",
+    "size_bytes": 3131,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/verify-canonical-stability.py",
+    "sha256": "fce6493d9718a177ef6626f28bf89dfcbbbd27aeac4dbf925a0cbc2fece4d2cd",
+    "size_bytes": 2099,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/forwarder-latency-check.json",
+    "sha256": "ece7ba257498714fa5c4527ec6d62de6d4edc4ce1326010e429edc336955b445",
+    "size_bytes": 281,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/final-runtime-rollout.json",
+    "sha256": "8ed3ff414755cfb86485a159e256a7a095d33ad3239e25e3e0207b3bd5cdc632",
+    "size_bytes": 1905,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/config-tests.log",
+    "sha256": "add0e7975f018905b36180671a17bd52d635e00f58d34971e12c17756278b269",
+    "size_bytes": 2215,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/config-propagation.log",
+    "sha256": "94e5f2e17561eacca28652d721fbe207b0cad7727db5b94c43e94c04405a7bbc",
+    "size_bytes": 90,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/kurtosis-config-tests.log",
+    "sha256": "48dc3d7ecafe23cf530a6e3e6f60dec86c0d7ba016a19c4bb3bd1e4ee4d8e048",
+    "size_bytes": 2440,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/candidate-v10/run-status.json",
+    "sha256": "b40debbc1085f4c8c0533046297c2cca729191ef815816130806493a45d956d0",
+    "size_bytes": 1184,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/candidate-v10/run.private.log",
+    "sha256": "a0269c11a3db44c0dee3a01a60d75c893bc0b8c4bfb3568e8835e21706edcf76",
+    "size_bytes": 82622,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/candidate-v10/canonical-stability.json",
+    "sha256": "47e1aca0f1e4f4905fa2009493091afc3f53fa335dedad211f3a2eaca52d1dd7",
+    "size_bytes": 186,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/broad-native.log",
+    "sha256": "9b8f1e2841f2506d85c6da32b856869ae67cedf55dc4d462b68a92f8525b0d46",
+    "size_bytes": 274221,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/broad-native-first-results.json",
+    "sha256": "2d57d0ed7b4665f696fef01d26eab66d200252af80b442f2ac958ec9b0ced3d9",
+    "size_bytes": 8009,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/broad-native-first-executables.json",
+    "sha256": "c20eaeb7cb6050e6c912f024f7960749f55a56e43ddab5611cf9d0cf36b9555c",
+    "size_bytes": 1052,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/fixture-test.patch",
+    "sha256": "de2eee9392c19a9afd252f8ba053486c0dfec9b2100e92ad0ac390d27fbaa6c3",
+    "size_bytes": 1582,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/fixture-native.log",
+    "sha256": "ab91dd5c140d3bfd82d923311a714f3227ef61b8b81709ec755ea840a6b55925",
+    "size_bytes": 23426,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/fixture-native-results.json",
+    "sha256": "41f8ca6bc6020844a728079c00ba824886c02feaaee9b8c9e928bab9446e647b",
+    "size_bytes": 982,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/fixture-native-executables.json",
+    "sha256": "0710efb81f5b3876ee4d189955639b845d49b52a08d6e973e623fedbab701dc5",
+    "size_bytes": 678,
+    "availability": "local-only; ignored artifacts directory"
+  },
+  {
+    "path": "artifacts/admission-framing/clippy-fixture-final.log",
+    "sha256": "7183d1dcb028f22644c00fe5455a83881afa7e49acc9377f24e1097b1f496944",
+    "size_bytes": 11849,
+    "availability": "local-only; ignored artifacts directory"
+  }
+]

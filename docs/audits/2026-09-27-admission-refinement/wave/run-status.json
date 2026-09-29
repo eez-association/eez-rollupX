@@ -1,0 +1,44 @@
+{
+  "source_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+  "started_at": "2026-09-27T08:33:59.498950+00:00",
+  "command": [
+    "bash",
+    "scripts/run-chiado-staged-performance.sh",
+    "--verify"
+  ],
+  "semantic_verifier": true,
+  "worker_prefunding_xdai": "0.0033",
+  "extra_poster_funding": false,
+  "task_profile": "data/admission-refinement-20260927/wave.env",
+  "ordinary_l1_rpc": "local reads and original-payload forwarding at 5 upstream requests/s; source ingress unchanged",
+  "host_before": {
+    "logical_cpus": 22,
+    "load_average": [
+      4.03759765625,
+      4.10595703125,
+      4.75927734375
+    ],
+    "memory_kib": {
+      "MemTotal": 63866800,
+      "MemAvailable": 55116264,
+      "SwapFree": 514324
+    }
+  },
+  "pid": 1660867,
+  "protocol_run": "/home/edu/Development/rollupX/eez-core-protocol/tmp/e2e-staged-net/20260927-083400",
+  "exit_code": 0,
+  "finished_at": "2026-09-27T09:01:40.630660+00:00",
+  "host_after": {
+    "logical_cpus": 22,
+    "load_average": [
+      6.28759765625,
+      5.55615234375,
+      6.40478515625
+    ],
+    "memory_kib": {
+      "MemTotal": 63866800,
+      "MemAvailable": 46740684,
+      "SwapFree": 529760
+    }
+  }
+}

@@ -1,0 +1,117 @@
+[
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/rollout-attempt1.json",
+    "sha256": "c10a3f07fe6bbe7f0e2c75353837610b8d87bdc00e1d48be26b9ef01b77763f1",
+    "bytes": 23547
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/rollout.json",
+    "sha256": "a83fc2776945342cc8739c46c2ee7038a62b553162c284b86994f42a9c188a62",
+    "bytes": 56445
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/restart.json",
+    "sha256": "2067e29752cdb9eaf0527e841f7eb7eda77fd020723bc4ce4d072a94188bf919",
+    "bytes": 616
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/post-wave.json",
+    "sha256": "ecb957aa20bded11a457dd5419ce94d684bf241e309ee2f63c3bbd59500206c0",
+    "bytes": 24270
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/engine-rpc-gap-old/prepared.json",
+    "sha256": "95753335e7552d4fdda60ec7a963a272c4fd34528d48eb256097789b5d276a0b",
+    "bytes": 86114
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/engine-rpc-gap-old/import-results.json",
+    "sha256": "17d1175e99aef13874aa2a85ebcf99daff8867c907e6af76ac8dd335f38e06a3",
+    "bytes": 8900
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/engine-rpc-gap-restart/prepared.json",
+    "sha256": "6392797ea6eebcd68506dd4c4b21ef8d490c76875428f067eed471d9952282fc",
+    "bytes": 181944
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/engine-rpc-gap-restart/import-results.json",
+    "sha256": "e0640a3aaf58762f4a871397d815e74ea84a05c6b8ea4d2254e6eaf38bbbe182",
+    "bytes": 18945
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/indexer-build.log",
+    "sha256": "2c730fe096031de695cc6c6addf05aff84a8b6057e8bd5a54a1dc6960cc29411",
+    "bytes": 24625
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/indexer-tests.log",
+    "sha256": "d3d1461abcfdb235b72868dfbe634e3089cc9143547ec385637965ce74b7f787",
+    "bytes": 5311
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/indexer-baseline.log",
+    "sha256": "04efdddfd049fb2b283623801d937a5f5d73b48f3598d5bbe2b8e5117c7832dd",
+    "bytes": 1875
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/indexer-clippy.log",
+    "sha256": "9103c86992d853611254d175dbc8b195ac3ece0e703aa13ed05d283fef1cacd4",
+    "bytes": 5313
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/run.private.log",
+    "sha256": "df65356adcad4717e297a13a79bfd06c5396f744612c8b09751fff1dff3618a4",
+    "bytes": 84149
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/canonical-snapshot.private.json",
+    "sha256": "a92ee2248817115cb5e8c20a33c1f604cd4cf9b32038f6fad9765aa83f82dda9",
+    "bytes": 18075483
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/detail/events.private.json",
+    "sha256": "0377d8d9a4f9c7c4bfb94db1db6345a9b0b51d447b27fffef6e1df78b37ed977",
+    "bytes": 10139072
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/detail/source-estimates.csv",
+    "sha256": "f2e83bca075c440b2917addae91d9708f9d139d622ae8fd89f1ba37d01140a7e",
+    "bytes": 394992
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/measure-canonical-first.log",
+    "sha256": "3b8ed6f596a2ea5840d5e45eeabeb7a6c2c0992ec9603d3a1bca9f5b4e82990f",
+    "bytes": 770
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/measure-admission-first.log",
+    "sha256": "37c68508a8a629141a52035bffb2be7f4302acdbe024f4ab46b373a4b547fed8",
+    "bytes": 425
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/wave/measure-packing-first.log",
+    "sha256": "0e3455c0367fafcb887a533b32af45acfb69d810adf3b3673c4b156453d8d028",
+    "bytes": 288
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/ci/cross-chain-1.log",
+    "sha256": "e8c0edd033e24c91156a2632c7738671098653eeb7ff073c3866e8cdde3603b1",
+    "bytes": 148134
+  },
+  {
+    "local_only_path": "artifacts/chiado-strict-fifo-20260928/ci/cross-chain-3.log",
+    "sha256": "15399253e2841e9f9dce35cd4289543b9b73dc58338d95bb545fd2636cf0d248",
+    "bytes": 281403
+  },
+  {
+    "local_only_path": "eez-core-protocol/tmp/e2e-staged-net/20260928-072409/timings.csv",
+    "sha256": "01d9342418d0432c6d751148466f8e644f403364567444b2a055ae1ba6073233",
+    "bytes": 748
+  },
+  {
+    "local_only_path": "eez-core-protocol/tmp/e2e-staged-net/20260928-072409/job-timings.csv",
+    "sha256": "ecebaa815078ebbbff4f5187eff2a78bb1c7d7484fc0e2c125adc4e954d93bdd",
+    "bytes": 104940
+  }
+]

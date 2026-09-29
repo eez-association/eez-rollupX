@@ -4,7 +4,7 @@ This optional stack runs Grafana and Prometheus on the same Linux machine as the
 packaged Chiado Composer. Prometheus scrapes Reth's existing localhost metrics
 endpoint and retains the Composer-owned metric families below. Grafana
 provisions **EEZ Composer queue** in the EEZ folder. The optional indexer adds
-**EEZ Settlement history**; the older **EEZ Settlement** dashboard is retired.
+**EEZ Settlement history** and, with retained posting logs, **EEZ Cross-chain admission**; the older **EEZ Settlement** dashboard is retired.
 For persistent settlement history, exact transaction links and receipt fees, add
 the optional [EEZ indexer](indexer/README.md). It reads L1 directly and adds
 PostgreSQL plus an **EEZ Settlement history** dashboard without changing Composer.

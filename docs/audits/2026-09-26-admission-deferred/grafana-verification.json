@@ -1,0 +1,16 @@
+{
+  "populated": {
+    "selection_limit": 74,
+    "admission_stop_reason": 74,
+    "entry_reserve_gas": 1107,
+    "l1_call_count": 1107,
+    "nested_result_count": 1107,
+    "estimate_reasons": 1107,
+    "batch_discount_revoked": 1107
+  },
+  "panels": 7,
+  "queries": 7,
+  "browserErrors": 0,
+  "sqlErrors": 0,
+  "newColumnsPresent": true
+}

@@ -1,0 +1,12 @@
+{
+  "prepared_at": "2026-09-26T23:32:38.230496+00:00",
+  "start_block": 23245686,
+  "start_hash": "0x4f40026001daf2e1ca6f1a10f345398816158a0f15d62abefd24422b802cfe89",
+  "end_block": 23245720,
+  "end_hash": "0x145e4eb4241185ed5dc4dc847de614cd3f6673d8f5627d90b7a9e0be3128cbbe",
+  "beacon_slot": "25013851",
+  "payload_count": 34,
+  "all_engine_results_valid": true,
+  "fork_choice_owner": "Lighthouse",
+  "datadirs_preserved": true
+}

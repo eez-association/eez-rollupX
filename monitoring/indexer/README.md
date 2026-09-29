@@ -67,6 +67,22 @@ deployment block to retain the whole rollup history, or a later block for an
 explicitly limited history. The scanner needs headers, logs and receipts from
 that block onward. Nothing is collected before it.
 
+Reth can retain the genesis header while rejecting the full genesis block with
+pruned-history RPC code `4444`. For that specific error, HTTP identity checks,
+head sampling and WS subscription setup request `debug_getRawHeader("0x0")` and
+compare its locally computed Keccak hash with the configured genesis. Missing,
+oversized or malformed bytes and mismatched hashes fail identity validation;
+other RPC failures do not activate this fallback. The node must expose that
+read-only debug method to the indexer when using pruned history. Retained block,
+log and receipt requirements from `start_block` remain the same.
+
+Upgrade the indexer before switching its RPC to a Reth revision that prunes the
+genesis block API. This fix changes no configuration, schema or checkpoints;
+existing full-genesis endpoints remain supported. An older indexer can reuse the
+database, but cannot resume against the pruned endpoint until that endpoint is
+changed or the fix is restored. Preserve the database and posting-log volumes
+through either upgrade or rollback.
+
 The optional `details` object configures `l2_http_url`, `l2_chain_id`,
 `l2_genesis_hash` and `beacon_url`. Use `eth_chainId` and genesis block zero from
 the intended L2. The database binds enrichment to that L2 identity; URLs may
@@ -594,3 +610,225 @@ The active deployment also retains the prior operator indexer fixes: canonical
 block-receipt collection, an optional `details.l1_http_url` for transaction
 enrichment, and the transaction-hash lookup index used by posting queries.
 These changes preserve the event attribution checks and the new event ABI.
+
+
+### Admission history
+
+The optional posting collector also imports `eez.composer.admission.v1` into
+`admission_events`, under the same transactional file checkpoint. Upgrade this
+collector before the new Composer. The additive `admission_candidates` and
+`admission_sources` views power **EEZ Cross-chain admission** (`eez-admission`).
+The existing PostgreSQL datasource and read-only Grafana role are reused.
+
+The dashboard shows all candidates, including successful no-cut batches;
+per-source simulation, pin/discount/calldata and companion gas; full-calldata
+projection; final preflight gas used/required; signed limit; and canonical
+postBatch receipt gas. Filter by candidate ID or source hash and use
+**Inspect → Data → Download CSV**. Rebuilt candidates have separate IDs and an
+explicit predecessor. Repricing joins through the posting's final signed hash.
+An orphaned receipt disappears from the canonical join while observations remain.
+Inbound companion preflight and indexed source receipt gas are separate columns;
+L2 outbound receipt gas is not collected here. No exact per-source share of the
+aggregate canonical postBatch receipt is claimed.
+
+Selected counts describe the finite snapshot. `selection_limit` is its effective
+count cap; `selection_limit_reason` identifies an active configured, fairness,
+submission, deadline, or preparation-probe cap. `admission_stop_reason` reports
+the first resource cut or the count cap actually reached, and distinguishes
+snapshot exhaustion from exhaustion of eligible sources. It remains separate
+from a later proof/preflight failure (`outcome_reason` in Grafana). Old records
+without these fields show **Unknown (legacy or incomplete)**, not an empty
+queue. Queued counts exclude claimed
+sources reused by a rebuild. Only sources reaching individual
+checks receive source records; untouched and selection-filtered work is counted
+in each summary. This keeps repeated backlog logging bounded by examined work.
+The source timing column measures checks through the gas estimate, before append
+and finalization. Historical records without that explicit boundary stay null.
+
+Preparation, proving, native finalization, relay acknowledgement and dispatch
+headroom are distinct observations. The timing table also shows the proof
+prediction, its configured/covering/scaled basis and finalization reserve next
+to measured durations. Historical predictions remain null. A relay
+acknowledgement is not settlement.
+The timing table also exposes prefix hashing, its executed transaction count,
+blob sidecar preparation and witness preparation. These are subintervals of
+preparation. Witness time includes blocking-worker scheduling. Older events
+leave these columns null; the dashboard reads optional details from existing
+event kinds, so this timing addition needs no collector or schema migration.
+Sequence gaps are explicit; `finished` records the expected final sequence.
+Missing historical estimates and candidates that never reached simulation remain
+null. Check collector status and its last successful check before interpreting
+coverage. Preserve retained JSON logs and existing database checkpoints across
+restart. Collectors predating the whole admission family ignore it; an
+admission-aware collector rejects unknown event kinds. Retain the upgraded
+collector and additive tables/views on Composer rollback. Monitoring is operational history, not durable queue ownership.
+
+Apply the additive views before loading the updated dashboard and Composer.
+Keep the upgraded indexer when rolling back Composer: PostgreSQL rejects an old
+`CREATE OR REPLACE VIEW` that would remove appended columns. Source histories
+from `bounded-calls-2` expose entry reserve, L1 call count and nested result count;
+the target simulation term separately covers execution. The entry reserve is
+the proposed group's shape cost before any batch-size discount revocation.
+For inbound sources, the call and result counts describe metadata stored by
+postBatch; executing their companion transactions remains a separate charge.
+
+From `deferred-storage-3`, `estimate_reasons` counts entries by pricing decision:
+`deferred_storage`, `deferred_legacy`, `immediate_registered`, or a fallback
+(`parent_state_unavailable`, `immediate_evidence_unavailable`, `deferred_old_slot`,
+`deferred_reverted`, `deferred_shape`, `deferred_size_bound`,
+`deferred_reverted_or_static_row`, `deferred_call_flags`, `general_reserve_lower`).
+The immediate evidence reason includes unsupported execution and missing proxy
+registration; it does not identify a specific failed eligibility check.
+`deferred_old_slot` means the canonical-parent layout could not be bounded.
+`general_reserve_lower` keeps the existing reserve when the new storage estimate
+would be larger. Counts sum to the source's entry count. These explain proposed
+per-entry pricing; `batch_discount_revoked` separately records when the proposed
+prefix exceeds the measured 128-total-entry bound, restoring general reserves
+for the entire prefix. A rejected group does not change accepted prefix pricing.
+Both columns remain null for older events; do not infer a reason from missing
+history. Upgrade the additive views/collector/dashboard before Composer and
+keep them on runtime rollback, as described above.
+
+From `companion-storage-4`, bounded reverted/flagged storage and results up to
+256 bytes can use `deferred_storage`. Historical `deferred_reverted` and
+`deferred_reverted_or_static_row` reasons remain readable; new events do not emit
+them. `deferred_call_flags` now denotes unsupported value/routing for storage.
+`companion_simulation_gas` remains the raw source simulation. New columns show
+`companion_protocol_reserve_gas`, `companion_estimate_gas` (the amount used in the
+bundle budget), and `companion_estimate_basis`: `bounded_protocol`,
+`bounded_capped`, or `declared_limit`. A declared-limit fallback has no measured
+protocol reserve. Candidate summary `companion_gas` now totals these consumption
+estimates. Old estimates remain null in the new columns.
+
+From `companion-execution-5`, `companion_target_simulation_gas` shows separately
+measured L1 callback application gas, including reverted frames. Bounded estimates
+sum source simulation, callback simulation and protocol reserve, capped at the
+signed limit. Earlier rows retain null callback gas; do not infer zero. See the
+[versioned admission profile](../../docs/configurable-settlement-policy.md) for
+shape bounds and fallbacks.
+
+Policy `packing-fifo-preference-2` continues past nonfitting independent groups.
+The candidate table exposes `capacity_deferrals` counts per reason and the
+`fifo_bypassed` diagnostic. Policy `strict-fifo-5` enforces FIFO across submitted
+batches: `fifo_bypassed=true` describes discarded speculation, with stop reason
+`fifo_prefix_rebuild` and a replacement linked by `rebuild_of`. A retained queue
+boundary appears as `fifo_prefix_limit` on the next opportunity. Resource reasons
+remain in `fifo_trigger` and `capacity_deferrals`; no learned FIFO count cap is
+installed. Policy `strict-fifo-6` additionally clears that boundary after canonical
+resolution of its first source, allowing the remaining queue to share the next
+batch under the same FIFO checks. Receipt or relay observations do not clear it.
+The event schema and collector remain compatible; version 5 histories retain
+their original boundary behavior. `strict-fifo-7` also supersedes sparse proof
+scaling terms when a slower, wider observation supplies the requested dimensions;
+the existing `proof_estimate_ms` and `scaled_sample` basis expose that prediction.
+Its measured slow-proof floor and actual deadlines are retained. No collector
+migration is needed. Source rows expose
+`source_outcome_reason`, including a blob rejection after a successful gas check.
+The final candidate stop reason and earlier individual deferrals can differ.
+Old histories retain null fields and historical `fifo_fairness_limit` reasons.
+Apply the additive schema and dashboard before the new Composer, keep retained
+logs/checkpoints, and retain these views on rollback. No historical follower
+encoding, node storage, signer profile or configuration input changes.
+
+Policy `packing-minimum-check-3` adds `source_capacity_check` for capacity
+refusals before full simulation. The basis `minimum_admission_cost` denotes a
+lower bound on the current admission estimator, not measured gas. Its event
+contains the minimum entry/L2 costs, accepted postBatch and companion prefix,
+signed companion requirement, fixed drain reserve and active caps. Source rows
+show **Capacity deferred before simulation**, the bound and constraint; full
+simulation estimates remain null. `capacity_check_ms` measures selection through
+this cheap decision. `source_checks_and_simulation_ms` remains null for that row.
+Candidate `minimum_check_count` counts these refusals; `simulation_count` counts
+actual source composition executions, including rejected/failed executions.
+Neither count denotes unique sources across candidates. A rebuilt candidate has
+its own counters and state.
+
+Estimator `companion-storage-6` distinguishes zero, retained and fresh storage
+writes and uses tighter measured protocol framing reserves. The separately
+measured source and callback execution terms and declared-limit fallback remain.
+See the [settlement specification](../../docs/configurable-settlement-policy.md)
+for prices and shape bounds. Upgrade schema, collector and dashboard before
+Composer: an older admission-aware collector rejects the new event kind and
+cannot advance its checkpoint past it. Keep the upgraded collector and appended
+view columns on Composer rollback. Retain the JSON volume and checkpoints;
+no historical events are rewritten and missing estimates are not reconstructed.
+
+Policy `confirmed-failure-backoff-4` adds optional `submission_failure_streak`
+and `submission_backoff_threshold` to candidate `started` details. Grafana's
+preparation table reads them directly; historical and numeric-admission values
+remain null. The fifth consecutive qualifying failure first reduces selection;
+complete canonical source settlement resets the streak. This is distinct from
+per-source cumulative retry accounting. Estimator `companion-reserve-7` lowers
+bounded execution framing reserves while retaining version 6's posting storage
+model. Existing gas columns expose the changed values. These versions add no
+new event kind or schema; existing collectors accept them. Upgrade the dashboard
+for the new columns, preserve logs/checkpoints and keep it on Composer rollback.
+
+The optional details worker also enriches accepted inbound sources independently
+of registry events. It checks source receipts against the canonical posting's
+block and transaction order, then rechecks the block before saving. This fills
+receipts for calls whose registry logs reverted. `source_receipt_coverage` is
+`available`, `absent`, or `before_postbatch`; null means not collected or not
+applicable. Included sources with unavailable or mismatched RPC receipts retry;
+a null RPC response never establishes absence. `source_receipt_success` is only
+the receipt's outer status, not evidence that the protocol call succeeded.
+These observations do not allocate postBatch gas to a source or complete queue
+ownership. A source must be after the posting in the same canonical block;
+its receipt in another attempt/block cannot fill this row.
+
+Collection uses at most 32 sources per round with four concurrent RPC sequences
+under the existing details worker. Cancellation drops pending requests. The
+pending-work query starts from canonical posting links and reads source events
+only for those candidates; it avoids repeatedly aggregating the full dashboard
+views as retained history grows. Direction resolution still uses the latest
+estimate, falling back to the earliest source-selection event. This query-only
+change needs no schema migration or node upgrade; rollback preserves observations
+but can restore the old timeout under a large retained history. The
+separate `admission_source_receipts` table references the canonical posting;
+reorg deletion removes observations and rejects late stale inserts. It does
+not add no-log sources to settlement cost totals. Historical accepted sources
+are enriched as the worker catches up, newest blocks first. Deploy the additive
+schema/collector before the dashboard and Composer, preserve the existing log
+checkpoints, and retain this indexer when rolling Composer back. No queue data
+or protocol storage migration is involved.
+
+Composer emits bounded-label `eez_composer_admission_events_total` and
+`eez_composer_admission_duration_seconds`; hashes and candidate IDs only occur in
+the retained event records. Logs use the existing nonblocking tracing sink.
+Malformed/conflicting records stop checkpoint advancement and surface collector
+errors. The [initial validation audit](../../docs/audits/2026-09-26-admission-throughput/README.md)
+and [selection/shape follow-up](../../docs/audits/2026-09-26-admission-shapes/README.md)
+record SQL/replay checks and live coverage.
+
+Estimator `companion-input-8` replaces the maximum input-word allowance for
+validated nested companion calls with their measured lengths, retaining a
+four-word minimum for repeated table copying. Protocol reserve and total
+companion estimate remain available in the source drill-down.
+
+Estimator `candidate-framing-9` adds a per-candidate framing reserve, complete
+admission estimate, bounded calldata gas, active calldata-floor flag, general
+execution fallback flag and gas-margin percentage to the postBatch table.
+Source drilldowns show each group's framing contribution and accumulated framing/
+full estimates before and after the gas gate. After-values are provisional until
+the source outcome confirms acceptance; later blob/timing checks can defer it.
+`admission_gas` remains the original
+incremental projection; compare `admission_including_framing_gas` with the full
+planning cap for versions 9 and later. Historical rows keep null values for the new fields.
+Queries read these additive details from retained events; no schema migration
+or collector rebuild is needed. Static-only sources have a zero mutable-entry
+minimum in cheap capacity checks, while their full estimates still price the
+actual calldata and general execution projection. Version 10 requires both the
+mutable minimum and static-only/general-pin alternatives to fail before a cheap
+rejection. `minimum_mutable_entry_gas` and `minimum_static_general_fallback`
+make that distinction visible without inventing simulation results.
+
+The preparation/proof/delivery table also exposes relay bundle hash (when
+returned as a valid 32-byte hash), target block/timestamp, expected parent,
+transaction count and `ack_remaining_ms`. The latter measures the shared
+delivery window remaining at acknowledgement, whereas dispatch remaining time
+is recorded before the HTTP request. These additive JSON details require no
+database migration; legacy rows remain null. A null relay identifier may also
+mean a successful relay returned no identifier. Correlate by postBatch hash
+and exact target in that case. These fields do not establish builder rejection
+causes or canonical settlement. Dashboard provisioning can be updated before
+or after the Composer; old collectors retain the existing delivery event.

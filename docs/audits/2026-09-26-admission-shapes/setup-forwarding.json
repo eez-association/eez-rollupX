@@ -1,0 +1,13 @@
+{
+  "local_requests": 51259,
+  "forwarded_raw_transactions": 1399,
+  "upstream_rate_limits": 0,
+  "errors": 2339,
+  "stopped": true,
+  "owned_listen_port": 19445,
+  "source_ingress_unchanged": true,
+  "max_upstream_requests_per_second": 5,
+  "script_local_only": "artifacts/admission-shapes/ordinary-l1-forwarder.py",
+  "script_sha256": "77ddb1fbf8e0933fa9e77194f1e5245cbd7a30d7f25f729ddf26f8da53791865",
+  "error_detail": "Generic local request/connection exceptions were counted; individual exception causes were not retained. These are not claimed as successful RPC calls. All deployment and semantic assertions independently passed."
+}

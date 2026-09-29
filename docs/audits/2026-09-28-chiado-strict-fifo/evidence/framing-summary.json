@@ -1,0 +1,35 @@
+{
+  "postbatches": 29,
+  "sources": 870,
+  "every_final_projection_within_admission_bound": true,
+  "every_signed_limit_has_five_percent_margin": true,
+  "every_post_preflight_matches_receipt": true,
+  "no_fixed_admission_reserve": true,
+  "general_execution_posts": 0,
+  "cutoffs": {
+    "snapshot_exhausted": 22,
+    "l1_tx_gas_budget": 2,
+    "l1_bundle_gas_budget": 4,
+    "pipeline_time": 1
+  },
+  "framing_reserve_gas": {
+    "min": 29824,
+    "max": 206720,
+    "mean": 141490.75862068965
+  },
+  "observed_framing_gap_gas": {
+    "min": 11724,
+    "max": 106784,
+    "mean": 71911.1724137931
+  },
+  "bound_excess_gas": {
+    "min": 18100,
+    "max": 99936,
+    "mean": 69579.58620689655
+  },
+  "capacity_released_gas": {
+    "min": 393280,
+    "max": 570176,
+    "mean": 458509.2413793103
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "candidates_with_summary": 31,
+  "cheap_refusals": 6601,
+  "cheap_refusals_by_reason": {
+    "l1_tx_gas_budget": 2271,
+    "l1_bundle_gas_budget": 4330
+  },
+  "full_simulations": 2406,
+  "full_gas_refusals": 1360,
+  "cheap_fraction_of_gas_refusals": 0.8291671900515011,
+  "cheap_rows_without_full_estimate": true,
+  "source_outcomes_and_candidate_counters_reconciled": true
+}

@@ -1,0 +1,18 @@
+{
+  "checked_at": "2026-09-26T10:54:07.414918+00:00",
+  "postings": 27,
+  "postings_with_complete_estimates": 27,
+  "canonical_sources": 870,
+  "canonical_sources_with_accepted_estimates": 870,
+  "source_attempt_rows": 1164,
+  "nominal_preparation_overruns": 0,
+  "admission_gas_total": 344692698,
+  "receipt_gas_total": 179639982,
+  "history_complete": true,
+  "collector": [
+    {
+      "checked_at": "2026-09-26T10:54:05.490719+00:00",
+      "healthy": true
+    }
+  ]
+}

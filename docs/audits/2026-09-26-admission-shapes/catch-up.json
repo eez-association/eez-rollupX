@@ -1,0 +1,14 @@
+{
+  "prepared_at": "2026-09-26T13:11:08.749774+00:00",
+  "start_block": 23238988,
+  "start_hash": "0x6c2c3741a72fbb6bbf1c07e90978622edbe796e0c0495aee78d3f162e95438d4",
+  "end_block": 23239015,
+  "end_hash": "0xf955b05eb32a31263a2bfcb68ac65941c135644e22879dcd192ec3265a4a7107",
+  "beacon_slot": "25006393",
+  "payloads": 27,
+  "all_engine_results_valid": true,
+  "lighthouse_retained_fork_choice": true,
+  "database_reset": false,
+  "helper": "../2026-09-26-admission-throughput/recover-engine-rpc-gap.py",
+  "reason": "Restart gap with zero execution peers; both heads current after import."
+}

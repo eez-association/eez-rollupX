@@ -1,0 +1,39 @@
+{
+  "checked_at": "2026-09-27T14:48:03.765575+00:00",
+  "from_ms": 1790519283327,
+  "to_ms": 1790519465869,
+  "panels": [
+    {
+      "id": 2,
+      "rows": 34,
+      "new_fields": [
+        "ack_remaining_ms",
+        "blob_preparation_ms",
+        "delivery_parent_hash",
+        "delivery_target_block",
+        "delivery_target_timestamp",
+        "delivery_transaction_count",
+        "prefix_hash_executed_tx_count",
+        "prefix_hash_ms",
+        "relay_bundle_hash",
+        "submission_backoff_threshold",
+        "submission_failure_streak",
+        "witness_preparation_ms"
+      ],
+      "new_field_nonnull_rows": {
+        "delivery_target_timestamp": 28,
+        "submission_failure_streak": 34,
+        "submission_backoff_threshold": 34,
+        "delivery_parent_hash": 28,
+        "relay_bundle_hash": 0,
+        "delivery_transaction_count": 28,
+        "witness_preparation_ms": 28,
+        "ack_remaining_ms": 28,
+        "prefix_hash_ms": 34,
+        "delivery_target_block": 28,
+        "blob_preparation_ms": 28,
+        "prefix_hash_executed_tx_count": 34
+      }
+    }
+  ]
+}

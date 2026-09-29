@@ -62,4 +62,5 @@ pub use optimistic::OptimisticallyIncluded;
 #[doc(inline)]
 pub use rollup::{RollupConfig, RollupState};
 
+mod admission_events;
 mod posting_events;

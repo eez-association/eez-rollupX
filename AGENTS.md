@@ -30,7 +30,8 @@ and its pinned protocol revision; upstream `main` is not a substitute.
 - Respect the [staged Chiado runner](scripts/run-chiado-staged-performance.sh)'s
   wallet lock; do not bypass it with the upstream runner. The lock is per protocol
   checkout, so separate worktrees must still coordinate use of shared wallets.
-  Its `--no-verify` workload measures execution/throughput, not semantic correctness.
+  Its default `--no-verify` workload measures execution/throughput, not semantic
+  correctness. Use its `--verify` flag when semantic assertions are required.
 - Keep private keys, authenticated URLs, private hostnames, and bulk logs/databases
   out of committed records. Do not treat public fixture/workload keys as private
   operator credentials. The repository and published images are public; do not
@@ -134,10 +135,11 @@ its Solidity implementation/tests and the applicable fork contract:
   rejections; they cannot authorize targeted eviction. During submitted-attempt
   reconciliation, charge eligible users once only for conclusive settlement failure;
   infrastructure uncertainty and source deferrals retain work without that charge.
-  The RPC contract permits one deadline-based speculative replacement on an
+  The RPC contract permits up to four deadline-based speculative replacements on an
   unchanged L1 parent. Preserve the old submission history and the single
   current owner; the timeout authorizes recomposition, never canonical completion
-  or eviction. Validate both skipped-slot and late-original inclusion paths.
+  or eviction. Keep the scheduler and submission gates on the shared bound;
+  validate consecutive skipped slots, exhaustion and late-original inclusion.
 - Pending requests and retry counters are **in memory**. Restart reconciles
   canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.

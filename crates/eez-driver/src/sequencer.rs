@@ -69,11 +69,40 @@ fn log_stale_parent(phase: &str) {
     );
 }
 
+// The cross-chain composer owns its remaining pipeline estimate. The scheduler
+// rejects only an expired target; ordinary-only posting retains its prior gate.
+fn sync_slot_too_late(
+    timing: RollupTiming,
+    cross_chain: bool,
+    timestamp: u64,
+    now_ms: u64,
+) -> bool {
+    let slack_ms = u64::try_from(timing.submission_slack().as_millis()).unwrap_or(u64::MAX);
+    let deadline_ms = timestamp.saturating_mul(1000).saturating_sub(slack_ms);
+    if cross_chain {
+        now_ms >= deadline_ms
+    } else {
+        let proof_ms = u64::try_from(timing.proof_time().as_millis()).unwrap_or(u64::MAX);
+        now_ms.saturating_add(proof_ms) > deadline_ms
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::slot::{ParentContext, SyncSlotBlock, SyncSlotComposer, SyncSlotOutcome};
     use std::sync::Mutex;
+
+    #[test]
+    fn late_cross_chain_entry_uses_shared_deadline_and_preserves_ordinary_gate() {
+        let timing = RollupTiming::new(5000, 1000, 450, 450);
+        assert!(!sync_slot_too_late(timing, false, 10, 9100));
+        assert!(sync_slot_too_late(timing, false, 10, 9101));
+        assert!(!sync_slot_too_late(timing, true, 10, 9101));
+        assert!(!sync_slot_too_late(timing, true, 10, 9549));
+        assert!(sync_slot_too_late(timing, true, 10, 9550));
+        assert!(sync_slot_too_late(timing, true, 10, 9551));
+    }
 
     struct PolicyComposer {
         result: &'static str,
@@ -600,14 +629,12 @@ where
     /// the immediate next L1 slot. Steady state has headroom; fires only on
     /// a late trigger, where the slot is deferred.
     fn sync_block_misses_l1_slot(&self, sync_slot_timestamp: u64) -> bool {
-        let proof_ms = u64::try_from(self.timing.proof_time().as_millis()).unwrap_or(u64::MAX);
-        let slack_ms =
-            u64::try_from(self.timing.submission_slack().as_millis()).unwrap_or(u64::MAX);
-        let ready_ms = crate::slot::now_unix_millis().saturating_add(proof_ms);
-        let deadline_ms = sync_slot_timestamp
-            .saturating_mul(1_000)
-            .saturating_sub(slack_ms);
-        ready_ms > deadline_ms
+        sync_slot_too_late(
+            self.timing,
+            self.composer.has_cross_chain_work(self.rollup_id),
+            sync_slot_timestamp,
+            crate::slot::now_unix_millis(),
+        )
     }
 
     /// One skip self-heals next trigger; a run of them means production is

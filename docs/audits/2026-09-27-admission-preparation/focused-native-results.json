@@ -1,0 +1,90 @@
+{
+  "started_at": "2026-09-27T09:39:48.444314+00:00",
+  "source_revision": "2b9ca04e87f278a1e9bed0d25420f3fa20b86a08",
+  "files": {
+    "crates/eez-composer/src/composer.rs": "f99b11e950bb03b95307a6b422fefe9d65a94f0a6fce538d97c90e490a7969f9",
+    "crates/eez-composer/src/local/build.rs": "c993b81c621c5de412ca09274e0f212f651bb9c4e4973ef016101b05b14672cc",
+    "crates/eez-composer/src/local/build/prefix.rs": "c0093b82e07407c2a4c76cf1b43e364e0ea545a57cba0f3e8546c7e5f271d338"
+  },
+  "status": "finished",
+  "contracts": {
+    "exit_code": 0,
+    "command": [
+      "forge",
+      "build",
+      "--root",
+      "contracts"
+    ]
+  },
+  "focused-native": {
+    "exit_code": 0,
+    "command": [
+      "cargo",
+      "+1.94.0",
+      "test",
+      "--locked",
+      "-p",
+      "eez-node-e2e",
+      "--test",
+      "chained_interstate",
+      "--test",
+      "dynamic_admission",
+      "--test",
+      "partial_consumption",
+      "--test",
+      "settlement_policy_gas",
+      "--",
+      "--test-threads=1",
+      "mixed_direction_state_chain_in_one_slot",
+      "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays",
+      "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+      "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces"
+    ]
+  },
+  "finished_at": "2026-09-27T09:49:30.338933+00:00",
+  "suites": [
+    {
+      "suite": "chained_interstate",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "mixed_direction_state_chain_in_one_slot"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "dynamic_admission",
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+        "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "partial_consumption",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ],
+      "excluded": []
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "tests": [
+        "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces"
+      ],
+      "excluded": []
+    }
+  ],
+  "log_sha256": "a7ba62c01d8177b80ee89b53127a255e45397a01e3c492f8537a881a503f3afb"
+}

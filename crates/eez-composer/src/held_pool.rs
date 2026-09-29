@@ -43,9 +43,10 @@ pub struct HeldTx {
     /// Failed settlement attempts so far. A proof rejection or bundle drop
     /// may be caused by a poison transaction even when compose-time simulation
     /// accepted it. Recovery increments this once per failed episode and
-    /// EVICTS the tx (loud ERROR, user resubmits) at
-    /// [`MAX_BUNDLE_ATTEMPTS`](crate::composer::MAX_BUNDLE_ATTEMPTS),
-    /// so one candidate set cannot fail every postBatch forever.
+    /// evicts the tx at the applicable bound: three for prover/immediate relay
+    /// rejection and numeric admission, six for automatic canonical settlement
+    /// failures (allowing a reduced retry after the fifth exclusion). Switching
+    /// failure paths preserves this counter. Eviction requires resubmission.
     pub attempts: u32,
     /// Recovered L1 sender. Together with `nonce`, lets the pool and
     /// the eviction path keep each sender's nonce chain CONTIGUOUS:
@@ -98,6 +99,14 @@ fn min_replacement_fee(replaced: u128) -> u128 {
     replaced.saturating_add(required_increase)
 }
 
+/// Identity endpoints survive queued fee replacements. The first endpoint
+/// lets canonical progress release a partially consumed repair window.
+#[derive(Clone, Copy, Debug)]
+struct FifoBoundary {
+    first: (Address, Direction, u64),
+    last: (Address, Direction, u64),
+}
+
 /// All pool state under one lock, so queue membership, hash dedupe and
 /// nonce reservations can never disagree with each other.
 #[derive(Debug)]
@@ -115,8 +124,10 @@ struct PoolState {
     /// or evicted by its caller; a forgotten reservation bricks its nonce
     /// slot (admission forever expects past it).
     in_flight: HashMap<TxHash, (Address, Direction, u64)>,
-    /// Resume discovery at a source chain, never at one of its higher nonces.
-    scan_from: Option<(Address, Direction)>,
+    /// Retain a shrinking FIFO retry snapshot until canonical head progress,
+    /// even when the current deadline cannot accommodate recomposition.
+    /// Identities, rather than hashes, preserve queued replacement positions.
+    fifo_boundary: Option<FifoBoundary>,
     telemetry: status::QueueTelemetry,
 }
 
@@ -158,6 +169,25 @@ impl PoolState {
             .ledger
             .read(|data| data.users.values().cloned().collect::<Vec<_>>());
         users.sort_by_key(|user| (user.owner, user.fifo_position));
+        // A repair boundary protects an unfinished FIFO head across retries.
+        // Once that head is canonically consumed, a new snapshot can include
+        // its remaining suffix and younger work together. Keeping only the old
+        // end after partial consumption would strand a small tail in its own
+        // postBatch. Submission observations cannot establish this progress.
+        if self.fifo_boundary.is_some_and(|boundary| {
+            users.iter().any(|user| {
+                (user.tx.sender, user.tx.direction, user.tx.nonce) == boundary.first
+                    && matches!(
+                        user.location,
+                        UserLocation::Terminal {
+                            canonical: Some(_),
+                            ..
+                        }
+                    )
+            })
+        }) {
+            self.fifo_boundary = None;
+        }
         for user in &users {
             if user.location != UserLocation::Queued {
                 self.txs.retain(|tx| tx.hash != user.tx.hash);
@@ -369,7 +399,7 @@ impl HeldPool {
             txs: VecDeque::new(),
             by_hash: HashSet::new(),
             in_flight: HashMap::new(),
-            scan_from: None,
+            fifo_boundary: None,
             telemetry: Default::default(),
         };
         Self {
@@ -659,23 +689,74 @@ impl HeldPool {
         self.pop_n(usize::MAX)
     }
 
-    /// Finite candidate view. Transactions stay replaceable until claimed.
-    /// A resumed chain takes discovery priority while preserving every chain's
-    /// nonce order and the relative order of all other queued transactions.
+    /// Finite FIFO view. Transactions stay replaceable until claimed. A prior
+    /// discarded candidate may restrict this snapshot to its retry prefix;
+    /// admission must still include every older eligible source before posting.
     pub(crate) fn candidates(&self) -> Vec<HeldTx> {
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         let mut candidates: Vec<_> = state.txs.iter().cloned().collect();
-        if let Some(chain) = state.scan_from.take() {
-            candidates.sort_by_key(|tx| (tx.sender, tx.direction) != chain);
+        if let Some(boundary) = state.fifo_boundary {
+            if let Some(index) = candidates
+                .iter()
+                .position(|tx| (tx.sender, tx.direction, tx.nonce) == boundary.last)
+            {
+                candidates.truncate(index + 1);
+            } else {
+                state.fifo_boundary = None;
+            }
         }
         candidates
     }
 
-    pub(crate) fn resume_discovery_at(&self, tx: &HeldTx) {
-        self.state
-            .lock()
-            .expect("held_pool mutex poisoned")
-            .scan_from = Some((tx.sender, tx.direction));
+    /// Return only still-owned snapshot users, restoring their original FIFO
+    /// positions across both execution phases. Queued replacements keep their
+    /// positions; newly recovered predecessors retain nonce precedence through
+    /// the pool's existing insertion rule. No terminal owner is resurrected.
+    pub(crate) fn retry_fifo_prefix(&self, snapshot: &[HeldTx], prefix_len: usize) {
+        assert!(prefix_len > 0 && prefix_len < snapshot.len());
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let queued: HashMap<_, _> = state
+            .txs
+            .iter()
+            .map(|tx| ((tx.sender, tx.direction, tx.nonce), tx.clone()))
+            .collect();
+        let retained: Vec<_> = state.ledger.read(|data| {
+            snapshot
+                .iter()
+                .filter_map(|tx| {
+                    queued
+                        .get(&(tx.sender, tx.direction, tx.nonce))
+                        .cloned()
+                        .or_else(|| {
+                            (state.in_flight.contains_key(&tx.hash)
+                                && data
+                                    .users
+                                    .get(&tx.hash)
+                                    .is_none_or(|user| user.location == UserLocation::Composing))
+                            .then(|| tx.clone())
+                        })
+                })
+                .collect()
+        });
+        let hashes: HashSet<_> = retained.iter().map(|tx| tx.hash).collect();
+        let remaining = std::mem::replace(&mut state.txs, retained.into());
+        // The original snapshot preserves each chain's nonce order, including
+        // replacements at the same nonce. Start with that order, then insert
+        // concurrent arrivals using the normal predecessor rule. Repeated
+        // front insertion would move younger independent users ahead of a
+        // newly recovered predecessor and its older snapshot successor.
+        state.in_flight.retain(|hash, _| !hashes.contains(hash));
+        state.by_hash = hashes;
+        for tx in remaining {
+            state.insert_queued(tx, false);
+        }
+        state.update_recovery_ownership();
+        let first = &snapshot[0];
+        let last = &snapshot[prefix_len - 1];
+        state.fifo_boundary = Some(FifoBoundary {
+            first: (first.sender, first.direction, first.nonce),
+            last: (last.sender, last.direction, last.nonce),
+        });
     }
 
     /// Atomically claim the snapshot's exact identity. A concurrent replacement
@@ -1641,24 +1722,95 @@ mod tests {
     }
 
     #[test]
-    fn discovery_resume_preserves_nonce_order_and_does_not_reorder_the_pool() {
+    fn fifo_retry_restores_unclaimed_older_sources_before_claimed_younger_work() {
         let pool = HeldPool::new(Default::default());
-        let a = tx(1);
-        let b = tx(2);
-        let a_next = HeldTx {
-            nonce: a.nonce + 1,
-            hash: B256::repeat_byte(98),
-            ..a.clone()
-        };
-        for user in [&a, &b, &a_next] {
+        let users: Vec<_> = (1..=4).map(tx).collect();
+        for user in &users {
             insert(&pool, user.clone(), user.nonce);
         }
-        pool.resume_discovery_at(&a_next);
+        assert!(pool.claim(&users[1]));
+        assert!(pool.claim(&users[3]));
+        pool.retry_fifo_prefix(&users, 1);
+        for _ in 0..6 {
+            assert_eq!(
+                pool.candidates(),
+                users[..1],
+                "a missed deadline cannot rotate younger work forward"
+            );
+        }
+        assert_eq!(pool.pop_all(), users);
+    }
+
+    #[test]
+    fn fifo_boundary_tracks_replacement_and_clears_after_consumption() {
+        let pool = HeldPool::new(Default::default());
+        let users: Vec<_> = (1..=3).map(tx).collect();
+        for user in &users {
+            insert(&pool, user.clone(), user.nonce);
+        }
+        let replacement = HeldTx {
+            hash: B256::repeat_byte(98),
+            max_fee_per_gas: 100,
+            priority_fee_per_gas: 100,
+            ..users[0].clone()
+        };
+        insert(&pool, replacement.clone(), replacement.nonce);
+        pool.retry_fifo_prefix(&users, 1);
+        assert_eq!(pool.candidates(), vec![replacement.clone()]);
+        assert!(pool.claim(&replacement));
+        pool.release_in_flight_batch(&[replacement]);
+        assert_eq!(pool.candidates(), users[1..]);
+    }
+
+    #[test]
+    fn fifo_retry_keeps_recovered_nonce_predecessors_and_does_not_revive_removed_users() {
+        let pool = HeldPool::new(Default::default());
+        let users: Vec<_> = (1..=3).map(tx).collect();
+        for user in &users {
+            insert(&pool, user.clone(), user.nonce);
+        }
+        assert!(pool.claim(&users[1]));
+        pool.release_in_flight_batch(&users[1..2]);
+        let predecessor = HeldTx {
+            nonce: users[0].nonce - 1,
+            hash: B256::repeat_byte(98),
+            ..users[0].clone()
+        };
+        insert(&pool, predecessor.clone(), predecessor.nonce);
+        pool.retry_fifo_prefix(&users, 1);
         assert_eq!(
             pool.candidates(),
-            vec![a.clone(), a_next.clone(), b.clone()]
+            vec![predecessor.clone(), users[0].clone()]
         );
-        assert_eq!(pool.pop_all(), vec![a, b, a_next]);
+        assert_eq!(
+            pool.pop_all(),
+            vec![predecessor, users[0].clone(), users[2].clone()]
+        );
+        assert!(!pool.owns(users[1].hash));
+    }
+
+    #[test]
+    fn blocked_fifo_boundary_reopens_independent_work_without_charging_attempts() {
+        let pool = HeldPool::new(Default::default());
+        let users: Vec<_> = (1..=3).map(tx).collect();
+        for user in &users {
+            insert(&pool, user.clone(), user.nonce);
+        }
+        pool.retry_fifo_prefix(&users, 1);
+        assert_eq!(pool.candidates(), users[..1]);
+        let source = SourceState {
+            l1: eez_l1::L1BlockRef {
+                number: 1,
+                hash: B256::repeat_byte(1),
+            },
+            l2: eez_l1::L1BlockRef {
+                number: 2,
+                hash: B256::repeat_byte(2),
+            },
+        };
+        pool.record_blocked(&users[0], eez_protocol::SourceCondition::Fee, source);
+        assert_eq!(pool.candidates(), users);
+        assert!(pool.candidates().iter().all(|user| user.attempts == 0));
     }
 
     #[test]

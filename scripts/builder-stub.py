@@ -127,6 +127,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if drop_path and os.path.exists(drop_path):
                     try:
                         os.replace(drop_path, drop_path + ".used")
+                        with open(drop_path + ".used") as source:
+                            remaining = json.load(source).get("remaining", 1)
+                        if remaining > 1:
+                            with open(drop_path + ".new", "w") as output:
+                                json.dump({"remaining": remaining - 1}, output)
+                            os.replace(drop_path + ".new", drop_path)
                         drop_next = True
                     except FileNotFoundError:
                         pass

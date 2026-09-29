@@ -1,0 +1,34 @@
+{
+  "run": "eez-core-protocol/tmp/e2e-staged-net/20260926-161050",
+  "run_exit_code": 1,
+  "job_results": {
+    "pass": 753,
+    "fail": 17
+  },
+  "semantic_assertion_jobs_passed": 753,
+  "receipt_prerequisite_failures": 17,
+  "semantic_assertions_not_reached": 17,
+  "independent_missing_effect_checks": 17,
+  "receipt_waits_cancelled_after_independent_absence_checks": 17,
+  "failed_jobs": [
+    "multi-call-twiceL2-14",
+    "multi-call-twiceL2-26",
+    "multi-call-twiceL2-28",
+    "multi-call-twiceL2-30",
+    "multi-call-twiceL2-32",
+    "multi-call-twiceL2-33",
+    "multi-call-twiceL2-42",
+    "multi-call-twiceL2-43",
+    "multi-call-twiceL2-44",
+    "multi-call-twiceL2-47",
+    "multi-call-twiceL2-50",
+    "revertCounterL2-15",
+    "revertCounterL2-16",
+    "revertCounterL2-19",
+    "revertCounterL2-43",
+    "revertCounterL2-47",
+    "revertCounterL2-9"
+  ],
+  "job_timings_sha256": "9983ebf18de1fe696b1411a86c1661e25b6a361dfc9cadd05c449119ef2fd8b7",
+  "independent_live_follower": false
+}

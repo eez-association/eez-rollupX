@@ -1,0 +1,17 @@
+{
+  "source_revision": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "started_at": "2026-09-26T13:14:07.224488+00:00",
+  "command": [
+    "bash",
+    "scripts/run-chiado-staged-performance.sh",
+    "--verify"
+  ],
+  "semantic_verifier": true,
+  "task_profile": "data/admission-shapes-20260926/wave.env",
+  "ordinary_l1_rpc": "existing configured external RPC; source ingress unchanged",
+  "pid": 3020727,
+  "exit_code": 1,
+  "finished_at": "2026-09-26T13:14:25.338789+00:00",
+  "cross_chain_sources_sent": 0,
+  "failure": "HTTP 429 during pre-funding balance reads; funding and source send were not reached."
+}

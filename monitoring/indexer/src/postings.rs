@@ -282,6 +282,10 @@ pub fn read_batch(
 pub async fn import(client: &mut Client, config: &Config, batch: &Batch) -> Result<()> {
     let tx = client.transaction().await?;
     for line in &batch.lines {
+        if let Some(event) = crate::admission::parse(line, config)? {
+            crate::admission::import(&tx, &event).await?;
+            continue;
+        }
         if let Some(event) = parse(line, config)? {
             let id = event["attempt_id"].as_str().context("attempt ID")?;
             let sequence = i32::try_from(event["sequence"].as_u64().context("sequence")?)?;

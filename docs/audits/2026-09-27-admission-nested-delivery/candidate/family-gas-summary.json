@@ -1,0 +1,66 @@
+[
+  {
+    "family": "counter",
+    "sources": 100,
+    "companion_estimate_gas": 20186500,
+    "receipt_gas": 13174400,
+    "ratio": 1.532251943162497,
+    "nested_rows": 0
+  },
+  {
+    "family": "counter-multi-tx",
+    "sources": 150,
+    "companion_estimate_gas": 27522550,
+    "receipt_gas": 16350756,
+    "ratio": 1.6832585600323313,
+    "nested_rows": 0
+  },
+  {
+    "family": "multi-call-nested",
+    "sources": 50,
+    "companion_estimate_gas": 28935230,
+    "receipt_gas": 11970380,
+    "ratio": 2.4172357101445403,
+    "nested_rows": 0
+  },
+  {
+    "family": "multi-call-twice",
+    "sources": 50,
+    "companion_estimate_gas": 16263252,
+    "receipt_gas": 6593952,
+    "ratio": 2.4663892002853522,
+    "nested_rows": 0
+  },
+  {
+    "family": "nestedCounter",
+    "sources": 50,
+    "companion_estimate_gas": 11262000,
+    "receipt_gas": 6162600,
+    "ratio": 1.8274754162204265,
+    "nested_rows": 0
+  },
+  {
+    "family": "reentrant",
+    "sources": 20,
+    "companion_estimate_gas": 5570480,
+    "receipt_gas": 3345644,
+    "ratio": 1.6649948410530229,
+    "nested_rows": 20
+  },
+  {
+    "family": "revertCounter",
+    "sources": 50,
+    "companion_estimate_gas": 9643150,
+    "receipt_gas": 6982731,
+    "ratio": 1.3809997836090206,
+    "nested_rows": 0
+  },
+  {
+    "family": "revertFromOtherChain",
+    "sources": 50,
+    "companion_estimate_gas": 15758000,
+    "receipt_gas": 8754612,
+    "ratio": 1.799965549586892,
+    "nested_rows": 0
+  }
+]

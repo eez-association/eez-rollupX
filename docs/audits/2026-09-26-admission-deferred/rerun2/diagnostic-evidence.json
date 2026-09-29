@@ -1,0 +1,33 @@
+{
+  "availability": "Raw logs/snapshots and ignored helpers are local-only; unavailable in another checkout. The reporting helper and canonical measurement helper are retained in audit directories.",
+  "files": [
+    {
+      "path": "artifacts/admission-deferred-rerun2/candidate/run.private.log",
+      "sha256": "a5e10455512468830c7608ea9c7a10bfa3a7f955a2e7088a7b9d7a661da23108"
+    },
+    {
+      "path": "artifacts/admission-deferred-rerun2/candidate/detail/events.private.json",
+      "sha256": "d4db77a873669d972ec9b444f340742c15e96620078a5b3e1d24fba7237b05b9"
+    },
+    {
+      "path": "artifacts/admission-deferred-rerun2/candidate/canonical-snapshot.private.json",
+      "sha256": "7d06bbed1f8ab877ae80973dff92a915e5e85211dee2c63b1f43300a3917c963"
+    },
+    {
+      "path": "artifacts/admission-deferred-rerun2/readiness.private.log",
+      "sha256": "516fca58b1d320d04763b4a1cdf7829ab2bdc7ee738857fd396edb8464e8530b"
+    },
+    {
+      "path": "artifacts/admission-deferred-rerun2/analyze-cutoffs.py",
+      "sha256": "8abcda07bada1757b48fe6895267291475aea9d3a023c0e4419d2652c8a1ebed"
+    },
+    {
+      "path": "docs/audits/2026-09-26-admission-throughput/measure-wave.py",
+      "sha256": "c4d26aa3a5abf3cb587bbde54fc9a69720a7841cb1f5b6116b7d10224674a6ea"
+    },
+    {
+      "path": "artifacts/admission-deferred/measure-admission.py",
+      "sha256": "2b3eb18ade3540b83a90be02469d01c3fc69809650c97d51acf4dc4b91cce623"
+    }
+  ]
+}

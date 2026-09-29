@@ -22,6 +22,28 @@ use crate::config::SubmitterConfig;
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
+/// Bounded delivery observation. A missing acknowledgement after dispatch is
+/// uncertain submission, not evidence that the relay did not receive the bundle.
+#[derive(Debug, Clone, Copy)]
+pub struct BundleDelivery {
+    pub elapsed: Duration,
+    pub acknowledged: bool,
+    /// Relay-supplied correlation identifier, if it is a valid 32-byte hash.
+    /// It is not an inclusion commitment and may differ between relays.
+    pub relay_bundle_hash: Option<B256>,
+    /// Shared delivery window left after the reply or transport failure.
+    pub remaining: Duration,
+    pub target_block: u64,
+    pub target_timestamp: u64,
+    pub expected_parent_hash: Option<B256>,
+    pub transaction_count: usize,
+}
+
+struct DeliveryWindow {
+    deadline: tokio::time::Instant,
+    observed: Box<dyn FnOnce(BundleDelivery) + Send>,
+}
+
 /// Wall-clock cap on the target-block + inclusion check.
 const TARGET_WAIT_BUDGET: Duration = Duration::from_secs(30);
 const TARGET_POLL_INTERVAL: Duration = Duration::from_millis(500);
@@ -29,6 +51,24 @@ const TARGET_POLL_INTERVAL: Duration = Duration::from_millis(500);
 /// minimal latest+1) gives a one-block cushion for when our local
 /// `latest` is stale by the time the relay sees the bundle.
 const NEXT_BLOCK_SLACK: u64 = 2;
+
+/// Additional exact-target opportunities permitted on one unchanged L1 parent.
+/// The scheduler and submission gates share this bound so consecutive skipped
+/// slots can be retried without unbounded proving work and retained submissions
+/// during a disconnected L1 episode. Every replacement retains its predecessor.
+pub const MAX_MISSING_SLOT_REPLACEMENTS: u64 = 4;
+
+/// Return the aligned, bounded slot offset from the observed canonical parent.
+fn policy_target_slot_offset(parent: u64, target: u64, slot_seconds: u64) -> Option<u64> {
+    let distance = target.checked_sub(parent)?;
+    if distance.checked_rem(slot_seconds)? != 0 {
+        return None;
+    }
+    let offset = distance.checked_div(slot_seconds)?;
+    (1..=MAX_MISSING_SLOT_REPLACEMENTS + 1)
+        .contains(&offset)
+        .then_some(offset)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(clippy::struct_field_names)]
@@ -420,13 +460,17 @@ async fn policy_submission_failure<P: Provider, C: Clock>(
             }));
         }
         if let Some(parent) = rpc_block(provider, BlockNumberOrTag::Number(parent_number)).await? {
-            // Exact timestamp pins allow one speculative replacement after a
-            // missing slot. This admits preparation, not a skipped-slot verdict:
+            // Exact timestamp pins allow a bounded chain of replacements after
+            // missing slots. This admits preparation, not a skipped-slot verdict:
             // the final gate still rejects an already-produced target height,
             // and the caller re-executes the whole bundle on the current parent.
-            let distance = timestamp.checked_sub(parent.header.timestamp);
-            let slot = timing.l1_block_time_secs();
-            if distance != Some(slot) && distance != slot.checked_mul(2) {
+            if policy_target_slot_offset(
+                parent.header.timestamp,
+                timestamp,
+                timing.l1_block_time_secs(),
+            )
+            .is_none()
+            {
                 return Ok(Some(PolicySubmissionFailure::ParentTimestampMismatch));
             }
             break;
@@ -621,7 +665,7 @@ impl Submitter {
         self.inner.reader.clone()
     }
 
-    /// Identify the still-current parent for a single missing-slot replacement.
+    /// Identify the still-current parent within the bounded replacement window.
     /// Absence is permission to speculate only; it is never settlement evidence.
     pub async fn replacement_parent(
         &self,
@@ -631,17 +675,17 @@ impl Submitter {
         let parent = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
             .await?
             .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
-        let distance = self
-            .inner
-            .submission_timing
-            .l1_block_time_secs()
-            .checked_mul(2);
+        let offset = policy_target_slot_offset(
+            parent.header.timestamp,
+            timestamp,
+            self.inner.submission_timing.l1_block_time_secs(),
+        );
         Ok((parent.header.number.checked_add(1) == Some(block)
-            && timestamp.checked_sub(parent.header.timestamp) == distance)
-            .then_some(crate::L1BlockRef {
-                number: parent.header.number,
-                hash: parent.header.hash,
-            }))
+            && offset.is_some_and(|offset| offset >= 2))
+        .then_some(crate::L1BlockRef {
+            number: parent.header.number,
+            hash: parent.header.hash,
+        }))
     }
 
     /// L1 EOA address this Submitter sends from. Used by the Composer
@@ -703,7 +747,7 @@ impl Submitter {
         target: BundleTarget,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
-        self.send_bundle_checked(raw_txs, target, None, record_dispatch)
+        self.send_bundle_checked(raw_txs, target, None, record_dispatch, None)
             .await
     }
 
@@ -744,8 +788,34 @@ impl Submitter {
         quote: crate::posting_fees::FeeQuote,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
-        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch)
+        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch, None)
             .await
+    }
+
+    /// Use the caller's original monotonic deadline for relay delivery. The
+    /// existing wall-clock/parent gate still applies; canonical observation can
+    /// continue after delivery expires. Cancellation after dispatch returns an
+    /// uncertain transport error and must not release source ownership.
+    pub async fn send_bundle_quoted_before(
+        &self,
+        raw_txs: &[alloy_primitives::Bytes],
+        target: BundleTarget,
+        quote: crate::posting_fees::FeeQuote,
+        record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+        deadline: tokio::time::Instant,
+        observed: impl FnOnce(BundleDelivery) + Send + 'static,
+    ) -> L1Result<SendOutcome> {
+        self.send_bundle_checked(
+            raw_txs,
+            target,
+            Some(quote),
+            record_dispatch,
+            Some(DeliveryWindow {
+                deadline,
+                observed: Box::new(observed),
+            }),
+        )
+        .await
     }
 
     async fn send_bundle_checked(
@@ -754,6 +824,7 @@ impl Submitter {
         target: BundleTarget,
         quote: Option<crate::posting_fees::FeeQuote>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
+        delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
         fail::fail_point!("submitter::send::start", |_| Err(L1Error::Submission(
             "injected failpoint: submitter::send::start".into()
@@ -834,6 +905,16 @@ impl Submitter {
                 BundleDropReason::SubmissionWindowMissed,
             ));
         }
+        if delivery
+            .as_ref()
+            .is_some_and(|window| tokio::time::Instant::now() >= window.deadline)
+        {
+            return Ok(dropped(
+                post_batch_hash,
+                prepared.block,
+                BundleDropReason::SubmissionWindowMissed,
+            ));
+        }
         record_dispatch(prepared.block, prepared.timestamp)?;
         // Dispatch breadcrumb: correlate this postBatch tx to the L1 block we
         // aim it at. `SendOutcome::Included` later carries the ACTUAL inclusion
@@ -852,7 +933,13 @@ impl Submitter {
         // Every bundle uses one timestamp-pinned target and permits only the
         // validated inbound source users to revert. postBatch is always required.
         self.inner
-            .dispatch_and_observe(raw_txs, post_batch_hash, prepared, &reverting_hashes)
+            .dispatch_and_observe(
+                raw_txs,
+                post_batch_hash,
+                prepared,
+                &reverting_hashes,
+                delivery,
+            )
             .await
     }
 
@@ -1116,23 +1203,49 @@ impl Inner {
         post_batch_hash: TxHash,
         target: PreparedTarget,
         reverting_hashes: &[B256],
+        delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
             .iter()
             .map(|t| hex::encode_prefixed(t.as_ref()))
             .collect();
         let hex_refs: Vec<&str> = hexes.iter().map(String::as_str).collect();
-        let result = match post_bundle(
+        let request = post_bundle(
             &self.http,
             self.config.builder_rpc_url.as_str(),
             &hex_refs,
             target.block,
             target.timestamp,
             reverting_hashes,
-        )
-        .await
-        {
-            Ok(()) => {
+        );
+        let acknowledgement = if let Some(window) = delivery {
+            let started = tokio::time::Instant::now();
+            let result = tokio::time::timeout_at(window.deadline, request)
+                .await
+                .unwrap_or_else(|_| {
+                    Err(L1Error::Submission(
+                        "relay acknowledgement exceeded the shared deadline; delivery uncertain"
+                            .into(),
+                    ))
+                });
+            (window.observed)(BundleDelivery {
+                elapsed: started.elapsed(),
+                acknowledged: result.is_ok(),
+                relay_bundle_hash: result.as_ref().ok().copied().flatten(),
+                remaining: window
+                    .deadline
+                    .saturating_duration_since(tokio::time::Instant::now()),
+                target_block: target.block,
+                target_timestamp: target.timestamp,
+                expected_parent_hash: target.expected_parent_hash,
+                transaction_count: raw_txs.len(),
+            });
+            result
+        } else {
+            request.await
+        };
+        let result = match acknowledgement {
+            Ok(_) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
                 self.observe(post_batch_hash, target).await
@@ -1335,7 +1448,7 @@ impl Inner {
 }
 
 /// POST a multi-tx bundle to a Flashbots-style `eth_sendBundle` relay.
-/// Returns `Ok(())` if the relay returns a successful JSON-RPC reply
+/// Returns an optional, strictly decoded relay bundle hash on a successful reply
 /// (any non-error `result` — most relays use `{"result": {"bundleHash":
 /// "0x..."}}`, the chiado builder returns `{"result": null}`). Errors
 /// surface relay-side rejections as [`L1Error::Submission`].
@@ -1356,7 +1469,7 @@ async fn post_bundle(
     target_block: u64,
     pin_timestamp: u64,
     reverting_hashes: &[B256],
-) -> L1Result<()> {
+) -> L1Result<Option<B256>> {
     // Permit only the validated signed L1 users to revert; postBatch remains
     // required. Invalid-transaction omission depends on builder configuration,
     // and every user still requires canonical source reconciliation.
@@ -1389,7 +1502,14 @@ async fn post_bundle(
         }
         return Err(L1Error::Submission(format!("eth_sendBundle: {err}")));
     }
-    Ok(())
+    // Correlation metadata is optional: null and unfamiliar success payloads
+    // keep their existing acknowledgement semantics. Never retain arbitrary
+    // relay strings in structured delivery history.
+    Ok(resp
+        .get("result")
+        .and_then(|result| result.get("bundleHash"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|hash| hash.parse().ok()))
 }
 
 /// Revert permission is limited to signed L1 users actually following the
@@ -1857,6 +1977,123 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delivery_deadline_bounds_acknowledgement_without_claiming_exclusion() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap())
+            .parse()
+            .unwrap();
+        let (received, request) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut bytes = vec![0; 8192];
+            let count = stream.read(&mut bytes).await.unwrap();
+            assert!(count > 0);
+            received.send(()).unwrap();
+            // Headers arrive, but the body never completes. Sending the request
+            // already crossed the external boundary; timeout is uncertainty.
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n{")
+                .await
+                .unwrap();
+            std::future::pending::<()>().await;
+        });
+        let submitter = test_submitter(url);
+        let (post, hash) = signed_user(1, 0);
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let saved = observed.clone();
+        let result = tokio::spawn(async move {
+            submitter
+                .inner
+                .dispatch_and_observe(
+                    &[post],
+                    hash,
+                    PreparedTarget {
+                        block: 42,
+                        timestamp: PIN,
+                        expected_parent_hash: None,
+                    },
+                    &[],
+                    Some(super::DeliveryWindow {
+                        deadline: tokio::time::Instant::now() + Duration::from_millis(300),
+                        observed: Box::new(move |delivery| *saved.lock().unwrap() = Some(delivery)),
+                    }),
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), request)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(
+            result.await.unwrap(),
+            Err(crate::L1Error::Submission(_))
+        ));
+        assert_eq!(
+            observed
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(|delivery| delivery.acknowledged),
+            Some(false)
+        );
+        let delivery = observed.lock().unwrap().unwrap();
+        assert!(delivery.relay_bundle_hash.is_none());
+        assert!(delivery.remaining.is_zero());
+        assert_eq!(
+            (
+                delivery.target_block,
+                delivery.target_timestamp,
+                delivery.transaction_count
+            ),
+            (42, PIN, 1)
+        );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn relay_correlation_is_optional_and_does_not_change_rejections() {
+        let hash = B256::repeat_byte(0xab);
+        for (response, expected, rejected) in [
+            (serde_json::json!({"result": null}), None, false),
+            (
+                serde_json::json!({"result": {"bundleHash": hash}}),
+                Some(hash),
+                false,
+            ),
+            (
+                serde_json::json!({"result": {"bundleHash": "unbounded relay text"}}),
+                None,
+                false,
+            ),
+            (
+                serde_json::json!({"result": {"bundleHash": hash}, "error": {"code": -32000, "message": "rejected"}}),
+                None,
+                true,
+            ),
+        ] {
+            let (url, server) = rpc_server(vec![response], false).await;
+            let result = super::post_bundle(
+                &reqwest::Client::new(),
+                url.as_str(),
+                &["0x01"],
+                42,
+                PIN,
+                &[],
+            )
+            .await;
+            if rejected {
+                assert!(matches!(result, Err(L1Error::Submission(_))));
+            } else {
+                assert_eq!(result.unwrap(), expected);
+            }
+            let requests = server.await.unwrap();
+            assert_eq!(requests[0]["params"][0]["minTimestamp"], PIN);
+            assert_eq!(requests[0]["params"][0]["maxTimestamp"], PIN);
+        }
+    }
+
+    #[tokio::test]
     async fn dispatch_capture_preserves_outcomes_and_replay_requests() {
         struct CaptureDirectory(std::path::PathBuf);
         impl Drop for CaptureDirectory {
@@ -1923,9 +2160,13 @@ mod tests {
                     .bundle_capture_dir = (capture != "disabled").then(|| root.clone());
                 let result = tokio::time::timeout(
                     Duration::from_secs(5),
-                    submitter
-                        .inner
-                        .dispatch_and_observe(&raw, post_hash, target, &[user_hash]),
+                    submitter.inner.dispatch_and_observe(
+                        &raw,
+                        post_hash,
+                        target,
+                        &[user_hash],
+                        None,
+                    ),
                 )
                 .await
                 .expect("capture must not interrupt dispatch or observation");
@@ -2844,17 +3085,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn replacement_gate_accepts_one_missing_slot_but_rejects_late_parent_and_larger_gaps() {
+    async fn replacement_gate_accepts_bounded_missing_slots_but_rejects_late_parent_and_larger_gaps()
+     {
         for (distance, advanced, accepted) in [
+            (5, false, true),
             (10, false, true),
             (10, true, false),
-            (15, false, false),
+            (15, false, true),
+            (20, false, true),
+            (25, false, true),
+            (25, true, false),
+            (30, false, false),
+            (0, false, false),
             (9, false, false),
+            (24, false, false),
         ] {
             let replies = Asserter::new();
             let parent = mock_block(41, PIN - distance, B256::with_last_byte(1));
             replies.push_success(&parent);
-            if distance == 10 {
+            if matches!(distance, 5 | 10 | 15 | 20 | 25) {
                 replies.push_success(&if advanced {
                     mock_block(42, PIN - 5, B256::with_last_byte(2))
                 } else {
@@ -2875,6 +3124,27 @@ mod tests {
                 .await
                 .unwrap(),
                 accepted
+            );
+        }
+    }
+
+    #[test]
+    fn policy_slot_offsets_reject_underflow_zero_slots_and_unaligned_targets() {
+        for (parent, target, slot, expected) in [
+            (100, 112, 12, Some(1)),
+            (100, 124, 12, Some(2)),
+            (100, 160, 12, Some(5)),
+            (100, 172, 12, None),
+            (100, 159, 12, None),
+            (100, 99, 12, None),
+            (100, 100, 12, None),
+            (100, 112, 0, None),
+            (u64::MAX - 25, u64::MAX, 5, Some(5)),
+            (u64::MAX, 0, 5, None),
+        ] {
+            assert_eq!(
+                super::policy_target_slot_offset(parent, target, slot),
+                expected
             );
         }
     }

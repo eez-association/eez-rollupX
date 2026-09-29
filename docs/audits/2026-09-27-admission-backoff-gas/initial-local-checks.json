@@ -1,0 +1,44 @@
+{
+  "checked_at": "2026-09-27T12:12:35.408933+00:00",
+  "runtime_source": "9c11c1aead3c6f959bee4787a65f2a116d6e41f7",
+  "checks": [
+    {
+      "name": "composer",
+      "status": "passed",
+      "local_log": "artifacts/admission-backoff-gas/composer-first.log",
+      "sha256": "7889c3ea55fb050e9c1cef5873f9fc4f70b998b6bffe4a2dff4e78eeabcb45c1",
+      "passed": 269,
+      "failed": 0,
+      "ignored": 1,
+      "ignore_reason": "Existing manual diagnostic"
+    },
+    {
+      "name": "integration_contracts",
+      "status": "passed",
+      "local_log": "artifacts/admission-backoff-gas/contracts-tests.log",
+      "sha256": "6079076ea3adb91d7351fd690c067289954ea986ea595f5bbdbd7aaebf567788"
+    },
+    {
+      "name": "workspace_clippy",
+      "status": "passed",
+      "local_log": "artifacts/admission-backoff-gas/clippy-workspace-final.log",
+      "sha256": "13fd1defa00ff32e26e298496099dc7070157d22d38f00d2d86cff6f1cc32a98",
+      "includes_additional_six_failure_process_test": true
+    },
+    {
+      "name": "tooling",
+      "status": "passed",
+      "local_log": "artifacts/admission-backoff-gas/tooling-tests.log",
+      "sha256": "8bbbac7c98ac1426b8481e71e18a66dd24bc40ca9daf99381a71fada55a9a1a3",
+      "selected": 264,
+      "passed": 260,
+      "skipped": 4,
+      "skip_lines": [
+        "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+        "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+      ]
+    }
+  ]
+}

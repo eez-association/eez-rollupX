@@ -1,0 +1,48 @@
+{
+  "checked_at": "2026-09-26T12:23:14.473780+00:00",
+  "images": [
+    {
+      "image": "eez-indexer:036b50a-shipping-local",
+      "image_id": "sha256:dbbd9467973c5b59cb83fdea23f2c437df21c5ec5dd9021ee3982ff1a4a331a2",
+      "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64"
+    },
+    {
+      "image": "eez-node:036b50a-shipping-local",
+      "image_id": "sha256:035a39d043829371269c70def5fa2c25b2c3d43eabbd2a2e94083899250ccacf",
+      "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "e253f7f4f13a0e8bc8c7af295d08a935ec76321b72278c6a775ef1521b3a2f7b  /usr/local/bin/eez-composer",
+        "f6919c2445718d5a7143f9b6444a64d08e98740a8c00981aa05333dd9c0d6a3f  /usr/local/bin/eez-follower",
+        "498f59d0c5ae5b5aad35bfb1de8f85857a205fd6014083206ea7da36c4d3f93f  /usr/local/bin/eez-genesis-state-root",
+        "0eb6d3fb9bfcf6451cc5d12bb402370a0b375e8f69cbddac229004fdab3c3b13  /usr/local/bin/eez-genesis-block-hash"
+      ]
+    },
+    {
+      "image": "eez-proof-signer:036b50a-shipping-local",
+      "image_id": "sha256:b97a4d6bd75acdd250d494f2d4d3bab52251dc7ced69ee729eb5c4e6a188afa6",
+      "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64",
+      "binaries": [
+        "c84a2fe6454fe95a10f67414b297720c646bc05db6c679c4779192a359de2e68  /usr/local/bin/eez-proof-signer"
+      ]
+    },
+    {
+      "image": "eez-deploy:036b50a-shipping-local",
+      "image_id": "sha256:aa4b0c6fc869c0104469249def5363a7931abffa89755028162061513885b4c5",
+      "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+      "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "platform": "linux/amd64"
+    }
+  ],
+  "original_genesis_matches": {
+    "eez-genesis-block-hash": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+    "eez-genesis-state-root": "0x6b5837ca86d97b30ee9e3b69fb1c7ad29c64a3f97861ad2b240de7931dbe1dad"
+  },
+  "build_plan_sha256": "715aa6c47248d61c1f0159a09032b855e476d5c11d35ed013bd646ea2bfc1491",
+  "provenance": "Local clean git archive plus pinned submodules; local release build with Dockerfile.runtime shipping feature selection, not CI promotion."
+}

@@ -609,13 +609,17 @@ mod tests {
     use std::sync::{Arc, Barrier};
 
     fn tx(tag: u8, nonce: u64) -> HeldTx {
+        tx_with_fees(tag, nonce, 100, 10)
+    }
+
+    fn tx_with_fees(tag: u8, nonce: u64, max_fee: u128, priority_fee: u128) -> HeldTx {
         let signer: PrivateKeySigner = B256::with_last_byte(tag).to_string().parse().unwrap();
         let mut unsigned = TxEip1559 {
             chain_id: 31337,
             nonce,
             gas_limit: 1_000_000,
-            max_fee_per_gas: 100,
-            max_priority_fee_per_gas: 10,
+            max_fee_per_gas: max_fee,
+            max_priority_fee_per_gas: priority_fee,
             to: TxKind::Call(Address::repeat_byte(4)),
             ..Default::default()
         };
@@ -628,8 +632,8 @@ mod tests {
             sender: signed.recover_signer().unwrap(),
             nonce: signed.nonce(),
             direction: Direction::Inbound,
-            max_fee_per_gas: 100,
-            priority_fee_per_gas: 10,
+            max_fee_per_gas: max_fee,
+            priority_fee_per_gas: priority_fee,
         }
     }
 
@@ -741,6 +745,117 @@ mod tests {
     }
 
     #[test]
+    fn canonical_fifo_prefix_progress_reopens_the_remaining_queue() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let txs = (1..=4).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
+        for tx in &txs {
+            pool.push_contiguous(tx.clone(), 0).unwrap();
+        }
+        pool.retry_fifo_prefix(&txs, 3);
+        let id = begin(&ledger, pool.pop_n(2), 10);
+        let remaining_prefix = vec![txs[2].clone()];
+        assert_eq!(pool.candidates(), remaining_prefix);
+        ledger
+            .observe(id, SubmissionObservation::Included { block: block(100) })
+            .unwrap();
+        assert_eq!(
+            pool.candidates(),
+            remaining_prefix,
+            "receipt does not establish progress"
+        );
+        let outcomes = [
+            SourceOutcome::Terminal(TerminalReason::Committed),
+            SourceOutcome::Retryable { source_nonce: 0 },
+        ];
+        assert!(
+            pool.resolve_attempt(id, block(100), &outcomes, false, 3, || false)
+                .is_err()
+        );
+        assert_eq!(pool.candidates(), remaining_prefix);
+        pool.resolve_attempt(id, block(100), &outcomes, false, 3, || true)
+            .unwrap();
+        assert_eq!(
+            pool.candidates(),
+            txs[1..],
+            "canonical progress must not strand the retry prefix tail"
+        );
+        assert!(pool.candidates().iter().all(|tx| tx.attempts == 0));
+
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, id);
+        assert!(pool.owns(txs[0].hash));
+        pool.resolve_attempt(
+            id,
+            block(101),
+            &[SourceOutcome::Retryable { source_nonce: 0 }; 2],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            pool.candidates(),
+            txs,
+            "reorg recovery retains the original source order"
+        );
+    }
+
+    #[test]
+    fn partial_consumption_without_fifo_head_progress_keeps_the_boundary() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let txs = (1..=4).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
+        for tx in &txs {
+            pool.push_contiguous(tx.clone(), 0).unwrap();
+        }
+        pool.retry_fifo_prefix(&txs, 3);
+        let id = begin(&ledger, pool.pop_n(2), 10);
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[
+                SourceOutcome::Retryable { source_nonce: 0 },
+                SourceOutcome::Terminal(TerminalReason::Committed),
+            ],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.candidates(), vec![txs[0].clone(), txs[2].clone()]);
+        assert_eq!(pool.len(), 3);
+    }
+
+    #[test]
+    fn canonical_replacement_of_fifo_head_reopens_the_remaining_queue() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let txs = (1..=4).map(|tag| tx(tag, 0)).collect::<Vec<_>>();
+        for tx in &txs {
+            pool.push_contiguous(tx.clone(), 0).unwrap();
+        }
+        pool.retry_fifo_prefix(&txs, 3);
+        let replacement = tx_with_fees(1, 0, 200, 20);
+        pool.push_contiguous(replacement.clone(), 0).unwrap();
+        assert_eq!(pool.candidates()[0], replacement);
+        let id = begin(&ledger, pool.pop_n(1), 10);
+        assert_eq!(pool.candidates(), txs[1..3]);
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &[SourceOutcome::Terminal(TerminalReason::Committed)],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.candidates(), txs[1..]);
+        assert!(!pool.owns(txs[0].hash));
+        assert!(!pool.owns(replacement.hash));
+    }
+
+    #[test]
     fn deadline_replacement_retains_history_and_old_results_cannot_release_new_owner() {
         let (ledger, pool, txs, original) = setup();
         assert!(pool.release_for_replacement(original).is_err());
@@ -800,6 +915,74 @@ mod tests {
         assert_eq!(ledger.blocking_height(), None);
         pool.invalidate_after_l1(99).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, replacement);
+        assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
+    }
+
+    #[test]
+    fn repeated_replacements_preserve_current_owner_through_partial_consumption_and_reorg() {
+        let (ledger, pool, txs, original) = setup();
+        let mut active = original;
+        let mut history = Vec::new();
+        for replacement in 1..=4_u8 {
+            ledger
+                .observe(
+                    active,
+                    SubmissionObservation::Dispatched {
+                        block: 100,
+                        timestamp: 1000 + 5 * u64::from(replacement - 1),
+                    },
+                )
+                .unwrap();
+            pool.release_for_replacement(active).unwrap();
+            history.push(active);
+            let recovered = pool.pop_all();
+            assert_eq!(recovered, txs);
+            active = begin(&ledger, recovered, 10 + replacement);
+        }
+        assert_eq!(ledger.reconciliation_attempts().len(), 5);
+        // Out-of-order historical failure callbacks cannot charge or release
+        // the users now owned by the fourth replacement.
+        for previous in history.into_iter().rev() {
+            pool.resolve_attempt(
+                previous,
+                block(100),
+                &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
+                true,
+                3,
+                || true,
+            )
+            .unwrap();
+            assert_eq!(ledger.pending_attempt().unwrap().id, active);
+            assert!(pool.is_empty());
+            ledger.read(|state| {
+                assert!(
+                    state
+                        .users
+                        .values()
+                        .all(|user| user.owner == active.generation
+                            && user.tx.attempts == 0
+                            && user.location == UserLocation::AwaitingEvidence)
+                )
+            });
+        }
+        pool.resolve_attempt(
+            active,
+            block(100),
+            &[
+                SourceOutcome::Terminal(TerminalReason::Committed),
+                SourceOutcome::Retryable { source_nonce: 0 },
+                SourceOutcome::Terminal(TerminalReason::Committed),
+            ],
+            false,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.candidates(), vec![txs[1].clone()]);
+        assert!(!pool.owns(txs[0].hash));
+        assert!(!pool.owns(txs[2].hash));
+        pool.invalidate_after_l1(99).unwrap();
+        assert_eq!(ledger.pending_attempt().unwrap().id, active);
         assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
     }
 

@@ -1,0 +1,42 @@
+[
+  {
+    "candidate_id": "1-1790466043116:1:0",
+    "target_block": 23245805,
+    "target_time": "2026-09-26T23:40:45+00:00",
+    "transaction_hash": null,
+    "classification": "not_dispatched",
+    "canonical_block_at_target_time": null
+  },
+  {
+    "candidate_id": "1-1790466043116:1:2",
+    "target_block": 23245807,
+    "target_time": "2026-09-26T23:40:55+00:00",
+    "transaction_hash": "0x43407e518b2cdbf510a6c48d3c3e547ac33c8fddda55654469170ee8802ac627",
+    "classification": "produced_without_inclusion",
+    "canonical_block_at_target_time": 23245807
+  },
+  {
+    "candidate_id": "1-1790466043116:1:5",
+    "target_block": 23245810,
+    "target_time": "2026-09-26T23:41:10+00:00",
+    "transaction_hash": "0xf24f94fee2fc85d23db93caca9200335d32bc046a5420a7299977ae592ce9515",
+    "classification": "absent_slot",
+    "canonical_block_at_target_time": null
+  },
+  {
+    "candidate_id": "1-1790466043116:1:6",
+    "target_block": 23245810,
+    "target_time": "2026-09-26T23:41:15+00:00",
+    "transaction_hash": "0x67df1ed7f2875c60eb5f4843c8c56d4411836928ebb46e8f29b5ff03c0c261a6",
+    "classification": "produced_without_inclusion",
+    "canonical_block_at_target_time": 23245810
+  },
+  {
+    "candidate_id": "1-1790466043116:1:17",
+    "target_block": 23245821,
+    "target_time": "2026-09-26T23:42:10+00:00",
+    "transaction_hash": "0x073f8dc48a34dbcc71399ab30ec81ff6f33c1a2dde80b5aa2919495d47834bc2",
+    "classification": "absent_slot",
+    "canonical_block_at_target_time": null
+  }
+]

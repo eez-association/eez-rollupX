@@ -1,0 +1,7 @@
+{
+  "attempts": 29,
+  "complete_sequences": 29,
+  "canonical_postings": 25,
+  "all_stop_reasons_explicit": true,
+  "all_acknowledged_before_deadline": true
+}

@@ -140,3 +140,12 @@ configuration, Composer RPC, dependency or CI job is needed.
 | Prompt complete canonical fees/counts | `l2_fees`, `cross_chain`, settlement SQL | Resume/retry, legacy cache, state promotion and reorg mock-RPC tests |
 | Bounded independent enrichment | `details::worker` | Indexer tests/lint, source review and live catch-up validation |
 | Backward-reading compatibility | Optional target fields, additive views, same details storage | Legacy event/cache fixtures; documented indexer-first upgrade |
+
+## Complete admission history (2026-09-26)
+
+The [cross-chain throughput plan](cross-chain-admission-throughput.md#5-complete-admission-history-in-grafana)
+adds per-candidate and per-source gas/timing records through this existing
+logging and collection path, with explicit identity links and canonical receipt
+comparisons. It preserves this proposal's telemetry availability and ownership
+boundaries. The additive event/schema/dashboard implementation and validation are recorded in the
+[September 26 audit](../audits/2026-09-26-admission-throughput/README.md).

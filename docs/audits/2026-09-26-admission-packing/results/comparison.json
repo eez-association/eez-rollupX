@@ -1,0 +1,74 @@
+[
+  {
+    "metric": "canonical_postbatches",
+    "baseline": 33,
+    "candidate": 28,
+    "change_percent": -15.151515151515149
+  },
+  {
+    "metric": "sources_per_postbatch",
+    "baseline": 26.363636363636363,
+    "candidate": 31.071428571428573,
+    "change_percent": 17.85714285714286
+  },
+  {
+    "metric": "send_plus_monitor_seconds",
+    "baseline": 199.54,
+    "candidate": 166.54,
+    "change_percent": -16.538037486218304
+  },
+  {
+    "metric": "sources_per_second",
+    "baseline": 4.3600280645484615,
+    "candidate": 5.223970217365197,
+    "change_percent": 19.815059445178342
+  },
+  {
+    "metric": "postbatch_receipt_gas",
+    "baseline": 175340686,
+    "candidate": 176867771,
+    "change_percent": 0.8709245040823044
+  },
+  {
+    "metric": "postbatch_admission_receipt_ratio",
+    "baseline": 1.4755362711424547,
+    "candidate": 1.476523374063441,
+    "change_percent": 0.06689790961369457
+  },
+  {
+    "metric": "companion_estimate_gas",
+    "baseline": 249141900,
+    "candidate": 168392914,
+    "change_percent": -32.410841371924995
+  },
+  {
+    "metric": "companion_receipt_gas",
+    "baseline": 73353423,
+    "candidate": 73277802,
+    "change_percent": -0.10309130359192897
+  },
+  {
+    "metric": "companion_estimate_receipt_ratio",
+    "baseline": 3.396459085488076,
+    "candidate": 2.298007164570793,
+    "change_percent": -32.341090920558926
+  },
+  {
+    "metric": "preparation_median_ms",
+    "baseline": 378.0,
+    "candidate": 483.0,
+    "change_percent": 27.777777777777768
+  },
+  {
+    "metric": "preparation_total_ms",
+    "baseline": 12366.0,
+    "candidate": 12863.0,
+    "change_percent": 4.019084586770183
+  },
+  {
+    "metric": "source_attempt_rows",
+    "baseline": 1008,
+    "candidate": 8771,
+    "change_percent": 770.1388888888889
+  }
+]

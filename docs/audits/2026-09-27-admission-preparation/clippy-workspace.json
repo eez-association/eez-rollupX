@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "+1.94.0",
+    "clippy",
+    "--locked",
+    "--workspace",
+    "--all-targets",
+    "--",
+    "-D",
+    "warnings"
+  ],
+  "source_revision": "698dee3a79817fff2b29c4b7d798899342ee5aa6",
+  "started_at": "2026-09-27T10:12:50.529875+00:00",
+  "exit_code": 0,
+  "finished_at": "2026-09-27T10:13:41.454645+00:00",
+  "log_sha256": "a98f299d817409de2237a5561e6a8de5cbf3ca7a7f3427b3c2a81582bac175a5"
+}

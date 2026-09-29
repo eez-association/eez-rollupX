@@ -1,0 +1,14 @@
+[
+  {
+    "profile": "readiness.env",
+    "unchanged_except_refundable_prefunding": true,
+    "old_prefunding_xdai": "0.0039",
+    "new_prefunding_xdai": "0.0035"
+  },
+  {
+    "profile": "wave.env",
+    "unchanged_except_refundable_prefunding": true,
+    "old_prefunding_xdai": "0.0039",
+    "new_prefunding_xdai": "0.0035"
+  }
+]

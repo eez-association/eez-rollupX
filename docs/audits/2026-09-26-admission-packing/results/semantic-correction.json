@@ -1,0 +1,339 @@
+{
+  "started_at": "2026-09-27T00:01:46.048183+00:00",
+  "original_run_exit_code": 1,
+  "first_passed": 724,
+  "first_failed": 46,
+  "correction": "Full calldata through file transport to unchanged pinned verifier",
+  "resubmitted_transactions": 0,
+  "max_parallel": 4,
+  "jobs": [
+    {
+      "job": "multi-call-nestedL2-1",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5684668350149877,
+      "log_sha256": "f52d9cd1c31d5bf64ae1439dba24f68f5b4b7cf5dbf123fd8f1ae58020e64833"
+    },
+    {
+      "job": "multi-call-nestedL2-12",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5688071089971345,
+      "log_sha256": "219975cd1d9048a030915c4e98bb551016ee96bbdff1d45ddd25b3812839be47"
+    },
+    {
+      "job": "multi-call-nestedL2-14",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6181284789927304,
+      "log_sha256": "4c8ccb087bb89c980f5d46e5f4385b821745b5355d22fe4d1a4fa659041eea3e"
+    },
+    {
+      "job": "multi-call-nestedL2-13",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.7222412590053864,
+      "log_sha256": "769e587a5a5722ba6d6fd00d24b0957586e0de7c6ebb376d40e2dab09d1cc749"
+    },
+    {
+      "job": "multi-call-nestedL2-19",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.316652321984293,
+      "log_sha256": "84728c7a5cab7d864d6c031086298ef3a4c6a07f8fd9778393ee6e60eefa5400"
+    },
+    {
+      "job": "multi-call-nestedL2-2",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.3173371070006397,
+      "log_sha256": "22cd20de6a03fd54ff7ac1a29f015c6c3445c9215225353551abd9aaf28c4899"
+    },
+    {
+      "job": "multi-call-nestedL2-18",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5164931339968462,
+      "log_sha256": "47f1bbf32a820dbf8b2b0eeb2fbe6ebf14745c83e1fe44dcd9947ef08a9047e5"
+    },
+    {
+      "job": "multi-call-nestedL2-17",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.567152049014112,
+      "log_sha256": "b463622b0fe2af93ad480973b8afcfa8bf1ab989dfe30c52e88a947a27e41f4e"
+    },
+    {
+      "job": "multi-call-nestedL2-29",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.366966939996928,
+      "log_sha256": "05ab76f7a60c632238f845c6e535d4e1914eb4c158d07e373cca67bd163a9d72"
+    },
+    {
+      "job": "multi-call-nestedL2-32",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5168344610137865,
+      "log_sha256": "545477d092839757f1ccae639baed0da199ddbe5864cb6daed59b9f83fc3a071"
+    },
+    {
+      "job": "multi-call-nestedL2-4",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.617295425006887,
+      "log_sha256": "9363878a3332cd8989fce01a86d12486cfaf74e4ce77d8a413307b4d27342e5e"
+    },
+    {
+      "job": "multi-call-nestedL2-5",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.7691523280227557,
+      "log_sha256": "e99593a2d1f9bc039f28459b92d10b956007c066a98ef31d675cca28652e3b22"
+    },
+    {
+      "job": "multi-call-nestedL2-6",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5686694550095126,
+      "log_sha256": "77fa1cd4349e397e2758b74bfef6108c533f4e3f4d4efdcc78f87fae9c7d55a0"
+    },
+    {
+      "job": "multi-call-nestedL2-8",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5720331030024681,
+      "log_sha256": "081b2867f8397703bfd2aa4cb2615a8f8a436dcf31209d474daac463574ff2d2"
+    },
+    {
+      "job": "nestedCounterL2-11",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6683718959975522,
+      "log_sha256": "6366bfcc3c5922521f46033a0d9aebe8c1a0284ad7f9eeb080046eab012fd479"
+    },
+    {
+      "job": "multi-call-nestedL2-7",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.018346852011746,
+      "log_sha256": "022c88375df8af147cd6e6c8d48f01ab086ef643fd264aa949708eecd5bbe590"
+    },
+    {
+      "job": "nestedCounterL2-14",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.9680054799828213,
+      "log_sha256": "24ccf19872bd8313e0c99365b9a340c68f3d142e1bd527e2b81831d3616ed254"
+    },
+    {
+      "job": "nestedCounterL2-16",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5665841259760782,
+      "log_sha256": "2aca4c2ca962ab77c40f5f744ed7c3fe69ddf548295bba580cf784bc522ab4f1"
+    },
+    {
+      "job": "nestedCounterL2-22",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.8182961929996964,
+      "log_sha256": "6caf92474a98389e4dcf31ee0a89f80b839a9c90b3cc0765bc7e714f0e2776ec"
+    },
+    {
+      "job": "nestedCounterL2-19",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 3.170341725985054,
+      "log_sha256": "f29b518b55c80ec688db69ff7242451f29ad7da36966483927973b6207b04c66"
+    },
+    {
+      "job": "nestedCounterL2-26",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.566351706016576,
+      "log_sha256": "d333c028338d9bce2b5c36854f3618e33a95aa91f2a39c5afbe4b9a9837b141b"
+    },
+    {
+      "job": "nestedCounterL2-25",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 3.4693921089929063,
+      "log_sha256": "1efaeeebe80d39ee8462a8c0678c97ea7a82f2d24614359d302560de00da76cc"
+    },
+    {
+      "job": "nestedCounterL2-24",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 3.7716392780130263,
+      "log_sha256": "6f84563fb0df3b7d07ae5c26520cadd9a330e693cea4e9b57c8658d394d044c0"
+    },
+    {
+      "job": "nestedCounterL2-27",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.470481094002025,
+      "log_sha256": "a7387bae61d3cac5f693e55554ad2b7a590b325bddc32e533f34236521c4b971"
+    },
+    {
+      "job": "nestedCounterL2-28",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5682285120128654,
+      "log_sha256": "302b6da40bf7648e32211dba7b3d52c87c8bc3acf85b3c5dc7cdb89cbf9a0dcf"
+    },
+    {
+      "job": "nestedCounterL2-31",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.51720355800353,
+      "log_sha256": "65cd85f49f215a9941a9b50abe9318748329de1db08290dff42d95ab135e3d96"
+    },
+    {
+      "job": "nestedCounterL2-32",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.5170661959855352,
+      "log_sha256": "a9a63c08cc3e1d4c3ddaf25ee9ab98c8b83d087944cdb99b40731d93d172de62"
+    },
+    {
+      "job": "nestedCounterL2-35",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.518190158996731,
+      "log_sha256": "3f50e34299bc15b7702c43b580f782ad35544a4b2741b77132bb5f3c8e08b42e"
+    },
+    {
+      "job": "nestedCounterL2-36",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6677997329970822,
+      "log_sha256": "b608bdd32487486e634772dcf600786b8aa82527e8dce27a839781908f94f359"
+    },
+    {
+      "job": "nestedCounterL2-34",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.319820261996938,
+      "log_sha256": "b1ee7d2cd6e9d7c0ab7f2e436283792b252291d04dfedc6a2a3871505ba5698d"
+    },
+    {
+      "job": "nestedCounterL2-37",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.7681591589935124,
+      "log_sha256": "d17f7a3597b7cd8c7585cc6a4311c16e970618b080fcbce4cfd4bc2b36137d02"
+    },
+    {
+      "job": "nestedCounterL2-38",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.1194099450076465,
+      "log_sha256": "a3d8a68c8098e9182f087ce88e6ba6245b27bcfdd0ff2b5a0a37fe47adfbf5ba"
+    },
+    {
+      "job": "nestedCounterL2-39",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.8200510639871936,
+      "log_sha256": "3997dc19e6606666f53e81ef750507429cd402fcad476d4dce785b67a825ba06"
+    },
+    {
+      "job": "nestedCounterL2-40",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6674349450040609,
+      "log_sha256": "462b08e923b889ae3b4c1a7b78c2c07698ee4859fb87ee50b760c8e9d0896d0c"
+    },
+    {
+      "job": "nestedCounterL2-4",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 3.170888114022091,
+      "log_sha256": "a313b1b6a82afc036bbecb5fa07c7266c86413b000ba26c35d43b248098b28fd"
+    },
+    {
+      "job": "nestedCounterL2-41",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6174211359757464,
+      "log_sha256": "830a0ab93987997610e7168365aac3209e64f540fa24c4b880a776fd2ca811e5"
+    },
+    {
+      "job": "nestedCounterL2-42",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.6200506610039156,
+      "log_sha256": "038bd4eefc266357f609c5c3777ba121d70a9b8f931f792f17f057b50fc855a6"
+    },
+    {
+      "job": "nestedCounterL2-43",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.9687824299908243,
+      "log_sha256": "8d2733717bad14b3e29d219b17866b33032a1ff9ebb78c6d17a762319b50b576"
+    },
+    {
+      "job": "nestedCounterL2-44",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.4680523289716803,
+      "log_sha256": "3fd856fdb8e52feae117765cc8f883006691772242a32548fd431cce6d3a42a1"
+    },
+    {
+      "job": "nestedCounterL2-45",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.4668802050000522,
+      "log_sha256": "444233dc22ca5bdf77f4dce3496bf88ca0f5ace36af440a1e557158a1ff5556b"
+    },
+    {
+      "job": "nestedCounterL2-46",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.768300930998521,
+      "log_sha256": "77d99316069fbcdc5b82434181dcb57d669292656a9c9a04b85259d92166abfa"
+    },
+    {
+      "job": "nestedCounterL2-47",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.168494550016476,
+      "log_sha256": "1b69fa03f474dafca1c427485eecc1d8417a081065c5ea92d15dc670441a096a"
+    },
+    {
+      "job": "nestedCounterL2-49",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.8692090669937897,
+      "log_sha256": "53bf1c401d2d8bd9630808be60077ccbbccc5e3e6f477b842507857109c281f4"
+    },
+    {
+      "job": "nestedCounterL2-48",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.9684754549816716,
+      "log_sha256": "b4afb82dda8c35c8a185a85752f62cae1751d50007c95aa1f6296dcad971c39a"
+    },
+    {
+      "job": "nestedCounterL2-50",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 2.368607926007826,
+      "log_sha256": "e3982bbcf1b82d4c1ce2c3062b191d19f707ff8cd5ca845caa879ceb80210324"
+    },
+    {
+      "job": "nestedCounterL2-9",
+      "exit_code": 0,
+      "complete": true,
+      "duration_seconds": 1.718372636998538,
+      "log_sha256": "778e043f474126ce392065831e771b44331841d4469008c12d50ad1b2d553c2c"
+    }
+  ],
+  "helper_sha256": {
+    "scripts/chiado-forge.sh": "abe61e451808874e9098d13549c2a23b141619df11b38e027118e9a69bad6974",
+    "contracts/script/VerifyL1BatchFromFile.s.sol": "b614c5ec5a1111780da2bcab1bf266880a99f75c6c594e1e1eeaa34d3125bdc1"
+  },
+  "finished_at": "2026-09-27T00:02:08.471442+00:00",
+  "corrected_passed": 46
+}

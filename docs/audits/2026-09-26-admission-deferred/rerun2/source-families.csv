@@ -1,0 +1,15 @@
+family,sources,direction,entry_count_mean,entry_reserve_gas_mean,calldata_gas_mean,l1_target_simulation_gas_mean,accepted_delta_gas_mean,source_simulation_gas_mean,source_preflight_gas_mean,source_required_gas_mean,canonical_source_receipt_gas_mean,canonical_source_execution_gas_mean,estimate_reasons,batch_discount_revoked_sources
+counter,100,inbound,1.0,155900.0,2319.04,0.0,158219.04,70441.0,131744.0,131744.0,131744.0,131744.0,"{""deferred_storage"": 100}",0
+counter-multi-tx,150,inbound,1.0,124920.0,2318.8,0.0,127238.8,45782.333333333336,109081.34,109081.34,109081.34,109081.34,"{""deferred_storage"": 150}",0
+counterL2,100,outbound,1.0,370000.0,3778.92,48151.52,421930.44,70441.0,,,,129569.0,"{""immediate_evidence_unavailable"": 100}",0
+multi-call-nested,50,inbound,3.0,493020.0,10639.36,0.0,503659.36,28329.32,239408.32,239408.32,239408.32,239408.32,"{""deferred_old_slot"": 3, ""deferred_storage"": 147}",0
+multi-call-nestedL2,50,outbound,1.0,370000.0,8234.08,111669.52,489903.6,50642.04,,,,195842.04,"{""immediate_evidence_unavailable"": 50}",0
+multi-call-twice,50,inbound,2.0,297560.0,4635.68,0.0,302195.68,25373.04,131879.04,131879.04,131879.04,131879.04,"{""deferred_legacy"": 1, ""deferred_old_slot"": 1, ""deferred_storage"": 98}",0
+multi-call-twiceL2,50,outbound,1.0,370000.0,5757.28,79200.16,454957.44,25373.52,,,,113229.52,"{""immediate_evidence_unavailable"": 50}",0
+nestedCounter,50,inbound,1.0,205880.0,4160.4,0.0,210040.4,21160.0,123252.0,123252.0,123252.0,123252.0,"{""deferred_storage"": 50}",0
+nestedCounterL2,50,outbound,1.0,105000.0,5014.8,74984.52,184999.32,21160.0,,,,121064.0,"{""immediate_registered"": 50}",0
+reentrant,20,inbound,1.0,356500.0,5677.0,0.0,362177.0,26697.0,164878.75,164878.75,164878.75,164878.75,"{""deferred_old_slot"": 1, ""deferred_storage"": 2, ""general_reserve_lower"": 17}",0
+revertCounter,50,inbound,1.0,370000.0,2918.08,0.0,372918.08,70295.0,139654.62,139654.62,,139654.62,"{""deferred_old_slot"": 12, ""deferred_reverted"": 38}",0
+revertCounterL2,50,outbound,1.0,370000.0,3778.32,26098.56,399876.88,70295.0,,,,134900.0,"{""immediate_evidence_unavailable"": 50}",0
+revertFromOtherChain,50,inbound,1.0,370000.0,6154.48,0.0,376154.48,21160.0,175412.7,175412.7,175412.7,175412.7,"{""deferred_call_flags"": 18, ""deferred_old_slot"": 32}",0
+revertFromOtherChainL2,50,outbound,1.0,370000.0,3790.56,48151.28,421941.84,31788.0,,,,90916.0,"{""immediate_evidence_unavailable"": 50}",0

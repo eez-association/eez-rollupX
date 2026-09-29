@@ -7,14 +7,18 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROTOCOL="$ROOT/eez-core-protocol"
 CHECK_ONLY=false
-case "${1:-}" in
+VERIFY=false
+while (($#)); do
+case "$1" in
     --check) CHECK_ONLY=true; shift ;;
+    --verify) VERIFY=true; shift ;;
     --help|-h)
         cat <<'HELP'
-Usage: bash scripts/run-chiado-staged-performance.sh [--check]
+Usage: bash scripts/run-chiado-staged-performance.sh [--check] [--verify]
 
 Runs the 14 requested targets (770 jobs / 870 source transactions by default) with
---no-verify. --check only checks readiness; it does not fund, build or send.
+--no-verify by default. --verify enables per-job semantic assertions after mining.
+--check only checks readiness; it does not fund, build or send.
 DEVNET_ENV defaults to eez-core-protocol/chain.env. The profile must contain
 the deployed RPCs, ingress URLs, registry, manager and a funded SOURCE_PK.
 
@@ -29,10 +33,9 @@ Only fresh runs are supported. Saved RPC URLs do not identify a network after
 replacement; this helper does not resume or resend old signed transactions.
 HELP
         exit 0 ;;
-    "") ;;
     *) echo "Unknown argument: $1 (use --help)" >&2; exit 2 ;;
 esac
-[[ $# == 0 ]] || { echo "Unexpected arguments; use --help." >&2; exit 2; }
+done
 for tool in python3 cast forge curl jq bc flock timeout; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }
 done
@@ -53,6 +56,8 @@ set -a
 source "$DEVNET_ENV"
 set +a
 set +x
+# Publish the selected CLI mode for the read-only preflight summary.
+export EEZ_STAGED_VERIFY="$VERIFY"
 # Validate the effective profile value before deriving keys, locking wallets or
 # querying the network. Avoid arithmetic on an unbounded shell integer.
 [[ "$EEZ_STAGED_SCALE" =~ ^([1-9]|10)$ ]] || {
@@ -113,6 +118,17 @@ def tokens(value):
     return format(Decimal(value) / 10**18, 'f')
 
 
+def funding_requirement(balances, target, floor, chunk):
+    # Match the pinned orchestrator's _plan_funding / _topup_faucet:
+    # only deficient workers and nonempty chunks consume funding reserves.
+    missing = [target - balance for balance in balances
+               if balance < floor and balance < target]
+    if not missing:
+        return 0, 0
+    return (sum(missing) + ((len(missing) + chunk - 1) // chunk) * 5 * 10**16
+            + 10**17), len(missing)
+
+
 def check():
     for name in ['L1_RPC', 'L1_FRONT', 'L2_RPC', 'L2_FRONT', 'ROLLUPS', 'MANAGER_L2']:
         require(os.environ.get(name), 'Missing profile setting: ' + name)
@@ -145,9 +161,8 @@ def check():
     require(len(workers) == jobs and len({a.lower() for a in workers}) == jobs
             and all(re.fullmatch(r'0x[0-9a-fA-F]{40}', a) for a in workers),
             f'This helper requires {jobs} existing unique worker wallets')
-    # Same upfront requirement as orchestrator-lib.sh; unused funding returns
-    # to the faucet. The extra source reserve is an estimate, not a cost cap.
-    required = jobs * int(amount * 10**18) + ((jobs + chunk - 1) // chunk) * 5 * 10**16 + 10**17
+    # The extra source reserve is an estimate, not a cost cap. Worker balances
+    # are read per chain under the shared lock, as in the pinned runner.
     reserve = 10**16
     queue = rpc(os.environ['L2_RPC'], 'eez_getCrossChainQueueStatus')
     require(all(queue.get(k) == 0 for k in ['queued', 'inFlight', 'blocked', 'unknown']),
@@ -155,9 +170,9 @@ def check():
     ready = True
     print(f'Profile: {os.environ["DEVNET_ENV"]}')
     print(f'Workload: {jobs} jobs / {870 * scale} sources; preparation={os.environ["PREPARE_PARALLEL"]}, '
-          f'send workers={os.environ["SEND_WORKERS"]}; semantic verifier disabled')
+          f'send workers={os.environ["SEND_WORKERS"]}; semantic verifier '
+          + ('enabled' if os.environ['EEZ_STAGED_VERIFY'] == 'true' else 'disabled'))
     print(f'Funding source: {source}; faucet: {faucet}')
-    print(f'Upfront faucet requirement: {tokens(required)} xDAI per layer (includes refundable value)')
     for layer, chain_id, contract in [('L1', 10200, 'ROLLUPS'),
                                       ('L2', int(os.environ['EEZ_STAGED_L2_CHAIN_ID']), 'MANAGER_L2')]:
         endpoint, front = os.environ[layer + '_RPC'], os.environ[layer + '_FRONT']
@@ -175,16 +190,22 @@ def check():
             print(f'L2 safe={int(safe["number"], 16)}, latest={int(head["number"], 16)} '
                   '(setup history may still be unsettled when the measured wave starts)')
         addresses = workers + [source, faucet]
+        balances = []
         for offset in range(0, len(addresses), 100):
             group = addresses[offset:offset + 100]
             latest = rpc_batch(endpoint, [('eth_getTransactionCount', [a, 'latest']) for a in group])
             pending = rpc_batch(endpoint, [('eth_getTransactionCount', [a, 'pending']) for a in group])
             ingress = rpc_batch(front, [('eth_getTransactionCount', [a, 'pending']) for a in group])
             require(latest == pending == ingress, layer + ' has pending or mismatched worker/funding nonces')
-        source_balance, faucet_balance = [int(v, 16) for v in rpc_batch(endpoint,
-            [('eth_getBalance', [a, 'latest']) for a in [source, faucet]])]
+            balances.extend(int(v, 16) for v in rpc_batch(endpoint,
+                [('eth_getBalance', [a, 'latest']) for a in group]))
+        source_balance, faucet_balance = balances[-2:]
+        required, deficient = funding_requirement(balances[:-2], int(amount * 10**18),
+                                                 int(floor * 10**18), chunk)
         topup = max(0, required - faucet_balance)
-        shortfall = max(0, topup + reserve - source_balance)
+        shortfall = max(0, topup + reserve - source_balance) if topup else 0
+        print(f'{layer}: {deficient}/{jobs} workers need funding; '
+              f'upfront faucet requirement={tokens(required)} xDAI (includes gas/deployment reserve)')
         print(f'{layer} chain {chain_id}: source={tokens(source_balance)}, faucet={tokens(faucet_balance)}, '
               f'additional source funding needed={tokens(shortfall)} xDAI (includes 0.01 gas reserve)')
         ready = ready and shortfall == 0
@@ -200,8 +221,13 @@ except (RuntimeError, OSError, ValueError, InvalidOperation) as error:
 PY
 
 $CHECK_ONLY && exit 0
+# Larger packed batches can exceed Linux's single-argument limit when the pinned
+# verifier passes hex calldata to Forge. Preserve its checks through file input.
+source "$ROOT/scripts/chiado-forge.sh"
 echo "Starting upstream staged runner; its run directory contains timings.csv and job-timings.csv."
-exec bash script/e2e/run/network-staged.sh --no-verify \
+verify_args=(--no-verify)
+$VERIFY && verify_args=()
+exec bash script/e2e/run/network-staged.sh "${verify_args[@]}" \
     "counter:$((100 * EEZ_STAGED_SCALE))" "counterL2:$((100 * EEZ_STAGED_SCALE))" \
     "nestedCounter:$((50 * EEZ_STAGED_SCALE))" "nestedCounterL2:$((50 * EEZ_STAGED_SCALE))" \
     "multi-call-nested:$((50 * EEZ_STAGED_SCALE))" "multi-call-nestedL2:$((50 * EEZ_STAGED_SCALE))" \

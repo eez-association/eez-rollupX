@@ -1,0 +1,8 @@
+{
+  "missing_indexer_source_receipt_rows": 50,
+  "family": "revertCounter",
+  "direct_canonical_receipts_successful": 50,
+  "receipts_with_registry_logs": 0,
+  "direct_receipt_gas_equals_companion_preflight": true,
+  "interpretation": "The event-based transaction index has no registry event to select these receipts; direct canonical block receipts establish their gas use."
+}

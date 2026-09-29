@@ -1,0 +1,333 @@
+{
+  "uid": "eez-admission",
+  "title": "EEZ Cross-chain admission",
+  "description": "Admission decisions, shared deadline timing and gas projection versus canonical receipt evidence.",
+  "tags": [
+    "eez",
+    "admission"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "refresh": "10s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "candidate",
+        "label": "Candidate ID (* = all)",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "hide": 0
+      },
+      {
+        "name": "source",
+        "label": "Source hash (* = all)",
+        "type": "textbox",
+        "query": "*",
+        "current": {
+          "text": "*",
+          "value": "*"
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Admission estimate versus canonical postBatch",
+      "description": "Every candidate, including successful batches without a cut. Receipt gas includes refunds and the calldata floor; required gas sizes execution before refunds. Canonical receipt gas is for the complete postBatch. Missing values stay null. Selection limit is the effective count cap; snapshot is the finite candidate set. Admission stop reason is separate from later proof/preflight failure. Capacity deferrals counts skipped independent groups by reason, even if later work fits or a deadline ends discovery. FIFO bypass is diagnostic and does not impose a count cap. Historical absent causes remain unknown. Prefix hashing is part of admission; blob and witness preparation precede the proof request. These measured subintervals are included in preparation, not additional time. Historical subintervals remain null.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,canonical_l1_block,accepted,admission_gas::float8,(f.detail->>'framing_reserve_gas')::float8 AS framing_reserve_gas,(f.detail->>'full_estimate_gas')::float8 AS admission_including_framing_gas,(f.detail->>'calldata_bound_gas')::float8 AS calldata_bound_gas,(f.detail->>'calldata_floor_active')::boolean AS calldata_floor_active,(f.detail->>'general_execution_reserve')::boolean AS general_execution_reserve,(f.detail->>'gas_margin_bps')::float8/100 AS gas_margin_percent,canonical_receipt_gas::float8,admission_gas::float8/nullif(canonical_receipt_gas,0) AS estimate_receipt_ratio,coalesce(admission_stop_reason,'Unknown (legacy or incomplete)') AS admission_stop_reason,capacity_deferrals::text,fifo_bypassed,(f.detail->>'fifo_prefix_len')::float8 AS fifo_prefix_len,f.detail->>'fifo_trigger' AS fifo_trigger,policy_version,minimum_check_count::float8,simulation_count::float8,selection_limit::float8,selection_limit_reason,reason AS outcome_reason,deferred,full_projection_gas::float8,preflight_gas_used::float8,preflight_gas_required::float8,signed_gas_limit::float8,candidate_id,transaction_hash,chain_status,history,rebuild_of FROM eez_indexer.admission_candidates c LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='summary' ORDER BY sequence DESC LIMIT 1) f ON true WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Preparation, proof and delivery",
+      "description": "Preparation and proof share the exact target deadline. Finalization covers signing and observer preflight; preparation ends at the proof request. Delivery is relay acknowledgement, not canonical completion. Remaining time is measured immediately before dispatch. Proof predictions show the configured seed, covering measurements or upward-scaled measurements; missing historical predictions remain null. Selected is the finite snapshot; examined reaches source checks. Untouched or selection-filtered sources have aggregate counts and no invented gas estimate. Selection limit is the effective count cap; snapshot is the finite candidate set. Admission stop reason is separate from later proof/preflight failure. Capacity deferrals counts skipped independent groups by reason, even if later work fits or a deadline ends discovery. FIFO bypass is diagnostic and does not impose a count cap. Historical absent causes remain unknown. Prefix hashing is part of admission; blob and witness preparation precede the proof request. These measured subintervals are included in preparation, not additional time. Historical subintervals remain null. Acknowledgement slack is the remaining shared delivery window after the relay reply. Relay bundle hash is optional correlation metadata, not an inclusion guarantee. Target and parent identify the dispatched request; historical fields remain null.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.time,c.candidate_id,c.selected AS snapshot,c.selection_limit::float8,c.selection_limit_reason,(b.detail->>'submission_failure_streak')::bigint AS submission_failure_streak,(b.detail->>'submission_backoff_threshold')::bigint AS submission_backoff_threshold,(s.detail->>'examined_count')::bigint AS examined,(s.detail->>'not_examined_count')::bigint AS not_examined,(s.detail->>'selection_filtered_count')::bigint AS selection_filtered,c.accepted,c.minimum_check_count::float8,c.simulation_count::float8,c.preparation_ms,(s.detail->>'prefix_hash_ms')::float8 AS prefix_hash_ms,(s.detail->>'prefix_hash_executed_tx_count')::float8 AS prefix_hash_executed_tx_count,(p.detail->>'blob_preparation_ms')::float8 AS blob_preparation_ms,(p.detail->>'witness_preparation_ms')::float8 AS witness_preparation_ms,c.nominal_preparation_ms,(p.detail->>'proof_estimate_ms')::float8 AS proof_estimate_ms,p.detail->>'proof_estimate_basis' AS proof_estimate_basis,c.proof_ms,(p.detail->>'post_reserve_ms')::float8 AS post_reserve_ms,c.finalization_ms,c.delivery_ms,c.relay_acknowledged,c.dispatch_remaining_ms,(d.detail->>'ack_remaining_ms')::float8 AS ack_remaining_ms,d.detail->>'relay_bundle_hash' AS relay_bundle_hash,(d.detail->>'target_block')::bigint AS delivery_target_block,(d.detail->>'target_timestamp')::bigint AS delivery_target_timestamp,d.detail->>'expected_parent_hash' AS delivery_parent_hash,(d.detail->>'transaction_count')::bigint AS delivery_transaction_count,coalesce(c.admission_stop_reason,'Unknown (legacy or incomplete)') AS admission_stop_reason,c.reason AS outcome_reason,c.history FROM eez_indexer.admission_candidates c LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='proof_requested' ORDER BY sequence DESC LIMIT 1) p ON true LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='summary' ORDER BY sequence DESC LIMIT 1) s ON true LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='started' ORDER BY sequence LIMIT 1) b ON true LEFT JOIN LATERAL (SELECT data->'detail' AS detail FROM eez_indexer.admission_events e WHERE e.candidate_id=c.candidate_id AND data->>'kind'='delivery' ORDER BY sequence DESC LIMIT 1) d ON true WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) ORDER BY c.time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Gas estimates per source transaction",
+      "description": "Filter by candidate ID or source hash; Inspect \u2192 Data exports CSV. Source simulation gas is not an exact share of the canonical postBatch receipt. Source preflight and canonical source receipt gas refer to inbound L1 companions; outbound L2 receipt gas is not collected here. Accepted deltas may include revocation of earlier discounts at a shape boundary. No estimate recorded means selection did not reach a recorded gas estimate, or telemetry is incomplete. Source timing covers source checks through the gas estimate, excluding subsequent append/finalization/proof. Earlier records without this timing boundary remain null. Companion source simulation excludes intercepted L1 callback gas and protocol overhead; companion_target_simulation_gas shows the separately measured L1 callbacks, including reverted work; companion_estimate_gas is the versioned bundle consumption reserve. Source receipts are observations after this posting in the same block, including calls without registry logs; they do not prove consumption or allocate postBatch gas.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,candidate_id,source_hash,direction,position,decision,source_outcome_reason,gas_constraint,capacity_check_basis,minimum_entry_gas::float8,t.minimum_mutable_entry_gas,t.minimum_static_general_fallback,companion_prefix_gas::float8,companion_required_gas::float8,capacity_postbatch_cap::float8,capacity_block_cap::float8,capacity_l2_used_gas::float8,minimum_l2_gas::float8,capacity_l2_block_cap::float8,t.estimate_ms-t.start_ms AS source_checks_and_simulation_ms,t.capacity_ms-t.start_ms AS capacity_check_ms,source_simulation_gas::float8,l1_target_simulation_gas::float8,entry_count,l1_call_count,nested_result_count,estimate_reasons::text,batch_discount_revoked,entry_reserve_gas::float8,entry_pin_gas::float8,entry_discount::float8,calldata_gas::float8,t.framing_reserve_gas,t.framing_reserve_before,t.framing_reserve_after,t.full_estimate_before,t.full_estimate_after,companion_declared_gas::float8,companion_simulation_gas::float8,companion_target_simulation_gas::float8,companion_estimate_gas::float8,companion_protocol_reserve_gas::float8,companion_estimate_basis,source_preflight_gas::float8,source_required_gas::float8,canonical_source_receipt_gas::float8,source_receipt_coverage,source_receipt_success,projected_before::float8,projected_after::float8,accepted_delta_gas::float8,postbatch_hash,canonical_l1_block,reason,history FROM eez_indexer.admission_sources s LEFT JOIN LATERAL (SELECT min((data->>'elapsed_ms')::float8) FILTER (WHERE data->>'kind'='source_selected' AND data->'detail'->>'timing_basis'='source_checks') AS start_ms,max((data->>'elapsed_ms')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS estimate_ms,max((data->>'elapsed_ms')::float8) FILTER (WHERE data->>'kind'='source_capacity_check') AS capacity_ms,max((data->'detail'->>'minimum_mutable_entry_gas')::float8) FILTER (WHERE data->>'kind'='source_capacity_check') AS minimum_mutable_entry_gas,bool_or((data->'detail'->>'minimum_static_general_fallback')::boolean) FILTER (WHERE data->>'kind'='source_capacity_check') AS minimum_static_general_fallback,max((data->'detail'->>'framing_reserve_gas')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS framing_reserve_gas,max((data->'detail'->>'framing_reserve_before')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS framing_reserve_before,max((data->'detail'->>'framing_reserve_after')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS framing_reserve_after,max((data->'detail'->>'full_estimate_before')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS full_estimate_before,max((data->'detail'->>'full_estimate_after')::float8) FILTER (WHERE data->>'kind'='source_estimate') AS full_estimate_after FROM eez_indexer.admission_events e WHERE e.candidate_id=s.candidate_id AND data->'detail'->>'source_hash'=s.source_hash) t ON true WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) AND (${source:sqlstring}='*' OR source_hash=${source:sqlstring}) ORDER BY time DESC,candidate_id,position LIMIT 10000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Projection accounting",
+      "description": "Shared base and adjustments are separated from the accepted source deltas. Compare accepted observations with the summary to identify missing records.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT c.time,c.candidate_id,c.admission_gas::float8,sum(s.accepted_delta_gas)::float8 AS accepted_source_deltas,(c.admission_gas-sum(s.accepted_delta_gas))::float8 AS shared_base_and_adjustments,count(*) FILTER(WHERE s.decision='Accepted') AS accepted_observations,c.accepted,c.history FROM eez_indexer.admission_candidates c LEFT JOIN eez_indexer.admission_sources s USING(candidate_id) WHERE $__timeFilter(c.time) AND (${candidate:sqlstring}='*' OR c.candidate_id=${candidate:sqlstring}) GROUP BY c.time,c.candidate_id,c.admission_gas,c.accepted,c.history ORDER BY c.time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Candidate event timeline",
+      "description": "Raw observations retain failed/rebuilt candidate identity. Finished marks the final sequence; gaps are reported even after collector restart.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 40,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT time,candidate_id,sequence,stage,elapsed_ms,detail FROM (SELECT to_timestamp((data->>'timestamp_ms')::bigint/1000.0) AS time,candidate_id,sequence,data->>'kind' AS stage,(data->>'elapsed_ms')::float8 AS elapsed_ms,(data->'detail')::text AS detail FROM eez_indexer.admission_events) e WHERE $__timeFilter(time) AND (${candidate:sqlstring}='*' OR candidate_id=${candidate:sqlstring}) ORDER BY time DESC,candidate_id,sequence LIMIT 3000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Posting estimate coverage",
+      "description": "Historical estimates are never reconstructed from receipt gas. Older producers and ordinary-only posting paths do not emit cross-chain admission candidates.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT p.time,p.attempt_id,p.transaction_hash,p.canonical_l1_block,CASE WHEN a.candidate_id IS NULL AND link.data->'detail'->>'candidate_id' IS NOT NULL THEN 'Candidate records missing' WHEN a.candidate_id IS NULL THEN 'No candidate telemetry (older producer or ordinary posting)' WHEN a.admission_gas IS NULL THEN 'Candidate has no summary' ELSE 'Estimate recorded' END AS coverage,a.history FROM eez_indexer.posting_attempts p LEFT JOIN eez_indexer.admission_candidates a USING(attempt_id) LEFT JOIN eez_indexer.posting_events link ON link.attempt_id=p.attempt_id AND link.data->>'stage'='prepared' WHERE $__timeFilter(p.time) ORDER BY p.time DESC LIMIT 2000",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Collector status",
+      "description": "A stale check or an error means coverage may be incomplete. Quiet queues do not themselves indicate collector failure.",
+      "datasource": {
+        "type": "postgres",
+        "uid": "eez-indexer-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 60,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT checked_at,error,extract(epoch FROM now()-checked_at)::float8 AS seconds_since_check,(SELECT max(imported_at) FROM eez_indexer.admission_events) AS last_admission_import FROM eez_indexer.posting_collection",
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "\u2014",
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ]
+}

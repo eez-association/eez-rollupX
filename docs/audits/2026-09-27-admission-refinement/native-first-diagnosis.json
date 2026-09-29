@@ -1,0 +1,18 @@
+{
+  "runtime_revision": "7fdb3fc4dae1156051a77bcbdf00301914085f5b",
+  "corrected_test_revision": "2d64c7d85b32c8347c7ce1deb1ae54d7e3a16d8e",
+  "first_passed": 13,
+  "first_failed": 8,
+  "failure_reason": "Shared expected estimator version was v5; producer emitted v6",
+  "failed_tests": [
+    "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+    "ethereum_fitting_forty_request_waves_replace_busy_queue_and_replay",
+    "ethereum_fitting_thirty_request_wave_settles_in_one_sync",
+    "ethereum_short_result_forty_five_request_waves_replace_busy_queue_and_replay",
+    "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+    "gnosis_fitting_forty_request_waves_replace_busy_queue_and_replay",
+    "gnosis_fitting_thirty_request_wave_settles_in_one_sync",
+    "gnosis_short_result_forty_five_request_waves_replace_busy_queue_and_replay"
+  ],
+  "log_sha256": "fed887ccc7f9ac590953dbb8d55840912df70301064920b2dcb1e62a1a753fed"
+}

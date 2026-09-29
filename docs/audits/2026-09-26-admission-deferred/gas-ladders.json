@@ -1,0 +1,667 @@
+[
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 4050801,
+    "reserve": 4990000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 989701,
+    "reserve": 2590000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1104875,
+    "reserve": 2350000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 2752701,
+    "reserve": 3940000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 4848862,
+    "reserve": 5590000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1103762,
+    "reserve": 2590000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1220835,
+    "reserve": 2350000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 3550762,
+    "reserve": 4540000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 4848862,
+    "reserve": 5590000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1103762,
+    "reserve": 2590000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1220835,
+    "reserve": 2350000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 3550762,
+    "reserve": 4540000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 5737702,
+    "reserve": 6510000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1196562,
+    "reserve": 2910000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1317595,
+    "reserve": 2670000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 4439602,
+    "reserve": 5460000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 6625095,
+    "reserve": 7430000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1399955,
+    "reserve": 3230000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1407675,
+    "reserve": 2990000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 5326995,
+    "reserve": 6380000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 6625095,
+    "reserve": 7430000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1399955,
+    "reserve": 3230000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1407675,
+    "reserve": 2990000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 5326995,
+    "reserve": 6380000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 0,
+    "gas": 6625975,
+    "reserve": 7430000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1400835,
+    "reserve": 3230000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1407675,
+    "reserve": 2990000
+  },
+  {
+    "test": "testDeferredStorageByteBoundaries",
+    "entries": 10,
+    "wave": 4,
+    "gas": 5327875,
+    "reserve": 6380000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 1,
+    "wave": 0,
+    "gas": 1392776,
+    "reserve": 1532000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 1,
+    "wave": 1,
+    "gas": 292371,
+    "reserve": 707000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 1,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 1,
+    "wave": 3,
+    "gas": 408633,
+    "reserve": 675000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 1,
+    "wave": 4,
+    "gas": 1247576,
+    "reserve": 1427000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 10,
+    "wave": 0,
+    "gas": 12730527,
+    "reserve": 13880000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 10,
+    "wave": 1,
+    "gas": 2832377,
+    "reserve": 5630000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 10,
+    "wave": 3,
+    "gas": 2088035,
+    "reserve": 5310000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 10,
+    "wave": 4,
+    "gas": 11432427,
+    "reserve": 12830000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 127,
+    "wave": 0,
+    "gas": 160630640,
+    "reserve": 174404000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 127,
+    "wave": 1,
+    "gas": 23033805,
+    "reserve": 69629000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 127,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 127,
+    "wave": 3,
+    "gas": 37271811,
+    "reserve": 65565000
+  },
+  {
+    "test": "testDeferredStorageCallbacksMaximum",
+    "entries": 127,
+    "wave": 4,
+    "gas": 144344840,
+    "reserve": 161069000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 1,
+    "wave": 0,
+    "gas": 440691,
+    "reserve": 518000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 1,
+    "wave": 1,
+    "gas": 176090,
+    "reserve": 323000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 1,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 1,
+    "wave": 3,
+    "gas": 188827,
+    "reserve": 315000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 1,
+    "wave": 4,
+    "gas": 295491,
+    "reserve": 413000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 10,
+    "wave": 0,
+    "gas": 3206942,
+    "reserve": 3740000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 10,
+    "wave": 1,
+    "gas": 770832,
+    "reserve": 1790000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 10,
+    "wave": 3,
+    "gas": 813975,
+    "reserve": 1710000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 10,
+    "wave": 4,
+    "gas": 1908842,
+    "reserve": 2690000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 127,
+    "wave": 0,
+    "gas": 39227689,
+    "reserve": 45626000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 127,
+    "wave": 1,
+    "gas": 7777962,
+    "reserve": 20861000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 127,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 127,
+    "wave": 3,
+    "gas": 9356449,
+    "reserve": 19845000
+  },
+  {
+    "test": "testDeferredStorageCallbacksShort",
+    "entries": 127,
+    "wave": 4,
+    "gas": 22941889,
+    "reserve": 32291000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 1,
+    "wave": 0,
+    "gas": 999933,
+    "reserve": 1142000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 1,
+    "wave": 1,
+    "gas": 263326,
+    "reserve": 587000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 1,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 1,
+    "wave": 3,
+    "gas": 320864,
+    "reserve": 539000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 1,
+    "wave": 4,
+    "gas": 854733,
+    "reserve": 1037000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 10,
+    "wave": 0,
+    "gas": 8801418,
+    "reserve": 9980000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 10,
+    "wave": 1,
+    "gas": 1785248,
+    "reserve": 4430000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 10,
+    "wave": 3,
+    "gas": 1966345,
+    "reserve": 3950000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 10,
+    "wave": 4,
+    "gas": 7503318,
+    "reserve": 8930000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 127,
+    "wave": 0,
+    "gas": 110617953,
+    "reserve": 124874000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 127,
+    "wave": 1,
+    "gas": 19223464,
+    "reserve": 54389000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 127,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 127,
+    "wave": 3,
+    "gas": 26125148,
+    "reserve": 48293000
+  },
+  {
+    "test": "testDeferredStorageRowsAndCallbacks",
+    "entries": 127,
+    "wave": 4,
+    "gas": 94332153,
+    "reserve": 111539000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 1,
+    "wave": 0,
+    "gas": 1943904,
+    "reserve": 2148000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 1,
+    "wave": 1,
+    "gas": 377095,
+    "reserve": 963000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 1,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 1,
+    "wave": 3,
+    "gas": 540365,
+    "reserve": 899000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 1,
+    "wave": 4,
+    "gas": 1798704,
+    "reserve": 2043000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 10,
+    "wave": 0,
+    "gas": 18245016,
+    "reserve": 20040000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 10,
+    "wave": 1,
+    "gas": 3906826,
+    "reserve": 8190000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 10,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 10,
+    "wave": 3,
+    "gas": 3181355,
+    "reserve": 7550000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 10,
+    "wave": 4,
+    "gas": 16946916,
+    "reserve": 18990000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 127,
+    "wave": 0,
+    "gas": 231194007,
+    "reserve": 252636000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 127,
+    "wave": 1,
+    "gas": 34363864,
+    "reserve": 102141000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 127,
+    "wave": 2,
+    "gas": 115913,
+    "reserve": 160000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 127,
+    "wave": 3,
+    "gas": 54001775,
+    "reserve": 94013000
+  },
+  {
+    "test": "testDeferredStorageRowsMaximum",
+    "entries": 127,
+    "wave": 4,
+    "gas": 214908207,
+    "reserve": 239301000
+  }
+]

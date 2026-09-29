@@ -1,0 +1,275 @@
+[
+  {
+    "family": "counter",
+    "sources": 100,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 155900.0,
+    "calldata_gas_mean": 2319.04,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 158219.04,
+    "source_simulation_gas_mean": 70441.0,
+    "source_preflight_gas_mean": 131744.0,
+    "source_required_gas_mean": 131744.0,
+    "canonical_source_receipt_gas_mean": 131744.0,
+    "canonical_source_execution_gas_mean": 131744.0,
+    "estimate_reasons": {
+      "deferred_storage": 100
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "counter-multi-tx",
+    "sources": 150,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 124920.0,
+    "calldata_gas_mean": 2318.8,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 127238.8,
+    "source_simulation_gas_mean": 45782.333333333336,
+    "source_preflight_gas_mean": 109081.34,
+    "source_required_gas_mean": 109081.34,
+    "canonical_source_receipt_gas_mean": 109081.34,
+    "canonical_source_execution_gas_mean": 109081.34,
+    "estimate_reasons": {
+      "deferred_storage": 150
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "counterL2",
+    "sources": 100,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 3778.92,
+    "l1_target_simulation_gas_mean": 48151.52,
+    "accepted_delta_gas_mean": 421930.44,
+    "source_simulation_gas_mean": 70441.0,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 129569.0,
+    "estimate_reasons": {
+      "immediate_evidence_unavailable": 100
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "multi-call-nested",
+    "sources": 50,
+    "direction": "inbound",
+    "entry_count_mean": 3.0,
+    "entry_reserve_gas_mean": 493020.0,
+    "calldata_gas_mean": 10639.36,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 503659.36,
+    "source_simulation_gas_mean": 28329.32,
+    "source_preflight_gas_mean": 239408.32,
+    "source_required_gas_mean": 239408.32,
+    "canonical_source_receipt_gas_mean": 239408.32,
+    "canonical_source_execution_gas_mean": 239408.32,
+    "estimate_reasons": {
+      "deferred_storage": 147,
+      "deferred_old_slot": 3
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "multi-call-nestedL2",
+    "sources": 50,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 8234.08,
+    "l1_target_simulation_gas_mean": 111669.52,
+    "accepted_delta_gas_mean": 489903.6,
+    "source_simulation_gas_mean": 50642.04,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 195842.04,
+    "estimate_reasons": {
+      "immediate_evidence_unavailable": 50
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "multi-call-twice",
+    "sources": 50,
+    "direction": "inbound",
+    "entry_count_mean": 2.0,
+    "entry_reserve_gas_mean": 297560.0,
+    "calldata_gas_mean": 4635.68,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 302195.68,
+    "source_simulation_gas_mean": 25373.04,
+    "source_preflight_gas_mean": 131879.04,
+    "source_required_gas_mean": 131879.04,
+    "canonical_source_receipt_gas_mean": 131879.04,
+    "canonical_source_execution_gas_mean": 131879.04,
+    "estimate_reasons": {
+      "deferred_storage": 98,
+      "deferred_old_slot": 1,
+      "deferred_legacy": 1
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "multi-call-twiceL2",
+    "sources": 50,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 5757.28,
+    "l1_target_simulation_gas_mean": 79200.16,
+    "accepted_delta_gas_mean": 454957.44,
+    "source_simulation_gas_mean": 25373.52,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 113229.52,
+    "estimate_reasons": {
+      "immediate_evidence_unavailable": 50
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "nestedCounter",
+    "sources": 50,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 205880.0,
+    "calldata_gas_mean": 4160.4,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 210040.4,
+    "source_simulation_gas_mean": 21160.0,
+    "source_preflight_gas_mean": 123252.0,
+    "source_required_gas_mean": 123252.0,
+    "canonical_source_receipt_gas_mean": 123252.0,
+    "canonical_source_execution_gas_mean": 123252.0,
+    "estimate_reasons": {
+      "deferred_storage": 50
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "nestedCounterL2",
+    "sources": 50,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 105000.0,
+    "calldata_gas_mean": 5014.8,
+    "l1_target_simulation_gas_mean": 74984.52,
+    "accepted_delta_gas_mean": 184999.32,
+    "source_simulation_gas_mean": 21160.0,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 121064.0,
+    "estimate_reasons": {
+      "immediate_registered": 50
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "reentrant",
+    "sources": 20,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 356500.0,
+    "calldata_gas_mean": 5677.0,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 362177.0,
+    "source_simulation_gas_mean": 26697.0,
+    "source_preflight_gas_mean": 164878.75,
+    "source_required_gas_mean": 164878.75,
+    "canonical_source_receipt_gas_mean": 164878.75,
+    "canonical_source_execution_gas_mean": 164878.75,
+    "estimate_reasons": {
+      "general_reserve_lower": 17,
+      "deferred_storage": 2,
+      "deferred_old_slot": 1
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "revertCounter",
+    "sources": 50,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 2918.08,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 372918.08,
+    "source_simulation_gas_mean": 70295.0,
+    "source_preflight_gas_mean": 139654.62,
+    "source_required_gas_mean": 139654.62,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 139654.62,
+    "estimate_reasons": {
+      "deferred_reverted": 38,
+      "deferred_old_slot": 12
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "revertCounterL2",
+    "sources": 50,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 3778.32,
+    "l1_target_simulation_gas_mean": 26098.56,
+    "accepted_delta_gas_mean": 399876.88,
+    "source_simulation_gas_mean": 70295.0,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 134900.0,
+    "estimate_reasons": {
+      "immediate_evidence_unavailable": 50
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "revertFromOtherChain",
+    "sources": 50,
+    "direction": "inbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 6154.48,
+    "l1_target_simulation_gas_mean": 0.0,
+    "accepted_delta_gas_mean": 376154.48,
+    "source_simulation_gas_mean": 21160.0,
+    "source_preflight_gas_mean": 175412.7,
+    "source_required_gas_mean": 175412.7,
+    "canonical_source_receipt_gas_mean": 175412.7,
+    "canonical_source_execution_gas_mean": 175412.7,
+    "estimate_reasons": {
+      "deferred_call_flags": 18,
+      "deferred_old_slot": 32
+    },
+    "batch_discount_revoked_sources": 0
+  },
+  {
+    "family": "revertFromOtherChainL2",
+    "sources": 50,
+    "direction": "outbound",
+    "entry_count_mean": 1.0,
+    "entry_reserve_gas_mean": 370000.0,
+    "calldata_gas_mean": 3790.56,
+    "l1_target_simulation_gas_mean": 48151.28,
+    "accepted_delta_gas_mean": 421941.84,
+    "source_simulation_gas_mean": 31788.0,
+    "source_preflight_gas_mean": null,
+    "source_required_gas_mean": null,
+    "canonical_source_receipt_gas_mean": null,
+    "canonical_source_execution_gas_mean": 90916.0,
+    "estimate_reasons": {
+      "immediate_evidence_unavailable": 50
+    },
+    "batch_discount_revoked_sources": 0
+  }
+]

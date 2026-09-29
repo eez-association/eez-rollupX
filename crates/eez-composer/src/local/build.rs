@@ -37,6 +37,9 @@ use revm::{
 use std::sync::Arc;
 use thiserror::Error;
 
+mod prefix;
+pub(crate) use prefix::SyncPrefixHashes;
+
 /// The revm state a Sync block is built over: the parent state provider plus
 /// every change committed by the block's txs so far.
 pub type DraftDb = State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>;
@@ -1000,6 +1003,149 @@ mod tests {
                 tx_count: 1,
             }
         ));
+    }
+
+    #[test]
+    fn prefix_checkpoint_matches_independent_rebuild_across_forks_and_reverts() {
+        for spec in [
+            ChainSpecBuilder::mainnet().cancun_activated().build(),
+            ChainSpecBuilder::mainnet().prague_activated().build(),
+            ChainSpecBuilder::mainnet().osaka_activated().build(),
+        ] {
+            let mut f = fixture();
+            f.evm_config = EthEvmConfig::new(Arc::new(spec));
+            // Exercise receipt bloom and log ordering as well as SSTORE and a
+            // reverted transaction. MockEthProvider has no real trie; compare
+            // complete pre-finalization state separately from header equality.
+            f.provider.add_account(
+                STORE,
+                ExtendedAccount::new(0, U256::ZERO)
+                    .with_bytecode(bytes!("6001600055602a60005260206000a060206000f3")),
+            );
+            // System-call counters detect applying pre-block changes twice or
+            // retaining post-block mutations in the next checkpoint.
+            for address in [
+                alloy_eips::eip4788::BEACON_ROOTS_ADDRESS,
+                alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+                alloy_eips::eip7002::WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
+                alloy_eips::eip7251::CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS,
+            ] {
+                f.provider.add_account(
+                    address,
+                    ExtendedAccount::new(0, U256::ZERO)
+                        .with_bytecode(bytes!("60005460010160005500")),
+                );
+            }
+            let mut hashes = SyncPrefixHashes::new(
+                &f.provider,
+                &f.evm_config,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+            );
+            for p in 0..f.txs.len() {
+                let actual = hashes.at_positions(&f.txs[..=p], &[p]).unwrap();
+                assert_eq!(actual, vec![f.build(&f.txs[..=p]).header.hash()]);
+                hashes.assert_state_matches_rebuild();
+            }
+            assert_eq!(hashes.executed_transactions, f.txs.len());
+        }
+    }
+
+    #[test]
+    fn prefix_checkpoint_discards_rejected_suffix_and_recovers_after_errors() {
+        let f = fixture();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            FEE_RECIPIENT,
+        );
+        hashes.at_positions(&f.txs, &[1, 3]).unwrap();
+        let mut replacement = f.txs[..2].to_vec();
+        replacement.push(sign_tx(2, BOB, U256::from(17), 21_000));
+        assert_eq!(
+            hashes.at_positions(&replacement, &[2]).unwrap(),
+            vec![f.build(&replacement).header.hash()]
+        );
+        hashes.assert_state_matches_rebuild();
+        // Nonmonotonic and repeated positions preserve the existing helper's
+        // behavior, while a changed/shorter prefix never inherits later writes.
+        let positions = [4, 0, 0, 2];
+        assert_eq!(
+            hashes.at_positions(&f.txs, &positions).unwrap(),
+            sync_block_hashes_at_positions(
+                &f.provider,
+                &f.evm_config,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+                &f.txs,
+                &positions
+            )
+            .unwrap()
+        );
+        hashes.assert_state_matches_rebuild();
+        assert!(matches!(
+            hashes.at_positions(&f.txs, &[f.txs.len()]),
+            Err(BuildError::InvalidCheckpointPosition { .. })
+        ));
+        let mut malformed = f.txs[..2].to_vec();
+        malformed.push(bytes!("ff"));
+        assert!(matches!(
+            hashes.at_positions(&malformed, &[1, 2]),
+            Err(BuildError::DecodeTx { idx: 2, .. })
+        ));
+        let mut invalid_nonce = f.txs[..2].to_vec();
+        invalid_nonce.push(f.txs[0].clone());
+        assert!(matches!(
+            hashes.at_positions(&invalid_nonce, &[2]),
+            Err(BuildError::ExecuteTx { idx: 2, .. })
+        ));
+        assert_eq!(
+            hashes.at_positions(&f.txs, &[4]).unwrap(),
+            vec![f.build(&f.txs).header.hash()]
+        );
+        hashes.assert_state_matches_rebuild();
+    }
+
+    #[test]
+    fn prefix_checkpoint_executes_each_transaction_once_in_growing_candidate() {
+        let f = fixture();
+        let txs: Vec<_> = (0..64)
+            .map(|nonce| sign_tx(nonce, STORE, U256::ZERO, 100_000))
+            .collect();
+        let started = std::time::Instant::now();
+        let expected = sync_block_hashes_at_positions(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            FEE_RECIPIENT,
+            &txs,
+            &(0..64).collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let baseline = started.elapsed();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            FEE_RECIPIENT,
+        );
+        let started = std::time::Instant::now();
+        let actual: Vec<_> = (0..64)
+            .map(|p| hashes.at_positions(&txs[..=p], &[p]).unwrap()[0])
+            .collect();
+        let candidate = started.elapsed();
+        assert_eq!(actual, expected);
+        assert_eq!(hashes.executed_transactions, 64);
+        hashes.assert_state_matches_rebuild();
+        eprintln!(
+            "64-prefix comparison: baseline={baseline:?}, candidate={candidate:?}; EVM transactions 2080 -> 64; mock provider, no trie performance coverage"
+        );
     }
 
     /// Block gas is the drain's accept budget, so a fork must start from the

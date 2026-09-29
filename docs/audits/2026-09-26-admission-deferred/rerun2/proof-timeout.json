@@ -1,0 +1,76 @@
+{
+  "candidate_id": "1-1790435613106:1:78",
+  "boundaries": [
+    {
+      "kind": "started",
+      "elapsed_ms": 0.005618000000000001,
+      "detail": {
+        "queued": 56,
+        "selected": 56,
+        "selection_limit": 56,
+        "selection_limit_reason": null
+      }
+    },
+    {
+      "kind": "summary",
+      "elapsed_ms": 368.409885,
+      "detail": {
+        "reason": "pipeline_time",
+        "accepted": 36,
+        "deferred": 20,
+        "planning_cap": 15378300,
+        "companion_gas": 2535876,
+        "projected_gas": 8076472,
+        "entry_discount": 5508000,
+        "examined_count": 37,
+        "whole_block_cap": 17000000,
+        "source_fee_count": 0,
+        "cold_timing_probe": false,
+        "not_examined_count": 19,
+        "selection_filtered_count": 0
+      }
+    },
+    {
+      "kind": "full_projection",
+      "elapsed_ms": 435.055401,
+      "detail": {
+        "blobs": 2,
+        "entries": 37,
+        "gas_ceiling": 16777216,
+        "calldata_gas": 154572,
+        "projected_gas": 8147572,
+        "calldata_bytes": 22404,
+        "calldata_floor_gas": 407430
+      }
+    },
+    {
+      "kind": "proof_requested",
+      "elapsed_ms": 1244.021537,
+      "detail": {
+        "blobs": 2,
+        "groups": 36,
+        "witnesses": 130,
+        "deadline_ms": 1790442929550,
+        "remaining_ms": 197.917434,
+        "preparation_ms": 1244,
+        "post_reserve_ms": 150.0,
+        "proof_estimate_ms": 450.0,
+        "proof_estimate_basis": "scaled_sample",
+        "nominal_preparation_ms": 1000
+      }
+    },
+    {
+      "kind": "proof_failed",
+      "elapsed_ms": 1293.421017,
+      "detail": {
+        "reason": "prover_deadline",
+        "proof_ms": 49.354952
+      }
+    },
+    {
+      "kind": "finished",
+      "elapsed_ms": 1295.052042,
+      "detail": {}
+    }
+  ]
+}

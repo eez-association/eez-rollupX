@@ -1,0 +1,15 @@
+family,sources,direction,entry_count_mean,entry_reserve_gas_mean,calldata_gas_mean,l1_target_simulation_gas_mean,accepted_delta_gas_mean,source_simulation_gas_mean,source_preflight_gas_mean,source_required_gas_mean,canonical_source_receipt_gas_mean,canonical_source_execution_gas_mean,companion_simulation_gas_mean,companion_estimate_gas_mean,companion_protocol_reserve_gas_mean,estimate_reasons,batch_discount_revoked_sources
+counter,100,inbound,1.0,95580.0,2319.64,0.0,97899.64,70441.0,131744.0,131744.0,131744.0,131744.0,70441.0,210571.0,140130.0,"{""deferred_storage"": 100}",0
+counter-multi-tx,150,inbound,1.0,113800.0,2318.8,0.0,116118.8,47613.666666666664,109035.56,109035.56,109035.56,109035.56,47613.666666666664,204277.0,156663.33333333334,"{""deferred_storage"": 150}",0
+counterL2,100,outbound,1.0,370000.0,3777.48,48150.56,421928.04,70441.0,,,,129569.0,0.0,0.0,,"{""immediate_evidence_unavailable"": 100}",0
+multi-call-nested,50,inbound,3.0,360720.0,10640.8,0.0,371360.8,28328.12,239407.12,239407.12,239407.12,239407.12,28328.12,639100.12,541120.0,"{""deferred_storage"": 150}",0
+multi-call-nestedL2,50,outbound,1.0,370000.0,8233.12,111667.12,489900.24,50640.84,,,,195840.84,0.0,0.0,,"{""immediate_evidence_unavailable"": 50}",0
+multi-call-twice,50,inbound,2.0,227120.0,4637.6,0.0,231757.6,25373.04,131879.04,131879.04,131879.04,131879.04,25373.04,354433.04,329060.0,"{""deferred_storage"": 100}",0
+multi-call-twiceL2,50,outbound,1.0,370000.0,5761.12,79202.56,454963.68,25373.52,,,,113229.52,0.0,0.0,,"{""immediate_evidence_unavailable"": 50}",0
+nestedCounter,50,inbound,1.0,179600.0,4160.64,0.0,183760.64,21160.0,123252.0,123252.0,123252.0,123252.0,21160.0,239176.0,174640.0,"{""deferred_storage"": 50}",0
+nestedCounterL2,50,outbound,1.0,105000.0,5014.8,74984.52,184999.32,21160.0,,,,121064.0,0.0,0.0,,"{""immediate_registered"": 50}",0
+reentrant,20,inbound,1.0,370000.0,5675.8,0.0,375675.8,26697.0,166252.15,166252.15,166252.15,166252.15,26697.0,299894.0,227100.0,"{""general_reserve_lower"": 20}",0
+revertCounter,50,inbound,1.0,147800.0,2918.56,0.0,150718.56,70295.0,139334.16,139334.16,139334.16,139334.16,70295.0,214355.0,144060.0,"{""deferred_storage"": 50}",0
+revertCounterL2,50,outbound,1.0,370000.0,3779.28,26099.52,399878.8,70295.0,,,,134900.0,0.0,0.0,,"{""immediate_evidence_unavailable"": 50}",0
+revertFromOtherChain,50,inbound,1.0,230800.0,6156.4,0.0,236956.4,21160.0,175412.7,175412.7,175412.7,175412.7,21160.0,332832.0,224920.0,"{""deferred_storage"": 50}",0
+revertFromOtherChainL2,50,outbound,1.0,370000.0,3789.12,48149.84,421938.96,31788.0,,,,90916.0,0.0,0.0,,"{""immediate_evidence_unavailable"": 50}",0

@@ -1,0 +1,219 @@
+{
+  "status": "passed",
+  "runtime_revision": "62b8e066ef96ae54d9e4bda4636c08ba5a1c7b67",
+  "harness_revision": "ac7e0abb12914c166546cdd0afcd5ff439fc75ec",
+  "test_binaries": {
+    "settlement_policy_gas": {
+      "sha256": "3950fd7c1bc1d9ea74bae35290f5c5132c991d006fecce88896bb9b52dca6a21",
+      "local_path": "target/debug/deps/settlement_policy_gas-97c558888d6c6a87"
+    },
+    "settlement_policy_cost": {
+      "sha256": "7ae932869b1d5f13dd0cb8a211ee7c66fb39ab95215f0a15c107b0f8914f626c",
+      "local_path": "target/debug/deps/settlement_policy_cost-029c6d6ab5430eb6"
+    },
+    "partial_consumption": {
+      "sha256": "1c11cdaf1fc83d4beab434bd96ac57b9fb0a1aed0983c12a7e2228a407bb3f6e",
+      "local_path": "target/debug/deps/partial_consumption-82eeaa7316bc5f0b"
+    },
+    "settlement_policy": {
+      "sha256": "3f0363b9c2548fc3549cf506610aa7b9808b5bca561e703bb76f04fa97c4d921",
+      "local_path": "target/debug/deps/settlement_policy-76488f56117dac76"
+    },
+    "dynamic_admission": {
+      "sha256": "d5eafebf94e29875c8ebd12c2dbce01700f88fdf511bd0c35f78d7f8d4483278",
+      "local_path": "target/debug/deps/dynamic_admission-bf1ef46629729689"
+    }
+  },
+  "cases": [
+    {
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "artifacts": "artifacts/admission-main-alignment/correctness/ethereum_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "started_at": "2026-09-27T18:52:43.018229+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.75941885798238,
+      "finished_at": "2026-09-27T18:53:59.777802+00:00"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_low_byte_expensive_new_proxies_split_only_complete_groups",
+      "started_at": "2026-09-27T18:53:59.778152+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.89830623095622,
+      "finished_at": "2026-09-27T18:55:16.676555+00:00"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_packs_independent_work_after_a_gas_deferral_without_skipping_nonces",
+      "started_at": "2026-09-27T18:55:16.676850+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 67.33400847698795,
+      "finished_at": "2026-09-27T18:56:24.024836+00:00"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "artifacts": "artifacts/admission-main-alignment/correctness/ethereum_actual_companion_gas_reduces_whole_groups_before_proving",
+      "started_at": "2026-09-27T18:56:24.025514+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.49024636298418,
+      "finished_at": "2026-09-27T18:57:20.516002+00:00"
+    },
+    {
+      "suite": "settlement_policy_gas",
+      "test": "gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_actual_companion_gas_reduces_whole_groups_before_proving",
+      "started_at": "2026-09-27T18:57:20.516540+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 56.13251927099191,
+      "finished_at": "2026-09-27T18:58:16.649262+00:00"
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "test": "ethereum_receipts_use_bounded_fee_history_priority",
+      "artifacts": "artifacts/admission-main-alignment/correctness/ethereum_receipts_use_bounded_fee_history_priority",
+      "started_at": "2026-09-27T18:58:16.649802+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 28.71577647497179,
+      "finished_at": "2026-09-27T18:58:45.379237+00:00"
+    },
+    {
+      "suite": "settlement_policy_cost",
+      "test": "gnosis_receipts_use_bounded_fee_history_priority",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_receipts_use_bounded_fee_history_priority",
+      "started_at": "2026-09-27T18:58:45.379579+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 27.718202018004376,
+      "finished_at": "2026-09-27T18:59:13.097988+00:00"
+    },
+    {
+      "suite": "partial_consumption",
+      "test": "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "artifacts": "artifacts/admission-main-alignment/correctness/valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "started_at": "2026-09-27T18:59:13.098319+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 50.70264847704675,
+      "finished_at": "2026-09-27T19:00:03.814763+00:00"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_blocked_fee_sender_does_not_starve_independent_auto_work",
+      "started_at": "2026-09-27T19:00:03.815350+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 57.80173593497602,
+      "finished_at": "2026-09-27T19:01:01.630419+00:00"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_blocked_balance_sender_does_not_starve_independent_auto_work",
+      "started_at": "2026-09-27T19:01:01.630980+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 67.84646427998086,
+      "finished_at": "2026-09-27T19:02:09.488441+00:00"
+    },
+    {
+      "suite": "settlement_policy",
+      "test": "cross_chain_overrides_interval_and_validates_two_ordered_companions",
+      "artifacts": "artifacts/admission-main-alignment/correctness/cross_chain_overrides_interval_and_validates_two_ordered_companions",
+      "started_at": "2026-09-27T19:02:09.489003+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 47.440372007957194,
+      "finished_at": "2026-09-27T19:02:56.942730+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+      "artifacts": "artifacts/admission-main-alignment/correctness/existing_proxy_multicall_estimate_reaches_final_post_and_replays",
+      "started_at": "2026-09-27T19:02:56.943091+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 40.631696284981444,
+      "finished_at": "2026-09-27T19:03:37.574893+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+      "artifacts": "artifacts/admission-main-alignment/correctness/automatic_admission_static_only_exclusion_preserves_ordinary_descendants",
+      "started_at": "2026-09-27T19:03:37.575213+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 46.084014046995435,
+      "finished_at": "2026-09-27T19:04:23.673477+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "artifacts": "artifacts/admission-main-alignment/correctness/ethereum_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T19:04:23.673812+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.58436293597333,
+      "finished_at": "2026-09-27T19:05:15.271500+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "artifacts": "artifacts/admission-main-alignment/correctness/gnosis_explicit_preparation_mixed_wave_after_small_post_replays",
+      "started_at": "2026-09-27T19:05:15.271861+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 46.701306730974466,
+      "finished_at": "2026-09-27T19:06:01.973285+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_preserves_capacity_after_one_exclusion",
+      "artifacts": "artifacts/admission-main-alignment/correctness/automatic_selection_preserves_capacity_after_one_exclusion",
+      "started_at": "2026-09-27T19:06:01.973616+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 52.56237557705026,
+      "finished_at": "2026-09-27T19:06:54.549303+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+      "artifacts": "artifacts/admission-main-alignment/correctness/automatic_selection_backs_off_after_five_exclusions_and_retries_every_source",
+      "started_at": "2026-09-27T19:06:54.549652+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 76.17599303799216,
+      "finished_at": "2026-09-27T19:08:10.739004+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "artifacts": "artifacts/admission-main-alignment/correctness/automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "started_at": "2026-09-27T19:08:10.739353+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 51.64141098904656,
+      "finished_at": "2026-09-27T19:09:02.380889+00:00"
+    },
+    {
+      "suite": "dynamic_admission",
+      "test": "late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "artifacts": "artifacts/admission-main-alignment/correctness/late_original_settlement_replaces_the_timeout_branch_without_losing_users",
+      "started_at": "2026-09-27T19:09:02.381595+00:00",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_seconds": 60.34844058001181,
+      "finished_at": "2026-09-27T19:10:02.743993+00:00"
+    }
+  ]
+}

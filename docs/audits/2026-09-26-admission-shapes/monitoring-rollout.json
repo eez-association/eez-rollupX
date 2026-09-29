@@ -1,0 +1,9 @@
+{
+  "source": "036b50a3c7d0dee45e6308388a6233ded7a7d2ca",
+  "old_image": "sha256:ed6110a67333ee8c27e1a8ab4280e821ccd1e28cb15f38aa0fcfb1ac4577c253",
+  "new_image": "sha256:dbbd9467973c5b59cb83fdea23f2c437df21c5ec5dd9021ee3982ff1a4a331a2",
+  "container_id": "4aeefe32fa2508930689d655216dbb5a55c20e6fa013dd33645a6227a37578cb",
+  "mounts_preserved": true,
+  "environment_preserved": true,
+  "finished_at": "2026-09-26T12:12:19.097416+00:00"
+}

@@ -1,0 +1,63 @@
+{
+  "prepared_at": "2026-09-26T15:06:32.232618+00:00",
+  "start_block": 23240230,
+  "start_hash": "0x89010a221111da775d004b84ee45d1a9012b13b7361177279f1d2286f4cc1604",
+  "end_block": 23240247,
+  "end_hash": "0x3b497c5025f640d6f4480c65282dbf7e40a26c1c0d47ef09b3c298f4730ce1b0",
+  "beacon_slot": "25007778",
+  "validated_payloads": 17,
+  "forkchoice_owner": "unchanged Lighthouse",
+  "datadirs_preserved": true,
+  "after": {
+    "checked_at": "2026-09-26T15:07:11.545735+00:00",
+    "source": "85f3691cb9c7ccbf8c0b8700576733283e5af7fc",
+    "services": {
+      "eez-node": {
+        "image_id": "sha256:6db0ad2d2a470e11bfb1f0f35e49e103c65eef0eb9fccb951176d37130371f2f",
+        "running": true,
+        "health": null
+      },
+      "eez-proof-signer": {
+        "image_id": "sha256:8e2077def8877379ac074cf79328c78607f1ee0250111bb7b76a2884798c56cf",
+        "running": true,
+        "health": "healthy"
+      },
+      "eez-indexer": {
+        "image_id": "sha256:e14083fe5552baa199dd51b94cec27e64cc4cd7bd558011a2caf2a72540add2e",
+        "running": true,
+        "health": null
+      }
+    },
+    "heads": {
+      "L1": {
+        "number": 23240255,
+        "hash": "0x56140bf943daeeca9a8f414d1793e9636366f8af8166f1c754640b70d242dbde",
+        "age_seconds": 1.6177129745483398,
+        "syncing": false
+      },
+      "L2": {
+        "number": 75025,
+        "hash": "0x8e76097c46fdf6f8435e518d73641d7335482f3df51dd01c5f5408dbf1c5eaa5",
+        "age_seconds": 1.8524870872497559,
+        "syncing": false
+      }
+    },
+    "l1_matches_external_canonical": true,
+    "external_comparison_height": 23240253,
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": null,
+      "inFlight": 0,
+      "lastCanonicalCompletion": null,
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": null,
+      "unknown": 0
+    },
+    "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+    "dotenv_unchanged_except_two_images": true
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "eez-node-chiado": {
+    "id": "bc8265ad918805059d5e084608f16ed628c1120decd2fc650ba61848e095fe59",
+    "image": "sha256:6db0ad2d2a470e11bfb1f0f35e49e103c65eef0eb9fccb951176d37130371f2f",
+    "started_at": "2026-09-26T15:05:21.46721481Z",
+    "restart_count": 0
+  },
+  "eez-proof-signer-chiado": {
+    "id": "288e7b6119ea163564876e3d51a7c88106f1871e00dd68d183476c57874cf08c",
+    "image": "sha256:8e2077def8877379ac074cf79328c78607f1ee0250111bb7b76a2884798c56cf",
+    "started_at": "2026-09-26T15:05:15.062636165Z",
+    "restart_count": 0
+  },
+  "eez-monitoring-indexer-1": {
+    "id": "02d315e50b0f88724c2d0d54e37239e84f0a90a3dadacf059e4a8079caad650e",
+    "image": "sha256:e14083fe5552baa199dd51b94cec27e64cc4cd7bd558011a2caf2a72540add2e",
+    "started_at": "2026-09-26T14:33:47.622301643Z",
+    "restart_count": 0
+  }
+}

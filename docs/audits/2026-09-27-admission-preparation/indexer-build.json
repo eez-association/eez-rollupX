@@ -1,0 +1,28 @@
+{
+  "source": "e0b892ca17369954ba5230a884a2425eef2a20f7",
+  "tag": "eez-indexer:e0b892c-local",
+  "context_archive_sha256": "274c0847981b2e5cfb5a96823309a4783b46c396fda864e1631454b117e1fe79",
+  "started_at": "2026-09-27T10:31:26.220461+00:00",
+  "command": [
+    "docker",
+    "build",
+    "--builder",
+    "default",
+    "--platform",
+    "linux/amd64",
+    "--progress",
+    "plain",
+    "--label",
+    "org.opencontainers.image.revision=e0b892ca17369954ba5230a884a2425eef2a20f7",
+    "--label",
+    "org.eez.protocol.revision=9d13218a355e7d543ca8a9927eea2962600b716d",
+    "--iidfile",
+    "artifacts/admission-preparation/indexer-image.iid",
+    "--tag",
+    "eez-indexer:e0b892c-local",
+    "/tmp/eez-indexer-receipts-e0b892c/monitoring/indexer"
+  ],
+  "exit_code": 0,
+  "finished_at": "2026-09-27T10:32:28.286832+00:00",
+  "image_id": "sha256:66ac3bd579ac0d2c18d7b0b49edee1e431deaa3ed0d383f411742a8fee9e6e10"
+}

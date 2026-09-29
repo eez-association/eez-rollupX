@@ -32,7 +32,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_BLOBS_PER_BATCH` | No operator cap | Optional positive integer, additionally bounded by active network transaction/block and transport limits. Applies only to outgoing posts. |
 | `EEZ_MAX_POSTBATCH_GAS` | No operator cap | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. |
 | `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` for adaptive resource/time admission. Compose retains a numeric interpolation fallback of 12, but startup still requires the mandatory policy settings. Parsed once; restart to change. |
-| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Reserve preparation independently of proof and relay slack, with an exact millisecond trigger. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
+| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Planning allocation used with proof and slack for the exact millisecond trigger; cross-chain preparation and proving share the final submission deadline. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
 | `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
@@ -42,13 +42,24 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
-| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 2000 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
+| `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
 | `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
 
 Execution, blob, and gas margins use checked
 `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
 prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
+
+The gas-margin default is now 500 basis points (5%). Explicit values, including
+zero and the former 2000 default, override it; empty or malformed values are
+errors. Compose forwards the operator value to the node and leaves an absent
+setting to the runtime. Shipped Kurtosis profiles explicitly use 500, and its
+Starlark transport preserves supplied strings for runtime validation. Shell
+environment takes precedence over `.env`. Signers
+do not consume this operator margin. For mixed versions, explicitly set 500 to
+keep older Composers consistent. This changes future gas planning/signing only;
+no wire, database or follower-replay migration is required. Rollback restores
+the older default if the setting is absent, so preserve explicit operator values.
 
 Requests without L1 posting context are rejected.
 The batch, DA and signature formats remain unchanged.
@@ -59,59 +70,282 @@ and its successors stay queued; earlier nonces and independent source chains
 remain eligible. Fees are reevaluated each opportunity. Balance and nonce checks,
 full simulation, and final bundle validation still apply.
 
-With `EEZ_MAX_USER_TXS_PER_BUNDLE=auto`, the composer selects a finite FIFO
-prefix using preparation measurements from previous attempts. It starts with
-one group after restart. Once a sample exists, it considers the queued snapshot
-without an artificial doubling ramp and stops incrementally as measured time,
-gas or DA permits. It computes and caches each effect-prefix commitment during
-admission, charging that repeated execution to elapsed time, and reserves time
-for final block construction, encoding, KZG and witnesses before the existing
-proof cutoff. KZG is measured separately and scales with physical blobs. The
-composer adds 10% of the actual preparation window to calibrated finishing
-predictions for variation and the handoff to proving. Without a calibrated
-relationship, it takes the larger of a full admission pass and the observed
-non-KZG finishing cost plus that allowance, then adds KZG. This preserves the
-conservative fallback without counting its headroom twice after a small post.
-Group-start and pre-append checks both use that reserve.
-The proof-time budget and absolute cutoff are unchanged. The finishing estimate
-uses the observed relationship between accepted-group work and non-KZG finishing
-time, with the previous finishing sample as a floor.
-Only complete, consistently measured accepted groups train that relationship.
-If the finish-time check refuses the next group before it is appended, discard
-that group's measurement and retain the valid accepted prefix. Its rejected
-work and prospective extra blob never reduce the reserve. Source deferrals,
-unknown or inconsistent measurements, failed appends and rebuilt candidates
-retain the conservative full-admission-pass reserve. An untouched FIFO suffix
-contributes no measurement.
-A smaller candidate may scale the prior sample down; growth uses the current
-measured work without multiplying a small post's fixed overhead.
-The `admission.prepared` event reports admission, finishing and blob timings,
-the available window and its `jitter_reserve_ms`, accepted-group work, and whether
-that sample qualified for calibration.
-Crossing a blob boundary rechecks the preparation allowance before accepting
-the complete group. Incomplete preparation, failed submission, or a capacity
-cut that bypasses older eligible FIFO work reduces the next selection. A
-failed preparation halves the actual admitted workload, or the final prepared
-group count after a rebuild, instead of halving a potentially much larger queued
-snapshot. Without an admitted group, the existing lookahead/probe backoff applies.
-A successful FIFO prefix does not impose a redundant count cap on the next slot.
-The backoff still prevents outbound-first execution from indefinitely bypassing
-an older inbound transaction.
-If the time estimate prevents even the first group from being admitted, the
-next opportunity makes a bounded one-group probe and learns again. A stale
-slow sample cannot permanently freeze admission. This discards only the
-performance estimate; all resource/deadline checks still apply. Source-state
-waits and transport failures keep their existing retry behavior.
-After canonical reconciliation identifies an excluded or partially consumed
-submission, automatic admission reduces its next selection too. Source
-dispositions, nonce rules, and actual-submission attempt accounting remain
-authoritative; a relay error alone never proves that nothing executed.
-A strict timestamp gap between consecutive canonical L1 headers can establish
-that the target slot did not exist. When that evidence matches the completed
-canonical scan, the observer conclusively reports uncharged exclusion, no post
-or settlement was applied, and every source can retry, admission retains its
-existing estimate. `admission.skipped_slot` records this decision. Actual exclusions,
-partial consumption and uncertain or unavailable evidence retain backoff.
+With `EEZ_MAX_USER_TXS_PER_BUNDLE=auto`, the composer considers a finite FIFO
+queue snapshot from the first candidate. There is no mandatory one-source
+calibration post. Group-start and pre-append checks reserve the remaining
+build/encoding/KZG/witness work, proving and finalization. Whole source groups,
+nonce dependencies, gas, blob and L2 bounds still apply. The cold finishing seed
+is the larger of elapsed admission work and 100 ms, plus 250 ms per physical
+blob; these are planning estimates, not consensus limits. See the
+[validation record](audits/2026-09-26-admission-throughput/README.md) for measured
+profiles and remaining limits.
+
+Canonical effect-prefix hashing retains one candidate-local execution
+checkpoint. Reuse requires the same raw transaction prefix, parent and block
+environment. A changed or shorter prefix discards it; any construction error
+invalidates it. The checkpoint contains pre-finalization state, receipts and
+gas accounting. Each prefix is finalized separately through Reth, preventing
+post-block changes from reaching the next transaction's pre-state. Canonical
+append, the final full block rebuild, witness replay and signer validation are
+independent. This changes local preparation work only: no protocol, ABI,
+configuration, persistent storage or follower replay migration is required.
+
+Blob admission uses a bounded encoded-size estimate before KZG work. The final
+assembled batch still requires its real blob bytes, commitments and propagation
+proofs. `prefix_hash_ms`, `prefix_hash_executed_tx_count`, `blob_preparation_ms`
+and `witness_preparation_ms` expose preparation subintervals in retained admission
+events. Existing collectors accept these optional details; historical values
+remain absent. They are included in total preparation time, not added to it.
+
+If the uncalibrated proof allocation would reject even the first group forever,
+one complete group may probe the available window. This retains the finishing
+and finalization reserves plus a 25 ms minimum proof opportunity, and proving
+still uses the original shared deadline. The summary records `cold_timing_probe`.
+This fallback applies only when the normal estimate refuses that first group;
+it does not cap cold batches that already fit the complete estimate.
+
+For exact-target cross-chain candidates, the exclusive deadline is target time
+minus submission slack. `EEZ_PREPARATION_TIME_MS` and `EEZ_PROOF_TIME_MS` control
+scheduling estimates; they are not separate hard stage limits. Preparation can
+run beyond its allocation and continue proving the same accepted candidate.
+Proving uses the remaining deadline less finalization/delivery reserve; retries,
+streaming and cache repair cannot reset that window. A fast preparation can
+leave more time for a slow proof. A true window failure keeps source ownership
+and produces an empty local Sync when required, without an unproved or substitute
+empty L1 posting. Late scheduler entry uses this same cross-chain policy.
+Ordinary-only exact-target posting and `NextBlock` keep their prior timing rules.
+
+Preparation learns consistently measured group work and finishing/KZG cost.
+Only complete measured groups train the finishing relationship; failed appends,
+rebuilds and source-state waits retain conservative estimates. The calibrated
+finishing reserve includes 10% of the available window for variation. A rejected
+next group does not invalidate the accepted prefix's clean sample. Proof and
+finalization retain at most 32 observations per rollup and stage, with 25%
+headroom. Proof samples covering the requested group, physical blob and witness
+block counts are used directly. Otherwise, observed durations scale upward by
+the largest ratio across those three dimensions. From `strict-fifo-7`, a sample's
+scaling term is superseded only by an observation that took at least as long and
+supplies at least as much of every requested dimension, strictly more of one.
+Observed counts are clipped to the request only for this comparison: excess
+history in an old sparse sample cannot prevent learning from a wider measured
+batch with sufficient history. Incomparable observations, including greater
+witness/blob coverage or a more expensive sparse proof, retain their scaling
+terms. This avoids multiplying fixed overhead from a one-group observation after
+larger proofs have been measured. All observations still contribute to the
+slowest measured proof floor. Scaling uses a denominator of one for zero observed
+counts. The prediction is capped at the greater of the configured proof seed and
+the slowest observed proof with headroom, with a 25 ms floor. A larger request never scales
+below an already observed slower proof. With no proof
+observations the configured seed applies. This is a scheduling estimate, not a
+proof completion guarantee; the shared deadline remains authoritative. Each proof
+request records the estimate and its `configured_seed`, `covering_sample` or
+`scaled_sample` basis. Finalization only uses covering observations and reserves
+at least 150 ms, including 25 ms for delivery. These samples are in
+memory and are discarded on restart; they are not durable queue state.
+
+A nominal preparation overrun or infrastructure error does not halve selection.
+A full proving-window failure can reduce the next selection using admitted work,
+while a resource cut does not impose a FIFO count backoff. Admission is strict
+FIFO across batches among eligible requests, in both directions. A gas/blob/L2
+capacity refusal stops younger work; a cheaper independent source cannot bypass
+it. Within one batch, execution retains the signer's canonical outbound-first
+order. If that execution order leaves an older eligible inbound out after
+accepting younger outbounds, discard the speculative candidate and rebuild the
+FIFO prefix including the first omitted source before proving. Start its width
+at the number of complete groups just simulated, rather than always stopping at
+the first omitted source; differing source costs may require further cuts. All
+effects are recomputed against the same parent and target, under the original
+shared deadline. Each rebuild strictly shortens the snapshot; a concurrently enlarged
+prefix waits for a fresh opportunity. Fitting mixed snapshots still use one batch.
+
+When rebuilding cannot finish in time, the held pool remembers the retry prefix's
+first and last sender/direction/nonce identities. The last identity bounds the
+next snapshot. Repeated attempts
+cannot submit younger sources without the older eligible requests. Replacements inherit
+their positions. Canonical resolution of the first source clears the boundary,
+so an unconsumed suffix can share the next batch with younger work, subject to
+the same FIFO validation. A receipt, relay acceptance, or partial consumption
+that leaves the first source unresolved does not establish this progress.
+Removal or consumption of the last source, or a classified source condition
+blocking that source's nonce chain, also clears the boundary. This is an
+in-memory scheduling boundary, not a learned transaction count or a settlement
+failure.
+
+Discarded preparation remains elapsed time against the same deadline. A rebuild
+resets the candidate's blob/group observations and predicts future work using
+only the replacement's elapsed preparation. Its finishing sample likewise excludes
+discarded work. Do not divide the old pass's elapsed time by the replacement's
+smaller source count or reserve KZG for blobs discarded with that pass. Rebuild
+samples retain the conservative uncalibrated finishing estimate; final execution
+and deadline checks remain authoritative.
+
+Queue snapshots no longer promote a younger chain
+merely because it was not visited. Nonce, fee, balance and escrow waits remain
+eligibility exceptions; independent eligible sources can proceed. Discarded
+simulations retain ownership without charging attempts. If a stale
+estimate blocks every group, the next opportunity makes a bounded probe under
+all resource/deadline checks. Canonically observed, charged exclusions or partial
+consumption in produced blocks increment an in-memory failure streak per rollup.
+Automatic admission preserves selection on failures one through four; the fifth
+and later consecutive qualifying failures halve the next submitted-group allowance
+(minimum one). Complete canonical settlement of a nonempty source batch resets
+this streak and any submission limit. Preparation success and relay acknowledgement
+do not reset it. Skipped targets and uncertain observations do not change it.
+Real pipeline deadline limits still apply immediately and are not cleared by
+canonical success. A strict timestamp gap
+between consecutive canonical headers proves the old target was never produced;
+that target cannot train capacity even if some of its sources completed in a
+replacement. Source dispositions and replacement ownership still reconcile
+independently. `admission.skipped_slot` records this distinction.
+
+Automatic submitted-attempt reconciliation permits six cumulative charged
+failures per source, allowing a smaller retry after the fifth exclusion. Numeric
+admission retains its three-failure limit. Prover/immediate relay rejection also
+retains its three-failure bound on the same cumulative source episode counter;
+switching failure paths never resets a source's counter. Only eligible unspent
+sources retry; spent nonces, partial consumption and dependent nonce eviction
+retain their existing dispositions. This is separate from the per-rollup
+consecutive admission streak. Both counters are in memory and lost on restart.
+
+The legacy deferred-entry gas model can discount six fixed storage words that
+are already nonzero in the exact canonical parent. It discounts 15,000 gas per
+observed word; dynamic result storage, unknown shapes and speculative writes earn
+no such discount. The existing shape and 128-entry limits remain. Final full-ABI
+projection and exact signed-bundle native execution still validate gas and every
+intended effect. This is not a receipt-ratio discount.
+
+Estimator `companion-input-8` retains the `companion-storage-6` posting model
+(storage inventory introduced in `companion-storage-4`), which inventories
+bounded retained callback and result storage.
+For supported deferred entries it reserves 35,000 per entry, 8,000 per
+callback/result row, 3,000 per zero-to-zero storage word, and 6,000 per other
+written word. A nonzero new word whose canonical-parent value is zero or unknown
+adds 17,000, retaining the previous 23,000 fresh-write allowance. Old words
+outside the new layout add 3,000 if zero or 6,000 if nonzero for truncation;
+refunds are never credited. Version 5 charged 8,000 for every word plus 15,000
+for fresh nonzero words.
+The lower of this measured reserve and the previous reserve is used.
+New words absent from the old inventory pay the fresh allowance. Roots and rolling
+hashes are priced as nonzero before stitching. The current and old layouts are
+bounded to one root update, four total callbacks, four nested result rows,
+256-byte callback input and 256-byte results (64 in `deferred-storage-3`). Current
+entries/calls are own-rollup and zero-value. Posting can store reverted entries,
+static/revert-span/explicit-gas call flags, and reverted/static nested rows within
+these bounds. Packed flags count as a nonzero word even with a zero source address.
+Nested rolling hashes reserve a nonzero word before stitching; the position key
+alone does not reveal the nested call mode. Other unmeasured shapes keep the
+previous estimate. Parent inventory
+reads are bounded before narrowing lengths or walking arrays, including inactive
+mapping slots. No writes in a speculative candidate earn reuse credit.
+
+These storage prices cover posting. Companion execution adds measured L1 source
+gas, separately measured L1 callback application gas (including reverted work),
+and bounded protocol overhead. Intercepted callbacks return their gas to the
+source caller, so source gas alone omits that work. Version 7 reserves 70,000 per
+root entry, 35,000 per callback, 25,000 per nested result row, 25,000 per nonzero
+revert span marker, and 2,300 per 32-byte input/result word. Version 8 prices
+validated nested input lengths with a four-word minimum (see the refinement
+below); version 7 charged every nested input at its 256-byte bound. Queue scans cost 2,600 per preceding
+deferred entry or 12,500 for a matching identity requiring root checks. These
+terms are checked against cold-frame fixtures at the pinned protocol revision;
+they are bounded admission estimates, not universal EVM gas guarantees.
+
+The measured family permits one to four sequential root entries per source,
+up to four callbacks and four nested result rows per entry, 256-byte root/callback
+inputs and root results, 64-byte successful callback/nested results, own-rollup
+zero-value mutable calls and implicit gas forwarding. The bounded forest covers
+root L2 calls, L1 callbacks, L2 reentries and leaf L1 callbacks. Reverted root
+results and bounded callback revert spans are supported; deeper recursion,
+static calls, explicit callback gas and unsupported outcomes use the full signed
+companion limit. Every callback proxy must already be registered in the canonical
+parent. These are admission profiles, not an extension of the signer profile.
+
+The combined prediction is capped at the signed limit: an uncertain prediction
+cannot establish source invalidity. A successful-looking root does not prove
+that the source advanced the cursor; an outer revert can undo it. The full
+accepted prefix, including preceding roots of this same source, is charged for
+each scan. Final ordered native execution still checks actual consumption,
+required gas, signed limits and complete effects. Receipt ratios do not replace
+these checks.
+
+The existing 128-total-entry limit, full-calldata projection and final
+ordered native validation still apply. No protocol pin, ABI, signer profile,
+configuration, runtime database or historical follower decoding changes are required.
+
+The retained `eez.composer.admission.v1` event family records each candidate,
+source gas decision, summary (including no-cut batches), proof/preflight/delivery
+timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
+for estimate/receipt joins, missing-event reporting and CSV export. Version
+`strict-fifo-7` adds the request-relative proof scaling described above;
+`strict-fifo-6` releases a retained repair boundary on canonical head progress;
+`strict-fifo-5` introduced FIFO prefix repair alongside the five-failure submission tolerance
+introduced by `confirmed-failure-backoff-4`. It retains the capacity minimum
+checks of `packing-minimum-check-3` and supersedes version 2's FIFO preference.
+Historical `shared-deadline-1` events retain their former FIFO count semantics. Version 3 checks a minimum contribution before source
+execution: 70,000 per outbound entry or 65,000 per inbound entry, zero calldata/
+target gas and zero new companion consumption. It uses the same budget arithmetic,
+including discount revocation, previously accepted companions and the new inbound
+source's signed start requirement. L2 checks retain the existing declared/system
+gas requirement. These are lower bounds on the admission model, not measurements
+of actual execution. A miss retains the source without charging an attempt and
+retains the complete younger suffix under `strict-fifo-5`; earlier policies
+allowed independent younger sources to pass it. Empty candidates still run
+normal simulation/classification. Cheap checks do not train
+execution timing samples. No execution estimate is cached across changed state.
+
+Estimator `candidate-framing-9` replaces the fixed 600,000 admission reserve
+with a bound on each candidate's calldata. It counts the native single-rollup
+ECDSA envelope/anchor, up to 128 proof bytes, and the target fork/operator's
+maximum permitted blob indices. Each source adds its encoded entries plus
+allowance for one root update per mutable entry, one pin per static entry,
+position/rolling hashes and dynamic offsets. Actual payload bytes remain in
+native blobs. The envelope is sized once, with per-source work only; accepted
+prefixes are not re-encoded and KZG is not run for these estimates.
+
+Admission compares the complete bound (including the active EIP-7623 floor)
+against the margin-adjusted transaction budget and the original ordered
+companion start requirements. Static pools revoke the same execution discounts
+as final batch sizing, including the cheaper anchor. Unsupported entry shapes
+retain general execution pins; metadata costs grow with their actual arrays.
+Estimator `candidate-framing-10` checks both inbound possibilities before a
+cheap rejection: the minimum mutable entry and a static-only group with zero
+mutable entries that restores general execution pins. Empty calls are rejected
+by composition, so every valid source belongs to one of these possibilities.
+Both must fail before simulation can be skipped. The inbound L2 lower bound is
+zero because static-only lookups need no L2 delivery transaction. This preserves static-only work
+without pricing it as a free addition to a discounted mutable batch. The checks
+are lower bounds, not full execution or calldata estimates. Final native execution at signed gas limits,
+the shared deadline and whole-group handling remain unchanged.
+
+`projected_gas` retains the incremental execution/original-calldata projection.
+New summary fields separate `framing_reserve_gas`, `full_estimate_gas`,
+`calldata_bound_gas`, floor activation, general execution pricing and configured
+margin. `planning_cap` now bounds the full estimate, rather than subtracting a
+fixed reserve in advance. Source events expose framing and full totals before
+and after the gas gate. The after-values are provisional: a later blob or timing
+gate can still defer the source. Use its source outcome to establish acceptance;
+rejected groups leave the accumulated ledger unchanged.
+Cheap-check events add `minimum_mutable_entry_gas` and
+`minimum_static_general_fallback`; `minimum_entry_gas` retains the zero inbound
+minimum for compatibility. Historical estimator versions keep their old meanings. Existing collectors can
+retain the additive fields without a database migration; update the dashboard
+before or after Composer and preserve historical events/checkpoints on rollback.
+
+Version 4 candidate `started` records add nullable `submission_failure_streak`
+and `submission_backoff_threshold` details, displayed in Grafana's preparation
+table. Numeric admission leaves these null. Existing collectors accept these
+details without a schema change; historical candidates remain null. Version 7
+uses the existing gas fields. Upgrading or downgrading Composer changes future
+admission and in-memory retry behavior only; mixed-version signers/followers
+retain the same protocol contract and historical replay. Preserve monitoring
+history and checkpoints on rollback. A restart still requires clients to
+reconcile and potentially resubmit unsettled work.
+
+Deploy the additive collector/schema/dashboard before the new Composer. Collectors
+that understand admission events but predate `source_capacity_check` reject that
+unknown kind; old histories retain null bounds and counters. Rollback can leave those
+additive tables and checkpoints in place. No ABI, storage migration, protocol
+pin or signer-profile change is required.
 
 Complete groups must fit L2 block gas, the active L1 transaction and whole-bundle
 gas budgets, and the remaining blob allowance after companion transactions.
@@ -129,7 +363,7 @@ not a measurement that a merged candidate exhausted consensus capacity. See
 the [mixed-workload packing audit](audits/2026-09-15-chiado-settlement-review/packing-improvement.md)
 for the remaining distinction and the validated improvement.
 
-At protocol `9d13218`, bounded simple deferred entries reserve gas according
+At protocol `9d13218`, the legacy simple deferred-entry reserve is priced according
 to their return-data storage: 230,000 for 0–31 bytes, 250,000 for 32 bytes,
 and 270,000 for 33–64 bytes, provided the corresponding retained queue mapping
 slot is empty or contains only one root update, no nested/callback rows, and
@@ -138,8 +372,19 @@ from the canonical L1 parent, including inactive slots beyond the current
 queue length. An unknown, oversized, or unreadable slot keeps the 370,000
 reserve. One successful simple call through a proxy registered
 at the canonical parent reserves 70,000, plus its measured L1 target execution.
-New proxies and complex,
-nested, reverting or larger entries retain the existing 370,000 reserve.
+The `bounded-calls-2` estimator also prices a successful immediate entry with
+multiple calls or nested results at 70,000 for its first L1 call, 40,000 per
+additional L1 call (including callbacks), and 35,000 per nested result row.
+This family permits at most four L1 calls and four result rows; all calls use
+registered canonical-parent proxies, zero value, implicit gas forwarding,
+mutable successful execution, at most 256 input bytes and 64 result bytes.
+The measured topology is top-level L1 calls, L2 reentries and leaf L1 callbacks;
+deeper recursion, forced reverts and static rows retain the general reserve.
+Call/result evidence stays bound to the accepted occurrence through root
+stitching and final ABI sizing. These immediate rows use transient storage;
+deferred queue entries use the separate storage models above.
+New proxies and unmeasured immediate shapes retain the existing
+370,000 reserve. Actual target execution is added separately in every case.
 The measured simple family permits up to 64 result bytes; an immediate call
 also permits at most 256 input bytes and requires its entry result to be empty.
 Calldata, the fork-specific calldata floor, companion execution and the
@@ -161,6 +406,35 @@ count cap. The `admission.gas_projection` event retains its
 `prior_cleanup_gas` compatibility field, now zero with this protocol pin;
 `gas_budget_cut` also reports the applied entry discount. Final ordered native
 execution remains mandatory before submission.
+
+Admission telemetry keeps the finite snapshot (`selected`) separate from the
+effective `selection_limit` and its originating reason. Summary reasons identify
+gas/blob/time cuts, `configured_count_limit`,
+`submission_backoff`, `pipeline_deadline_backoff`, `preparation_probe_limit`,
+`snapshot_exhausted`, or `eligible_sources_exhausted`. A resource cut takes
+precedence if it occurs before reaching the count cap. Snapshot exhaustion does
+not describe arrivals after the snapshot. These observations do not change the
+retry or ownership rules. `fifo_fairness_limit` is historical only. Policy
+`strict-fifo-5` uses `fifo_prefix_rebuild` for a discarded non-FIFO simulation and
+`fifo_prefix_limit` when its queue boundary restricts the next opportunity.
+`fifo_prefix_len` identifies the repair prefix; `fifo_trigger` retains the gas or
+pipeline refusal that caused it. `fifo_bypassed=true` may describe a discarded
+candidate, which must never reach proving/submission; its replacement is linked
+by `rebuild_of`. Successful candidates have `fifo_bypassed=false`. The summary's
+`capacity_deferrals` counts each individually rejected group by reason, even when
+older work fits in the later execution phase or a deadline ends discovery. Each
+examined rejected source retains its own outcome reason. Younger sources beyond
+the FIFO cutoff remain unexamined and have no simulated gas estimate;
+`not_examined_count` and `selection_filtered_count` expose that suffix. New source records additionally
+separate entry reserve, L1 call count and nested result count from target gas.
+
+The new fields are additive within the existing admission event family.
+Upgrade the monitoring views/dashboard before Composer. Old events retain
+unknown selection limits/causes; no historical backfill is inferred. There is
+no configuration, consensus/storage encoding, follower-replay or signer-profile
+change. Runtime rollback retains the normal in-memory queue recovery boundary.
+Keep the upgraded indexer/views on runtime rollback: an older indexer's startup
+DDL cannot replace a view while dropping its newly appended columns.
 The incremental blob estimate includes derivation metadata, semantic messages,
 and V0 RLP byte-string wrappers for full blocks and entries. Ordinary blocks use
 compact counts, sparse overrides and transaction byte strings. Unknown execution
@@ -293,15 +567,18 @@ example, a 5-second/1-second profile with preparation 500 ms, proof 750 ms and
 slack 700 ms triggers at 3.05 seconds after its anchor. This is the packaged
 Chiado preset, not a latency guarantee. Size proof and preparation for large
 historical batches as well as small bridges. The setting requires a node restart;
-all absolute proof and submission deadlines remain enforced.
+the applicable proof policy and absolute submission deadline remain enforced.
 If the expected L1 block is still absent at the following preparation deadline,
-the scheduler permits one replacement opportunity on the same parent, with the
-same target execution height and a timestamp one slot later. The Composer
-rebuilds its speculative suffix and retains the old submission as history;
+the scheduler permits up to four replacement opportunities on the same parent.
+Each retains the target execution height and advances its timestamp one slot.
+The Composer rebuilds its speculative suffix and retains all old submissions as history;
 canonical replay resolves late original inclusion. This does not classify the
 slot as skipped or charge user retries. No new timer setting is introduced.
-One additional opportunity per observed L1 head bounds work during an outage;
-a second consecutive missing slot waits for a new head. See
+The shared scheduler/submission bound limits an outage to five target opportunities
+per observed L1 head, including the original. Exhaustion logs
+`eez.slot.l1_anchored.replacement_limit` and waits for a new head. Older Composers
+retain one replacement; this extension needs only a Composer upgrade and has no
+wire, signer, follower or storage migration. See
 [settlement ownership](../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 On the 5-second/1-second Chiado grid, this preset reserves two Future blocks
 per interval rather than one with the former 500 ms proof budget.
@@ -393,3 +670,48 @@ fixture state before killing the process.
 
 Packing format is unchanged. Multi-blob batches are preferred; splitting uses
 valid historical boundaries only when actual blob or gas capacity requires it.
+
+### Nested-input companion refinement
+
+Estimator `companion-input-8` keeps version 7's queue, callback, row and rollback
+reserves. After validating the bounded action forest, each nested input pays
+2,300 gas per rounded 32-byte word, with a minimum of four words and maximum of
+eight. The minimum covers measured repeated expected-table copying; empty input
+does not make that work free. Previously every nested input paid eight words.
+Unsupported shapes and inconsistent action evidence retain the signed gas limit.
+The discount is an admission prediction; ordered native execution still checks
+the complete signed bundle against the same target. Posting gas is unchanged.
+
+Delivery events now add optional relay bundle hash, exact target/parent,
+transaction count and remaining shared deadline after acknowledgement. A relay
+hash is accepted only as a 32-byte correlation identifier; absent or malformed
+identifiers stay null without changing acknowledgement semantics. Neither a
+hash nor an acknowledgement proves inclusion. Historical readers use null for
+missing fields. No RPC, storage or protocol migration is needed; upgrade the
+Composer and dashboard independently. Rolling back removes the discount and new
+observations without changing historical decoding or follower replay.
+
+### FIFO policy compatibility
+
+FIFO prefix repair changes Composer scheduling only. The protocol pin, wire
+profile, historical decoding, follower replay, signer validation and operator
+settings are unchanged. Existing collectors accept the new policy/reason strings
+and optional detail fields; historical reasons remain valid. Upgrade the Composer
+to enforce this policy; older Composers retain relaxed admission. No storage
+migration is required. Restart loses pending in-memory queue state and its FIFO
+boundary under the existing recovery contract; clients may need to resubmit.
+FIFO constrains the proposed source set. L1 partial consumption can still omit
+inbound companions from that same proposal; canonical reconciliation retains
+and retries eligible omitted sources under the existing contract. Rollback
+from version 6 to version 5 retains strict FIFO but can strand a partially
+consumed repair prefix in a small batch; earlier policies restore relaxed
+scheduling. Version 6 needs only a Composer upgrade; signers, followers and
+collectors can run mixed versions under the unchanged wire/event schema.
+Reorg reconciliation restores source ownership and order; a cleared scheduling
+boundary does not authorize execution, eviction, or canonical completion.
+Version 7 changes only Composer's in-memory proof timing estimate. It retains
+version 6's FIFO behavior, existing event fields and all actual deadline gates.
+Rollback restores the older extrapolation; no queue, database or wire migration
+is required, and older collectors continue to accept the version string.
+The separate main-branch Reth
+existing-database compatibility limits still apply to deployment.

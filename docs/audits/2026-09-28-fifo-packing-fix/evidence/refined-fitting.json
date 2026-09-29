@@ -1,0 +1,320 @@
+{
+  "source": "ca370742920852ad1105df4e40d70625d8749145",
+  "status": "completed",
+  "variants": {
+    "baseline": {
+      "waves": 4,
+      "sources": 120,
+      "cutoffs": {
+        "snapshot_exhausted": 4
+      },
+      "receipt_gas_coverage": 4,
+      "preparation_ms": {
+        "count": 4,
+        "mean": 151,
+        "median": 143.5,
+        "min": 84,
+        "max": 233
+      },
+      "prefix_hash_ms": {
+        "count": 4,
+        "mean": 11.81981375,
+        "median": 11.7639705,
+        "min": 11.114384999999999,
+        "max": 12.636929
+      },
+      "proof_ms": {
+        "count": 4,
+        "mean": 43.62238025,
+        "median": 40.2589415,
+        "min": 39.647693,
+        "max": 54.323945
+      },
+      "blob_ms": {
+        "count": 4,
+        "mean": 118.30689425,
+        "median": 111.80417650000001,
+        "min": 50.178875999999995,
+        "max": 199.440348
+      },
+      "witness_ms": {
+        "count": 4,
+        "mean": 3.0112745,
+        "median": 2.896353,
+        "min": 2.598589,
+        "max": 3.6538030000000004
+      },
+      "finalization_ms": {
+        "count": 4,
+        "mean": 66.40771375,
+        "median": 67.10136499999999,
+        "min": 25.190141,
+        "max": 106.237984
+      },
+      "delivery_ms": {
+        "count": 4,
+        "mean": 17.82003725,
+        "median": 17.4745835,
+        "min": 11.672262,
+        "max": 24.65872
+      },
+      "pipeline_ms": {
+        "count": 4,
+        "mean": 280.3790215,
+        "median": 269.43871,
+        "min": 163.228626,
+        "max": 419.41004
+      },
+      "full_estimate_gas": {
+        "count": 4,
+        "mean": 6832743,
+        "median": 6832743.0,
+        "min": 3445207,
+        "max": 10220279
+      },
+      "full_projection_gas": {
+        "count": 4,
+        "mean": 6771861,
+        "median": 6771867.0,
+        "min": 3385343,
+        "max": 10158367
+      },
+      "native_used_gas": {
+        "count": 4,
+        "mean": 3334795,
+        "median": 3334795.0,
+        "min": 1619856,
+        "max": 5049734
+      },
+      "framing_gas": {
+        "count": 4,
+        "mean": 121792,
+        "median": 121792.0,
+        "min": 120768,
+        "max": 122816
+      }
+    },
+    "candidate": {
+      "waves": 4,
+      "sources": 120,
+      "cutoffs": {
+        "snapshot_exhausted": 4
+      },
+      "receipt_gas_coverage": 4,
+      "preparation_ms": {
+        "count": 4,
+        "mean": 142.25,
+        "median": 145.5,
+        "min": 87,
+        "max": 191
+      },
+      "prefix_hash_ms": {
+        "count": 4,
+        "mean": 13.099675,
+        "median": 11.8883265,
+        "min": 10.508708,
+        "max": 18.113339
+      },
+      "proof_ms": {
+        "count": 4,
+        "mean": 47.4704225,
+        "median": 45.500183,
+        "min": 42.459005,
+        "max": 56.422319
+      },
+      "blob_ms": {
+        "count": 4,
+        "mean": 105.53503225,
+        "median": 105.6399275,
+        "min": 52.745481,
+        "max": 158.114793
+      },
+      "witness_ms": {
+        "count": 4,
+        "mean": 3.01118625,
+        "median": 2.95581,
+        "min": 2.610608,
+        "max": 3.522517
+      },
+      "finalization_ms": {
+        "count": 4,
+        "mean": 84.829801,
+        "median": 72.862735,
+        "min": 23.046305999999998,
+        "max": 170.547428
+      },
+      "delivery_ms": {
+        "count": 4,
+        "mean": 19.11323475,
+        "median": 18.491257,
+        "min": 6.497758999999999,
+        "max": 32.972666
+      },
+      "pipeline_ms": {
+        "count": 4,
+        "mean": 295.586909,
+        "median": 276.046421,
+        "min": 177.193528,
+        "max": 453.06126600000005
+      },
+      "full_estimate_gas": {
+        "count": 4,
+        "mean": 6832743,
+        "median": 6832743.0,
+        "min": 3445207,
+        "max": 10220279
+      },
+      "full_projection_gas": {
+        "count": 4,
+        "mean": 6771807,
+        "median": 6771807.0,
+        "min": 3385247,
+        "max": 10158367
+      },
+      "native_used_gas": {
+        "count": 4,
+        "mean": 3334753,
+        "median": 3334753.0,
+        "min": 1619760,
+        "max": 5049746
+      },
+      "framing_gas": {
+        "count": 4,
+        "mean": 121792,
+        "median": 121792.0,
+        "min": 120768,
+        "max": 122816
+      }
+    }
+  },
+  "paired_waves": 4,
+  "pair_ratios": {
+    "preparation_ms_ratio": {
+      "count": 4,
+      "mean": 0.995111128142244,
+      "median": 0.9775,
+      "min": 0.8111587982832618,
+      "max": 1.2142857142857142
+    },
+    "proof_ms_ratio": {
+      "count": 4,
+      "mean": 1.113763925573485,
+      "median": 1.1145718039444188,
+      "min": 0.8051233392567495,
+      "max": 1.4207887551483536
+    },
+    "pipeline_ms_ratio": {
+      "count": 4,
+      "mean": 1.0653922274349616,
+      "median": 1.0736300901952485,
+      "min": 0.8869222920843765,
+      "max": 1.2273864372649737
+    }
+  },
+  "cases": [
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.84772216901183,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 1
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 54.12825172499288,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "candidate",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 53.856116987997666,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {},
+      "setup_failures_before_first_source_selection": {},
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    },
+    {
+      "variant": "baseline",
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "duration_seconds": 51.99736983299954,
+      "candidate_count": 2,
+      "summary_reasons": {
+        "snapshot_exhausted": 2
+      },
+      "failed_posting_stages": {
+        "preparation_failed": 2
+      },
+      "setup_failures_before_first_source_selection": {
+        "prover_unavailable": 1,
+        "prover_deadline": 1
+      },
+      "failures_after_first_source_selection": 0,
+      "admission_cuts": 0
+    }
+  ],
+  "pairs": [
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 0.955,
+      "proof_ms_ratio": 1.4207887551483536,
+      "pipeline_ms_ratio": 1.2273864372649737
+    },
+    {
+      "repetition": 1,
+      "test": "ethereum_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 0.8111587982832618,
+      "proof_ms_ratio": 0.8051233392567495,
+      "pipeline_ms_ratio": 0.8869222920843765
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 1,
+      "sources": 30,
+      "preparation_ms_ratio": 1.2142857142857142,
+      "proof_ms_ratio": 1.070907328706364,
+      "pipeline_ms_ratio": 1.1034138583020359
+    },
+    {
+      "repetition": 1,
+      "test": "gnosis_cold_and_warm_fitting_waves_have_no_calibration_post",
+      "wave": 2,
+      "sources": 30,
+      "preparation_ms_ratio": 1.0,
+      "proof_ms_ratio": 1.1582362791824734,
+      "pipeline_ms_ratio": 1.043846322088461
+    }
+  ],
+  "local_only_log_inventory": "artifacts/fifo-packing-fix-20260928/refined/comparison-log-hashes.json"
+}

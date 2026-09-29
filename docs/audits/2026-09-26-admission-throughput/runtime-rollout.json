@@ -1,0 +1,62 @@
+{
+  "started_at": "2026-09-26T10:12:27.994750+00:00",
+  "source": "b352124d80f7ba9309fbb529450b7ba5270e16f7",
+  "mode": "runtime",
+  "queue_before": {
+    "blocked": 0,
+    "blockedReasons": {},
+    "evaluatedAtMs": 1790409963109,
+    "inFlight": 0,
+    "lastCanonicalCompletion": {
+      "l1Block": {
+        "hash": "0xccb82b86b1877daf401063421997cefcbabe4ab4d93f5c02e3b234e764e44335",
+        "number": 23235725
+      },
+      "observedAtMs": 1790409966095
+    },
+    "oldestPendingAgeMs": null,
+    "oldestServiceAgeMs": null,
+    "queued": 0,
+    "ready": 0,
+    "sourceState": {
+      "l1": {
+        "hash": "0x8fd01b3f1406642e75986806b8f4d2edcdc6ead7df463d25e298a3911ae84a7e",
+        "number": 23235724
+      },
+      "l2": {
+        "hash": "0x04ef5726fc2307b728ee28d1bbef4e89c5accfa56f44e5ade51afb89ee59b02e",
+        "number": 49759
+      }
+    },
+    "unknown": 0
+  },
+  "l2_genesis": "0x30a494dfb7923c81cb51590655a79591d3e3aac2d7a42cf3ba44767ee8bf3381",
+  "old_images": {
+    "eez-node": "sha256:8f95f8b0c20ac5cfdebb85f89321081053f0604a61c1651eafbec63b858d1710",
+    "eez-proof-signer": "sha256:d4db1e6de248aaafdaaf476b2ad0ec4a6b0ef1192af82e7bfd0475056efe328f"
+  },
+  "stopped_exit_code": 0,
+  "funding": {
+    "transaction_hash": "0xbd5f29e7cf97af945a1ef09a823c6ba8356900a3c06570577b91873c17c97244",
+    "from": "0x2eA2A5A1fe1BA4F4134c993E0c9A700706031E52",
+    "to": "0x2A8dd7551eF6Fc95000C76F2A0e7848A4bA5E73e",
+    "amount_wei": 100000000000000000,
+    "status": 1
+  },
+  "new_images": {
+    "eez-node": "sha256:e4b506c10d7b3cfb0b89c9f9b72a196f52a91e24ef83078bd3b0565fac4ce551",
+    "eez-proof-signer": "sha256:cb79158c6219f1de01af4b874ade326d9a3f4325be0eee083e8840cf5de0cd85"
+  },
+  "container_ids": {
+    "eez-node": "fbf5d731962827833968d92a579f2c2561ed0f08f815b87e1f31a7ac760d44ed",
+    "eez-proof-signer": "9aaccf588586922014c899e6b8bb0b6db80fb2bff0206035fb988f8f18c58fcc"
+  },
+  "mounts_preserved": true,
+  "environment_preserved": true,
+  "environment_order_changed": true,
+  "finished_at": "2026-09-26T10:14:07.518128+00:00",
+  "preflight_corrections": [
+    "Docker unset keys represented without equals; normalized to null before checking",
+    "Environment list order changed; values and key sets identical"
+  ]
+}

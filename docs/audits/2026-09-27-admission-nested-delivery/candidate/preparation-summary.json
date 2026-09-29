@@ -1,0 +1,96 @@
+{
+  "canonical_candidates": 25,
+  "canonical_sources": 870,
+  "intervals": {
+    "accepted_checks_simulation_ms": {
+      "samples": 25,
+      "mean": 13.00907116,
+      "median": 11.341789000000004,
+      "max": 45.151949999999985,
+      "sum": 325.226779
+    },
+    "accepted_lowering_hashing_append_ms": {
+      "samples": 25,
+      "mean": 115.5599936,
+      "median": 107.72217000000003,
+      "max": 249.49405000000002,
+      "sum": 2888.99984
+    },
+    "rejected_checks_simulation_ms": {
+      "samples": 25,
+      "mean": 20.269983800000034,
+      "median": 0.0,
+      "max": 174.48382400000014,
+      "sum": 506.7495950000008
+    },
+    "rejection_after_estimate_ms": {
+      "samples": 25,
+      "mean": 1.6215406399999768,
+      "median": 0.0,
+      "max": 11.681629999999558,
+      "sum": 40.53851599999942
+    },
+    "cheap_checks_outcome_ms": {
+      "samples": 25,
+      "mean": 6.950152320000023,
+      "median": 5.766948999999698,
+      "max": 23.98377900000095,
+      "sum": 173.7538080000006
+    },
+    "other_admission_ms": {
+      "samples": 25,
+      "mean": 11.413994599999967,
+      "median": 10.664788999999928,
+      "max": 20.470571000000348,
+      "sum": 285.34986499999917
+    },
+    "final_build_encode_projection_ms": {
+      "samples": 25,
+      "mean": 15.016994999999998,
+      "median": 14.453139000000021,
+      "max": 23.56280099999998,
+      "sum": 375.42487499999993
+    },
+    "blob_preparation_ms": {
+      "samples": 25,
+      "mean": 175.85522388,
+      "median": 166.335113,
+      "max": 342.335942,
+      "sum": 4396.380597
+    },
+    "witness_and_remaining_request_ms": {
+      "samples": 25,
+      "mean": 20.614309759999994,
+      "median": 19.85035799999997,
+      "max": 28.985801000000038,
+      "sum": 515.3577439999999
+    },
+    "total_preparation_ms": {
+      "samples": 25,
+      "mean": 380.31126476,
+      "median": 378.877534,
+      "max": 702.612396,
+      "sum": 9507.781619
+    },
+    "prefix_hash_ms": {
+      "samples": 25,
+      "mean": 105.39198336,
+      "median": 97.183461,
+      "max": 230.010091,
+      "sum": 2634.799584
+    },
+    "witness_preparation_ms": {
+      "samples": 25,
+      "mean": 20.50637456,
+      "median": 19.750763000000003,
+      "max": 28.848832,
+      "sum": 512.659364
+    }
+  },
+  "limits": [
+    "Wall-clock event intervals include logging, checks and scheduling, not isolated CPU samples.",
+    "Prefix hashing overlaps source intervals, including work later deferred by timing; never add it to the interval total.",
+    "Witness timing includes blocking-pool wait; historical blob logs are integer milliseconds.",
+    "Canonical candidates only; failed/excluded attempts are outside this breakdown."
+  ]
+}
