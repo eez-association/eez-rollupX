@@ -5,6 +5,7 @@
 
 use std::{error::Error, sync::Arc};
 
+use reth_chainspec::EthChainSpec as _;
 use reth_primitives_traits::Block as _;
 
 use alloy_consensus::{
@@ -62,12 +63,26 @@ fn replay_spec(input: &Value) -> Result<Arc<reth_chainspec::ChainSpec>, Box<dyn 
         serde_json::from_value(required(input, "/genesis")?.clone())?;
     let config: alloy_genesis::ChainConfig =
         serde_json::from_value(required(input, "/chain_config")?.clone())?;
-    if genesis.config != config {
-        return Err("deployed genesis configuration differs from RPC chain configuration".into());
-    }
     // The execution schedule depends on the actual genesis header, including
     // its timestamp and L1 reference. Chain configuration alone is insufficient.
     let spec = eez_evm::profile::chain_spec(genesis)?;
+    let mut expected_config = spec.genesis.config.clone();
+    // Reth 2.7's debug_chainConfig materializes default blob parameters. This
+    // profile activates all three forks at timestamp zero; explicit genesis
+    // entries take precedence, just as in Reth's RPC serialization.
+    let params = spec
+        .blob_params_at_timestamp(0)
+        .ok_or("validated L2 profile has no genesis blob parameters")?;
+    for fork in ["cancun", "prague", "osaka"] {
+        expected_config
+            .blob_schedule
+            .entry(fork.into())
+            .or_insert(params);
+    }
+    // BlobParams has execution-only fields omitted by the RPC wire format.
+    if serde_json::to_value(expected_config)? != serde_json::to_value(config)? {
+        return Err("deployed genesis configuration differs from RPC chain configuration".into());
+    }
     if spec.genesis_header.hash() != required_b256(input, "/genesis_hash")? {
         return Err("deployed genesis differs from the canonical RPC genesis hash".into());
     }
@@ -203,7 +218,13 @@ mod tests {
         let genesis: alloy_genesis::Genesis =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
-        json!({"chain_config": genesis.config, "genesis": genesis,
+        let mut config = genesis.config.clone();
+        for fork in ["cancun", "prague", "osaka"] {
+            config
+                .blob_schedule
+                .insert(fork.into(), alloy_eips::eip7840::BlobParams::prague());
+        }
+        json!({"chain_config": config, "genesis": genesis,
             "genesis_hash": spec.genesis_header.hash()})
     }
 
@@ -239,6 +260,11 @@ mod tests {
                 "genesis precedes its L1 reference",
             ),
             ("/genesis/gasLimit", json!("0x1"), "gas limit"),
+            (
+                "/chain_config/blobSchedule/cancun/max",
+                json!(8),
+                "RPC chain configuration",
+            ),
         ] {
             let mut input = profile_input();
             *input.pointer_mut(pointer).unwrap() = value;

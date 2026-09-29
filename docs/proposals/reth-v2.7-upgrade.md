@@ -1,7 +1,7 @@
 # Reth v2.7.0 on the native transaction implementation
 
 Status: accepted scope requested by the repository owner on 2026-09-29;
-implementation and local validation in progress. Public-network deployment is
+implementation and local functional validation complete; GitHub CI confirmation pending. Public-network deployment is
 outside this scope; isolated local devnets are part of validation.
 
 ## Scope and baseline

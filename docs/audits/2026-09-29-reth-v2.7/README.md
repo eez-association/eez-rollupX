@@ -1,6 +1,6 @@
 # PR #44: Reth v2.7.0 and local CI validation
 
-Status: local validation in progress; nothing pushed from this follow-up.
+Status: local functional validation complete; PR update and GitHub CI confirmation pending. The live run required recovery of an interrupted local test environment, described below.
 The [upgrade contract](../../proposals/reth-v2.7-upgrade.md) defines scope and
 acceptance. No public network or operator service was changed.
 
@@ -449,3 +449,75 @@ lookup-shell tests pass. Packaged/live confirmation remains pending.
 All-feature strict workspace Clippy and the complete tooling suite pass after
 this correction: **279 passed, five opt-in skips**. The 23 protocol-runner tests
 include fail-before-preparation checks for missing/empty/unreadable genesis paths.
+
+## Packaged genesis-bound candidate
+
+Candidate `ea17be953c114ce1b6c791fb646d71a9c242ec97` passes the real CI
+release producer, artifact verifier, packaged genesis check and **1,003 + 290
+release unit tests** (three manual utilities ignored). Both corrected archived
+follower process tests pass in 78.538 seconds. Full manifests and hashes are
+recorded in `validation.json`; bulk evidence remains ignored and local-only.
+
+The signer executable is byte-identical to `a35c635`. Composer and follower each
+differ by only 49 bytes: two Reth build timestamps, one LLVM time string, and the
+GNU build ID. Their `.text` sections are identical; complete copies also compare
+equal after normalizing only those observed metadata fields. No runtime executable
+was modified. The prior full process results therefore cover unchanged runtime
+code; the changed follower tests and CI helper receive fresh packaged/live checks.
+The fresh owned enclave is `eez-reth27-pr44-genesis`; live validation is in progress.
+
+The first genesis-bound live orchestration was interrupted when the local runner
+process disappeared while its containers remained. The API log records
+`context canceled` on every subsequent finality request, including after direct
+EL/CL queries confirmed finality. Restarting only the owned enclave's API cleared
+that canceled context. Replaying the startup plan recreated the local network
+and its finality wait. This is retained as an incomplete orchestration attempt,
+not a passing CI run or a runtime regression; no assertions were relaxed.
+
+The replayed startup also left inconsistent disposable relay storage: Redis held
+128 registration records while PostgreSQL held zero. The relay skipped writes
+and its housekeeper reported zero duties. Preserved logs and the registration
+cache, removed only that cache hash, restarted the owned relay API/validator to
+republish all 128 registrations, and refreshed housekeeper duties. Canonical
+settlement resumed within the existing readiness deadline. This manual recovery
+is local validation evidence, not proof of unattended fresh-start CI success.
+
+## Final RPC-configuration correction and live results
+
+The genesis-bound candidate passed all four native wave modes (40 cross-chain
+operations), every state-chaining check and all **32 upstream scenario assertions**.
+Its first independent evidence sweep passed 30/32: the same two lookup-only
+scenarios now rejected `deployed genesis configuration differs from RPC chain
+configuration`. The retained actual inputs isolate the difference to Reth v2.7's
+`debug_chainConfig` adding default `blobSchedule` entries absent from genesis.
+Reth's implementation at `3d592ec`, `crates/rpc/rpc/src/chain_config.rs`, derives
+those entries from the active specification.
+
+The CI helper now derives the expected RPC blob schedule from the validated full
+genesis, preserves explicit genesis entries and compares the serialized RPC
+configuration. This avoids comparing execution-only `BlobParams` fields absent
+from its wire representation. Supplied mismatches still fail, including a new
+wrong-blob-limit regression. No runtime or signer authorization code changed.
+
+Final focused checks pass: **11 helper tests**, strict all-feature workspace
+Clippy, Rust formatting and diff checks. Both exact original failing witness
+inputs now pass full Stateless replay, each yielding 11 prefix checkpoints. The
+complete independent evidence collector was rerun against all **32 scenarios:
+32 passed, zero failed**, in 32.493 seconds. The first failed attempts remain
+retained. This final helper was built from source in the dev profile; the entire
+release producer was not rerun for this CI-only correction. Shipping images and
+release archives tested above remain candidate `ea17be9`.
+
+The additional blob-DA workload passes real Beacon blob retrieval, KZG/body
+verification, both correlation RPC directions and Counter value **42** at the
+safe endpoint. Optional Blobscan was explicitly disabled because this CI topology
+does not deploy it. The verified archived fresh-follower test passes in 5.28
+seconds using canonical L1 data and deployed genesis only: it checks **126 blocks
+and three receipts**, ending at the exact safe block hash. Final service logs
+contain **74 signed windows and 74 remote attestations**, with zero occurrences
+of every signer failure term checked by the CI runner.
+
+These results establish the corrected behavior on the locally recovered network.
+They do not claim a clean first pass, an unattended startup after the interruption,
+or GitHub CI success. All evidence locations and exact helper/runtime identities
+are recorded in `validation.json`; bulk logs and datadirs are local-only.

@@ -1,5 +1,7 @@
 # Implementation and upstream mapping
 
+This is the initial backport inventory. The subsequent [Reth v2.7 audit](../2026-09-29-reth-v2.7/README.md) records the final PR #42 base, published Git dependencies replacing vendor copies, validation identity schema 4, and later fixes. Dependency and revision details below describe the original implementation.
+
 This inventories the task's delta against PR #42 at `0b7beed5ca48157d720d6685435ba2121c1e9c1e`.
 It is not a validation result; revision-specific executed evidence is in the
 [audit](README.md), and the accepted task contract is in the

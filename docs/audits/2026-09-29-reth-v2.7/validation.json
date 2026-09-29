@@ -438,5 +438,342 @@
       "seconds": 147.369
     },
     "protocol_runner_tests_passed": 23
+  },
+  "genesis_bound_candidate": {
+    "commit": "ea17be953c114ce1b6c791fb646d71a9c242ec97",
+    "evidence_location": "artifacts/reth-v2.7-review/release-genesis (ignored, local-only)",
+    "manifest": {
+      "schema": 2,
+      "root_commit": "ea17be953c114ce1b6c791fb646d71a9c242ec97",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+      "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+      "base_images": {
+        "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+        "runtime": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "published": false,
+      "images": {
+        "node": {
+          "reference": "ghcr.io/eduadiez/rollupx-node:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:e5312705d1519d75b05305935f2bdf30e785cdd83fbc14d54cbe55bae8bf52eb"
+        },
+        "signer": {
+          "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:df1c3bdeabaa3c4a81f4bb7a3963cec77800da25fd171367acfeb21543445142"
+        },
+        "deploy": {
+          "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:c32f707b253241648ebe967598a34820352b51b78d776e8738205fab837a1033"
+        }
+      },
+      "binaries_sha256": "2ee4fb4aaeaea79a95b0999a42cb3d9d4c0443106497935d688d41c0e0b073fb"
+    },
+    "manifest_sha256": "d0f4f79eb9fae71e35e0fe966db546e99eae12beafc19730e48e9926b972a443",
+    "release_producer": "pass",
+    "artifact_verification": "pass",
+    "packaged_genesis": "pass",
+    "release_units": {
+      "passed": 1293,
+      "ignored": 3,
+      "archives": [
+        1003,
+        290
+      ]
+    },
+    "corrected_archived_cross_chain": {
+      "passed": 2,
+      "seconds": 78.538,
+      "tests": [
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "outbound_mixed_static_reads_and_write_settle_together"
+      ]
+    },
+    "runtime_code_comparison": {
+      "eez-composer": {
+        "previous_sha256": "7c2cbd5bb305c4d1f670b25f62b334d977709a0e4f35550c05fdb957abf540bd",
+        "candidate_sha256": "8151f09ed7658c0dd4ac0ab71fa7c011862bb75d199032f5e0f5bd942f7c5733",
+        "size_bytes": 193433880,
+        "differing_bytes": 49,
+        "differing_sections": [
+          ".note.gnu.build-id",
+          ".rodata",
+          ".rodata.str"
+        ],
+        "text_sha256": "97f85bc7216a83fffce699a0874d4d8940b75a0dd735d5290bc9d8dde278a606",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      },
+      "eez-follower": {
+        "previous_sha256": "b06b5fb7fe2ec822c0207ac4adec293115dd6396fd43735596bcfa860841c2b5",
+        "candidate_sha256": "1b043210ef83e2bd89e579d411288a39a498781db51a6a62ef0302f3ff33cba5",
+        "size_bytes": 159845848,
+        "differing_bytes": 49,
+        "differing_sections": [
+          ".note.gnu.build-id",
+          ".rodata",
+          ".rodata.str"
+        ],
+        "text_sha256": "7d3936a0f7789e32d1d825b4f5fbcb03e5ec3e2a924651280c76ab59411cc4c2",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      },
+      "eez-proof-signer": {
+        "previous_sha256": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec",
+        "candidate_sha256": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec",
+        "size_bytes": 23064696,
+        "differing_bytes": 0,
+        "differing_sections": [],
+        "text_sha256": "502e9b6580361ae7172138105868562d44bad5004d92cb971acc6cdbf84445e9",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      }
+    },
+    "comparison_method": "Compared full files. Only GNU build IDs and observed build timestamp strings (two Reth timestamps and one LLVM time string per binary) differ; normalized copies compare equal. ELF .text is identical. No executable files were modified.",
+    "coverage_reuse": "The earlier a35c635 embedded 36/36 and cross-chain 73/74 plus corrected 2/2 process results cover unchanged runtime code. The final archive reruns all units and the two corrected follower cases; the new CI helper is exercised by a fresh full live run.",
+    "live_validation": {
+      "scenario_assertions": {
+        "passed": 32,
+        "failed": 0,
+        "excluded": 4,
+        "bridge_seconds": 329.66,
+        "parallel_seconds": 95.71
+      },
+      "waves": {
+        "passed": 4,
+        "cross_chain_operations": 40
+      },
+      "state_chaining": "all passed",
+      "first_evidence_sweep": {
+        "passed": 30,
+        "failed": [
+          "revertCounter",
+          "topLevelStaticCounter"
+        ],
+        "error": "deployed genesis configuration differs from RPC chain configuration"
+      },
+      "finality_wait_seconds": 1540.041
+    },
+    "orchestration_interruption": {
+      "result": "incomplete, not a passing run",
+      "detail": "The local tool session disappeared while its containers continued. Kurtosis retained a canceled request context; its finality recipe timed out despite finalized EL/CL responses. Restarted only the owned API container and reran the same startup plan. Kurtosis recreated its network, requiring fresh finality. No source or test assertions changed.",
+      "evidence": [
+        "release-genesis/kurtosis-interrupted.log",
+        "release-genesis/kurtosis-api-interrupted.log",
+        "release-genesis/interrupted-orchestration/"
+      ],
+      "recovery": "Startup replay recreated L1 and PostgreSQL but retained relay Redis registrations: 128 cached, zero persisted. Preserved the cache and logs, deleted only its registration hash, restarted owned relay API and validator to republish 128 registrations, then refreshed housekeeper duties. Canonical settlement resumed before the existing readiness deadline. This locally recovered run does not establish unattended fresh-start CI success."
+    }
+  },
+  "rpc_config_correction": {
+    "scope": "CI helper only; runtime production code unchanged from ea17be9/a35c635",
+    "cause": "Reth v2.7 debug_chainConfig adds derived blobSchedule entries absent from genesis. BlobParams execution-only fields are omitted from the RPC wire format.",
+    "fix": "Build expected RPC configuration from validated full genesis and its derived blob parameters, preserving explicit genesis entries; compare serialized configurations and canonical genesis hash. Supplied mismatches remain errors.",
+    "source_file": "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs",
+    "source_sha256": "790328d6342d5e3bdf127aa0f8e2d77ade8406e89bb36dc47c3b22970fc830d2",
+    "tests": {
+      "helper_passed": 11,
+      "strict_all_features_workspace_clippy": "pass",
+      "fmt": "pass",
+      "retained_original_witness_inputs_passed": 2,
+      "prefixes_per_input": 11,
+      "full_independent_evidence": {
+        "workers": 4,
+        "seconds": 32.493,
+        "scenarios": [
+          {
+            "scenario": "multi-call-twice",
+            "exit_code": 0,
+            "seconds": 3.923
+          },
+          {
+            "scenario": "multi-call-two-diff",
+            "exit_code": 0,
+            "seconds": 3.722
+          },
+          {
+            "scenario": "multi-call-twiceL2",
+            "exit_code": 0,
+            "seconds": 4.473
+          },
+          {
+            "scenario": "multi-call-two-diffL2",
+            "exit_code": 0,
+            "seconds": 3.421
+          },
+          {
+            "scenario": "counter-multi-tx",
+            "exit_code": 0,
+            "seconds": 4.624
+          },
+          {
+            "scenario": "deepNested",
+            "exit_code": 0,
+            "seconds": 4.773
+          },
+          {
+            "scenario": "flash-loan",
+            "exit_code": 0,
+            "seconds": 3.922
+          },
+          {
+            "scenario": "multi-call-nested",
+            "exit_code": 0,
+            "seconds": 3.22
+          },
+          {
+            "scenario": "nestedCounter",
+            "exit_code": 0,
+            "seconds": 3.07
+          },
+          {
+            "scenario": "multi-call-nestedL2",
+            "exit_code": 0,
+            "seconds": 5.475
+          },
+          {
+            "scenario": "nestedCounterL2",
+            "exit_code": 0,
+            "seconds": 3.42
+          },
+          {
+            "scenario": "bridge",
+            "exit_code": 0,
+            "seconds": 3.62
+          },
+          {
+            "scenario": "counter",
+            "exit_code": 0,
+            "seconds": 4.472
+          },
+          {
+            "scenario": "bridgeL2",
+            "exit_code": 0,
+            "seconds": 3.871
+          },
+          {
+            "scenario": "counterL2",
+            "exit_code": 0,
+            "seconds": 3.671
+          },
+          {
+            "scenario": "reentrant",
+            "exit_code": 0,
+            "seconds": 4.372
+          },
+          {
+            "scenario": "nestedCallRevert",
+            "exit_code": 0,
+            "seconds": 3.771
+          },
+          {
+            "scenario": "revertCounter",
+            "exit_code": 0,
+            "seconds": 4.272
+          },
+          {
+            "scenario": "revertFromOtherChain",
+            "exit_code": 0,
+            "seconds": 3.421
+          },
+          {
+            "scenario": "nestedCallRevertL2",
+            "exit_code": 0,
+            "seconds": 4.724
+          },
+          {
+            "scenario": "revertCounterL2",
+            "exit_code": 0,
+            "seconds": 3.12
+          },
+          {
+            "scenario": "revertFromOtherChainAndCallAgainL2",
+            "exit_code": 0,
+            "seconds": 3.27
+          },
+          {
+            "scenario": "revertFromOtherChainL2",
+            "exit_code": 0,
+            "seconds": 3.17
+          },
+          {
+            "scenario": "revertFromOtherChainNested",
+            "exit_code": 0,
+            "seconds": 4.573
+          },
+          {
+            "scenario": "nestedStaticCounter",
+            "exit_code": 0,
+            "seconds": 5.324
+          },
+          {
+            "scenario": "staticReadWrite",
+            "exit_code": 0,
+            "seconds": 3.37
+          },
+          {
+            "scenario": "staticReadX2Write",
+            "exit_code": 0,
+            "seconds": 3.471
+          },
+          {
+            "scenario": "topLevelStaticCounter",
+            "exit_code": 0,
+            "seconds": 3.521
+          },
+          {
+            "scenario": "nestedStaticCounterL2",
+            "exit_code": 0,
+            "seconds": 3.27
+          },
+          {
+            "scenario": "staticCounterL2",
+            "exit_code": 0,
+            "seconds": 3.571
+          },
+          {
+            "scenario": "staticReadWriteL2",
+            "exit_code": 0,
+            "seconds": 3.32
+          },
+          {
+            "scenario": "staticReadX2WriteL2",
+            "exit_code": 0,
+            "seconds": 3.12
+          }
+        ]
+      }
+    },
+    "helper_executable_sha256": "600506ea29959d5fbb2362336cea8d3b5628b119e68bfc4cf76881318c605e21",
+    "helper_profile": "source-built dev; shipping image/archives remain ea17be9; no final full release-producer rerun for this CI-only correction",
+    "proof_path": {
+      "signed_windows": 74,
+      "remote_attestations": 74,
+      "signer_failure_terms": {
+        "Prove request rejected while reading window": 0,
+        "request pipeline rejected": 0,
+        "request pipeline invariant failed": 0,
+        "request pipeline worker failed": 0,
+        "public-input hash signing failed": 0
+      }
+    },
+    "blob_da": {
+      "result": "pass",
+      "ordinary_transactions": 3,
+      "counter_at_safe": 42,
+      "blobscan": "explicitly disabled: optional explorer not deployed"
+    },
+    "fresh_follower": {
+      "checked_blocks": 126,
+      "checked_derived_blocks": 126,
+      "checked_receipts": 3,
+      "safe_l2_block": 1440,
+      "safe_l2_block_hash": "0xbc74202df1f1211164eb1088ff00bcc89654d77b00f1de1e7b9723b07a116b93",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "first_iteration": "9/11 helper tests passed; comparison still included non-serialized BlobParams fields. Corrected to compare RPC representation; 11/11 final tests pass.",
+    "evidence": "artifacts/reth-v2.7-review/rpc-config-fix and release-genesis; ignored local-only files"
   }
 }
