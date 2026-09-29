@@ -20,6 +20,17 @@ spec.loader.exec_module(native)
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
+    def test_repository_source_context_preserves_genesis(self):
+        with tempfile.TemporaryDirectory(prefix="eez-runtime-source.") as temporary:
+            subprocess.run([
+                "docker", "buildx", "build", "--builder", "default", "--progress", "plain",
+                "--provenance=false", "-f", "Dockerfile.runtime", "--target", "source",
+                "--output", f"type=local,dest={temporary}", ".",
+            ], cwd=REPO, check=True)
+            exported = Path(temporary) / "checkout"
+            for name in ("Cargo.toml", "Cargo.lock", "genesis.json"):
+                self.assertEqual((exported / name).read_bytes(), (REPO / name).read_bytes())
+
     def test_real_build_and_same_job_execution(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.") as temporary:
             root = Path(temporary)
@@ -50,6 +61,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
                 "eez-composer": {},
                 "eez-blob-codec": {},
+                "eez-payload-codec": {},
             }
             (repo / "Cargo.toml").write_text(
                 '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\nexclude = ["vendor/fixture-port"]\n'
@@ -79,7 +91,8 @@ class RuntimeDockerTest(unittest.TestCase):
                     )
                 for test in ({"eez-node-e2e": native.E2E_TARGETS,
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence"),
-                              "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
+                              "eez-blob-codec": ("ethereum_kzg_compatibility",),
+                              "eez-payload-codec": ("issue35",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)
                     (package / f"tests/{test}.rs").write_text(
                         '#[test] fn release_test() { assert!(!cfg!(debug_assertions)); assert_eq!(2+2,4); }\n')

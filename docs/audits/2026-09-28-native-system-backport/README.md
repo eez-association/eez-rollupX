@@ -1217,3 +1217,43 @@ The subsequent [pending RPC and API simplification review](follow-up-review.md)
 records the fix for live-anchor pending simulation, boot-readiness gating, the
 immutable EVM schedule cache, and removal of the redundant checked-payload copy
 API. Its evidence is separate from the original implementation freeze above.
+
+### 2026-09-29: CI source-context correction
+
+[PR #44's first CI run](https://github.com/eduadiez/rollupX/actions/runs/36544971673)
+at `b5623a27dc2a12db43129ade21852b305da1b74d` passed lint but failed before Rust
+compilation: `Dockerfile.runtime` copies `genesis.json`, but its Dockerfile-specific
+ignore file excluded it. The earlier source-stage export used an explicit tar
+context and therefore did not validate the repository-directory allowlist. Its
+successful export was insufficient evidence for the actual CI invocation.
+
+Added `!genesis.json` to that allowlist. A real-Docker regression now builds the
+`source` target from the repository directory and compares the exported genesis
+and Cargo manifests byte-for-byte. The small packaging fixture also includes the
+new `eez-payload-codec::issue35` target, matching the runtime test inventory.
+No runtime code, dependencies, protocol pin, or genesis content changed.
+
+Validation from the dedicated worktree:
+
+- `EEZ_TEST_DOCKER_RUNTIME=1 python3 scripts/ci/tests/test_runtime_docker.py
+  RuntimeDockerTest.test_repository_source_context_preserves_genesis -v`:
+  one selected regression failed before the allowlist fix with the same missing
+  `/genesis.json` error as CI.
+- `EEZ_TEST_DOCKER_RUNTIME=1 python3 scripts/ci/tests/test_runtime_docker.py -v`:
+  both tests passed after the fix (34.675 s). This includes the source-context
+  regression and the existing real Docker fixture build/artifact-consumption
+  test; its four execution selections ran 13, 1, 4, and 9 fixture tests, all
+  passing. It is packaging evidence, not full application release/E2E coverage.
+- `python3 -m unittest discover -s scripts/ci/tests -v`: 274 passed, five
+  explicitly opt-in tests skipped (144.125 s). The two Docker tests are covered
+  by the separate enabled run above; the other skipped checks remain uncovered.
+- `git diff --check`: passed.
+
+Both commands used `TMPDIR=$PWD/artifacts/merge-preparation/tmp`; retained logs
+under `artifacts/merge-preparation/` are local-only. No images were published;
+only test-owned fixture tags and containers were removed. The corrected files'
+SHA-256 identities are `d151d4affed455f3beb55073b21aca968b073e5fa1209ad85740fc69b8150676`
+(`Dockerfile.runtime.dockerignore`) and
+`6ef4b53285f168e695b4ca83386a2a300a5886e820baf6709e4d24e34e339d7b`
+(`scripts/ci/tests/test_runtime_docker.py`). The complete application release and
+E2E matrix still requires a new CI run.
