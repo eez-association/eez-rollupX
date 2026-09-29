@@ -43,3 +43,19 @@ Reth v2.7.0's Sepolia fork schedule does not authorize extending the signer's
 supported execution profile. Its existing rejection of unsupported forks stays
 in place. Genesis fixtures and protocol contracts should remain byte-identical
 unless a demonstrated incompatibility requires an explicit follow-up.
+
+## Gaps exposed by local validation
+
+The real process suites exposed an ordinary historical-drain liveness bug in
+PR #44's native proof integration. After one preparation overrun, the older
+policy estimator selected a future execution height whose parent hash was
+unknown. Native proof authorization correctly rejected every repeated attempt.
+Use the existing complete-pipeline deadline for ordinary windows, retain known
+canonical parents, and remove that incompatible estimator. Preserve all parent,
+settlement-provenance, capacity and submission checks. The Ethereum/Gnosis burst
+process tests and controlled target/deadline tests are acceptance regressions.
+
+A fresh Kurtosis L1 also lacked a finalized genesis reference at deployment.
+Wait for finality before the first broadcast, bounded to 30 minutes for the
+mainnet-preset epoch cadence. Do not substitute `latest`. An initial 15-minute
+bound proved insufficient locally; preserve that failed run in the audit.

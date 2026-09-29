@@ -104,7 +104,7 @@ still uses the original shared deadline. The summary records `cold_timing_probe`
 This fallback applies only when the normal estimate refuses that first group;
 it does not cap cold batches that already fit the complete estimate.
 
-For exact-target cross-chain candidates, the exclusive deadline is target time
+For all exact-target candidates, the exclusive deadline is target time
 minus submission slack. `EEZ_PREPARATION_TIME_MS` and `EEZ_PROOF_TIME_MS` control
 scheduling estimates; they are not separate hard stage limits. Preparation can
 run beyond its allocation and continue proving the same accepted candidate.
@@ -113,7 +113,12 @@ streaming and cache repair cannot reset that window. A fast preparation can
 leave more time for a slow proof. A true window failure keeps source ownership
 and produces an empty local Sync when required, without an unproved or substitute
 empty L1 posting. Late scheduler entry uses this same cross-chain policy.
-Ordinary-only exact-target posting and `NextBlock` keep their prior timing rules.
+Ordinary-only posting uses the same complete deadline. Its target is the
+observed canonical head's immediate child: the proof binds that parent's hash,
+so timing estimates cannot reserve an unknown future parent. Missing slots may
+advance only the timestamp within the shared replacement bound. A preparation
+timeout retains history and retries against fresh canonical evidence; it never
+changes a proof's target or treats a failed estimate as a capacity limit.
 
 Preparation learns consistently measured group work and finishing/KZG cost.
 Only complete measured groups train the finishing relationship; failed appends,
@@ -589,24 +594,25 @@ speculative-cap pause, may use steady composition in that same opportunity.
 Intermediate, capped, past and misaligned boundaries remain empty. This avoids
 wasting a usable future slot after rebuilding a missed interval.
 
-Policy-driven historical batches select the earliest future L1 slot that leaves
-the measured preparation reserve, configured proof-time budget and submission
-slack. The reserve is the largest of the last four anchor-only preparations for
-that rollup, plus 10% for variation. New slow measurements increase it immediately;
-four fresh measurements replace an old peak, so a transient slowdown does not
-force later batches to skip an otherwise usable slot for the process lifetime.
-Timely reconciliation can therefore lead to posts in consecutive L1 blocks;
-later preparation selects a later slot. Builder lead controls when submission
-opens, not a mandatory block gap. Selection is logged as
-`eez.submitter.policy.target_selected`, including the
-observed head, timing budget, and chosen offset. Final timestamp, canonical-head,
-fee, and deadline checks still apply, and missed opportunities preserve pending
-work. No new timing setting is required. Once an exact target has been selected,
-capacity splitting into historical prefixes preserves that execution height and
-timestamp for every candidate and its submission. In particular, a skipped-slot
-replacement keeps the same execution height and advances only the timestamp.
-Only an unpinned catch-up opportunity selects a fresh target in the historical
-helper; expired proof/submission deadlines still defer the candidate.
+Policy-driven historical batches target the immediate child of the observed
+canonical L1 head. Native proofs bind that parent's hash; choosing a later
+execution height from a timing estimate would require an unknown parent. The
+first unexpired slot is selected, with the same bounded timestamp replacements
+used by the scheduler when slots are missing. Builder lead controls when
+submission opens, not a mandatory block gap. Selection is logged as
+`eez.submitter.policy.target_selected`, including the observed head, target height
+and `slot_offset`. The former preparation-reserve history and `block_offset`
+field are removed. Actual encoding/KZG/witness preparation duration remains
+available in `eez.composer.settlement.preparation_time`.
+
+Preparation, proving and submission use one complete target deadline, including
+ordinary-only windows. A slow observation cannot permanently move every attempt
+to an unknown future parent. Final timestamp, canonical-head, fee, provenance
+and deadline checks still apply, and missed opportunities preserve pending work.
+No new timing setting is required. Once an exact target has been selected,
+capacity splitting into historical prefixes preserves its execution height and
+timestamp for every candidate and submission. Only an unpinned or expired
+opportunity selects a fresh target before preparing a new proof.
 
 Composer nodes wake the existing L1 scanner on embedded canonical-head
 notifications, so settlement evidence need not wait for the two-second fallback

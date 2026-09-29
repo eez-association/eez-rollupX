@@ -5130,22 +5130,23 @@ where
             }
         };
 
-        let preparation = self.policy_preparation_budget(rollup_id)?;
+        // Keep a live target even when preparation exceeds its estimate. A
+        // later execution height has no known parent to bind into the proof.
         let bundle_target = match bundle_target {
-            BundleTarget::Exact { timestamp, .. }
-                if policy::preparation_fits_target(
-                    preparation,
-                    self.inner.emission.timing.submission_slack(),
-                    timestamp,
-                    crate::prover_retry::unix_time_millis(),
-                )? =>
+            BundleTarget::Exact { .. }
+                if crate::prover_retry::PipelineDeadline::new(
+                    self.inner.emission.timing,
+                    bundle_target,
+                    preparation_started_ms,
+                )
+                .is_some_and(|deadline| !deadline.remaining().is_zero()) =>
             {
                 bundle_target
             }
             _ => self
                 .inner
                 .submitter
-                .next_policy_target(preparation)
+                .next_policy_target()
                 .await
                 .map_err(|error| error.to_string())?,
         };
@@ -5368,7 +5369,7 @@ where
             BundleTarget::NextBlock => self
                 .inner
                 .submitter
-                .next_policy_target(self.policy_preparation_budget(rollup_id)?)
+                .next_policy_target()
                 .await
                 .map_err(|error| error.to_string())?,
         };
@@ -5650,6 +5651,15 @@ where
         use eez_protocol::abi::{RollupIdWithProofSystemsSol, postAndVerifyBatchCall};
 
         let preparation_started = std::time::Instant::now();
+        // Anchor-only windows bind the same canonical parent as cross-chain
+        // proofs. Keep one deadline through preparation, proof and dispatch.
+        let deadline = admission.and_then(|attempt| attempt.deadline).or_else(|| {
+            crate::prover_retry::PipelineDeadline::new(
+                self.inner.emission.timing,
+                bundle_target,
+                crate::prover_retry::unix_time_millis(),
+            )
+        });
 
         // Merge inbound compositions' L1 source batches, or start empty so an
         // idle Sync slot can carry only the leading immediate entry that
@@ -6747,7 +6757,6 @@ where
         }
         if semantic_transactions.is_empty() {
             let elapsed = preparation_started.elapsed();
-            self.inner.policy.note_preparation(rollup_id, elapsed);
             event!(name: "eez.composer.settlement.preparation_time", Level::INFO,
                 event_name = "eez.composer.settlement.preparation_time", rollup_id,
                 preparation_ms = elapsed.as_millis() as u64, blob_count,
@@ -6763,7 +6772,6 @@ where
         let post_reserve = admission.map_or(crate::prover_retry::POST_PROOF_RESERVE, |attempt| {
             attempt.timings.post_reserve(workload)
         });
-        let deadline = admission.and_then(|attempt| attempt.deadline);
         let proof_cutoff_ms = if deadline.is_some() {
             None
         } else {

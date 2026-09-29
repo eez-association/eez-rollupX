@@ -516,7 +516,7 @@ authenticated.
 ### 6.3 Retry procedure and settlement cutoff
 
 The reference Composer starts backoff at 100 ms, doubles its base up to 1,000 ms,
-and applies ±20% jitter. Cross-chain candidates with an exact L1 target share
+and applies ±20% jitter. All candidates with an exact L1 target share
 one exclusive deadline: target timestamp minus submission slack. Preparation
 and proof settings are planning allocations. Crossing the preparation allocation
 MUST NOT discard an accepted candidate or substitute an empty L1 posting while
@@ -532,11 +532,15 @@ dispatch. A timed-out delivery after dispatch is uncertain submission, not
 proof of exclusion. A timed-out signer RPC does not release the server's worker
 permit before that worker exits. No parallel proof race is introduced.
 
-Ordinary-only exact-target posting retains the configured full-proof start
-reserve and per-attempt timeout. `NextBlock` bounds the complete proving episode
-by the proof-time budget. Older Composers retain these older timing semantics
-for cross-chain candidates too; this scheduling change does not change the wire
-schema, signer validation or historical follower decoding.
+Ordinary-only candidates use the same deadline and post-proof reserve. Native
+proofs bind a known canonical L1 parent, so a preparation estimate MUST NOT
+select a future execution height whose parent does not yet exist. Resolve
+policy targets to the observed head's immediate child; skipped slots may advance
+its timestamp only within the shared bounded replacement allowance. Never
+slide the target after proving. If preparation exhausts the window, retain the
+unsettled history for a fresh attempt. The prior full-proof start reserve could
+reject usable windows and make a slow observation select an unknown parent
+indefinitely. This scheduling correction changes no wire fields or validation.
 
 For a retryable status, each retry MUST open a new `Prove` call and resend the
 complete header and block stream. The Composer SHOULD use exponential backoff
