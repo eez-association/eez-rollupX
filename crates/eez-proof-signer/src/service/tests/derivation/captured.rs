@@ -192,7 +192,7 @@ impl Fixture {
             system_address,
         )
         .unwrap();
-        let genesis = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        let genesis = crate::testkit::manifest_dir()
             .join("tests/fixtures")
             .join(name)
             .join("l2-genesis.json");

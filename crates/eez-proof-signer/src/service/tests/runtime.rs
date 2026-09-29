@@ -90,9 +90,7 @@ async fn missing_or_changed_validation_identity_rejects_before_witnesses_or_sign
 #[tokio::test]
 async fn capabilities_report_loaded_identity_and_effective_limits_while_proof_slot_is_busy() {
     use eez_control_rpc::v1::CapabilitiesRequest;
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
-    let path = std::path::Path::new(&manifest).join("../../genesis.json");
+    let path = crate::testkit::manifest_dir().join("../../genesis.json");
     let loaded = eez_l1::chain_config::load_l2_genesis(&path).unwrap();
     let digest = loaded.digest();
     let genesis = loaded.into_genesis();

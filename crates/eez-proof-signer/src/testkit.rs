@@ -8,6 +8,13 @@
 
 use alloy_primitives::{Address, B256, address, b256};
 
+/// Nextest supplies the relocated checkout when running archived test binaries.
+pub(crate) fn manifest_dir() -> std::path::PathBuf {
+    std::env::var_os("CARGO_MANIFEST_DIR")
+        .unwrap_or_else(|| env!("CARGO_MANIFEST_DIR").into())
+        .into()
+}
+
 pub(crate) fn posting_context() -> eez_control_rpc::v1::L1PostingContext {
     eez_control_rpc::v1::L1PostingContext {
         chain_id: 1,
@@ -90,9 +97,7 @@ pub(crate) fn native_capture(
 ) {
     use eez_control_rpc::v1::{ProveChunk, prove_chunk};
     use prost::Message as _;
-    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/fixtures")
-        .join(name);
+    let directory = manifest_dir().join("tests/fixtures").join(name);
     let bytes = std::fs::read(directory.join("cold-request.protobuf")).unwrap();
     let mut remaining = bytes.as_slice();
     let mut chunks = Vec::new();

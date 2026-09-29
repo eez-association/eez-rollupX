@@ -18,11 +18,12 @@ fn fixture_hex(value: &str) -> Vec<u8> {
 }
 
 fn fixture(dir: &str, name: &str) -> String {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
-    let path = format!("{manifest}/tests/fixtures/{dir}/{name}");
+    let path = crate::testkit::manifest_dir()
+        .join("tests/fixtures")
+        .join(dir)
+        .join(name);
     std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("cannot read fixture {path}: {error}"))
+        .unwrap_or_else(|error| panic!("cannot read fixture {}: {error}", path.display()))
 }
 
 fn fixture_json(dir: &str, name: &str) -> serde_json::Value {
