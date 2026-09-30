@@ -194,26 +194,40 @@ pub async fn wait_for_l1_ready(
                 (closer, format!("{remaining} blocks below the deploy block"))
             }
             Ok(state) => match l1_reader.serves_history(deploy_block).await {
-                Ok(true) if chain_verified => match l1_reader.finalized_block().await {
-                    Ok(Some((number, _))) if number >= genesis_reference_number => {
-                        event!(
-                            name: "eez.node.l1_ready",
-                            Level::INFO,
-                            head = state.head_block_number,
-                            deploy_block,
-                            finalized = number,
-                            "L1 source can serve our history and finalized reference",
-                        );
-                        // Readiness is not authentication: the deriver separately
-                        // checks the exact canonical reference hash and seed.
-                        return Ok(());
+                Ok(true) if chain_verified => {
+                    // Block zero needs no finality probe (see `reference_is_final`);
+                    // a fresh devnet reports no `finalized` block for 20+ minutes.
+                    let finalized = if genesis_reference_number == 0 {
+                        Ok(None)
+                    } else {
+                        l1_reader.finalized_block().await
+                    };
+                    match finalized {
+                        Ok(finalized)
+                            if reference_is_final(
+                                genesis_reference_number,
+                                finalized.map(|(number, _)| number),
+                            ) =>
+                        {
+                            event!(
+                                name: "eez.node.l1_ready",
+                                Level::INFO,
+                                head = state.head_block_number,
+                                deploy_block,
+                                genesis_reference_number,
+                                "L1 source can serve our history and final reference",
+                            );
+                            // Readiness is not authentication: the deriver separately
+                            // checks the exact canonical reference hash and seed.
+                            return Ok(());
+                        }
+                        Ok(_) => (false, "genesis reference is not finalized yet".to_string()),
+                        Err(err) => {
+                            last_err = Some(err.to_string());
+                            (false, "finality probe failed".to_string())
+                        }
                     }
-                    Ok(_) => (false, "genesis reference is not finalized yet".to_string()),
-                    Err(err) => {
-                        last_err = Some(err.to_string());
-                        (false, "finality probe failed".to_string())
-                    }
-                },
+                }
                 Ok(true) => (false, "chain id not read yet".to_string()),
                 Ok(false) => (state.syncing, "does not serve the deploy block".to_string()),
                 Err(err) => {
@@ -245,6 +259,21 @@ pub async fn wait_for_l1_ready(
     }
 }
 
+/// Whether the L1 genesis reference is final enough to start from.
+///
+/// Block zero is final by definition and is authenticated against the
+/// canonical block zero, not `finalized` (matching
+/// `eez_l1::derivation::DerivationSource::authenticate`). Any later reference
+/// requires a reported finalized block at or above it; no report means not yet.
+#[cfg(feature = "l1-startup")]
+const fn reference_is_final(reference_number: u64, finalized: Option<u64>) -> bool {
+    match finalized {
+        _ if reference_number == 0 => true,
+        Some(number) => number >= reference_number,
+        None => false,
+    }
+}
+
 /// Reject a configured address that differs from the native system identity.
 pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyre::Result<()> {
     eyre::ensure!(
@@ -267,5 +296,26 @@ pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyr
         Err(env::VarError::NotUnicode(_)) => Err(eyre::eyre!(
             "EEZ_L2_SYSTEM_ADDRESS contains non-UTF-8 bytes"
         )),
+    }
+}
+
+#[cfg(all(test, feature = "l1-startup"))]
+mod tests {
+    use super::reference_is_final;
+
+    #[test]
+    fn block_zero_reference_needs_no_finalized_report() {
+        // A fresh devnet reports no finalized block until its first checkpoint.
+        assert!(reference_is_final(0, None));
+        assert!(reference_is_final(0, Some(0)));
+        assert!(reference_is_final(0, Some(7)));
+    }
+
+    #[test]
+    fn later_reference_requires_finality_at_or_above_it() {
+        assert!(!reference_is_final(40, None));
+        assert!(!reference_is_final(40, Some(39)));
+        assert!(reference_is_final(40, Some(40)));
+        assert!(reference_is_final(40, Some(41)));
     }
 }
