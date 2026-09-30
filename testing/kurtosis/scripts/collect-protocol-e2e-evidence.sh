@@ -302,8 +302,10 @@ fi
 causal_graph="$(jq -c . "$causal_tmp/output.json")"
 
 # Authenticate the exact physical blob selected by postBatch, decode the
-# native semantic stream, and require every canonical raw trigger transaction
-# to appear byte-for-byte as semantic tx_data.
+# native semantic stream and bind its brackets to the posted settlement
+# tables. An L2 trigger must also appear byte-for-byte as semantic tx_data. An
+# L1 trigger (empty L1-origin tx_data) is bound through those tables and the
+# causal trigger-to-table bijection verified above.
 blob_evidence=()
 while read -r post; do
     hash="$(jq -r '.hash' <<<"$post")"
@@ -381,7 +383,7 @@ jq -n \
                upstream_summary_blocks_match_receipts: $summary_blocks_match,
                causal_graph_bijection: true,
                blob_kzg_authenticated: true, native_semantics_decoded: true,
-               semantic_trigger_bytes_bound: true,
+               semantic_trigger_bound: true,
                l1_settlement_verified: true, posted_table_field_match: true,
                rolling_hashes_replayed: $rolling_replayed, l2_table_field_match: true,
                l2_calls_verified: $l2_calls_verified},

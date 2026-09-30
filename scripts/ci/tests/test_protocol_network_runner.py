@@ -371,7 +371,7 @@ jq -e '.source == "deployment-fixture"' "$EEZ_L2_GENESIS" >/dev/null
 [[ "$1" != "${BAD_EVIDENCE:-}" ]] || exit 17
 jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified: true},
     blob_da: {verified: true}, claims: {blob_kzg_authenticated: true,
-    native_semantics_decoded: true, semantic_trigger_bytes_bound: true}}' > "$4"
+    native_semantics_decoded: true, semantic_trigger_bound: true}}' > "$4"
 ''')
         self.env.update(EEZ_CI_RESULT_DIR=str(self.root / "artifacts"), PK="source-key",
                         EEZ_PROTOCOL_MAX_PARALLEL="2",

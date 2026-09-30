@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Authenticate and decode the exact blob-backed settlement for one protocol
-# scenario, then bind every reported user trigger to semantic tx_data.
+# scenario and bind its semantic brackets to the posted settlement tables.
+# An L2 trigger is additionally bound byte-for-byte to its bracket's tx_data.
+# L1-origin brackets publish empty tx_data (the L1 transaction is already on
+# L1), so an L1 trigger is bound through the tables: the caller's canonical
+# trigger-to-table verification plus this bracket-to-table binding.
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
@@ -65,15 +69,17 @@ for _attempt in {1..20}; do
 done
 [[ -s "$sidecars_tmp" ]] || die "beacon blobs for slot $slot are unavailable"
 
+l2_chain_id="$(cast chain-id --rpc-url "$L2_RPC")" || die "cannot read L2 chain id"
 verifier_input="$tmp_dir/input.json"
 verifier_output="$tmp_dir/output.json"
 jq -n \
     --argjson rollup_id "$ROLLUP_ID" \
+    --argjson l2_chain_id "$l2_chain_id" \
     --argjson beacon_slot "$slot" \
     --argjson l1_transaction "$post_tx" \
     --argjson l1_receipt "$post_receipt" \
     --slurpfile beacon_sidecars "$sidecars_tmp" \
-    '{rollup_id:$rollup_id, beacon_slot:$beacon_slot,
+    '{rollup_id:$rollup_id, l2_chain_id:$l2_chain_id, beacon_slot:$beacon_slot,
       l1_transaction:$l1_transaction, l1_receipt:$l1_receipt,
       beacon_sidecars:$beacon_sidecars[0]}' >"$verifier_input"
 "$BLOB_VERIFIER" "$verifier_input" >"$verifier_output" \
@@ -81,6 +87,11 @@ jq -n \
 jq -e '.verified == true and .payload.semantic_transaction_count > 0 and
        .payload.semantic_action_count > 0' "$verifier_output" >/dev/null \
     || die "verified blob contains no cross-chain semantic actions"
+jq -e '.payload.semantics_bound_to_settlement == true' "$verifier_output" >/dev/null \
+    || die "semantic brackets are not bound to the posted settlement tables"
+jq -e '[.payload.semantic_transactions[] | select(.origin_chain == 0) | .tx_data] | all(. == "0x")' \
+    "$verifier_output" >/dev/null \
+    || die "an L1-origin bracket publishes transaction bytes"
 
 expected_origin=0
 trigger_rpc="$L1_RPC"
@@ -97,10 +108,12 @@ for trigger_hash in "${TRIGGER_HASHES[@]}"; do
     [[ "$trigger_hash" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid trigger hash $trigger_hash"
     raw="$(raw_transaction_for "$trigger_rpc" "$trigger_hash" "$tmp_dir")" \
         || die "cannot read raw trigger transaction $trigger_hash"
-    jq -e --arg raw "${raw,,}" \
-        '[.payload.semantic_transactions[].tx_data | ascii_downcase] | index($raw) != null' \
-        "$verifier_output" >/dev/null \
-        || die "raw trigger $trigger_hash is absent from semantic tx_data"
+    if [[ "$TRIGGER_CHAIN" == L2 ]]; then
+        jq -e --arg raw "${raw,,}" \
+            '[.payload.semantic_transactions[].tx_data | ascii_downcase] | index($raw) != null' \
+            "$verifier_output" >/dev/null \
+            || die "raw trigger $trigger_hash is absent from semantic tx_data"
+    fi
     raw_triggers+=("$(jq -cn --arg hash "$trigger_hash" --arg raw "$raw" \
         '{hash:$hash, raw_transaction:$raw}')")
 done
@@ -117,6 +130,8 @@ jq \
       trigger_chain: $trigger_chain,
       expected_origin: $expected_origin,
       raw_trigger_transactions: $raw_triggers,
-      all_trigger_bytes_bound: true,
+      trigger_binding: (if $trigger_chain == "L2" then "exact_tx_data" else "settlement_table" end),
+      semantics_bound_to_settlement: true,
+      all_trigger_bytes_bound: ($trigger_chain == "L2"),
       beacon_sidecars_file: $sidecars_file
     }}' "$verifier_output" >"$OUTPUT_JSON"
