@@ -42,7 +42,13 @@ GHCR state-image retention policy is needed.
   Cached programs are still trusted CI inputs, not a security boundary against
   a malicious repository maintainer or cache writer.
 - Fetch dependencies separately, then compile retained state offline, without
-  compiler-cache credentials. Enforce four CPUs, 20 GiB RAM and zero swap inside
+  compiler-cache credentials. A miss that can never be exported (anything but a
+  default-branch push) restores no cached programs, so it compiles in the online
+  stage with the runner's compiler cache (Redis `sccache` on `homelab-rust`), as
+  builds did before retained state; default-branch misses stay offline so the
+  exported state remains credential-free and reuses the build's layers. Before
+  this, homelab pull-request builds missed retained state and compiled with no
+  cache (runtime phase ~1,850–2,000 s versus ~800–1,160 s with Redis `sccache`). Enforce four CPUs, 20 GiB RAM and zero swap inside
   the build step. Require a 24-GiB Docker host and 50 GiB free workspace space;
   these checks do not reserve node resources or impose a PID limit.
 - Preserve all seven shipping exports, frozen shipping bytes, the separate

@@ -259,6 +259,37 @@ class RuntimeArtifactsTest(unittest.TestCase):
             self.assertNotIn("--secret", command)
             self.assertTrue(any(c.startswith("previous-state=oci-layout://") for c in command))
 
+    def runtime_builds(self):
+        return [c for c in self.commands()
+                if c[:3] == ["docker", "buildx", "build"] and "Dockerfile.runtime" in c and "binaries" in c]
+
+    def test_oci_state_miss_off_default_branch_compiles_online_with_compiler_cache(self):
+        # Nothing was restored and a pull request never exports state, so the
+        # miss uses the compiler cache instead of compiling fully cold.
+        self.prepare_state(seed=False)
+        self.env.update(EEZ_COMPILER_CACHE="redis", SCCACHE_REDIS_ENDPOINT="private-fixture")
+        result = self.run_script("build-runtime-artifacts.sh")
+        self.assertIn("Docker Cargo state: miss", result.stdout)
+        [command] = self.runtime_builds()
+        for setting in ("BUILD_STAGE=build-online", "EEZ_COMPILER_CACHE=redis",
+                        "id=SCCACHE_REDIS_ENDPOINT,env=SCCACHE_REDIS_ENDPOINT",
+                        "cpu-quota=400000", "memory=20g", "memory-swap=20g"):
+            self.assertIn(setting, command)
+        self.assertFalse(any(c.startswith("previous-state=") for c in command))
+
+    def test_oci_state_miss_on_default_branch_push_stays_offline_for_export(self):
+        # Exported state must be compiled offline without credentials, and
+        # export-state reuses exactly this build's offline layers.
+        self.prepare_state(seed=False)
+        self.env.update(EEZ_COMPILER_CACHE="redis", SCCACHE_REDIS_ENDPOINT="private-fixture",
+                        GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/main")
+        result = self.run_script("build-runtime-artifacts.sh")
+        self.assertIn("Docker Cargo state: miss", result.stdout)
+        [command] = self.runtime_builds()
+        for setting in ("BUILD_STAGE=build-offline", "EEZ_COMPILER_CACHE=none"):
+            self.assertIn(setting, command)
+        self.assertNotIn("--secret", command)
+
     def test_unusable_oci_layouts_fall_back_before_compilation(self):
         state = self.prepare_state()
         transport = state / "transport"
