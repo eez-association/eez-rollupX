@@ -11,7 +11,7 @@ use alloy_rlp::RlpEncodable;
 
 const IDENTITY_SCHEMA_VERSION: u64 = 4;
 const VALIDATOR_REVISION: &[u8] =
-    b"eez-native-v0-validator-v5;operations=columns/count14/u32;gas=30000000;basefee=2/50;system=0x76/nonce/remaining-gas-cap16777216;l1=canonical-snapshot+parent-provenance;protocol=9d13218a355e7d543ca8a9927eea2962600b716d";
+    b"eez-native-v0-validator-v5;operations=columns/count14/u32;gas=30000000;basefee=2/50;system=0x76/nonce/remaining-gas-cap16777216;l1-origin-txdata=empty;l1=canonical-snapshot+parent-provenance;protocol=9d13218a355e7d543ca8a9927eea2962600b716d";
 // A conservative fingerprint: every locked version/source/checksum participates,
 // including Reth, Stateless, REVM, Alloy and the JSON implementation. This may
 // invalidate reusable facts after an unrelated dependency change; it cannot

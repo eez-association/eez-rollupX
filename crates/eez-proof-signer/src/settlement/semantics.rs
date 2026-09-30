@@ -45,6 +45,10 @@ pub(crate) enum SemanticBindingError {
         transaction: usize,
         transaction_index: usize,
     },
+    #[error(
+        "L1-origin semantic transaction {transaction} carries {len} bytes of txData; expected none"
+    )]
+    InboundTransactionData { transaction: usize, len: usize },
     #[error("semantic transaction {transaction} cannot be materialized: {reason}")]
     Materialization { transaction: usize, reason: String },
     #[error(
@@ -241,6 +245,15 @@ pub(crate) fn verify_native_semantics_with_observations(
         transactions.iter().enumerate().skip(outbound_groups.len())
     {
         require_origin(transaction, transaction_index, RollupId::MAINNET.0)?;
+        // The originating L1 transaction is not part of any L2 block and is not
+        // in the Prove request, so a published copy could never be checked.
+        // Only empty txData is admitted rather than unverified bytes in DA.
+        if !transaction.tx_data.is_empty() {
+            return Err(SemanticBindingError::InboundTransactionData {
+                transaction: transaction_index,
+                len: transaction.tx_data.len(),
+            });
+        }
         let mut composition = materialize(transaction, transaction_index)?;
         require_supported_targets(&composition, transaction_index, rollup_id)?;
         let entry_count = composition.source.batch.entries.len();

@@ -644,7 +644,8 @@ mod tests {
         let messages = vec![
             eez_blob_codec::Message::InitiateCrossChainTransaction {
                 chain_id: 0,
-                tx_data: Bytes::from_static(b"L1 origin"),
+                // L1-origin brackets publish no transaction bytes.
+                tx_data: Bytes::new(),
             },
             eez_blob_codec::Message::Call {
                 to_chain: rollup_id,

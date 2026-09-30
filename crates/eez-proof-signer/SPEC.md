@@ -998,12 +998,16 @@ entry may advance the commitment without an executed effect. Every deferred
 entry and static entry MUST be consumed exactly once by this schedule, with no
 reordering or remainder.
 
-L1 `tx_data` remains an opaque chain-defined sidecar:
-this signer validates the `postBatch` transaction and L2 window but does not
-execute the later L1 user transactions in the atomic bundle. Consequently, the
-aggregate effects are exact, but L1 semantic transaction boundaries and the
-relative ordering of transactions that land in different mutable/static pools
-are descriptive rather than independently authenticated by this signer.
+An L1-origin transaction's `tx_data` MUST be empty; any other value is rejected.
+The originating L1 transaction is not part of any L2 block, is not in the Prove
+request, and is already published on L1, so a copy in the blob could never be
+bound to anything. (The blob format leaves the field chain-defined; this
+deployment defines it as empty for an L1 origin.) This signer validates the
+`postBatch` transaction and L2 window but does not execute the later L1 user
+transactions in the atomic bundle. Consequently, the aggregate effects are
+exact, but L1 semantic transaction boundaries and the relative ordering of
+transactions that land in different mutable/static pools are descriptive rather
+than independently authenticated by this signer.
 
 The signer recomputes every KZG versioned hash from physical blobs. Mixed,
 missing, surplus, reordered, malformed, wrong-rollup, semantically unbound, or

@@ -181,7 +181,7 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
     let inbound = verify_inbound_effect_entries(&plan).unwrap();
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,
-        tx_data: Bytes::from_static(b"chain-defined L1 transaction"),
+        tx_data: Bytes::new(),
         actions: vec![semantic_action(
             RollupId::MAINNET,
             RollupId(1),
@@ -203,6 +203,24 @@ fn native_inbound_semantics_bind_both_sides_and_reject_result_mutation() {
             expected_rollup_id(),
         ),
         Ok(())
+    );
+
+    // An otherwise valid bracket still may not publish unverifiable L1 bytes.
+    let mut with_l1_copy = semantic.clone();
+    with_l1_copy.tx_data = Bytes::from_static(b"signed L1 transaction");
+    assert_eq!(
+        verify_native_semantics(
+            &[with_l1_copy],
+            &window,
+            &AuthorizedOutboundEffects::default(),
+            &inbound,
+            &batch,
+            expected_rollup_id(),
+        ),
+        Err(SemanticBindingError::InboundTransactionData {
+            transaction: 0,
+            len: 21,
+        })
     );
 
     let mut mutated = semantic;
@@ -250,7 +268,7 @@ fn native_lookup_semantics_bind_results_without_an_l2_effect() {
         action.revert_span = revert_span;
         let semantic = SemanticTransaction {
             origin_chain: RollupId::MAINNET,
-            tx_data: Bytes::from_static(b"chain-defined lookup transaction"),
+            tx_data: Bytes::new(),
             actions: vec![action],
         };
 
@@ -341,7 +359,7 @@ fn source_reverted_lookup_with_cross_chain_descendants_is_rejected() {
     nested.parent_index = Some(0);
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,
-        tx_data: Bytes::from_static(b"source-reverted L1 transaction"),
+        tx_data: Bytes::new(),
         actions: vec![outer, nested],
     };
 
@@ -452,7 +470,7 @@ fn native_inbound_semantics_finalize_root_dependent_nested_fields() {
     }
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,
-        tx_data: Bytes::from_static(b"chain-defined nested L1 transaction"),
+        tx_data: Bytes::new(),
         actions,
     };
 
@@ -483,7 +501,7 @@ fn native_l1_static_semantics_bind_exact_pinned_static_entry() {
     action.call_mode = CallMode::Static;
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,
-        tx_data: Bytes::from_static(b"chain-defined L1 static transaction"),
+        tx_data: Bytes::new(),
         actions: vec![action],
     };
     let mut expected = semantic

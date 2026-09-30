@@ -21,7 +21,10 @@ pub use reconstruction::{ReconstructionActions, ReconstructionError};
 pub struct SemanticTransaction {
     /// Chain containing the originating signed transaction (`0` denotes L1).
     pub origin_chain: RollupId,
-    /// Chain-defined transaction bytes carried verbatim by the protocol.
+    /// Originating signed transaction. The Composer holds it for both
+    /// directions, but only an L2 origin publishes it: see
+    /// [`encode_semantic_transaction`]. Decoded L1-origin transactions carry
+    /// empty bytes.
     pub tx_data: Bytes,
     /// Resolved calls in strict preorder, including exact outcomes and regions.
     pub actions: Vec<ExecutedAction>,
@@ -309,6 +312,12 @@ fn push_call(
 
 /// Encode one resolved action forest as the native semantic message bracket.
 ///
+/// `tx_data` is published only for an L2 origin: that signed user transaction
+/// is part of the Sync block and exists nowhere else, so followers need its
+/// exact bytes to rebuild the block. An L1-origin transaction is already on L1,
+/// is never part of an L2 block, and no validator can check a copy of it, so
+/// its `tx_data` is published empty (the blob format leaves the field opaque).
+///
 /// # Errors
 ///
 /// Returns an error when the forest cannot be materialized by the current
@@ -324,9 +333,14 @@ pub fn encode_semantic_transaction(
         .enumerate()
         .filter_map(|(index, action)| action.parent_index.is_none().then_some(index))
         .collect::<Vec<_>>();
+    let tx_data = if transaction.origin_chain.is_mainnet() {
+        Bytes::new()
+    } else {
+        transaction.tx_data.clone()
+    };
     let mut messages = vec![Message::InitiateCrossChainTransaction {
         chain_id: transaction.origin_chain.0,
-        tx_data: transaction.tx_data.clone(),
+        tx_data,
     }];
     emit_siblings(
         &roots,
@@ -512,6 +526,49 @@ mod tests {
                 .entries
                 .abi_encode(),
             transaction
+                .materialize()
+                .unwrap()
+                .source
+                .batch
+                .entries
+                .abi_encode(),
+        );
+    }
+
+    #[test]
+    fn only_l2_origin_transactions_publish_their_signed_transaction() {
+        let tx_data = |messages: &[Message]| match &messages[0] {
+            Message::InitiateCrossChainTransaction { tx_data, .. } => tx_data.clone(),
+            other => panic!("expected InitiateCrossChainTransaction, got {other:?}"),
+        };
+        let outbound = SemanticTransaction {
+            origin_chain: RollupId(1),
+            tx_data: Bytes::from_static(b"signed L2 tx"),
+            actions: vec![action(None, 1, 0, 1)],
+        };
+        let messages = encode_semantic_transaction(&outbound).unwrap();
+        assert_eq!(tx_data(&messages), Bytes::from_static(b"signed L2 tx"));
+
+        let inbound = SemanticTransaction {
+            origin_chain: RollupId::MAINNET,
+            tx_data: Bytes::from_static(b"signed L1 tx"),
+            actions: vec![action(None, 0, 1, 1)],
+        };
+        let messages = encode_semantic_transaction(&inbound).unwrap();
+        assert!(tx_data(&messages).is_empty());
+        let decoded = decode_semantic_transactions(&messages).unwrap();
+        assert_eq!(decoded[0].origin_chain, RollupId::MAINNET);
+        assert!(decoded[0].tx_data.is_empty());
+        // Dropping the copy changes nothing the tables are built from.
+        assert_eq!(
+            decoded[0]
+                .materialize()
+                .unwrap()
+                .source
+                .batch
+                .entries
+                .abi_encode(),
+            inbound
                 .materialize()
                 .unwrap()
                 .source

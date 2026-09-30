@@ -1,19 +1,19 @@
 {
-  "base": "1d3ee4530205c259a54b288fd940e7b65436177d",
+  "base": "637c445aff1a87d513309e243a4af1b678a49f48 plus the commit adding this capture (empty L1-origin tx_data)",
   "protocol_gitlink": "160000 commit 9d13218a355e7d543ca8a9927eea2962600b716d\teez-core-protocol",
   "binaries_sha256": {
-    "target/debug/eez-composer": "ddb483f38efc8c7db1935cb55ee3b55207f5ebcc00e2ac93252e0890223c83f2",
-    "target/debug/eez-follower": "3ede2a67d929b74b33a86eff9818f555bcd7654dce0f9443e57eac70373b23e3",
-    "target/debug/eez-proof-signer": "574674e33b6d8e86549ac324b89e5cb6efa2088e56a90844cb198b11301643f2"
+    "target/debug/eez-composer": "19f58199d430ebf1ceabcbc4c2f8f244974fb0d06203c81d0f42badf15e9aedc",
+    "target/debug/eez-follower": "9071968e8beb997ee821e1177751ac734f5337d3b1e95ca1203901679ca3f940",
+    "target/debug/eez-proof-signer": "c686e1967128567adcaee9474f9463b3ed438f89a67483557b2ca6f67dc71e38"
   },
   "files_sha256": {
-    "chain-config.json": "cf4d2f8a83ed087d7d7ef143c712baf1f51e6b6f6ceebb172299e6546a69ded8",
-    "cold-request.protobuf": "97c92e7e77bd33930a14cb80fbdde14c2c4cbaf1cae6645119be4a25183e809a",
+    "chain-config.json": "eeba3447ba22ce726d1da5035ca8c6681989ebcb68a7728898299a3a088d64b6",
+    "cold-request.protobuf": "396e68b14c65feb6243231cced8210ad31bd0ec9ae47d22166942653dcee42c3",
     "identity.json": "97ce3ae062ac91934790dda8ee4be8c590e567b5fd673e733ff702da54156f07",
-    "l1-genesis.json": "941357a2ef5cc113ae0296e579e9afe3335dad99d1190af436445e101d3a2b7e",
-    "l2-genesis.json": "2accea77523f8e970878072c9164f7de7627501b3247c03e7e46b5bdd036c674",
-    "request.protobuf": "10a35c4d064b373624470dadb62c887ccca6d54131a811f1c695992aeb86fd46",
-    "response.json": "591cb8a7f06e3f4e00ee3ec379e6778d7a34918b337c209846536543c6442a92"
+    "l1-genesis.json": "6083b9af690f6ee4d791650edcab63901fbace98c34de38b834dd78d855d0488",
+    "l2-genesis.json": "7cc46b6b8b7cc01fc0ccc1e387460234255a28f0b549f5e9f1584f32727649b2",
+    "request.protobuf": "2bf8baafd8dbf0ac73e5613eb34af27278488f200c70ea36378e0054af027a50",
+    "response.json": "62b36c495f401768e1fa34dd33f384fb7e0385073a63c57b18782e4dae0a99c8"
   },
-  "local_evidence": "artifacts/protocol-balance-burn/capture/lookup"
+  "local_evidence": "local-only job directory (not retained): capture/lookup/ with the test log and all four exported requests"
 }

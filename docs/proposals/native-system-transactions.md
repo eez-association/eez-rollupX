@@ -93,8 +93,11 @@ serialized inside that body.
 
 The authenticated enclosing native EEZ stream supplies the existing bracketed
 `InitiateCrossChainTransaction` / call / result / snapshot / revert / finish
-messages. The initiating chain and exact signed origin transaction remain
-required for this extension. The shared semantic materializer derives the
+messages. The initiating chain is required for every transaction. The exact
+signed origin transaction is required for an L2 origin, where it is the Sync
+block's user transaction and is published nowhere else; an L1 origin publishes
+empty `tx_data`, because its transaction is already on L1 and cannot be bound
+by the signer or used by followers. The shared semantic materializer derives the
 ordered L1/L2 tables and whole outbound groups from those messages. Both the
 signer and follower must bind those derived tables to the actual settlement,
 origin identities and transaction bytes; decoding an action alone is not
