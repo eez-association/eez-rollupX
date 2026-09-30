@@ -3,9 +3,10 @@
 !Cargo.lock
 !crates/
 !crates/**
-!vendor/
-!vendor/**
 **/target/
 **/.env
 **/.env.*
 **/.vscode/
+!scripts/
+!scripts/ci/
+!scripts/ci/install-llvm.sh

@@ -15,27 +15,35 @@ use eez_testkit::{
 const TIMEOUT: Duration = Duration::from_mins(3);
 
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
-    use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
-
-    let (terminal, ordinary) = blocks.split_last().expect("nonempty interval");
-    // Measure a valid V0 all-full representation, including counts, overrides
-    // and the terminal. Do not use the old integer-list wrapper as a size oracle.
-    Payload::new(
-        ordinary.len() as u64,
-        Environment::unused(),
-        ordinary
+    use alloy_eips::Encodable2718;
+    use eez_payload_codec::v0::{self, BlockRun};
+    let blocks = blocks
+        .iter()
+        .map(|bytes| alloy_rlp::decode_exact::<eez_primitives::Block>(bytes).unwrap())
+        .collect::<Vec<_>>();
+    let transactions = blocks
+        .iter()
+        .map(|block| {
+            block
+                .body
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+    v0::encode(
+        &blocks
             .iter()
-            .map(|block| Record {
-                empty_gap: 0,
-                data: RecordData::FullBlock(block.clone().into()),
+            .zip(&transactions)
+            .map(|(block, transactions)| BlockRun {
+                blocks: 1,
+                beneficiary: block.header.beneficiary,
+                extra_data: &block.header.extra_data,
+                transactions,
             })
-            .collect(),
-        terminal.clone(),
-        vec![],
-        vec![],
+            .collect::<Vec<_>>(),
     )
-    .unwrap()
-    .encode()
     .unwrap()
     .len()
 }
@@ -131,7 +139,7 @@ async fn retained_backlog_replays_old_witnesses_when_the_capture_store_is_empty(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_target() {
+async fn late_sync_settles_due_history_within_the_original_target_window() {
     let mut env = policy_env(Vec::new(), "interval");
     env.extend([
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "5".into()),
@@ -143,7 +151,8 @@ async fn late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_ta
     let cursor = world.node.signal_cursor().unwrap();
     // The signer is ready before inducing lateness. Pause between the L1
     // watcher's scan and the +2s trigger, then resume after its +2.8s proof
-    // deadline but before the next native L1 block at +5s.
+    // allocation but before the real submission deadline at +4.3s. The
+    // remaining window may still complete preparation, proof and submission.
     let base = eez_testkit::wait_for(TIMEOUT, || async {
         let block = l1
             .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
@@ -200,7 +209,7 @@ async fn late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_ta
         .header;
     assert_eq!(header.timestamp, old_timestamp);
     let follower = NodeHandle::start(
-        "late-historical-follower",
+        "late-sync-follower",
         &NodeConfig {
             binary: NodeBinary::Follower,
             genesis_path: Some(&world.cfg.l2_genesis.0),
@@ -233,9 +242,9 @@ async fn late_sync_can_post_due_history_below_three_hundred_blocks_to_a_fresh_ta
         .await
         .unwrap()
         .unwrap();
-    assert!(
-        included.header.timestamp > old_timestamp,
-        "historical posting must select a fresh future L1 target"
+    assert_eq!(
+        included.header.timestamp, old_timestamp,
+        "crossing the nominal proof-start allocation must not change a usable target"
     );
 }
 
@@ -2337,6 +2346,10 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     use eez_testkit::{onchain_nonce, sign_and_send, wait_for};
     let mut env = policy_env(vec![], "interval");
     env.push(("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "120000".into()));
+    // Six-blob KZG preparation plus final preflight exceeds the default
+    // two-second window on CI. Start earlier in the same L1 slot; the proof
+    // still binds its known parent and submission keeps the original cutoff.
+    env.push(("EEZ_PREPARATION_TIME_MS", "2500".into()));
     // The native relay inserts the ordered bundle into a fee-sorted dev pool.
     // Keep the post ahead of its 1-gwei companion, as in the other bundle tests.
     env.push(("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()));
@@ -2662,11 +2675,8 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         }),
         "multi-blob preparation must record a timing sample"
     );
-    // An exact target that still fits is retained, so this workload need not
-    // request a new policy target AFTER collecting preparation samples. Check
-    // every actual selection's budget and deadline, without requiring a slow
-    // preparation or incidental retarget. Controlled policy/submitter unit
-    // tests cover the added reserve and slot choice with injected durations.
+    // Proofs bind a known canonical parent. A late preparation estimate must
+    // not choose a later execution height whose parent has not been produced.
     let selections = signals
         .iter()
         .filter(|event| event.name == "eez.submitter.policy.target_selected")
@@ -2677,19 +2687,18 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     );
     for event in selections {
         let value = |key: &str| event.fields[key].as_u64().unwrap();
-        let preparation_ms = value("preparation_ms");
-        assert!(preparation_ms >= milliseconds("EEZ_PROOF_TIME_MS"));
-        assert_eq!(
-            value("head_number") + value("block_offset"),
-            value("target_block")
+        assert_eq!(value("head_number") + 1, value("target_block"));
+        assert!(
+            (1..=eez_l1::submitter::MAX_MISSING_SLOT_REPLACEMENTS + 1)
+                .contains(&value("slot_offset"))
         );
         assert_eq!(
             value("head_timestamp") * 1000
-                + value("block_offset") * milliseconds("EEZ_L1_BLOCK_TIME_MS"),
+                + value("slot_offset") * milliseconds("EEZ_L1_BLOCK_TIME_MS"),
             value("target_timestamp") * 1000
         );
         assert!(
-            value("selected_at_ms") + preparation_ms + value("submission_slack_ms")
+            value("selected_at_ms") + value("submission_slack_ms")
                 < value("target_timestamp") * 1000
         );
     }

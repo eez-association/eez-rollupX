@@ -181,12 +181,12 @@ cargo run -p eez-node -- node \
 
 Select the non-default follower role explicitly. `EEZ_L1_CHAIN_ID` must match
 the numeric chain ID served by `EEZ_L1_RPC_URL`. A follower also requires the
-system signer and L2 execution identity so it can reconstruct Sync blocks:
+fixed native system address and L2 execution identity to reconstruct Sync blocks:
 
 ```bash
 # L1-derived follower; optionally add `--sequencer-rpc <URL>` after `node`.
 EEZ_L1_CHAIN_ID="<numeric-l1-chain-id>" \
-EEZ_L2_SYSTEM_KEY="<system-private-key>" \
+EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" \
 EEZL2_ADDRESS="<eezl2-contract-address>" \
 EEZ_ROLLUP_ID="<numeric-rollup-id>" \
 cargo run -p eez-follower -- node \
@@ -262,18 +262,25 @@ which this protocol does not currently define.
 
 ## Build, test, teardown
 
-Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream commit
-`444e867155c2a7a4c028e479ca7201b0b6871579`, which includes the post-v2.6.0
-forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Related
-local dependency ports are described in
-[`vendor/README.md`](vendor/README.md). Private `testing` and `testing-gnosis`
-L1 miners retain the previous two-block persistence threshold, without state
+Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream v2.7.0 commit
+`3d592ece6de8c4559987416a544fc215fd6d6921`, which includes the
+forkchoice fix in [#27429](https://github.com/paradigmxyz/reth/pull/27429). Gnosis uses unmodified
+[upstream PR #138](https://github.com/gnosischain/reth_gnosis/pull/138), and Stateless
+uses the [native replay compatibility branch](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8).
+The checked-in lockfile resolves these dependencies. Private `testing` and
+`testing-gnosis` L1 miners retain the previous two-block persistence threshold, without state
 masking or an in-memory buffer. They have no consensus peers to recover a lost
 chain after a crash. Consensus-driven `devnet` and `chiado` launchers use Reth's
 upstream persistence defaults. Recent unpersisted blocks can still be lost on
 an abrupt stop; database persistence is not durable queue recovery.
 
+The upstream default build features require LLVM 22, Polly, Clang 22 and `m4`.
+Docker builds install them automatically. For a Debian/Ubuntu source build:
+
 ```bash
+sudo bash scripts/ci/install-llvm.sh
+export LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+export PATH="$LLVM_SYS_221_PREFIX/bin:$PATH"
 cargo +1.95.0 build --locked --workspace
 cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings
 cargo +1.95.0 test --locked --workspace                  # Rust; `cd contracts && forge test` for Solidity

@@ -7,6 +7,11 @@ rust-version.workspace = true
 description            = "Reusable process, chain, and cross-chain integration test framework for EEZ crates."
 
 [dependencies]
+reqwest.workspace = true
+jsonrpsee.workspace = true
+alloy-rpc-types-engine.workspace = true
+reth-ethereum-primitives.workspace = true
+eez-primitives.workspace = true
 eez-blob-codec.workspace = true
 alloy-eips.workspace = true
 serde.workspace = true
@@ -14,6 +19,7 @@ hyper = { version = "1.9", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
 alloy-consensus.workspace = true
+alloy-consensus-any.workspace = true
 alloy-contract.workspace = true
 alloy-genesis.workspace = true
 alloy-network.workspace = true

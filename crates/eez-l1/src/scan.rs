@@ -107,6 +107,9 @@ pub struct ScannedBatch {
     /// blobs. The initial log scan leaves this empty; blob hydration fills it
     /// before the batch leaves `eez-l1`.
     pub operations_payload: Bytes,
+    /// Canonically decoded action forests from the same authenticated blobs.
+    /// Rollup-specific reconstruction and settlement authorization happen later.
+    pub semantic_transactions: std::sync::Arc<[eez_protocol::blob_semantics::SemanticTransaction]>,
     /// EIP-4844 versioned hashes committed by the originating transaction.
     /// Internal derivation metadata used by the beacon retrieval path before
     /// this value leaves `eez-l1`.
@@ -619,6 +622,7 @@ pub(crate) async fn scan_batch_logs_range(
                 tx_index: b.tx_index,
                 submitter: b.submitter,
                 operations_payload: Bytes::new(),
+                semantic_transactions: Default::default(),
                 transaction_blob_hashes: b.transaction_blob_hashes,
                 post_batch_input: b.post_batch_input,
                 state_applied: winner_tx_hashes.contains(&(b.l1_block_hash, b.tx_hash)),
@@ -1049,6 +1053,7 @@ mod tests {
                 tx_index,
                 submitter: Address::ZERO,
                 operations_payload: Bytes::new(),
+                semantic_transactions: Default::default(),
                 transaction_blob_hashes: Vec::new(),
                 post_batch_input: Bytes::new(),
                 state_applied: settled,

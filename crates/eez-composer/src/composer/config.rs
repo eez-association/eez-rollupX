@@ -79,7 +79,7 @@ impl ComposerSettings {
                     PolicyError::Config("EEZ_MAX_POSTBATCH_GAS must be a positive integer".into())
                 })?,
         };
-        let format_max = eez_payload_codec::derivable::MAX_BLOCKS as u64;
+        let format_max = u64::from(u32::MAX);
         if u64::from(timing.k()) > format_max {
             return Err(PolicyError::Config(
                 "Sync interval exceeds operations block ceiling".into(),
@@ -203,7 +203,7 @@ mod tests {
         let config = settings(&[]).unwrap();
         assert_eq!(config.max_blobs_per_batch, None);
         assert_eq!(config.max_speculative_depth(), 0);
-        assert_eq!(config.emission.max_blocks, 65_536);
+        assert_eq!(config.emission.max_blocks, u64::from(u32::MAX));
         assert_eq!(config.emission.max_gas, u64::MAX);
         let fees = config.posting_fees;
         assert_eq!(fees.priority_override, None);

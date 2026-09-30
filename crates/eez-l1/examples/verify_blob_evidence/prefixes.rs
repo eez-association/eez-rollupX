@@ -1,12 +1,15 @@
-//! CI-only prefix reconstruction. State roots come from the test node's
-//! debug_intermediateRoots replay, not from composer-provided checkpoint hints.
-//! Receipts/body are checked against the blob-authenticated terminal header.
-//! This is RPC-backed integration evidence, not a stateless execution proof.
+//! CI-only prefix reconstruction from the test node's execution witness and
+//! chain configuration and deployed genesis. Stateless replays pre-execution
+//! changes and every transaction; receipts/body are bound to the canonical terminal header.
+//! Chain identity/canonicality still rely on the surrounding RPC-backed check.
 
-use std::error::Error;
+use std::{error::Error, sync::Arc};
+
+use reth_chainspec::EthChainSpec as _;
+use reth_primitives_traits::Block as _;
 
 use alloy_consensus::{
-    ReceiptEnvelope, Transaction as _, TxReceipt as _,
+    ReceiptWithBloom, Transaction as _, TxReceipt as _, Typed2718 as _,
     proofs::{calculate_receipt_root, calculate_transaction_root},
 };
 use alloy_eips::{
@@ -14,24 +17,85 @@ use alloy_eips::{
     eip7685::EMPTY_REQUESTS_HASH,
 };
 use alloy_primitives::{B256, Bloom};
-use reth_ethereum_primitives::Block;
+use eez_primitives::{Block, Receipt};
+
+type ReceiptEnvelope = ReceiptWithBloom<Receipt>;
 use serde_json::{Value, json};
 
 use super::{required, required_b256, required_hex_bytes};
 
 pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
+    let (block, receipts) = decode(input)?;
+    let witness = serde_json::from_value(required(input, "/witness")?.clone())?;
+    let spec = replay_spec(input)?;
+    let indices: Vec<_> = (0..block.body.transactions.len()).collect();
+    let replay = stateless_reth::stateless_validation_recovered_with_state_checkpoints(
+        block.clone().try_into_recovered()?,
+        witness,
+        Arc::clone(&spec),
+        eez_evm::EezEvmConfig::new(spec),
+        &indices,
+    )?;
+    if replay.validation.execution_output.receipts
+        != receipts
+            .iter()
+            .map(|r| r.receipt.clone())
+            .collect::<Vec<_>>()
+    {
+        return Err("RPC receipts differ from independent witness replay".into());
+    }
+    let roots: Vec<_> = replay
+        .checkpoints
+        .transaction_state_checkpoints
+        .iter()
+        .map(|c| c.state_root)
+        .collect();
+    reconstruct(
+        &block,
+        &receipts,
+        &roots,
+        replay.checkpoints.pre_transaction_state_root,
+    )
+}
+
+fn replay_spec(input: &Value) -> Result<Arc<reth_chainspec::ChainSpec>, Box<dyn Error>> {
+    let genesis: alloy_genesis::Genesis =
+        serde_json::from_value(required(input, "/genesis")?.clone())?;
+    let config: alloy_genesis::ChainConfig =
+        serde_json::from_value(required(input, "/chain_config")?.clone())?;
+    // The execution schedule depends on the actual genesis header, including
+    // its timestamp and L1 reference. Chain configuration alone is insufficient.
+    let spec = eez_evm::profile::chain_spec(genesis)?;
+    let mut expected_config = spec.genesis.config.clone();
+    // Reth 2.7's debug_chainConfig materializes default blob parameters. This
+    // profile activates all three forks at timestamp zero; explicit genesis
+    // entries take precedence, just as in Reth's RPC serialization.
+    let params = spec
+        .blob_params_at_timestamp(0)
+        .ok_or("validated L2 profile has no genesis blob parameters")?;
+    for fork in ["cancun", "prague", "osaka"] {
+        expected_config
+            .blob_schedule
+            .entry(fork.into())
+            .or_insert(params);
+    }
+    // BlobParams has execution-only fields omitted by the RPC wire format.
+    if serde_json::to_value(expected_config)? != serde_json::to_value(config)? {
+        return Err("deployed genesis configuration differs from RPC chain configuration".into());
+    }
+    if spec.genesis_header.hash() != required_b256(input, "/genesis_hash")? {
+        return Err("deployed genesis differs from the canonical RPC genesis hash".into());
+    }
+    Ok(Arc::new(spec))
+}
+
+fn decode(input: &Value) -> Result<(Block, Vec<ReceiptEnvelope>), Box<dyn Error>> {
     let raw = required_hex_bytes(input, "/block_rlp")?;
     let block = alloy_rlp::decode_exact::<Block>(&raw)?;
     let expected_hash = required_b256(input, "/block_hash")?;
     if block.header.hash_slow() != expected_hash || alloy_rlp::encode(&block) != raw.as_ref() {
         return Err("prefix block does not match the authenticated block hash".into());
     }
-    let roots = required(input, "/state_roots")?
-        .as_array()
-        .ok_or("state_roots is not an array")?
-        .iter()
-        .map(|value| serde_json::from_value::<B256>(value.clone()))
-        .collect::<Result<Vec<_>, _>>()?;
     let raw_receipts = required(input, "/receipts_rlp")?
         .as_array()
         .ok_or("receipts_rlp is not an array")?;
@@ -45,21 +109,22 @@ pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
         if receipt.encoded_2718() != encoded.as_ref() {
             return Err("receipt encoding is not canonical".into());
         }
-        if receipt.logs().iter().collect::<Bloom>() != *receipt.logs_bloom() {
+        if receipt.logs().iter().collect::<Bloom>() != receipt.logs_bloom {
             return Err("receipt bloom does not match its logs".into());
         }
         receipts.push(receipt);
     }
-    reconstruct(&block, &receipts, &roots)
+    Ok((block, receipts))
 }
 
 fn reconstruct(
     block: &Block,
     receipts: &[ReceiptEnvelope],
     roots: &[B256],
+    pre_transaction_root: B256,
 ) -> Result<Value, Box<dyn Error>> {
     let txs = &block.body.transactions;
-    if txs.is_empty() || roots.len() != txs.len() || receipts.len() != txs.len() {
+    if roots.len() != txs.len() || receipts.len() != txs.len() {
         return Err(
             "prefix evidence must contain one state root and receipt per transaction".into(),
         );
@@ -82,18 +147,32 @@ fn reconstruct(
     }
     if calculate_transaction_root(txs) != block.header.transactions_root
         || calculate_receipt_root(receipts) != block.header.receipts_root
-        || roots.last() != Some(&block.header.state_root)
+        || roots.last().copied().unwrap_or(pre_transaction_root) != block.header.state_root
     {
         return Err(
             "prefix evidence disagrees with terminal transaction/receipt/state roots".into(),
         );
     }
-    let mut prefixes = Vec::with_capacity(txs.len());
+    let mut prefixes = Vec::with_capacity(txs.len() + 1);
+    let mut header = block.header.clone();
+    header.state_root = pre_transaction_root;
+    header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+    header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+    header.logs_bloom = Bloom::ZERO;
+    header.gas_used = 0;
+    if header.blob_gas_used.is_some() {
+        header.blob_gas_used = Some(0);
+    }
+    let hash = header.hash_slow();
+    if txs.is_empty() && hash != block.header.hash_slow() {
+        return Err("empty prefix differs from the canonical empty block".into());
+    }
+    prefixes.push(json!({"transaction_index": null, "transaction_count": 0, "hash": hash, "state_root": pre_transaction_root}));
     let mut bloom = Bloom::ZERO;
     let mut gas = 0;
     let mut blob_gas = 0_u64;
     for (index, ((tx, receipt), root)) in txs.iter().zip(receipts).zip(roots).enumerate() {
-        if receipt.cumulative_gas_used() < gas || receipt.tx_type() as u8 != tx.tx_type() as u8 {
+        if receipt.cumulative_gas_used() < gas || receipt.ty() != tx.ty() {
             return Err("prefix receipts have invalid cumulative gas or transaction types".into());
         }
         gas = receipt.cumulative_gas_used();
@@ -116,11 +195,11 @@ fn reconstruct(
                 "final reconstructed prefix is not the authenticated terminal block".into(),
             );
         }
-        prefixes.push(json!({"transaction_index": index, "hash": hash, "state_root": root}));
+        prefixes.push(json!({"transaction_index": index, "transaction_count": index + 1, "hash": hash, "state_root": root}));
     }
     Ok(
         json!({"verified": true, "block_hash": block.header.hash_slow(),
-        "block_number": block.header.number, "state_root_source": "debug_intermediateRoots",
+        "block_number": block.header.number, "state_root_source": "stateless_execution_witness_replay",
         "prefixes": prefixes}),
     )
 }
@@ -128,9 +207,79 @@ fn reconstruct(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_consensus::{Eip658Value, Receipt, TxLegacy};
+    use alloy_consensus::TxLegacy;
     use alloy_primitives::{Signature, U256};
+    use eez_primitives::EezTxType;
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
+
+    fn profile_input() -> Value {
+        let genesis: alloy_genesis::Genesis =
+            serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
+        let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
+        let mut config = genesis.config.clone();
+        for fork in ["cancun", "prague", "osaka"] {
+            config
+                .blob_schedule
+                .insert(fork.into(), alloy_eips::eip7840::BlobParams::prague());
+        }
+        json!({"chain_config": config, "genesis": genesis,
+            "genesis_hash": spec.genesis_header.hash()})
+    }
+
+    #[test]
+    fn witness_replay_preserves_the_nonzero_genesis_schedule() {
+        let input = profile_input();
+        let spec = replay_spec(&input).unwrap();
+        let mut header = spec.genesis_header.clone().into_header();
+        assert!(header.timestamp > 0);
+        let schedule = eez_evm::profile::schedule(spec.as_ref()).unwrap();
+        let (number, timestamp) = schedule.next(&header).unwrap();
+        header.number = number;
+        header.timestamp = timestamp;
+        schedule.validate_position(&header).unwrap();
+    }
+
+    #[test]
+    fn replay_rejects_mismatched_or_invalid_genesis_without_repair() {
+        for (pointer, value, error) in [
+            (
+                "/genesis_hash",
+                json!(B256::ZERO),
+                "canonical RPC genesis hash",
+            ),
+            (
+                "/chain_config/chainId",
+                json!(999),
+                "RPC chain configuration",
+            ),
+            (
+                "/genesis/timestamp",
+                json!("0x0"),
+                "genesis precedes its L1 reference",
+            ),
+            ("/genesis/gasLimit", json!("0x1"), "gas limit"),
+            (
+                "/chain_config/blobSchedule/cancun/max",
+                json!(8),
+                "RPC chain configuration",
+            ),
+        ] {
+            let mut input = profile_input();
+            *input.pointer_mut(pointer).unwrap() = value;
+            assert!(
+                replay_spec(&input).unwrap_err().to_string().contains(error),
+                "{pointer}"
+            );
+        }
+    }
+
+    const PRE_TRANSACTION_ROOT: B256 = B256::repeat_byte(0x33);
+
+    fn verify_recorded_roots(input: &Value) -> Result<Value, Box<dyn Error>> {
+        let (block, receipts) = decode(input)?;
+        let roots: Vec<B256> = serde_json::from_value(required(input, "/state_roots")?.clone())?;
+        reconstruct(&block, &receipts, &roots, PRE_TRANSACTION_ROOT)
+    }
 
     fn fixture() -> (Block, Vec<ReceiptEnvelope>, Vec<B256>) {
         let mut block = Block::default();
@@ -144,18 +293,18 @@ mod tests {
                     }),
                     Signature::new(U256::ONE, U256::ONE, false),
                 )
+                .into()
             })
             .collect();
         let receipts = (1..=2)
-            .map(|index| {
-                ReceiptEnvelope::Legacy(
-                    Receipt {
-                        status: Eip658Value::Eip658(true),
-                        cumulative_gas_used: index * 21_000,
-                        logs: vec![],
-                    }
-                    .with_bloom(),
-                )
+            .map(|index| ReceiptWithBloom {
+                receipt: Receipt {
+                    tx_type: EezTxType::Ethereum(alloy_consensus::TxType::Legacy),
+                    success: true,
+                    cumulative_gas_used: index * 21_000,
+                    logs: vec![],
+                },
+                logs_bloom: Bloom::ZERO,
             })
             .collect::<Vec<_>>();
         let roots = vec![B256::repeat_byte(0x11), B256::repeat_byte(0x22)];
@@ -174,29 +323,106 @@ mod tests {
     }
 
     #[test]
+    fn supplied_state_roots_do_not_replace_execution_witness_validation() {
+        let (block, receipts, roots) = fixture();
+        let evidence = input(&block, &receipts, &roots);
+        assert!(
+            verify(&evidence)
+                .unwrap_err()
+                .to_string()
+                .contains("/witness")
+        );
+    }
+
+    #[test]
     fn reconstructs_intermediate_and_terminal_headers() {
         let (block, receipts, roots) = fixture();
-        let output = verify(&input(&block, &receipts, &roots)).unwrap();
-        assert_eq!(output["prefixes"].as_array().unwrap().len(), 2);
-        assert_ne!(output["prefixes"][0]["hash"], output["block_hash"]);
-        assert_eq!(output["prefixes"][1]["hash"], output["block_hash"]);
+        let output = verify_recorded_roots(&input(&block, &receipts, &roots)).unwrap();
+        assert_eq!(output["prefixes"].as_array().unwrap().len(), 3);
+        assert_ne!(output["prefixes"][1]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
         let mut prefix = block.header.clone();
         prefix.state_root = roots[0];
         prefix.transactions_root = calculate_transaction_root(&block.body.transactions[..1]);
         prefix.receipts_root = calculate_receipt_root(&receipts[..1]);
         prefix.gas_used = 21_000;
-        assert_eq!(output["prefixes"][0]["hash"], json!(prefix.hash_slow()));
+        assert_eq!(output["prefixes"][1]["hash"], json!(prefix.hash_slow()));
+    }
+
+    #[test]
+    fn pre_transaction_prefix_uses_terminal_height_and_pre_execution_state() {
+        let (block, receipts, roots) = fixture();
+        let before = PRE_TRANSACTION_ROOT;
+        let output = reconstruct(&block, &receipts, &roots, before).unwrap();
+        assert_eq!(output["prefixes"][0]["transaction_count"], 0);
+        assert_eq!(output["prefixes"][0]["state_root"], json!(before));
+        assert_ne!(
+            output["prefixes"][0]["hash"],
+            json!(block.header.parent_hash)
+        );
+        let mut header = block.header.clone();
+        header.state_root = before;
+        header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        header.gas_used = 0;
+        assert_eq!(output["prefixes"][0]["hash"], json!(header.hash_slow()));
+        assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
+    }
+
+    #[test]
+    fn empty_block_has_one_prefix_bound_to_its_pre_transaction_root() {
+        let (mut block, _, _) = fixture();
+        block.body.transactions.clear();
+        block.header.state_root = PRE_TRANSACTION_ROOT;
+        block.header.transactions_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        block.header.receipts_root = alloy_consensus::constants::EMPTY_ROOT_HASH;
+        block.header.gas_used = 0;
+        let output = reconstruct(&block, &[], &[], PRE_TRANSACTION_ROOT).unwrap();
+        assert_eq!(output["prefixes"].as_array().unwrap().len(), 1);
+        assert_eq!(output["prefixes"][0]["hash"], output["block_hash"]);
+        assert_eq!(output["prefixes"][0]["transaction_count"], 0);
+        assert!(reconstruct(&block, &[], &[], B256::ZERO).is_err());
+    }
+
+    #[test]
+    fn reconstructs_native_transaction_and_receipt_prefixes() {
+        let (mut block, mut receipts, roots) = fixture();
+        block.body.transactions[0] = eez_primitives::SystemTransaction {
+            chain_id: 1,
+            nonce: 4,
+            to: eez_primitives::EEZL2_ADDRESS,
+            value: U256::ZERO,
+            input: Default::default(),
+        }
+        .into();
+        receipts[0].receipt.tx_type = EezTxType::System;
+        block.header.transactions_root = calculate_transaction_root(&block.body.transactions);
+        block.header.receipts_root = calculate_receipt_root(&receipts);
+        assert_eq!(receipts[0].encoded_2718()[0], 0x76);
+        let output = verify_recorded_roots(&input(&block, &receipts, &roots)).unwrap();
+        assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
+        receipts[0].receipt.tx_type = EezTxType::Ethereum(alloy_consensus::TxType::Legacy);
+        block.header.receipts_root = calculate_receipt_root(&receipts);
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
     }
 
     #[test]
     fn rejects_incomplete_or_inconsistent_replay_evidence() {
         let (block, receipts, roots) = fixture();
-        assert!(reconstruct(&block, &receipts[..1], &roots).is_err());
-        assert!(reconstruct(&block, &receipts, &roots[..1]).is_err());
-        assert!(reconstruct(&block, &receipts, &[roots[0], B256::ZERO]).is_err());
+        assert!(reconstruct(&block, &receipts[..1], &roots, PRE_TRANSACTION_ROOT).is_err());
+        assert!(reconstruct(&block, &receipts, &roots[..1], PRE_TRANSACTION_ROOT).is_err());
+        assert!(
+            reconstruct(
+                &block,
+                &receipts,
+                &[roots[0], B256::ZERO],
+                PRE_TRANSACTION_ROOT
+            )
+            .is_err()
+        );
         let mut reordered = receipts.clone();
         reordered.reverse();
-        assert!(reconstruct(&block, &reordered, &roots).is_err());
+        assert!(reconstruct(&block, &reordered, &roots, PRE_TRANSACTION_ROOT).is_err());
         for field in [
             "transactions_root",
             "receipts_root",
@@ -214,7 +440,7 @@ mod tests {
                 _ => unreachable!(),
             }
             assert!(
-                verify(&input(&mutated, &receipts, &roots)).is_err(),
+                verify_recorded_roots(&input(&mutated, &receipts, &roots)).is_err(),
                 "{field}"
             );
         }
@@ -225,49 +451,42 @@ mod tests {
         let (block, receipts, roots) = fixture();
         let mut evidence = input(&block, &receipts, &roots);
         evidence["block_hash"] = json!(B256::ZERO);
-        assert!(verify(&evidence).is_err());
+        assert!(verify_recorded_roots(&evidence).is_err());
         let mut evidence = input(&block, &receipts, &roots);
         evidence["receipts_rlp"][0] = json!(format!(
             "{}00",
             evidence["receipts_rlp"][0].as_str().unwrap()
         ));
-        assert!(verify(&evidence).is_err());
+        assert!(verify_recorded_roots(&evidence).is_err());
     }
 
     #[test]
     fn rejects_invalid_receipts_even_when_their_root_matches() {
         let (mut block, mut receipts, roots) = fixture();
-        let ReceiptEnvelope::Legacy(receipt) = receipts[0].clone() else {
-            unreachable!()
-        };
-        receipts[0] = ReceiptEnvelope::Eip1559(receipt);
+        receipts[0].receipt.tx_type = EezTxType::Ethereum(alloy_consensus::TxType::Eip1559);
         block.header.receipts_root = calculate_receipt_root(&receipts);
-        assert!(verify(&input(&block, &receipts, &roots)).is_err());
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
 
         let (mut block, mut receipts, roots) = fixture();
-        let ReceiptEnvelope::Legacy(receipt) = &mut receipts[0] else {
-            unreachable!()
-        };
+        let receipt = &mut receipts[0];
         receipt.receipt.cumulative_gas_used = 50_000; // next receipt only has 42,000
         block.header.receipts_root = calculate_receipt_root(&receipts);
-        assert!(verify(&input(&block, &receipts, &roots)).is_err());
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
 
         let (mut block, mut receipts, roots) = fixture();
-        let ReceiptEnvelope::Legacy(receipt) = &mut receipts[0] else {
-            unreachable!()
-        };
+        let receipt = &mut receipts[0];
         receipt.logs_bloom = Bloom::repeat_byte(1); // no logs
         block.header.receipts_root = calculate_receipt_root(&receipts);
-        assert!(verify(&input(&block, &receipts, &roots)).is_err());
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
     }
 
     #[test]
     fn rejects_unsupported_post_transaction_state_changes() {
         let (mut block, receipts, roots) = fixture();
         block.body.ommers.push(block.header.clone());
-        assert!(verify(&input(&block, &receipts, &roots)).is_err());
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
         let (mut block, receipts, roots) = fixture();
         block.body.withdrawals = Some(vec![alloy_eips::eip4895::Withdrawal::default()].into());
-        assert!(verify(&input(&block, &receipts, &roots)).is_err());
+        assert!(verify_recorded_roots(&input(&block, &receipts, &roots)).is_err());
     }
 }

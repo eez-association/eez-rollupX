@@ -26,6 +26,84 @@ def fail(message):
     raise ValueError(message)
 
 
+@unittest.skipUnless(shutil.which("jq"), "jq is required")
+class FinalizedReferenceReadinessTest(unittest.TestCase):
+    def run_until_deployment(self, responses):
+        class DeploymentReached(Exception):
+            pass
+
+        class FinalityUnavailable(Exception):
+            pass
+
+        events = []
+        test = self
+
+        def wait(**kwargs):
+            events.append("wait")
+            test.assertEqual(kwargs["service_name"], "el-1-reth-lighthouse")
+            test.assertEqual(kwargs["timeout"], "1800s")
+            test.assertEqual(kwargs["assertion"], "==")
+            test.assertIs(kwargs["target_value"], True)
+            recipe = kwargs["recipe"]
+            test.assertEqual(recipe["port_id"], "rpc")
+            request = json.loads(recipe["body"])
+            test.assertEqual(request["method"], "eth_getBlockByNumber")
+            test.assertEqual(request["params"], ["finalized", False])
+            expression = recipe["extract"][kwargs["field"].removeprefix("extract.")]
+            for response in responses:
+                value = json.loads(subprocess.check_output(
+                    ["jq", "-c", expression], input=json.dumps(response), text=True))
+                events.append(value)
+                if value is True:
+                    return
+            raise FinalityUnavailable
+
+        def run_sh(**kwargs):
+            if kwargs["description"].startswith("deploy EEZ contracts"):
+                events.append("deploy")
+                raise DeploymentReached
+
+        participant = SimpleNamespace(
+            el_context=SimpleNamespace(service_name="el-1-reth-lighthouse", rpc_http_url="http://l1:8545"),
+            cl_context=SimpleNamespace(enr="enr", multiaddr="peer", peer_id="id"))
+        ethereum = SimpleNamespace(run=lambda *_: SimpleNamespace(all_participants=[participant]))
+        resources = SimpleNamespace(configure_mev_relay_cpu=lambda *_: None)
+        namespace = {
+            "import_module": lambda name: ethereum if "ethereum-package" in name else resources,
+            "StoreSpec": dict, "PostHttpRequestRecipe": dict, "fail": fail,
+        }
+        source = REPO / "testing/kurtosis/main.star"
+        exec(compile(source.read_text(), str(source), "exec"), namespace)
+        args = {"ethereum_package": {}, "eez": {
+            "poster_key": "fixture", "proof_signer_key": "fixture",
+            "builder_rpc_url": "http://builder:8645", "blob_sidecar_encoding": "eip7594",
+        }}
+        try:
+            namespace["run"](SimpleNamespace(wait=wait, run_sh=run_sh), args)
+        except DeploymentReached:
+            return "deploy", events
+        except FinalityUnavailable:
+            return "unavailable", events
+        self.fail("startup did not reach the finality/deployment boundary")
+
+    def test_deployment_waits_for_a_finalized_header(self):
+        header = {"hash": "0x" + "11" * 32, "number": "0x0"}
+        outcome, events = self.run_until_deployment([
+            {"error": {"code": -32000, "message": "block finalized not found"}},
+            {"result": None}, {"result": header},
+        ])
+        self.assertEqual(outcome, "deploy")
+        self.assertEqual(events, ["wait", False, False, True, "deploy"])
+
+    def test_missing_or_errored_finality_never_reaches_deployment(self):
+        for response in ({"result": None}, {"result": []},
+                         {"error": {"code": -32000}, "result": {"hash": "0x1234"}}):
+            with self.subTest(response=response):
+                outcome, events = self.run_until_deployment([response])
+                self.assertEqual(outcome, "unavailable")
+                self.assertEqual(events, ["wait", False])
+
+
 @unittest.skipIf(yaml is None, "PyYAML not installed")
 class CiTimingTest(unittest.TestCase):
     def test_parallel_suite_has_preparation_time_without_moving_slot_deadlines(self):
@@ -171,20 +249,33 @@ class SettlementEnvironmentTest(unittest.TestCase):
                 exec(compile(command_setup, "signer-command", "exec"), namespace)
 
 class SettlementReadinessTest(unittest.TestCase):
-    def run_readiness(self, log, log_status=0):
+    def run_readiness(self, log, log_status=0, gate="settlement"):
         script = (REPO / "testing/kurtosis/run-ci.sh").read_text()
-        start = script.index('while (( SECONDS < deadline )); do\n    node_logs=')
-        end = script.index('\necho "==> running native cross-chain wave suite"', start)
+        boundaries = {
+            "settlement": ('while (( SECONDS < deadline )); do\n    node_logs=',
+                           '\necho "==> running native cross-chain wave suite"', "eez-node"),
+            "relay": ('relay_deadline=', '\necho "==> refreshing relay housekeeper', "mev-relay-api"),
+            "builder": ('builder_deadline=', '\n# Canonical replay proves readiness', "fixture-builder"),
+        }
+        first, last, service = boundaries[gate]
+        start = script.index(first)
+        end = script.index(last, start)
         setup = r'''
 deadline=$((SECONDS + 60))
 KURTOSIS_ENCLAVE=fixture-ci
+KURTOSIS_BUILDER_SERVICE=fixture-builder
 kurtosis() {
-    [[ "$*" == "service logs fixture-ci eez-node" ]] || return 99
-    cat "$READINESS_LOG"
+    if [[ "$*" == "service logs --all fixture-ci $READINESS_SERVICE" ]]; then
+        cat "$READINESS_LOG"
+    elif [[ "$*" == "service logs fixture-ci $READINESS_SERVICE" ]]; then
+        tail -n 200 "$READINESS_LOG"
+    else
+        return 99
+    fi
     return "$READINESS_LOG_STATUS"
 }
 timeout() { shift; "$@"; }
-sleep() { SECONDS=$deadline; }
+sleep() { SECONDS=$((SECONDS + 1000)); }
 '''
         with tempfile.TemporaryDirectory(prefix="eez-readiness.") as temporary:
             path = Path(temporary) / "node.log"
@@ -192,9 +283,32 @@ sleep() { SECONDS=$deadline; }
             return subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", setup + script[start:end]],
                 env={**os.environ, "READINESS_LOG": str(path),
+                     "READINESS_SERVICE": service,
                      "READINESS_LOG_STATUS": str(log_status)},
                 capture_output=True, text=True, timeout=10,
             )
+
+    def test_readiness_survives_startup_evidence_leaving_the_default_log_tail(self):
+        signals = {
+            "relay": "validator registrations call processed numRegistrations=128",
+            "builder": "Updated validator registrations len=128",
+            "settlement": '{"event_name":"eez.deriver.safe.advanced"}',
+        }
+        for gate, signal in signals.items():
+            with self.subTest(gate=gate):
+                log = signal + "\n" + "later unrelated service activity\n" * 250
+                result = self.run_readiness(log, gate=gate)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_empty_registration_sets_do_not_open_readiness_gates(self):
+        for gate, log in (
+            ("relay", "validator registrations call processed numRegistrations=0 numRegistrationsNew=0"),
+            ("builder", "Updated validator registrations len=0"),
+        ):
+            with self.subTest(gate=gate):
+                result = self.run_readiness(log, gate=gate)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("timeout", result.stderr)
 
     def test_canonical_safe_advance_makes_the_network_ready(self):
         log = '\x1b[36m[eez-node]\x1b[0m ' + json.dumps({"fields": {

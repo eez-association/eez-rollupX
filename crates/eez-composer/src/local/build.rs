@@ -15,13 +15,13 @@ use alloy_eips::Decodable2718;
 use alloy_primitives::{Address, B256, Bytes};
 use alloy_rpc_types_engine::ExecutionData;
 use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
+use eez_evm::EezEvmConfig;
+use eez_primitives::engine::EezEngineTypes;
+use eez_primitives::{Block, EezTxEnvelope as TransactionSigned};
 use reth_chainspec::EthereumHardforks;
-use reth_ethereum_engine_primitives::EthEngineTypes;
-use reth_ethereum_primitives::{Block, TransactionSigned};
 use reth_evm::{
     ConfigureEvm, Evm as _, EvmEnvFor, InspectorFor, NextBlockEnvAttributes, execute::BlockBuilder,
 };
-use reth_evm_ethereum::EthEvmConfig;
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
     Recovered, RecoveredBlock, SealedHeader, SignedTransaction, SignerRecoverable,
@@ -96,25 +96,19 @@ pub struct BuiltSyncBlock {
     pub tx_successes: Vec<bool>,
 }
 
-/// The next-block attributes every Sync-block execution path shares.
-///
-/// `prev_randao` is L1-derived (protocol §13.14); left zero here to match the
-/// Deriver's path. Hardfork-gated fields (parent_beacon_block_root,
-/// withdrawals) and `extra_data` / `gas_limit` mirror the Deriver's
-/// `execute_block` attrs so all three STF paths (sequencer pool, deriver
-/// replay, sync-slot composer) produce identical headers — otherwise
-/// `check_claimed_state` diverges where Cancun/Shanghai isn't active at
-/// genesis.
+/// Fixed-profile attributes for one candidate. The caller captures RANDAO from
+/// authenticated canonical history once, before opening any prefix snapshot.
 fn next_block_attributes(
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     timestamp: u64,
+    prev_randao: B256,
     suggested_fee_recipient: Address,
 ) -> NextBlockEnvAttributes {
     let chain_spec = evm_config.chain_spec();
     NextBlockEnvAttributes {
         timestamp,
         suggested_fee_recipient,
-        prev_randao: B256::ZERO,
+        prev_randao,
         gas_limit: BUILDER_GAS_LIMIT,
         parent_beacon_block_root: chain_spec
             .is_cancun_active_at_timestamp(timestamp)
@@ -174,9 +168,10 @@ fn open_draft_db(
 /// [`BlockCommitterHandle::commit_derived`]: eez_driver::BlockCommitterHandle::commit_derived
 pub fn build_sync_block<P>(
     l2_provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     parent: &SealedHeader<Header>,
     timestamp: u64,
+    prev_randao: B256,
     suggested_fee_recipient: Address,
     sync_txs: &[Bytes],
 ) -> Result<BuiltSyncBlock, BuildError>
@@ -193,7 +188,8 @@ where
         .with_bundle_update()
         .build();
 
-    let attributes = next_block_attributes(evm_config, timestamp, suggested_fee_recipient);
+    let attributes =
+        next_block_attributes(evm_config, timestamp, prev_randao, suggested_fee_recipient);
 
     let mut builder = evm_config
         .builder_for_next_block(&mut db, parent, attributes)
@@ -224,7 +220,7 @@ where
     let block = outcome.block;
     let sealed_block = block.sealed_block().clone();
     let header = sealed_block.sealed_header().clone();
-    let payload = <EthEngineTypes as PayloadTypes>::block_to_payload(sealed_block, None);
+    let payload = <EezEngineTypes as PayloadTypes>::block_to_payload(sealed_block, None);
     Ok(BuiltSyncBlock {
         payload,
         header,
@@ -271,15 +267,15 @@ fn exec_outcome<H>(result: &ExecutionResult<H>) -> TxOutcome {
 /// The uninspected path passes [`NoOpInspector`], the same inspector reth uses
 /// when a caller supplies none.
 fn execute_and_commit_inspected<I>(
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     state: &mut DraftDb,
-    evm_env: &EvmEnvFor<EthEvmConfig>,
+    evm_env: &EvmEnvFor<EezEvmConfig>,
     raw: &Bytes,
     idx: usize,
     inspector: I,
 ) -> Result<TxOutcome, BuildError>
 where
-    I: for<'db> InspectorFor<EthEvmConfig, &'db mut DraftDb>,
+    I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
 {
     let recovered = recover_tx(raw, idx)?;
     let mut evm = evm_config.evm_with_env_and_inspector(state, evm_env.clone(), inspector);
@@ -308,9 +304,9 @@ where
 /// close, not to mid-block state.
 pub struct SyncBlockState {
     provider: Arc<dyn super::provider::StateSnapshotProvider>,
-    evm_config: EthEvmConfig,
+    evm_config: EezEvmConfig,
     parent_hash: B256,
-    evm_env: EvmEnvFor<EthEvmConfig>,
+    evm_env: EvmEnvFor<EezEvmConfig>,
     state: DraftDb,
     /// Number of txs applied — the next tx's block position.
     applied: usize,
@@ -338,15 +334,17 @@ impl SyncBlockState {
     /// See [`BuildError`].
     pub fn open(
         provider: Arc<dyn super::provider::StateSnapshotProvider>,
-        evm_config: &EthEvmConfig,
+        evm_config: &EezEvmConfig,
         parent: &SealedHeader<Header>,
         timestamp: u64,
+        prev_randao: B256,
         suggested_fee_recipient: Address,
         prefix_txs: &[Bytes],
     ) -> Result<Self, BuildError> {
         let parent_hash = parent.hash();
         let mut state = open_draft_db(provider.as_ref(), parent_hash, None)?;
-        let attributes = next_block_attributes(evm_config, timestamp, suggested_fee_recipient);
+        let attributes =
+            next_block_attributes(evm_config, timestamp, prev_randao, suggested_fee_recipient);
         let evm_env = evm_config
             .next_evm_env(parent, &attributes)
             .map_err(|e| BuildError::Builder(format!("next_evm_env: {e}")))?;
@@ -455,8 +453,8 @@ pub struct ForkSnapshot {
 /// sims run here, and only their accepted effects are appended to the real
 /// block.
 pub struct SyncBlockFork {
-    evm_config: EthEvmConfig,
-    evm_env: EvmEnvFor<EthEvmConfig>,
+    evm_config: EezEvmConfig,
+    evm_env: EvmEnvFor<EezEvmConfig>,
     state: DraftDb,
     applied: usize,
     gas_used: u64,
@@ -482,7 +480,7 @@ impl SyncBlockFork {
     /// transactions in the block, so fee-market, sender, nonce, and block-gas
     /// validation do not apply; the canonical system transaction is executed
     /// separately before the effect is accepted.
-    fn simulation_env(&self) -> EvmEnvFor<EthEvmConfig> {
+    fn simulation_env(&self) -> EvmEnvFor<EezEvmConfig> {
         let mut env = self.evm_env.clone();
         super::session::disable_checks(&mut env);
         env
@@ -520,7 +518,7 @@ impl SyncBlockFork {
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
-        I: for<'db> InspectorFor<EthEvmConfig, &'db mut DraftDb>,
+        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
     {
         let caller = tx_env.caller;
         let env = self.simulation_env();
@@ -551,7 +549,7 @@ impl SyncBlockFork {
         inspector: I,
     ) -> Result<TxOutcome, BuildError>
     where
-        I: for<'db> InspectorFor<EthEvmConfig, &'db mut DraftDb>,
+        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
     {
         let env = self.simulation_env();
         let mut evm = self
@@ -609,7 +607,7 @@ impl SyncBlockFork {
 
     /// Raw state + env, for callers that drive their own EVM (a source
     /// simulation threading its inspector through this fork).
-    pub fn state_and_env(&mut self) -> (&mut DraftDb, &EvmEnvFor<EthEvmConfig>) {
+    pub fn state_and_env(&mut self) -> (&mut DraftDb, &EvmEnvFor<EezEvmConfig>) {
         (&mut self.state, &self.evm_env)
     }
 }
@@ -628,9 +626,10 @@ impl SyncBlockFork {
 /// tx (pair-end), matching the prover's fail-safe flagging.
 pub fn sync_block_pair_hashes<P>(
     l2_provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     parent: &SealedHeader<Header>,
     timestamp: u64,
+    prev_randao: B256,
     suggested_fee_recipient: Address,
     sync_txs: &[Bytes],
     system_address: Address,
@@ -649,7 +648,13 @@ where
             };
             let to = tx.to();
             tx.recover_signer().is_ok_and(|signer| {
-                eez_protocol::settlement::is_system_tx(signer, to, system_address, eezl2_address)
+                eez_protocol::settlement::is_system_tx(
+                    alloy_consensus::Typed2718::ty(&tx),
+                    signer,
+                    to,
+                    system_address,
+                    eezl2_address,
+                )
             })
         })
         .collect();
@@ -660,6 +665,7 @@ where
         evm_config,
         parent,
         timestamp,
+        prev_randao,
         suggested_fee_recipient,
         sync_txs,
         &positions,
@@ -673,9 +679,10 @@ where
 /// logical effect endpoint.
 pub fn sync_block_hashes_at_positions<P>(
     l2_provider: &P,
-    evm_config: &EthEvmConfig,
+    evm_config: &EezEvmConfig,
     parent: &SealedHeader<Header>,
     timestamp: u64,
+    prev_randao: B256,
     suggested_fee_recipient: Address,
     sync_txs: &[Bytes],
     positions: &[usize],
@@ -700,6 +707,7 @@ where
                 evm_config,
                 parent,
                 timestamp,
+                prev_randao,
                 suggested_fee_recipient,
                 &sync_txs[..=p],
             )
@@ -729,7 +737,7 @@ mod tests {
     /// tx list.
     struct Fixture {
         provider: MockEthProvider,
-        evm_config: EthEvmConfig,
+        evm_config: EezEvmConfig,
         parent: SealedHeader<Header>,
         txs: Vec<Bytes>,
     }
@@ -751,17 +759,30 @@ mod tests {
         let sig = test_signer()
             .sign_transaction_sync(&mut tx)
             .expect("sign test tx");
-        let signed =
-            TransactionSigned::new_unhashed(reth_ethereum_primitives::Transaction::Legacy(tx), sig);
+        let signed = reth_ethereum_primitives::TransactionSigned::new_unhashed(
+            reth_ethereum_primitives::Transaction::Legacy(tx),
+            sig,
+        );
         let mut buf = Vec::new();
         signed.encode_2718(&mut buf);
         Bytes::from(buf)
     }
 
+    fn rollup_config() -> EezEvmConfig {
+        let mut genesis: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
+        genesis["timestamp"] = serde_json::json!("0x3dc"); // 988: parent 1 at 1000, child 2 at 1012.
+        genesis["config"]["chainId"] = serde_json::json!(1);
+        genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
+        genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
+        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);
+        EezEvmConfig::new(Arc::new(
+            eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap(),
+        ))
+    }
+
     fn fixture() -> Fixture {
-        let evm_config = EthEvmConfig::new(Arc::new(
-            ChainSpecBuilder::mainnet().cancun_activated().build(),
-        ));
+        let evm_config = rollup_config();
 
         let provider: MockEthProvider = MockEthProvider::new();
         provider.add_account(
@@ -788,6 +809,10 @@ mod tests {
             base_fee_per_gas: Some(0),
             excess_blob_gas: Some(0),
             blob_gas_used: Some(0),
+            ommers_hash: alloy_consensus::EMPTY_OMMER_ROOT_HASH,
+            withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
+            parent_beacon_block_root: Some(B256::ZERO),
+            requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
             ..Default::default()
         });
 
@@ -815,6 +840,10 @@ mod tests {
             base_fee_per_gas: Some(base_fee_per_gas),
             excess_blob_gas: Some(0),
             blob_gas_used: Some(0),
+            ommers_hash: alloy_consensus::EMPTY_OMMER_ROOT_HASH,
+            withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
+            parent_beacon_block_root: Some(B256::ZERO),
+            requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
             ..Default::default()
         })
     }
@@ -826,6 +855,7 @@ mod tests {
                 &self.evm_config,
                 &self.parent,
                 TIMESTAMP,
+                B256::ZERO,
                 FEE_RECIPIENT,
                 txs,
             )
@@ -838,6 +868,7 @@ mod tests {
                 &self.evm_config,
                 &self.parent,
                 TIMESTAMP,
+                B256::ZERO,
                 FEE_RECIPIENT,
                 prefix,
             )
@@ -991,6 +1022,7 @@ mod tests {
             &f.evm_config,
             &f.parent,
             TIMESTAMP,
+            B256::ZERO,
             FEE_RECIPIENT,
             &f.txs[..1],
             &[1],
@@ -1007,13 +1039,17 @@ mod tests {
 
     #[test]
     fn prefix_checkpoint_matches_independent_rebuild_across_forks_and_reverts() {
-        for spec in [
-            ChainSpecBuilder::mainnet().cancun_activated().build(),
-            ChainSpecBuilder::mainnet().prague_activated().build(),
-            ChainSpecBuilder::mainnet().osaka_activated().build(),
+        for config in [
+            EezEvmConfig::for_l1_simulation(Arc::new(
+                ChainSpecBuilder::mainnet().cancun_activated().build(),
+            )),
+            EezEvmConfig::for_l1_simulation(Arc::new(
+                ChainSpecBuilder::mainnet().prague_activated().build(),
+            )),
+            rollup_config(),
         ] {
             let mut f = fixture();
-            f.evm_config = EthEvmConfig::new(Arc::new(spec));
+            f.evm_config = config;
             // Exercise receipt bloom and log ordering as well as SSTORE and a
             // reverted transaction. MockEthProvider has no real trie; compare
             // complete pre-finalization state separately from header equality.
@@ -1041,6 +1077,7 @@ mod tests {
                 &f.evm_config,
                 &f.parent,
                 TIMESTAMP,
+                B256::ZERO,
                 FEE_RECIPIENT,
             );
             for p in 0..f.txs.len() {
@@ -1060,6 +1097,7 @@ mod tests {
             &f.evm_config,
             &f.parent,
             TIMESTAMP,
+            B256::ZERO,
             FEE_RECIPIENT,
         );
         hashes.at_positions(&f.txs, &[1, 3]).unwrap();
@@ -1080,6 +1118,7 @@ mod tests {
                 &f.evm_config,
                 &f.parent,
                 TIMESTAMP,
+                B256::ZERO,
                 FEE_RECIPIENT,
                 &f.txs,
                 &positions
@@ -1122,6 +1161,7 @@ mod tests {
             &f.evm_config,
             &f.parent,
             TIMESTAMP,
+            B256::ZERO,
             FEE_RECIPIENT,
             &txs,
             &(0..64).collect::<Vec<_>>(),
@@ -1133,6 +1173,7 @@ mod tests {
             &f.evm_config,
             &f.parent,
             TIMESTAMP,
+            B256::ZERO,
             FEE_RECIPIENT,
         );
         let started = std::time::Instant::now();

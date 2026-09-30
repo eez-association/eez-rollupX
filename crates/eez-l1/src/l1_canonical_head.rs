@@ -58,6 +58,7 @@ struct CanonicalState {
     last_scanned: Option<L1BlockRef>,
     commitments: BTreeMap<(u64, u64), CommitmentRef>,
     latest_commitment: Option<CommitmentRef>,
+    derivation: Option<crate::derivation::SeedHistory>,
 }
 
 impl CanonicalState {
@@ -166,6 +167,106 @@ impl L1CanonicalHead {
     /// the safe-head update have succeeded.
     pub fn publish(&self, evidence: ReconciledBatchSettlement) {
         let mut state = self.state.lock().unwrap();
+        self.publish_locked(&mut state, evidence);
+    }
+
+    /// Install/rebuild seed provenance before boot exposes readiness. The
+    /// deriver holds the engine reconciliation lock while replacing this state.
+    pub fn restore_derivation(&self, history: crate::derivation::SeedHistory) {
+        self.state.lock().unwrap().derivation = Some(history);
+    }
+
+    /// Capture the seed for the exact block being built. The builder must retain
+    /// it with the rest of its immutable candidate environment. Startup without
+    /// authenticated provenance is an error, never a zero-seed fallback.
+    pub fn derivation_seed(&self, number: u64) -> Result<B256, crate::derivation::DerivationError> {
+        let state = self.state.lock().unwrap();
+        let history =
+            state
+                .derivation
+                .as_ref()
+                .ok_or(crate::derivation::DerivationError::Unavailable(
+                    "seed provenance not initialized",
+                ))?;
+        Ok(history.seed_for(number))
+    }
+
+    /// The immutable schedule initialized by authenticated derivation startup.
+    pub fn derivation_schedule(
+        &self,
+    ) -> Result<eez_protocol::l2::Schedule, crate::derivation::DerivationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .map(crate::derivation::SeedHistory::schedule)
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "seed provenance not initialized",
+            ))
+    }
+
+    /// Derive the next block's time and seed in one consistent read. Parent
+    /// authentication and the candidate's reconciliation lock belong to caller.
+    pub fn next_block_context(
+        &self,
+        parent: &alloy_consensus::Header,
+    ) -> Result<(u64, B256), crate::derivation::DerivationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "seed provenance not initialized",
+            ))?
+            .next_block_context(parent)
+    }
+
+    /// Check seed continuity before persisting a correlation. The sole writer
+    /// retains the reconciliation lock through persistence and publication.
+    pub fn validate_accepted(
+        &self,
+        evidence: &ReconciledBatchSettlement,
+        l1: &crate::derivation::AuthenticatedL1Header,
+        endpoint: &alloy_consensus::Header,
+    ) -> Result<(), crate::derivation::DerivationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "seed provenance not initialized",
+            ))?
+            .validate_record(evidence, l1, endpoint)
+            .map(|_| ())
+    }
+
+    /// Atomically expose an accepted anchor and its seed under the same lock as
+    /// the cursor. No-effect evidence uses `publish` and cannot refresh the seed.
+    pub fn publish_accepted(
+        &self,
+        evidence: ReconciledBatchSettlement,
+        l1: &crate::derivation::AuthenticatedL1Header,
+        endpoint: &alloy_consensus::Header,
+    ) -> Result<(), crate::derivation::DerivationError> {
+        let mut state = self.state.lock().unwrap();
+        if state.evidence.settlements.get(&evidence.tx_hash) == Some(&evidence) {
+            return Ok(());
+        }
+        state
+            .derivation
+            .as_mut()
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "seed provenance not initialized",
+            ))?
+            .record(&evidence, l1, endpoint)?;
+        self.publish_locked(&mut state, evidence);
+        Ok(())
+    }
+
+    fn publish_locked(&self, state: &mut CanonicalState, evidence: ReconciledBatchSettlement) {
         if state.evidence.settlements.get(&evidence.tx_hash) == Some(&evidence) {
             return;
         }
@@ -291,6 +392,9 @@ impl L1CanonicalHead {
     /// same L2 height. Incomplete scans cannot authorize recovery.
     pub fn retreat_on_l1_reorg(&self, ancestor: u64) -> (u64, u64, usize) {
         let mut state = self.state.lock().unwrap();
+        if let Some(history) = &mut state.derivation {
+            history.retain_through(ancestor);
+        }
         let original_len = state.batches.len();
         state.batches.retain(|b| b.l1_block <= ancestor);
         state

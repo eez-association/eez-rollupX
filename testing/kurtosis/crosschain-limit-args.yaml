@@ -59,7 +59,6 @@ eez:
   composer_debug_logging: true
 
   fee_recipient: "0x0000000000000000000000000000000000000000"
-  l2_system_key: "0x6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1"
 
   settlement_env:
     EEZ_SETTLEMENT_PURE_L2_MODE: "interval"

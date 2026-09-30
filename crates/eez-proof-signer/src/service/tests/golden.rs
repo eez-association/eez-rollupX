@@ -18,11 +18,12 @@ fn fixture_hex(value: &str) -> Vec<u8> {
 }
 
 fn fixture(dir: &str, name: &str) -> String {
-    let manifest = std::env::var("CARGO_MANIFEST_DIR")
-        .unwrap_or_else(|_| env!("CARGO_MANIFEST_DIR").to_owned());
-    let path = format!("{manifest}/tests/fixtures/{dir}/{name}");
+    let path = crate::testkit::manifest_dir()
+        .join("tests/fixtures")
+        .join(dir)
+        .join(name);
     std::fs::read_to_string(&path)
-        .unwrap_or_else(|error| panic!("cannot read fixture {path}: {error}"))
+        .unwrap_or_else(|error| panic!("cannot read fixture {}: {error}", path.display()))
 }
 
 fn fixture_json(dir: &str, name: &str) -> serde_json::Value {
@@ -90,7 +91,7 @@ fn recorded_wire_witness(encoded: &str) -> ExecutionWitness {
 }
 
 #[test]
-fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
+fn captured_legacy_outbound_window_requires_the_native_genesis_profile() {
     let blocks: Vec<(u64, String, String)> = (626..=630)
         .map(|number| {
             (
@@ -117,6 +118,11 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
     let calldata = fixture_hex(fixture_str(&post_batch_json, "abi_calldata"));
     let mut chunks = vec![ProveChunk {
         kind: Some(prove_chunk::Kind::Header(ProveHeader {
+            parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+                parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
+                accepted_l1_number: 0,
+                live_slot_endpoint_headers_rlp: Vec::new(),
+            }),
             expected_validation_identity: crate::validate::Validator::stub(Vec::new())
                 .validation_identity(expected_rollup_id(1))
                 .to_vec(),
@@ -125,8 +131,6 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
             to_block: to,
             post_batch: Some(PostBatch {
                 abi_calldata: calldata,
-                public_inputs_hash: fixture_hex(fixture_str(&oracle, "public_inputs_hash")),
-                l1_block_hash: fixture_hex(fixture_str(&post_batch_json, "l1_block_hash")),
                 blobs: Vec::new(),
                 posting_context: Some(crate::testkit::posting_context()),
             }),
@@ -134,7 +138,7 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
     }];
     for (number, encoded_rlp, encoded_witness) in &blocks {
         let rlp = fixture_hex(encoded_rlp);
-        let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(&rlp).unwrap();
+        let block = alloy_rlp::decode_exact::<eez_primitives::Block>(&rlp).unwrap();
         assert_eq!(block.header.number, *number);
         chunks.push(ProveChunk {
             kind: Some(prove_chunk::Kind::Block(BlockWitness {
@@ -165,7 +169,13 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
 
     let chain_config =
         serde_json::from_str(&fixture("nonzero-outbound-630", "chain-config.json")).unwrap();
-    let validator = validate::Validator::stateless_for_test(chain_config, TEST_SYSTEM_ADDRESS);
+    let validator = validate::Validator::stateless_for_test(
+        alloy_genesis::Genesis {
+            config: chain_config,
+            ..Default::default()
+        },
+        TEST_SYSTEM_ADDRESS,
+    );
     assert_eq!(validator.chain_id(), fixture_u64(&oracle, "l2_chain_id"));
 
     let mut assembler = crate::window::WindowAssembler::start(
@@ -184,18 +194,8 @@ fn captured_five_field_outbound_events_are_not_decoded_as_target_events() {
     }
     let admitted = assembler.finish().unwrap();
     let (_, admitted_blocks) = admitted.into_parts();
-    let validated = validator
+    let error = validator
         .validate_window(admitted_blocks, &CancellationToken::default())
-        .unwrap();
-    let first_parent_hash = match &chunks[1].kind {
-        Some(prove_chunk::Kind::Block(block)) => B256::from_slice(&block.parent_hash),
-        _ => unreachable!(),
-    };
-    assert_eq!(validated.window_pre_block_hash(), first_parent_hash,);
-    assert_eq!(validated.window_post_block_hash(), settling_hash);
-    let settling_evidence = validated.settling_block().block().settlement_evidence();
-    assert!(
-        settling_evidence.observed_outbound_events().is_empty(),
-        "the target six-field EEZL2 decoder must not accept captured five-field events"
-    );
+        .unwrap_err();
+    assert!(error.to_string().contains("config.rollupX"), "{error}");
 }

@@ -158,39 +158,40 @@ jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg kind
            and (.to_address | ascii_downcase) == $destination and .value == "0" and .data == $data
            and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null))
     ' "$scratch/blob.json" >/dev/null || die "lookup is not bound to the authenticated semantic action"
-# Wait for the proven L2 window to be available, then check the blob's block
-# commitments against the canonical chain before scanning ALL manager activity.
-# Derived records intentionally omit intermediate hashes: the authenticated
-# terminal hash commits to their ancestry, while any full records still expose
-# hashes that can be checked directly. Do not accept a timeout as evidence of
-# absence.
-last="$(jq -er '.payload.blocks[-1].number' "$scratch/blob.json")"
-first="$(jq -er '.payload.blocks[0].number' "$scratch/blob.json")"
+# V0 carries counts and ordinary transaction bytes, not block headers. Bind
+# the calldata's endpoint claims to canonical L2 headers before using its range.
+# A successful post alone does not establish that all deferred entries settled.
 jq -e '
-  .verified == true and (.payload.blocks | length) > 0
-  and (.payload.blocks[-1].representation == "terminal")
-  and (.payload.blocks[-1].hash | test("^0x[0-9a-fA-F]{64}$"))
-  and ([.payload.blocks[] | select(.representation == "terminal")] | length) == 1
-  and (.payload.blocks as $blocks
-       | all(range(0; $blocks | length);
-             $blocks[.].number == ($blocks[0].number + .)))
-  and all(.payload.blocks[];
-      if .representation == "derived" then
-        (.timestamp_step_seconds | type == "number" and . > 0)
-        and (.transaction_count | type == "number" and . >= 0)
-      elif (.representation == "full" or .representation == "terminal") then
-        (.hash | test("^0x[0-9a-fA-F]{64}$"))
-      else false end)
-' "$scratch/blob.json" >/dev/null || die "authenticated blob has an invalid block window"
+  .verified == true
+  and (.settlement_claim.pre_block_hash | test("^0x[0-9a-fA-F]{64}$"))
+  and (.settlement_claim.post_block_hash | test("^0x[0-9a-fA-F]{64}$"))
+  and (.payload.block_count | type == "number" and . > 0 and . <= 4294967295 and floor == .)
+  and (.payload.count_runs | type == "array" and length > 0)
+  and all(.payload.count_runs[];
+      (.blocks | type == "number" and . > 0 and floor == .)
+      and (.transactions_per_block | type == "number" and . >= 0 and . <= 16383 and floor == .))
+  and ([.payload.count_runs[].blocks] | add) == .payload.block_count
+' "$scratch/blob.json" >/dev/null || die "authenticated blob has invalid V0 window claims"
+pre_hash="$(jq -er '.settlement_claim.pre_block_hash' "$scratch/blob.json")"
+terminal_hash="$(jq -er '.settlement_claim.post_block_hash' "$scratch/blob.json")"
 deadline=$((SECONDS + 120))
-while (( $(cast block-number --rpc-url "$L2_RPC") < last )); do
-    (( SECONDS < deadline )) || die "L2 has not reached the authenticated settlement window"
+while :; do
+    terminal="$(cast rpc eth_getBlockByHash "$terminal_hash" false --rpc-url "$L2_RPC")"
+    [[ "$terminal" != null ]] && break
+    (( SECONDS < deadline )) || die "L2 has not reached the claimed settlement endpoint"
     sleep 2
 done
-while read -r number hash; do
-    [[ "$(cast block "$number" --field hash --rpc-url "$L2_RPC")" == "$hash" ]] \
-        || die "blob block $number is not canonical on L2"
-done < <(jq -r '.payload.blocks[] | select(.hash != null) | "\(.number) \(.hash)"' "$scratch/blob.json")
+pre="$(cast rpc eth_getBlockByHash "$pre_hash" false --rpc-url "$L2_RPC")"
+[[ "$pre" != null ]] || die "settlement start is not an available canonical block"
+last="$(cast to-dec "$(jq -er '.number' <<<"$terminal")")"
+first=$(( $(cast to-dec "$(jq -er '.number' <<<"$pre")") + 1 ))
+count="$(jq -er '.payload.block_count' "$scratch/blob.json")"
+(( last >= first && last - first + 1 == count )) || die "V0 count disagrees with canonical endpoint heights"
+[[ "$(jq -er '.hash' <<<"$pre")" == "$pre_hash" && "$(jq -er '.hash' <<<"$terminal")" == "$terminal_hash" ]] \
+    || die "RPC returned different settlement endpoints"
+[[ "$(cast block "$((first - 1))" --field hash --rpc-url "$L2_RPC")" == "$pre_hash" \
+   && "$(cast block "$last" --field hash --rpc-url "$L2_RPC")" == "$terminal_hash" ]] \
+    || die "claimed window endpoints are not canonical on L2"
 root_file="${OUTPUT_JSON%.json}.lookup-root.json"
 bash "$HERE/verify-lookup-root.sh" "$scratch/blob.json" "$(jq -er '.root' <<<"$entry")" "$root_file" \
     || die "lookup root is not bound to the authenticated L2 execution"
@@ -204,7 +205,7 @@ end="$(cast block-number --rpc-url "$L2_RPC")"
 # static pool is used because later batches may legitimately replace its pins.
 [[ "$(cast block "$block_hex" --field hash --rpc-url "$L1_RPC")" == "$(jq -r '.hash' <<<"$block")" ]] \
     || die "L1 changed during evidence collection"
-[[ "$(cast block "$last" --field hash --rpc-url "$L2_RPC")" == "$(jq -r '.payload.blocks[-1].hash' "$scratch/blob.json")" ]] \
+[[ "$(cast block "$last" --field hash --rpc-url "$L2_RPC")" == "$terminal_hash" ]] \
     || die "L2 changed during evidence collection"
 
 mkdir -p "$(dirname "$OUTPUT_JSON")"

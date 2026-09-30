@@ -6,11 +6,12 @@ Protocol baseline: `eez-core-protocol` at
 `9d13218a355e7d543ca8a9927eea2962600b716d`. This profile uses native blobs,
 block-hash commitments, and the grouped-call ABI with position-bound L2 static
 entries. Composer MUST preserve each L2 static `expectedEntryIndex` in the load
-and DA sidecar; the Signer independently binds it to ordered execution. The
-protobuf schema is unchanged. Validation identity schema 2 and the new validator
+and the enclosing semantic DA; the Signer independently binds it to ordered
+execution. Prove now requires parent provenance and the named L1 posting context.
+The obsolete claimed-hash fields are removed. Validation identity schema 4 and the new validator
 revision separate cached facts and reject mixed-version peers. Old L2 call
 selectors and static sidecars are incompatible. See [protocol compatibility](../eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility)
-before deploying or replaying historical networks.
+for the fresh-network boundary.
 
 This document tells Composer implementers how to construct a proving request,
 send it to an EEZ prover, validate the response, and use the returned proof in
@@ -84,7 +85,7 @@ represents one complete preparation or proving request.
 `Capabilities` returns tag 0/profile 1, the 32-byte locally computed validation
 identity, the effective logical block/byte/witness-item/message limits, and both
 timeouts in milliseconds. The reported block maximum is the minimum of the local
-request cap and the format's 65,536 ceiling; the message cap includes the aggregate
+request cap and the format's u32::MAX ceiling; the message cap includes the aggregate
 request-byte reduction. The call neither occupies the proof worker nor signs.
 
 The exact identity tuple and canonical chain-document rules are defined in
@@ -197,13 +198,20 @@ root-dependent rolling hashes only after commitment assignment. The exact entry
 shapes and effect binding are defined in
 [signer section 8](../eez-proof-signer/SPEC.md#8-block-hash-commitment-chain-and-effect-binding).
 
-`post_batch.posting_context` MUST contain the L1 chain ID and the exact intended
-L1 target timestamp. The signer requires an operator-configured L1 profile,
-rejects chain mismatches and targets before blob activation, and derives blob
-limits from that profile at the requested timestamp. There is no omitted-context
-fallback. The composer MUST use the same target for proving and submission;
-a new target requires a fresh request. The context selects limits; it does not
-assert canonical ancestry or alter the batch's timeless public-input hash.
+`post_batch.posting_context` MUST contain the L1 chain ID, canonical parent
+number, exact nonzero 32-byte parent hash, and intended child timestamp. Zero
+chain IDs/timestamps and an overflowing child height are invalid. The signer
+uses its operator-configured L1 profile for chain identity and active blob limits.
+The context must be independently authenticated before attestation; its wire
+shape alone is not evidence of canonicality or accepted L2 ancestry.
+
+The batch MUST use `blockNumber == uint64.max`. The pinned reference manager
+returns `abi.encode(uint256(block.timestamp), blockhash(block.number - 1))` for
+that sentinel; both peers recompute the hash using the requested timestamp and
+parent. Proving and submission MUST use that same target. A changed parent or
+timestamp requires a fresh proof. Timeless and specific-block batches are
+unsupported. Former PostBatch fields 2 and 3 are removed and reserved; the
+response alone carries the independently recomputed public-input hash.
 
 `post_batch.blobs` MUST contain complete 131,072-byte EIP-4844 blobs in transaction
 order, from one up to that target's per-transaction and per-block allowance. Their version-`00` EEZ message stream contains exactly one
@@ -212,20 +220,21 @@ brackets, and a final `CloseBlobStream`, with canonical field-element packing
 and zero padding. New chain-operation payloads are:
 
 ```text
-0x00 || RLP([profileId, ordinaryBlockCount, commonEnvironment, columns, terminalBlock, l2Entries, outboundGroupSizes])
+0x00 || uvarint32(block_count) || count_tokens || beneficiary_runs
+     || extraData_runs || transaction_lengths || exact_ordinary_transaction_bytes
 ```
 
-The new network uses profile 1 from genesis without an activation setting.
-`columns` contains compact counts, sparse overrides, and flattened derived
-transactions. The terminal retains its full block RLP in an RLP byte string;
-`l2Entries` is a list of RLP byte strings preserving the exact entry contents.
-See the [V0 wire contract](../../docs/proposals/two-byte-da-v0.md#wire-design) and
-[reconstruction contract](../../docs/proposals/derivable-chain-operations.md) for
-canonical bounds and execution requirements. `l2Entries`
-contains each outbound source entry followed by its callbacks, then inbound
-target entries. `outboundGroupSizes` identifies the authorized outbound effects
-per user transaction. The native semantic stream MUST reproduce the authorized
-mutable and static tables, including lookup results and reverted source frames.
+The new network uses one format from genesis without an activation setting.
+The columns cover all blocks, including terminal metadata and its ordinary
+prefix. Timestamps, fixed header fields and randomness are independently derived;
+there are no full-block escapes, environment overrides, sidecar arrays or group
+sizes in operations. See the [direct V0 contract](../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract)
+for exact bounds, maximal runs and canonical decoding.
+
+The surrounding native semantic stream reconstructs the authorized mutable and
+static tables, whole outbound groups, lookup results and reverted source frames.
+Its supplied values are checked and bound to independently executed transactions;
+shape validation alone never authorizes a settlement or native transaction.
 The complete native carrier, operations reconstruction, and terminal
 transaction reconstruction rules are in the
 [DA profile](../eez-proof-signer/SPEC.md#11-data-availability-and-sync-block-verification).
@@ -257,11 +266,15 @@ The first streamed chunk MUST contain exactly one `ProveHeader`:
 - `expected_validation_identity` MUST contain the locally computed 32-byte identity
   agreed during capability discovery. Missing values are rejected; there is no
   older-server or implicit identity mode.
+- `parent_provenance` MUST carry the exact RLP parent header, its accepted L1
+  height (zero for configured genesis), and every accepted endpoint header in
+  the parent's possible live L1 slot in settlement order. These are untrusted
+  hints, independently checked by the signer. The signer bounds each header to
+  1024 bytes and charges all headers against the request byte and item quotas.
 - `post_batch` MUST be present and contain the calldata constructed in section
   3.1, including the required `posting_context`.
-- `post_batch.public_inputs_hash` is non-authoritative. The Composer SHOULD
-  send it empty; the prover response supplies the recomputed hash.
-- The current timeless profile requires `post_batch.l1_block_hash` to be empty.
+- The required posting context MUST satisfy section 3.1. There is no claimed
+  public-input hash or separate optional block-hash field.
 
 ### 3.3 Block chunks
 
@@ -503,7 +516,7 @@ authenticated.
 ### 6.3 Retry procedure and settlement cutoff
 
 The reference Composer starts backoff at 100 ms, doubles its base up to 1,000 ms,
-and applies ±20% jitter. Cross-chain candidates with an exact L1 target share
+and applies ±20% jitter. All candidates with an exact L1 target share
 one exclusive deadline: target timestamp minus submission slack. Preparation
 and proof settings are planning allocations. Crossing the preparation allocation
 MUST NOT discard an accepted candidate or substitute an empty L1 posting while
@@ -519,11 +532,15 @@ dispatch. A timed-out delivery after dispatch is uncertain submission, not
 proof of exclusion. A timed-out signer RPC does not release the server's worker
 permit before that worker exits. No parallel proof race is introduced.
 
-Ordinary-only exact-target posting retains the configured full-proof start
-reserve and per-attempt timeout. `NextBlock` bounds the complete proving episode
-by the proof-time budget. Older Composers retain these older timing semantics
-for cross-chain candidates too; this scheduling change does not change the wire
-schema, signer validation or historical follower decoding.
+Ordinary-only candidates use the same deadline and post-proof reserve. Native
+proofs bind a known canonical L1 parent, so a preparation estimate MUST NOT
+select a future execution height whose parent does not yet exist. Resolve
+policy targets to the observed head's immediate child; skipped slots may advance
+its timestamp only within the shared bounded replacement allowance. Never
+slide the target after proving. If preparation exhausts the window, retain the
+unsettled history for a fresh attempt. The prior full-proof start reserve could
+reject usable windows and make a slow observation select an unknown parent
+indefinitely. This scheduling correction changes no wire fields or validation.
 
 For a retryable status, each retry MUST open a new `Prove` call and resend the
 complete header and block stream. The Composer SHOULD use exponential backoff

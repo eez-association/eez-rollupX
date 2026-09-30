@@ -193,14 +193,17 @@ impl BeaconBlobSource {
                     scanned.tx_hash
                 ))
             })?;
-            eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
-                .map_err(|error| {
+            let semantic_transactions = eez_protocol::blob_semantics::decode_semantic_transactions(
+                &native.semantic_messages,
+            )
+            .map_err(|error| {
                 L1Error::Decode(format!(
                     "decode authenticated blob semantics for {}: {error}",
                     scanned.tx_hash
                 ))
             })?;
             scanned.operations_payload = native.operations;
+            scanned.semantic_transactions = semantic_transactions.into();
         }
 
         Ok(())
@@ -638,9 +641,30 @@ mod tests {
     async fn hydration_ignores_unrelated_non_eez_blob_in_same_slot() {
         let rollup_id = 7;
         let expected_payload = Bytes::from_static(b"real derivation payload");
-        let blobs =
-            eez_blob_codec::encode_native_payload(rollup_id, expected_payload.clone(), Vec::new())
-                .unwrap();
+        let messages = vec![
+            eez_blob_codec::Message::InitiateCrossChainTransaction {
+                chain_id: 0,
+                tx_data: Bytes::from_static(b"L1 origin"),
+            },
+            eez_blob_codec::Message::Call {
+                to_chain: rollup_id,
+                from_address: alloy_primitives::Address::with_last_byte(1),
+                to_address: alloy_primitives::Address::with_last_byte(2),
+                value: U256::ZERO,
+                gas: 0,
+                data: Bytes::from_static(b"call"),
+            },
+            eez_blob_codec::Message::ReturnFail {
+                return_data: Bytes::from_static(b"caught"),
+            },
+            eez_blob_codec::Message::FinishCrossChainTransaction,
+        ];
+        let blobs = eez_blob_codec::encode_native_payload(
+            rollup_id,
+            expected_payload.clone(),
+            messages.clone(),
+        )
+        .unwrap();
         let versioned_hashes = blob_versioned_hashes(&blobs).unwrap();
         // Beacon endpoints return every blob in the slot. Authentication must
         // not apply EEZ stream rules to another transaction's blob.
@@ -680,6 +704,7 @@ mod tests {
             tx_index: 0,
             submitter: alloy_primitives::Address::ZERO,
             operations_payload: Bytes::new(),
+            semantic_transactions: Default::default(),
             transaction_blob_hashes: versioned_hashes,
             post_batch_input: post_batch_input.into(),
             state_applied: true,
@@ -693,6 +718,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(scanned[0].operations_payload, expected_payload);
+        assert_eq!(scanned[0].semantic_transactions.len(), 1);
+        assert_eq!(
+            eez_protocol::blob_semantics::encode_semantic_transaction(
+                &scanned[0].semantic_transactions[0]
+            )
+            .unwrap(),
+            messages,
+            "hydration must preserve the authenticated action stream for follower reconstruction",
+        );
     }
 
     #[tokio::test]
@@ -739,6 +773,7 @@ mod tests {
             tx_index: 0,
             submitter: alloy_primitives::Address::ZERO,
             operations_payload: Bytes::new(),
+            semantic_transactions: Default::default(),
             transaction_blob_hashes: blob_versioned_hashes(&blobs).unwrap(),
             post_batch_input: postAndVerifyBatchCall {
                 batch: batch.clone(),

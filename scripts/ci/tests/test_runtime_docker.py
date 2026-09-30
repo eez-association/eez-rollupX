@@ -20,6 +20,17 @@ spec.loader.exec_module(native)
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
+    def test_repository_source_context_preserves_genesis(self):
+        with tempfile.TemporaryDirectory(prefix="eez-runtime-source.") as temporary:
+            subprocess.run([
+                "docker", "buildx", "build", "--builder", "default", "--progress", "plain",
+                "--provenance=false", "-f", "Dockerfile.runtime", "--target", "source",
+                "--output", f"type=local,dest={temporary}", ".",
+            ], cwd=REPO, check=True)
+            exported = Path(temporary) / "checkout"
+            for name in ("Cargo.toml", "Cargo.lock", "genesis.json"):
+                self.assertEqual((exported / name).read_bytes(), (REPO / name).read_bytes())
+
     def test_real_build_and_same_job_execution(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-docker.") as temporary:
             root = Path(temporary)
@@ -30,7 +41,7 @@ class RuntimeDockerTest(unittest.TestCase):
                 "testing/kurtosis/Dockerfile.deploy", "testing/kurtosis/Dockerfile.deploy.dockerignore",
                 "scripts/ci/build-runtime-artifacts.sh", "scripts/ci/prepare-runtime-artifacts.sh",
                 "scripts/ci/install-sccache.sh", "scripts/ci/with-compiler-cache.sh",
-                "scripts/ci/install-nextest.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
+                "scripts/ci/install-nextest.sh", "scripts/ci/install-llvm.sh", "scripts/ci/native-tests.py", ".config/nextest.toml",
                 "contracts/test/PostBatchGasPins.t.sol",
             ):
                 path = repo / name
@@ -50,9 +61,10 @@ class RuntimeDockerTest(unittest.TestCase):
                 "eez-l1": {"examples/verify_blob_evidence.rs": "verify_blob_evidence"},
                 "eez-composer": {},
                 "eez-blob-codec": {},
+                "eez-payload-codec": {},
             }
             (repo / "Cargo.toml").write_text(
-                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\nexclude = ["vendor/fixture-port"]\n'
+                '[workspace]\nresolver = "2"\nmembers = ["crates/*"]\n'
                 '[profile.release]\nlto = "thin"\nstrip = true\ncodegen-units = 16\n'
             )
             (repo / "Cargo.lock").write_text("version = 4\n" + "".join(
@@ -79,23 +91,25 @@ class RuntimeDockerTest(unittest.TestCase):
                     )
                 for test in ({"eez-node-e2e": native.E2E_TARGETS,
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence"),
-                              "eez-blob-codec": ("ethereum_kzg_compatibility",)}.get(name, ())):
+                              "eez-blob-codec": ("ethereum_kzg_compatibility",),
+                              "eez-payload-codec": ("issue35",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)
                     (package / f"tests/{test}.rs").write_text(
                         '#[test] fn release_test() { assert!(!cfg!(debug_assertions)); assert_eq!(2+2,4); }\n')
                 for path, output in targets.items():
                     target = package / path
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_text(f'fn main() {{ println!("{output}"); }}\n')
+                    target.write_text(f'fn main() {{ println!("{output}"); }}\n'
+                                      '#[test] fn example_unit_test() { assert_eq!(2+2,4); }\n')
 
-            port = repo / "vendor/fixture-port"
+            port = repo / "crates/fixture-port"
             (port / "src").mkdir(parents=True)
             (port / "Cargo.toml").write_text(
                 '[package]\nname = "fixture-port"\nversion = "0.1.0"\nedition = "2021"\n')
             (port / "src/lib.rs").write_text('pub const NAME: &str = "eez-follower";\n')
             follower_package = repo / "crates/eez-follower"
             with (follower_package / "Cargo.toml").open("a") as manifest:
-                manifest.write('[dependencies]\nfixture-port = { path = "../../vendor/fixture-port" }\n')
+                manifest.write('[dependencies]\nfixture-port = { path = "../fixture-port" }\n')
             (follower_package / "build-value.txt").write_text("")
             (follower_package / "obsolete.txt").write_text("must disappear after source deletion")
             (follower_package / "build.rs").write_text(

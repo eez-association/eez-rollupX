@@ -138,8 +138,8 @@ pub struct BlockWitness {
 /// Inputs the prover needs to prove one posted settlement window.
 ///
 /// The composer fills this and calls [`Prover::prove`]; the whole window's
-/// block data travels in-band ([`blocks`](Self::blocks)) so the prover is a
-/// stateless function of its input — no feed, no cursor, no backfill.
+/// L2 block data travels in-band ([`blocks`](Self::blocks)). The signer independently
+/// authenticates the L1 target and accepted ancestry before authorizing that execution.
 #[derive(Debug, Clone)]
 pub struct ProvingContext {
     /// The L2 this window settles.
@@ -156,18 +156,13 @@ pub struct ProvingContext {
     /// Immutable window witnesses in block order. Retries share this allocation;
     /// the RPC adapter converts one block at a time under stream backpressure.
     pub blocks: std::sync::Arc<[BlockWitness]>,
-    /// `blockhash(N)` for a block-bound batch's `blockNumber = N`; `None` for a
-    /// timeless (0) batch.
-    pub l1_block_hash: Option<B256>,
     /// Explicit L1 target whose fork rules authorize this request's blob carrier.
     pub l1_posting: L1PostingContext,
+    /// Untrusted acceptance hints; the remote signer checks canonical L1 facts.
+    pub parent_provenance: eez_protocol::l2::ParentProvenance,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct L1PostingContext {
-    pub chain_id: u64,
-    pub target_timestamp: u64,
-}
+pub use eez_protocol::public_inputs::L1PostingContext;
 
 /// Produces the [`BlockWitness`] for a committed L2 block — the seam by which
 /// the composer fills [`ProvingContext::blocks`] without owning the reth
@@ -177,6 +172,15 @@ pub trait ProvingWitnessSource: Send + Sync + std::fmt::Debug {
     /// Fail closed when durable capture or storage capacity is unavailable.
     /// This affects admission, not execution or signature authority.
     fn ensure_ready(&self) -> Result<(), String>;
+
+    /// Exact accepted endpoint and all accepted headers in its possible live
+    /// L1 slot. The caller pins the scan generation; this is evidence transport,
+    /// never authorization for the signer to trust the local correlation index.
+    fn parent_provenance(
+        &self,
+        parent: alloy_consensus::Header,
+        live_slot: Option<(u64, B256)>,
+    ) -> Result<eez_protocol::l2::ParentProvenance, String>;
 
     /// Build the RLP + augmented witness for the exact `(number, hash)` selected
     /// by the candidate ancestry. A fresh canonical-height lookup is not a substitute.

@@ -1,6 +1,6 @@
 use super::*;
 use alloy_consensus::{BlockBody, EMPTY_OMMER_ROOT_HASH, EMPTY_ROOT_HASH};
-use alloy_primitives::{Address, B64, Bloom, Bytes, U256, b256};
+use alloy_primitives::{B64, Bloom, U256, b256};
 use reth_chainspec::{ChainSpecBuilder, EthereumHardfork, ForkCondition};
 use reth_storage_api::noop::NoopProvider;
 use std::sync::Arc;
@@ -11,28 +11,32 @@ const EMPTY_REQUESTS: B256 =
 
 fn environment() -> Environment {
     Environment {
-        timestamp_step_seconds: 2,
         fee_recipient: Address::repeat_byte(0x11),
         prev_randao: B256::repeat_byte(0x22),
-        gas_limit: 30_000_000,
         extra_data: Bytes::from_static(b"published inputs"),
-        cancun_parent_beacon_root: B256::repeat_byte(0x33),
     }
 }
 
-fn config(fork: EthereumHardfork) -> EthEvmConfig {
-    let builder = ChainSpecBuilder::mainnet().reset();
-    let builder = match fork {
-        EthereumHardfork::London => builder.london_activated(),
-        EthereumHardfork::Paris => builder.paris_activated(),
-        EthereumHardfork::Shanghai => builder.shanghai_activated(),
-        EthereumHardfork::Cancun => builder.cancun_activated(),
-        EthereumHardfork::Prague => builder.prague_activated(),
-        EthereumHardfork::Osaka => builder.osaka_activated(),
-        EthereumHardfork::Amsterdam => builder.amsterdam_activated(),
-        _ => panic!("unsupported test fork"),
-    };
-    EthEvmConfig::new(Arc::new(builder.build()))
+fn config(fork: EthereumHardfork) -> EezEvmConfig {
+    let mut genesis: serde_json::Value =
+        serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
+    genesis["timestamp"] = serde_json::json!("0x50");
+    genesis["config"]["chainId"] = serde_json::json!(1);
+    genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(2);
+    genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(6);
+    genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(80);
+    let mut spec = eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap();
+    if fork != EthereumHardfork::Osaka {
+        let builder = ChainSpecBuilder::mainnet().reset();
+        spec.hardforks = match fork {
+            EthereumHardfork::London => builder.london_activated(),
+            EthereumHardfork::Amsterdam => builder.amsterdam_activated(),
+            _ => panic!("unexpected non-profile test fork"),
+        }
+        .build()
+        .hardforks;
+    }
+    EezEvmConfig::new(Arc::new(spec))
 }
 
 fn parent() -> SealedHeader {
@@ -41,35 +45,25 @@ fn parent() -> SealedHeader {
         timestamp: 100,
         gas_limit: 30_000_000,
         base_fee_per_gas: Some(1_000_000_000),
-        // A valid Cancun-or-later empty parent. Pre-Cancun tests strip these.
+        // Fixed-profile empty parent for the independent assembly oracle.
         withdrawals_root: Some(EMPTY_ROOT_HASH),
         parent_beacon_block_root: Some(B256::ZERO),
         blob_gas_used: Some(0),
         excess_blob_gas: Some(0),
+        requests_hash: Some(EMPTY_REQUESTS),
         ..Default::default()
     })
 }
 
 fn parent_for(fork: EthereumHardfork) -> SealedHeader {
-    let mut header = parent().header().clone();
-    if fork < EthereumHardfork::Cancun {
-        header.parent_beacon_block_root = None;
-        header.blob_gas_used = None;
-        header.excess_blob_gas = None;
-    }
-    if fork < EthereumHardfork::Shanghai {
-        header.withdrawals_root = None;
-    }
-    if fork >= EthereumHardfork::Prague {
-        header.requests_hash = Some(EMPTY_REQUESTS);
-    }
-    SealedHeader::seal_slow(header)
+    assert_eq!(fork, EthereumHardfork::Osaka);
+    parent()
 }
 
 #[test]
-fn writer_uses_retained_inputs_and_reanchors_after_an_environment_change() {
-    use eez_payload_codec::derivable::{BlockPlan, RecordData};
-    let fork = EthereumHardfork::Prague;
+fn writer_publishes_exact_metadata_for_every_position_and_reanchors() {
+    use eez_payload_codec::v0::Payload;
+    let fork = EthereumHardfork::Osaka;
     let config = config(fork);
     let anchor = parent_for(fork);
     let mut parent = anchor.clone();
@@ -81,43 +75,63 @@ fn writer_uses_retained_inputs_and_reanchors_after_an_environment_change() {
         if position >= 2 {
             block.header.beneficiary = Address::repeat_byte(0xa5);
         }
+        if position == 5 {
+            block.header.extra_data = Bytes::from_static(b"terminal metadata");
+        }
         parent = SealedHeader::seal_slow(block.header.clone());
         blocks.push(block);
     }
     let rlps = blocks.iter().map(alloy_rlp::encode).collect::<Vec<_>>();
-    let payload = encode_operations(&config, &anchor, &rlps, &[vec![0, 128, 255]], &[2]).unwrap();
-    assert_eq!(payload.ordinary_block_count(), 5);
-    assert_eq!(payload.records().len(), 1);
-    assert_eq!(payload.records()[0].empty_gap, 2);
-    assert!(
-        matches!(&payload.records()[0].data, RecordData::EnvironmentChange { transactions, .. } if transactions.is_empty())
+    let wire = encode_operations(&config, &anchor, &rlps).unwrap();
+    let payload = Payload::decode(&wire).unwrap();
+    assert_eq!(payload.block_count(), 6);
+    assert_eq!(
+        payload.count_runs().count(),
+        1,
+        "metadata does not split empty runs"
     );
     for (position, plan) in payload.blocks().enumerate() {
-        if let BlockPlan::Derived {
-            environment,
-            transactions,
-            ..
-        } = plan
-        {
-            assert_eq!(
-                environment.fee_recipient,
-                blocks[position].header.beneficiary
-            );
-            assert!(transactions.is_empty());
-        }
+        assert_eq!(plan.beneficiary, blocks[position].header.beneficiary);
+        assert_eq!(plan.extra_data, blocks[position].header.extra_data.as_ref());
+        assert_eq!(plan.transactions.len(), 0);
     }
-    assert_eq!(payload.l2_entries(), [vec![0, 128, 255]]);
-    assert_eq!(payload.outbound_group_sizes(), [2]);
-    assert_eq!(payload.terminal_block(), rlps.last().unwrap());
-    let new_anchor = SealedHeader::seal_slow(blocks[1].header.clone());
-    let suffix = encode_operations(&config, &new_anchor, &rlps[2..], &[], &[]).unwrap();
-    assert!(suffix.records().is_empty());
-    assert_eq!(
-        suffix.initial_environment().fee_recipient,
-        Address::repeat_byte(0xa5)
+    let summary = blocks.iter().fold(
+        eez_payload_codec::v0::PayloadSizer::default(),
+        |sum, block| sum.combine(&operations_size(block).unwrap()).unwrap(),
     );
-    assert!(encode_operations(&config, &anchor, &rlps[2..], &[], &[]).is_err());
-    assert!(encode_operations(&config, &anchor, &[], &[], &[]).is_err());
+    assert_eq!(summary.encoded_len().unwrap(), wire.len());
+    let new_anchor = SealedHeader::seal_slow(blocks[1].header.clone());
+    let suffix = encode_operations(&config, &new_anchor, &rlps[2..]).unwrap();
+    assert!(
+        Payload::decode(&suffix)
+            .unwrap()
+            .blocks()
+            .all(|plan| plan.beneficiary == Address::repeat_byte(0xa5))
+    );
+    assert!(encode_operations(&config, &anchor, &rlps[2..]).is_err());
+    assert!(encode_operations(&config, &anchor, &[]).is_err());
+}
+
+#[test]
+fn issue_35_six_hundred_empty_blocks_use_the_exact_direct_31_byte_body() {
+    let config = config(EthereumHardfork::Osaka);
+    let anchor = parent();
+    let mut parent = anchor.clone();
+    let mut rlps = Vec::new();
+    for _ in 0..600 {
+        let mut block = expected_empty(&parent, EthereumHardfork::Osaka);
+        block.header.number = parent.number + 1;
+        block.header.timestamp = parent.timestamp + 2;
+        block.header.extra_data = Bytes::new();
+        parent = SealedHeader::seal_slow(block.header.clone());
+        rlps.push(alloy_rlp::encode(block));
+    }
+    let wire = encode_operations(&config, &anchor, &rlps).unwrap();
+    let mut expected = vec![0, 0xd8, 4, 0xff, 0xd8, 4, 0xd8, 4];
+    expected.extend_from_slice(Address::repeat_byte(0x11).as_slice());
+    expected.extend_from_slice(&[0xd8, 4, 0]);
+    assert_eq!(wire, expected);
+    assert_eq!(wire.len(), 31);
 }
 
 // Independently specified empty-block header. This does not call the production
@@ -146,11 +160,11 @@ fn expected_empty(parent: &SealedHeader, fork: EthereumHardfork) -> Block {
             extra_data: Bytes::from_static(b"published inputs"),
             mix_hash: B256::repeat_byte(0x22),
             nonce: B64::ZERO,
-            base_fee_per_gas: Some(875_000_000), // Empty parent: 1 gwei minus 1/8.
+            base_fee_per_gas: Some(980_000_000), // Empty parent: 1 gwei minus 1/50.
             withdrawals_root: shanghai.then_some(EMPTY_ROOT_HASH),
             blob_gas_used: cancun.then_some(0),
             excess_blob_gas: cancun.then_some(0),
-            parent_beacon_block_root: cancun.then_some(B256::repeat_byte(0x33)),
+            parent_beacon_block_root: cancun.then_some(B256::ZERO),
             requests_hash: prague.then_some(EMPTY_REQUESTS),
             block_access_list_hash: None,
             slot_number: None,
@@ -163,7 +177,7 @@ fn expected_empty(parent: &SealedHeader, fork: EthereumHardfork) -> Block {
     }
 }
 
-fn assemble_empty(config: &EthEvmConfig, parent: &SealedHeader, env: &Environment) -> Block {
+fn assemble_empty(config: &EezEvmConfig, parent: &SealedHeader, env: &Environment) -> Block {
     reassemble(
         config,
         parent,
@@ -177,78 +191,47 @@ fn assemble_empty(config: &EthEvmConfig, parent: &SealedHeader, env: &Environmen
 }
 
 #[test]
-fn whole_block_matches_independent_fixture_at_each_supported_fork() {
-    for fork in [
-        EthereumHardfork::Paris,
-        EthereumHardfork::Shanghai,
-        EthereumHardfork::Cancun,
-        EthereumHardfork::Prague,
-        EthereumHardfork::Osaka,
-    ] {
-        let config = config(fork);
-        let parent = parent_for(fork);
-        let actual = assemble_empty(&config, &parent, &environment());
-        let expected = expected_empty(&parent, fork);
-        assert_eq!(actual, expected, "{fork:?}");
-        require_exact_block(&actual, &alloy_rlp::encode(&expected)).unwrap();
-    }
+fn whole_block_matches_independent_fixed_osaka_fixture() {
+    let config = config(EthereumHardfork::Osaka);
+    let parent = parent();
+    let actual = assemble_empty(&config, &parent, &environment());
+    let expected = expected_empty(&parent, EthereumHardfork::Osaka);
+    assert_eq!(actual, expected);
+    require_exact_block(&actual, &alloy_rlp::encode(&expected)).unwrap();
 }
 
 #[test]
-fn fork_crossings_use_child_timestamp_and_parent_history() {
-    for (old, new) in [
-        (EthereumHardfork::Paris, EthereumHardfork::Shanghai),
-        (EthereumHardfork::Shanghai, EthereumHardfork::Cancun),
-        (EthereumHardfork::Cancun, EthereumHardfork::Prague),
-        (EthereumHardfork::Prague, EthereumHardfork::Osaka),
-    ] {
-        let old_config = config(old);
-        let mut spec = old_config.chain_spec().as_ref().clone();
-        spec.hardforks.insert(new, ForkCondition::Timestamp(102));
-        let config = EthEvmConfig::new(Arc::new(spec));
-        let parent = parent_for(old);
-        let actual = assemble_empty(&config, &parent, &environment());
-        assert_eq!(actual, expected_empty(&parent, new), "{new:?}");
-        // Immediately before the transition the old optional-field shape holds.
-        let mut earlier = environment();
-        earlier.timestamp_step_seconds = 1;
-        let before = assemble_empty(&config, &parent, &earlier);
-        let mut expected_before = expected_empty(&parent, old);
-        expected_before.header.timestamp = 101;
-        assert_eq!(before, expected_before, "before {new:?}");
-    }
-}
-
-#[test]
-fn all_environment_inputs_affect_the_block_where_applicable() {
+fn metadata_and_seed_bind_assembly_while_fixed_environment_changes_are_rejected() {
     let config = config(EthereumHardfork::Osaka);
     let parent = parent();
     let original = assemble_empty(&config, &parent, &environment());
     let original_rlp = alloy_rlp::encode(&original);
-    let mut changes = vec![environment(); 6];
-    changes[0].timestamp_step_seconds += 1;
-    changes[1].fee_recipient = Address::repeat_byte(0x44);
-    changes[2].prev_randao = B256::repeat_byte(0x55);
-    changes[3].gas_limit += 1;
-    changes[4].extra_data = Bytes::from_static(b"other");
-    changes[5].cancun_parent_beacon_root = B256::repeat_byte(0x66);
-    for env in changes {
+    for change in [
+        |env: &mut Environment| env.fee_recipient = Address::repeat_byte(0x44),
+        |env: &mut Environment| env.prev_randao = B256::repeat_byte(0x55),
+        |env: &mut Environment| env.extra_data = Bytes::from_static(b"other"),
+    ] {
+        let mut env = environment();
+        change(&mut env);
         let changed = assemble_empty(&config, &parent, &env);
         assert!(require_exact_block(&changed, &original_rlp).is_err());
     }
-    let config = self::config(EthereumHardfork::Paris);
-    let before = assemble_empty(&config, &parent, &environment());
-    let mut other_root = environment();
-    other_root.cancun_parent_beacon_root = B256::repeat_byte(0xff);
-    assert_eq!(before, assemble_empty(&config, &parent, &other_root));
-    assert!(before.header.parent_beacon_block_root.is_none());
+    for change in [
+        |h: &mut Header| h.timestamp += 1,
+        |h: &mut Header| h.gas_limit += 1,
+        |h: &mut Header| h.parent_beacon_block_root = Some(B256::repeat_byte(0x66)),
+    ] {
+        let mut changed = original.clone();
+        change(&mut changed.header);
+        assert!(full_attributes(&config, &parent, &changed).is_err());
+    }
 }
 
 #[test]
 fn rejects_pre_merge_and_future_forks_including_boundary() {
     for fork in [EthereumHardfork::London, EthereumHardfork::Amsterdam] {
         let error = next_attributes(&config(fork), &parent(), &environment()).unwrap_err();
-        assert!(error.to_string().contains("unsupported profile-1"));
+        assert!(error.to_string().contains("unsupported L2 execution"));
     }
     let mut spec = config(EthereumHardfork::Osaka)
         .chain_spec()
@@ -256,11 +239,9 @@ fn rejects_pre_merge_and_future_forks_including_boundary() {
         .clone();
     spec.hardforks
         .insert(EthereumHardfork::Amsterdam, ForkCondition::Timestamp(102));
-    let config = EthEvmConfig::new(Arc::new(spec));
-    let mut env = environment();
-    env.timestamp_step_seconds = 1;
-    next_attributes(&config, &parent(), &env).unwrap();
-    env.timestamp_step_seconds = 2;
+    let config = EezEvmConfig::new(Arc::new(spec));
+    let env = environment();
+    // The first child is exactly at the unsupported fork activation.
     assert!(next_attributes(&config, &parent(), &env).is_err());
 }
 
@@ -269,36 +250,15 @@ fn arithmetic_and_invalid_environment_fail_before_reth() {
     let config = config(EthereumHardfork::Osaka);
     let mut header = parent().header().clone();
     header.number = u64::MAX;
-    assert!(
-        next_attributes(&config, &header, &environment())
-            .unwrap_err()
-            .to_string()
-            .contains("number overflow")
-    );
+    assert!(next_attributes(&config, &header, &environment()).is_err());
     header.number = 10;
     header.timestamp = u64::MAX - 1;
-    assert!(
-        next_attributes(&config, &header, &environment())
-            .unwrap_err()
-            .to_string()
-            .contains("timestamp overflow")
-    );
-    for env in [
-        Environment {
-            timestamp_step_seconds: 0,
-            ..environment()
-        },
-        Environment {
-            gas_limit: 0,
-            ..environment()
-        },
-        Environment {
-            extra_data: vec![0; 33].into(),
-            ..environment()
-        },
-    ] {
-        assert!(next_attributes(&config, &parent(), &env).is_err());
-    }
+    assert!(next_attributes(&config, &header, &environment()).is_err());
+    let env = Environment {
+        extra_data: vec![0; 33].into(),
+        ..environment()
+    };
+    assert!(next_attributes(&config, &parent(), &env).is_err());
 }
 
 #[test]
@@ -358,7 +318,7 @@ fn no_header_or_body_component_is_ignored_by_equality() {
         |h| h.withdrawals_root = None,
         |h| h.blob_gas_used = Some(1),
         |h| h.excess_blob_gas = Some(1),
-        |h| h.parent_beacon_block_root = Some(B256::ZERO),
+        |h| h.parent_beacon_block_root = Some(B256::repeat_byte(1)),
         |h| h.requests_hash = Some(B256::ZERO),
         |h| h.block_access_list_hash = Some(B256::ZERO),
         |h| h.slot_number = Some(1),
@@ -399,7 +359,7 @@ fn state_commitment_and_parent_fee_are_taken_from_replay_and_parent() {
     )
     .unwrap();
     assert_eq!(actual.header.parent_hash, full_parent.hash());
-    assert_eq!(actual.header.base_fee_per_gas, Some(1_125_000_000));
+    assert_eq!(actual.header.base_fee_per_gas, Some(1_020_000_000));
     assert_eq!(actual.header.state_root, B256::repeat_byte(0xbb));
     assert!(
         require_exact_block(
@@ -411,7 +371,7 @@ fn state_commitment_and_parent_fee_are_taken_from_replay_and_parent() {
 }
 
 #[test]
-fn empty_derived_blocks_execute_beacon_root_storage_updates() {
+fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
     use alloy_primitives::{address, hex};
     use reth_evm::{Evm as _, block::BlockExecutor as _, execute::BlockBuilder as _};
     use revm::{
@@ -420,8 +380,7 @@ fn empty_derived_blocks_execute_beacon_root_storage_updates() {
         state::AccountInfo,
     };
 
-    // EIP-4788's deployed bytecode, as pinned in alloy-eips 2.0.5. Exercising the
-    // actual system call demonstrates why even a gap block must be executed.
+    // Real EIP-4788 code must remain untouched even though Osaka is active.
     let address = address!("000F3df6D732807Ef1319fB7B8bB8522d0Beac02");
     let code = Bytecode::new_raw(Bytes::from_static(&hex!(
         "3373fffffffffffffffffffffffffffffffffffffffe14604d57602036146024575f5ffd5b5f35801560495762001fff810690815414603c575f5ffd5b62001fff01545f5260205ff35b5f5ffd5b62001fff42064281555f359062001fff015500"
@@ -435,15 +394,25 @@ fn empty_derived_blocks_execute_beacon_root_storage_updates() {
             ..Default::default()
         },
     );
+    let history = alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS;
+    let history_code = Bytecode::new_raw(alloy_eips::eip2935::HISTORY_STORAGE_CODE.clone());
+    database.insert_account_info(
+        history,
+        AccountInfo {
+            code_hash: history_code.hash_slow(),
+            code: Some(history_code),
+            ..Default::default()
+        },
+    );
     let mut state = State::builder()
         .with_database(database)
         .with_bundle_update()
         .build();
-    let config = config(EthereumHardfork::Cancun);
-    let mut parent = parent_for(EthereumHardfork::Cancun);
+    let config = config(EthereumHardfork::Osaka);
+    let mut parent = parent_for(EthereumHardfork::Osaka);
 
     // Reuse actual in-memory state for two consecutive empty derived blocks.
-    // Merely advancing numbers/hashes would leave both of these slots unset.
+    // Merely advancing numbers/hashes would omit the parent-history writes.
     for timestamp in [102, 104] {
         let env = environment();
         let attrs = next_attributes(&config, &parent, &env).unwrap();
@@ -462,12 +431,14 @@ fn empty_derived_blocks_execute_beacon_root_storage_updates() {
         assert!(output.result.receipts.is_empty());
         assert_eq!(output.result.gas_used, 0);
         assert_eq!(
-            output.storage(&address, U256::from(timestamp)),
-            Some(U256::from(timestamp))
+            output.storage(&history, U256::from(parent.number % 8191)),
+            Some(U256::from_be_slice(parent.hash().as_slice()))
         );
-        assert_eq!(
-            output.storage(&address, U256::from(timestamp + 8191)),
-            Some(U256::from_be_bytes(env.cancun_parent_beacon_root.0)),
+        assert!(output.storage(&address, U256::from(timestamp)).is_none());
+        assert!(
+            output
+                .storage(&address, U256::from(timestamp + 8191))
+                .is_none()
         );
         // This unit test checks execution and assembly, not trie-root proof
         // verification. Full signer/follower integration must compute this root.
@@ -521,8 +492,8 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
         .with_database(database)
         .with_bundle_update()
         .build();
-    let config = config(EthereumHardfork::Cancun);
-    let parent = parent_for(EthereumHardfork::Cancun);
+    let config = config(EthereumHardfork::Osaka);
+    let parent = parent_for(EthereumHardfork::Osaka);
     let attrs = next_attributes(&config, &parent, &environment()).unwrap();
     let mut builder = config
         .builder_for_next_block(&mut state, &parent, attrs)

@@ -1,8 +1,7 @@
 //! Composer integration of the pure policy and canonical activity index.
 
-use std::{collections::VecDeque, sync::Mutex, time::Duration};
+use std::sync::Mutex;
 
-use alloy_rlp::Encodable as _;
 use reth_chainspec::EthChainSpec as _;
 
 use super::*;
@@ -10,10 +9,6 @@ use crate::settlement_policy::{
     CrossChainWork, DrainCoverage, PolicyDecision, PolicySnapshot, PolicyState, SettlementAnchor,
     index::{ActivityIndex, BlockActivity, DaOverhead},
 };
-
-// Keep a recent peak: one fast batch cannot erase a slow observation, while a
-// transient slowdown must not force every later historical target one slot out.
-const PREPARATION_HISTORY: usize = 4;
 
 #[derive(Debug, Default)]
 struct RollupPolicy {
@@ -25,8 +20,6 @@ struct RollupPolicy {
     /// Immutable encodings measured by the index, retained only while pending.
     block_rlps: HashMap<B256, (u64, Vec<u8>)>,
     sequencing_target: Option<u64>,
-    /// Observed encoding/KZG/witness preparation, before the proof itself.
-    preparation_times: VecDeque<Duration>,
     observation: Option<(u64, SettlementPolicyObservation)>,
 }
 
@@ -131,59 +124,7 @@ pub(super) struct EnabledPolicy {
     rollups: HashMap<u64, Mutex<RollupPolicy>>,
 }
 
-pub(super) fn preparation_fits_target(
-    preparation: Duration,
-    slack: Duration,
-    target_timestamp: u64,
-    now_ms: u64,
-) -> Result<bool, String> {
-    let reserved = preparation
-        .checked_add(slack)
-        .and_then(|d| u64::try_from(d.as_millis()).ok())
-        .and_then(|ms| now_ms.checked_add(ms))
-        .ok_or("policy preparation deadline overflow")?;
-    let target = target_timestamp
-        .checked_mul(1000)
-        .ok_or("policy target timestamp overflow")?;
-    Ok(reserved < target)
-}
-
 impl EnabledPolicy {
-    pub(super) fn note_preparation(&self, rollup_id: u64, elapsed: Duration) {
-        if let Some(rollup) = self.rollups.get(&rollup_id) {
-            let mut rollup = rollup.lock().unwrap();
-            if rollup.preparation_times.len() == PREPARATION_HISTORY {
-                rollup.preparation_times.pop_front();
-            }
-            rollup.preparation_times.push_back(elapsed);
-        }
-    }
-
-    pub(super) fn preparation_budget(
-        &self,
-        rollup_id: u64,
-        proof_time: Duration,
-    ) -> Result<Duration, String> {
-        let rollup = self
-            .rollups
-            .get(&rollup_id)
-            .ok_or("unknown policy rollup")?;
-        let preparation = rollup
-            .lock()
-            .unwrap()
-            .preparation_times
-            .iter()
-            .copied()
-            .max()
-            .unwrap_or_default();
-        // Reserve 10% above the recent peak for timing variation. This is an
-        // estimate for target selection; proof and submission guards still bind.
-        preparation
-            .checked_add(preparation / 10)
-            .and_then(|reserved| proof_time.checked_add(reserved))
-            .ok_or_else(|| "policy preparation duration overflow".into())
-    }
-
     pub(super) fn set_sequencing_target(&self, rollup_id: u64, target: u64) {
         if let Some(rollup) = self.rollups.get(&rollup_id) {
             rollup.lock().unwrap().sequencing_target = Some(target);
@@ -220,14 +161,6 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    /// Anchor-only candidates are not tied to a cross-chain execution slot.
-    /// Include observed preparation before asking the existing target selector
-    /// for enough time; never retry a known-too-short historical slot forever.
-    pub(super) fn policy_preparation_budget(&self, rollup_id: u64) -> Result<Duration, String> {
-        let proof = self.inner.emission.timing.proof_time();
-        self.inner.policy.preparation_budget(rollup_id, proof)
-    }
-
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
@@ -249,7 +182,7 @@ where
             let target = self
                 .inner
                 .submitter
-                .next_policy_target(self.inner.emission.timing.proof_time())
+                .next_policy_target()
                 .await
                 .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
             let allowance = self
@@ -301,7 +234,6 @@ where
                         number: cursor.number(),
                         hash: cursor.hash(),
                     },
-                    encoded.as_slice().length(),
                     measure_ordinary(&self.inner.evm_config, &parent, &encoded)?,
                     boundary,
                 ));
@@ -324,22 +256,8 @@ where
 
     pub(super) fn cross_chain_da_overhead(
         rollup_id: u64,
-        compositions: &[&eez_protocol::Composition],
-        outbound_groups: &[eez_protocol::system_tx::OutboundSyncGroup],
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) -> Result<DaOverhead, PolicyError> {
-        let (entries, groups) =
-            derivation_metadata(compositions, outbound_groups).map_err(PolicyError::Unavailable)?;
-        let entry_items = entries
-            .iter()
-            .try_fold(0usize, |sum, entry| {
-                sum.checked_add(entry.as_slice().length())
-            })
-            .ok_or(PolicyError::Arithmetic("derivation entry bytes"))?;
-        let group_items = groups
-            .iter()
-            .try_fold(0usize, |sum, group| sum.checked_add(group.length()))
-            .ok_or(PolicyError::Arithmetic("outbound group bytes"))?;
         let messages = transactions
             .iter()
             .map(eez_protocol::blob_semantics::encode_semantic_transaction)
@@ -358,11 +276,7 @@ where
                     .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
             )
             .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
-        Ok(DaOverhead {
-            entry_items,
-            group_items,
-            semantic_bytes,
-        })
+        Ok(DaOverhead { semantic_bytes })
     }
 
     pub(super) fn record_final_encoding(
@@ -733,26 +647,24 @@ where
                     use alloy_eips::Decodable2718 as _;
                     use reth_primitives_traits::SignerRecoverable as _;
                     let bytes = tx.encoded_2718();
-                    if bytes.first() == Some(&0x7e) {
+                    if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
                         has_system = true;
                         break;
                     }
-                    let tx = reth_ethereum_primitives::TransactionSigned::decode_2718(
-                        &mut bytes.as_slice(),
-                    )
-                    .map_err(|error| {
-                        PolicyError::Unavailable(format!("pending transaction decoding: {error}"))
-                    })?;
+                    let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
+                        .map_err(|error| {
+                            PolicyError::Unavailable(format!(
+                                "pending transaction decoding: {error}"
+                            ))
+                        })?;
                     if tx.recover_signer().map_err(|error| {
                         PolicyError::Unavailable(format!("pending signer: {error}"))
-                    })? == self.inner.cross_chain.exec_ctx.system_signer.address()
+                    })? == eez_primitives::SYSTEM_ADDRESS
                     {
                         has_system = true;
                         break;
                     }
                 }
-                let encoded_item_bytes = u64::try_from(encoded.as_slice().length())
-                    .map_err(|_| PolicyError::Arithmetic("encoded block item bytes"))?;
                 let parent = rollup
                     .l2_provider
                     .sealed_header_by_hash(block.header().parent_hash())
@@ -768,7 +680,6 @@ where
                         hash,
                     },
                     parent_hash: block.header().parent_hash(),
-                    encoded_item_bytes,
                     ordinary,
                     pure_transactions: if has_system {
                         0
@@ -841,7 +752,9 @@ where
                 }
             }
         };
-        let encoded_terminal = alloy_rlp::encode(built.block.clone().into_block());
+        let terminal_size =
+            eez_driver::derivation::operations_size(&built.block.clone().into_block())
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let logical_blocks = built
             .header
             .number()
@@ -851,10 +764,11 @@ where
             .checked_add(u64::from(self.inner.emission.timing.k()))
             .is_none_or(|next| next > self.inner.emission.max_blocks);
         let estimated_stream_bytes = if logical_blocks <= self.inner.emission.max_blocks {
-            Some(runtime.activity.estimated_stream_bytes_with_overhead(
-                encoded_terminal.as_slice().length(),
-                overhead,
-            )?)
+            Some(
+                runtime
+                    .activity
+                    .estimated_stream_bytes_with_overhead(&terminal_size, overhead)?,
+            )
         } else {
             None
         };
@@ -932,30 +846,16 @@ where
 }
 
 fn measure_ordinary(
-    config: &EthEvmConfig,
+    config: &EezEvmConfig,
     parent: &reth_primitives_traits::SealedHeader,
     encoded: &[u8],
-) -> Result<eez_payload_codec::DerivablePayloadSizer, PolicyError> {
-    let block: reth_ethereum_primitives::Block = alloy_rlp::decode_exact(encoded)
+) -> Result<eez_payload_codec::v0::PayloadSizer, PolicyError> {
+    let block: eez_primitives::Block = alloy_rlp::decode_exact(encoded)
         .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
-    let environment = eez_driver::derivation::ordinary_environment(config, parent, &block)
+    eez_driver::derivation::full_attributes(config, parent, &block)
         .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
-    match environment {
-        Some(environment) => {
-            let txs = block
-                .body
-                .transactions
-                .iter()
-                .map(|tx| tx.encoded_2718().into())
-                .collect::<Vec<_>>();
-            eez_payload_codec::DerivablePayloadSizer::derived_block(environment, &txs)
-        }
-        None => eez_payload_codec::DerivablePayloadSizer::full_block(
-            encoded,
-            block.body.transactions.len(),
-        ),
-    }
-    .map_err(|error| PolicyError::Unavailable(error.to_string()))
+    eez_driver::derivation::operations_size(&block)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))
 }
 
 /// Validate every indivisible, already accepted segment. An unfinished slot's
@@ -965,8 +865,7 @@ fn validate_retained_byte_segments(
     blocks: impl IntoIterator<
         Item = (
             eez_l1::L2Endpoint,
-            usize,
-            eez_payload_codec::DerivablePayloadSizer,
+            eez_payload_codec::v0::PayloadSizer,
             bool,
         ),
     >,
@@ -975,15 +874,13 @@ fn validate_retained_byte_segments(
     let capacity = allowance
         .checked_mul(eez_blob_codec::DATA_BYTES_PER_BLOB)
         .ok_or(PolicyError::Arithmetic("startup posting capacity"))?;
-    let mut ordinary = eez_payload_codec::DerivablePayloadSizer::default();
-    for (endpoint, bytes, next, boundary) in blocks {
-        let payload = ordinary
-            .encoded_len_from_items(
-                &eez_payload_codec::derivable::Environment::unused(),
-                bytes,
-                0,
-                0,
-            )
+    let mut ordinary = eez_payload_codec::v0::PayloadSizer::default();
+    for (endpoint, next, boundary) in blocks {
+        let combined = ordinary
+            .combine(&next)
+            .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+        let payload = combined
+            .encoded_len()
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
         let size = eez_blob_codec::native_stream_len(payload, 0)
             .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
@@ -994,11 +891,9 @@ fn validate_retained_byte_segments(
             )));
         }
         ordinary = if boundary {
-            eez_payload_codec::DerivablePayloadSizer::default()
+            eez_payload_codec::v0::PayloadSizer::default()
         } else {
-            ordinary
-                .combine(&next)
-                .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+            combined
         };
     }
     Ok(())
@@ -1093,95 +988,6 @@ mod tests {
     }
 
     #[test]
-    fn historical_recovery_relearns_after_a_slow_preparation() {
-        let policy = EnabledPolicy::new(
-            PolicyConfig {
-                pure_l2: crate::settlement_policy::PureL2Mode::Always,
-                max_unsettled_l2_blocks: 150.try_into().unwrap(),
-                blob_fullness_bps: None,
-                inactive_interval_ms: None,
-                max_speculative_depth: 0,
-            },
-            [1, 2].into_iter(),
-            None,
-        );
-        let proof = Duration::from_millis(500);
-        let slack = Duration::from_millis(700);
-        // Composition wakes with 1.69 seconds to the next five-second slot.
-        let fits_next = || {
-            preparation_fits_target(policy.preparation_budget(1, proof).unwrap(), slack, 5, 3310)
-                .unwrap()
-        };
-        policy.note_preparation(1, Duration::from_millis(986));
-        assert!(!fits_next());
-        for elapsed_ms in [381, 384, 393] {
-            policy.note_preparation(1, Duration::from_millis(elapsed_ms));
-            assert!(
-                !fits_next(),
-                "one fast sample must not erase the slow observation"
-            );
-        }
-        policy.note_preparation(1, Duration::from_millis(417));
-        assert!(
-            fits_next(),
-            "fresh measurements must release the intervening slot"
-        );
-        assert_eq!(
-            policy.preparation_budget(1, proof).unwrap(),
-            proof + Duration::from_micros(458_700)
-        );
-        assert_eq!(policy.preparation_budget(2, proof).unwrap(), proof);
-        policy.note_preparation(1, Duration::from_millis(900));
-        assert!(
-            !fits_next(),
-            "a new slowdown must increase the reserve immediately"
-        );
-    }
-
-    #[test]
-    fn measured_preparation_reserves_time_without_changing_proof_or_network_budgets() {
-        let policy = EnabledPolicy::new(
-            PolicyConfig {
-                pure_l2: crate::settlement_policy::PureL2Mode::Always,
-                max_unsettled_l2_blocks: 150.try_into().unwrap(),
-                blob_fullness_bps: None,
-                inactive_interval_ms: None,
-                max_speculative_depth: 0,
-            },
-            [1, 2].into_iter(),
-            None,
-        );
-        let proof = Duration::from_secs(1);
-        let slack = Duration::from_millis(100);
-        assert_eq!(policy.preparation_budget(1, proof).unwrap(), proof);
-        for slot in [5, 12] {
-            let now = slot * 1000 - 2000;
-            assert!(preparation_fits_target(proof, slack, slot, now).unwrap());
-            assert!(
-                !preparation_fits_target(Duration::from_millis(2300), slack, slot, now).unwrap()
-            );
-            assert!(
-                preparation_fits_target(Duration::from_millis(2300), slack, slot * 2, now).unwrap()
-            );
-        }
-        policy.note_preparation(1, Duration::from_millis(1300));
-        policy.note_preparation(1, Duration::from_millis(10));
-        assert_eq!(
-            policy.preparation_budget(1, proof).unwrap(),
-            Duration::from_millis(2430)
-        );
-        assert_eq!(policy.preparation_budget(2, proof).unwrap(), proof);
-        assert!(policy.preparation_budget(3, proof).is_err());
-        assert!(!preparation_fits_target(proof, slack, 5, 3900).unwrap());
-        assert!(preparation_fits_target(proof, slack, 5, 3899).unwrap());
-        assert!(preparation_fits_target(Duration::MAX, slack, 5, 0).is_err());
-        assert!(preparation_fits_target(proof, slack, u64::MAX, 0).is_err());
-        assert!(preparation_fits_target(proof, slack, 5, u64::MAX).is_err());
-        policy.note_preparation(1, Duration::MAX);
-        assert!(policy.preparation_budget(1, proof).is_err());
-    }
-
-    #[test]
     fn predecessor_tracks_live_groups_exact_hash_and_only_its_finite_range() {
         let endpoint = |number| eez_l1::L2Endpoint {
             number,
@@ -1228,8 +1034,13 @@ mod tests {
                     number,
                     hash: B256::with_last_byte(number as u8),
                 },
-                100_000usize,
-                eez_payload_codec::DerivablePayloadSizer::full_block(&vec![0; 100_000], 0).unwrap(),
+                eez_payload_codec::v0::PayloadSizer::run(&eez_payload_codec::v0::BlockRun {
+                    blocks: 1,
+                    beneficiary: Default::default(),
+                    extra_data: &[],
+                    transactions: &[vec![0; 100_000].into()],
+                })
+                .unwrap(),
                 boundary,
             )
         };

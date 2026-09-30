@@ -2,24 +2,24 @@
 //! sources. They ride in Sync blocks over the engine API. This gate covers RPC
 //! and Reth's reorg reinjection without duplicating composer ownership.
 
-use std::{any::Any, fmt, sync::Arc, time::SystemTime};
+use std::{any::Any, fmt, sync::Arc};
 
-use alloy_eips::{eip7840::BlobParams, merge::EPOCH_SLOTS};
+use crate::pool_transaction::EezPooledTransaction;
 use alloy_primitives::{Address, B256};
-use reth_chainspec::{EthChainSpec, EthereumHardforks};
-use reth_ethereum_primitives::TransactionSigned;
+use eez_primitives::EezTxEnvelope as TransactionSigned;
+use reth_chainspec::EthereumHardforks;
 use reth_evm::ConfigureEvm;
 use reth_node_api::{NodePrimitives, PrimitivesTy};
 use reth_node_builder::{
     BuilderContext,
-    components::{PoolBuilder, TxPoolBuilder, create_blob_store_with_cache},
+    components::{PoolBuilder, TxPoolBuilder},
     node::{FullNodeTypes, NodeTypes},
 };
 use reth_primitives_traits::SealedBlock;
 use reth_transaction_pool::{
-    CoinbaseTipOrdering, EthPooledTransaction, Pool, PoolTransaction, TransactionOrigin,
-    TransactionValidationOutcome, TransactionValidationTaskExecutor, TransactionValidator,
-    blobstore::DiskFileBlobStore,
+    CoinbaseTipOrdering, Pool, PoolTransaction, TransactionOrigin, TransactionValidationOutcome,
+    TransactionValidationTaskExecutor, TransactionValidator,
+    blobstore::NoopBlobStore,
     error::{InvalidPoolTransactionError, PoolTransactionError},
     validate::EthTransactionValidator,
 };
@@ -28,9 +28,9 @@ use tracing::{Level, event};
 /// reth's Ethereum pool with [`SystemAddressGate`] around its validator.
 pub type EezTransactionPool<Client, S, Evm> = Pool<
     TransactionValidationTaskExecutor<
-        SystemAddressGate<EthTransactionValidator<Client, EthPooledTransaction, Evm>>,
+        SystemAddressGate<EthTransactionValidator<Client, EezPooledTransaction, Evm>>,
     >,
-    CoinbaseTipOrdering<EthPooledTransaction>,
+    CoinbaseTipOrdering<EezPooledTransaction>,
     S,
 >;
 
@@ -286,7 +286,7 @@ where
     Node: FullNodeTypes<Types = Types>,
     Evm: ConfigureEvm<Primitives = PrimitivesTy<Types>> + Clone + 'static,
 {
-    type Pool = EezTransactionPool<Node::Provider, DiskFileBlobStore, Evm>;
+    type Pool = EezTransactionPool<Node::Provider, NoopBlobStore, Evm>;
 
     // Nothing here awaits, so `async fn` would build a state machine for no
     // reason; an `async move` body instead would just trip `manual_async_fn`.
@@ -299,43 +299,18 @@ where
         let build = move || -> eyre::Result<Self::Pool> {
             let pool_config = ctx.pool_config();
 
-            let blobs_disabled = ctx.config().txpool.disable_blobs_support
-                || ctx.config().txpool.blobpool_max_count == 0;
-
-            let blob_cache_size = if let Some(blob_cache_size) = pool_config.blob_cache_size {
-                Some(blob_cache_size)
-            } else {
-                let current_timestamp = SystemTime::now()
-                    .duration_since(SystemTime::UNIX_EPOCH)?
-                    .as_secs();
-                let blob_params = ctx
-                    .chain_spec()
-                    .blob_params_at_timestamp(current_timestamp)
-                    .unwrap_or_else(BlobParams::cancun);
-                Some((blob_params.target_blob_count * EPOCH_SLOTS * 2) as u32)
-            };
-
-            let blob_store = create_blob_store_with_cache(ctx, blob_cache_size)?;
+            let blob_store = NoopBlobStore::default();
 
             let eth_validator =
                 TransactionValidationTaskExecutor::eth_builder(ctx.provider().clone(), evm_config)
-                    .set_eip4844(!blobs_disabled)
-                    .kzg_settings(ctx.kzg_settings()?)
+                    .no_eip4844()
                     .with_max_tx_input_bytes(ctx.config().txpool.max_tx_input_bytes)
                     .with_local_transactions_config(pool_config.local_transactions_config.clone())
                     .set_tx_fee_cap(ctx.config().rpc.rpc_tx_fee_cap)
                     .with_max_tx_gas_limit(ctx.config().txpool.max_tx_gas_limit)
                     .with_minimum_priority_fee(ctx.config().txpool.minimum_priority_fee)
                     .with_additional_tasks(ctx.config().txpool.additional_validation_tasks)
-                    .build_with_tasks(ctx.task_executor().clone(), blob_store.clone());
-
-            if eth_validator.validator().eip4844() {
-                // KZG setup is slow, so warm it off the first-block path.
-                let kzg_settings = eth_validator.validator().kzg_settings().clone();
-                ctx.task_executor().spawn_blocking_task(async move {
-                    let _ = kzg_settings.get();
-                });
-            }
+                    .build_with_tasks(ctx.task_executor().clone(), blob_store);
 
             let system_address = self.system_address;
             let validator = eth_validator.map(|inner| {
@@ -378,8 +353,8 @@ mod tests {
     struct AcceptAll;
 
     impl TransactionValidator for AcceptAll {
-        type Transaction = EthPooledTransaction;
-        type Block = reth_ethereum_primitives::Block;
+        type Transaction = EezPooledTransaction;
+        type Block = eez_primitives::Block;
 
         fn validate_transaction(
             &self,
@@ -397,7 +372,7 @@ mod tests {
         }
     }
 
-    fn pooled_tx(sender: Address, nonce: u64) -> EthPooledTransaction {
+    fn pooled_tx(sender: Address, nonce: u64) -> EezPooledTransaction {
         let tx = Transaction::Legacy(TxLegacy {
             chain_id: Some(1),
             nonce,
@@ -408,9 +383,12 @@ mod tests {
             input: Default::default(),
         });
         // The sender is asserted, so the signature never has to be valid.
-        let signed =
-            TransactionSigned::new_unhashed(tx, Signature::new(U256::ONE, U256::ONE, false));
-        EthPooledTransaction::new(Recovered::new_unchecked(signed, sender), 100)
+        let signed = reth_ethereum_primitives::TransactionSigned::new_unhashed(
+            tx,
+            Signature::new(U256::ONE, U256::ONE, false),
+        );
+        EezPooledTransaction::try_from_consensus(Recovered::new_unchecked(signed.into(), sender))
+            .unwrap()
     }
 
     #[tokio::test]

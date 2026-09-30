@@ -1,15 +1,16 @@
-//! Cold v3 authorization through the real RPC, execution and attester boundary.
+//! Cold V0 authorization through the real RPC, execution and attester boundary.
 
 use super::*;
-use eez_payload_codec::derivable::{Environment, Payload, Record, RecordData};
-use reth_ethereum_primitives::Block;
+use eez_payload_codec::v0::{self, BlockRun, Payload};
+use eez_primitives::Block;
 
 mod captured;
+mod l1;
 mod synthetic;
 
-fn chain_config() -> alloy_genesis::ChainConfig {
+fn genesis() -> alloy_genesis::Genesis {
     serde_json::from_str(include_str!(
-        "../../../tests/fixtures/stateless-block-13/chain-config.json"
+        "../../../tests/fixtures/native-osaka-empty/l2-genesis.json"
     ))
     .unwrap()
 }
@@ -17,78 +18,84 @@ fn chain_config() -> alloy_genesis::ChainConfig {
 fn state() -> Arc<ServiceState> {
     Arc::new(
         ServiceState::new(
-            Validator::stateless_for_test(chain_config(), TEST_SYSTEM_ADDRESS),
+            crate::service::l1::L1Authority::Synthetic,
+            Validator::stateless_for_test(genesis(), TEST_SYSTEM_ADDRESS),
             expected_rollup_id(1),
             test_attester(),
-            test_system_transaction_key(),
             crate::testkit::l1_chain_spec(),
         )
         .unwrap(),
     )
 }
 
-/// The captured empty block has unchanged state. Subsequent blocks use its
-/// independently specified empty transition and the same authenticated absence
-/// proofs. No new helper or Reth assembler generates these expected headers;
-/// the real backend still validates every proposed block and witness.
+/// Consecutive source-executed empty blocks, each with its own authenticated
+/// history-write transition. Repeating an old witness would erase EIP-2935.
 fn blocks(count: usize) -> Vec<BlockWitness> {
-    let mut block: Block = alloy_rlp::decode_exact(include_bytes!(
-        "../../../tests/fixtures/stateless-block-13/block-13.rlp"
-    ))
-    .unwrap();
-    let mut witness: alloy_rpc_types_debug::ExecutionWitness = serde_json::from_str(include_str!(
-        "../../../tests/fixtures/stateless-block-13/witness-13.json"
-    ))
-    .unwrap();
-    let parent: alloy_consensus::Header =
-        alloy_rlp::decode_exact(witness.headers.last().unwrap().as_ref()).unwrap();
-    assert!(block.body.transactions.is_empty());
-    assert_eq!(parent.state_root, block.header.state_root);
-    let mut result = Vec::new();
-    for _ in 0..count {
-        result.push(BlockWitness {
-            number: block.header.number,
-            hash: block.header.hash_slow().to_vec(),
-            parent_hash: block.header.parent_hash.to_vec(),
-            rlp: alloy_rlp::encode(&block),
-            witness: Some(ExecutionWitness {
-                state: witness.state.iter().map(|b| b.to_vec()).collect(),
-                codes: witness.codes.iter().map(|b| b.to_vec()).collect(),
-                keys: witness.keys.iter().map(|b| b.to_vec()).collect(),
-                headers: witness.headers.iter().map(|b| b.to_vec()).collect(),
-            }),
-        });
-        witness.headers = vec![alloy_rlp::encode(&block.header).into()];
-        block.header.parent_hash = block.header.hash_slow();
-        block.header.number += 1;
-        block.header.timestamp += 1;
-        block.header.base_fee_per_gas = block.header.base_fee_per_gas.map(|fee| fee - fee / 8);
-    }
-    result
+    let captured = captured_blocks(include_bytes!(
+        "../../../tests/fixtures/native-osaka-empty/blocks.protobuf"
+    ));
+    assert!(
+        count > 0 && count <= captured.len(),
+        "requested span exceeds captured fixture"
+    );
+    captured.into_iter().take(count).collect()
 }
 
-fn environment(blocks: &[BlockWitness]) -> Environment {
-    let block: Block = alloy_rlp::decode_exact(&blocks[0].rlp).unwrap();
-    Environment {
-        timestamp_step_seconds: 1,
-        fee_recipient: block.header.beneficiary,
-        prev_randao: block.header.mix_hash,
-        gas_limit: block.header.gas_limit,
-        extra_data: block.header.extra_data,
-        cancun_parent_beacon_root: block.header.parent_beacon_block_root.unwrap(),
+fn captured_blocks(mut encoded: &[u8]) -> Vec<BlockWitness> {
+    use prost::Message as _;
+    let mut blocks = Vec::new();
+    while !encoded.is_empty() {
+        let chunk = ProveChunk::decode_length_delimited(&mut encoded).unwrap();
+        let Some(prove_chunk::Kind::Block(block)) = chunk.kind else {
+            panic!("expected a block-only capture")
+        };
+        blocks.push(block);
     }
+    blocks
 }
 
-fn payload(blocks: &[BlockWitness], env: Environment, records: Vec<Record>) -> Payload {
-    Payload::new(
-        blocks.len() as u64 - 1,
-        env,
-        records,
-        blocks.last().unwrap().rlp.clone(),
-        vec![],
-        vec![],
+#[derive(Clone)]
+struct PublishedBlock {
+    beneficiary: Address,
+    extra_data: Bytes,
+    transactions: Vec<Bytes>,
+}
+
+fn published_blocks(blocks: &[BlockWitness]) -> Vec<PublishedBlock> {
+    use alloy_eips::Encodable2718;
+    blocks
+        .iter()
+        .map(|witness| {
+            let block: Block = alloy_rlp::decode_exact(&witness.rlp).unwrap();
+            PublishedBlock {
+                beneficiary: block.header.beneficiary,
+                extra_data: block.header.extra_data.clone(),
+                transactions: eez_driver::derivation::ordinary_prefix(&block)
+                    .iter()
+                    .map(|tx| tx.encoded_2718().into())
+                    .collect(),
+            }
+        })
+        .collect()
+}
+
+fn encode_published(blocks: &[PublishedBlock]) -> Vec<u8> {
+    v0::encode(
+        &blocks
+            .iter()
+            .map(|block| BlockRun {
+                blocks: 1,
+                beneficiary: block.beneficiary,
+                extra_data: &block.extra_data,
+                transactions: &block.transactions,
+            })
+            .collect::<Vec<_>>(),
     )
     .unwrap()
+}
+
+fn payload(blocks: &[BlockWitness]) -> Vec<u8> {
+    encode_published(&published_blocks(blocks))
 }
 
 fn preparation(
@@ -225,6 +232,11 @@ fn request(blocks: Vec<BlockWitness>, operations: Vec<u8>) -> Vec<ProveChunk> {
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
     batch.callData = operations.into();
     let header = ProveHeader {
+        parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
+            parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
+            accepted_l1_number: 0,
+            live_slot_endpoint_headers_rlp: Vec::new(),
+        }),
         expected_validation_identity: Validator::stub(Vec::new())
             .validation_identity(expected_rollup_id(1))
             .to_vec(),
@@ -243,14 +255,14 @@ fn request(blocks: Vec<BlockWitness>, operations: Vec<u8>) -> Vec<ProveChunk> {
 }
 
 #[tokio::test]
-async fn cold_v3_empty_history_and_terminal_only_reach_the_attester() {
+async fn cold_v0_empty_history_and_terminal_only_reach_the_attester() {
     for count in [1, 3] {
         let blocks = blocks(count);
-        let payload = payload(&blocks, environment(&blocks), vec![]);
+        let payload = payload(&blocks);
         let state = state();
         let expected_signer = state.attester.address();
         let server = TestServer::new(state.clone()).await;
-        let chunks = request(blocks, payload.encode().unwrap());
+        let chunks = request(blocks, payload.clone());
         let expected = recompute_window_public_inputs_hash(&chunks);
         let response = server.attest(chunks).await;
         assert_attestation(&response, expected, expected_signer);
@@ -263,9 +275,7 @@ async fn prepared_ordinary_range_matches_cold_digest_with_fresh_terminal_validat
     use eez_control_rpc::v1::CachedOrdinaryRange;
 
     let blocks = blocks(3);
-    let encoded = payload(&blocks, environment(&blocks), vec![])
-        .encode()
-        .unwrap();
+    let encoded = payload(&blocks);
     let cold = request(blocks.clone(), encoded);
     let expected = recompute_window_public_inputs_hash(&cold);
     let state = state();
@@ -320,9 +330,7 @@ async fn cache_miss_is_structured_and_cached_terminal_is_never_accepted() {
     use eez_control_rpc::v1::{CachedOrdinaryRange, prove_failure};
 
     let blocks = blocks(3);
-    let encoded = payload(&blocks, environment(&blocks), vec![])
-        .encode()
-        .unwrap();
+    let encoded = payload(&blocks);
     let cold = request(blocks.clone(), encoded);
     let state = state();
     let server = TestServer::new(Arc::clone(&state)).await;
@@ -372,12 +380,9 @@ async fn cached_execution_facts_do_not_authorize_a_different_published_environme
         )))
         .await
         .unwrap();
-    let mut altered = environment(&blocks);
-    altered.fee_recipient = Address::repeat_byte(0x77);
-    let cold = request(
-        blocks.clone(),
-        payload(&blocks, altered, vec![]).encode().unwrap(),
-    );
+    let mut altered = published_blocks(&blocks);
+    altered[0].beneficiary = Address::repeat_byte(0x77);
+    let cold = request(blocks.clone(), encode_published(&altered));
     let chunks = vec![
         cold[0].clone(),
         ProveChunk {
@@ -397,17 +402,20 @@ async fn cached_execution_facts_do_not_authorize_a_different_published_environme
 }
 
 #[tokio::test]
-async fn cold_v3_full_ordinary_record_is_still_exactly_bound() {
+async fn terminal_metadata_is_published_and_independently_bound() {
     let blocks = blocks(3);
-    let record = Record {
-        empty_gap: 0,
-        data: RecordData::FullBlock(blocks[0].rlp.clone().into()),
-    };
-    let p = payload(&blocks, environment(&blocks), vec![record]);
+    let mut published = published_blocks(&blocks);
+    published.last_mut().unwrap().extra_data = Bytes::from_static(b"forged terminal");
     let state = state();
     let server = TestServer::new(state.clone()).await;
-    let _response = server.attest(request(blocks, p.encode().unwrap())).await;
-    assert_eq!(state.attester.signing_calls(), 1);
+    assert_eq!(
+        server
+            .prove(request(blocks, encode_published(&published)))
+            .await
+            .code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(state.attester.signing_calls(), 0);
 }
 
 #[tokio::test]
@@ -433,51 +441,21 @@ async fn new_network_rejects_every_previous_operations_tag_before_signing() {
 
 #[tokio::test]
 async fn noncanonical_count_columns_never_reach_the_attester() {
-    #[derive(alloy_rlp::RlpEncodable)]
-    struct Columns {
-        counts: Bytes,
-        overrides: Vec<u8>,
-        transactions: Vec<Bytes>,
-    }
-    #[derive(alloy_rlp::RlpEncodable)]
-    struct Wire {
-        profile: u8,
-        ordinary_count: u64,
-        environment: Environment,
-        columns: Columns,
-        terminal: Bytes,
-        entries: Vec<Bytes>,
-        groups: Vec<u16>,
-    }
     let blocks = blocks(3);
+    let canonical = payload(&blocks);
+    assert_eq!(&canonical[..3], &[0, 3, 0xc1]);
     let state = state();
     let server = TestServer::new(state.clone()).await;
     for counts in [
         vec![0],
-        vec![0xc1],
-        vec![0, 0],
-        vec![0xff, 2],
+        vec![0xc2],
+        vec![0, 0xc0],
+        vec![0xff, 3],
         vec![0x80, 1],
         vec![0xff, 0xff, 0xff, 0xff, 0xff, 15],
     ] {
-        let wire = Wire {
-            profile: 1,
-            ordinary_count: 2,
-            environment: environment(&blocks),
-            columns: Columns {
-                counts: counts.into(),
-                overrides: vec![],
-                transactions: vec![],
-            },
-            terminal: blocks[2].rlp.clone().into(),
-            entries: vec![],
-            groups: vec![],
-        };
-        let operations = [vec![0], alloy_rlp::encode(wire)].concat();
-        assert!(matches!(
-            Payload::decode(&operations),
-            Err(eez_payload_codec::derivable::Error::CountEncoding)
-        ));
+        let operations = [vec![0, 3], counts, canonical[3..].to_vec()].concat();
+        assert!(Payload::decode(&operations).is_err());
         assert_eq!(
             server
                 .prove(request(blocks.clone(), operations))
@@ -490,98 +468,56 @@ async fn noncanonical_count_columns_never_reach_the_attester() {
 }
 
 #[tokio::test]
-async fn every_published_environment_mismatch_is_rejected_before_signing() {
+async fn every_published_metadata_mismatch_is_rejected_before_signing() {
     let blocks = blocks(2);
-    let env = environment(&blocks);
-    let mut mutations = vec![env; 6];
-    mutations[0].timestamp_step_seconds += 1;
-    mutations[1].fee_recipient = Address::repeat_byte(0xa1);
-    mutations[2].prev_randao = B256::repeat_byte(0xa2);
-    mutations[3].gas_limit += 1;
-    mutations[4].extra_data = Bytes::from_static(b"changed");
-    mutations[5].cancun_parent_beacon_root = B256::repeat_byte(0xa3);
     let state = state();
     let server = TestServer::new(state.clone()).await;
-    for env in mutations {
-        let p = payload(&blocks, env, vec![]);
-        assert_eq!(
-            server
-                .prove(request(blocks.clone(), p.encode().unwrap()))
-                .await
-                .code(),
-            Code::FailedPrecondition
-        );
-        assert_eq!(state.attester.signing_calls(), 0);
+    for position in 0..blocks.len() {
+        for field in 0..2 {
+            let mut published = published_blocks(&blocks);
+            if field == 0 {
+                published[position].beneficiary = Address::repeat_byte(0xa1);
+            } else {
+                published[position].extra_data = Bytes::from_static(b"changed");
+            }
+            assert_eq!(
+                server
+                    .prove(request(blocks.clone(), encode_published(&published)))
+                    .await
+                    .code(),
+                Code::FailedPrecondition
+            );
+            assert_eq!(state.attester.signing_calls(), 0);
+        }
     }
 }
 
 #[tokio::test]
-async fn changed_count_transactions_terminal_and_witness_never_sign() {
+async fn changed_count_transactions_and_witness_never_sign() {
     let blocks = blocks(3);
-    let env = environment(&blocks);
-    let mut bad_terminal: Block = alloy_rlp::decode_exact(&blocks[2].rlp).unwrap();
-    bad_terminal.header.gas_limit += 1;
-    let variants = [
-        Payload::new(
-            1,
-            env.clone(),
-            vec![],
-            blocks[2].rlp.clone(),
-            vec![],
-            vec![],
-        )
-        .unwrap(),
-        payload(
-            &blocks,
-            env.clone(),
-            vec![Record {
-                empty_gap: 1,
-                data: RecordData::Transactions(vec![
-                    hex::decode(crate::testkit::SYSTEM_TX).unwrap().into(),
-                ]),
-            }],
-        ),
-        Payload::new(
-            2,
-            env.clone(),
-            vec![],
-            alloy_rlp::encode(bad_terminal),
-            vec![],
-            vec![],
-        )
-        .unwrap(),
-        Payload::new(
-            2,
-            env.clone(),
-            vec![],
-            blocks[2].rlp.clone(),
-            vec![vec![1]],
-            vec![],
-        )
-        .unwrap(),
-        Payload::new(
-            2,
-            env.clone(),
-            vec![],
-            blocks[2].rlp.clone(),
-            vec![],
-            vec![1],
-        )
-        .unwrap(),
-    ];
+    let mut tx_change = published_blocks(&blocks);
+    tx_change[1]
+        .transactions
+        .push(hex::decode(crate::testkit::LEGACY_USER_TX).unwrap().into());
+    let mut terminal_change = published_blocks(&blocks);
+    terminal_change[2].transactions = tx_change[1].transactions.clone();
     let state = state();
     let server = TestServer::new(state.clone()).await;
-    for p in variants {
+    for operations in [
+        payload(&blocks[..2]),
+        encode_published(&tx_change),
+        encode_published(&terminal_change),
+    ] {
         assert_eq!(
             server
-                .prove(request(blocks.clone(), p.encode().unwrap()))
+                .prove(request(blocks.clone(), operations))
                 .await
                 .code(),
             Code::FailedPrecondition
         );
         assert_eq!(state.attester.signing_calls(), 0);
     }
-    let p = payload(&blocks, env, vec![]).encode().unwrap();
+    let p = payload(&blocks);
     let mut invalid = blocks;
     invalid[0].witness.as_mut().unwrap().state.clear();
     assert_eq!(
@@ -592,11 +528,9 @@ async fn changed_count_transactions_terminal_and_witness_never_sign() {
 }
 
 #[tokio::test]
-async fn successful_backend_without_reconstruction_cannot_authorize_v3() {
+async fn successful_backend_without_reconstruction_cannot_authorize_v0() {
     let blocks = blocks(2);
-    let encoded = payload(&blocks, environment(&blocks), vec![])
-        .encode()
-        .unwrap();
+    let encoded = payload(&blocks);
     let admitted = blocks
         .iter()
         .map(|block| AdmittedBlock {
@@ -607,12 +541,16 @@ async fn successful_backend_without_reconstruction_cannot_authorize_v3() {
             witness: Default::default(),
         })
         .collect::<Vec<_>>();
+    let mut output = backend_output_for(&admitted);
+    for block in &mut output.blocks {
+        block.reconstruction = None;
+    }
     let state = Arc::new(
         ServiceState::new(
-            Validator::stub(vec![Ok(backend_output_for(&admitted))]),
+            crate::service::l1::L1Authority::Synthetic,
+            Validator::stub(vec![Ok(output)]),
             expected_rollup_id(1),
             test_attester(),
-            test_system_transaction_key(),
             crate::testkit::l1_chain_spec(),
         )
         .unwrap(),
@@ -625,9 +563,10 @@ async fn successful_backend_without_reconstruction_cannot_authorize_v3() {
     assert_eq!(state.attester.signing_calls(), 0);
 }
 
-/// Early feasibility measurement only: this uses the captured empty-state
-/// workload and exact codec counts, not a legal native Sync-grid settlement or
-/// a deployment capacity claim. Run explicitly before designing a cache.
+/// Explicit cold-replay feasibility measurement. Supply a current-profile,
+/// block-only witness stream through EEZ_TEST_EMPTY_SPAN_FIXTURE. Every position
+/// must retain its actual history-write transition; a repeated witness is invalid.
+/// This is not a live Sync-grid settlement or deployment-capacity claim.
 #[tokio::test]
 #[ignore = "explicit long-span cold Prove feasibility measurement"]
 async fn cold_span_feasibility() {
@@ -641,9 +580,20 @@ async fn cold_span_feasibility() {
     .unwrap();
     let state = state();
     let server = TestServer::with_limits(state.clone(), limits).await;
-    for count in [512, 1_024, 4_096, 10_000, 43_200, 65_536] {
+    let path = std::env::var("EEZ_TEST_EMPTY_SPAN_FIXTURE")
+        .expect("provide a block-only capture of at least 512 consecutive empty blocks");
+    let captured = captured_blocks(&std::fs::read(path).unwrap());
+    let counts = [512, 1_024, 4_096, 10_000, 43_200, 65_536]
+        .into_iter()
+        .filter(|count| *count <= captured.len())
+        .collect::<Vec<_>>();
+    assert!(
+        !counts.is_empty(),
+        "fixture does not cover any intended feasibility span"
+    );
+    for count in counts {
         let build_started = std::time::Instant::now();
-        let blocks = blocks(count);
+        let blocks = captured[..count].to_vec();
         let input_hash = keccak256(
             blocks
                 .iter()
@@ -660,9 +610,7 @@ async fn cold_span_feasibility() {
                     + witness.headers.len()
             })
             .sum::<usize>();
-        let payload = payload(&blocks, environment(&blocks), vec![])
-            .encode()
-            .unwrap();
+        let payload = payload(&blocks);
         let operations_bytes = payload.len();
         let chunks = request(blocks, payload);
         let request_bytes = chunks

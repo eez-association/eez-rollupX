@@ -1,0 +1,113 @@
+{
+  "baseline": "a0e8e3eb4b5c77edba3148801527c5ff466388e7",
+  "pr42_base": "0b7beed5ca48157d720d6685435ba2121c1e9c1e",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --features l1-startup rpc_pending_seed_tracks_live_anchor_and_canonical_history_rebuild",
+      "result": "expected pre-fix failure: parent seed 7 instead of live descendant seed 8",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-rpc-baseline-3.log",
+      "sha256": "41088c47777987913bafdb7f45619d8516e0f289dbf7722b57a1f5d070fca681",
+      "passed": 0,
+      "failed": 1,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-evm -p eez-node-common --features eez-node-common/l1-startup -p eez-payload-codec -p eez-protocol -p eez-blob-codec",
+      "result": "pass; preceding the additional boot-readiness guard, tested separately below",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-affected-tests.log",
+      "sha256": "28f0eaa6889b046da0c4e600641f3506b0606acae161590ebf3eb8049e6865e9",
+      "passed": 267,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --features l1-startup",
+      "result": "pass with boot-readiness guard",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-rpc-final-2.log",
+      "sha256": "a2e5cf2d9641966bc1f642d3eee137664b376e832c27139a326bafd18bd80dab",
+      "passed": 17,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-common --no-default-features",
+      "result": "pass",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-rpc-no-startup.log",
+      "sha256": "33787f801403e4bf66c9f066d0e19990147a36d201831b69f3f2b2b7e1112860",
+      "passed": 9,
+      "failed": 0,
+      "ignored": 0
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets --all-features -- -D warnings",
+      "result": "pass",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-clippy-2.log",
+      "sha256": "407433717625f92b661950020ca816cb12a190305f0b242620bb18dcc41c2168"
+    },
+    {
+      "command": "cargo +1.95.0 build --locked --offline -p eez-node -p eez-follower -p eez-proof-signer --bin eez-composer --bin eez-follower --bin eez-proof-signer",
+      "result": "pass; production feature selection, optimized dev profile",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-shipping-build.log",
+      "sha256": "867ef2dc40723a5cd4d781ce97cc1824d23a8b05084bb4b97857dc035d5338c7"
+    },
+    {
+      "command": "forge build --root contracts",
+      "result": "pass",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-contract-build.log",
+      "sha256": "163240c4e3d9da011c656829e7b3a2ef8ed72c41339d132fa2d7db894be56ba7"
+    },
+    {
+      "command": "cargo deny --offline check advisories bans sources",
+      "result": "pass using cached advisories and repository policy",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-deny-2.log",
+      "sha256": "83f13dbcecada58b2bf04b1a278376c7ea7619a1c085a5469e554a300aa7dc4e"
+    },
+    {
+      "command": "cargo audit --no-fetch",
+      "result": "pass using cached advisories and repository policy; 9 allowed inherited warnings",
+      "local_only_log": "artifacts/native-system-backport/logs/followup-audit-2.log",
+      "sha256": "a2268b54bcdf4379ffde3c49572609a239c3a570da6d4103229c15a8c4ed49b3"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-node-e2e --test cross_chain outbound_changing_static_reads_and_write_settle_and_replay -- --exact --test-threads=1",
+      "environment": {
+        "unset": [
+          "EEZ_TEST_PREBUILT",
+          "EEZ_TEST_RUNTIME_BIN_DIR",
+          "EEZ_TEST_PROOF_SIGNER_BIN"
+        ],
+        "EEZ_TEST_LOG_DIR": "$PWD/artifacts/native-system-backport/followup-e2e/logs",
+        "EEZ_TEST_DATADIR_DIR": "$PWD/artifacts/native-system-backport/followup-e2e/datadirs"
+      },
+      "result": "pass: settlement, RPC state reads and fresh follower replay with semantic assertions",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered_out": 23,
+      "local_only_log": "artifacts/native-system-backport/logs/followup-cross-chain.log",
+      "sha256": "52713e57c288bbde160690a6e2f265fcca7d53d25e4bda0d890c2cdca247e407"
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    }
+  ],
+  "earlier_attempts": "Retained local logs include test manifest/type setup errors, an outdated unavailable-history assertion, an underscore-binding Clippy error, and sandbox cache-lock restrictions. They do not count as passing validation.",
+  "process_identity": {
+    "source_unchanged": true,
+    "inventoried_source_and_manifest_files": 365,
+    "local_only_source_manifest": "artifacts/native-system-backport/followup-source-manifest.json",
+    "source_manifest_sha256": "69a8177da079528472faf3b8f878a94bc2bacff72c32da229ba854f81d53e72f",
+    "executables": {
+      "eez-composer": "59f97a824b0696bd8edb370ab6011b3a2dd1726004f9ea6413f9e9f6d2f985e7",
+      "eez-follower": "39eaaae6d98c9c062998788861ab9d8f1940aecccc24f8ea741cb806fe4dee3e",
+      "eez-proof-signer": "d692082b5bd208d97e95f5e7751781d9cab902f69d0fb15de72adf3f18a56e56"
+    }
+  },
+  "not_rerun": "Full workspace runtime tests, remaining E2E targets, full contract/protocol suites and release/Kurtosis matrix; these narrow follow-ups use affected package tests, workspace Clippy, a shipping-feature build and the targeted process scenario. Original audit results remain revision-specific."
+}

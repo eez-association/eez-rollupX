@@ -12,7 +12,9 @@ waiting with an open client stream, even when both RPCs share one connection.
 stateDiagram-v2
     [*] --> Idle
     Idle --> Ingesting: request permit acquired
-    Ingesting --> BlockingPipeline: complete AdmittedWindow and EOF
+    Ingesting --> L1Authentication: complete AdmittedWindow and EOF
+    L1Authentication --> BlockingPipeline: authenticated parent, seed and target
+    L1Authentication --> Idle: rejection or deadline
     Ingesting --> Idle: rejection, cancellation, or timeout
     BlockingPipeline --> Signing: AttestationMaterial and request permit
     BlockingPipeline --> Idle: pipeline rejection or worker failure
@@ -34,14 +36,17 @@ stateDiagram-v2
 4. `WindowAssembler` validates and accounts every block chunk. The Composer
    must half-close the stream after the complete declared span; only EOF calls
    `finish`.
-5. The admitted blocks, submitted `PostBatch` calldata, request permit, and a
-   cancellation-token clone move into one `spawn_blocking` task.
+5. Under the same permit and deadline, the async request authenticates the
+   parent, live-slot seed and named L1 target through the configured source.
+   The admitted blocks, calldata, authenticated context, request permit and
+   cancellation-token clone then move into one `spawn_blocking` task.
 6. That task runs validation and settlement together. Returning the request
    permit with `AttestationMaterial` transfers exclusivity back to the async
    request.
-7. The async request checks the deadline, signs the contained
-   `AttestablePublicInputsHash`, builds `ProveResponse`, and then releases the
-   request permit.
+7. The async request checks the deadline, creates `AttestablePublicInputsHash`,
+   signs it, builds `ProveResponse`, and then releases the request permit. It
+   performs no further L1 reads. The signature remains bound to the authenticated
+   parent hash and target timestamp even if L1 changes while replay runs.
 
 ## Three independent bounds
 

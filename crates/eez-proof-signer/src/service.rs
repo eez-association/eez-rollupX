@@ -15,6 +15,7 @@ use tokio::sync::Semaphore;
 
 use crate::{attest::Attester, settlement, validate, window};
 
+pub(crate) mod l1;
 mod preparation;
 mod rpc;
 mod settlement_job;
@@ -82,9 +83,7 @@ impl ServiceLimits {
         );
         Ok(Self {
             window_limits: window::WindowLimits {
-                blocks: max_window_blocks
-                    .get()
-                    .min(eez_payload_codec::derivable::MAX_BLOCKS),
+                blocks: max_window_blocks.get().min(u32::MAX as usize),
                 payload_bytes: max_window_bytes.get(),
                 witness_items: max_window_witness_items.get(),
             },
@@ -123,9 +122,6 @@ impl ServiceLimits {
 /// Immutable dependencies shared by all service clones.
 #[derive(Debug)]
 pub(crate) struct ServiceState {
-    /// Original projected-DA regression oracle; never a shipping configuration.
-    #[cfg(test)]
-    projected_test_oracle: bool,
     validator: validate::Validator,
     validation_identity: B256,
     expected_rollup_id: NonZeroU64,
@@ -133,39 +129,34 @@ pub(crate) struct ServiceState {
     attester: Attester,
     system_transaction_reconstructor: settlement::SystemTransactionReconstructor,
     l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
+    l1_authority: l1::L1Authority,
 }
 
 impl ServiceState {
-    #[cfg(test)]
-    fn with_projected_test_oracle(mut self) -> Self {
-        self.projected_test_oracle = true;
-        self
-    }
-
     /// Bind system-transaction reconstruction to the same configured L2 chain
     /// and expected rollup identities used by validation and settlement.
     pub(crate) fn new(
+        l1_authority: l1::L1Authority,
         validator: validate::Validator,
         expected_rollup_id: NonZeroU64,
         attester: Attester,
-        system_transaction_key: settlement::SystemTransactionKey,
         l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
     ) -> eyre::Result<Self> {
-        let expected_l2_system_address = system_transaction_key.address();
+        let expected_l2_system_address = eez_primitives::SYSTEM_ADDRESS;
         eyre::ensure!(
             validator.expected_l2_system_address() == expected_l2_system_address,
-            "validator and system-transaction key use different L2 system addresses"
+            "validator does not use the native L2 system address"
         );
         eyre::ensure!(
             attester.expected_l2_system_address() == expected_l2_system_address,
-            "attester and system-transaction key use different L2 system addresses"
+            "attester does not use the native L2 system address"
         );
-        let system_transaction_reconstructor =
-            system_transaction_key.into_reconstructor(validator.chain_id(), expected_rollup_id);
+        let system_transaction_reconstructor = settlement::SystemTransactionReconstructor::new(
+            validator.chain_id(),
+            expected_rollup_id,
+        );
         let validation_identity = validator.validation_identity(expected_rollup_id);
         Ok(Self {
-            #[cfg(test)]
-            projected_test_oracle: false,
             validator,
             validation_identity,
             expected_rollup_id,
@@ -173,12 +164,13 @@ impl ServiceState {
             attester,
             system_transaction_reconstructor,
             l1_chain_spec,
+            l1_authority,
         })
     }
 
     fn posting_blob_limit(
         &self,
-        target: &eez_control_rpc::v1::L1PostingContext,
+        target: &eez_protocol::public_inputs::L1PostingContext,
     ) -> Result<usize, tonic::Status> {
         use reth_chainspec::EthChainSpec as _;
         let chain_spec = &self.l1_chain_spec;

@@ -68,7 +68,7 @@ FUND_FROM_KEY="${EEZ_FUND_FROM_KEY:-$HH_KEY_2}"
 L1_SETUP_KEY="${EEZ_L1_SETUP_KEY:-$FUND_FROM_KEY}"
 
 EEZL2_ADDRESS="${EEZL2_ADDRESS:-0x4200000000000000000000000000000000000007}"
-SYS_ADDR="${EEZ_L2_SYSTEM_ADDRESS:-0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266}"
+SYS_ADDR="${EEZ_L2_SYSTEM_ADDRESS:-0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076}"
 MAINNET_RID="${EEZ_L1_ROLLUP_ID:-0}"   # L1's rollup id (outbound proxy target)
 
 # Deposit/withdraw recipient EOAs. Random by default to avoid deterministic

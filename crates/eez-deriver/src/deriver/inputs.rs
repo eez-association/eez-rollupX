@@ -1,9 +1,9 @@
-//! Explicit replay inputs for the new-network v3 format.
+//! Explicit replay inputs for the direct V0 format.
 
-use eez_payload_codec::derivable::Environment;
-use reth_ethereum_primitives::Block;
+use eez_driver::derivation::Environment;
+use eez_evm::EezEvmConfig;
+use eez_primitives::Block;
 use reth_evm::NextBlockEnvAttributes;
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::SealedHeader;
 
 use crate::error::{DeriverError, DeriverResult};
@@ -11,20 +11,12 @@ use crate::error::{DeriverError, DeriverResult};
 #[derive(Clone, Copy, Debug)]
 pub(super) enum ExecutionInputs<'a> {
     Derived(&'a Environment),
-    Full(&'a Block),
 }
 
-impl<'a> ExecutionInputs<'a> {
-    pub(super) const fn full_template(self) -> Option<&'a Block> {
-        match self {
-            Self::Full(block) => Some(block),
-            Self::Derived(_) => None,
-        }
-    }
-
+impl ExecutionInputs<'_> {
     pub(super) fn attributes(
         self,
-        config: &EthEvmConfig,
+        config: &EezEvmConfig,
         parent: &SealedHeader,
     ) -> DeriverResult<NextBlockEnvAttributes> {
         match self {
@@ -32,8 +24,6 @@ impl<'a> ExecutionInputs<'a> {
                 eez_driver::derivation::next_attributes(config, parent, environment)
                     .map_err(DeriverError::l2_provider)
             }
-            Self::Full(block) => eez_driver::derivation::full_attributes(config, parent, block)
-                .map_err(DeriverError::l2_provider),
         }
     }
 
@@ -41,7 +31,7 @@ impl<'a> ExecutionInputs<'a> {
     /// and complete inputs. Transaction equality is checked by the caller.
     pub(super) fn matches_local(
         self,
-        config: &EthEvmConfig,
+        config: &EezEvmConfig,
         parent: &SealedHeader,
         block: &Block,
     ) -> DeriverResult<bool> {
@@ -52,28 +42,6 @@ impl<'a> ExecutionInputs<'a> {
         if actual != expected {
             return Ok(false);
         }
-        if let Self::Full(template) = self {
-            if !template
-                .body
-                .transactions
-                .starts_with(&block.body.transactions)
-            {
-                return Ok(false);
-            }
-            if template.body.transactions.len() == block.body.transactions.len() {
-                return Ok(template.header.hash_slow() == block.header.hash_slow());
-            }
-            // Same prefix restrictions as full-template execution. A partial
-            // terminal must not silently apply post-block withdrawal effects.
-            if template
-                .body
-                .withdrawals
-                .as_ref()
-                .is_some_and(|w| !w.is_empty())
-            {
-                return Ok(false);
-            }
-        }
         Ok(true)
     }
 }
@@ -83,16 +51,19 @@ mod tests {
     use super::*;
     use alloy_consensus::{EMPTY_ROOT_HASH, Header};
     use alloy_primitives::{Address, B256, Bytes};
-    use reth_chainspec::ChainSpecBuilder;
     use std::sync::Arc;
 
-    fn fixture() -> (EthEvmConfig, SealedHeader, Environment, Block) {
-        let config = EthEvmConfig::new(Arc::new(
-            ChainSpecBuilder::mainnet()
-                .reset()
-                .cancun_activated()
-                .build(),
-        ));
+    fn fixture() -> (EezEvmConfig, SealedHeader, Environment, Block) {
+        let mut genesis =
+            eez_l1::chain_config::parse_l2_genesis(include_bytes!("../../../../genesis.json"))
+                .unwrap()
+                .into_genesis();
+        genesis.timestamp = 80;
+        let derivation = genesis.config.extra_fields.get_mut("rollupX").unwrap();
+        derivation["blockIntervalSeconds"] = 2u64.into();
+        derivation["syncIntervalBlocks"] = 6u64.into();
+        derivation["l1Reference"]["timestamp"] = 80u64.into();
+        let config = EezEvmConfig::new(Arc::new(eez_evm::profile::chain_spec(genesis).unwrap()));
         let parent = SealedHeader::seal_slow(Header {
             number: 10,
             timestamp: 100,
@@ -102,15 +73,13 @@ mod tests {
             parent_beacon_block_root: Some(B256::ZERO),
             blob_gas_used: Some(0),
             excess_blob_gas: Some(0),
+            requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
             ..Default::default()
         });
         let env = Environment {
-            timestamp_step_seconds: 2,
             fee_recipient: Address::repeat_byte(0x11),
             prev_randao: B256::repeat_byte(0x22),
-            gas_limit: 30_000_000,
             extra_data: Bytes::from_static(b"published"),
-            cancun_parent_beacon_root: B256::repeat_byte(0x33),
         };
         // Independent input/header fixture, without using the shared assembler.
         let block = Block {
@@ -118,15 +87,16 @@ mod tests {
                 parent_hash: parent.hash(),
                 number: 11,
                 timestamp: 102,
-                gas_limit: env.gas_limit,
+                gas_limit: eez_protocol::l2::GAS_LIMIT,
                 beneficiary: env.fee_recipient,
                 mix_hash: env.prev_randao,
                 extra_data: env.extra_data.clone(),
-                base_fee_per_gas: Some(875_000_000),
+                base_fee_per_gas: Some(980_000_000),
                 withdrawals_root: Some(EMPTY_ROOT_HASH),
-                parent_beacon_block_root: Some(env.cancun_parent_beacon_root),
+                parent_beacon_block_root: Some(B256::ZERO),
                 blob_gas_used: Some(0),
                 excess_blob_gas: Some(0),
+                requests_hash: Some(alloy_eips::eip7685::EMPTY_REQUESTS_HASH),
                 ..Default::default()
             },
             body: alloy_consensus::BlockBody {
@@ -158,7 +128,7 @@ mod tests {
             |h| h.mix_hash = B256::ZERO,
             |h| h.gas_limit += 1,
             |h| h.extra_data = Bytes::new(),
-            |h| h.parent_beacon_block_root = Some(B256::ZERO),
+            |h| h.parent_beacon_block_root = Some(B256::repeat_byte(1)),
             |h| h.parent_hash = B256::ZERO,
             |h| h.number += 1,
             |h| h.slot_number = Some(1),
@@ -179,31 +149,6 @@ mod tests {
             !ExecutionInputs::Derived(&env)
                 .matches_local(&config, &parent, &local)
                 .unwrap()
-        );
-    }
-
-    #[test]
-    fn full_terminal_reuse_binds_complete_hash_and_canonical_parent() {
-        let (config, parent, _, block) = fixture();
-        assert!(
-            ExecutionInputs::Full(&block)
-                .matches_local(&config, &parent, &block)
-                .unwrap()
-        );
-        let mut other = block.clone();
-        other.header.state_root = B256::repeat_byte(0xa1);
-        assert!(
-            !ExecutionInputs::Full(&block)
-                .matches_local(&config, &parent, &other)
-                .unwrap()
-        );
-        let mut wrong_parent = parent.header().clone();
-        wrong_parent.extra_data = Bytes::from_static(b"alternate ancestry");
-        let wrong_parent = SealedHeader::seal_slow(wrong_parent);
-        assert!(
-            ExecutionInputs::Full(&block)
-                .attributes(&config, &wrong_parent)
-                .is_err()
         );
     }
 }

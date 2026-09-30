@@ -2,7 +2,7 @@
 //!
 //! The index is deliberately separate from reth's chain database. It is derived
 //! entirely from authenticated L1 batches and local L2 block hashes, and can be
-//! rebuilt by replaying L1. Four small MDBX tables provide constant-time lookup
+//! rebuilt by replaying L1. Small MDBX tables provide constant-time lookup
 //! by L2 number/hash and an ordered lookup by L1 block. An in-memory backend is
 //! available when no node datadir was configured; it has identical semantics but
 //! naturally does not survive restart.
@@ -15,13 +15,14 @@ use alloy_primitives::B256;
 use reth_libmdbx::{DatabaseFlags, Environment, Geometry, WriteFlags};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA: &[u8] = b"eez-batch-correlation-v2";
+const SCHEMA: &[u8] = b"eez-batch-correlation-native-v0";
 const META_SCHEMA_KEY: &[u8] = b"schema";
 const RECORDS_DB: &str = "records";
 const L1_ORDER_DB: &str = "l1_order";
 const L1_HASH_DB: &str = "l1_hash";
 const L2_NUMBER_DB: &str = "l2_number";
 const L2_HASH_DB: &str = "l2_hash";
+const ENDPOINT_HASH_DB: &str = "endpoint_hash";
 const GIGABYTE: usize = 1024 * 1024 * 1024;
 
 /// One exact L2 block committed by an accepted L1 batch.
@@ -40,12 +41,21 @@ pub struct BatchCorrelation {
     pub l1_transaction_index: u64,
     /// Exact canonical L2 hashes covered by the batch's settled portion.
     pub l2_blocks: Vec<L2BlockCorrelation>,
+    /// Exact accepted terminal variant. Same-height replacements can orphan it
+    /// in Reth; retain its header to restore live-anchor seed provenance.
+    pub endpoint_header: alloy_consensus::Header,
 }
 
 impl BatchCorrelation {
     fn validate(&self) -> Result<(), String> {
         if self.l2_blocks.is_empty() {
             return Err("correlation record has no L2 blocks".into());
+        }
+        let endpoint = self.last_l2();
+        if self.endpoint_header.number != endpoint.number
+            || self.endpoint_header.hash_slow() != endpoint.hash
+        {
+            return Err("correlation endpoint header differs from its accepted hash".into());
         }
         for pair in self.l2_blocks.windows(2) {
             if pair[1].number != pair[0].number.saturating_add(1) {
@@ -110,7 +120,7 @@ impl CorrelationStore {
         std::fs::create_dir_all(path)
             .map_err(|error| format!("create correlation index {}: {error}", path.display()))?;
         let mut builder = Environment::builder();
-        builder.set_max_dbs(6);
+        builder.set_max_dbs(7);
         builder.set_geometry(Geometry {
             size: Some(0..64 * GIGABYTE),
             growth_step: Some(64 * 1024 * 1024),
@@ -132,6 +142,7 @@ impl CorrelationStore {
             L1_HASH_DB,
             L2_NUMBER_DB,
             L2_HASH_DB,
+            ENDPOINT_HASH_DB,
         ] {
             txn.create_db(Some(name), DatabaseFlags::empty())
                 .map_err(|error| format!("open correlation table {name}: {error}"))?;
@@ -268,6 +279,32 @@ impl CorrelationStore {
         }))
     }
 
+    /// Most recent acceptance of this exact terminal header. An overlapping
+    /// batch can include the same hash as an intermediate block; that inclusion
+    /// must not erase its earlier endpoint provenance.
+    pub fn by_endpoint_hash(&self, hash: B256) -> Result<Option<BatchCorrelation>, String> {
+        match &self.backend {
+            Backend::Persistent(env) => {
+                let Some(tx_hash) = index_get(env, ENDPOINT_HASH_DB, hash.as_slice())? else {
+                    return Ok(None);
+                };
+                let record = persistent_record(env, db_hash(&tx_hash, "endpoint index value")?)?
+                    .ok_or("endpoint index points at a missing correlation record")?;
+                if record.last_l2().hash != hash {
+                    return Err("endpoint index points at a different terminal hash".into());
+                }
+                Ok(Some(record))
+            }
+            Backend::Memory(records) => Ok(records
+                .read()
+                .map_err(|_| "correlation memory lock poisoned".to_string())?
+                .iter()
+                .rev()
+                .find(|record| record.last_l2().hash == hash)
+                .cloned()),
+        }
+    }
+
     pub fn by_l2_hash(&self, hash: B256) -> Result<Option<CorrelationMatch>, String> {
         let record = match &self.backend {
             Backend::Persistent(env) => {
@@ -344,6 +381,51 @@ impl CorrelationStore {
         }
     }
 
+    /// Next persisted acceptance in canonical L1 order. Iteration loads one
+    /// record at a time; a long history does not require a second full copy.
+    pub fn after(&self, position: Option<(u64, u64)>) -> Result<Option<BatchCorrelation>, String> {
+        match &self.backend {
+            Backend::Memory(records) => Ok(records
+                .read()
+                .map_err(|_| "correlation memory lock poisoned".to_string())?
+                .iter()
+                .find(|record| position.is_none_or(|p| record.order() > p))
+                .cloned()),
+            Backend::Persistent(env) => {
+                let txn = env
+                    .begin_ro_txn()
+                    .map_err(|e| format!("begin correlation read: {e}"))?;
+                let db = txn
+                    .open_db(Some(L1_ORDER_DB))
+                    .map_err(|e| format!("open L1 index: {e}"))?;
+                let mut cursor = txn
+                    .cursor(db.dbi())
+                    .map_err(|e| format!("open L1 cursor: {e}"))?;
+                let row: Option<(Vec<u8>, Vec<u8>)> = if let Some((number, index)) = position {
+                    let key = order_key(number, index);
+                    let row: Option<(Vec<u8>, Vec<u8>)> = cursor
+                        .set_range(&key)
+                        .map_err(|e| format!("seek L1 cursor: {e}"))?;
+                    match row {
+                        Some((found, _)) if found.as_slice() == key.as_slice() => cursor
+                            .next()
+                            .map_err(|e| format!("advance L1 cursor: {e}"))?,
+                        row => row,
+                    }
+                } else {
+                    cursor
+                        .first()
+                        .map_err(|e| format!("read first L1 record: {e}"))?
+                };
+                row.map(|(_, hash)| {
+                    persistent_record_in_txn(&txn, db_hash(&hash, "L1 index value")?)?
+                        .ok_or_else(|| "L1 index points at a missing record".to_string())
+                })
+                .transpose()
+            }
+        }
+    }
+
     /// Most recent record in canonical L1 transaction order.
     pub fn tail(&self) -> Result<Option<BatchCorrelation>, String> {
         match &self.backend {
@@ -384,6 +466,7 @@ struct StoredRecord {
     l1_transaction_hash: [u8; 32],
     l1_transaction_index: u64,
     l2_blocks: Vec<StoredL2Block>,
+    endpoint_header: Vec<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -396,6 +479,7 @@ struct StoredL2Block {
 impl From<&BatchCorrelation> for StoredRecord {
     fn from(record: &BatchCorrelation) -> Self {
         Self {
+            endpoint_header: alloy_rlp::encode(&record.endpoint_header),
             l1_block_number: record.l1_block_number,
             l1_block_hash: record.l1_block_hash.0,
             l1_transaction_hash: record.l1_transaction_hash.0,
@@ -412,9 +496,16 @@ impl From<&BatchCorrelation> for StoredRecord {
     }
 }
 
-impl From<StoredRecord> for BatchCorrelation {
-    fn from(record: StoredRecord) -> Self {
-        Self {
+impl TryFrom<StoredRecord> for BatchCorrelation {
+    type Error = String;
+    fn try_from(record: StoredRecord) -> Result<Self, String> {
+        let endpoint_header = alloy_rlp::decode_exact(&record.endpoint_header)
+            .map_err(|e| format!("decode correlation endpoint header: {e}"))?;
+        if alloy_rlp::encode(&endpoint_header) != record.endpoint_header {
+            return Err("noncanonical correlation endpoint header".into());
+        }
+        Ok(Self {
+            endpoint_header,
             l1_block_number: record.l1_block_number,
             l1_block_hash: B256::from(record.l1_block_hash),
             l1_transaction_hash: B256::from(record.l1_transaction_hash),
@@ -427,7 +518,7 @@ impl From<StoredRecord> for BatchCorrelation {
                     hash: B256::from(block.hash),
                 })
                 .collect(),
-        }
+        })
     }
 }
 
@@ -439,7 +530,7 @@ fn encode_record(record: &BatchCorrelation) -> Result<Vec<u8>, String> {
 fn decode_record(raw: &[u8]) -> Result<BatchCorrelation, String> {
     let stored: StoredRecord =
         postcard::from_bytes(raw).map_err(|error| format!("decode correlation record: {error}"))?;
-    let record = BatchCorrelation::from(stored);
+    let record = BatchCorrelation::try_from(stored)?;
     record.validate()?;
     Ok(record)
 }
@@ -470,6 +561,9 @@ fn put_persistent(env: &Environment, record: &BatchCorrelation) -> Result<(), St
     let hash_db = txn
         .open_db(Some(L2_HASH_DB))
         .map_err(|error| format!("open correlation L2-hash index: {error}"))?;
+    let endpoint_db = txn
+        .open_db(Some(ENDPOINT_HASH_DB))
+        .map_err(|error| format!("open correlation endpoint index: {error}"))?;
     let tx_key = record.l1_transaction_hash.as_slice();
     let existing: Option<Vec<u8>> = txn
         .get(records_db.dbi(), tx_key)
@@ -523,6 +617,13 @@ fn put_persistent(env: &Environment, record: &BatchCorrelation) -> Result<(), St
         WriteFlags::UPSERT,
     )
     .map_err(|error| format!("write correlation L1-hash index: {error}"))?;
+    update_l2_index_if_newer(
+        &txn,
+        records_db.dbi(),
+        endpoint_db.dbi(),
+        record.last_l2().hash.as_slice(),
+        record,
+    )?;
     for block in &record.l2_blocks {
         update_l2_index_if_newer(
             &txn,
@@ -697,7 +798,12 @@ fn remove_after_persistent(env: &Environment, ancestor: u64) -> Result<usize, St
             .map_err(|error| format!("delete correlation record: {error}"))?;
     }
 
-    // Rebuild both reverse indices in surviving canonical L1 transaction order.
+    // Rebuild reverse indices in surviving canonical L1 transaction order.
+    let endpoint_db = txn
+        .open_db(Some(ENDPOINT_HASH_DB))
+        .map_err(|error| format!("open correlation endpoint index: {error}"))?;
+    txn.clear_db(endpoint_db.dbi())
+        .map_err(|error| format!("clear correlation endpoint index: {error}"))?;
     txn.clear_db(number_db.dbi())
         .map_err(|error| format!("clear correlation L2-number index: {error}"))?;
     txn.clear_db(hash_db.dbi())
@@ -724,6 +830,13 @@ fn remove_after_persistent(env: &Environment, ancestor: u64) -> Result<usize, St
             WriteFlags::UPSERT,
         )
         .map_err(|error| format!("rebuild correlation L1-hash index: {error}"))?;
+        txn.put(
+            endpoint_db.dbi(),
+            record.last_l2().hash.as_slice(),
+            &tx_hash,
+            WriteFlags::UPSERT,
+        )
+        .map_err(|error| format!("rebuild correlation endpoint index: {error}"))?;
         for block in &record.l2_blocks {
             txn.put(
                 number_db.dbi(),
@@ -754,19 +867,27 @@ mod tests {
     use super::*;
 
     fn record(l1_block: u64, tx_index: u64, first_l2: u64, hashes: &[u8]) -> BatchCorrelation {
+        let endpoint_header = alloy_consensus::Header {
+            number: first_l2 + hashes.len() as u64 - 1,
+            extra_data: vec![*hashes.last().unwrap()].into(),
+            ..Default::default()
+        };
+        let mut l2_blocks: Vec<_> = hashes
+            .iter()
+            .enumerate()
+            .map(|(offset, hash)| L2BlockCorrelation {
+                number: first_l2 + offset as u64,
+                hash: B256::with_last_byte(*hash),
+            })
+            .collect();
+        l2_blocks.last_mut().unwrap().hash = endpoint_header.hash_slow();
         BatchCorrelation {
             l1_block_number: l1_block,
             l1_block_hash: B256::with_last_byte(l1_block as u8),
             l1_transaction_hash: B256::with_last_byte((l1_block + tx_index + 1) as u8),
             l1_transaction_index: tx_index,
-            l2_blocks: hashes
-                .iter()
-                .enumerate()
-                .map(|(offset, hash)| L2BlockCorrelation {
-                    number: first_l2 + offset as u64,
-                    hash: B256::with_last_byte(*hash),
-                })
-                .collect(),
+            l2_blocks,
+            endpoint_header,
         }
     }
 
@@ -779,15 +900,22 @@ mod tests {
 
         assert_eq!(store.by_l2_number(3).unwrap().unwrap().batch, b);
         assert_eq!(
-            store
-                .by_l2_hash(B256::with_last_byte(2))
-                .unwrap()
-                .unwrap()
-                .batch,
+            store.by_l2_hash(a.last_l2().hash).unwrap().unwrap().batch,
             a
         );
         assert_eq!(store.by_l1_number(10).unwrap(), vec![a.clone()]);
         assert_eq!(store.by_l1_hash(b.l1_block_hash).unwrap(), vec![b.clone()]);
+        assert_eq!(store.after(None).unwrap(), Some(a.clone()));
+        assert_eq!(store.after(Some(a.order())).unwrap(), Some(b.clone()));
+        assert!(store.after(Some(b.order())).unwrap().is_none());
+        let mut tampered = b.clone();
+        tampered.endpoint_header.mix_hash = B256::repeat_byte(99);
+        assert!(
+            store
+                .put(&tampered)
+                .unwrap_err()
+                .contains("endpoint header")
+        );
         assert_eq!(store.tail().unwrap(), Some(b));
     }
 
@@ -806,7 +934,7 @@ mod tests {
         let reopened = CorrelationStore::open(dir.path()).unwrap();
         assert_eq!(
             reopened.by_l2_number(4).unwrap().unwrap().l2_block.hash,
-            B256::with_last_byte(4)
+            record(11, 2, 3, &[3, 4]).last_l2().hash
         );
     }
 
@@ -818,11 +946,11 @@ mod tests {
 
         assert_eq!(
             store.by_l2_number(8).unwrap().unwrap().l2_block.hash,
-            B256::with_last_byte(0x22)
+            replacement.last_l2().hash
         );
         assert!(
             !store
-                .by_l2_hash(B256::with_last_byte(0x11))
+                .by_l2_hash(original.last_l2().hash)
                 .unwrap()
                 .unwrap()
                 .canonical_l2
@@ -842,5 +970,56 @@ mod tests {
     fn persistent_replacement_and_reorg_are_hash_safe() {
         let dir = tempfile::tempdir().unwrap();
         exercise_same_height_replacement_and_reorg(&CorrelationStore::open(dir.path()).unwrap());
+    }
+    fn overlapping_batch_keeps_endpoint(store: &CorrelationStore) -> BatchCorrelation {
+        let accepted = record(20, 1, 5, &[1]);
+        let mut overlapping = record(21, 1, 5, &[1, 2]);
+        overlapping.l2_blocks[0].hash = accepted.last_l2().hash;
+        store.put(&accepted).unwrap();
+        store.put(&overlapping).unwrap();
+        assert_eq!(
+            store
+                .by_l2_hash(accepted.last_l2().hash)
+                .unwrap()
+                .unwrap()
+                .batch,
+            overlapping
+        );
+        assert_eq!(
+            store.by_endpoint_hash(accepted.last_l2().hash).unwrap(),
+            Some(accepted.clone())
+        );
+        assert!(store.by_endpoint_hash(B256::ZERO).unwrap().is_none());
+        accepted
+    }
+
+    #[test]
+    fn endpoint_provenance_survives_overlap_reopen_and_reorg() {
+        let memory = CorrelationStore::in_memory();
+        let accepted = overlapping_batch_keeps_endpoint(&memory);
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let persistent = CorrelationStore::open(dir.path()).unwrap();
+            assert_eq!(overlapping_batch_keeps_endpoint(&persistent), accepted);
+        }
+        let reopened = CorrelationStore::open(dir.path()).unwrap();
+        for store in [&memory, &reopened] {
+            assert_eq!(
+                store.by_endpoint_hash(accepted.last_l2().hash).unwrap(),
+                Some(accepted.clone())
+            );
+            assert_eq!(store.remove_after_l1(20).unwrap(), 1);
+            assert_eq!(
+                store.by_endpoint_hash(accepted.last_l2().hash).unwrap(),
+                Some(accepted.clone())
+            );
+            assert_eq!(store.remove_after_l1(19).unwrap(), 1);
+            assert!(
+                store
+                    .by_endpoint_hash(accepted.last_l2().hash)
+                    .unwrap()
+                    .is_none()
+            );
+        }
     }
 }

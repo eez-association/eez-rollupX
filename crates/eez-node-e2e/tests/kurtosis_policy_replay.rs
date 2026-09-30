@@ -5,7 +5,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use alloy_eips::BlockNumberOrTag;
-use alloy_primitives::{Address, B256, Bytes};
+use alloy_primitives::{B256, Bytes, keccak256};
 use alloy_provider::{Provider, ProviderBuilder};
 use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, wait_for};
 
@@ -25,7 +25,6 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
         "EEZ_REGISTRY_ADDRESS",
         "EEZ_REGISTRY_DEPLOY_BLOCK",
         "EEZ_ROLLUP_ID",
-        "EEZ_L2_SYSTEM_KEY",
         "EEZL2_ADDRESS",
         "EEZ_L1_BLOCK_TIME_MS",
         "EEZ_L2_BLOCK_TIME_MS",
@@ -80,24 +79,53 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
     for batch in batches {
         assert_eq!(batch["verified"], true);
         let payload = &batch["payload"];
-        let blocks = payload["blocks"].as_array().unwrap();
-        assert!(!blocks.is_empty());
-        assert_eq!(
-            payload["block_count"].as_u64().unwrap(),
-            blocks.len() as u64
-        );
-        assert_eq!(blocks.last().unwrap()["representation"], "terminal");
-        let first = blocks[0]["number"].as_u64().unwrap();
+        let operations: Bytes = payload["operations"].as_str().unwrap().parse().unwrap();
+        let plan = eez_payload_codec::v0::Payload::decode(&operations).unwrap();
+        let pre_hash: B256 = batch["settlement_claim"]["pre_block_hash"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let post_hash: B256 = batch["settlement_claim"]["post_block_hash"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
         let mut parent = rpc
-            .get_block_by_number(first.checked_sub(1).unwrap().into())
+            .get_block_by_hash(pre_hash)
             .await
             .unwrap()
             .unwrap()
             .header;
+        let terminal = rpc
+            .get_block_by_hash(post_hash)
+            .await
+            .unwrap()
+            .unwrap()
+            .header;
+        assert_eq!(
+            terminal.number.checked_sub(parent.number).unwrap(),
+            u64::from(plan.block_count())
+        );
+        assert_eq!(
+            payload["block_count"].as_u64().unwrap(),
+            u64::from(plan.block_count())
+        );
+        // Check the available canonical range before iterating a supplied empty
+        // run. Decoding alone never authenticates its declared span or endpoints.
+        assert!(terminal.number <= height);
+        assert_eq!(
+            rpc.get_block_by_number(parent.number.into())
+                .await
+                .unwrap()
+                .unwrap()
+                .header
+                .hash,
+            pre_hash
+        );
         let mut transaction_hashes = Vec::new();
-        for (index, block) in blocks.iter().enumerate() {
-            let number = block["number"].as_u64().unwrap();
-            assert_eq!(number, parent.number.checked_add(1).unwrap());
+        for (index, block) in plan.blocks().enumerate() {
+            let number = parent.number.checked_add(1).unwrap();
             let replayed = rpc
                 .get_block_by_number(number.into())
                 .await
@@ -106,87 +134,29 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
             let header = &replayed.header;
             assert_eq!(header.number, number);
             assert_eq!(header.parent_hash, parent.hash, "ancestry at L2 {number}");
-            let count = block["transaction_count"].as_u64().unwrap();
-            assert_eq!(replayed.transactions.len() as u64, count);
-            assert_eq!(payload["block_tx_counts"][index].as_u64().unwrap(), count);
-            transaction_hashes.extend(replayed.transactions.hashes());
-            match block["representation"].as_str().unwrap() {
-                "derived" => {
-                    // Derived records provide execution inputs. The final full
-                    // header commits to their reconstructed hashes through the
-                    // consecutive parent chain checked above.
-                    let step = block["timestamp_step_seconds"].as_u64().unwrap();
-                    assert!(step > 0);
-                    assert_eq!(
-                        header.timestamp,
-                        parent.timestamp.checked_add(step).unwrap()
-                    );
-                    assert_eq!(header.gas_limit, block["gas_limit"].as_u64().unwrap());
-                    assert_eq!(
-                        header.beneficiary,
-                        block["fee_recipient"]
-                            .as_str()
-                            .unwrap()
-                            .parse::<Address>()
-                            .unwrap()
-                    );
-                    assert_eq!(
-                        header.mix_hash,
-                        block["prev_randao"]
-                            .as_str()
-                            .unwrap()
-                            .parse::<B256>()
-                            .unwrap()
-                    );
-                    assert_eq!(
-                        header.extra_data,
-                        block["extra_data"]
-                            .as_str()
-                            .unwrap()
-                            .parse::<Bytes>()
-                            .unwrap()
-                    );
-                    let beacon_root = block["parent_beacon_root"]
-                        .as_str()
-                        .unwrap()
-                        .parse::<B256>()
-                        .unwrap();
-                    if let Some(actual) = header.parent_beacon_block_root {
-                        assert_eq!(actual, beacon_root);
-                    }
-                    derived_blocks += 1;
-                }
-                representation @ ("full" | "terminal") => {
-                    if representation == "terminal" {
-                        assert_eq!(index + 1, blocks.len(), "terminal must be last");
-                    }
-                    let hash: B256 = block["hash"].as_str().unwrap().parse().unwrap();
-                    assert_eq!(header.hash, hash, "reconstruction at L2 {number}");
-                    assert_eq!(
-                        header.parent_hash,
-                        block["parent_hash"]
-                            .as_str()
-                            .unwrap()
-                            .parse::<B256>()
-                            .unwrap()
-                    );
-                    assert_eq!(header.timestamp, block["timestamp"].as_u64().unwrap());
-                    assert_eq!(
-                        header.state_root,
-                        block["state_root"]
-                            .as_str()
-                            .unwrap()
-                            .parse::<B256>()
-                            .unwrap()
-                    );
-                }
-                other => panic!("unsupported block representation {other}"),
+            assert_eq!(header.beneficiary, block.beneficiary);
+            assert_eq!(header.extra_data.as_ref(), block.extra_data);
+            let ordinary: Vec<_> = block.transactions.map(keccak256).collect();
+            let actual: Vec<_> = replayed.transactions.hashes().collect();
+            if index + 1 == plan.block_count() as usize {
+                // Only the terminal can have a reconstructed native/action
+                // suffix. The independent follower validates that entire suffix
+                // against L1 semantics and the endpoint hash checked below.
+                assert!(actual.starts_with(&ordinary), "terminal ordinary prefix");
+            } else {
+                assert_eq!(actual, ordinary, "ordinary transactions at L2 {number}");
             }
+            transaction_hashes.extend(ordinary);
+            derived_blocks += 1;
             if let Some(previous) = checked.insert(number, header.hash) {
                 assert_eq!(previous, header.hash);
             }
             parent = replayed.header;
         }
+        assert_eq!(
+            parent.hash, post_hash,
+            "independently replayed settlement endpoint"
+        );
         let expected_transactions: Vec<B256> = payload["transaction_hashes"]
             .as_array()
             .unwrap()

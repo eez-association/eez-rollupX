@@ -8,8 +8,11 @@
 //! Explicit call gas, static calls with descendants, and failed mutable calls
 //! with descendants remain fail-closed.
 
+mod inbound;
 mod materialize;
 mod verify;
+
+pub use inbound::InboundSidecar;
 
 pub(crate) use materialize::materialize_batches;
 pub use materialize::{EntryTrace, finalize_l1_entry_traces};

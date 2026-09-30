@@ -164,6 +164,11 @@ its Solidity implementation/tests and the applicable fork contract:
 For source builds, use Rust **1.95.0** (CI; manifest minimum 1.95) and Foundry
 **1.7.1**. Native dependencies are listed in [CI](.github/workflows/ci.yml), including
 `libclang-dev`, `pkg-config`, `libssl-dev`, `cmake`, and `protobuf-compiler`.
+Unmodified Reth v2.7/Gnosis defaults also require LLVM 22, Polly, Clang 22 and
+`m4`. On Debian/Ubuntu, use `sudo bash scripts/ci/install-llvm.sh`, then export
+`LLVM_SYS_221_PREFIX=/usr/lib/llvm-22` and prepend its `bin` directory to `PATH`.
+Docker producers install these dependencies through the same helper. This does
+not change the custom L2 interpreter's execution mode.
 Build workspace binaries with `cargo +1.95.0 build --locked --workspace`.
 
 During iteration, run focused packages/targets. Before completing a change, run

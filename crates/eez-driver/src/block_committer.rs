@@ -66,6 +66,9 @@ pub enum ForkchoiceOutcome {
 }
 
 enum CommitCommand<T: PayloadTypes> {
+    Barrier {
+        response: oneshot::Sender<()>,
+    },
     Sequence {
         attrs: EthPayloadAttributes,
         response: oneshot::Sender<DriverResult<CommitOutcome<T>>>,
@@ -142,6 +145,9 @@ pub(crate) fn test_committer(
     tokio::spawn(async move {
         while let Some(command) = receiver.recv().await {
             match command {
+                CommitCommand::Barrier { response } => {
+                    let _ = response.send(());
+                }
                 CommitCommand::Sequence { attrs, response } => {
                     recorded.lock().unwrap().push("pool");
                     let parent = head.read().unwrap().clone();
@@ -298,9 +304,21 @@ where
         ))
     }
 
-    /// Hold across a multi-block reconcile to suppress concurrent `commit_sequenced`
-    pub async fn begin_reconcile(&self) -> tokio::sync::OwnedMutexGuard<()> {
-        Arc::clone(&self.reconcile_lock).lock_owned().await
+    /// Exclude new sequencing and wait for previously dispatched engine work.
+    /// The caller can then inspect the completed sequence's head; taking only
+    /// the mutex leaves an already-issued payload free to finish
+    /// after the caller has inspected descendants or published a new seed.
+    pub async fn begin_reconcile(&self) -> DriverResult<tokio::sync::OwnedMutexGuard<()>> {
+        let guard = Arc::clone(&self.reconcile_lock).lock_owned().await;
+        let (response, completed) = oneshot::channel();
+        self.sender
+            .send(CommitCommand::Barrier { response })
+            .await
+            .map_err(|_| DriverError::committer_closed())?;
+        completed
+            .await
+            .map_err(|_| DriverError::committer_closed())?;
+        Ok(guard)
     }
 
     /// Clone of the actor's current canonical head mirror. Reflects the
@@ -317,18 +335,17 @@ where
         self.last_header.read().unwrap().clone()
     }
 
-    /// Builds a payload with the given attributes if the actor's head
-    /// still matches `parent_hash`, commits it via `newPayload`, and
+    /// Captures payload attributes while reconciliation is excluded, provided
+    /// the completed head still matches `parent_hash`, then commits via `newPayload` and
     /// advances the head cursor. `safe` / `finalized` are unaffected —
     /// only [`Self::advance_safe_finalized`] moves those.
     ///
-    /// `parent_hash` is the head the caller computed `attrs.timestamp`
-    /// against; returns [`DriverError::is_stale_parent`] upon mismatch
-    /// prevents timestamp-drifted block.
+    /// `build_attributes` reads the authenticated execution context under the
+    /// reconciliation lock. A stale parent is rejected before invoking it.
     ///
     /// # Errors
     ///
-    /// - [`DriverError::is_stale_parent`] on snapshot mismatch.
+    /// - [`DriverError::is_stale_candidate`] on snapshot mismatch.
     /// - Engine-API failures or `committer_closed`.
     ///
     /// # Panics
@@ -340,30 +357,27 @@ where
     pub async fn commit_sequenced(
         &self,
         parent_hash: B256,
-        attrs: EthPayloadAttributes,
+        build_attributes: impl FnOnce() -> DriverResult<EthPayloadAttributes>,
     ) -> DriverResult<CommitOutcome<T>> {
-        // The reconcile_lock guards ONLY the parent-hash snapshot check
-        // below — it stops the deriver advancing the head between the
-        // snapshot read and the engine dispatch. Holding it across
-        // `response_rx.await` (seconds, while the engine builds the
-        // payload) starves `begin_reconcile()` callers, and reth then
-        // evicts the issued id → "payload builder returned no payload
-        // for issued id".
+        let (response_tx, response_rx) = oneshot::channel();
         {
+            // Capture the seed and enqueue while reconciliation is excluded.
+            // Release before awaiting execution: the actor's barrier lets a
+            // reconciler await this issued payload without admitting another.
             let _guard = self.reconcile_lock.lock().await;
             let current_head = self.last_header.read().unwrap().hash();
             if current_head != parent_hash {
                 return Err(DriverError::stale_parent(parent_hash, current_head));
             }
+            let attrs = build_attributes()?;
+            self.sender
+                .send(CommitCommand::Sequence {
+                    attrs,
+                    response: response_tx,
+                })
+                .await
+                .map_err(|_| DriverError::committer_closed())?;
         }
-        let (response_tx, response_rx) = oneshot::channel();
-        self.sender
-            .send(CommitCommand::Sequence {
-                attrs,
-                response: response_tx,
-            })
-            .await
-            .map_err(|_| DriverError::committer_closed())?;
         response_rx
             .await
             .map_err(|_| DriverError::committer_closed())?
@@ -548,6 +562,9 @@ where
     async fn run(mut self) {
         while let Some(cmd) = self.receiver.recv().await {
             match cmd {
+                CommitCommand::Barrier { response } => {
+                    let _ = response.send(());
+                }
                 CommitCommand::Sequence { attrs, response } => {
                     let result = self.process_sequence(attrs).await;
                     let _ = response.send(result);
@@ -856,5 +873,109 @@ fn classify_advance_head_response(res: &ForkchoiceUpdated) -> DriverResult<Forkc
         Ok(ForkchoiceOutcome::Syncing)
     } else {
         Err(DriverError::invalid_forkchoice(format!("{res:?}")))
+    }
+}
+
+#[cfg(test)]
+mod reconciliation_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn execution_inputs_are_captured_after_reconciliation_releases_the_same_parent() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
+        let (sender, mut receiver) = mpsc::channel::<
+            CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
+        >(COMMAND_BUFFER);
+        let handle = BlockCommitterHandle {
+            sender,
+            last_header: Arc::new(RwLock::new(initial.clone())),
+            reconcile_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let seed = AtomicU64::new(1);
+        let guard = handle.reconcile_lock.lock().await;
+        let mut sequence = std::pin::pin!(handle.commit_sequenced(initial.hash(), || {
+            Ok(EthPayloadAttributes {
+                timestamp: 1,
+                prev_randao: B256::with_last_byte(seed.load(Ordering::Relaxed) as u8),
+                ..Default::default()
+            })
+        }));
+        let ready = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(sequence.as_mut(), cx).is_ready())
+        })
+        .await;
+        assert!(!ready);
+        seed.store(2, Ordering::Relaxed);
+        drop(guard);
+        // Poll through admission into the command queue, without executing it.
+        let ready = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(sequence.as_mut(), cx).is_ready())
+        })
+        .await;
+        assert!(!ready);
+        let CommitCommand::Sequence { attrs, response } = receiver.recv().await.unwrap() else {
+            panic!("expected a dispatched sequence");
+        };
+        assert_eq!(attrs.prev_randao, B256::with_last_byte(2));
+        response
+            .send(Ok(CommitOutcome { header: initial }))
+            .unwrap();
+        sequence.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn reconciliation_waits_for_an_already_dispatched_sequence() {
+        let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
+        let (sender, mut receiver) = mpsc::channel::<
+            CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
+        >(COMMAND_BUFFER);
+        let handle = BlockCommitterHandle {
+            sender,
+            last_header: Arc::new(RwLock::new(initial.clone())),
+            reconcile_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let producer = handle.clone();
+        let parent = initial.hash();
+        let sequence = tokio::spawn(async move {
+            producer
+                .commit_sequenced(parent, || {
+                    Ok(EthPayloadAttributes {
+                        timestamp: 1,
+                        prev_randao: B256::ZERO,
+                        suggested_fee_recipient: Default::default(),
+                        withdrawals: None,
+                        parent_beacon_block_root: None,
+                        slot_number: None,
+                        target_gas_limit: None,
+                    })
+                })
+                .await
+        });
+        let CommitCommand::Sequence { response, .. } = receiver.recv().await.unwrap() else {
+            panic!("expected a dispatched sequence");
+        };
+        // The engine owns the request but has not returned its header. A live
+        // anchor must not inspect/prune descendants from the old head mirror.
+        let mut reconciliation = std::pin::pin!(handle.begin_reconcile());
+        let ready = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(
+                std::future::Future::poll(reconciliation.as_mut(), cx).is_ready(),
+            )
+        })
+        .await;
+        assert!(
+            !ready,
+            "reconciliation started before the issued sequence completed"
+        );
+        response
+            .send(Ok(CommitOutcome { header: initial }))
+            .unwrap();
+        sequence.await.unwrap().unwrap();
+        let CommitCommand::Barrier { response } = receiver.recv().await.unwrap() else {
+            panic!("expected the reconciliation barrier");
+        };
+        response.send(()).unwrap();
+        let _guard = reconciliation.await.unwrap();
     }
 }

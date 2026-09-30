@@ -15,7 +15,11 @@ fn validated_single_block(
         block_hash,
         Vec::new(),
         validate::ValidatedSettlingBlock::for_test(
-            block,
+            block.with_ordinary_prefix_for_test(if transaction_state_checkpoints.is_empty() {
+                block_hash
+            } else {
+                parent_hash
+            }),
             receipt_successes,
             transaction_state_checkpoints,
         ),
@@ -33,8 +37,8 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
     assert_eq!(status.message(), "invalid PostBatch calldata");
 
     let da_payload =
-        SettlementPipelineError::DaPayload(crate::settlement::DaPayloadError::TrailingBytes {
-            trailing: 1,
+        SettlementPipelineError::DaPayload(crate::settlement::DaPayloadError::Decode {
+            reason: "trailing bytes".to_owned(),
         });
     assert_eq!(da_payload.gate(), "da_payload");
     let status = da_payload.status();
@@ -105,12 +109,10 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
             "da_payload",
         ),
         (
-            SettlementPipelineError::DaPayload(
-                crate::settlement::DaPayloadError::UnexpectedItems {
-                    field: "transactions",
-                    expected: 1,
-                },
-            ),
+            SettlementPipelineError::DaPayload(crate::settlement::DaPayloadError::BlockCount {
+                actual: 2,
+                expected: 1,
+            }),
             "da_payload",
         ),
         (
@@ -239,7 +241,7 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
     let validated = validated_single_block(settling_block, Vec::new(), Vec::new());
 
     let run = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: b"not ABI calldata".to_vec(),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -256,12 +258,9 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
 
 #[test]
 fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
-    let mut input = AdmittedBlock::test(5, 0x04, 0x05);
-    let empty_body: reth_ethereum_primitives::BlockBody = Default::default();
-    input.rlp = alloy_rlp::encode(reth_ethereum_primitives::Block::new(
-        Default::default(),
-        empty_body,
-    ));
+    let mut input = stub_block(5, 0x04, 0x05);
+    let empty_body: eez_primitives::BlockBody = Default::default();
+    input.rlp = alloy_rlp::encode(eez_primitives::Block::new(Default::default(), empty_body));
     let inputs = vec![input];
     let state = inner(Validator::stub(vec![Ok(backend_output_for(&inputs))]));
     // A deadline captured now is already past when the boundary between
@@ -274,6 +273,8 @@ fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
         b"not ABI calldata".to_vec(),
         Vec::new(),
         eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
+        crate::testkit::l1_target(),
+        crate::service::l1::CandidateContext::Synthetic,
         deadline,
         &CancellationToken::default(),
     );
@@ -295,11 +296,11 @@ fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
 fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     let value = U256::from(7);
     let (transaction, call_hash, return_data, sidecar) = strict_inbound_transaction(value);
-    let body: reth_ethereum_primitives::BlockBody = alloy_consensus::BlockBody {
+    let body: eez_primitives::BlockBody = alloy_consensus::BlockBody {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let block = reth_ethereum_primitives::Block::new(Default::default(), body);
+    let block = eez_primitives::Block::new(Default::default(), body);
     let block_rlp = alloy_rlp::encode(block);
     let settling_block = validate::ValidatedBlock::for_test(
         5,
@@ -326,7 +327,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         returnData: return_data,
     });
     eez_protocol::entries::finalize_l1_rolling_hashes(&mut batch).unwrap();
-    batch.callData = settlement::encode_da_payload(&[Vec::new()], &[sidecar.abi_encode()]).into();
+    batch.callData = settlement::encode_da_payload(&[Vec::new()]).into();
     let inbound_call = &sidecar.l2ToL1Calls[0];
     let semantic = SemanticTransaction {
         origin_chain: RollupId::MAINNET,
@@ -353,7 +354,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: calldata.clone(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
@@ -374,7 +375,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: calldata,
         submitted_blobs: &post_batch.blobs,
         validated_window: &reverted,
@@ -419,7 +420,7 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -462,7 +463,7 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -511,7 +512,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
         submitted_blobs: &[],
         validated_window: &validated,
@@ -570,7 +571,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: calldata,
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
@@ -585,12 +586,10 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     assert_eq!(run.unwrap().into_inner(), expected_hash);
 
     let mut mismatched_da = batch;
-    mismatched_da.callData =
-        settlement::encode_da_payload(&[vec![user]], &[mismatched_da.entries[1].abi_encode()])
-            .into();
+    mismatched_da.callData = settlement::encode_da_payload(&[vec![user]]).into();
     let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
-        projected_test_oracle: true,
+        posting_context: crate::testkit::l1_target(),
         submitted_post_batch_calldata: mismatched_post_batch.abi_calldata,
         submitted_blobs: &mismatched_post_batch.blobs,
         validated_window: &validated,
@@ -604,7 +603,7 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     assert!(matches!(
         run,
         Err(SettlementPipelineError::DaPayload(
-            settlement::DaPayloadError::L2EntryMismatch { .. }
+            settlement::DaPayloadError::ProjectedTransactionCount { .. }
         ))
     ));
 }

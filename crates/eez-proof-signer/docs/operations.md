@@ -5,24 +5,20 @@
 
 ## Startup trust roots
 
-The operator supplies the chain document, expected rollup ID, proof-system
-address, proof-system vkey, attestation key, and L2 system-transaction key.
-Startup validates syntax and local relationships, including key/address
-constraints, but cannot query L1 to prove that the configured proof system
-registers that vkey and authorizes the derived attester. Deployment automation
-must verify those external relationships.
+The operator supplies the required fresh-network genesis, expected rollup ID,
+canonical L1 RPC source and registry address, proof-system address and vkey, and
+attestation key. Startup validates local relationships. Each Prove independently
+authenticates its accepted parent, live-slot seed and target L1 context through
+that source before replay. Signing performs no further L1 reads; an already
+stale signature cannot be used under a different L1 parent or timestamp.
+Deployment automation must still verify the manager's proof-system registration,
+vkey and attester bindings.
 
-The two private keys have different authority:
-
-- the daemon uses the attestation key only after the complete pipeline produces
-  an `AttestablePublicInputsHash`, signing it with raw/prehash ECDSA and no
-  EIP-191 prefix; and
-- the L2 system-transaction key reconstructs omitted legacy EIP-155 L2 system
-  transactions and must derive the reserved system address.
-
-Do not reuse them. Prefer environment injection from a secret manager over
-command-line flags, which may be visible in shell history or process listings.
-The checked-in [`.env.example`](../.env.example) contains placeholders only.
+The daemon uses the attestation key only after all execution, settlement and L1
+checks pass, signing with raw/prehash ECDSA and no EIP-191 prefix. Native L2 system
+transactions have a fixed sender and require no key or fee funding. Prefer secret
+manager environment injection over command-line flags. The checked-in
+[`.env.example`](../.env.example) contains placeholders only.
 
 ## Network exposure
 
@@ -57,8 +53,12 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-Composer and signer upgrades can be ordered independently; an older signer
-still pays this setup cost during its first request after restart.
+Validation identity schema 4 requires matching Composer and signer binaries;
+an old peer is rejected during capability negotiation. This simplification
+changes no genesis, database, DA bytes or historical replay rules. Upgrade the
+Composer and signer together; rollback requires reverting both. The original
+native V0 format still requires a matching fresh-network deployment. See the
+[fresh-network boundary](../SPEC.md#mixed-outbound-profile-compatibility).
 
 The idle timeout covers each wait for the next chunk or EOF. The absolute
 request deadline covers ingestion through signing. Both are checked for

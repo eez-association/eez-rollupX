@@ -86,10 +86,10 @@ HTTPS, explorers, and UI routing are separate; see the
 | `EEZ_L1_POSTER_KEY` | Settlement sender | Chiado native gas funds (test xDAI) |
 | `EEZ_DEPLOY_KEY` (optional) | Contract deployer/owner; defaults to poster | Chiado gas funds if separate |
 | `EEZ_PROOF_SIGNER_KEY` | Batch attestation; registered in proof system | No transaction funding needed for attestation |
-| `EEZ_L2_SYSTEM_KEY` | L2 system transactions | Address funded in generated L2 genesis |
 
-Generate dedicated keys with your wallet tooling. Proof signer and L2 system
-addresses **must differ**; keep the poster separate from the proof signer.
+Generate dedicated keys with your wallet tooling. Keep the poster separate from
+the proof signer. Native L2 system transactions use the reserved `0x76` sender;
+they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
 broadcasting; the [environment example](../../.env.chiado.example) identifies a
@@ -127,7 +127,7 @@ cp .env.chiado.example .env
 chmod 600 .env
 ```
 
-Edit `.env`: set a synchronized external Chiado `EEZ_L1_RPC_URL`, the three keys,
+Edit `.env`: set a synchronized external Chiado `EEZ_L1_RPC_URL`, the poster and proof-signer keys,
 and optionally `EEZ_DEPLOY_KEY`. The deployment RPC must remain external:
 startup queries it before starting the embedded L1.
 
@@ -194,8 +194,8 @@ Review the allocations in `datadir/base-genesis.json`. To deploy with changes, e
 that file and set
 `EEZ_GENESIS_BASE=/absolute/path/to/checkout/datadir/base-genesis.json` in `.env`.
 The deploy command's absolute-path mount makes that file available. Preserve the
-EEZL2 predeploy entry; deployment regenerates its code and funds the configured
-system address. Keep the base file mode `644`: generated genesis inherits it,
+EEZL2 predeploy entry; deployment regenerates its code with the fixed native system
+address, which requires no prefunding. Keep the base file mode `644`: generated genesis inherits it,
 and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
 The host's tracked `genesis.json` is not used unless selected explicitly.
@@ -214,8 +214,12 @@ openssl rand -hex 32 > data/jwt.hex
 
 This spends gas and creates a fresh registry, proof system, manager, rollup **1**,
 and L1 bridges, even if `deployments.env` already exists. It is not a restart
-command. The deploy image checks genesis rendering and tools before broadcasting,
-then aligns genesis time to the L1 deployment block and registers its **block hash**.
+command. Before broadcasting, the deploy image reads a finalized L1 reference,
+copies its timestamp and RANDAO into genesis, and records its exact chain/block
+identity under `config.rollupX`. Chiado requires 1-second L2 blocks and five
+positions per Sync interval. Missing finalized data or conflicting timing aborts
+before a broadcast. The image checks genesis rendering and tools, then registers
+that same genesis **block hash** without a deployment-time timestamp change.
 It uses bundled sources under `/repo`; do not mount your checkout over `/repo`.
 
 ```bash
@@ -440,12 +444,12 @@ docker run --rm --platform linux/amd64 --entrypoint eez-genesis-state-root \
   -v "$PWD/datadir/genesis.json:/genesis.json:ro" "$EEZ_DEPLOY_IMAGE" /genesis.json
 cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY"
 cast call "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" 'signer()(address)' --rpc-url "$EEZ_L1_RPC_URL"
-cast wallet address --private-key "$EEZ_L2_SYSTEM_KEY"
+test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
 ```
 
 The two hashes must equal `EEZ_INITIAL_BLOCK_HASH` and `EEZ_L2_GENESIS_STATE_ROOT`.
 Both the proof-key address and on-chain signer must equal `EEZ_ATTESTER_ADDRESS`;
-the system-key address must equal `EEZ_L2_SYSTEM_ADDRESS` (case-insensitive).
+`EEZ_L2_SYSTEM_ADDRESS` must equal the fixed native address (case-insensitive).
 Compare genesis/profile file digests with the [inventory](#handoff-record).
 If a restored root-owned public genesis is unreadable by signer UID 65532,
 correct its mode with `sudo chmod 644 datadir/genesis.json`.
@@ -527,6 +531,17 @@ empty and cannot diagnose an older settlement. Startup checks every committed
 blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
+
+The [native system transaction change](../proposals/native-system-transactions.md)
+requires a fresh L2 genesis and database, matching composer/follower/signer
+binaries, and matching deployment artifacts. It changes the EEZL2 immutable
+system address to `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`. It is not a
+binary upgrade for an existing signed-system network. Keep that deployment's
+original binaries, genesis, databases, and secrets; the new branch provides no
+in-place migration. Deploy a new network with matching artifacts before starting
+its nodes. `EEZ_L2_SYSTEM_KEY` is removed; L1 posting and proof attestation retain
+their separate keys. Native history cannot be replayed by the old binaries.
+
 
 The deadline-based skipped-slot retry changes only Composer scheduling and
 in-memory ownership. Its rollout needs no contract deployment, genesis change,
@@ -659,3 +674,21 @@ Composer, Signer and follower revision; replacing binaries on the existing
 its original pin. The new Composer reads retained L1 queue mapping slots
 before granting bounded deferred-entry gas discounts; final ordered execution
 still validates gas.
+
+### Native signer canonical L1 source
+
+The fresh-network signer requires `EEZ_L1_RPC_URL` and the deployed
+`EEZ_REGISTRY_ADDRESS`, alongside its L1 profile and full L2 genesis. Packaged
+Compose supplies the local embedded L1 RPC and loads the registry from
+`deployments.env`; Kurtosis supplies its canonical L1 execution RPC. The source
+must serve the finalized genesis reference, canonical headers, the settlement
+logs/transactions needed for parent and live-slot authentication, and registry
+state at the named parent hash. The signer performs no lifetime registration/reset
+log scan or post-replay freshness query.
+The signer may start before that source is ready, but cannot sign until it can
+authenticate these facts. This does not add recovery from manual registry root
+resets. Composer and signer must use matching validation identity schema 4;
+upgrade or roll back both binaries together. No new genesis or database change
+is introduced by this signer simplification. See the
+[signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
+reorg behavior. This wiring has no legacy-source or offline-signing fallback.

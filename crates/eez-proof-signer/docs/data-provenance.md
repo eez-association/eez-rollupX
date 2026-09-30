@@ -80,9 +80,10 @@ and outbound receipt observations. The terminal block additionally retains
 receipt outcomes and selected transaction checkpoints. It contains no execution
 witnesses; validation consumed them.
 
-Its `window_pre_block_hash` is not yet a canonical-chain anchor. It becomes the
-batch anchor only when settlement matches the leading submitted ABI root update
-against it.
+Execution validity alone does not authorize canonical ancestry. The independent
+`CandidateContext` binds `window_pre_block_hash` to the accepted L1 parent
+commitment and seed. The batch's leading root update instead binds B[0], the
+terminal ordinary prefix after mandatory pre-execution and any ordinary users.
 
 ### `CanonicalPostBatch`
 
@@ -106,9 +107,11 @@ DA passed the complete settlement job.
 
 ### `AttestablePublicInputsHash`
 
-The complete settlement job wraps the recomputed digest in this stronger type
-only after state-chain validation, effect binding and authorization, and exact
-DA verification all succeed. `Attester::sign` accepts only this type rather
+The async RPC wraps the recomputed digest in this stronger type only after
+execution, state-chain validation, effect/DA binding and independent L1
+authorization pass. On-chain verification binds the signature to the authenticated
+L1 parent hash and timestamp; the signer does not recheck tip freshness after
+replay. `Attester::sign` accepts only this type rather
 than `RecomputedPublicInputsHash` or an arbitrary `B256`, so a profile-only or
 Composer-supplied digest cannot cross the signing boundary by accident.
 

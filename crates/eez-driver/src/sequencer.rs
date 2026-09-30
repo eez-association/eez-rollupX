@@ -55,17 +55,15 @@ const FCU_REFRESH: Duration = Duration::from_secs(1);
 /// window keeps recent ancestors alive for the Deriver's replay.
 pub const DEFAULT_MAX_SPECULATIVE_DEPTH: u64 = 64;
 
-/// Log a benign stale-parent skip: the Deriver advanced the canonical
-/// head between our snapshot and the engine FCU, so this commit
-/// targeted a no-longer-canonical parent. The caller bails (its
-/// backfill loop or the whole trigger) and the next trigger rebuilds
-/// from the fresh head. `phase` names the commit site for attribution.
-fn log_stale_parent(phase: &str) {
+/// Reconciliation can replace the parent or its authenticated execution seed
+/// after composition. Stop this trigger and rebuild from the current context
+/// on the next one. `phase` identifies the commit site.
+fn log_stale_candidate(phase: &str) {
     event!(
-        name: "eez.sequencer.stale_parent",
+        name: "eez.sequencer.stale_candidate",
         Level::DEBUG,
         phase,
-        "deriver advanced the chain under this commit; bailing — next trigger rebuilds from fresh head",
+        "execution context changed before commit; next trigger rebuilds the candidate",
     );
 }
 
@@ -148,6 +146,11 @@ mod tests {
                 number: parent.header.number + 1,
                 timestamp,
                 transactions_root: alloy_consensus::constants::EMPTY_ROOT_HASH,
+                mix_hash: if self.result == "stale-seed" {
+                    B256::repeat_byte(0x55)
+                } else {
+                    B256::ZERO
+                },
                 ..Default::default()
             });
             SyncSlotOutcome::Built(Box::new(SyncSlotBlock {
@@ -166,14 +169,14 @@ mod tests {
     #[tokio::test]
     async fn explicit_policy_outcomes_never_use_sync_pool_fallback() {
         for mode in [SyncSlotMode::Steady, SyncSlotMode::Empty] {
-            for result in ["end", "empty", "stale"] {
+            for result in ["end", "empty", "stale", "stale-seed"] {
                 let future = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()
                     + 3600;
                 let timestamp = if mode == SyncSlotMode::Empty {
-                    1
+                    5
                 } else {
                     future
                 };
@@ -182,6 +185,7 @@ mod tests {
                     timestamp: timestamp - 1,
                     ..Default::default()
                 });
+                let l1_head = test_seed_head(&parent);
                 let (committer, commands) = crate::block_committer::test_committer(parent);
                 let calls = Arc::new(Mutex::new(Vec::new()));
                 let composer: SyncSlotComposerHandle = Arc::new(PolicyComposer {
@@ -197,7 +201,7 @@ mod tests {
                     1,
                     composer,
                     0,
-                    Arc::default(),
+                    Arc::clone(&l1_head),
                 );
                 let target = 5;
                 sequencer
@@ -209,7 +213,7 @@ mod tests {
                 assert_eq!(*calls.lock().unwrap(), vec![mode]);
                 assert!(commands[..live].iter().all(|command| *command == "pool"));
                 match result {
-                    "end" | "stale" => {
+                    "end" | "stale" | "stale-seed" => {
                         assert_eq!(commands.len(), live, "{mode:?}/{result}");
                         assert_eq!(committer.last_header().number, target - 1);
                     }
@@ -226,6 +230,33 @@ mod tests {
             }
         }
     }
+    fn test_seed_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
+        use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
+        let timestamp = parent.timestamp.checked_sub(parent.number).unwrap();
+        let genesis = alloy_consensus::Header {
+            timestamp,
+            ..Default::default()
+        };
+        let schedule = Schedule::new(
+            DerivationConfig {
+                block_interval_seconds: 1,
+                sync_interval_blocks: 5,
+                l1_reference: GenesisL1Reference {
+                    chain_id: 1337,
+                    number: 0,
+                    hash: B256::repeat_byte(1),
+                    timestamp,
+                    prev_randao: B256::ZERO,
+                },
+            },
+            &genesis,
+        )
+        .unwrap();
+        let head = Arc::new(eez_l1::L1CanonicalHead::default());
+        head.restore_derivation(eez_l1::derivation::SeedHistory::new(schedule));
+        head
+    }
+
     #[tokio::test]
     async fn guarded_catchup_preserves_every_intermediate_empty_boundary() {
         for k in [5, 6, 12] {
@@ -236,6 +267,7 @@ mod tests {
                         timestamp: 100,
                         ..Default::default()
                     });
+                    let l1_head = test_seed_head(&parent);
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -250,7 +282,7 @@ mod tests {
                             calls: calls.clone(),
                         }),
                         0,
-                        Arc::default(),
+                        Arc::clone(&l1_head),
                     );
                     for _ in 0..=(k * 2) {
                         let parent = committer.last_header();
@@ -308,6 +340,7 @@ mod tests {
                         timestamp: timestamp - (target - start) + u64::from(case == "misaligned"),
                         ..Default::default()
                     });
+                    let l1_head = test_seed_head(&parent);
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -325,7 +358,7 @@ mod tests {
                             calls: Arc::clone(&calls),
                         }),
                         u64::from(case == "speculative_cap"),
-                        Arc::default(),
+                        Arc::clone(&l1_head),
                     );
                     sequencer
                         .advance_sync_slot(target, timestamp, 100)
@@ -373,16 +406,8 @@ mod tests {
     }
 }
 
-/// Builds [`EthPayloadAttributes`] for the next block.
-///
-/// Stage 1 produces minimal valid attributes: a strictly-increasing timestamp
-/// honoring the caller's target, a placeholder `prev_randao`, a
-/// caller-configured `suggested_fee_recipient`, and the post-Shanghai /
-/// post-Cancun fields filled in based on the chainspec.
-///
-/// Stage 3 will replace the placeholder `prev_randao` with an L1-derived
-/// value per the protocol spec (§13.14). Stage 4 will add a hook for
-/// composer-supplied system transactions.
+/// Builds payload attributes from captured, parent-derived time and RANDAO.
+/// The sequencer obtains both together from authenticated canonical history.
 #[derive(Debug, Clone)]
 pub struct EthAttributesBuilder<ChainSpec> {
     chain_spec: Arc<ChainSpec>,
@@ -411,20 +436,12 @@ impl<ChainSpec> EthAttributesBuilder<ChainSpec>
 where
     ChainSpec: EthChainSpec + EthereumHardforks + Send + Sync + 'static,
 {
-    /// Builds attributes for the block following `parent` with timestamp
-    /// `target_timestamp` (clamped upward to preserve strict monotonicity).
+    /// Build with the exact checked position; never clamp or normalize time.
     #[must_use]
-    pub fn build(
-        &self,
-        parent: &SealedHeader<ChainSpec::Header>,
-        target_timestamp: u64,
-    ) -> EthPayloadAttributes {
-        let timestamp = core::cmp::max(parent.timestamp().saturating_add(1), target_timestamp);
+    pub fn build(&self, timestamp: u64, prev_randao: B256) -> EthPayloadAttributes {
         EthPayloadAttributes {
             timestamp,
-            // TODO(stage 3): derive from L1 per spec §13.14. Zeroed for
-            // stage 1 — no security depends on prev_randao yet.
-            prev_randao: B256::ZERO,
+            prev_randao,
             suggested_fee_recipient: self.suggested_fee_recipient,
             withdrawals: self
                 .chain_spec
@@ -616,8 +633,8 @@ where
             .await
         {
             Ok(()) => Ok(()),
-            Err(err) if err.is_stale_parent() => {
-                log_stale_parent("live_tick");
+            Err(err) if err.is_stale_candidate() => {
+                log_stale_candidate("live_tick");
                 Ok(())
             }
             Err(err) => Err(err),
@@ -720,8 +737,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("catchup.live");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("catchup.live");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -769,8 +786,8 @@ where
                     crate::SyncSlotOutcome::EndTick => return Ok(()),
                 };
                 if let Err(err) = self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
-                    if err.is_stale_parent() {
-                        log_stale_parent("catchup.sync.prebuilt");
+                    if err.is_stale_candidate() {
+                        log_stale_candidate("catchup.sync.prebuilt");
                         return Ok(());
                     }
                     return Err(err);
@@ -788,8 +805,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("slot.live");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("slot.live");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -805,8 +822,8 @@ where
                         .await
                     {
                         Ok(()) => {}
-                        Err(err) if err.is_stale_parent() => {
-                            log_stale_parent("slot.future");
+                        Err(err) if err.is_stale_candidate() => {
+                            log_stale_candidate("slot.future");
                             return Ok(());
                         }
                         Err(err) => return Err(err),
@@ -887,8 +904,8 @@ where
                 };
                 match self.commit_one_prebuilt(SlotKind::Sync, prebuilt).await {
                     Ok(()) => {}
-                    Err(err) if err.is_stale_parent() => {
-                        log_stale_parent("slot.sync.prebuilt");
+                    Err(err) if err.is_stale_candidate() => {
+                        log_stale_candidate("slot.sync.prebuilt");
                         return Ok(());
                     }
                     Err(err) => return Err(err),
@@ -933,7 +950,7 @@ where
         // `commit_derived` doesn't take the lock itself (only
         // `commit_sequenced` does, and the Deriver already holds it via
         // `begin_reconcile`), so hold it here too.
-        let _reconcile_guard = self.committer.begin_reconcile().await;
+        let _reconcile_guard = self.committer.begin_reconcile().await?;
         // Stale-parent check under the lock, like commit_sequenced: the
         // Deriver (or a failed-batch recovery) can move the head between
         // compose and commit, and a prebuilt block on a stale parent
@@ -942,6 +959,13 @@ where
         let built_parent = built.header.parent_hash();
         if current_head != built_parent {
             return Err(DriverError::stale_parent(built_parent, current_head));
+        }
+        let (timestamp, seed) = self
+            .l1_head
+            .next_block_context(&self.committer.last_header())
+            .map_err(DriverError::provider)?;
+        if built.header.timestamp != timestamp || built.header.mix_hash != seed {
+            return Err(DriverError::stale_context(built_parent));
         }
         let block_number = built.header.number();
         let block_hash = built.header.hash();
@@ -976,8 +1000,10 @@ where
         self.composer
             .set_sequencing_target(self.rollup_id, sync_slot_height);
         let parent_hash = parent.hash();
-        let parent_ts = parent.timestamp();
-        let next_ts = parent_ts.saturating_add(self.timing.l2_block_time().as_secs());
+        let (next_ts, _) = self
+            .l1_head
+            .next_block_context(parent)
+            .map_err(DriverError::provider)?;
         if kind != SlotKind::Sync
             && parent.number().checked_add(1).is_some_and(|n| {
                 n % u64::from(self.timing.k()) == sync_slot_height % u64::from(self.timing.k())
@@ -1006,9 +1032,17 @@ where
                 )),
             };
         }
-        let attrs = self.attributes.build(parent, next_ts);
-        let timestamp = attrs.timestamp;
-        let outcome = self.committer.commit_sequenced(parent_hash, attrs).await?;
+        let outcome = self
+            .committer
+            .commit_sequenced(parent_hash, || {
+                let (timestamp, seed) = self
+                    .l1_head
+                    .next_block_context(parent)
+                    .map_err(DriverError::provider)?;
+                Ok(self.attributes.build(timestamp, seed))
+            })
+            .await?;
+        let timestamp = outcome.header.timestamp();
         let block_number = outcome.header.number();
         let block_hash = outcome.header.hash();
 

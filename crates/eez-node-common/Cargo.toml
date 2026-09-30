@@ -8,12 +8,12 @@ description            = "Shared reth bootstrap substrate for eez node-role bina
 
 [features]
 default = []
-l1-startup = ["dep:eez-l1", "dep:eez-deriver", "dep:jsonrpsee", "dep:reth-rpc-eth-api", "dep:serde_json"]
+l1-startup = ["dep:eez-l1", "dep:eez-deriver", "dep:jsonrpsee", "dep:serde_json"]
 
 [dependencies]
 eez-deriver = { workspace = true, optional = true }
 jsonrpsee = { workspace = true, optional = true }
-reth-rpc-eth-api = { workspace = true, optional = true }
+reth-rpc-eth-api.workspace = true
 serde_json = { workspace = true, optional = true }
 eez-driver.workspace = true
 eez-payload-codec.workspace = true
@@ -45,6 +45,31 @@ mimalloc.workspace = true
 thiserror.workspace = true
 tokio.workspace    = true
 tracing.workspace  = true
+
+alloy-consensus-any.workspace = true
+alloy-rpc-types-engine.workspace = true
+alloy-rpc-types-eth.workspace = true
+eez-evm.workspace = true
+eez-primitives.workspace = true
+reth-consensus-common.workspace = true
+reth-engine-local.workspace = true
+reth-engine-primitives.workspace = true
+reth-errors.workspace = true
+reth-ethereum-consensus.workspace = true
+reth-evm-ethereum.workspace = true
+reth-execution-cache.workspace = true
+reth-node-ethereum.workspace = true
+reth-payload-builder-primitives.workspace = true
+reth-provider.workspace = true
+reth-revm.workspace = true
+reth-rpc.workspace = true
+reth-rpc-convert.workspace = true
+reth-rpc-eth-types.workspace = true
+revm.workspace = true
+
+[dev-dependencies]
+alloy-provider.workspace = true
+alloy-transport = "=2.5.0"
 
 [lints]
 workspace = true

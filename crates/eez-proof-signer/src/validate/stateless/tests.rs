@@ -1,23 +1,17 @@
-use std::num::NonZeroU64;
-
 use alloy_consensus::{Header, SignableTransaction as _, TxLegacy};
-use alloy_primitives::{Log, Signature, TxKind, b256};
-use alloy_sol_types::SolCall as _;
+use alloy_primitives::{Log, Signature, b256};
+use eez_primitives::{EezTxEnvelope as TransactionSigned, Receipt as EthereumReceipt};
 use eez_protocol::CallMode;
-use eez_protocol::abi::computeCrossChainProxyAddressCall;
-use reth_ethereum_primitives::TransactionSigned;
 use reth_primitives_traits::SignerRecoverable as _;
 
 use super::*;
-use crate::settlement::inspect_validated_settling_block;
-use crate::testkit::{SYSTEM_TX, TEST_SYSTEM_ADDRESS};
-use crate::validate::ValidatedBlock;
+use crate::testkit::{LEGACY_USER_TX, TEST_SYSTEM_ADDRESS};
 use crate::validate::Validator;
 
-fn fixture_chain_config() -> ChainConfig {
+fn fixture_genesis() -> Genesis {
     serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-block-13/chain-config.json"
+        "/tests/fixtures/native-osaka-empty/l2-genesis.json"
     )))
     .unwrap()
 }
@@ -25,13 +19,13 @@ fn fixture_chain_config() -> ChainConfig {
 fn fixture_input() -> AdmittedBlock {
     let rlp = include_bytes!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-block-13/block-13.rlp"
+        "/tests/fixtures/native-osaka-empty/block.rlp"
     ))
     .to_vec();
     let block = alloy_rlp::decode_exact::<Block>(&rlp).unwrap();
     let witness = serde_json::from_str(include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-block-13/witness-13.json"
+        "/tests/fixtures/native-osaka-empty/witness.json"
     )))
     .unwrap();
     AdmittedBlock {
@@ -46,7 +40,7 @@ fn fixture_input() -> AdmittedBlock {
 #[test]
 fn reconstruction_fact_is_built_only_from_exact_replay_outputs() {
     let input = fixture_input();
-    let backend = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS);
+    let backend = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS);
     let recovered = decode_match_and_recover_signers(&input, &backend.chain_spec).unwrap();
     let block = recovered.clone().into_sealed_block().into_block();
     let mut output = stateless_validation_recovered(
@@ -90,7 +84,7 @@ fn reconstruction_retains_the_complete_existing_execution_evidence() {
     let (checkpoint_input, checkpoint_config, _) = checkpoint_fixture();
     let (observation_input, observation_config) = observation_fixture();
     for (input, config) in [
-        (fixture_input(), fixture_chain_config()),
+        (fixture_input(), fixture_genesis()),
         (checkpoint_input, checkpoint_config),
         (observation_input, observation_config),
     ] {
@@ -105,77 +99,20 @@ fn reconstruction_retains_the_complete_existing_execution_evidence() {
     }
 }
 
-fn checkpoint_fixture() -> (AdmittedBlock, ChainConfig, Vec<usize>) {
-    let rlp = hex::decode(
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/stateless-checkpoint-2175/checkpoint-block-2175.rlp.hex"
-        ))
-        .trim()
-        .trim_start_matches("0x"),
-    )
-    .unwrap();
-    let block = alloy_rlp::decode_exact::<Block>(&rlp).unwrap();
-    let witness = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-checkpoint-2175/checkpoint-witness-2175.json"
-    )))
-    .unwrap();
-    let chain_config = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-checkpoint-2175/checkpoint-chain-config.json"
-    )))
-    .unwrap();
-    let oracle: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-checkpoint-2175/checkpoint-oracle-2175.json"
-    )))
-    .unwrap();
-    let indices = oracle["expected_checkpoint_indices"].as_array().unwrap();
-    let roots = oracle["transaction_state_roots"].as_array().unwrap();
-    assert_eq!(indices.len(), roots.len());
-    let checkpoints = indices
-        .iter()
-        .map(|transaction_index| usize::try_from(transaction_index.as_u64().unwrap()).unwrap())
-        .collect();
-
-    (
-        AdmittedBlock {
-            declared_number: block.header.number,
-            claimed_hash: block.header.hash_slow(),
-            claimed_parent_hash: block.header.parent_hash,
-            rlp,
-            witness,
-        },
-        chain_config,
-        checkpoints,
-    )
+fn checkpoint_fixture() -> (AdmittedBlock, Genesis, Vec<usize>) {
+    let (genesis, input, _) = crate::testkit::native_capture("native-osaka-changing-static");
+    let block: Block = alloy_rlp::decode_exact(&input.rlp).unwrap();
+    assert_eq!(block.body.transactions.len(), 2);
+    assert!(matches!(
+        block.body.transactions[0],
+        TransactionSigned::System(_)
+    ));
+    (input, genesis, vec![1])
 }
 
-fn observation_fixture() -> (AdmittedBlock, ChainConfig) {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-observation-26382/block-witness-26382.json"
-    )))
-    .unwrap();
-    let chain_config = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/stateless-observation-26382/chain-config.json"
-    )))
-    .unwrap();
-    let rlp = hex::decode(fixture["rlp"].as_str().unwrap()).unwrap();
-    let witness = serde_json::from_value(fixture["witness"].clone()).unwrap();
-    (
-        AdmittedBlock {
-            declared_number: fixture["declared_number"].as_u64().unwrap(),
-            claimed_hash: serde_json::from_value(fixture["claimed_hash"].clone()).unwrap(),
-            claimed_parent_hash: serde_json::from_value(fixture["claimed_parent_hash"].clone())
-                .unwrap(),
-            rlp,
-            witness,
-        },
-        chain_config,
-    )
+fn observation_fixture() -> (AdmittedBlock, Genesis) {
+    let (genesis, input, _) = crate::testkit::native_capture("native-osaka-lookup");
+    (input, genesis)
 }
 
 fn observation_claim(
@@ -183,18 +120,15 @@ fn observation_claim(
     call_mode: CallMode,
     data: Bytes,
 ) -> FifoObservationClaim {
+    let (_, _, transactions) = crate::testkit::native_capture("native-osaka-lookup");
+    assert_eq!(transactions.len(), 1);
+    let action = &transactions[0].actions[0];
     FifoObservationClaim {
         pinned_block_hash,
         call_mode,
-        // The captured block witness contains this account and the
-        // authenticated `authorizedProxies[target]` lookup made by the
-        // composition inspector. Observation-only reads are covered by the
-        // separate Composer witness-generation regression in eez-driver.
-        target_address: alloy_primitives::address!("91bcb16fadf29d28e6ab93ddef681b2afa54434b"),
-        // This proxy was exercised by the captured block, so the original
-        // execution witness contains its authenticated account proof.
-        source_address: alloy_primitives::address!("44554d844465037c0e0c26a4ef97a5d3a692642c"),
-        source_rollup_id: eez_protocol::RollupId::MAINNET,
+        target_address: action.target_address,
+        source_address: action.source_address,
+        source_rollup_id: action.source_rollup_id,
         data,
         value: U256::ZERO,
         expected_success: false,
@@ -209,9 +143,9 @@ fn validated_observation_fixture() -> (Validator, ValidatedWindow) {
     (validator, window)
 }
 
-fn high_s_system_transaction() -> TransactionSigned {
-    let transaction: TransactionSigned =
-        alloy_rlp::decode_exact(hex::decode(SYSTEM_TX).unwrap()).unwrap();
+fn high_s_user_transaction() -> TransactionSigned {
+    let transaction: reth_ethereum_primitives::TransactionSigned =
+        alloy_rlp::decode_exact(hex::decode(LEGACY_USER_TX).unwrap()).unwrap();
     let signature = transaction.signature();
     let curve_order = U256::from_str_radix(
         "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
@@ -219,7 +153,11 @@ fn high_s_system_transaction() -> TransactionSigned {
     )
     .unwrap();
     let high_s = Signature::new(signature.r(), curve_order - signature.s(), !signature.v());
-    TransactionSigned::new_unhashed(transaction.into_typed_transaction(), high_s)
+    reth_ethereum_primitives::TransactionSigned::new_unhashed(
+        transaction.into_typed_transaction(),
+        high_s,
+    )
+    .into()
 }
 
 fn checkpoint(transaction_index: usize) -> ReplayStateCheckpoint {
@@ -289,18 +227,17 @@ fn prefix_block_hash_rejects_nonempty_eip_7685_requests() {
 }
 
 #[test]
-fn prefix_policy_is_not_applied_when_no_prefix_is_requested() {
+fn ordinary_prefix_base_rejects_unsupported_post_execution_semantics() {
     let block = prefix_test_block(|body| {
         body.withdrawals = Some(Default::default());
         body.withdrawals.as_mut().unwrap().push(Default::default());
         body.ommers.push(Header::default());
     });
 
-    assert!(
-        derive_prefix_block_hashes(&block, &[], &[], true)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(matches!(
+        derive_prefix_block_hashes(&block, &[EthereumReceipt::default()], &[], true),
+        Err(ValidationError::Rejected(_))
+    ));
 }
 
 fn outbound_log(address: Address, call_hash: B256) -> Log {
@@ -438,11 +375,13 @@ fn checkpoint_response_must_match_the_plan_exactly() {
 #[test]
 fn checkpoint_plan_is_derived_from_recovered_transactions() {
     let transaction = || {
-        TxLegacy {
-            to: TxKind::Call(EEZL2_ADDRESS),
-            ..Default::default()
+        eez_primitives::SystemTransaction {
+            chain_id: 1,
+            nonce: 0,
+            to: EEZL2_ADDRESS,
+            value: U256::ZERO,
+            input: Bytes::new(),
         }
-        .into_signed(alloy_primitives::Signature::test_signature())
         .into()
     };
     let block = Block::new(
@@ -467,11 +406,13 @@ fn checkpoint_plan_is_derived_from_recovered_transactions() {
 #[test]
 fn checkpoint_plan_includes_every_inbound_boundary() {
     let transaction = || {
-        TxLegacy {
-            to: TxKind::Call(EEZL2_ADDRESS),
-            ..Default::default()
+        eez_primitives::SystemTransaction {
+            chain_id: 1,
+            nonce: 0,
+            to: EEZL2_ADDRESS,
+            value: U256::ZERO,
+            input: Bytes::new(),
         }
-        .into_signed(alloy_primitives::Signature::test_signature())
         .into()
     };
 
@@ -522,11 +463,11 @@ fn sender_classification_uses_the_configured_system_address() {
 
 #[test]
 fn recovered_sender_facts_follow_the_homestead_signature_rule() {
-    let transaction = high_s_system_transaction();
+    let transaction = high_s_user_transaction();
     assert!(transaction.recover_signer().is_err());
     assert_eq!(
         transaction.recover_signer_unchecked().unwrap(),
-        TEST_SYSTEM_ADDRESS
+        alloy_primitives::address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
     );
     let header = Header {
         number: 7,
@@ -548,7 +489,10 @@ fn recovered_sender_facts_follow_the_homestead_signature_rule() {
         ..Default::default()
     });
     let recovered = recover_block(block.clone(), &pre_homestead).unwrap();
-    assert_eq!(system_sender_flags(&recovered, TEST_SYSTEM_ADDRESS), [true]);
+    assert_eq!(
+        system_sender_flags(&recovered, TEST_SYSTEM_ADDRESS),
+        [false]
+    );
 
     let post_homestead = ChainSpec::from_genesis(Genesis {
         config: ChainConfig {
@@ -562,19 +506,23 @@ fn recovered_sender_facts_follow_the_homestead_signature_rule() {
 
 #[test]
 fn validates_the_golden_block_through_stateless() {
-    let output = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS)
+    let output = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate(&[fixture_input()])
         .unwrap();
-    let root = b256!("f09d8f7da5bc5036f8dd9536c953e2212390a46fb3e553ece2b7d419131537b1");
-
-    assert_eq!(output.pre_state_root, root);
+    let pre_root = b256!("aef3914574a8ead9d2d4487aab6b9f91956009b5dcda7fd47c45ba013f1f93f2");
+    let post_root = b256!("69ac02e15af67cfe45aa22cc1df6fedfe219c1188cd676a988fc6738264ce091");
+    assert_ne!(
+        pre_root, post_root,
+        "an empty block still writes its parent's hash via EIP-2935"
+    );
+    assert_eq!(output.pre_state_root, pre_root);
     assert_eq!(output.blocks.len(), 1);
     let block = &output.blocks[0];
     assert_eq!(
         block.computed_hash,
-        b256!("16b64a78e9b3e0d533cafe81f9121735f6a2c8122c69b0bb5994ee75fe7bface")
+        b256!("d40a8604d1f93838a94c02f4d8b5107fc3e8a7825c31660a60103642fd15cb86")
     );
-    assert_eq!(block.post_state_root, root);
+    assert_eq!(block.post_state_root, post_root);
     assert!(block.receipt_successes.is_empty());
     assert!(block.transaction_state_checkpoints.is_empty());
     assert!(block.settlement_evidence.system_sender_flags.is_empty());
@@ -599,12 +547,9 @@ fn selected_checkpoints_flow_through_the_stateless_adapter() {
         .unwrap();
 
     let block = &output.blocks[0];
-    assert_eq!(
-        block.settlement_evidence.system_sender_flags,
-        [true, true, true]
-    );
+    assert_eq!(block.settlement_evidence.system_sender_flags, [true, false]);
     assert!(
-        block
+        !block
             .settlement_evidence
             .observed_outbound_events
             .is_empty()
@@ -634,20 +579,25 @@ fn authenticated_observation_replay_accepts_exact_static_result() {
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
-    let calldata: Bytes = computeCrossChainProxyAddressCall {
-        originalAddress: Address::repeat_byte(0x55),
-        originalRollupId: 9,
-    }
-    .abi_encode()
-    .into();
-    let mut claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+    let calldata: Bytes = alloy_primitives::keccak256("lastValue()")[..4]
+        .to_vec()
+        .into();
+    let mut claim = observation_claim(
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
+        CallMode::Static,
+        calldata,
+    );
     let outcome = backend
         .replay_observations(&window, std::slice::from_ref(&claim))
         .unwrap()
         .pop()
         .unwrap();
     assert!(outcome.success);
-    assert!(outcome.output.is_empty());
+    assert_eq!(outcome.output.as_ref(), U256::ZERO.to_be_bytes::<32>());
     claim.expected_success = outcome.success;
     claim.expected_output = outcome.output;
 
@@ -660,13 +610,16 @@ fn authenticated_observation_replay_accepts_each_fifo_prefix() {
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
-    let calldata: Bytes = computeCrossChainProxyAddressCall {
-        originalAddress: Address::repeat_byte(0x66),
-        originalRollupId: 11,
-    }
-    .abi_encode()
-    .into();
-    let mut pins = vec![window.settling_pre_block_hash()];
+    let calldata: Bytes = alloy_primitives::keccak256("lastValue()")[..4]
+        .to_vec()
+        .into();
+    let mut pins = vec![
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
+    ];
     pins.extend(
         window
             .settling_block()
@@ -678,7 +631,7 @@ fn authenticated_observation_replay_accepts_each_fifo_prefix() {
         pins.push(window.window_post_block_hash());
     }
     let mut accepted = Vec::new();
-    let mut rejected_cross_chain = 0usize;
+
     for pin in pins {
         let mut claim = observation_claim(pin, CallMode::Static, calldata.clone());
         match backend.replay_observations(&window, std::slice::from_ref(&claim)) {
@@ -688,19 +641,10 @@ fn authenticated_observation_replay_accepts_each_fifo_prefix() {
                 claim.expected_output = outcome.output;
                 accepted.push(claim);
             }
-            Err(ObservationValidationError::Replay(reason))
-                if reason.contains("unsupported nested cross-chain call") =>
-            {
-                // This address is registered as a proxy by a canonical tx in
-                // the fixture. Later prefixes must reject it independently,
-                // which also proves the live prefix state is being used.
-                rejected_cross_chain += 1;
-            }
             Err(error) => panic!("recognized FIFO pin failed unexpectedly: {error}"),
         }
     }
     assert!(!accepted.is_empty());
-    assert!(rejected_cross_chain > 0);
 
     backend.verify_observations(&window, &accepted).unwrap();
 }
@@ -711,13 +655,18 @@ fn authenticated_observation_replay_rejects_forged_success_and_output() {
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
-    let calldata: Bytes = computeCrossChainProxyAddressCall {
-        originalAddress: Address::repeat_byte(0x55),
-        originalRollupId: 9,
-    }
-    .abi_encode()
-    .into();
-    let mut claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+    let calldata: Bytes = alloy_primitives::keccak256("lastValue()")[..4]
+        .to_vec()
+        .into();
+    let mut claim = observation_claim(
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
+        CallMode::Static,
+        calldata,
+    );
     let outcome = backend
         .replay_observations(&window, std::slice::from_ref(&claim))
         .unwrap()
@@ -747,9 +696,15 @@ fn authenticated_observation_replay_binds_mutable_lookup_output() {
         unreachable!()
     };
     let mut claim = observation_claim(
-        window.settling_pre_block_hash(),
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
         CallMode::Mutable,
-        Bytes::from_static(&[0xde, 0xad, 0xbe, 0xef]),
+        alloy_primitives::keccak256("lastValue()")[..4]
+            .to_vec()
+            .into(),
     );
     let outcome = backend
         .replay_observations(&window, std::slice::from_ref(&claim))
@@ -778,12 +733,9 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
-    let calldata: Bytes = computeCrossChainProxyAddressCall {
-        originalAddress: Address::repeat_byte(0x55),
-        originalRollupId: 9,
-    }
-    .abi_encode()
-    .into();
+    let calldata: Bytes = alloy_primitives::keccak256("lastValue()")[..4]
+        .to_vec()
+        .into();
     let unknown = observation_claim(B256::repeat_byte(0xfe), CallMode::Static, calldata.clone());
     assert_eq!(
         backend.verify_observations(&window, &[unknown]),
@@ -793,7 +745,15 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
         })
     );
 
-    let claim = observation_claim(window.settling_pre_block_hash(), CallMode::Static, calldata);
+    let claim = observation_claim(
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
+        CallMode::Static,
+        calldata,
+    );
 
     let mut missing_account = claim.clone();
     missing_account.source_address = Address::repeat_byte(0x77);
@@ -809,7 +769,9 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
 
 #[test]
 fn authenticated_observation_replay_rejects_non_fifo_pins() {
-    let (validator, window) = validated_observation_fixture();
+    let (input, genesis, _) = checkpoint_fixture();
+    let validator = Validator::stateless_for_test(genesis, TEST_SYSTEM_ADDRESS);
+    let window = validator.validate(&[input]).unwrap();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -822,7 +784,11 @@ fn authenticated_observation_replay_rejects_non_fifo_pins() {
     let claims = [
         observation_claim(checkpoint, CallMode::Static, Bytes::new()),
         observation_claim(
-            window.settling_pre_block_hash(),
+            window
+                .settling_block()
+                .block()
+                .settlement_evidence()
+                .ordinary_prefix_hash(),
             CallMode::Static,
             Bytes::new(),
         ),
@@ -839,7 +805,11 @@ fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
         unreachable!()
     };
     let claim = observation_claim(
-        window.settling_pre_block_hash(),
+        window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash(),
         CallMode::Static,
         Bytes::new(),
     );
@@ -859,31 +829,30 @@ fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
 }
 
 #[test]
-fn real_checkpoints_do_not_classify_the_legacy_inbound_selector() {
-    let (mut input, chain_config, _) = checkpoint_fixture();
-    let block_number = input.declared_number;
-    let block_rlp = input.rlp.clone();
-    let mut output = Backend::new(chain_config, TEST_SYSTEM_ADDRESS)
-        .validate_blocks(
-            std::slice::from_mut(&mut input),
-            &CancellationToken::default(),
+fn historical_signed_selectors_do_not_become_native_transactions() {
+    let rlp = hex::decode(
+        include_str!(
+            "../../../tests/fixtures/stateless-checkpoint-2175/checkpoint-block-2175.rlp.hex"
         )
-        .unwrap();
-    let block_output = output.blocks.remove(0);
-    assert_eq!(block_output.receipt_successes, [true, true, true]);
-
-    let validated_block =
-        ValidatedBlock::for_test(block_number, block_rlp, block_output.settlement_evidence);
-    let settling = inspect_validated_settling_block(
-        &validated_block,
-        block_output.receipt_successes.as_slice(),
-        NonZeroU64::new(1).unwrap(),
+        .trim()
+        .trim_start_matches("0x"),
     )
     .unwrap();
-    // The transactions are still genuine system calls and checkpoint inputs,
-    // but their obsolete selector cannot enter the target inbound decoder.
-    assert_eq!(settling.system_sender_flags(), [true, true, true]);
-    assert!(settling.inbound_candidates().is_empty());
+    let block: Block = alloy_rlp::decode_exact(&rlp).unwrap();
+    assert!(
+        block
+            .body
+            .transactions
+            .iter()
+            .all(|transaction| !matches!(transaction, TransactionSigned::System(_)))
+    );
+    assert!(
+        block
+            .body
+            .transactions
+            .iter()
+            .all(|transaction| transaction.recover_signer().unwrap() != TEST_SYSTEM_ADDRESS)
+    );
 }
 
 #[test]
@@ -893,7 +862,7 @@ fn pre_cancelled_validation_does_not_consume_the_witness() {
     let mut input = fixture_input();
     let state_items = input.witness.state.len();
 
-    let result = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS)
+    let result = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate_blocks(std::slice::from_mut(&mut input), &cancellation);
 
     assert!(matches!(result, Err(ValidationError::Cancelled)));
@@ -905,7 +874,7 @@ fn consensus_rlp_must_decode_exactly() {
     let mut input = fixture_input();
     input.rlp.push(0x80);
     assert!(matches!(
-        Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS).validate(&[input]),
+        Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS).validate(&[input]),
         Err(ValidationError::Rejected(_))
     ));
 }
@@ -920,7 +889,7 @@ fn decoded_header_must_match_the_streamed_number_and_parent() {
         let mut input = fixture_input();
         mutate(&mut input);
         assert!(matches!(
-            Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS).validate(&[input]),
+            Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS).validate(&[input]),
             Err(ValidationError::Rejected(_))
         ));
     }
@@ -933,7 +902,7 @@ fn decoded_header_hash_must_match_the_streamed_hash_before_reexecution() {
     let mut node = input.witness.state[0].to_vec();
     node[0] ^= 0x01;
     input.witness.state[0] = node.into();
-    let error = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS)
+    let error = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate(&[input])
         .unwrap_err();
     assert!(matches!(error, ValidationError::Rejected(_)));
@@ -952,7 +921,7 @@ fn execution_must_produce_the_state_root_committed_by_the_header() {
     input.claimed_hash = block.header.hash_slow();
     input.rlp = alloy_rlp::encode(block);
 
-    let error = Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS)
+    let error = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate(&[input])
         .unwrap_err();
 
@@ -969,7 +938,195 @@ fn corrupt_witness_data_is_rejected_by_stateless() {
     node[0] ^= 0x01;
     input.witness.state[0] = node.into();
     assert!(matches!(
-        Backend::new(fixture_chain_config(), TEST_SYSTEM_ADDRESS).validate(&[input]),
+        Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS).validate(&[input]),
         Err(ValidationError::Rejected(_))
     ));
+}
+
+#[test]
+fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint() {
+    use alloy_consensus::TxReceipt as _;
+    use eez_primitives::{EezTxType, SYSTEM_ADDRESS, SystemTransaction};
+
+    // Hand-built two-account MPT: distinct first nibbles yield one branch and
+    // two 63-nibble leaves. Expected nonce/balance roots do not use an EVM or
+    // the checkpoint/reconstruction implementation under test.
+    fn state(
+        user: Address,
+        user_nonce: u64,
+        balance: U256,
+        native_nonce: u64,
+    ) -> (B256, Vec<Bytes>) {
+        #[derive(alloy_rlp::RlpEncodable)]
+        struct Account {
+            nonce: u64,
+            balance: U256,
+            storage_root: B256,
+            code_hash: B256,
+        }
+        let mut branch = vec![Bytes::new(); 17];
+        let mut nodes = Vec::new();
+        for (address, nonce, balance) in [
+            (user, user_nonce, balance),
+            (SYSTEM_ADDRESS, native_nonce, U256::ZERO),
+        ] {
+            let key = keccak256(address);
+            let child = usize::from(key[0] >> 4);
+            assert!(
+                branch[child].is_empty(),
+                "fixture keys need distinct first nibbles"
+            );
+            let mut path = vec![0x30 | (key[0] & 0x0f)];
+            path.extend_from_slice(&key[1..]);
+            let leaf = alloy_rlp::encode(vec![
+                Bytes::from(path),
+                Bytes::from(alloy_rlp::encode(Account {
+                    nonce,
+                    balance,
+                    storage_root: alloy_consensus::EMPTY_ROOT_HASH,
+                    code_hash: alloy_primitives::KECCAK256_EMPTY,
+                })),
+            ]);
+            assert!(leaf.len() >= 32);
+            branch[child] = Bytes::copy_from_slice(keccak256(&leaf).as_slice());
+            nodes.push(leaf.into());
+        }
+        let root = alloy_rlp::encode(branch);
+        let hash = keccak256(&root);
+        nodes.push(root.into());
+        (hash, nodes)
+    }
+
+    let mut genesis = fixture_genesis();
+    genesis.config.chain_id = 1;
+    genesis.timestamp = 80;
+    let schedule = genesis.config.extra_fields.get_mut("rollupX").unwrap();
+    schedule["blockIntervalSeconds"] = 2u64.into();
+    schedule["syncIntervalBlocks"] = 6u64.into();
+    schedule["l1Reference"]["timestamp"] = 80u64.into();
+    let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
+    let user = key.address();
+    let balance = U256::from(1_000_000_000_000_000_000u64);
+    let (pre_root, witness_nodes) = state(user, 0, balance, 7);
+    let parent = Header {
+        number: 10,
+        timestamp: 100,
+        gas_limit: 30_000_000,
+        beneficiary: user,
+        state_root: pre_root,
+        base_fee_per_gas: Some(1_000_000_000),
+        withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
+        parent_beacon_block_root: Some(B256::ZERO),
+        blob_gas_used: Some(0),
+        excess_blob_gas: Some(0),
+        requests_hash: Some(b256!(
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        )),
+        ..Default::default()
+    };
+    let base_fee = parent
+        .next_block_base_fee(eez_protocol::l2::BASE_FEE_PARAMS)
+        .unwrap();
+    let ordinary = TxLegacy {
+        chain_id: Some(1),
+        nonce: 0,
+        gas_limit: 21_000,
+        gas_price: u128::from(base_fee),
+        to: alloy_primitives::TxKind::Call(user),
+        ..Default::default()
+    };
+    let signature = Signature::from(
+        key.credential()
+            .sign_prehash_recoverable(ordinary.signature_hash().as_slice())
+            .unwrap(),
+    );
+    let mut transactions: Vec<TransactionSigned> = vec![ordinary.into_signed(signature).into()];
+    for nonce in [7, 8] {
+        transactions.push(
+            SystemTransaction {
+                chain_id: 1,
+                nonce,
+                to: EEZL2_ADDRESS,
+                value: U256::ZERO,
+                input: Bytes::new(),
+            }
+            .into(),
+        );
+    }
+    let receipts: Vec<_> = [
+        EezTxType::Ethereum(alloy_consensus::TxType::Legacy),
+        EezTxType::System,
+        EezTxType::System,
+    ]
+    .into_iter()
+    .enumerate()
+    .map(|(index, tx_type)| EthereumReceipt {
+        tx_type,
+        success: true,
+        cumulative_gas_used: 21_000 * (index as u64 + 1),
+        logs: Vec::new(),
+    })
+    .collect();
+    let remaining = balance - U256::from(base_fee) * U256::from(21_000);
+    let mut expected = Vec::new();
+    for count in 1..=3 {
+        let prefix_receipts: Vec<_> = receipts[..count]
+            .iter()
+            .map(|receipt| receipt.with_bloom_ref())
+            .collect();
+        expected.push(Header {
+            number: 11,
+            timestamp: 102,
+            parent_hash: parent.hash_slow(),
+            base_fee_per_gas: Some(base_fee),
+            gas_used: 21_000 * count as u64,
+            state_root: state(user, 1, remaining, 6 + count as u64).0,
+            transactions_root: calculate_transaction_root(&transactions[..count]),
+            receipts_root: calculate_receipt_root(&prefix_receipts),
+            ..parent.clone()
+        });
+    }
+    let full = Block::new(
+        expected[2].clone(),
+        alloy_consensus::BlockBody {
+            transactions,
+            withdrawals: Some(Default::default()),
+            ..Default::default()
+        },
+    );
+    let input = AdmittedBlock {
+        declared_number: 11,
+        claimed_hash: expected[2].hash_slow(),
+        claimed_parent_hash: parent.hash_slow(),
+        rlp: alloy_rlp::encode(full),
+        witness: alloy_rpc_types_debug::ExecutionWitness {
+            state: witness_nodes,
+            headers: vec![alloy_rlp::encode(&parent).into()],
+            ..Default::default()
+        },
+    };
+    let output = Backend::new(genesis, SYSTEM_ADDRESS)
+        .validate(&[input])
+        .unwrap();
+    let block = &output.blocks[0];
+    assert_eq!(block.receipt_successes, [true, true, true]);
+    assert_eq!(
+        block.settlement_evidence.system_sender_flags,
+        [false, true, true]
+    );
+    assert_eq!(
+        block.settlement_evidence.ordinary_prefix_hash(),
+        expected[0].hash_slow()
+    );
+    assert_ne!(expected[0].hash_slow(), parent.hash_slow());
+    assert_eq!(
+        block
+            .transaction_state_checkpoints
+            .iter()
+            .map(|checkpoint| (checkpoint.transaction_index, checkpoint.block_hash))
+            .collect::<Vec<_>>(),
+        vec![(1, expected[1].hash_slow()), (2, expected[2].hash_slow())]
+    );
+    assert_eq!(block.post_state_root, expected[2].state_root);
+    assert_eq!(block.computed_hash, expected[2].hash_slow());
 }

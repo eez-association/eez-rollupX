@@ -10,14 +10,17 @@ WORKDIR /cargo/registry
 WORKDIR /cargo/git
 
 FROM scratch AS source
-COPY Cargo.toml Cargo.lock /checkout/
+COPY Cargo.toml Cargo.lock genesis.json /checkout/
 COPY crates /checkout/crates
-COPY vendor /checkout/vendor
 COPY contracts/test/PostBatchGasPins.t.sol /checkout/contracts/test/PostBatchGasPins.t.sol
 COPY .config/nextest.toml /checkout/.config/nextest.toml
 COPY scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh /checkout/scripts/ci/
 
 FROM ${RUST_IMAGE} AS tools
+COPY scripts/ci/install-llvm.sh /usr/local/lib/eez/install-llvm.sh
+RUN bash /usr/local/lib/eez/install-llvm.sh
+ENV LLVM_SYS_221_PREFIX=/usr/lib/llvm-22
+ENV PATH="/usr/lib/llvm-22/bin:${PATH}"
 RUN --network=default apt-get update && apt-get install -y --no-install-recommends \
         clang libclang-dev pkg-config cmake libssl-dev git ca-certificates protobuf-compiler mold curl python3 time rsync \
     && rm -rf /var/lib/apt/lists/*

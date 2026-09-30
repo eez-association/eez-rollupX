@@ -13,13 +13,14 @@ use alloy_primitives::Bytes;
 use alloy_rlp::Encodable;
 use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
 use eez_payload_codec::BlockDaSizer;
+use eez_primitives::engine::EezBuiltPayload;
+use eez_primitives::{EezPrimitives, EezTxEnvelope as TransactionSigned};
 use reth_basic_payload_builder::{
     BuildArguments, BuildOutcome, MissingPayloadBehaviour, PayloadBuilder, PayloadConfig,
 };
 use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
-use reth_ethereum_engine_primitives::{EthBuiltPayload, EthPayloadAttributes};
+use reth_ethereum_engine_primitives::EthPayloadAttributes;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
-use reth_ethereum_primitives::{EthPrimitives, TransactionSigned};
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_node_api::{FullNodeTypes, NodeTypes, PrimitivesTy, TxTy};
 use reth_node_builder::{BuilderContext, PayloadTypes, components::PayloadBuilderBuilder};
@@ -35,10 +36,10 @@ fn data_build_error(message: impl Into<String>) -> PayloadBuilderError {
     PayloadBuilderError::other(std::io::Error::other(message.into()))
 }
 
-fn full_block_item_bytes(block: &impl Encodable) -> usize {
-    // V0 wraps canonical block RLP as a byte string, not a Vec<u8> integer list.
-    // Keep cached, completed and empty payload checks in the same units.
-    alloy_rlp::encode(block).as_slice().length()
+fn ordinary_block_da_bound(block: &impl Encodable) -> usize {
+    // Completed/cached payloads must use the same V0 column units as admission.
+    // Invalid ordinary blocks cannot fit any operational allowance.
+    BlockDaSizer::retained_item_bytes(&alloy_rlp::encode(block)).unwrap_or(usize::MAX)
 }
 
 /// Installed before RPC/payload startup and bound once the composer exists.
@@ -133,7 +134,7 @@ impl EezPayloadBuilder {
 
 impl<Types, Node, Pool, Evm> PayloadBuilderBuilder<Node, Pool, Evm> for EezPayloadBuilder
 where
-    Types: NodeTypes<ChainSpec: reth_chainspec::EthereumHardforks, Primitives = EthPrimitives>,
+    Types: NodeTypes<ChainSpec: reth_chainspec::EthereumHardforks, Primitives = EezPrimitives>,
     Node: FullNodeTypes<Types = Types>,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TxTy<Node::Types>>>
         + Unpin
@@ -141,7 +142,7 @@ where
     Evm: ConfigureEvm<Primitives = PrimitivesTy<Types>, NextBlockEnvCtx = NextBlockEnvAttributes>
         + 'static,
     Types::Payload:
-        PayloadTypes<BuiltPayload = EthBuiltPayload, PayloadAttributes = EthPayloadAttributes>,
+        PayloadTypes<BuiltPayload = EezBuiltPayload, PayloadAttributes = EthPayloadAttributes>,
 {
     type PayloadBuilder = EezRuntimePayloadBuilder<Pool, Node::Provider, Evm>;
 
@@ -174,12 +175,12 @@ pub struct EezRuntimePayloadBuilder<Pool, Client, Evm> {
 
 impl<Pool, Client, Evm> PayloadBuilder for EezRuntimePayloadBuilder<Pool, Client, Evm>
 where
-    Evm: ConfigureEvm<Primitives = EthPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>,
+    Evm: ConfigureEvm<Primitives = EezPrimitives, NextBlockEnvCtx = NextBlockEnvAttributes>,
     Client: StateProviderFactory + ChainSpecProvider<ChainSpec: EthereumHardforks> + Clone,
     Pool: TransactionPool<Transaction: PoolTransaction<Consensus = TransactionSigned>>,
 {
     type Attributes = EthPayloadAttributes;
-    type BuiltPayload = EthBuiltPayload;
+    type BuiltPayload = EezBuiltPayload;
 
     fn try_build(
         &self,
@@ -210,12 +211,11 @@ where
             // cached candidate merely because it paid a higher execution tip.
             args.best_payload = args
                 .best_payload
-                .filter(|p| full_block_item_bytes(p.block()) <= limit);
+                .filter(|p| ordinary_block_da_bound(p.block()) <= limit);
         }
-        let outcome = reth_ethereum_payload_builder::default_ethereum_payload(
+        let outcome = crate::payload_builder::build_payload(
             self.evm_config.clone(),
             self.client.clone(),
-            self.pool.clone(),
             self.config.clone(),
             args,
             |attrs| {
@@ -237,7 +237,7 @@ where
             },
         )?;
         if let (Some(limit), Some(payload)) = (limit, outcome.payload()) {
-            let actual = full_block_item_bytes(payload.block());
+            let actual = ordinary_block_da_bound(payload.block());
             if actual > limit {
                 return Err(data_build_error(format!(
                     "sequencing DA invariant: actual encoded block {actual} exceeds {limit}"
@@ -268,14 +268,25 @@ where
             .map(|g| g.block_limit(&config.parent_header, config.attributes.timestamp))
             .transpose()
             .map_err(data_build_error)?;
-        let inner = reth_ethereum_payload_builder::EthereumPayloadBuilder::new(
-            self.client.clone(),
-            self.pool.clone(),
+        let payload = crate::payload_builder::build_payload(
             self.evm_config.clone(),
+            self.client.clone(),
             self.config.clone(),
-        );
-        let payload = inner.build_empty_payload(config)?;
-        if limit.is_some_and(|n| full_block_item_bytes(payload.block()) > n) {
+            BuildArguments::new(
+                Default::default(),
+                Default::default(),
+                None,
+                config,
+                Default::default(),
+                None,
+            ),
+            |_| -> Box<dyn BestTransactions<Item = Arc<ValidPoolTransaction<Pool::Transaction>>>> {
+                Box::new(std::iter::empty())
+            },
+        )?
+        .into_payload()
+        .ok_or(PayloadBuilderError::MissingPayload)?;
+        if limit.is_some_and(|n| ordinary_block_da_bound(payload.block()) > n) {
             return Err(data_build_error(
                 "empty block exceeds sequencing data budget",
             ));
@@ -347,7 +358,7 @@ mod tests {
     use super::*;
     use alloy_consensus::{TxLegacy, transaction::Recovered};
     use alloy_primitives::{Address, Signature, TxKind, U256};
-    use reth_ethereum_primitives::Transaction;
+    use reth_ethereum_primitives::{Transaction, TransactionSigned};
     use reth_transaction_pool::{
         EthPooledTransaction, TransactionOrigin, identifier::TransactionId,
     };
@@ -360,7 +371,7 @@ mod tests {
     type Tx = Arc<ValidPoolTransaction<EthPooledTransaction>>;
 
     #[test]
-    fn payload_checks_measure_the_v0_byte_string_not_an_integer_list() {
+    fn completed_payload_checks_use_v0_columns_including_empty_blocks() {
         use alloy_consensus::{BlockBody, Header};
 
         for byte in [0, 0x7f, 0x80, 0xff] {
@@ -389,12 +400,26 @@ mod tests {
                             ..Default::default()
                         },
                     );
-                    // Serialize the actual V0 full-block field independently.
-                    let encoded = alloy_rlp::encode(&block);
-                    let expected = alloy_rlp::encode(encoded.as_slice()).len();
-                    let actual = full_block_item_bytes(&block);
+                    use alloy_eips::Encodable2718 as _;
+                    let raw: Vec<Bytes> = block
+                        .body
+                        .transactions
+                        .iter()
+                        .map(|tx| tx.encoded_2718().into())
+                        .collect();
+                    let wire = eez_payload_codec::v0::encode(&[eez_payload_codec::v0::BlockRun {
+                        blocks: 1,
+                        beneficiary: block.header.beneficiary,
+                        extra_data: &block.header.extra_data,
+                        transactions: &raw,
+                    }])
+                    .unwrap();
+                    // The one-block wire has two interval bytes; the per-block
+                    // bound reserves one extra count byte for counts >=128.
+                    let expected = wire.len() - 2 + 1;
+                    let actual = ordinary_block_da_bound(&block);
                     assert_eq!(actual, expected, "byte={byte} length={length}");
-                    assert!(actual <= bound.item_bytes().unwrap());
+                    assert_eq!(actual, bound.item_bytes().unwrap());
                 }
             }
         }

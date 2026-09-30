@@ -1,14 +1,10 @@
-//! Chain-operation payload codecs for the new network.
-//!
-//! Shipping code accepts only the RollupX V0 tag 0/profile 1 format via
-//! [`derivable::Payload`]. Historical formats (including earlier uses of tag 0)
-//! are intentionally unsupported.
+//! Canonical direct V0 ChainOperation payloads for the fresh RollupX network.
+//! Syntax validation does not authorize settlement or establish execution.
 
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
 mod block_size;
 pub use block_size::BlockDaSizer;
 
-/// Derivable ordinary history for the new network.
-pub mod derivable;
-pub use derivable::DerivablePayloadSizer;
+/// Borrowed columnar operations, count tokens and exact producer sizing.
+pub mod v0;

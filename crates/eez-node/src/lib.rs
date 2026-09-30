@@ -56,8 +56,6 @@ const BOOT_CATCH_UP_MAX_RETRY_DELAY: Duration = Duration::from_secs(30);
 /// refused RPC call still surfaces as an exit.
 const BOOT_CATCH_UP_MAX_TRANSPORT_FAILURES: u32 = 32;
 const L1_CHAIN_ID_READ_TIMEOUT: Duration = Duration::from_secs(30);
-const L2_SYSTEM_TX_GAS_PRICE: u128 = 1_000_000_000;
-const L2_SYSTEM_TX_GAS_LIMIT: u64 = 2_000_000;
 
 /// Witness-capture resources selected by the mandatory composer prover.
 enum WitnessCapture {
@@ -387,7 +385,7 @@ async fn run_preparation_worker(
 
 fn ordinary_preparable(block: &eez_prover::BlockWitness, system_address: Address) -> bool {
     use reth_primitives_traits::SignerRecoverable as _;
-    let Ok(block) = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(&block.rlp) else {
+    let Ok(block) = alloy_rlp::decode_exact::<eez_primitives::Block>(&block.rlp) else {
         return true;
     };
     block.body.transactions.iter().all(|transaction| {
@@ -425,7 +423,9 @@ fn preparation_path(
         target,
         stop,
         canonical_floor,
-        eez_payload_codec::derivable::MAX_BLOCKS - 1,
+        // Bound this local witness-preparation walk independently of V0's
+        // u32 wire range. Longer backlogs are prepared in subsequent walks.
+        65_535,
     )
 }
 
@@ -506,14 +506,12 @@ async fn launch_composer(
 
     warn_on_deprecated_env();
     let timing = RollupTiming::from_env()?;
+    let derivation_schedule = eez_evm::profile::schedule(builder.config().chain.as_ref())?;
+    timing.validate_schedule(&derivation_schedule)?;
     let composer_settings = ComposerSettings::from_env(timing)?;
     let rollup_config = RollupConfig::from_env()?;
     let depth = composer_settings.max_speculative_depth();
-    let system_key = env::var("EEZ_L2_SYSTEM_KEY")
-        .map_err(|_| eyre::eyre!("EEZ_L2_SYSTEM_KEY required in composer mode"))?;
-    let system_signer =
-        PrivateKeySigner::from_bytes(&B256::from_str(system_key.trim_start_matches("0x"))?)?;
-    let system_address = system_signer.address();
+    let system_address = eez_primitives::SYSTEM_ADDRESS;
     validate_system_address(system_address)?;
     let expected_identity = eez_control_rpc::identity::ValidationContext {
         rollup_id: std::num::NonZeroU64::new(rollup_config.rollup_id)
@@ -585,6 +583,10 @@ async fn launch_composer(
             }
             l1_embedded::L1ChainKind::Testing => {
                 let node_cfg = l1_embedded::build_testing_node_config(&l1_cfg)?;
+                let genesis_timestamp = l1_cfg.dev_chain_spec.genesis.timestamp;
+                let local_attributes = reth_engine_local::LocalPayloadAttributesBuilder::new(
+                    Arc::clone(&node_cfg.chain),
+                );
                 let db = reth_db::init_db(
                     node_cfg.datadir().db(),
                     reth_db::mdbx::DatabaseArguments::default(),
@@ -603,6 +605,17 @@ async fn launch_composer(
                     .node(EthereumNode::default())
                     .extend_rpc_modules(bundle_rpc::install_dev_bundle_rpc)
                     .launch_with_debug_capabilities()
+                    .with_mining_mode(reth_engine_local::MiningMode::Interval(
+                        l1_embedded::testing_mining_interval(genesis_timestamp)?,
+                    ))
+                    .with_payload_attributes_builder(move |parent: reth_primitives_traits::SealedHeader<alloy_consensus::Header>| {
+                        use reth_node_builder::PayloadAttributesBuilder as _;
+                        let mut attributes = local_attributes.build(&parent);
+                        attributes.timestamp = l1_embedded::testing_slot_timestamp(
+                            genesis_timestamp, parent.timestamp, attributes.timestamp,
+                        ).expect("local testing L1 parent and clock must fit their genesis slot domain");
+                        attributes
+                    })
                     .await?;
                 event!(
                     name: "eez.node.l1_embedded.ready",
@@ -631,6 +644,10 @@ async fn launch_composer(
                      external lighthouse CL must connect to authrpc",
                 );
                 let testing = l1_cfg.kind == l1_embedded::L1ChainKind::TestingGnosis;
+                let genesis_timestamp = l1_cfg.dev_chain_spec.genesis.timestamp;
+                let local_attributes = reth_engine_local::LocalPayloadAttributesBuilder::new(
+                    Arc::clone(&node_cfg.chain),
+                );
                 let chiado_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
                     .with_launch_context(build_l1_runtime()?)
@@ -642,6 +659,20 @@ async fn launch_composer(
                         Ok(())
                     })
                     .launch_with_debug_capabilities()
+                    .with_mining_mode(reth_engine_local::MiningMode::Interval(
+                        l1_embedded::testing_mining_interval(genesis_timestamp)?,
+                    ))
+                    .with_payload_attributes_builder(move |parent: reth_primitives_traits::SealedHeader<reth_primitives_traits::HeaderTy<<reth_gnosis::GnosisNode as reth_node_api::NodeTypes>::Primitives>>| {
+                        use reth_node_builder::PayloadAttributesBuilder as _;
+                        use alloy_consensus::BlockHeader as _;
+                        let mut attributes = local_attributes.build(&parent);
+                        if testing {
+                            attributes.timestamp = l1_embedded::testing_slot_timestamp(
+                                genesis_timestamp, parent.timestamp(), attributes.timestamp,
+                            ).expect("local testing Gnosis parent and clock must fit their genesis slot domain");
+                        }
+                        attributes
+                    })
                     .await?;
                 event!(
                     name: "eez.node.l1_embedded.ready",
@@ -677,9 +708,9 @@ async fn launch_composer(
         rollup_config.rollup_id,
     )));
     let handle = builder
-        .with_types::<EthereumNode>()
+        .with_types::<eez_node_common::EezNode>()
         .with_components(
-            EthereumNode::components()
+            eez_node_common::EezNode::components()
                 // Reorged-out system transactions must not leak from reth's
                 // reinjection path into an ordinary Live block.
                 .pool(
@@ -693,7 +724,12 @@ async fn launch_composer(
                     EezPayloadBuilder::default().with_data_guard(data_guard.clone()),
                 )),
         )
-        .with_add_ons(reth_node_ethereum::node::EthereumAddOns::default())
+        .with_add_ons(eez_node_common::rpc::eez_add_ons(
+            eez_node_common::rpc::EezEthApiBuilder::new(
+                Arc::clone(&l1_head),
+                Arc::clone(&correlations),
+            ),
+        ))
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
@@ -786,7 +822,7 @@ async fn launch_composer(
         // (build_sync_block → reth-evm BlockBuilder). Same chain spec
         // the engine uses, so blocks produced here pass validation
         // when reth ingests them via newPayload.
-        let evm_config = reth_evm_ethereum::EthEvmConfig::new(chain_spec.clone());
+        let evm_config = eez_evm::EezEvmConfig::new(chain_spec.clone());
 
         // Build the cross-chain composer over the mandatory embedded L1.
         // Inlined because the `FullNode` AddOns type resists a typed helper
@@ -822,7 +858,7 @@ async fn launch_composer(
             EmbeddedL1::Ethereum(l1_handle) => {
                 let l1_provider = l1_handle.node.provider.clone();
                 // Source simulation uses the interpreter with the engine's exact chain rules.
-                let l1_evm_config = reth_evm_ethereum::EthEvmConfig::new(
+                let l1_evm_config = eez_evm::EezEvmConfig::for_l1_simulation(
                     l1_handle.node.evm_config.chain_spec().clone(),
                 );
                 LocalChainClient::new_entry(
@@ -957,11 +993,8 @@ async fn launch_composer(
         // ordered mempool submission on plain execution RPCs
         // (dev reth, anvil) detected via JSON-RPC -32601.
         let exec_ctx = Arc::new(eez_composer::CrossChainExecCtx {
-            system_signer,
             eezl2_address,
             l2_chain_id: chain_spec.chain().id(),
-            l2_gas_price: L2_SYSTEM_TX_GAS_PRICE,
-            l2_gas_limit: L2_SYSTEM_TX_GAS_LIMIT,
             l1_provider,
             submitter: submitter.clone(),
             l1_poster_signer,
@@ -995,11 +1028,8 @@ async fn launch_composer(
         let deriver_system_tx_cfg = {
             let ctx = &cross_chain.exec_ctx;
             eez_protocol::system_tx::SystemTxContext {
-                system_signer: ctx.system_signer.clone(),
                 eezl2_address: ctx.eezl2_address,
                 l2_chain_id: ctx.l2_chain_id,
-                l2_gas_price: ctx.l2_gas_price,
-                l2_gas_limit: ctx.l2_gas_limit,
                 this_rollup_id: rollup_id,
             }
         };
@@ -1057,6 +1087,7 @@ async fn launch_composer(
                         store,
                         ws_provider,
                         ws_evm,
+                        Arc::clone(&correlations),
                     ))
                         as Arc<dyn eez_prover::ProvingWitnessSource>),
                     preparation_worker,
@@ -1128,21 +1159,6 @@ async fn launch_composer(
         xchain_fronts.push((spec, port, url, validation_provider, dispatch_address));
     }
 
-    // Deriver: drives BlockCommitter from L1Events (follower +
-    // composer). A wired `SystemTxContext` makes it reconstruct the
-    // same L2 system txs the composer produced (single-source STF).
-    let deriver = Deriver::new(
-        block_committer.clone(),
-        Arc::new(provider.clone()),
-        submitter.reader(),
-        chain_spec,
-        deploy_block,
-        Arc::clone(&l1_head),
-        Arc::clone(&correlations),
-        Some(system_tx_cfg),
-        l2_data_dir,
-    );
-
     // Bind before the L1 wait so port checks see a live front. Submissions are
     // refused until catch-up completes and the watcher owns subsequent blocks.
     let xchain_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1170,7 +1186,28 @@ async fn launch_composer(
     }
 
     let l1_reader = submitter.reader();
-    wait_for_l1_ready(&l1_reader, deploy_block, l1_source_chain_id).await?;
+    wait_for_l1_ready(
+        &l1_reader,
+        deploy_block,
+        l1_source_chain_id,
+        derivation_schedule.config().l1_reference.number,
+    )
+    .await?;
+    // Deriver: drives BlockCommitter from L1Events (follower +
+    // composer). A wired `SystemTxContext` makes it reconstruct the
+    // same L2 system txs the composer produced (single-source STF).
+    let deriver = Deriver::new(
+        block_committer.clone(),
+        Arc::new(provider.clone()),
+        submitter.reader(),
+        chain_spec,
+        deploy_block,
+        Arc::clone(&l1_head),
+        Arc::clone(&correlations),
+        Some(system_tx_cfg),
+    )
+    .await?;
+
     for (expected_chain_id, provider) in &xchain_checks {
         ingress::validate_cross_chain_front(provider, *expected_chain_id).await?;
     }
@@ -1473,6 +1510,37 @@ fn build_embedded_l1_config() -> eyre::Result<l1_embedded::EmbeddedL1Config> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_blocks_are_excluded_from_ordinary_preparation() {
+        let block = eez_primitives::Block {
+            body: eez_primitives::BlockBody {
+                transactions: vec![
+                    eez_primitives::SystemTransaction {
+                        chain_id: 1,
+                        nonce: 0,
+                        to: eez_primitives::EEZL2_ADDRESS,
+                        value: Default::default(),
+                        input: Default::default(),
+                    }
+                    .into(),
+                ],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let witness = eez_prover::BlockWitness {
+            number: 0,
+            hash: block.header.hash_slow(),
+            parent_hash: B256::ZERO,
+            rlp: alloy_rlp::encode(block).into(),
+            witness: Default::default(),
+        };
+        assert!(!ordinary_preparable(
+            &witness,
+            eez_primitives::SYSTEM_ADDRESS
+        ));
+    }
 
     #[test]
     fn preparation_catch_up_walks_exact_durable_ancestry_and_respects_floor() {

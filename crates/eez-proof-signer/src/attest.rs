@@ -46,9 +46,9 @@ impl fmt::Display for NonZeroProofSystemVkey {
 /// attestation configuration. The proof-system vkey is deliberately
 /// independent from the signing address: deployments may register a
 /// proof-system-specific vkey.
-/// The signing address must also differ from the deployment-configured L2
-/// system address, whose key has separate authority to create system
-/// transactions.
+/// The attestation key signs validated public inputs. Native system transactions
+/// use a fixed reserved sender and require no signature or private key. The
+/// attester address must remain distinct from that reserved identity.
 pub(crate) struct Attester {
     #[cfg(test)]
     signing_calls: std::sync::atomic::AtomicUsize,
@@ -98,8 +98,6 @@ impl Attester {
         }
         let signer = EcdsaProofSigner::from_private_key(attestation_private_key)
             .map_err(|_| AttesterConfigError::InvalidPrivateKey)?;
-        // System-transaction signing and public-input attestation are separate
-        // authorities; one key must never confer both capabilities.
         if signer.address() == expected_l2_system_address {
             return Err(AttesterConfigError::ReservedSystemAddress);
         }
@@ -128,7 +126,7 @@ impl Attester {
         self.expected_proof_system
     }
 
-    /// Return the deployment identity excluded from attestation authority.
+    /// Return the reserved native sender excluded from the attestation identity.
     pub(crate) const fn expected_l2_system_address(&self) -> Address {
         self.expected_l2_system_address
     }
@@ -156,7 +154,7 @@ mod tests {
     use alloy_primitives::{address, b256};
 
     use super::*;
-    use crate::testkit::{SYSTEM_PRIVATE_KEY, TEST_SYSTEM_ADDRESS};
+    use crate::testkit::{LEGACY_USER_PRIVATE_KEY, TEST_SYSTEM_ADDRESS};
 
     fn test_proof_system_vkey() -> NonZeroProofSystemVkey {
         NonZeroProofSystemVkey::new(B256::repeat_byte(0x42)).unwrap()
@@ -187,25 +185,28 @@ mod tests {
     }
 
     #[test]
-    fn system_identity_is_selected_by_deployment() {
+    fn attester_does_not_confuse_a_legacy_key_with_native_authority() {
         let attester = Attester::new(
-            SYSTEM_PRIVATE_KEY,
+            LEGACY_USER_PRIVATE_KEY,
             test_proof_system_vkey(),
             test_proof_system(),
             Address::repeat_byte(0xbb),
         )
         .unwrap();
 
-        assert_eq!(attester.address(), TEST_SYSTEM_ADDRESS);
+        assert_eq!(
+            attester.address(),
+            address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+        );
     }
 
     #[test]
-    fn rejects_the_reserved_system_identity_without_exposing_its_key() {
+    fn rejects_a_configured_identity_collision_without_exposing_the_key() {
         let error = Attester::new(
-            SYSTEM_PRIVATE_KEY,
+            LEGACY_USER_PRIVATE_KEY,
             test_proof_system_vkey(),
             test_proof_system(),
-            TEST_SYSTEM_ADDRESS,
+            address!("f39Fd6e51aad88F6F4ce6aB8827279cffFb92266"),
         )
         .unwrap_err();
         let displayed = error.to_string();
@@ -215,6 +216,6 @@ mod tests {
             displayed,
             "attestation key must not derive the reserved L2 system address"
         );
-        assert!(!displayed.contains(&SYSTEM_PRIVATE_KEY.to_string()));
+        assert!(!displayed.contains(&LEGACY_USER_PRIVATE_KEY.to_string()));
     }
 }

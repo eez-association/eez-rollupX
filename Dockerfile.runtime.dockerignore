@@ -1,10 +1,9 @@
 **
 !Cargo.toml
 !Cargo.lock
+!genesis.json
 !crates/
 !crates/**
-!vendor/
-!vendor/**
 !contracts/
 !contracts/test/
 !contracts/test/PostBatchGasPins.t.sol
@@ -18,3 +17,4 @@
 !.config/nextest.toml
 **/target/
 **/.cargo-target.*/
+!scripts/ci/install-llvm.sh

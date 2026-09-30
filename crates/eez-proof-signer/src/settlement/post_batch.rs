@@ -134,11 +134,13 @@ impl<'a> CheckedPublicInputProfile<'a> {
         &self,
         proof_system_vkey: NonZeroProofSystemVkey,
         transaction_blob_hashes: &[B256],
+        posting_context: eez_protocol::public_inputs::L1PostingContext,
     ) -> Result<RecomputedPublicInputsHash, PublicInputError> {
         let hashes = public_inputs_hashes_with_blob_hashes(
             self.canonical_batch.as_batch(),
             proof_system_vkey.get(),
             transaction_blob_hashes,
+            posting_context,
         )
         .map_err(|error| PublicInputError::Computation(error.to_string()))?;
         let [hash] = hashes.as_slice() else {
@@ -171,7 +173,7 @@ pub(crate) fn recompute_public_input_hash(
 ) -> Result<B256, PublicInputError> {
     let canonical = CanonicalPostBatch(batch.clone());
     CheckedPublicInputProfile::new(&canonical, expected_rollup_id, expected_proof_system)?
-        .recompute_public_inputs_hash(proof_system_vkey, &[])
+        .recompute_public_inputs_hash(proof_system_vkey, &[], crate::testkit::l1_target())
         .map(RecomputedPublicInputsHash::into_inner)
 }
 
@@ -274,9 +276,9 @@ fn validate_public_input_structure(
         )));
     }
 
-    if batch.blockNumber != 0 {
+    if batch.blockNumber != u64::MAX {
         return Err(invalid_structure(format!(
-            "blockNumber must be zero, got {}",
+            "blockNumber must be uint64.max, got {}",
             batch.blockNumber
         )));
     }

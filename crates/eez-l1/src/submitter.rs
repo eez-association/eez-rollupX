@@ -326,24 +326,21 @@ async fn rpc_block<P: Provider>(
         .map_err(|error| L1Error::Provider(format!("get_block_by_number({number}): {error}")))
 }
 
-/// Select the first slot with room for preparation and submission slack.
-/// Read the clock after the head RPC so its latency consumes the budget.
-/// Builder lead opens the dispatch window; it is not a minimum preparation
-/// duration (on Chiado it can exceed an entire slot).
+/// Select the first unexpired slot for the observed head's immediate child.
+/// Native proofs bind the parent hash, so an estimate cannot select a future
+/// execution height whose parent is still unknown. Missing slots retain the
+/// existing bounded replacement allowance; a changed head requires a new proof.
 async fn select_policy_target<P: Provider, C: Clock>(
     provider: &P,
     timing: SubmissionTiming,
-    preparation_time: Duration,
     clock: &C,
 ) -> L1Result<BundleTarget> {
     let tip = rpc_block(provider, BlockNumberOrTag::Latest)
         .await?
         .ok_or_else(|| L1Error::Provider("policy target L1 head is unavailable".into()))?;
     let now_ms = clock.now_unix_ms()?;
-    let preparation_ms = duration_millis("policy preparation time", preparation_time)?;
     let ready_ms = now_ms
-        .checked_add(preparation_ms)
-        .and_then(|value| value.checked_add(timing.deadline_slack_ms))
+        .checked_add(timing.deadline_slack_ms)
         .ok_or_else(|| L1Error::Provider("policy preparation deadline overflow".into()))?;
     let tip_ms = tip
         .header
@@ -355,10 +352,15 @@ async fn select_policy_target<P: Provider, C: Clock>(
     let offset = (ready_ms.saturating_sub(tip_ms) / timing.l1_block_time_ms)
         .checked_add(1)
         .ok_or_else(|| L1Error::Provider("policy target offset overflow".into()))?;
+    if offset > MAX_MISSING_SLOT_REPLACEMENTS + 1 {
+        return Err(L1Error::Provider(
+            "policy target missing-slot allowance exhausted".into(),
+        ));
+    }
     let block = tip
         .header
         .number
-        .checked_add(offset)
+        .checked_add(1)
         .ok_or_else(|| L1Error::Provider("policy target height overflow".into()))?;
     let timestamp_ms = offset
         .checked_mul(timing.l1_block_time_ms)
@@ -368,10 +370,10 @@ async fn select_policy_target<P: Provider, C: Clock>(
     event!(name: "eez.submitter.policy.target_selected", Level::INFO,
         event_name = "eez.submitter.policy.target_selected",
         head_number = tip.header.number, head_timestamp = tip.header.timestamp,
-        selected_at_ms = now_ms, preparation_ms,
+        selected_at_ms = now_ms,
         submission_slack_ms = timing.deadline_slack_ms,
-        target_block = block, target_timestamp = timestamp, block_offset = offset,
-        "selected earliest policy target with preparation and submission time");
+        target_block = block, target_timestamp = timestamp, slot_offset = offset,
+        "selected policy target with a known canonical parent");
     Ok(BundleTarget::Exact { block, timestamp })
 }
 
@@ -696,45 +698,25 @@ impl Submitter {
         self.inner.config.poster.address()
     }
 
-    /// Choose the earliest feasible target before policy evaluation and proof
-    /// preparation, reserving the caller's existing proof-time budget and the
-    /// network's submission slack. A timely historical batch can target the
-    /// immediate next L1 block without the legacy one-block cushion.
-    /// Exact timestamp pinning rejects skipped slots through the normal retry
-    /// path instead of silently moving the policy deadline at send time.
-    pub async fn next_policy_target(&self, preparation_time: Duration) -> L1Result<BundleTarget> {
+    /// Pin the next execution height to the observed canonical parent and the
+    /// earliest unexpired slot. Preparation/proving share that slot's deadline;
+    /// a timing estimate cannot authorize a proof with an unknown parent hash.
+    pub async fn next_policy_target(&self) -> L1Result<BundleTarget> {
         select_policy_target(
             &self.inner.target_provider,
             self.inner.submission_timing,
-            preparation_time,
             &SystemClock,
         )
         .await
     }
 
-    /// Pin a deferred target before proving, retaining the existing two-block
-    /// offset. The signer and sender must use the same fork timestamp. Skipped
-    /// slots fail the exact-target check and are retried with a fresh proof.
+    /// Resolve deferred proof work against a known canonical parent. Already
+    /// pinned targets are retained; a changed target requires a new proof.
     pub async fn resolve_target(&self, target: BundleTarget) -> L1Result<BundleTarget> {
-        if matches!(target, BundleTarget::Exact { .. }) {
-            return Ok(target);
+        match target {
+            BundleTarget::Exact { .. } => Ok(target),
+            BundleTarget::NextBlock => self.next_policy_target().await,
         }
-        let tip = rpc_block(&self.inner.target_provider, BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| L1Error::Provider("latest L1 block is unavailable".into()))?;
-        let block = tip
-            .header
-            .number
-            .checked_add(NEXT_BLOCK_SLACK)
-            .ok_or_else(|| L1Error::Provider("L1 target block overflow".into()))?;
-        let timestamp = self
-            .inner
-            .submission_timing
-            .l1_block_time_secs()
-            .checked_mul(NEXT_BLOCK_SLACK)
-            .and_then(|offset| tip.header.timestamp.checked_add(offset))
-            .ok_or_else(|| L1Error::Provider("L1 target timestamp overflow".into()))?;
-        Ok(BundleTarget::Exact { block, timestamp })
     }
 
     /// Submit only after the caller has recorded the exact target.
@@ -1757,9 +1739,10 @@ mod tests {
     #[tokio::test]
     async fn deferred_proof_target_is_pinned_once_with_the_network_slot_time() {
         for slot_secs in [5, 12] {
+            let tip_time = super::SystemClock.now_unix_ms().unwrap().div_ceil(1_000);
             let (url, server) = rpc_server(
                 vec![serde_json::json!({
-                    "result": mock_block(41, PIN, B256::ZERO)
+                    "result": mock_block(41, tip_time, B256::ZERO)
                 })],
                 false,
             )
@@ -1775,8 +1758,8 @@ mod tests {
             assert_eq!(
                 target,
                 BundleTarget::Exact {
-                    block: 43,
-                    timestamp: PIN + 2 * slot_secs
+                    block: 42,
+                    timestamp: tip_time + slot_secs
                 }
             );
             let requests = server.await.unwrap();
@@ -2897,20 +2880,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn policy_target_uses_the_first_slot_with_a_complete_preparation_budget() {
-        for (slot_ms, proof_ms, slack_ms) in [(5_000, 1_500, 700), (12_000, 4_000, 500)] {
+    async fn policy_proof_target_keeps_a_known_canonical_parent() {
+        for (slot_ms, slack_ms) in [(5_000, 700), (12_000, 500)] {
             let timing = SubmissionTiming::new(
                 Duration::from_millis(slot_ms),
                 Duration::from_millis(7_500),
                 Duration::from_millis(slack_ms),
             )
             .unwrap();
-            let cutoff = slot_ms - proof_ms - slack_ms;
+            // Include the incident's late preparation point and exact deadline
+            // equality. Missing slots advance time, never the unknown height.
+            let cutoff = slot_ms - slack_ms;
             for (elapsed_ms, offset) in [
                 (0, 1),
+                (3_000, 1),
                 (cutoff - 1, 1),
                 (cutoff, 2),
-                (cutoff + 1, 2),
                 (slot_ms, 2),
                 (3 * slot_ms + cutoff, 5),
             ] {
@@ -2918,18 +2903,13 @@ mod tests {
                 replies.push_success(&mock_block(100, PIN, B256::with_last_byte(1)));
                 let provider = ProviderBuilder::new().connect_mocked_client(replies);
                 let clock = FakeClock::new(PIN * 1_000 + elapsed_ms);
-                let target = super::select_policy_target(
-                    &provider,
-                    timing,
-                    Duration::from_millis(proof_ms),
-                    &clock,
-                )
-                .await
-                .unwrap();
+                let target = super::select_policy_target(&provider, timing, &clock)
+                    .await
+                    .unwrap();
                 assert_eq!(
                     target,
                     BundleTarget::Exact {
-                        block: 100 + offset,
+                        block: 101,
                         timestamp: PIN + offset * slot_ms / 1_000,
                     },
                     "slot={slot_ms}, elapsed={elapsed_ms}"
@@ -2967,14 +2947,9 @@ mod tests {
                 replies.push_success(&head); // canonical parent before final pricing
                 replies.push_success(&head); // head recheck at dispatch window
                 let provider = ProviderBuilder::new().connect_mocked_client(replies);
-                let target = super::select_policy_target(
-                    &provider,
-                    timing,
-                    Duration::from_millis(1_500),
-                    &clock,
-                )
-                .await
-                .unwrap();
+                let target = super::select_policy_target(&provider, timing, &clock)
+                    .await
+                    .unwrap();
                 clock.sleep(Duration::from_millis(1_500)).await;
                 assert!(
                     super::prepare_policy_submission(&provider, target, timing, &clock)
@@ -2998,31 +2973,26 @@ mod tests {
         replies.push_success(&serde_json::Value::Null);
         let provider = ProviderBuilder::new().connect_mocked_client(replies);
         assert!(
-            super::select_policy_target(&provider, timing(5_000), Duration::ZERO, &clock)
+            super::select_policy_target(&provider, timing(5_000), &clock)
                 .await
                 .unwrap_err()
                 .to_string()
                 .contains("head is unavailable")
         );
-        for (height, timestamp, now_ms, preparation) in [
-            (u64::MAX, PIN, PIN * 1_000, Duration::ZERO),
-            (100, u64::MAX, PIN * 1_000, Duration::ZERO),
-            (100, PIN, u64::MAX, Duration::ZERO),
-            (100, PIN, PIN * 1_000, Duration::MAX),
-            (100, u64::MAX / 1_000, 0, Duration::ZERO),
+        for (height, timestamp, now_ms) in [
+            (u64::MAX, PIN, PIN * 1_000),
+            (100, u64::MAX, PIN * 1_000),
+            (100, PIN, u64::MAX),
+            (100, PIN, PIN * 1_000 + 5 * 5_000),
+            (100, u64::MAX / 1_000, 0),
         ] {
             let replies = Asserter::new();
             replies.push_success(&mock_block(height, timestamp, B256::ZERO));
             let provider = ProviderBuilder::new().connect_mocked_client(replies);
             assert!(
-                super::select_policy_target(
-                    &provider,
-                    timing(5_000),
-                    preparation,
-                    &FakeClock::new(now_ms),
-                )
-                .await
-                .is_err()
+                super::select_policy_target(&provider, timing(5_000), &FakeClock::new(now_ms),)
+                    .await
+                    .is_err()
             );
         }
     }
@@ -3039,14 +3009,9 @@ mod tests {
                 replies.push_success(&mock_block(100, PIN + 5, B256::with_last_byte(2)));
             }
             let provider = ProviderBuilder::new().connect_mocked_client(replies);
-            let target = super::select_policy_target(
-                &provider,
-                timing(5_000),
-                Duration::from_millis(1_500),
-                &clock,
-            )
-            .await
-            .unwrap();
+            let target = super::select_policy_target(&provider, timing(5_000), &clock)
+                .await
+                .unwrap();
             if late_preparation {
                 clock.sleep(Duration::from_millis(2_500)).await;
             }

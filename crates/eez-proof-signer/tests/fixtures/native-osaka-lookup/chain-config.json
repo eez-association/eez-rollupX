@@ -1,0 +1,32 @@
+{
+  "berlinBlock": 0,
+  "byzantiumBlock": 0,
+  "cancunTime": 0,
+  "chainId": 1,
+  "constantinopleBlock": 0,
+  "daoForkSupport": false,
+  "eip150Block": 0,
+  "eip155Block": 0,
+  "eip158Block": 0,
+  "homesteadBlock": 0,
+  "istanbulBlock": 0,
+  "londonBlock": 0,
+  "mergeNetsplitBlock": 0,
+  "osakaTime": 0,
+  "petersburgBlock": 0,
+  "pragueTime": 0,
+  "rollupX": {
+    "blockIntervalSeconds": 1,
+    "l1Reference": {
+      "chainId": 1337,
+      "hash": "0x1a90b530c539c838af434dce828b3cfe4bb49add850be89c5543cc9da0d504c6",
+      "number": 0,
+      "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+      "timestamp": 1790619799
+    },
+    "syncIntervalBlocks": 5
+  },
+  "shanghaiTime": 0,
+  "terminalTotalDifficulty": 0,
+  "terminalTotalDifficultyPassed": true
+}

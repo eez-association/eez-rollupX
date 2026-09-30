@@ -7,14 +7,13 @@
 
 use std::{error::Error, fs, str::FromStr as _};
 
-use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{B256, Bytes, U256, hex, keccak256};
 use alloy_sol_types::SolCall as _;
 use eez_blob_codec::{
     BLOB_BYTES, Blob, MAX_BLOBS_PER_TRANSACTION, blob_kzg_commitments, blob_versioned_hashes,
     decode_native_payload,
 };
-use eez_protocol::abi::postAndVerifyBatchCall;
+use eez_protocol::abi::{ProofSystemBatchPerVerificationEntriesSol, postAndVerifyBatchCall};
 use eez_protocol::{CallMode, ExecutionOutcome};
 use serde_json::{Value, json};
 
@@ -133,6 +132,8 @@ fn run() -> Result<(), Box<dyn Error>> {
         return Err(format!("batch does not prove expected rollup {rollup_id}").into());
     }
 
+    let settlement_claim = settlement_claim(&posted.batch, rollup_id)?;
+
     let sidecars = required(sidecar_response, "/data")?
         .as_array()
         .ok_or("beacon blob response data is not an array")?;
@@ -205,63 +206,21 @@ fn run() -> Result<(), Box<dyn Error>> {
     let native = decode_native_payload(&selected_blobs, rollup_id)?;
     let semantic_transactions =
         eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
-    let payload = eez_payload_codec::derivable::Payload::decode(&native.operations)?;
-    let mut payload_blocks = Vec::with_capacity(payload.block_count());
-    let mut block_tx_counts = Vec::with_capacity(payload.block_count());
-    let mut payload_transaction_hashes = Vec::new();
-    for plan in payload.blocks() {
-        use eez_payload_codec::derivable::BlockPlan;
-        match plan {
-            BlockPlan::Derived {
-                position,
-                environment,
-                transactions,
-            } => {
-                block_tx_counts.push(transactions.len());
-                payload_transaction_hashes
-                    .extend(transactions.iter().map(|raw| keccak256(raw).to_string()));
-                payload_blocks.push(json!({
-                    "number": payload.first_block_number() + position as u64,
-                    "representation": "derived",
-                    "transaction_count": transactions.len(),
-                    "timestamp_step_seconds": environment.timestamp_step_seconds,
-                    "fee_recipient": environment.fee_recipient,
-                    "prev_randao": environment.prev_randao,
-                    "gas_limit": environment.gas_limit,
-                    "extra_data": environment.extra_data,
-                    "parent_beacon_root": environment.cancun_parent_beacon_root,
-                    "execution_verified": false,
-                }));
-            }
-            BlockPlan::Full {
-                position,
-                rlp,
-                terminal,
-            } => {
-                let block = alloy_rlp::decode_exact::<reth_ethereum_primitives::Block>(rlp)
-                    .map_err(|error| format!("decode full block {position}: {error}"))?;
-                block_tx_counts.push(block.body.transactions.len());
-                payload_transaction_hashes.extend(
-                    block
-                        .body
-                        .transactions
-                        .iter()
-                        .map(|tx| keccak256(tx.encoded_2718()).to_string()),
-                );
-                payload_blocks.push(json!({
-                    "number": block.header.number,
-                    "representation": if terminal { "terminal" } else { "full" },
-                    "hash": block.header.hash_slow(),
-                    "parent_hash": block.header.parent_hash,
-                    "timestamp": block.header.timestamp,
-                    "state_root": block.header.state_root,
-                    "transaction_count": block.body.transactions.len(),
-                    "rlp_bytes": rlp.len(),
-                    "execution_verified": false,
-                }));
-            }
-        }
-    }
+    let payload = eez_payload_codec::v0::Payload::decode(&native.operations)?;
+    // Report supplied runs rather than expanding an attacker-declared empty
+    // span. No block heights or hashes can be authenticated by syntax alone.
+    let count_runs = payload
+        .count_runs()
+        .map(|run| {
+            json!({
+                "blocks": run.blocks, "transactions_per_block": run.transactions_per_block,
+            })
+        })
+        .collect::<Vec<_>>();
+    let payload_transaction_hashes = payload
+        .transactions()
+        .map(|raw| keccak256(raw).to_string())
+        .collect::<Vec<_>>();
     let blob_indices = posted
         .batch
         .blobIndices
@@ -321,8 +280,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             "blob_versioned_hashes": transaction_blob_hashes,
             "kzg_commitments": selected_commitments,
             "abi_call_data_bytes": posted.batch.callData.len(),
+            "settlement_claim": settlement_claim,
             "payload": {
                 "bytes": native.operations.len(),
+                "operations": format!("0x{}", hex::encode(&native.operations)),
                 "semantic_transaction_count": semantic_transactions.len(),
                 "semantic_action_count": semantic_transactions
                     .iter()
@@ -334,16 +295,38 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .collect::<Vec<_>>(),
                 "semantic_transactions": semantic_details,
                 "block_count": payload.block_count(),
-                "block_tx_counts": block_tx_counts,
-                "blocks": payload_blocks,
+                "count_runs": count_runs,
+                "execution_verified": false,
                 "transaction_count": payload_transaction_hashes.len(),
                 "transaction_hashes": payload_transaction_hashes,
-                "l2_entry_count": payload.l2_entries().len(),
-                "outbound_group_sizes": payload.outbound_group_sizes(),
             }
         }))?
     );
     Ok(())
+}
+
+// These are calldata claims, not evidence that every deferred effect settled.
+// Consumers must bind them to canonical execution before using the window.
+fn settlement_claim(
+    batch: &ProofSystemBatchPerVerificationEntriesSol,
+    rollup_id: u64,
+) -> Result<Value, Box<dyn Error>> {
+    let anchor = batch.entries.first().ok_or("batch has no anchor")?;
+    if !eez_protocol::settlement::is_root_only_entry(anchor, rollup_id) {
+        return Err("batch does not start with the expected rollup's root-only anchor".into());
+    }
+    let pre = anchor.rootUpdates[0].currentRoot;
+    let mut previous = pre;
+    for entry in &batch.entries {
+        let [update] = entry.rootUpdates.as_slice() else {
+            return Err("evidence supports exactly one rollup update per entry".into());
+        };
+        if update.rollupId != rollup_id || update.currentRoot != previous {
+            return Err("batch has a foreign or discontinuous commitment chain".into());
+        }
+        previous = update.newRoot;
+    }
+    Ok(json!({"pre_block_hash": pre, "post_block_hash": previous}))
 }
 
 fn required<'a>(value: &'a Value, pointer: &str) -> Result<&'a Value, Box<dyn Error>> {
@@ -386,4 +369,50 @@ fn decode_hex_string(raw: &str, field: &str) -> Result<Bytes, Box<dyn Error>> {
         .strip_prefix("0x")
         .ok_or_else(|| format!("{field} is missing its 0x prefix"))?;
     Ok(hex::decode(hexadecimal)?.into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eez_protocol::{
+        EntryRollingHash,
+        abi::{ExecutionEntrySol, RootUpdateSol},
+    };
+
+    #[test]
+    fn settlement_endpoints_require_the_forks_continuous_single_rollup_chain() {
+        let pre = B256::repeat_byte(1);
+        let post = B256::repeat_byte(2);
+        let anchor = ExecutionEntrySol {
+            rootUpdates: vec![RootUpdateSol {
+                rollupId: 1,
+                currentRoot: pre,
+                newRoot: post,
+                etherDelta: eez_protocol::abi::EtherDeltaSol::ZERO,
+            }],
+            destinationRollupId: 1,
+            success: true,
+            rollingHash: EntryRollingHash::seed_for_l1([(1, pre)], B256::ZERO).current(),
+            ..Default::default()
+        };
+        let mut batch = ProofSystemBatchPerVerificationEntriesSol {
+            entries: vec![anchor.clone()],
+            ..Default::default()
+        };
+        assert_eq!(
+            settlement_claim(&batch, 1).unwrap(),
+            json!({
+                "pre_block_hash": pre, "post_block_hash": post,
+            })
+        );
+        assert!(settlement_claim(&batch, 2).is_err());
+        batch.entries.push(anchor);
+        assert!(settlement_claim(&batch, 1).is_err());
+        batch.entries[1].rootUpdates[0].currentRoot = post;
+        assert!(settlement_claim(&batch, 1).is_ok());
+        batch.entries[1].rootUpdates[0].rollupId = 2;
+        assert!(settlement_claim(&batch, 1).is_err());
+        batch.entries.clear();
+        assert!(settlement_claim(&batch, 1).is_err());
+    }
 }

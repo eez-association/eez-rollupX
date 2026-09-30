@@ -1,2 +1,0 @@
-# Review patches must retain upstream context and removed whitespace verbatim.
-*.patch -whitespace

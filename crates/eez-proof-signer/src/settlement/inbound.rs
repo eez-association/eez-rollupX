@@ -4,10 +4,10 @@ use std::fmt;
 use std::num::NonZeroU64;
 
 use alloy_primitives::{Address, B256, Bytes, I256, U256};
-use alloy_sol_types::{SolCall as _, SolValue as _};
+use alloy_sol_types::SolCall as _;
 use eez_protocol::abi::{ExecutionEntrySol, executeIncomingCrossChainCallCall};
-use eez_protocol::entries::{NestedPairDirection, verify_nested_pair};
-use eez_protocol::system_tx::{check_entry_shape, committed_l2_table_value, lift_entry_from_l2};
+use eez_protocol::entries::{InboundSidecar, NestedPairDirection, verify_nested_pair};
+use eez_protocol::system_tx::{committed_l2_table_value, lift_entry_from_l2};
 use eez_protocol::{CallHashInput, CallMode, RollupId, common_cross_chain_call_hash};
 use thiserror::Error;
 
@@ -26,17 +26,22 @@ pub(crate) struct InboundObservation {
 }
 
 /// Sidecar wrapper whose diagnostics and equality use canonical ABI bytes.
-pub(super) struct DerivedInboundDaEntry(ExecutionEntrySol);
+pub(super) struct DerivedInboundDaEntry(InboundSidecar);
 
 impl DerivedInboundDaEntry {
     /// Borrow the typed entry for canonical Sync reconstruction.
     pub(super) fn as_entry(&self) -> &ExecutionEntrySol {
+        self.0.as_abi_entry()
+    }
+
+    /// Retain the checked type through canonical transaction reconstruction.
+    pub(super) fn as_sidecar(&self) -> &InboundSidecar {
         &self.0
     }
 
     /// Encode the exact wire identity expected in `l2Entries`.
     pub(super) fn encoded(&self) -> Vec<u8> {
-        self.0.abi_encode()
+        self.0.encoded()
     }
 }
 
@@ -170,11 +175,12 @@ pub(super) fn inspect_inbound_candidate(
         });
     }
     let derived_da_entry = lift_entry_from_l2(entry, RollupId(expected_rollup_id.get()));
-    if check_entry_shape(&derived_da_entry, "inbound").is_err() {
-        return Err(InboundObservationError::InvalidEntryShape {
-            field: "executionTable",
-        });
-    }
+    let derived_da_entry =
+        InboundSidecar::for_rollup(&derived_da_entry, RollupId(expected_rollup_id.get())).map_err(
+            |_| InboundObservationError::InvalidEntryShape {
+                field: "executionTable",
+            },
+        )?;
     Ok(InboundObservation {
         recomputed_call_hash,
         value: inner.value,

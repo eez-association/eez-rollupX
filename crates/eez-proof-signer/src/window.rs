@@ -116,8 +116,8 @@ impl AdmittedBlock {
 /// Structurally admitted Composer header and its submitted settlement calldata.
 ///
 /// Every decoded header field is charged against the payload quota. Admission
-/// then discards the non-authoritative Composer `public_inputs_hash` and the
-/// checked-empty L1 block hash. The retained calldata remains untrusted until
+/// retains exact-decoded parent provenance and L1 target claims. These remain
+/// unauthenticated until independently checked on L1. The calldata remains untrusted until
 /// settlement validation succeeds. The rollup claim is held separately only
 /// long enough for the service to compare it with operator configuration.
 pub(crate) struct AdmittedHeader {
@@ -128,7 +128,8 @@ pub(crate) struct AdmittedHeader {
     /// Untrusted physical blobs retained for KZG and native semantic-profile
     /// validation inside the settlement worker.
     pub(crate) submitted_blobs: Vec<Vec<u8>>,
-    pub(crate) posting_context: eez_control_rpc::v1::L1PostingContext,
+    pub(crate) posting_context: eez_protocol::public_inputs::L1PostingContext,
+    pub(crate) parent_provenance: eez_protocol::l2::ParentProvenance,
 }
 
 /// A complete, structurally checked window ready for backend validation.
@@ -238,8 +239,10 @@ pub(crate) enum WindowError {
     MissingPostBatch,
     #[error("post batch is missing the required L1 posting context")]
     MissingPostingContext,
-    #[error("header post_batch carries a {actual}-byte l1_block_hash; it must be empty")]
-    NonemptyL1BlockHash { actual: usize },
+    #[error("missing or noncanonical parent provenance")]
+    InvalidParentProvenance,
+    #[error("post batch has an invalid L1 execution context")]
+    InvalidPostingContext,
     #[error("invalid window bounds {from}..={to}")]
     InvalidBounds { from: u64, to: u64 },
     #[error("window {from}..={to} spans {span} blocks, limit is {max}")]
@@ -345,7 +348,7 @@ impl WindowAssembler<false> {
         Ok(Self {
             limits,
             accounted_payload_bytes,
-            accounted_witness_items: 0,
+            accounted_witness_items: header.parent_provenance.live_slot_endpoints.len() + 1,
             claimed_rollup_id,
             header,
             declared_block_count,
@@ -403,27 +406,59 @@ impl WindowAssembler<false> {
             from_block: declared_from_block,
             to_block: declared_to_block,
             post_batch: submitted_post_batch,
+            parent_provenance,
         } = header;
+        let supplied = parent_provenance.ok_or(WindowError::InvalidParentProvenance)?;
+        let items = supplied
+            .live_slot_endpoint_headers_rlp
+            .len()
+            .saturating_add(1);
+        if items > limits.witness_items {
+            return Err(WindowError::WitnessItemLimit {
+                attempted: items,
+                max: limits.witness_items,
+            });
+        }
+        let decode = |bytes: Vec<u8>| -> Result<alloy_consensus::Header, WindowError> {
+            // Bounds work before RLP decoding, independently of protobuf quotas.
+            // Osaka headers with at most 32 extra bytes are far below this cap.
+            if bytes.len() > 1024 {
+                return Err(WindowError::InvalidParentProvenance);
+            }
+            let header = alloy_rlp::decode_exact(&bytes)
+                .map_err(|_| WindowError::InvalidParentProvenance)?;
+            if alloy_rlp::encode(&header) != bytes {
+                return Err(WindowError::InvalidParentProvenance);
+            }
+            Ok(header)
+        };
+        let parent_provenance = eez_protocol::l2::ParentProvenance {
+            parent: decode(supplied.parent_header_rlp)?,
+            accepted_l1_number: supplied.accepted_l1_number,
+            live_slot_endpoints: supplied
+                .live_slot_endpoint_headers_rlp
+                .into_iter()
+                .map(decode)
+                .collect::<Result<_, _>>()?,
+        };
         let submitted_post_batch = submitted_post_batch.ok_or(WindowError::MissingPostBatch)?;
         // List every wire field explicitly so schema additions require a
         // deliberate retention, validation, or discard decision here.
         let PostBatch {
-            // This non-authoritative Composer claim is deliberately ignored.
-            // Only a locally recomputed hash authorized by every pipeline gate
-            // may be signed.
-            public_inputs_hash: _composer_claimed_public_inputs_hash,
-            l1_block_hash: submitted_l1_block_hash,
             abi_calldata: submitted_post_batch_calldata,
             blobs: submitted_blobs,
             posting_context,
         } = submitted_post_batch;
         let posting_context = posting_context.ok_or(WindowError::MissingPostingContext)?;
-        let l1_block_hash_len = submitted_l1_block_hash.len();
-        if l1_block_hash_len != 0 {
-            return Err(WindowError::NonemptyL1BlockHash {
-                actual: l1_block_hash_len,
-            });
+        let posting_context = eez_protocol::public_inputs::L1PostingContext {
+            chain_id: posting_context.chain_id,
+            parent_number: posting_context.parent_number,
+            parent_hash: B256::try_from(posting_context.parent_hash.as_slice())
+                .map_err(|_| WindowError::InvalidPostingContext)?,
+            target_timestamp: posting_context.target_timestamp,
         }
+        .validate()
+        .map_err(|_| WindowError::InvalidPostingContext)?;
         if declared_from_block == 0 || declared_from_block > declared_to_block {
             return Err(WindowError::InvalidBounds {
                 from: declared_from_block,
@@ -434,7 +469,7 @@ impl WindowAssembler<false> {
         let span = declared_to_block - declared_from_block + 1;
         // An operator quota cannot enlarge the operations format. Enforce the
         // logical ceiling at header admission, before retaining any witnesses.
-        let effective_max = limits.blocks.min(eez_payload_codec::derivable::MAX_BLOCKS);
+        let effective_max = limits.blocks.min(u32::MAX as usize);
         let max_blocks = effective_max as u64;
         if span > max_blocks {
             return Err(WindowError::BlockLimit {
@@ -455,6 +490,7 @@ impl WindowAssembler<false> {
                 submitted_post_batch_calldata,
                 submitted_blobs,
                 posting_context,
+                parent_provenance,
             },
             declared_block_count,
         })

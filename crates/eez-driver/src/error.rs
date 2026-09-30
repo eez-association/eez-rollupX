@@ -43,6 +43,8 @@ pub(crate) enum ErrorKind {
     /// Sequencer's snapshotted `parent_hash` no longer matches
     /// `last_header`. Caller retries next tick.
     StaleParent { expected: B256, actual: B256 },
+    /// The same parent acquired a new authenticated descendant seed.
+    StaleContext { parent: B256 },
 }
 
 impl DriverError {
@@ -82,6 +84,10 @@ impl DriverError {
         Self::new(ErrorKind::StaleParent { expected, actual })
     }
 
+    pub(crate) fn stale_context(parent: B256) -> Self {
+        Self::new(ErrorKind::StaleContext { parent })
+    }
+
     fn new(kind: ErrorKind) -> Self {
         Self { kind }
     }
@@ -102,8 +108,11 @@ impl DriverError {
     /// Sequencer's snapshot was stale by the time the actor checked;
     /// caller should retry on the next tick.
     #[must_use]
-    pub fn is_stale_parent(&self) -> bool {
-        matches!(self.kind, ErrorKind::StaleParent { .. })
+    pub fn is_stale_candidate(&self) -> bool {
+        matches!(
+            self.kind,
+            ErrorKind::StaleParent { .. } | ErrorKind::StaleContext { .. }
+        )
     }
 }
 
@@ -137,6 +146,12 @@ impl fmt::Display for DriverError {
             }
             ErrorKind::TimingConfig(detail) => {
                 write!(f, "RollupTiming misconfig: {detail}")
+            }
+            ErrorKind::StaleContext { parent } => {
+                write!(
+                    f,
+                    "execution context changed for parent {parent}; rebuild the candidate"
+                )
             }
             ErrorKind::StaleParent { expected, actual } => {
                 write!(

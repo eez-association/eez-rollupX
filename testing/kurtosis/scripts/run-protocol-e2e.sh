@@ -60,6 +60,16 @@ load_deployment_artifact "$deploy_dir"
 set -a
 source "$deploy_dir/deployments.env"
 set +a
+if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
+    : "${EEZ_L2_GENESIS:?set the deployed L2 genesis path for execution-prefix replay}"
+else
+    EEZ_L2_GENESIS="$deploy_dir/l2-genesis.json"
+fi
+[[ -f "$EEZ_L2_GENESIS" && -r "$EEZ_L2_GENESIS" ]] || {
+    echo "L2 genesis is not a readable file: $EEZ_L2_GENESIS" >&2
+    exit 1
+}
+export EEZ_L2_GENESIS
 
 ROLLUPS="${ROLLUPS:-$EEZ_REGISTRY_ADDRESS}"
 MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4200000000000000000000000000000000000007}}"

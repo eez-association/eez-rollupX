@@ -262,15 +262,17 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
     failed._entries[0].success = false;
     assert_eq!(
         inspect(&failed),
-        None,
-        "terminal destination reverts are valid"
+        Some(InboundObservationError::InvalidEntryShape {
+            field: "executionTable"
+        }),
+        "failed outer deliveries are rejected at the checked conversion"
     );
 
     let mut reverted = call.clone();
     reverted._entries[0].incomingCalls[0].revertNextNCalls = 1;
     assert_eq!(inspect(&reverted), None);
 
-    // Nested rows and the final rolling hash require the complementary L1
+    // Nested rows and their final rolling hash require the complementary L1
     // table for validation, so candidate inspection retains them for the
     // pair authorizer instead of rejecting them at the calldata boundary.
     let mut nested = call.clone();
@@ -287,16 +289,16 @@ fn inbound_candidate_requires_the_exact_l2_shape_and_rolling_hash() {
         inspect_inbound_candidate(value, &nested.abi_encode(), true, expected_rollup_id()).is_ok()
     );
 
-    let mut deferred_rolling_check = call.clone();
-    deferred_rolling_check._entries[0].rollingHash = B256::repeat_byte(0xaa);
+    let mut invalid_flat_rolling_hash = call.clone();
+    invalid_flat_rolling_hash._entries[0].rollingHash = B256::repeat_byte(0xaa);
     assert!(
         inspect_inbound_candidate(
             value,
-            &deferred_rolling_check.abi_encode(),
+            &invalid_flat_rolling_hash.abi_encode(),
             true,
             expected_rollup_id()
         )
-        .is_ok()
+        .is_err()
     );
 
     let mut wrong_source_rollup = call;
@@ -451,11 +453,11 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
         vec![observed_inbound_candidate(0, U256::ZERO, true)],
         Vec::new(),
     );
-    let conflicting_plan = effect_plan(&outbound_batch, &conflicting);
     assert_eq!(
-        verify_inbound_effect_entries(&conflicting_plan).err(),
-        Some(InboundEffectError::UnexpectedCandidate {
-            transaction_index: 0,
+        verify_effect_prefix(&outbound_batch, B256::ZERO, &[], &conflicting).err(),
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 1,
+            observed: 0
         })
     );
 
@@ -486,7 +488,13 @@ fn inbound_effect_entries_reject_missing_extra_or_invalid_observations() {
     assert!(
         matches!(
             failed_error,
-            InboundEffectError::CallHashMismatch { entry_index: 1, .. }
+            InboundEffectError::InvalidObservation {
+                entry_index: 1,
+                source: InboundObservationError::InvalidEntryShape {
+                    field: "executionTable"
+                },
+                ..
+            }
         ),
         "unexpected error: {failed_error:?}"
     );

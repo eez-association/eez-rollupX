@@ -79,6 +79,12 @@ pulls the Ethereum client images. It can take several minutes. The command retur
 after Kurtosis has deployed the contracts and started the network services. It
 leaves the enclave running.
 
+Before deployment, startup waits up to 30 minutes for the canonical L1 RPC to
+return a finalized block. That block supplies the native L2 genesis reference;
+an open RPC port alone is insufficient. If finality stays unavailable, startup
+fails before deployment broadcasts. The deployment script still validates the
+header and genesis commitments; it never substitutes `latest` for `finalized`.
+
 ### 3. Check the deployment
 
 ```bash
@@ -495,16 +501,19 @@ retaining real inclusion, KZG, decoded payload and correlation assertions. Set
 omits explorer checks. Native Beacon/KZG verification remains required.
 
 Independent protocol checks require L1/L2 `debug` APIs, including raw blocks,
-receipts and intermediate execution roots. Mined raw transactions missing from
+receipts, execution witnesses and chain configuration. Lookup-prefix replay also
+requires the deployed `EEZ_L2_GENESIS` file; the collector checks its genesis hash
+and configuration against the node before replay. Kurtosis supplies this file
+from the deployment artifact. Mined raw transactions missing from
 `eth_getRawTransactionByHash` are recovered from the exact raw-block position
 and must hash to the expected canonical transaction before matching blob data.
 Retain transaction lookup indexes and receipt/state history in the L1 client;
 a pruned snapshot can otherwise appear healthy until in-memory caches disappear
 on restart. Rebuilding an index does not restore already-pruned history.
 
-Replay additionally requires `EEZ_L2_GENESIS`, `EEZ_L1_CHAIN_CONFIG` (`chiado`
-for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the deployed
-`EEZ_L2_SYSTEM_KEY`. Use the actual proof/slack timing values when supplied.
+Fresh-follower replay also requires `EEZ_L1_CHAIN_CONFIG` (`chiado`
+for this network), the actual `EEZ_L2_BLOCK_TIME_MS`, and the fixed native
+`EEZ_L2_SYSTEM_ADDRESS` (`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`). Use the actual proof/slack timing values when supplied.
 An existing canonical post satisfies wave bootstrap readiness; each measured
 wave still counts only posts occurring after its own baseline. State-ordering
 checks wait for canonical safe L2 receipts before recording their Sync height:
@@ -731,13 +740,24 @@ Missing or orphaned L2 blocks fail verification; they do not count as absence.
 Shared lookup tables are matched by one exact scenario key, not by total table
 size. The L1 lookup verifiers require a canonical call trace proving the exact
 proxy/registry call and returned or reverted bytes. Intermediate L2 pins are
-reconstructed from transaction-prefix headers and anchored to the blob's
-terminal block. These CI-only, RPC-backed checks require L1
-`debug_traceTransaction` and L2 `debug_getRawBlock`, `debug_getRawReceipts` and
-`debug_intermediateRoots` (already available in the test topology). Replay state
-roots come from the test node; this is integration evidence, not a separate
-stateless proof. Do not expose debug APIs publicly for this purpose. Raw trace,
-prefix input and selected-root evidence are retained for diagnosis.
+reconstructed from transaction-prefix headers, including the position before
+its first transaction. V0 operations carry counts and ordinary transaction
+bytes, not block headers: the collector binds the calldata's endpoint claims to
+canonical L2 blocks and checks their height difference against the V0 count.
+A successful L1 posting alone does not establish that every deferred effect
+settled.
+
+These CI-only checks require L1 `debug_traceTransaction` and L2
+`debug_getRawBlock`, `debug_getRawReceipts`, `debug_executionWitnessByBlockHash`
+and `debug_chainConfig` (available in the test topology). The helper runs
+Stateless with the native L2 EVM, verifies the full block and receipts, and
+reconstructs prefix headers from replayed roots. The empty prefix includes
+pre-execution state updates; the parent block's state root cannot replace it.
+Chain configuration and canonicality still come from the test-node RPCs, so
+this is integration evidence and does not authorize a production proof.
+Do not expose debug APIs publicly for this purpose. Raw trace, witness/prefix
+input and selected-root evidence are retained for diagnosis. The helper's
+regressions run in the release unit-test archive.
 
 After updating the protocol pin, regenerate the committed genesis artifacts
 with `bash scripts/update-eezl2-genesis.sh` and verify them with `--check`.

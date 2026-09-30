@@ -3,8 +3,10 @@
 use std::num::NonZeroU64;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
+use alloy_eips::Decodable2718 as _;
 use alloy_primitives::{Address, B256, Bytes, I256, Signature, U256, address, b256};
 use alloy_sol_types::{SolCall as _, SolValue as _};
+use eez_primitives::{BlockBody, EezTxEnvelope as TransactionSigned};
 use eez_protocol::EvmBatch;
 use eez_protocol::abi::{
     EtherDeltaSol, ExecutionEntrySol, ExpectedL1ToL2CallSol, ExpectedRootPerRollupSol,
@@ -19,36 +21,31 @@ use eez_protocol::{
     CallHashInput, CallMode, EntryRollingHash, RollupId, common_cross_chain_call_hash,
     l2_outbound_call_hash,
 };
-use reth_ethereum_primitives::{BlockBody, TransactionSigned};
 use reth_primitives_traits::{BlockBody as _, SignerRecoverable as _};
 
 use crate::testkit::{
-    SYSTEM_PRIVATE_KEY, SYSTEM_TX, TEST_SYSTEM_ADDRESS, checkpoint, system_transaction_context,
-    test_proof_system_vkey,
+    SYSTEM_TX, TEST_SYSTEM_ADDRESS, checkpoint, system_transaction_context, test_proof_system_vkey,
 };
 use crate::validate::{OutboundEventObservation, SettlementBlockEvidence, ValidatedBlock};
 
 use super::{
     AuthorizedInboundEffects, AuthorizedOutboundEffects, BlobDaError, BlockInspectionError,
     BoundEffectSequence, CanonicalPostBatch, CheckedPublicInputProfile, ClaimedEntryShape,
-    DaPayloadError, EffectPrefixError, EthereumBlock, InboundCandidate, InboundEffectError,
+    DaPayloadError, EezBlock, EffectPrefixError, InboundCandidate, InboundEffectError,
     InboundObservationError, ObservedEffectKind, OutboundEffectError, OutboundLoadCandidate,
     PostBatchDecodeError, PublicInputError, RootUpdateChainError, SettlingBlockObservations,
-    SystemTransactionKey, authorize_inbound_effects as authorize_inbound_effects_for_rollup,
+    authorize_inbound_effects as authorize_inbound_effects_for_rollup,
     authorize_outbound_effects as authorize_outbound_effects_for_rollup, bind_effects_to_execution,
-    decode_canonical_post_batch, encode_da_payload, encode_grouped_da_payload,
-    inspect_inbound_candidate, inspect_settling_block, inspect_validated_settling_block,
-    recompute_public_input_hash, verify_da_carrier,
-    verify_da_payload_for_test as verify_da_payload, verify_no_intermediate_system_transactions,
-    verify_root_update_chain, verify_validated_intermediate_blocks,
+    decode_canonical_post_batch, encode_da_payload, inspect_inbound_candidate,
+    inspect_settling_block, inspect_validated_settling_block, recompute_public_input_hash,
+    verify_da_carrier, verify_no_intermediate_system_transactions, verify_root_update_chain,
+    verify_validated_intermediate_blocks,
 };
 
 const EXPECTED_PROOF_SYSTEM: Address = address!("00000000000000000000000000000000000000aa");
 
 fn system_transactions() -> super::SystemTransactionReconstructor {
-    SystemTransactionKey::new(SYSTEM_PRIVATE_KEY, TEST_SYSTEM_ADDRESS)
-        .unwrap()
-        .into_reconstructor(1, NonZeroU64::new(1).unwrap())
+    super::SystemTransactionReconstructor::new(1, NonZeroU64::new(1).unwrap())
 }
 
 fn build_inbound_transactions(
@@ -56,11 +53,55 @@ fn build_inbound_transactions(
     context: &eez_protocol::system_tx::SystemTxContext,
     starting_nonce: u64,
 ) -> Vec<TransactionSigned> {
-    eez_protocol::system_tx::build_inbound_system_txs(entries, context, starting_nonce)
+    let entries = entries
+        .iter()
+        .map(|entry| eez_protocol::entries::InboundSidecar::try_from(entry).unwrap())
+        .collect::<Vec<_>>();
+    eez_protocol::system_tx::build_inbound_system_txs(&entries, context, starting_nonce)
         .unwrap()
         .into_iter()
-        .map(|raw| alloy_rlp::decode_exact(raw.as_ref()).unwrap())
+        .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
         .collect()
+}
+
+/// Supply explicit synthetic replay facts to the actual V0 settlement gate.
+fn verify_da_payload<'a>(
+    payload: &[u8],
+    preceding: impl ExactSizeIterator<Item = (u64, &'a [u8])>,
+    terminal: (u64, &'a [u8]),
+    outbound: &AuthorizedOutboundEffects,
+    inbound: &AuthorizedInboundEffects<'_>,
+    reconstructor: &super::SystemTransactionReconstructor,
+) -> Result<(), DaPayloadError> {
+    let convert = |(number, rlp): (u64, &[u8])| {
+        alloy_rlp::decode_exact::<EezBlock>(rlp).map_err(|error| {
+            DaPayloadError::InvalidBlockRlp {
+                block_number: number,
+                reason: error.to_string(),
+            }
+        })?;
+        Ok(ValidatedBlock::for_test(
+            number,
+            rlp.to_vec(),
+            SettlementBlockEvidence::from_rlp_for_test(rlp),
+        ))
+    };
+    let preceding = preceding
+        .map(convert)
+        .collect::<Result<Vec<_>, DaPayloadError>>()?;
+    let terminal = crate::validate::ValidatedSettlingBlock::for_test(
+        convert(terminal)?,
+        Vec::new(),
+        Vec::new(),
+    );
+    let window = crate::validate::ValidatedWindow::for_test(
+        B256::ZERO,
+        B256::ZERO,
+        B256::ZERO,
+        preceding,
+        terminal,
+    );
+    super::verify_da_payload(payload, &window, outbound, inbound, reconstructor)
 }
 
 fn verify_anchor_only_da_payload<'a>(
@@ -94,6 +135,7 @@ fn expected_rollup_id() -> NonZeroU64 {
 
 fn carrier_batch() -> CanonicalPostBatch {
     let batch = EvmBatch {
+        blockNumber: u64::MAX,
         proofSystems: vec![EXPECTED_PROOF_SYSTEM],
         rollupIdsWithProofSystems: vec![rollup_row(1)],
         ..Default::default()
@@ -128,6 +170,7 @@ fn state_entry(rollup_id: u64, current: B256, new: B256) -> ExecutionEntrySol {
 
 fn state_chain(roots: &[B256]) -> CanonicalPostBatch {
     let batch = EvmBatch {
+        blockNumber: u64::MAX,
         entries: roots
             .windows(2)
             .map(|pair| state_entry(1, pair[0], pair[1]))
@@ -189,7 +232,7 @@ fn settling_with_effect_candidates(
         .max()
         .map_or(0, |position| position + 1);
     let observations =
-        SettlingBlockObservations::for_test(vec![false; transactions], Vec::new(), Vec::new());
+        SettlingBlockObservations::for_test(vec![true; transactions], Vec::new(), Vec::new());
     assert_eq!(
         observations.effect_candidate_positions(),
         effect_candidate_positions
@@ -454,10 +497,10 @@ fn expected_call() -> ExpectedL1ToL2CallSol {
 }
 
 fn transaction(encoded: &str) -> TransactionSigned {
-    alloy_rlp::decode_exact(hex::decode(encoded).unwrap()).unwrap()
+    TransactionSigned::decode_2718_exact(&hex::decode(encoded).unwrap()).unwrap()
 }
 
-/// Build a canonically signed system transaction carrying the current inbound ABI.
+/// Build a canonical native system transaction carrying the current inbound ABI.
 fn target_system_inbound_transaction() -> TransactionSigned {
     let calldata = strict_inbound_calldata(U256::ZERO, true);
     let observation =
@@ -496,7 +539,7 @@ fn block_rlp(transactions: Vec<TransactionSigned>) -> Vec<u8> {
         transactions,
         ..Default::default()
     };
-    alloy_rlp::encode(EthereumBlock::new(Default::default(), body))
+    alloy_rlp::encode(EezBlock::new(Default::default(), body))
 }
 
 fn validated_block(number: u64, rlp: Vec<u8>, system_senders: Vec<bool>) -> ValidatedBlock {
@@ -513,7 +556,7 @@ fn block_and_payload_transactions(transactions: Vec<TransactionSigned>) -> (Vec<
         ..Default::default()
     };
     let payload_transactions = body.encoded_2718_transactions_iter().collect();
-    let block = EthereumBlock::new(Default::default(), body);
+    let block = EezBlock::new(Default::default(), body);
     (alloy_rlp::encode(block), payload_transactions)
 }
 

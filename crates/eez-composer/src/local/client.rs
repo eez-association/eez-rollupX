@@ -8,9 +8,9 @@
 use std::sync::Arc;
 
 use alloy_primitives::Address;
-use reth_ethereum_primitives::TransactionSigned;
+use eez_evm::EezEvmConfig;
+use eez_primitives::EezTxEnvelope as TransactionSigned;
 use reth_evm::{ConfigureEvm, Evm as _};
-use reth_evm_ethereum::EthEvmConfig;
 use reth_primitives_traits::SignerRecoverable;
 use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::{
@@ -93,7 +93,7 @@ impl std::fmt::Debug for LocalChainClient {
 }
 
 impl LocalChainClient {
-    fn build_chain_provider<P>(provider: &P, evm_config: EthEvmConfig) -> ChainProvider
+    fn build_chain_provider<P>(provider: &P, evm_config: EezEvmConfig) -> ChainProvider
     where
         P: StateProviderFactory
             + HeaderProvider<Header = alloy_consensus::Header>
@@ -117,7 +117,7 @@ impl LocalChainClient {
     /// Build an entry-role client.
     pub fn new_entry<P>(
         provider: P,
-        evm_config: EthEvmConfig,
+        evm_config: EezEvmConfig,
         rollup_id: RollupId,
         dispatch_address: Address,
         dialect: eez_protocol::ChainDialect,
@@ -160,7 +160,8 @@ impl LocalChainClient {
             + Sync
             + 'static,
     {
-        let evm_config = EthEvmConfig::new(Arc::new(config.chain_spec().inner.clone()));
+        let evm_config =
+            EezEvmConfig::for_l1_simulation(Arc::new(config.chain_spec().inner.clone()));
         let mut cp = Self::build_chain_provider(&provider, evm_config);
         cp.gnosis_evm_config = Some(config);
         Arc::new(Self {
@@ -181,7 +182,7 @@ impl LocalChainClient {
     /// state.
     pub fn new_entry_sharing_overlay<P>(
         provider: P,
-        evm_config: EthEvmConfig,
+        evm_config: EezEvmConfig,
         rollup_id: RollupId,
         dispatch_address: Address,
         dialect: eez_protocol::ChainDialect,
@@ -213,7 +214,7 @@ impl LocalChainClient {
     /// Build a follower-role client.
     pub fn new_follower<P>(
         provider: P,
-        evm_config: EthEvmConfig,
+        evm_config: EezEvmConfig,
         rollup_id: RollupId,
         dispatch_address: Address,
         dialect: eez_protocol::ChainDialect,
@@ -293,7 +294,7 @@ impl LocalChainClient {
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
         state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
+        evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
     ) -> ExecutorResult<bool> {
         self.simulate_source_tx_on_with_retries(raw_tx, dispatcher, state, evm_env, false)
             .map(|result| result.success)
@@ -306,7 +307,7 @@ impl LocalChainClient {
         raw_tx: Vec<u8>,
         dispatcher: &mut CompositionBuilder,
         state: &mut State<StateProviderDatabase<EvmStateProviderAdapter<StateProviderBox>>>,
-        evm_env: reth_evm::EvmEnvFor<EthEvmConfig>,
+        evm_env: reth_evm::EvmEnvFor<EezEvmConfig>,
         retry_unavailable_conditions: bool,
     ) -> ExecutorResult<SourceSimulation> {
         use alloy_eips::eip2718::Decodable2718;
@@ -478,7 +479,7 @@ mod tests {
         let signature = signer()
             .sign_transaction_sync(&mut tx)
             .expect("sign test transaction");
-        let signed = TransactionSigned::new_unhashed(
+        let signed = reth_ethereum_primitives::TransactionSigned::new_unhashed(
             reth_ethereum_primitives::Transaction::Legacy(tx),
             signature,
         );
@@ -504,7 +505,8 @@ mod tests {
             REVERTER,
             ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("63deadbeef6000526004601cfd")),
         );
-        let evm_config = EthEvmConfig::new(Arc::new(ChainSpecBuilder::mainnet().build()));
+        let evm_config =
+            EezEvmConfig::for_l1_simulation(Arc::new(ChainSpecBuilder::mainnet().build()));
         LocalChainClient::new_entry(
             provider,
             evm_config,
@@ -652,7 +654,7 @@ mod tests {
             );
             let client = LocalChainClient::new_entry(
                 provider,
-                EthEvmConfig::new(Arc::new(ChainSpecBuilder::mainnet().build())),
+                EezEvmConfig::for_l1_simulation(Arc::new(ChainSpecBuilder::mainnet().build())),
                 RollupId::MAINNET,
                 Address::ZERO,
                 eez_protocol::ChainDialect::EvmL1Style,

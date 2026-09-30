@@ -1,5 +1,10 @@
 # Derivable ChainOperation: implementation contract
 
+Current-network contract (2026-09-28): [native transactions and direct V0](native-system-transactions.md)
+supersedes the historical wire/environment/system-transaction descriptions below.
+The old envelope is not a runtime option. Earlier validation remains evidence for
+its recorded revision only; current validation is in the linked implementation audit.
+
 Wire revision (2026-09-22): [two-byte RollupX V0](two-byte-da-v0.md) supersedes
 this document's tag-3 wire shape, sparse-record framing, terminal/entry
 integer-list wrappers and u16 transaction ceiling. The active format is tag

@@ -9,7 +9,6 @@ use std::{
 
 use alloy_eips::Decodable2718;
 use alloy_primitives::Bytes;
-use alloy_rlp::Encodable;
 use eez_driver::RollupTiming;
 use eez_l1::BundleTarget;
 
@@ -589,79 +588,32 @@ impl Attempt {
     }
 }
 
-/// Incremental upper bound for the indivisible terminal Sync block. Earlier
-/// history is handled by the existing exact encoding / historical-drain path.
-/// Unknown execution header fields and RLP prefixes are rounded up. Transaction,
-/// metadata and semantic bytes use their actual wire encodings, without padding.
+/// Exact terminal operations plus incrementally encoded semantic messages.
+/// Native transactions and outbound origin bytes are reconstructed from those
+/// messages; counting them again as DA would reintroduce the removed full block.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct BlobAdmission {
-    header_and_body: usize,
-    transaction_items: usize,
-    transaction_count: usize,
-    overhead: DaOverhead,
+    operations_bytes: usize,
+    semantic_bytes: usize,
     pub companion_blobs: u64,
 }
 
-fn list_len(items: usize) -> Result<usize, String> {
-    items
-        .checked_add(
-            alloy_rlp::Header {
-                list: true,
-                payload_length: items,
-            }
-            .length(),
-        )
-        .ok_or_else(|| "admission RLP size overflow".into())
-}
-
 impl BlobAdmission {
-    pub fn new(mut empty: reth_ethereum_primitives::Block) -> Self {
-        // These fields are only known after final execution. Maximal encodings
-        // bound the full block byte string. The remaining header fields are fixed by
-        // the same parent and next-block attributes as the canonical builder.
-        empty.header.gas_used = u64::MAX;
-        empty.header.state_root = alloy_primitives::B256::repeat_byte(0xff);
-        empty.header.receipts_root = alloy_primitives::B256::repeat_byte(0xff);
-        empty.header.transactions_root = alloy_primitives::B256::repeat_byte(0xff);
-        empty.header.logs_bloom = alloy_primitives::Bloom::repeat_byte(0xff);
-        if let Some(hash) = &mut empty.header.requests_hash {
-            *hash = alloy_primitives::B256::repeat_byte(0xff);
-        }
-        if let Some(blob_gas) = &mut empty.header.blob_gas_used {
-            *blob_gas = u64::MAX;
-        }
-        let header = alloy_rlp::encode(&empty.header);
-        let body_lists = 1 + usize::from(empty.body.withdrawals.is_some());
+    pub fn new(empty: eez_primitives::Block) -> Self {
+        // The caller passes the successfully built empty Sync block. Its fixed
+        // builder metadata and zero transactions always fit the V0 column bounds.
+        let operations_bytes = eez_driver::derivation::operations_size(&empty)
+            .and_then(|summary| Ok(summary.encoded_len()?))
+            .expect("built empty Sync block has valid V0 metadata");
         Self {
-            // Empty ommers, plus an empty withdrawals list when present. The
-            // synthetic Sync builder never adds ommers or withdrawals.
-            header_and_body: header.len() + body_lists,
-            transaction_items: 0,
-            transaction_count: 0,
-            overhead: DaOverhead::default(),
+            operations_bytes,
+            semantic_bytes: 0,
             companion_blobs: 0,
         }
     }
 
-    pub fn extend(
-        &self,
-        txs: &[Bytes],
-        overhead: DaOverhead,
-        companion: Option<&Bytes>,
-    ) -> Result<Self, String> {
+    pub fn extend(&self, overhead: DaOverhead, companion: Option<&Bytes>) -> Result<Self, String> {
         let mut next = *self;
-        next.transaction_count = next
-            .transaction_count
-            .checked_add(txs.len())
-            .ok_or("admission transaction count overflow")?;
-        for raw in txs {
-            let tx = alloy_consensus::TxEnvelope::decode_2718(&mut raw.as_ref())
-                .map_err(|e| format!("admission transaction decode: {e}"))?;
-            next.transaction_items = next
-                .transaction_items
-                .checked_add(tx.length())
-                .ok_or("admission transaction size overflow")?;
-        }
         if let Some(raw) = companion {
             use alloy_consensus::Transaction;
             let tx = alloy_consensus::TxEnvelope::decode_2718(&mut raw.as_ref())
@@ -674,18 +626,7 @@ impl BlobAdmission {
                 )
                 .ok_or("admission companion blob count overflow")?;
         }
-        next.overhead.entry_items = next
-            .overhead
-            .entry_items
-            .checked_add(overhead.entry_items)
-            .ok_or("admission entry size overflow")?;
-        next.overhead.group_items = next
-            .overhead
-            .group_items
-            .checked_add(overhead.group_items)
-            .ok_or("admission group size overflow")?;
-        next.overhead.semantic_bytes = next
-            .overhead
+        next.semantic_bytes = next
             .semantic_bytes
             .checked_add(overhead.semantic_bytes)
             .ok_or("admission semantic size overflow")?;
@@ -693,32 +634,12 @@ impl BlobAdmission {
     }
 
     pub fn stream_bytes(&self) -> Result<usize, String> {
-        let block_payload = self
-            .header_and_body
-            .checked_add(list_len(self.transaction_items)?)
-            .ok_or("admission block size overflow")?;
-        // One list prefix for the block RLP, one byte-string prefix for its
-        // operations field. Both prefixes have the same length at this size.
-        let block_item = list_len(list_len(block_payload)?)?;
-        let payload = eez_payload_codec::DerivablePayloadSizer::default()
-            .encoded_len_from_items(
-                &eez_payload_codec::derivable::Environment::unused(),
-                block_item,
-                self.overhead.entry_items,
-                self.overhead.group_items,
-            )
-            .map_err(|e| e.to_string())?;
-        eez_blob_codec::native_stream_len(payload, self.overhead.semantic_bytes)
+        eez_blob_codec::native_stream_len(self.operations_bytes, self.semantic_bytes)
             .map_err(|e| e.to_string())
     }
 
     pub fn fits(&self, blobs: usize) -> Result<bool, String> {
-        // Count the complete group, including generated system transactions.
-        // A refusal uses the same whole-group deferral as a byte-cap refusal.
-        Ok(
-            self.transaction_count <= eez_payload_codec::derivable::MAX_TRANSACTIONS
-                && self.required_blobs()? <= blobs,
-        )
+        Ok(self.required_blobs()? <= blobs)
     }
 
     pub fn required_blobs(&self) -> Result<usize, String> {
@@ -736,33 +657,29 @@ mod tests {
     use alloy_primitives::{B256, Signature, U256};
 
     #[test]
-    fn terminal_count_limit_counts_extensions_without_mutating_the_previous_budget() {
-        let raw = Bytes::from(signed(0, true).encoded_2718());
-        let mut budget = BlobAdmission::new(Default::default());
-        budget.transaction_count = eez_payload_codec::derivable::MAX_TRANSACTIONS - 1;
-        let fitting = budget
-            .extend(std::slice::from_ref(&raw), DaOverhead::default(), None)
+    fn terminal_admission_counts_semantics_once_without_native_transaction_bytes() {
+        let budget = BlobAdmission::new(Default::default());
+        let next = budget
+            .extend(
+                DaOverhead {
+                    semantic_bytes: 123,
+                },
+                None,
+            )
             .unwrap();
+        assert_eq!(next.operations_bytes, budget.operations_bytes);
         assert_eq!(
-            fitting.transaction_count,
-            eez_payload_codec::derivable::MAX_TRANSACTIONS
+            next.stream_bytes().unwrap(),
+            budget.stream_bytes().unwrap() + 123
         );
-        assert!(fitting.fits(8).unwrap());
-        let oversized = budget
-            .extend(&[raw.clone(), raw.clone()], DaOverhead::default(), None)
-            .unwrap();
-        assert!(!oversized.fits(8).unwrap());
+        assert_eq!(budget.semantic_bytes, 0);
+        let mut overflow = next;
+        overflow.semantic_bytes = usize::MAX;
         assert_eq!(
-            budget.transaction_count,
-            eez_payload_codec::derivable::MAX_TRANSACTIONS - 1
-        );
-        // Valid bytes ensure an unrelated decode error cannot satisfy this check.
-        budget.transaction_count = usize::MAX;
-        assert_eq!(
-            budget
-                .extend(&[raw], DaOverhead::default(), None)
+            overflow
+                .extend(DaOverhead { semantic_bytes: 1 }, None)
                 .unwrap_err(),
-            "admission transaction count overflow"
+            "admission semantic size overflow"
         );
     }
 
@@ -1647,90 +1564,62 @@ mod tests {
     }
 
     #[test]
-    fn incremental_da_bounds_real_encoding_across_rlp_boundaries_and_multiple_blobs() {
-        for withdrawals in [false, true] {
-            let mut block = reth_ethereum_primitives::Block::default();
-            block.header.number = 1;
-            block.header.gas_limit = 30_000_000;
-            block.header.gas_used = block.header.gas_limit;
-            if withdrawals {
-                block.body.withdrawals = Some(Default::default());
-            }
-            let mut budget = BlobAdmission::new(block.clone());
-            let mut entries = Vec::<Vec<u8>>::new();
-            let mut groups = Vec::<u16>::new();
-            let mut messages = Vec::new();
-            for (i, size) in [0, 55, 56, 128, 255, 256, 16_384, 126_976]
-                .into_iter()
-                .enumerate()
-            {
-                let tx = signed(size, i % 2 == 0);
-                let raw = Bytes::from(tx.encoded_2718());
-                block.body.transactions.push(tx.into());
-                let entry = vec![0u8; size];
-                let group = 1u16;
-                let group_messages = vec![
-                    eez_blob_codec::Message::InitiateCrossChainTransaction {
-                        chain_id: 1,
-                        tx_data: raw.clone(),
-                    },
-                    eez_blob_codec::Message::FinishCrossChainTransaction,
-                ];
-                let semantic =
-                    eez_blob_codec::encode_native_stream(1, Bytes::new(), group_messages.clone())
-                        .unwrap()
-                        .blob_portion
-                        .len()
-                        - eez_blob_codec::native_stream_len(0, 0).unwrap();
-                budget = budget
-                    .extend(
-                        &[raw],
-                        DaOverhead {
-                            entry_items: entry.as_slice().length(),
-                            group_items: group.length(),
-                            semantic_bytes: semantic,
-                        },
-                        None,
-                    )
-                    .unwrap();
-                entries.push(entry);
-                groups.push(group);
-                messages.extend(group_messages);
-                let payload = eez_payload_codec::derivable::Payload::new(
-                    0,
-                    eez_payload_codec::derivable::Environment::unused(),
-                    vec![],
-                    alloy_rlp::encode(&block),
-                    entries.clone(),
-                    groups.clone(),
-                )
-                .unwrap()
-                .encode()
-                .unwrap();
-                let encoded =
-                    eez_blob_codec::encode_native_stream(1, payload.into(), messages.clone())
-                        .unwrap();
-                let estimated = budget.stream_bytes().unwrap();
-                let actual = encoded.blob_portion.len();
-                assert!(estimated >= actual, "estimate {estimated}, actual {actual}");
-                assert!(
-                    estimated - actual < 600,
-                    "only the unknown header and prefixes may be rounded up"
-                );
-                let required = estimated.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB);
-                assert!(budget.fits(required).unwrap());
-                assert!(!budget.fits(required - 1).unwrap());
-            }
-            assert!(budget.stream_bytes().unwrap() > 2 * eez_blob_codec::DATA_BYTES_PER_BLOB);
+    fn incremental_da_matches_actual_encoding_across_lengths_and_multiple_blobs() {
+        use eez_payload_codec::v0::{self, BlockRun};
+        let mut block = eez_primitives::Block::default();
+        block.header.beneficiary = alloy_primitives::Address::with_last_byte(1);
+        block.header.extra_data = vec![0; 32].into();
+        let mut budget = BlobAdmission::new(block.clone());
+        let mut messages = Vec::new();
+        for (i, size) in [0, 55, 56, 128, 255, 256, 16_384, 126_976, 126_976]
+            .into_iter()
+            .enumerate()
+        {
+            let group_messages = vec![
+                eez_blob_codec::Message::InitiateCrossChainTransaction {
+                    chain_id: 1,
+                    tx_data: signed(size, i % 2 == 0).encoded_2718().into(),
+                },
+                eez_blob_codec::Message::FinishCrossChainTransaction,
+            ];
+            let semantic_bytes =
+                eez_blob_codec::encode_native_stream(1, Bytes::new(), group_messages.clone())
+                    .unwrap()
+                    .blob_portion
+                    .len()
+                    - eez_blob_codec::native_stream_len(0, 0).unwrap();
+            budget = budget.extend(DaOverhead { semantic_bytes }, None).unwrap();
+            messages.extend(group_messages);
+            let payload = v0::encode(&[BlockRun {
+                blocks: 1,
+                beneficiary: block.header.beneficiary,
+                extra_data: &block.header.extra_data,
+                transactions: &[],
+            }])
+            .unwrap();
+            let encoded =
+                eez_blob_codec::encode_native_stream(1, payload.into(), messages.clone()).unwrap();
+            let estimated = budget.stream_bytes().unwrap();
+            assert_eq!(estimated, encoded.blob_portion.len());
+            let required = estimated.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB);
+            assert!(budget.fits(required).unwrap());
+            assert!(!budget.fits(required - 1).unwrap());
         }
+        assert!(budget.stream_bytes().unwrap() > 2 * eez_blob_codec::DATA_BYTES_PER_BLOB);
     }
 
     #[test]
     fn refused_blob_candidate_does_not_spend_budget_and_companion_blobs_are_counted() {
         let budget = BlobAdmission::new(Default::default());
         let initial = budget.stream_bytes().unwrap();
-        let raw = Bytes::from(signed(2 * eez_blob_codec::DATA_BYTES_PER_BLOB, true).encoded_2718());
-        let next = budget.extend(&[raw], DaOverhead::default(), None).unwrap();
+        let next = budget
+            .extend(
+                DaOverhead {
+                    semantic_bytes: 2 * eez_blob_codec::DATA_BYTES_PER_BLOB,
+                },
+                None,
+            )
+            .unwrap();
         assert!(!next.fits(2).unwrap());
         assert_eq!(budget.stream_bytes().unwrap(), initial);
         let companion = TxEip4844 {
@@ -1739,15 +1628,14 @@ mod tests {
         }
         .into_signed(Signature::new(U256::from(1), U256::from(2), false));
         let raw = Bytes::from(TxEnvelope::from(companion).encoded_2718());
-        let next = budget
-            .extend(&[], DaOverhead::default(), Some(&raw))
-            .unwrap();
+        let next = budget.extend(DaOverhead::default(), Some(&raw)).unwrap();
         assert_eq!(next.companion_blobs, 2);
         assert_eq!(next.stream_bytes().unwrap(), initial);
         assert!(
             budget
-                .extend(&[Bytes::from_static(&[0xff])], DaOverhead::default(), None)
-                .is_err()
+                .extend(DaOverhead::default(), Some(&Bytes::from_static(&[0xff])))
+                .unwrap_err()
+                .starts_with("admission companion decode:")
         );
     }
     #[test]

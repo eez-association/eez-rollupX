@@ -86,7 +86,7 @@ pub(crate) fn partition_retryable(
 pub(crate) fn validate_actionable_prover_failure(
     failure: ActionableProverFailure,
     batch: &eez_protocol::EvmBatch,
-    sync_block: Option<&reth_primitives_traits::RecoveredBlock<reth_ethereum_primitives::Block>>,
+    sync_block: Option<&reth_primitives_traits::RecoveredBlock<eez_primitives::Block>>,
 ) -> Result<(), String> {
     match failure {
         ActionableProverFailure::Outbound {
@@ -702,12 +702,12 @@ mod tests {
                 .into_signed(alloy_primitives::Signature::test_signature())
                 .into();
         let transaction_hash = transaction.recalculate_hash();
-        let body: reth_ethereum_primitives::BlockBody = alloy_consensus::BlockBody {
-            transactions: vec![transaction],
+        let body: eez_primitives::BlockBody = alloy_consensus::BlockBody {
+            transactions: vec![transaction.into()],
             ..Default::default()
         };
         let block = reth_primitives_traits::RecoveredBlock::new_unhashed(
-            reth_ethereum_primitives::Block::new(Default::default(), body),
+            eez_primitives::Block::new(Default::default(), body),
             vec![Address::ZERO],
         );
 
@@ -861,14 +861,20 @@ mod tests {
 
     fn test_context() -> ProvingContext {
         ProvingContext {
+            parent_provenance: eez_protocol::l2::ParentProvenance {
+                parent: Default::default(),
+                accepted_l1_number: 0,
+                live_slot_endpoints: Vec::new(),
+            },
             rollup_id: 1,
             from_block: 1,
             to_block: 1,
             batch: Default::default(),
             blobs: Vec::new(),
             blocks: Vec::new().into(),
-            l1_block_hash: None,
             l1_posting: eez_prover::L1PostingContext {
+                parent_number: 99,
+                parent_hash: B256::repeat_byte(0x42),
                 chain_id: 1,
                 target_timestamp: 1,
             },

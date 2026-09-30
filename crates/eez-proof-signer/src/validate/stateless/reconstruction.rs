@@ -4,40 +4,41 @@
 //! assembler. It confers no intermediate/terminal or settlement authorization.
 
 use alloy_consensus::Header;
-use alloy_primitives::B256;
-use eez_driver::derivation::{
-    ordinary_environment, reassemble_full_from_replay, require_exact_block,
-};
-use eez_payload_codec::derivable::Environment;
+use alloy_primitives::{Address, B256, Bytes};
+use eez_driver::derivation::{reassemble_full_from_replay, require_exact_block};
 use reth_primitives_traits::SealedHeader;
 
-use super::{Block, EthEvmConfig, StatelessValidationOutput};
+use super::{Block, EezEvmConfig, StatelessValidationOutput};
 
 /// No caller-supplied environment, claimed output root, or profile-only decoder
 /// can construct this fact. Retained independently of the settlement evidence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ReconstructedBlock {
     block_hash: B256,
-    environment: Option<Environment>,
-    has_beacon_root: bool,
+    beneficiary: Address,
+    extra_data: Bytes,
 }
 
 impl ReconstructedBlock {
+    /// Explicitly synthetic reconstruction evidence for settlement/lifecycle unit
+    /// tests. Process and captured-witness tests construct facts by real replay.
+    #[cfg(test)]
+    pub(crate) fn for_test(block_hash: B256, header: &Header) -> Self {
+        Self {
+            block_hash,
+            beneficiary: header.beneficiary,
+            extra_data: header.extra_data.clone(),
+        }
+    }
+
     pub(crate) const fn block_hash(&self) -> B256 {
         self.block_hash
     }
 
-    /// Before Cancun the published root is unused; all other input bytes must
-    /// agree. Whole-block assembly already established every omitted output.
-    pub(crate) fn matches_environment(&self, published: &Environment) -> bool {
-        let Some(actual) = &self.environment else {
-            return false;
-        };
-        let mut effective = published.clone();
-        if !self.has_beacon_root {
-            effective.cancun_parent_beacon_root = B256::ZERO;
-        }
-        effective == *actual
+    /// Only these two execution inputs are published by V0. The omitted fields
+    /// are fixed by the profile, parent and independently authenticated L1 seed.
+    pub(crate) fn matches_metadata(&self, beneficiary: Address, extra_data: &[u8]) -> bool {
+        self.beneficiary == beneficiary && self.extra_data.as_ref() == extra_data
     }
 }
 
@@ -45,11 +46,11 @@ impl ReconstructedBlock {
 /// replay and its still-live outputs. Failure means this block is ineligible for
 /// the supported operations profile and the DA gate must reject it.
 pub(super) fn reconstruct(
-    config: &EthEvmConfig,
+    config: &EezEvmConfig,
     block: &Block,
     original_rlp: &[u8],
     parent_rlp: Option<&[u8]>,
-    replay: &StatelessValidationOutput,
+    replay: &StatelessValidationOutput<eez_primitives::Receipt>,
 ) -> eyre::Result<ReconstructedBlock> {
     let parent_rlp = parent_rlp.ok_or_else(|| eyre::eyre!("missing reconstruction parent"))?;
     let header: Header = alloy_rlp::decode_exact(parent_rlp)?;
@@ -78,11 +79,9 @@ pub(super) fn reconstruct(
         replay.post_state_root,
     )?;
     require_exact_block(&rebuilt, original_rlp)?;
-    let has_beacon_root = block.header.parent_beacon_block_root.is_some();
-    let environment = ordinary_environment(config, &parent, block)?;
     Ok(ReconstructedBlock {
         block_hash: replay.block_hash,
-        environment,
-        has_beacon_root,
+        beneficiary: block.header.beneficiary,
+        extra_data: block.header.extra_data.clone(),
     })
 }

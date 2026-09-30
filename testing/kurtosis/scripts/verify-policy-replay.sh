@@ -35,7 +35,6 @@ export EEZ_KURTOSIS_POLICY_EVIDENCE="$EVIDENCE"
 export EEZ_L1_RPC_URL="$EEZ_DEVNET_L1_RPC"
 [[ "$EEZ_L1_BEACON_URL" == http* ]] || export EEZ_L1_BEACON_URL="http://$EEZ_L1_BEACON_URL"
 export EEZ_ROLLUP_ID="$(jq -er .rollup_id "$EVIDENCE")"
-export EEZ_L2_SYSTEM_KEY="${EEZ_L2_SYSTEM_KEY:?set the deployed system reconstruction key}"
 # Preserve the enclave's actual timing; only the existing proof/slack windows
 # are explicit test values (no proving occurs in this L1-derived follower).
 export EEZ_L1_BLOCK_TIME_MS="$(curl -fsS "$EEZ_L1_BEACON_URL/eth/v1/config/spec" | jq -er '.data.SECONDS_PER_SLOT | tonumber * 1000')"

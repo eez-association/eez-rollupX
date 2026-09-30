@@ -1,0 +1,779 @@
+{
+  "runtime_candidate": "6387e3d513aad09d4275b448783e32dbf10e7bc9",
+  "required_base": "cf8500e80cc10b58ab6acd59b2125dd098aa770c",
+  "protocol": "9d13218a355e7d543ca8a9927eea2962600b716d",
+  "reth": "3d592ece6de8c4559987416a544fc215fd6d6921",
+  "canonical_l1_image": "sha256:a7f059d470878a5a59f3c575f3fc81b536d0d2d56d7a1cbed73e717a4f766336",
+  "latest_l1_image_matches_release": true,
+  "checks": {
+    "workspace": {
+      "passed": 1280,
+      "ignored": 3
+    },
+    "composer_l1": {
+      "passed": 447,
+      "ignored": 1
+    },
+    "tooling": {
+      "passed": 278,
+      "skipped": 5
+    },
+    "anvil_confirmation": {
+      "passed": 36,
+      "failed": 0,
+      "first_run_flake_retained": true
+    },
+    "packaged_units": {
+      "passed": 1280,
+      "ignored": 3
+    },
+    "source_ordinary_bursts": {
+      "passed": 2,
+      "profiles": [
+        "Ethereum",
+        "Gnosis"
+      ]
+    },
+    "finalized_genesis_readiness": {
+      "result": "pass",
+      "elapsed_seconds": 1542.06629136,
+      "polls": 772,
+      "finalized_execution_block": 64
+    },
+    "readiness_log_tail_regression": {
+      "before": "3 startup gates failed with success outside the default tail",
+      "after": "all 3 passed; empty/unavailable signals still rejected"
+    },
+    "embedded_release": {
+      "passed": 36,
+      "ignored": 1,
+      "elapsed_seconds": 2362.646
+    },
+    "cross_chain_release": {
+      "passed": 71,
+      "failed": 3,
+      "ignored": 3,
+      "elapsed_seconds": 3838.841,
+      "failures": [
+        "Gnosis V0 proof target selected at slot boundary",
+        "WebSocket bind collision on port 34826",
+        "Ethereum thirty-request warm-up: authenticated seed changed"
+      ]
+    },
+    "kurtosis_readiness_followup": {
+      "result": "fail",
+      "startup_gates": "pass",
+      "upstream_protocol_passed": 32,
+      "independent_evidence_passed": 30,
+      "independent_evidence_failed": [
+        "revertCounter",
+        "topLevelStaticCounter"
+      ],
+      "signed_windows": 28,
+      "remote_attestations": 28,
+      "first_failure": "lookup collector expects removed payload.blocks fields"
+    }
+  },
+  "logs_sha256": {
+    "workspace-policy-final.log": "d3091563df4f0816585930201e67ef81c35843673fe5b1ffd61be02938e89062",
+    "policy-fix-tests-final.log": "dda73d02aba10fb5972f8e196b1301e1555c0a96e548a350717345dab827dd25",
+    "policy-parent-before.log": "b5d26cf00e796cfd602f5fe6403f18479039693ae0b000d950ca1095bde8e047",
+    "clippy-policy-final.log": "f9d53c2e9709828563e00b19399ab4a577b3aad57f94548620eec6e85426e280",
+    "tooling-final.log": "45fcf6cc0d26042494cf61423bdd8265b313303a97b1a2cd593337c97d163128",
+    "anvil-confirmation.log": "89171a988f4bec5503e81b2e8ec7875344ca4a4fcf6b97bd5ffa17e95cc0e7a6",
+    "tooling-readiness-final.log": "794e2ae01d99fee4cfd84a561dfb324087fd439e86118445b1d2170d88c6c498",
+    "release-final/embedded.log": "a80c7887e10e938086643807ce4bcb3ee4ad9689d08333aef7035ce1b4a83705",
+    "release-final/cross-chain.log": "f935ca42c126adf0b2d1c0f0db41765dcf5028ecd99d39a07851f4c74b96fe0d",
+    "release-final/kurtosis-readiness.log": "17d985109d305f0e4e5f602d6667548f6f4ecf13cd17a232228d9a71990019d1",
+    "upstream-ci-clippy-final.log": "1f820782b1f1b668ec8316acb1ed1ff72b2bf514ae7264849af239613056bcba",
+    "upstream-ci-tooling.log": "7db3c2d46c499eadd96de21d757a953fcd98739a031baa60a0f8849f81a8252a",
+    "upstream-deny.log": "ab9137ea3bf8ff9b2cb574e70aa1bddb8b8ac37d9258d81bef7025b51eb6ccad",
+    "upstream-audit.log": "605df014717680ac8054e30f4212988df954c8199af9221a322f74fb852ec04a",
+    "stateless-port-final-tests.log": "68cdcea0984a3b809e1ffa280c2d93bbb44475832b0b4072a31d5f1e976ae7d9",
+    "stateless-port-clippy.log": "f594f00e9fc24397bf22d8ff8d73b305cb5171c612aea9e7490a0ca450ac90d6",
+    "seed-dispatch-before-run.log": "b0bf60e05f191fd27e3c7ee472411b33b72ad3e9f5a498777682e5746c3c55de",
+    "seed-dispatch-final.log": "2fd187d6000da772017400904f307174fd310361c634a4153154669da698773d",
+    "lookup-v0-before.log": "09cfd9aff667947ac139adc8efca66643dfc0409a547442f9f575897f2d9ac21",
+    "lookup-v0-tests.log": "24461016548ccb678d4182857275423d80adea131bd9300b802b74847b904cf6",
+    "blob-evidence-v0-tests-final.log": "3cac43dd602b5fcee963430ba670bc301e855e79ef72f08efbf8ea8310c5c34a",
+    "upstream-workspace-tests.log": "2eb523238a5553a7b8b7c87c95e521aa4878beb69fada54a6d0847b874131452",
+    "upstream-thirty-wave.log": "52d5c2bbbffa1812eda9c36dfb8f6f9757895b895916eaae122e6c93e049a11d",
+    "upstream-thirty-wave-stable.log": "2718a7ed491624fb3ac586247844b355580299b3d49b97f4fd03e51ae3a94dd9",
+    "upstream-gnosis-v0.log": "47cc500ce5daaa2fcd3319c5a130be1a853492369354a74a49d00dc6ad9f9e5c",
+    "blob-evidence-b0-tests.log": "21f18eb3a27238797efef2a51b3cf05824f859a0bdbd2fbcd37f49798f37397e",
+    "lookup-b0-tests.log": "335706ba0f5de9b7495822af3633e502779d413868073570894d53e4faff349c",
+    "native-prefix-relocation.log": "8130ab3c441e15ff8b4c28a8b64368af4289581ac39fb463c6b32862c64a7225",
+    "native-prefix-relocation-mold.log": "a8cf999105d32e8e096ee22e52b3c8f1f7f7d21463b0c6c890610ae0eb4c397c",
+    "native-prefix-relocation-diagnostic.log": "92f2b2096d6951bf0bbf9b626b77c9e69a6db8988fd9e519f63f8e6aee17a991",
+    "native-prefix-relocation-final.log": "d1175f80d901dc4cff6ee97190026426677d751643b9b99f19d2db01b6705f89",
+    "upstream-clippy-b0.log": "4538c5fc4874f1340b575e2bb1cd1c212a50e5b1394518b721f339c69af807c7",
+    "upstream-source-runtime.sha256": "e046799a66b91596dc5b0167bf14c89c60a495462307b55d8b1587ef255adc9d",
+    "upstream-tooling-b0-final.log": "73c1c3beb8be7df0a242c0e3e53c56f477eb0a0c42534baeedb1f05336885178",
+    "seed-driver-final.log": "2107a877c791376e589590b1521108a1afd1c25422d7866941d32458d9e50456",
+    "final-pin-clippy.log": "72ae0b09402615c71da7513b41f40115792707ebe0d80cc65d8618470aa13ef4",
+    "final-pin-clippy-default.log": "dea40354b0a7c1e5852ab5d7ec298dff9ea2b239f47a2b77e675ca876ecf4e26",
+    "final-pin-tooling.log": "2f35b41087c79bde323a4c4207d3b3fa863cb436ec214643fd3502124ad2c0c2",
+    "final-pin-docker-fixtures.log": "223dbb283db17f204e700d411bb2e58c3392885d01bcece20051fdb2b0e56bd3",
+    "final-pin-deny.log": "2e54c5ab1504ee82a263ff45bbe59a20d806c58c7d06c1d366f2679cebdac896",
+    "final-pin-audit.log": "3f11224b3120d8573b2950daf82904bfb5eaf69f5e86971c6027420f13d1db39",
+    "final-pin-signer-doc.log": "47d462d2e6c83c48eb6f8df291b321948786c6ad9b1a9eb1a901cac8623e2d1f",
+    "release-published/producer.log": "f9e418e53c2d6b39cbbb2684e5b4805de51de1a772e56d5c448c31887946a66d",
+    "release-published/verify-artifacts.log": "5af7cd5b012ece1129598c8a19516b3f489be48eb2e418e0e94171f685d9d371",
+    "release-published/unit.log": "c2d6b8b71cb25747b2bb39761665c6bef30f0cb2007f0a2d1f3b76a8c0803cab",
+    "release-published/embedded.log": "97bf81e62f8426dbf8346e016042836aa27983169c969bd13c071135e81f3468",
+    "release-published/export-e2e.log": "a664e6c9b4068603c85e13787f6866b253ec8e1ea5ea488667485e49710c12a5",
+    "release-published/genesis.log": "1fd88ae7a5200fc9eac7509d055ddbb39b76647ca4eca526f37a4c9b666d9934",
+    "release-published/cli-help-probes.json": "fbdb63ccb6d309eba917d995f713c621df0067b38541bcc78fc70e997da695e2",
+    "release-published/run-ci-retain.sh": "b66275393a5ba0180a0c756e89eeb70375e78aac7c318443e0a2b4fc54f2bf2a",
+    "release-published/verify-policy-release.sh": "4f6fa9e0cf45c2fe5ee3c1bd0054798ff2db36a64994763aff745488ec558ca3"
+  },
+  "process_validation": "6387e3d complete: embedded passed; cross-chain and Kurtosis failed as recorded. Updated candidate validation pending.",
+  "finality_bound_rationale": {
+    "source": "https://ethereum.github.io/consensus-specs/specs/altair/beacon-chain/#justification-and-finalization",
+    "inference": "Initial two-epoch skip plus justification/finalization transitions require several mainnet-preset epochs; four 32-slot epochs at 12s take 1536s, so 900s is insufficient and 1800s includes a margin. Live confirmation pending.",
+    "live_confirmation": "The 6387e3d run passed after 1542.066 seconds, within the 1800-second bound."
+  },
+  "runtime_manifest": {
+    "schema": 2,
+    "root_commit": "6387e3d513aad09d4275b448783e32dbf10e7bc9",
+    "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "cargo_lock_sha256": "b37b954b7b04ddbbdac91a91418d211c913b7d535ce342b233c4ece7ad4b69b6",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+    "base_images": {
+      "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+      "runtime": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+    },
+    "published": false,
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eduadiez/rollupx-node:sha-6387e3d513aad09d4275b448783e32dbf10e7bc9-local-reth27-final-1",
+        "image_id": "sha256:72aeb108afb582ab23d915c8248bc9cd1fad1faf356c266e5da74d78348897a8"
+      },
+      "signer": {
+        "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-6387e3d513aad09d4275b448783e32dbf10e7bc9-local-reth27-final-1",
+        "image_id": "sha256:165d980298f5ca9b3ba679790eecbf66585524edc2239ab9ec08f0def921f51c"
+      },
+      "deploy": {
+        "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-6387e3d513aad09d4275b448783e32dbf10e7bc9-local-reth27-final-1",
+        "image_id": "sha256:1a20853b976bdd930ba2bb6052f389c74bdcc0ebd23f2210c777e233ccb3e392"
+      }
+    },
+    "binaries_sha256": "15bcc46af0a754a3b13e397cefbac9a2b721f5ac3a370a2646aa286d55b5d4fc"
+  },
+  "test_manifest": {
+    "schema": 3,
+    "cargo_lock_sha256": "b37b954b7b04ddbbdac91a91418d211c913b7d535ce342b233c4ece7ad4b69b6",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "nextest": "0.9.143",
+    "rust": "1.95.0",
+    "archives_sha256": {
+      "native-tests.tar.zst": "1765b9fbc3cc5cb47b0f129d0cf929db58cb7cb3a3ef78fa2242da67ec2a6093",
+      "composer-unit-tests.tar.zst": "0a5d4240ee6aab1021941f06a570cb5fd1e065d1e07b305dc03930e6e3512a82"
+    },
+    "runtime_sha256": {
+      "eez-composer": "6e36cda2a807da987e1f3f36c0bbd13353a466a8697cd00cd92c87dee9690767",
+      "eez-follower": "c60b57d7ab482f3a9f731d5ce84da334b772b9e1bee9a5cf524edf6faff544af",
+      "eez-proof-signer": "3b656d36065171787921f965dc4f199f65b5ca0751c26d970ee4bc4e54708992"
+    },
+    "glibc": "glibc 2.36",
+    "root_commit": "6387e3d513aad09d4275b448783e32dbf10e7bc9",
+    "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+    "runtime_archive_sha256": "15bcc46af0a754a3b13e397cefbac9a2b721f5ac3a370a2646aa286d55b5d4fc"
+  },
+  "evidence_location": "Local-only: artifacts/reth-v2.7-review/ in the dedicated worktree; bulk artifacts are not committed or published.",
+  "orchestration_sha256": {
+    "testing/kurtosis/main.star": "bb25f5914b13ca72f780d6a10212e65a1bc1ad14cd2e8b72f8a752d3f56120d3",
+    "testing/kurtosis/run-ci.sh": "1cf29e57f408e1fc44666ce948f628d9d2dad01b210c71cb19f6170d036c828a"
+  },
+  "upstream_gnosis_followup": {
+    "gnosis": "9517ba3b3c139ed43d3e0814b60ec67b95e163d7",
+    "gnosis_primitives": "6ac3d3fd46213d59fc27bc36c4f273132a065811",
+    "revmc": "87ea260a9bd25759beab64753d2f36227891ca4a",
+    "stateless_local": "0bda6b200c1eb4689c147c080c3c248b50be2ea8",
+    "stateless_publication": "published by owner over SSH; remote head verified as 0bda6b200c1eb4689c147c080c3c248b50be2ea8",
+    "stateless_tests": 26,
+    "stateless_fmt_clippy": "pass",
+    "llvm": "22, extracted within dedicated worktree for host checks; Docker tools build passed",
+    "host_compiler_changed": false,
+    "registry_packages_removed_or_changed": [],
+    "clippy_all_features": "pass after witness-based helper changes",
+    "cargo_deny": "pass",
+    "cargo_audit": "pass with 9 existing allowed warnings",
+    "tooling": {
+      "passed": 278,
+      "skipped": 5,
+      "seconds": 151.357,
+      "final_log": "upstream-tooling-b0-final.log"
+    },
+    "driver": {
+      "passed": 46,
+      "seed_race_before": "controlled in-flight regression fails",
+      "seed_race_after": "both synchronization regressions pass",
+      "final_log": "seed-driver-final.log"
+    },
+    "lookup_shell": {
+      "passed": 16,
+      "before_subtest_failures": 4
+    },
+    "blob_prefix_example": {
+      "passed": 9,
+      "includes_native_receipts": true,
+      "includes_pre_transaction_prefix": true,
+      "execution_source": "Stateless replay of debug_executionWitnessByBlockHash with test-node chain configuration",
+      "live_kurtosis_confirmation": "pending"
+    },
+    "workspace_tests": {
+      "passed": 1282,
+      "ignored": 3,
+      "excludes": "eez-node-e2e; its affected process tests run separately"
+    },
+    "affected_process_tests": {
+      "gnosis_v0": {
+        "passed": 1,
+        "seconds": 112.6
+      },
+      "thirty_request_waves": {
+        "passed": 2,
+        "seconds": 191.78,
+        "profiles": [
+          "Ethereum",
+          "Gnosis"
+        ]
+      },
+      "first_wave_attempt": "startup rejected mixed lockfile identities; retained failure, no assertions bypassed"
+    },
+    "release_artifacts": "pending final Stateless Git pin",
+    "live_lookup_evidence": "pending updated candidate",
+    "independent_policy_replay": "compiled by Clippy; live invocation not run",
+    "real_archive_relocation": {
+      "passed": 29,
+      "skipped": 0,
+      "includes_example_marker": true,
+      "prior_failures": [
+        "host Mold unavailable",
+        "tiny fixture placed issue35 in the old package"
+      ]
+    },
+    "cargo_lock_sha256": "616caa081041eafd213d2a6c6ac584a160b50c46acb4decf30ad2447ce16485a",
+    "base_recheck": {
+      "main": "de5030c782e29ff07150b2728c7b564fd607f802",
+      "pr42_head": "cf8500e80cc10b58ab6acd59b2125dd098aa770c",
+      "pr44_remote_head": "3f95f1848576cb19f9bf6e7ae4151c2e5eb3757c",
+      "original_checkout": "original uncommitted operator files unchanged"
+    }
+  },
+  "final_git_pin": {
+    "stateless": "0bda6b200c1eb4689c147c080c3c248b50be2ea8",
+    "vendor_removed": true,
+    "registry_delta": [],
+    "release_validation": "incomplete: all process regressions validated, CI prefix-helper genesis correction needs packaged/live validation",
+    "runtime_candidate": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+    "checks": {
+      "final-pin-clippy": 0,
+      "final-pin-clippy-default": 0,
+      "final-pin-tooling": 0,
+      "final-pin-docker-fixtures": 0,
+      "final-pin-deny": 0,
+      "final-pin-audit": 0,
+      "final-pin-signer-doc": 0,
+      "final-pin-settlement-config": 0
+    },
+    "tooling": {
+      "passed": 278,
+      "skipped": 5,
+      "seconds": 172.099
+    },
+    "docker_fixture_tests": {
+      "passed": 2,
+      "seconds": 42.184
+    },
+    "release_units": {
+      "main": 1001,
+      "composer": 290,
+      "ignored": 3
+    },
+    "embedded": {
+      "passed": 36,
+      "ignored": 1,
+      "seconds": 2353.014
+    },
+    "cross_chain": {
+      "status": "completed before test-only correction",
+      "first_failure": {
+        "test": "outbound_mixed_static_reads_and_write_settle_together",
+        "seconds": 39.155,
+        "error": "eth_call rejected because L1 derivation is still validating/catching up",
+        "cause": "Test awaited reconstructed block and safe head, then read pending state before startup readiness opened.",
+        "fix": "Keep the state read inside the existing bounded convergence poll; assert its exact returned value outside the poll.",
+        "scope": "test-only; validation pending",
+        "log": "release-published/cross-chain.log",
+        "datadir": "release-published/cross-chain-datadirs/eez-node-mixed-outbound-follower-3462555-LWLAvQ",
+        "fix_validation": "Both affected cases pass after correction on checksum-verified, unchanged runtime binaries."
+      },
+      "passed": 73,
+      "failed": 1,
+      "ignored": 3,
+      "seconds": 3701.298,
+      "ignored_cases": {
+        "ethereum_native_large_history_cold_checkpoint": "explicit large-history feasibility run, excluded from CI defaults",
+        "gnosis_native_large_history_cold_checkpoint": "explicit large-history feasibility run, excluded from CI defaults",
+        "retained_native_history_cold_checkpoint": "requires separately retained large history and metadata"
+      }
+    },
+    "kurtosis": {
+      "result": "failed evidence gate",
+      "native_waves": "all four modes passed; 40 cross-chain operations total",
+      "state_chaining": "passed",
+      "upstream_scenarios_passed": 32,
+      "independent_evidence_passed": 30,
+      "independent_evidence_failed": [
+        "revertCounter",
+        "topLevelStaticCounter"
+      ],
+      "cause": "CI witness-prefix helper combined actual chain configuration with default genesis timestamp zero; stateless replay correctly rejected the invalid derivation profile.",
+      "error": "ProfileError(\"genesis precedes its L1 reference\")",
+      "enclave_cleanup": "owned enclave removed by outer runner after failure; logs and lookup input/witness evidence retained"
+    },
+    "finality_seconds": 1546.048724365,
+    "independent_policy_replay": "not run: gated by failed protocol evidence checks",
+    "genesis": "unchanged; checked using final packaged helper",
+    "cli_help": "Composer/follower render help with status 1 on both previous and final runtime images; signer returns 0 on both. Existing CLI wrapper behavior, not a loader failure.",
+    "local_orchestration": "Copy of run-ci.sh defers cleanup to the outer runner and gates workloads until cross-chain.status exists; copied replay wrapper executes the verified archived test binary instead of rebuilding.",
+    "runtime_manifest": {
+      "schema": 2,
+      "root_commit": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+      "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+      "base_images": {
+        "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+        "runtime": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "published": false,
+      "images": {
+        "node": {
+          "reference": "ghcr.io/eduadiez/rollupx-node:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:b9e3e43fa04232a9758944d7de6382825c91825ab6cdb7d723c416c08672624d"
+        },
+        "signer": {
+          "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:c940fef89b41611b8027b395fd3810f48ca0bd482f7ae5a62005b032efece03b"
+        },
+        "deploy": {
+          "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-a35c63531c97206aa37e233b53cb6f7e8b59548a-local-reth27-published-1",
+          "image_id": "sha256:58e5298a85f4a282e123f2c5a618b8babd6319d75ec420ebb424730fcebbacbe"
+        }
+      },
+      "binaries_sha256": "5a918bcd2377aac29f12b719e4ee2caad6e8df16831f9e9c127900f2a4bef395"
+    },
+    "test_manifest": {
+      "schema": 3,
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "nextest": "0.9.143",
+      "rust": "1.95.0",
+      "archives_sha256": {
+        "native-tests.tar.zst": "8066de8ae5de2285cc371716f888091ede4b02def0f441c4e1242b2828e687c0",
+        "composer-unit-tests.tar.zst": "d599cd71406503fb5da50a8a8f4370e386a102b0328e9d58f7957e87555f7d41"
+      },
+      "runtime_sha256": {
+        "eez-composer": "7c2cbd5bb305c4d1f670b25f62b334d977709a0e4f35550c05fdb957abf540bd",
+        "eez-follower": "b06b5fb7fe2ec822c0207ac4adec293115dd6396fd43735596bcfa860841c2b5",
+        "eez-proof-signer": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec"
+      },
+      "glibc": "glibc 2.36",
+      "root_commit": "a35c63531c97206aa37e233b53cb6f7e8b59548a",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "runtime_archive_sha256": "5a918bcd2377aac29f12b719e4ee2caad6e8df16831f9e9c127900f2a4bef395"
+    },
+    "follower_readiness_correction": {
+      "scope": "test-only",
+      "format": "passed",
+      "clippy": "passed",
+      "build": "passed",
+      "process_tests": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0,
+        "seconds": 76.93,
+        "log": "release-published/follower-readiness.log"
+      },
+      "selection": [
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "outbound_mixed_static_reads_and_write_settle_together"
+      ],
+      "runtime": "checksum-verified a35c635 release binaries; production source unchanged",
+      "test_identity_record": "release-published/follower-readiness.sha256"
+    },
+    "remote_recheck": {
+      "main": "de5030c782e29ff07150b2728c7b564fd607f802",
+      "pr42_head": "cf8500e80cc10b58ab6acd59b2125dd098aa770c",
+      "gnosis_138_head": "9517ba3b3c139ed43d3e0814b60ec67b95e163d7",
+      "stateless": "0bda6b200c1eb4689c147c080c3c248b50be2ea8",
+      "pr44_push_dry_run": "passed; remote not updated"
+    }
+  },
+  "genesis_replay_correction": {
+    "scope": "CI evidence helper, shell caller and directly required tests/docs; runtime node and signer source unchanged",
+    "behavior": "Use deployed full genesis through existing native profile validator; compare to canonical RPC genesis hash and RPC chain configuration before witness replay.",
+    "helper_tests_passed": 11,
+    "shell_lookup_tests_passed": 16,
+    "packaged_live_validation": "pending",
+    "clippy_all_features": "passed",
+    "tooling": {
+      "passed": 279,
+      "skipped": 5,
+      "seconds": 147.369
+    },
+    "protocol_runner_tests_passed": 23
+  },
+  "genesis_bound_candidate": {
+    "commit": "ea17be953c114ce1b6c791fb646d71a9c242ec97",
+    "evidence_location": "artifacts/reth-v2.7-review/release-genesis (ignored, local-only)",
+    "manifest": {
+      "schema": 2,
+      "root_commit": "ea17be953c114ce1b6c791fb646d71a9c242ec97",
+      "protocol_commit": "9d13218a355e7d543ca8a9927eea2962600b716d",
+      "cargo_lock_sha256": "a4c249f0535e3cd3c678751d9be18038239920ac7b81dcbb6cf649207f822002",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+      "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+      "base_images": {
+        "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+        "runtime": "debian@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251"
+      },
+      "published": false,
+      "images": {
+        "node": {
+          "reference": "ghcr.io/eduadiez/rollupx-node:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:e5312705d1519d75b05305935f2bdf30e785cdd83fbc14d54cbe55bae8bf52eb"
+        },
+        "signer": {
+          "reference": "ghcr.io/eduadiez/rollupx-proof-signer:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:df1c3bdeabaa3c4a81f4bb7a3963cec77800da25fd171367acfeb21543445142"
+        },
+        "deploy": {
+          "reference": "ghcr.io/eduadiez/rollupx-deploy:sha-ea17be953c114ce1b6c791fb646d71a9c242ec97-local-reth27-genesis-1",
+          "image_id": "sha256:c32f707b253241648ebe967598a34820352b51b78d776e8738205fab837a1033"
+        }
+      },
+      "binaries_sha256": "2ee4fb4aaeaea79a95b0999a42cb3d9d4c0443106497935d688d41c0e0b073fb"
+    },
+    "manifest_sha256": "d0f4f79eb9fae71e35e0fe966db546e99eae12beafc19730e48e9926b972a443",
+    "release_producer": "pass",
+    "artifact_verification": "pass",
+    "packaged_genesis": "pass",
+    "release_units": {
+      "passed": 1293,
+      "ignored": 3,
+      "archives": [
+        1003,
+        290
+      ]
+    },
+    "corrected_archived_cross_chain": {
+      "passed": 2,
+      "seconds": 78.538,
+      "tests": [
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "outbound_mixed_static_reads_and_write_settle_together"
+      ]
+    },
+    "runtime_code_comparison": {
+      "eez-composer": {
+        "previous_sha256": "7c2cbd5bb305c4d1f670b25f62b334d977709a0e4f35550c05fdb957abf540bd",
+        "candidate_sha256": "8151f09ed7658c0dd4ac0ab71fa7c011862bb75d199032f5e0f5bd942f7c5733",
+        "size_bytes": 193433880,
+        "differing_bytes": 49,
+        "differing_sections": [
+          ".note.gnu.build-id",
+          ".rodata",
+          ".rodata.str"
+        ],
+        "text_sha256": "97f85bc7216a83fffce699a0874d4d8940b75a0dd735d5290bc9d8dde278a606",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      },
+      "eez-follower": {
+        "previous_sha256": "b06b5fb7fe2ec822c0207ac4adec293115dd6396fd43735596bcfa860841c2b5",
+        "candidate_sha256": "1b043210ef83e2bd89e579d411288a39a498781db51a6a62ef0302f3ff33cba5",
+        "size_bytes": 159845848,
+        "differing_bytes": 49,
+        "differing_sections": [
+          ".note.gnu.build-id",
+          ".rodata",
+          ".rodata.str"
+        ],
+        "text_sha256": "7d3936a0f7789e32d1d825b4f5fbcb03e5ec3e2a924651280c76ab59411cc4c2",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      },
+      "eez-proof-signer": {
+        "previous_sha256": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec",
+        "candidate_sha256": "c14012c07ef2e7e01538145d9df03c03c2e4a4ab886e67f5e6749ebaf657d8ec",
+        "size_bytes": 23064696,
+        "differing_bytes": 0,
+        "differing_sections": [],
+        "text_sha256": "502e9b6580361ae7172138105868562d44bad5004d92cb971acc6cdbf84445e9",
+        "identical_after_normalizing_only_build_id_and_three_observed_timestamps": true
+      }
+    },
+    "comparison_method": "Compared full files. Only GNU build IDs and observed build timestamp strings (two Reth timestamps and one LLVM time string per binary) differ; normalized copies compare equal. ELF .text is identical. No executable files were modified.",
+    "coverage_reuse": "The earlier a35c635 embedded 36/36 and cross-chain 73/74 plus corrected 2/2 process results cover unchanged runtime code. The final archive reruns all units and the two corrected follower cases; the new CI helper is exercised by a fresh full live run.",
+    "live_validation": {
+      "scenario_assertions": {
+        "passed": 32,
+        "failed": 0,
+        "excluded": 4,
+        "bridge_seconds": 329.66,
+        "parallel_seconds": 95.71
+      },
+      "waves": {
+        "passed": 4,
+        "cross_chain_operations": 40
+      },
+      "state_chaining": "all passed",
+      "first_evidence_sweep": {
+        "passed": 30,
+        "failed": [
+          "revertCounter",
+          "topLevelStaticCounter"
+        ],
+        "error": "deployed genesis configuration differs from RPC chain configuration"
+      },
+      "finality_wait_seconds": 1540.041
+    },
+    "orchestration_interruption": {
+      "result": "incomplete, not a passing run",
+      "detail": "The local tool session disappeared while its containers continued. Kurtosis retained a canceled request context; its finality recipe timed out despite finalized EL/CL responses. Restarted only the owned API container and reran the same startup plan. Kurtosis recreated its network, requiring fresh finality. No source or test assertions changed.",
+      "evidence": [
+        "release-genesis/kurtosis-interrupted.log",
+        "release-genesis/kurtosis-api-interrupted.log",
+        "release-genesis/interrupted-orchestration/"
+      ],
+      "recovery": "Startup replay recreated L1 and PostgreSQL but retained relay Redis registrations: 128 cached, zero persisted. Preserved the cache and logs, deleted only its registration hash, restarted owned relay API and validator to republish 128 registrations, then refreshed housekeeper duties. Canonical settlement resumed before the existing readiness deadline. This locally recovered run does not establish unattended fresh-start CI success."
+    }
+  },
+  "rpc_config_correction": {
+    "scope": "CI helper only; runtime production code unchanged from ea17be9/a35c635",
+    "cause": "Reth v2.7 debug_chainConfig adds derived blobSchedule entries absent from genesis. BlobParams execution-only fields are omitted from the RPC wire format.",
+    "fix": "Build expected RPC configuration from validated full genesis and its derived blob parameters, preserving explicit genesis entries; compare serialized configurations and canonical genesis hash. Supplied mismatches remain errors.",
+    "source_file": "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs",
+    "source_sha256": "790328d6342d5e3bdf127aa0f8e2d77ade8406e89bb36dc47c3b22970fc830d2",
+    "tests": {
+      "helper_passed": 11,
+      "strict_all_features_workspace_clippy": "pass",
+      "fmt": "pass",
+      "retained_original_witness_inputs_passed": 2,
+      "prefixes_per_input": 11,
+      "full_independent_evidence": {
+        "workers": 4,
+        "seconds": 32.493,
+        "scenarios": [
+          {
+            "scenario": "multi-call-twice",
+            "exit_code": 0,
+            "seconds": 3.923
+          },
+          {
+            "scenario": "multi-call-two-diff",
+            "exit_code": 0,
+            "seconds": 3.722
+          },
+          {
+            "scenario": "multi-call-twiceL2",
+            "exit_code": 0,
+            "seconds": 4.473
+          },
+          {
+            "scenario": "multi-call-two-diffL2",
+            "exit_code": 0,
+            "seconds": 3.421
+          },
+          {
+            "scenario": "counter-multi-tx",
+            "exit_code": 0,
+            "seconds": 4.624
+          },
+          {
+            "scenario": "deepNested",
+            "exit_code": 0,
+            "seconds": 4.773
+          },
+          {
+            "scenario": "flash-loan",
+            "exit_code": 0,
+            "seconds": 3.922
+          },
+          {
+            "scenario": "multi-call-nested",
+            "exit_code": 0,
+            "seconds": 3.22
+          },
+          {
+            "scenario": "nestedCounter",
+            "exit_code": 0,
+            "seconds": 3.07
+          },
+          {
+            "scenario": "multi-call-nestedL2",
+            "exit_code": 0,
+            "seconds": 5.475
+          },
+          {
+            "scenario": "nestedCounterL2",
+            "exit_code": 0,
+            "seconds": 3.42
+          },
+          {
+            "scenario": "bridge",
+            "exit_code": 0,
+            "seconds": 3.62
+          },
+          {
+            "scenario": "counter",
+            "exit_code": 0,
+            "seconds": 4.472
+          },
+          {
+            "scenario": "bridgeL2",
+            "exit_code": 0,
+            "seconds": 3.871
+          },
+          {
+            "scenario": "counterL2",
+            "exit_code": 0,
+            "seconds": 3.671
+          },
+          {
+            "scenario": "reentrant",
+            "exit_code": 0,
+            "seconds": 4.372
+          },
+          {
+            "scenario": "nestedCallRevert",
+            "exit_code": 0,
+            "seconds": 3.771
+          },
+          {
+            "scenario": "revertCounter",
+            "exit_code": 0,
+            "seconds": 4.272
+          },
+          {
+            "scenario": "revertFromOtherChain",
+            "exit_code": 0,
+            "seconds": 3.421
+          },
+          {
+            "scenario": "nestedCallRevertL2",
+            "exit_code": 0,
+            "seconds": 4.724
+          },
+          {
+            "scenario": "revertCounterL2",
+            "exit_code": 0,
+            "seconds": 3.12
+          },
+          {
+            "scenario": "revertFromOtherChainAndCallAgainL2",
+            "exit_code": 0,
+            "seconds": 3.27
+          },
+          {
+            "scenario": "revertFromOtherChainL2",
+            "exit_code": 0,
+            "seconds": 3.17
+          },
+          {
+            "scenario": "revertFromOtherChainNested",
+            "exit_code": 0,
+            "seconds": 4.573
+          },
+          {
+            "scenario": "nestedStaticCounter",
+            "exit_code": 0,
+            "seconds": 5.324
+          },
+          {
+            "scenario": "staticReadWrite",
+            "exit_code": 0,
+            "seconds": 3.37
+          },
+          {
+            "scenario": "staticReadX2Write",
+            "exit_code": 0,
+            "seconds": 3.471
+          },
+          {
+            "scenario": "topLevelStaticCounter",
+            "exit_code": 0,
+            "seconds": 3.521
+          },
+          {
+            "scenario": "nestedStaticCounterL2",
+            "exit_code": 0,
+            "seconds": 3.27
+          },
+          {
+            "scenario": "staticCounterL2",
+            "exit_code": 0,
+            "seconds": 3.571
+          },
+          {
+            "scenario": "staticReadWriteL2",
+            "exit_code": 0,
+            "seconds": 3.32
+          },
+          {
+            "scenario": "staticReadX2WriteL2",
+            "exit_code": 0,
+            "seconds": 3.12
+          }
+        ]
+      }
+    },
+    "helper_executable_sha256": "600506ea29959d5fbb2362336cea8d3b5628b119e68bfc4cf76881318c605e21",
+    "helper_profile": "source-built dev; shipping image/archives remain ea17be9; no final full release-producer rerun for this CI-only correction",
+    "proof_path": {
+      "signed_windows": 74,
+      "remote_attestations": 74,
+      "signer_failure_terms": {
+        "Prove request rejected while reading window": 0,
+        "request pipeline rejected": 0,
+        "request pipeline invariant failed": 0,
+        "request pipeline worker failed": 0,
+        "public-input hash signing failed": 0
+      }
+    },
+    "blob_da": {
+      "result": "pass",
+      "ordinary_transactions": 3,
+      "counter_at_safe": 42,
+      "blobscan": "explicitly disabled: optional explorer not deployed"
+    },
+    "fresh_follower": {
+      "checked_blocks": 126,
+      "checked_derived_blocks": 126,
+      "checked_receipts": 3,
+      "safe_l2_block": 1440,
+      "safe_l2_block_hash": "0xbc74202df1f1211164eb1088ff00bcc89654d77b00f1de1e7b9723b07a116b93",
+      "source": "canonical_l1_only",
+      "verified": true
+    },
+    "first_iteration": "9/11 helper tests passed; comparison still included non-serialized BlobParams fields. Corrected to compare RPC representation; 11/11 final tests pass.",
+    "evidence": "artifacts/reth-v2.7-review/rpc-config-fix and release-genesis; ignored local-only files"
+  }
+}

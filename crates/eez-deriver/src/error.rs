@@ -22,7 +22,7 @@ pub(crate) enum ErrorKind {
     /// `eez-payload-codec::decode` rejected an L1-posted batch's
     /// authenticated operations payload. Usually indicates a contract that
     /// posted a payload in a version we don't speak.
-    Payload(eez_payload_codec::derivable::Error),
+    Payload(eez_payload_codec::v0::Error),
     /// L1 catch-up scan failed. Callers can inspect nested typed L1 errors
     /// through helper methods without deriver re-encoding their meaning.
     L1Scan(eez_l1::L1Error),
@@ -107,8 +107,8 @@ impl DeriverError {
     }
 }
 
-impl From<eez_payload_codec::derivable::Error> for DeriverError {
-    fn from(err: eez_payload_codec::derivable::Error) -> Self {
+impl From<eez_payload_codec::v0::Error> for DeriverError {
+    fn from(err: eez_payload_codec::v0::Error) -> Self {
         Self::new(ErrorKind::Payload(err))
     }
 }

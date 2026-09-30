@@ -17,8 +17,8 @@ use super::outbound::{OutboundLoadCandidate, inspect_outbound_load_candidate};
 use crate::EEZL2_ADDRESS;
 use crate::validate::{OutboundEventObservation, SettlementBlockEvidence, ValidatedBlock};
 
-pub(super) type EthereumBlock = reth_ethereum_primitives::Block;
-pub(super) const RESERVED_SYSTEM_TRANSACTION_TYPE: u8 = 0x7e;
+pub(super) type EezBlock = eez_primitives::Block;
+pub(super) const RESERVED_SYSTEM_TRANSACTION_TYPE: u8 = eez_primitives::SYSTEM_TX_TYPE;
 
 /// Settlement observations derived by combining backend-recovered evidence
 /// with the exact settling-block transaction order.
@@ -66,7 +66,15 @@ impl SettlingBlockObservations {
     /// Derive candidate effect boundaries from the ordered system-sender flags.
     /// Semantic gates validate the corresponding inbound or outbound effects.
     pub(super) fn effect_candidate_positions(&self) -> Vec<usize> {
-        framed_effect_candidate_positions(&self.system_sender_flags)
+        let ordinary = self
+            .system_sender_flags
+            .iter()
+            .position(|&native| native)
+            .unwrap_or(self.system_sender_flags.len());
+        framed_effect_candidate_positions(&self.system_sender_flags[ordinary..])
+            .into_iter()
+            .map(|index| ordinary + index)
+            .collect()
     }
 
     /// Construct explicit observations for focused settlement tests.
@@ -163,11 +171,8 @@ pub(crate) fn inspect_validated_settling_block(
     )
 }
 
-fn decode_block(
-    block_number: u64,
-    block_rlp: &[u8],
-) -> Result<EthereumBlock, BlockInspectionError> {
-    alloy_rlp::decode_exact::<EthereumBlock>(block_rlp).map_err(|error| {
+fn decode_block(block_number: u64, block_rlp: &[u8]) -> Result<EezBlock, BlockInspectionError> {
+    alloy_rlp::decode_exact::<EezBlock>(block_rlp).map_err(|error| {
         BlockInspectionError::InvalidRlp {
             block_number,
             reason: error.to_string(),
@@ -224,7 +229,7 @@ pub(crate) fn paired_outbound_transaction(
 
 fn inspect_decoded_settling_block(
     block_number: u64,
-    block: &EthereumBlock,
+    block: &EezBlock,
     settlement_evidence: &SettlementBlockEvidence,
     receipt_successes: &[bool],
     expected_rollup_id: NonZeroU64,
@@ -252,14 +257,14 @@ fn inspect_decoded_settling_block(
         .zip(receipt_successes)
         .enumerate()
     {
-        // The reserved system signer may authorize only top-level calls to EEZL2.
+        // Settlement retains the native sender's restriction to top-level EEZL2 calls.
         if is_system_sender && transaction.to() != Some(EEZL2_ADDRESS) {
             return Err(BlockInspectionError::ReservedSystemSender {
                 index: transaction_index,
             });
         }
-        // The target is already pinned, so reserved signer plus the inbound
-        // selector fully identifies an inbound candidate.
+        // With the target pinned, the protocol-supplied sender and inbound
+        // selector identify an inbound candidate; authorization follows later.
         let is_inbound_candidate = is_system_sender
             && transaction
                 .input()
@@ -361,7 +366,7 @@ pub(crate) fn verify_validated_intermediate_blocks(
 
 fn verify_decoded_intermediate_block(
     block_number: u64,
-    block: &EthereumBlock,
+    block: &EezBlock,
     system_sender_flags: &[bool],
 ) -> Result<(), BlockInspectionError> {
     let transactions = &block.body.transactions;

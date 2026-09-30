@@ -54,6 +54,81 @@ contract PublicInputsHashVectorsTest is Test {
     bytes32 private constant ALL_DIMENSIONS_PUBLIC_INPUT =
         0x18742f97fac6fcd3ca33e57739399b92eb55a4cf3465327a9dd274199ef677ef;
 
+    function testLatestContextBindsTimestampAndParentHash() external {
+        vm.roll(100);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xab)));
+        EEZ eez = new EEZ(address(0xDEAD));
+        MockProofSystem proofSystem = new MockProofSystem();
+        uint64 rollupId = _registerRollup(eez, _singleton(proofSystem), _singleton(bytes32(uint256(0x42))));
+        ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
+        batch.blockNumber = type(uint64).max;
+        batch.proofSystems = _addresses(_singleton(proofSystem));
+        batch.proofs = _proofs(1);
+        batch.rollupIdsWithProofSystems = _assignments1(rollupId, 0);
+        bytes[] memory data = new bytes[](1);
+        data[0] = abi.encode(uint256(1_700_000_000), bytes32(uint256(0xab)));
+        bytes32 shared = _shared(batch, data, address(0));
+        bytes32 publicInput = _publicInput(shared, _singleton(rollupId), _singleton(bytes32(uint256(0x42))));
+        assertEq(publicInput, 0x62573d0503b227019390ec8d00cc7fc808403e3b042ae02de710081bc20fee30);
+        proofSystem.setExpectedPublicInputsHash(publicInput);
+        eez.postAndVerifyBatch(batch);
+
+        vm.warp(1_700_000_001);
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xac)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.setBlockhash(99, bytes32(uint256(0xab)));
+        batch.blockNumber = 0;
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+    }
+
+    function testECDSAProofRemainsBoundToItsL1ContextAfterSigning() external {
+        vm.roll(100);
+        vm.warp(1_700_000_000);
+        bytes32 parentHash = bytes32(uint256(0xab));
+        vm.setBlockhash(99, parentHash);
+        uint256 signerKey = 0xA11CE;
+        address signer = vm.addr(signerKey);
+        bytes32[] memory vkeys = _singleton(bytes32(uint256(uint160(signer))));
+        EEZ eez = new EEZ(address(0xDEAD));
+        ECDSAProofSystem proofSystem = new ECDSAProofSystem(signer);
+        address[] memory proofSystems = new address[](1);
+        proofSystems[0] = address(proofSystem);
+        Rollup rollup = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        uint64 rollupId = eez.registerRollup(address(rollup), bytes32(uint256(0x1111)));
+        ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
+        batch.blockNumber = type(uint64).max;
+        batch.proofSystems = proofSystems;
+        batch.rollupIdsWithProofSystems = _assignments1(rollupId, 0);
+        batch.proofs = new bytes[](1);
+        bytes[] memory context = new bytes[](1);
+        context[0] = abi.encode(uint256(1_700_000_000), parentHash);
+        bytes32 signedHash = _publicInput(_shared(batch, context, address(0)), _singleton(rollupId), vkeys);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, signedHash);
+        batch.proofs[0] = abi.encodePacked(r, s, v);
+        eez.postAndVerifyBatch(batch);
+
+        // Reuse the same actual ECDSA signature after a skipped slot, a reorg,
+        // and an ordinary head extension. No signer freshness RPC is involved.
+        vm.warp(1_700_000_012);
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.warp(1_700_000_000);
+        vm.setBlockhash(99, bytes32(uint256(0xac)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+        vm.setBlockhash(99, parentHash);
+        vm.roll(101);
+        vm.setBlockhash(100, bytes32(uint256(0xad)));
+        vm.expectRevert(EEZ.InvalidProof.selector);
+        eez.postAndVerifyBatch(batch);
+    }
+
     function testEmptyEntryVector() external {
         EEZ eez = new EEZ(address(0xDEAD));
         MockProofSystem proofSystem = new MockProofSystem();

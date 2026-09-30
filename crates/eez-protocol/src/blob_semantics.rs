@@ -13,6 +13,9 @@ use crate::{
     CallMode, Composition, ExecutedAction, ExecutionOutcome, RollupId, materialize_actions,
 };
 
+mod reconstruction;
+pub use reconstruction::{ReconstructionActions, ReconstructionError};
+
 /// One cross-chain transaction represented by the native semantic messages.
 #[derive(Clone, Debug)]
 pub struct SemanticTransaction {

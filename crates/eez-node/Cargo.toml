@@ -8,6 +8,8 @@ description            = "eez Rollup-0 node — vanilla reth driven by an eez se
 default-run            = "eez-composer"
 
 [dependencies]
+eez-primitives.workspace = true
+eez-evm.workspace = true
 eez-blob-codec.workspace    = true
 eez-composer.workspace      = true
 eez-control-rpc.workspace = true
@@ -21,6 +23,7 @@ eez-prover.workspace        = true
 eez-prover-client.workspace = true
 
 # reth
+reth-engine-local.workspace = true
 reth-chainspec.workspace                  = true
 reth-cli.workspace                        = true
 reth-db.workspace                         = true

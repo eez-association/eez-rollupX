@@ -1,5 +1,15 @@
 use super::*;
 
+fn byte_summary(size: usize) -> eez_payload_codec::v0::PayloadSizer {
+    eez_payload_codec::v0::PayloadSizer::run(&eez_payload_codec::v0::BlockRun {
+        blocks: 1,
+        beneficiary: Default::default(),
+        extra_data: &[],
+        transactions: &[vec![0; size].into()],
+    })
+    .unwrap()
+}
+
 #[test]
 fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pending_activity() {
     use super::index::{ActivityIndex, BlockActivity};
@@ -47,8 +57,7 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
         Ok(BlockActivity {
             endpoint: endpoint(number),
             parent_hash: endpoint(number - 1).hash,
-            encoded_item_bytes: 700,
-            ordinary: eez_payload_codec::DerivablePayloadSizer::full_block(&[0; 700], 0).unwrap(),
+            ordinary: byte_summary(700),
             pure_transactions: u64::from(number == 4),
         })
     };
@@ -60,7 +69,7 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
             latest_pure_block: index.latest_pure(),
             estimated_stream_bytes: Some(
                 index
-                    .estimated_stream_bytes_with_overhead(700, Default::default())
+                    .estimated_stream_bytes_with_overhead(&byte_summary(700), Default::default())
                     .unwrap(),
             ),
             drain_coverage: coverage,
@@ -125,9 +134,7 @@ fn canonical_publication_and_reorg_restore_the_original_timer_and_rebuild_pendin
                 } else {
                     replacement(number - 1).hash
                 },
-                encoded_item_bytes: 650,
-                ordinary: eez_payload_codec::DerivablePayloadSizer::full_block(&[0; 650], 0)
-                    .unwrap(),
+                ordinary: byte_summary(650),
                 pure_transactions: 0,
             })
         })

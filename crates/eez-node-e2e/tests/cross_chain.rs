@@ -1511,12 +1511,26 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
     )
     .await
     .unwrap();
-    wait_for(SETTLE_TIMEOUT, || async {
+    let replayed_sum = wait_for(SETTLE_TIMEOUT, || async {
         let actual =
             block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Number(target.0))
                 .await?;
         let safe = block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Safe).await?;
-        Ok((actual == Some(target) && safe.is_some_and(|head| head.0 >= target.0)).then_some(()))
+        if actual != Some(target) || safe.is_none_or(|head| head.0 < target.0) {
+            return Ok(None);
+        }
+        // Replayed blocks can be visible before startup finishes validating L1
+        // history. Pending eth_call remains gated until that validation completes.
+        read_state_word(
+            &follower.l2_rpc_url(),
+            &call_read(
+                w.outbound_wrapper,
+                "mixedReadSum()",
+                ISetterWrapper::mixedReadSumCall {}.abi_encode(),
+            ),
+        )
+        .await
+        .map(Some)
     })
     .await
     .unwrap_or_else(|error| {
@@ -1525,19 +1539,7 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
             follower.log_tail(60)
         )
     });
-    assert_eq!(
-        read_state_word(
-            &follower.l2_rpc_url(),
-            &call_read(
-                w.outbound_wrapper,
-                "mixedReadSum()",
-                ISetterWrapper::mixedReadSumCall {}.abi_encode(),
-            )
-        )
-        .await
-        .unwrap(),
-        U256::from(expected_sum)
-    );
+    assert_eq!(replayed_sum, U256::from(expected_sum));
     follower.assert_no_divergence_failure_logs();
     w.node.assert_no_divergence_failure_logs();
 }

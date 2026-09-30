@@ -729,7 +729,9 @@ async fn valid_same_block_resume() {
                 follower.log_tail(60)
             )
         });
-        let provider = ProviderBuilder::new().connect_http(rpc.parse().unwrap());
+        let provider = ProviderBuilder::new()
+            .network::<alloy_network::AnyNetwork>()
+            .connect_http(rpc.parse().unwrap());
         let block = provider
             .get_block_by_number(height.into())
             .full()
@@ -739,7 +741,7 @@ async fn valid_same_block_resume() {
         let hashes: Vec<_> = block
             .transactions
             .txns()
-            .map(|tx| *tx.inner.tx_hash())
+            .map(alloy_network::TransactionResponse::tx_hash)
             .collect();
         for hash in &users {
             assert_eq!(

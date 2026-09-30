@@ -13,6 +13,8 @@ use eyre::WrapErr as _;
 
 mod canonical;
 pub use canonical::{CANONICAL_JSON_VERSION, canonicalize_chain_json};
+mod l2;
+pub use l2::{LoadedL2Genesis, load_l2_genesis, parse_l2_genesis};
 
 const GENESIS_FIELDS: &[&str] = &[
     "alloc",

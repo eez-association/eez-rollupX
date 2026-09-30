@@ -135,7 +135,8 @@ impl PostingRuntime {
         let mut env = if let Some(config) = &self.chain.gnosis_evm_config {
             config.next_evm_env(&parent.clone().into(), &attributes)
         } else {
-            self.chain.evm_config.next_evm_env(parent, &attributes)
+            reth_evm_ethereum::EthEvmConfig::new(Arc::clone(self.chain.evm_config.chain_spec()))
+                .next_evm_env(parent, &attributes)
         }
         .map_err(|error| PostingError::Unavailable(error.to_string()))?;
         // Conservative planning may be more than one block ahead. Final
@@ -397,7 +398,10 @@ impl PostingRuntime {
             )?
         } else {
             let parent = SealedHeader::new(quote.parent.clone(), quote.quote.sample.hash);
-            let config = &self.chain.evm_config;
+            // L1 posting uses its network rules, independently of the native L2 profile.
+            let config = reth_evm_ethereum::EthEvmConfig::new(Arc::clone(
+                self.chain.evm_config.chain_spec(),
+            ));
             let context = config
                 .context_for_next_block(&parent, quote.attributes.clone())
                 .map_err(|e| PostingError::Unavailable(e.to_string()))?;

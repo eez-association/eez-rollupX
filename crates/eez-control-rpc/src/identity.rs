@@ -9,9 +9,9 @@ use std::num::NonZeroU64;
 use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_rlp::RlpEncodable;
 
-const IDENTITY_SCHEMA_VERSION: u64 = 2;
+const IDENTITY_SCHEMA_VERSION: u64 = 4;
 const VALIDATOR_REVISION: &[u8] =
-    b"eez-derivable-validator-v2;protocol=9d13218a355e7d543ca8a9927eea2962600b716d";
+    b"eez-native-v0-validator-v4;operations=columns/count14/u32;gas=30000000;basefee=2/50;system=0x76/nonce/2000000;l1=canonical-snapshot+parent-provenance;protocol=9d13218a355e7d543ca8a9927eea2962600b716d";
 // A conservative fingerprint: every locked version/source/checksum participates,
 // including Reth, Stateless, REVM, Alloy and the JSON implementation. This may
 // invalidate reusable facts after an unrelated dependency change; it cannot
@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(
             actual,
             alloy_primitives::b256!(
-                "4cf40906c762b6912051b6223048cfc487eb52eda90ff5379cb92f68b2b28bae"
+                "560be4be5fd4adbc54538ec169b719288efb543fabc9cb94e2d072b276ad41d9"
             )
         );
     }
