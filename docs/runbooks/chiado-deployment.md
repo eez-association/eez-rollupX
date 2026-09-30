@@ -556,6 +556,11 @@ in-place migration. Deploy a new network with matching artifacts before starting
 its nodes. `EEZ_L2_SYSTEM_KEY` is removed; L1 posting and proof attestation retain
 their separate keys. Native history cannot be replayed by the old binaries.
 
+The [remaining-gas native budget](../proposals/system-tx-remaining-gas-cap.md)
+replaces the fixed 2,000,000 native gas budget and applies from genesis of a new
+network. A network whose history used the fixed budget is not supported by this
+revision; deploy a fresh network with matching Composer, signer and followers.
+
 
 The deadline-based skipped-slot retry changes only Composer scheduling and
 in-memory ownership. Its rollout needs no contract deployment, genesis change,

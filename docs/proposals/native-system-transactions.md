@@ -27,7 +27,8 @@ foundation. PR #37's count codec alone does not resolve #35: its surrounding RLP
 envelope, terminal block representation, and environment transport still differ.
 
 **Explicit amendment to #35:** the owner selected #154's nonce-bearing type `0x76`,
-sender `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`, and fixed 2,000,000 metered gas.
+sender `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`, and fixed 2,000,000 metered gas
+(the gas budget is superseded by the [remaining-gas native budget](system-tx-remaining-gas-cap.md)).
 The issue's `0x45`, absent nonce, and remaining-block-dependent gas requirements
 are superseded for this implementation. The remaining issue requirements remain
 in scope. The draft at `7c99bcf923e0ee0f867549a750d1ab1373bf845d` is a design
@@ -38,7 +39,7 @@ reference, not an accepted replacement for the pinned core protocol.
 | ID | Required invariant | Acceptance evidence |
 | --- | --- | --- |
 | N1 | Canonical `0x76 || rlp([chainId, nonce, to, value, input])`, fixed sender and EEZL2 destination; no signature or key | Independent wire vector, round trip, hash, malformed/target tests |
-| N2 | Fixed 2M gas, zero fees and nested `GASPRICE`; normal transactions retain fees | Execution, nested guard and reimbursement, paid comparison, noncanonical raw environment tests |
+| N2 | Fixed 2M gas (superseded: the budget is now the remaining block gas up to 16,777,216, see [remaining-gas native budget](system-tx-remaining-gas-cap.md)), zero fees and nested `GASPRICE`; normal transactions retain fees | Execution, nested guard and reimbursement, paid comparison, noncanonical raw environment tests |
 | N3 | Mint committed inbound value before execution; outer revert/halt removes mint while retaining metered gas and nonce behavior | Success, preexisting balance, revert, OOG, overflow, invalid nonce and preview tests |
 | N4 | Native receipt identity and storage round trip; native admission unavailable to public RPC/pool; blobs excluded from L2 | Receipt/RPC/storage and production admission regressions; L1 blob simulation retained |
 | N5 | Composer, follower, replay and signer agree on bytes and state | Shared reconstruction, consumed-prefix nonce tests, multiple actions/restart, independent process replay |

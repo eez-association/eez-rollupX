@@ -210,7 +210,13 @@ immutable system address to this fixed value remains a genesis/deployment
 invariant; the signer does not independently query deployed code.
 
 Native transactions are `0x76 || rlp([chainId, nonce, to, value, input])` with
-the fixed sender, EEZL2 destination, zero gas price, and 2,000,000 metered gas.
+the fixed sender, EEZL2 destination and zero gas price. Their metered gas budget
+is position-dependent: `min(16,777,216, block gas limit - cumulative gas used by
+the preceding transactions)`, where the cap is Osaka's EIP-7825 per-transaction
+limit. The budget is not reserved against the block; only metered use counts. A
+budget below the transaction's intrinsic gas (including EIP-7623's floor) makes
+the block invalid. Replay derives the budget from block contents alone, so the
+signer's stateless execution and the Composer agree without any carried field.
 The nonce and chain ID MUST match execution state/rules. Encoding contains no
 signature or configurable gas fields. Ordinary Ethereum transactions retain
 normal fees. Receipts retain type `0x76`. Public RPC/txpool admission MUST reject
@@ -918,7 +924,7 @@ signature    = none
 target       = EEZL2_ADDRESS
 chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
-gas limit    = 2_000_000, fixed and metered
+gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
 first nonce  = nonce of the first validated native transaction
 ```
