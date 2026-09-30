@@ -17,10 +17,13 @@ use alloy_rpc_types_engine::ExecutionData;
 use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
 use eez_evm::EezEvmConfig;
 use eez_primitives::engine::EezEngineTypes;
-use eez_primitives::{Block, EezTxEnvelope as TransactionSigned};
+use eez_primitives::{
+    Block, EezTxEnvelope as TransactionSigned, SYSTEM_TX_GAS_CAP, system_tx_gas_limit,
+};
 use reth_chainspec::EthereumHardforks;
 use reth_evm::{
-    ConfigureEvm, Evm as _, EvmEnvFor, InspectorFor, NextBlockEnvAttributes, execute::BlockBuilder,
+    ConfigureEvm, Evm as _, EvmEnvFor, FromRecoveredTx as _, InspectorFor, NextBlockEnvAttributes,
+    execute::BlockBuilder,
 };
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
@@ -32,7 +35,8 @@ use revm::database::{CacheState, State};
 use revm::inspector::NoOpInspector;
 use revm::{
     DatabaseCommit,
-    context::result::{EVMError, ExecutionResult},
+    context::result::{EVMError, ExecutionResult, ResultAndState},
+    context::{Cfg as _, TxEnv},
 };
 use std::sync::Arc;
 use thiserror::Error;
@@ -59,6 +63,17 @@ pub enum BuildError {
     /// Revm rejected the tx at execution time (gas, balance, …).
     #[error("execute tx #{idx}: {msg}")]
     ExecuteTx { idx: usize, msg: String },
+    /// The tx does not fit the block's remaining gas at its position: either an
+    /// ordinary tx's declared limit exceeds it, or a native tx's position budget
+    /// would change what the tx does compared with the full cap. A capacity
+    /// condition of this block, not a fault of the tx; an emptier block may
+    /// take it. Nothing was committed.
+    #[error("tx #{idx} does not fit the {available} gas left in the block: {reason}")]
+    BlockCapacity {
+        idx: usize,
+        available: u64,
+        reason: &'static str,
+    },
     /// A requested prefix block-hash checkpoint did not identify a transaction.
     #[error("checkpoint tx position {position} is outside a {tx_count}-transaction Sync block")]
     InvalidCheckpointPosition { position: usize, tx_count: usize },
@@ -75,6 +90,13 @@ impl BuildError {
     #[must_use]
     pub const fn is_provider(&self) -> bool {
         matches!(self, Self::Provider(_))
+    }
+
+    /// Whether the tx was refused only for this block's remaining gas, so the
+    /// caller must defer it rather than blame it.
+    #[must_use]
+    pub const fn is_capacity(&self) -> bool {
+        matches!(self, Self::BlockCapacity { .. })
     }
 }
 
@@ -256,10 +278,37 @@ fn exec_outcome<H>(result: &ExecutionResult<H>) -> TxOutcome {
     }
 }
 
-/// Execute one raw tx against `state` under `evm_env` and commit it — the
-/// per-tx half of `BlockBuilder::execute_transaction` (`alloy_evm`'s
-/// `EthBlockExecutor` transacts and commits the same way; the rest of its work
-/// is receipts and block-gas accounting, which carry no state).
+/// Upper bound of the block gas `txs` can take, as the executor's admission
+/// rules see them: a native tx at most its cap, an ordinary tx its declared
+/// limit. An undecodable tx counts as unbounded.
+#[must_use]
+pub fn declared_group_gas(txs: &[Bytes]) -> u64 {
+    txs.iter().fold(0u64, |total, raw| {
+        let declared =
+            TransactionSigned::decode_2718(&mut raw.as_ref()).map_or(u64::MAX, |tx| tx.gas_limit());
+        total.saturating_add(declared)
+    })
+}
+
+/// Execute one raw tx against `state` under `evm_env` at a block position with
+/// `gas_used` already spent, and commit it: the per-tx half of the block
+/// executor (`eez_evm`'s `EezBlockExecutor` transacts and commits the same way;
+/// the rest of its work is receipts, which carry no state).
+///
+/// The executor's gas rules are applied here too, so the draft never holds a
+/// tx the canonical rebuild would refuse or execute differently:
+/// - an ordinary tx must declare no more than the remaining block gas;
+/// - a native tx runs with `system_tx_gas_limit` of the remaining gas.
+///
+/// A native budget below the cap makes the result depend on how full the block
+/// is: an inner call may be starved by the 63/64 rule, or code may read
+/// `GAS`. Cross-chain effects must not depend on packing, so a clamped native
+/// tx is accepted only if its result and state changes equal those of the same
+/// tx under the full cap on the same pre-state; otherwise it is refused with
+/// [`BuildError::BlockCapacity`] and nothing is committed. Native txs pay no
+/// fees, so no balance depends on the budget and the comparison is exact. The
+/// reference run costs one extra execution, only for native txs placed after
+/// more than `block gas limit - cap` of gas.
 ///
 /// The caller tracks cumulative block gas off [`TxOutcome::gas_used`] — the
 /// same per-tx figure the block executor adds to its own total.
@@ -270,6 +319,7 @@ fn execute_and_commit_inspected<I>(
     evm_config: &EezEvmConfig,
     state: &mut DraftDb,
     evm_env: &EvmEnvFor<EezEvmConfig>,
+    gas_used: u64,
     raw: &Bytes,
     idx: usize,
     inspector: I,
@@ -278,19 +328,79 @@ where
     I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
 {
     let recovered = recover_tx(raw, idx)?;
+    let block_gas_limit = evm_env.block_env.gas_limit;
+    let available = block_gas_limit.saturating_sub(gas_used);
+    let mut tx_env = TxEnv::from_recovered_tx(recovered.inner(), recovered.signer());
+    let mut reference = None;
+    match recovered.inner() {
+        TransactionSigned::System(_) => {
+            let budget = system_tx_gas_limit(block_gas_limit, gas_used);
+            if budget < SYSTEM_TX_GAS_CAP {
+                // An error here is the tx's own (nonce, value), exactly as in an
+                // emptier block; the clamped run below is then not attempted.
+                let mut evm = evm_config.evm_with_env(&mut *state, evm_env.clone());
+                reference = Some(evm.transact(tx_env.clone()).map_err(|error| match error {
+                    EVMError::Database(err) => {
+                        BuildError::Provider(format!("execute tx #{idx}: {err}"))
+                    }
+                    other => BuildError::ExecuteTx {
+                        idx,
+                        msg: other.to_string(),
+                    },
+                })?);
+            }
+            tx_env.gas_limit = budget;
+        }
+        TransactionSigned::Ethereum(tx) => {
+            // The executor's Ethereum rule, including Osaka's per-tx cap.
+            let charged = tx.gas_limit().min(evm_env.cfg_env.tx_gas_limit_cap());
+            if charged > available {
+                return Err(BuildError::BlockCapacity {
+                    idx,
+                    available,
+                    reason: "declared gas limit exceeds the remaining block gas",
+                });
+            }
+        }
+    }
     let mut evm = evm_config.evm_with_env_and_inspector(state, evm_env.clone(), inspector);
     // A database read failure is the store being unavailable, not the tx being
     // invalid: the two classes drive opposite recoveries in the drain.
-    let result = evm.transact(&recovered).map_err(|e| match e {
-        EVMError::Database(err) => BuildError::Provider(format!("execute tx #{idx}: {err}")),
-        other => BuildError::ExecuteTx {
-            idx,
-            msg: other.to_string(),
-        },
-    })?;
+    let result = match (evm.transact(tx_env), reference) {
+        (Err(EVMError::Database(err)), _) => {
+            return Err(BuildError::Provider(format!("execute tx #{idx}: {err}")));
+        }
+        // The same tx validated under the cap, so the budget is the only cause.
+        (Err(_), Some(_)) => {
+            return Err(BuildError::BlockCapacity {
+                idx,
+                available,
+                reason: "native budget is below the transaction's intrinsic gas",
+            });
+        }
+        (Err(other), None) => {
+            return Err(BuildError::ExecuteTx {
+                idx,
+                msg: other.to_string(),
+            });
+        }
+        (Ok(clamped), Some(reference)) if !same_execution(&clamped, &reference) => {
+            return Err(BuildError::BlockCapacity {
+                idx,
+                available,
+                reason: "native execution under the remaining gas differs from the cap",
+            });
+        }
+        (Ok(result), _) => result,
+    };
     let outcome = exec_outcome(&result.result);
     evm.db_mut().commit(result.state);
     Ok(outcome)
+}
+
+/// Equal status, gas, output, logs and state changes.
+fn same_execution<H: PartialEq>(left: &ResultAndState<H>, right: &ResultAndState<H>) -> bool {
+    left.result == right.result && left.state == right.state
 }
 
 /// Live, incrementally extended execution state of the Sync block under
@@ -408,6 +518,7 @@ impl SyncBlockState {
             &self.evm_config,
             &mut self.state,
             &self.evm_env,
+            self.gas_used,
             raw,
             self.applied,
             NoOpInspector,
@@ -415,6 +526,39 @@ impl SyncBlockState {
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
+    }
+
+    /// Check, without changing this block, whether `txs` appended here fit its
+    /// remaining gas under the executor's rules (see
+    /// [`execute_and_commit_inspected`]).
+    ///
+    /// When even the declared upper bounds fit, no native tx can be clamped and
+    /// no ordinary tx can overflow, so nothing is executed. Otherwise the group
+    /// runs on a throwaway fork. `Err` carries a [`BuildError::BlockCapacity`]
+    /// or a provider failure; any other failure (a revert, an invalid tx) is
+    /// left to the real append, which classifies it as the tx's own.
+    ///
+    /// # Errors
+    ///
+    /// The position and error of the first tx refused for capacity, or a
+    /// provider failure.
+    pub fn capacity_probe(&mut self, txs: &[Bytes]) -> Result<(), (usize, BuildError)> {
+        let block_gas_limit = self.evm_env.block_env.gas_limit;
+        if self.gas_used.saturating_add(declared_group_gas(txs)) <= block_gas_limit {
+            return Ok(());
+        }
+        let mut fork = self.fork().map_err(|error| (0, error))?;
+        for (at, raw) in txs.iter().enumerate() {
+            match fork.execute_committed(raw) {
+                Ok(outcome) if outcome.success => {}
+                Err(error) if error.is_capacity() || error.is_provider() => {
+                    return Err((at, error));
+                }
+                // A revert or invalid tx: the real append classifies it.
+                Ok(_) | Err(_) => return Ok(()),
+            }
+        }
+        Ok(())
     }
 
     /// Open a throwaway fork of this state: a fresh revm state over the same
@@ -493,10 +637,15 @@ impl SyncBlockFork {
     /// See [`BuildError`].
     #[cfg(test)]
     pub fn execute_tx(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
+        self.execute_committed(raw)
+    }
+
+    fn execute_committed(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
         let outcome = execute_and_commit_inspected(
             &self.evm_config,
             &mut self.state,
             &self.evm_env,
+            self.gas_used,
             raw,
             self.applied,
             NoOpInspector,
@@ -1239,5 +1388,124 @@ mod tests {
             f.build(&f.txs).header.gas_used(),
             "the live prefix and the built block must agree on block gas",
         );
+    }
+
+    const LOOP: Address = address!("0000000000000000000000000000000000001009");
+
+    /// The fixture plus an EEZL2 stand-in running `eezl2_code`, and a looping
+    /// contract an ordinary tx can burn a chosen amount of block gas in.
+    fn native_fixture(eezl2_code: Bytes) -> Fixture {
+        let f = fixture();
+        f.provider.add_account(
+            eez_primitives::EEZL2_ADDRESS,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(eezl2_code),
+        );
+        f.provider.add_account(
+            LOOP,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("5b600056")),
+        );
+        f
+    }
+
+    fn native(nonce: u64) -> Bytes {
+        let tx: TransactionSigned = eez_primitives::SystemTransaction {
+            chain_id: 1,
+            nonce,
+            to: eez_primitives::EEZL2_ADDRESS,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        }
+        .into();
+        let mut buf = Vec::new();
+        tx.encode_2718(&mut buf);
+        buf.into()
+    }
+
+    /// A 16M ordinary burn leaves 14M, below the native cap.
+    fn heavy_prefix() -> Vec<Bytes> {
+        vec![sign_tx(0, LOOP, U256::ZERO, 16_000_000)]
+    }
+
+    #[test]
+    fn clamped_native_tx_with_budget_independent_execution_matches_the_built_block() {
+        // STOP: the same result under any budget above intrinsic gas.
+        let f = native_fixture(bytes!("00"));
+        let mut txs = heavy_prefix();
+        txs.push(native(0));
+        let mut draft = f.open(&[]);
+        assert!(draft.capacity_probe(&txs[1..]).is_ok());
+        let burned = draft.execute_tx(&txs[0]).unwrap();
+        assert_eq!(burned.gas_used, 16_000_000);
+        // Ethereum's declared-limit rule would refuse the cap here; the native
+        // budget is the 14M remainder instead.
+        assert!(BUILDER_GAS_LIMIT - burned.gas_used < SYSTEM_TX_GAS_CAP);
+        assert!(draft.capacity_probe(&txs[1..]).is_ok());
+        let delivered = draft.execute_tx(&txs[1]).unwrap();
+        assert!(delivered.success);
+        let built = f.build(&txs);
+        assert_eq!(built.tx_successes, vec![false, true]);
+        assert_eq!(draft.gas_used(), built.header.gas_used());
+    }
+
+    #[test]
+    fn clamped_native_tx_whose_result_depends_on_the_budget_is_a_capacity_refusal() {
+        // An infinite loop halts at whatever budget it gets; `GAS; SSTORE`
+        // succeeds but stores the budget. Both would commit a packing-dependent
+        // effect, which consensus permits but the Composer must not choose.
+        for code in [bytes!("5b600056"), bytes!("5a60005500")] {
+            let f = native_fixture(code.clone());
+            let prefix = heavy_prefix();
+            let mut draft = f.open(&prefix);
+            let before = draft.gas_used();
+
+            let refused = draft.capacity_probe(&[native(0)]).unwrap_err();
+            assert_eq!(refused.0, 0);
+            assert!(refused.1.is_capacity(), "{code}: {:?}", refused.1);
+            let error = draft.execute_tx(&native(0)).unwrap_err();
+            assert!(error.is_capacity(), "{code}: {error:?}");
+            // Nothing committed: the same draft still takes other work.
+            assert_eq!(draft.gas_used(), before);
+            assert!(
+                draft
+                    .execute_tx(&sign_tx(1, BOB, U256::from(1), 21_000))
+                    .is_ok()
+            );
+
+            // An emptier block gives the full cap, so the same tx is accepted.
+            let mut empty = f.open(&[]);
+            assert!(empty.capacity_probe(&[native(0)]).is_ok());
+            assert!(empty.execute_tx(&native(0)).is_ok(), "{code}");
+        }
+    }
+
+    #[test]
+    fn ordinary_tx_declaring_more_than_the_remaining_gas_is_a_capacity_refusal() {
+        let f = native_fixture(bytes!("00"));
+        let mut draft = f.open(&heavy_prefix());
+        let error = draft
+            .execute_tx(&sign_tx(1, BOB, U256::from(1), 14_000_001))
+            .unwrap_err();
+        assert!(error.is_capacity(), "{error:?}");
+        assert!(
+            draft
+                .execute_tx(&sign_tx(1, BOB, U256::from(1), 14_000_000))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn native_groups_are_probed_on_actual_use_not_on_their_caps() {
+        // Two deliveries together declare 2 x 16.7M > 30M but use ~21k each.
+        let f = native_fixture(bytes!("00"));
+        let group = [native(0), native(1)];
+        assert!(declared_group_gas(&group) > BUILDER_GAS_LIMIT);
+        let mut draft = f.open(&[]);
+        assert!(draft.capacity_probe(&group).is_ok());
+        // The probe ran on a fork: the draft itself is untouched.
+        assert_eq!(draft.gas_used(), 0);
+        for raw in &group {
+            assert!(draft.execute_tx(raw).unwrap().success);
+        }
+        assert_eq!(draft.gas_used(), f.build(&group).header.gas_used());
     }
 }

@@ -46,7 +46,7 @@ use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
-    build::{SyncBlockState, SyncPrefixHashes},
+    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas},
     build_sync_block,
 };
 use crate::optimistic::AttemptId;
@@ -731,8 +731,18 @@ enum BlockGasFit {
     Unfittable,
 }
 
-/// Whether a pair fits the L2 Sync block. Sums DECLARED limits, which is what
-/// the builder refuses on; over-estimating only defers early, never overflows.
+/// Least gas any transaction consumes: Ethereum's intrinsic base cost.
+///
+/// A native tx executes with the block's remaining gas (bounded by the Osaka
+/// cap) and reserves nothing, so before execution only this lower bound of its
+/// share is known. Admission prechecks charge it to reject groups that cannot
+/// fit even minimally; `SyncBlockState::capacity_probe` decides authoritatively
+/// once the group's transactions exist.
+const MIN_TX_GAS: u64 = 21_000;
+
+/// Whether a group fits the L2 Sync block, from a gas figure that must not
+/// under-count what the executor admits on (ordinary declared limits) and may
+/// under-count native use (see [`MIN_TX_GAS`]).
 const fn block_gas_fit(gas_used: u64, declared: u64, block_gas_limit: u64) -> BlockGasFit {
     if gas_used.saturating_add(declared) <= block_gas_limit {
         BlockGasFit::Accept
@@ -750,6 +760,16 @@ fn declared_gas_limit(raw: &Bytes) -> u64 {
     use alloy_eips::eip2718::Decodable2718 as _;
     eez_primitives::EezTxEnvelope::decode_2718(&mut raw.as_ref())
         .map_or(u64::MAX, |tx| tx.gas_limit())
+}
+
+/// A group the draft refused for block capacity. With nothing before it the
+/// block is as empty as any slot's, so no later slot can take it either.
+const fn capacity_refusal(prefix_is_empty: bool) -> BlockGasFit {
+    if prefix_is_empty {
+        BlockGasFit::Unfittable
+    } else {
+        BlockGasFit::Defer
+    }
 }
 
 /// The refused pair's numbers, for the block-gas cut event.
@@ -1048,7 +1068,6 @@ impl CapacityDeferrals {
         held: &HeldTx,
         budget: PostBatchGasBudget,
         l2_used: u64,
-        system_gas: u64,
     ) -> Option<&'static str> {
         if budget.entries == 0 {
             return None;
@@ -1059,7 +1078,7 @@ impl CapacityDeferrals {
             // A static-only lookup needs no L2 delivery transaction.
             0
         } else {
-            system_gas.saturating_add(declared)
+            MIN_TX_GAS.saturating_add(declared)
         };
         let reason = if block_gas_fit(l2_used, l2_minimum, BUILDER_GAS_LIMIT) == BlockGasFit::Accept
         {
@@ -2962,18 +2981,13 @@ where
                 poison.push(held);
                 continue;
             }
-            if let Some(reason) = capacity.minimum_check(
-                &candidate,
-                &held,
-                budget,
-                draft.gas_used(),
-                eez_primitives::SYSTEM_TX_GAS_LIMIT,
-            ) {
+            if let Some(reason) =
+                capacity.minimum_check(&candidate, &held, budget, draft.gas_used())
+            {
                 if reason == "l2_block_capacity" {
                     block_gas_cut = Some(BlockGasCut {
                         gas_used: draft.gas_used(),
-                        declared: eez_primitives::SYSTEM_TX_GAS_LIMIT
-                            .saturating_add(declared_gas_limit(&held.raw_tx)),
+                        declared: MIN_TX_GAS.saturating_add(declared_gas_limit(&held.raw_tx)),
                     });
                 } else if gas_constraint.is_none() {
                     gas_constraint = Some(reason);
@@ -3248,10 +3262,10 @@ where
                             continue;
                         }
                     }
-                    // `[load, user]` must fit the Sync block or `build_sync_block`
-                    // hard-errors. Before the L1 budget, so a refusal costs nothing.
-                    let declared = eez_primitives::SYSTEM_TX_GAS_LIMIT
-                        .saturating_add(declared_gas_limit(&held.raw_tx));
+                    // `[load, user]` needs at least the load's base cost plus the
+                    // user tx's declared limit. Before the L1 budget, so a refusal
+                    // costs nothing; the probe below settles the exact fit.
+                    let declared = MIN_TX_GAS.saturating_add(declared_gas_limit(&held.raw_tx));
                     match block_gas_fit(draft.gas_used(), declared, BUILDER_GAS_LIMIT) {
                         BlockGasFit::Accept => {}
                         BlockGasFit::Defer => {
@@ -3411,6 +3425,47 @@ where
                             break;
                         }
                     };
+                    // The prefix-hash rebuild runs the canonical executor, which
+                    // treats a group that does not fit as a hard error. Settle the
+                    // fit first, as a capacity decision rather than a fault.
+                    if let Err((at, why)) = draft.capacity_probe(&pair_txs) {
+                        if why.is_provider() {
+                            transient = Some((
+                                format!("outbound capacity probe tx#{idx} at {at}: {why}"),
+                                abort_rest(
+                                    Some((idx, held)),
+                                    &mut out_iter,
+                                    std::mem::take(&mut inbounds),
+                                ),
+                            ));
+                            break;
+                        }
+                        let declared = declared_group_gas(&pair_txs);
+                        if capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable {
+                            event!(
+                                name: "eez.composer.cc_compose.block_gas_unfittable",
+                                Level::WARN,
+                                rollup_id,
+                                tx_idx = idx,
+                                tx_hash = %held.hash,
+                                declared,
+                                refused_at = at,
+                                error = %why,
+                                block_gas_limit = BUILDER_GAS_LIMIT,
+                                "outbound [load, user] pair does not fit an otherwise empty L2 block; no slot can ever take it — evicting",
+                            );
+                            selection.block(idx);
+
+                            push_poison_root(&mut poison, &mut poison_gaps, held);
+                            continue;
+                        }
+                        block_gas_cut = Some(BlockGasCut {
+                            gas_used: draft.gas_used(),
+                            declared,
+                        });
+                        capacity.defer(&mut selection, &candidate, idx, held, "l2_block_capacity");
+                        continue;
+                    }
                     let group_hashes = match hash_group(
                         &sync_txs,
                         &pair_txs,
@@ -3455,6 +3510,56 @@ where
                                     ),
                                 ));
                                 break;
+                            }
+                            // The probe already ran on the same state, so this is
+                            // a defensive path; it keeps a capacity refusal from
+                            // ever being charged to the tx.
+                            if why.is_capacity() {
+                                let unfittable = capacity_refusal(sync_txs.is_empty())
+                                    == BlockGasFit::Unfittable;
+                                draft = match reopen(&sync_txs) {
+                                    Ok(rebuilt) => rebuilt,
+                                    Err(e) => {
+                                        transient = Some((
+                                            format!(
+                                                "Sync block prefix rebuild after tx#{idx}: {e}"
+                                            ),
+                                            abort_rest(
+                                                Some((idx, held)),
+                                                &mut out_iter,
+                                                std::mem::take(&mut inbounds),
+                                            ),
+                                        ));
+                                        break;
+                                    }
+                                };
+                                if unfittable {
+                                    event!(
+                                        name: "eez.composer.cc_compose.block_gas_unfittable",
+                                        Level::WARN,
+                                        rollup_id,
+                                        tx_idx = idx,
+                                        tx_hash = %held.hash,
+                                        refused_at = at,
+                                        error = %why,
+                                        "outbound [load, user] pair does not fit an otherwise empty L2 block — evicting",
+                                    );
+                                    selection.block(idx);
+                                    push_poison_root(&mut poison, &mut poison_gaps, held);
+                                } else {
+                                    block_gas_cut = Some(BlockGasCut {
+                                        gas_used: draft.gas_used(),
+                                        declared: declared_group_gas(&pair_txs),
+                                    });
+                                    capacity.defer(
+                                        &mut selection,
+                                        &candidate,
+                                        idx,
+                                        held,
+                                        "l2_block_capacity",
+                                    );
+                                }
+                                continue;
                             }
                             event!(
                                 name: "eez.composer.cc_compose.append_reverted",
@@ -3694,17 +3799,13 @@ where
                 continue;
             }
 
-            if let Some(reason) = capacity.minimum_check(
-                &candidate,
-                &held,
-                budget,
-                draft.gas_used(),
-                eez_primitives::SYSTEM_TX_GAS_LIMIT,
-            ) {
+            if let Some(reason) =
+                capacity.minimum_check(&candidate, &held, budget, draft.gas_used())
+            {
                 if reason == "l2_block_capacity" {
                     block_gas_cut = Some(BlockGasCut {
                         gas_used: draft.gas_used(),
-                        declared: eez_primitives::SYSTEM_TX_GAS_LIMIT,
+                        declared: MIN_TX_GAS,
                     });
                 } else if gas_constraint.is_none() {
                     gas_constraint = Some(reason);
@@ -3799,10 +3900,10 @@ where
                         }
                     };
 
-                    // Same gate: one delivery tx per entry, each at `l2_gas_limit`.
-                    // Foreign entries never ship, so this over-counts at worst.
-                    let declared = eez_primitives::SYSTEM_TX_GAS_LIMIT
-                        .saturating_mul(target_entries.len() as u64);
+                    // Same gate: one delivery tx per entry, each at least its base
+                    // cost. Foreign entries never ship; the probe below settles
+                    // the exact fit once the deliveries exist.
+                    let declared = MIN_TX_GAS.saturating_mul(target_entries.len() as u64);
                     match block_gas_fit(draft.gas_used(), declared, BUILDER_GAS_LIMIT) {
                         BlockGasFit::Accept => {}
                         BlockGasFit::Defer => {
@@ -3979,6 +4080,43 @@ where
                             break;
                         }
                     };
+                    // Same capacity decision as the outbound path, before the
+                    // canonical prefix rebuild could refuse the group.
+                    if let Err((at, why)) = draft.capacity_probe(&deliveries) {
+                        if why.is_provider() {
+                            transient = Some((
+                                format!("inbound capacity probe tx#{idx} at {at}: {why}"),
+                                abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
+                            ));
+                            break;
+                        }
+                        let declared = declared_group_gas(&deliveries);
+                        if capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable {
+                            event!(
+                                name: "eez.composer.cc_compose.block_gas_unfittable",
+                                Level::WARN,
+                                rollup_id,
+                                tx_idx = idx,
+                                tx_hash = %held.hash,
+                                declared,
+                                deliveries = deliveries.len(),
+                                refused_at = at,
+                                error = %why,
+                                block_gas_limit = BUILDER_GAS_LIMIT,
+                                "inbound deliveries do not fit an otherwise empty L2 block; no slot can ever take them — evicting (resubmit as separate calls)",
+                            );
+                            selection.block(idx);
+
+                            push_poison_root(&mut poison, &mut poison_gaps, held);
+                            continue;
+                        }
+                        block_gas_cut = Some(BlockGasCut {
+                            gas_used: draft.gas_used(),
+                            declared,
+                        });
+                        capacity.defer(&mut selection, &candidate, idx, held, "l2_block_capacity");
+                        continue;
+                    }
                     let group_hashes = match hash_group(
                         &sync_txs,
                         &deliveries,
@@ -4012,6 +4150,49 @@ where
                                 abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
                             ));
                             break;
+                        }
+                        // Defensive, as for outbound pairs: never charge a
+                        // capacity refusal to the source.
+                        if why.is_capacity() {
+                            let unfittable =
+                                capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable;
+                            draft = match reopen(&sync_txs) {
+                                Ok(rebuilt) => rebuilt,
+                                Err(e) => {
+                                    transient = Some((
+                                        format!("Sync block prefix rebuild after tx#{idx}: {e}"),
+                                        abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
+                                    ));
+                                    break;
+                                }
+                            };
+                            if unfittable {
+                                event!(
+                                    name: "eez.composer.cc_compose.block_gas_unfittable",
+                                    Level::WARN,
+                                    rollup_id,
+                                    tx_idx = idx,
+                                    tx_hash = %held.hash,
+                                    refused_at = at,
+                                    error = %why,
+                                    "inbound deliveries do not fit an otherwise empty L2 block — evicting",
+                                );
+                                selection.block(idx);
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                            } else {
+                                block_gas_cut = Some(BlockGasCut {
+                                    gas_used: draft.gas_used(),
+                                    declared: declared_group_gas(&deliveries),
+                                });
+                                capacity.defer(
+                                    &mut selection,
+                                    &candidate,
+                                    idx,
+                                    held,
+                                    "l2_block_capacity",
+                                );
+                            }
+                            continue;
                         }
                         event!(
                             name: "eez.composer.cc_compose.append_reverted",
@@ -7645,13 +7826,13 @@ mod tests {
         budget.cap = budget.full_estimate() + 5_000;
         let mut capacity = CapacityDeferrals::default();
         assert_eq!(
-            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT),
             None
         );
         assert_eq!(capacity.minimum_check_count, 0);
         source.direction = Direction::Outbound;
         assert_eq!(
-            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT, 100_000),
+            capacity.minimum_check(&candidate, &source, budget, BUILDER_GAS_LIMIT),
             Some("l2_block_capacity")
         );
         assert_eq!(capacity.minimum_check_count, 1);
@@ -8738,16 +8919,51 @@ mod tests {
     }
 
     /// Two outbound pairs near the EIP-7825 cap overflow a 30M block, so the
-    /// second must be refused before `build_sync_block` hard-errors on it.
+    /// second must be refused before `build_sync_block` hard-errors on it. The
+    /// load reserves nothing: the precheck charges only its base cost, and the
+    /// user tx's declared limit still has to fit.
+    /// Native txs reserve no budget, so groups whose native parts together
+    /// declare more than the block (each at the 16.7M cap) are admitted on the
+    /// precheck; only actual execution decides.
+    #[test]
+    fn native_groups_are_not_refused_for_the_cap_they_do_not_reserve() {
+        let two_loads = [native_raw(0), native_raw(1)];
+        assert_eq!(
+            declared_group_gas(&two_loads),
+            2 * eez_primitives::SYSTEM_TX_GAS_CAP
+        );
+        assert!(declared_group_gas(&two_loads) > BUILDER_GAS_LIMIT);
+        // The precheck for two deliveries charges only their base cost.
+        assert_eq!(
+            block_gas_fit(20_000_000, 2 * MIN_TX_GAS, BUILDER_GAS_LIMIT),
+            BlockGasFit::Accept,
+        );
+        // A group refused behind an empty prefix can never fit; otherwise it waits.
+        assert_eq!(capacity_refusal(true), BlockGasFit::Unfittable);
+        assert_eq!(capacity_refusal(false), BlockGasFit::Defer);
+    }
+
+    fn native_raw(nonce: u64) -> Bytes {
+        use alloy_eips::eip2718::Encodable2718 as _;
+        let tx: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
+            chain_id: 1,
+            nonce,
+            to: eez_primitives::EEZL2_ADDRESS,
+            value: U256::ZERO,
+            input: Bytes::new(),
+        }
+        .into();
+        tx.encoded_2718().into()
+    }
+
     #[test]
     fn block_gas_fit_refuses_the_second_fat_outbound_pair() {
-        // Live shapes: 30M block, 2M `loadExecutionTable`, a user tx declaring
-        // 16.7M and burning 13.3M of it.
-        const LOAD: u64 = 2_000_000;
+        // Live shapes: 30M block, a `loadExecutionTable` burning 100k, a user tx
+        // declaring 16.7M and burning 13.3M of it.
         const USER_DECLARED: u64 = 16_700_000;
         const USER_BURNED: u64 = 13_300_000;
         const LOAD_BURNED: u64 = 100_000;
-        let pair = LOAD + USER_DECLARED;
+        let pair = MIN_TX_GAS + USER_DECLARED;
 
         // Pair 1 fits an empty block.
         assert_eq!(
