@@ -63,6 +63,9 @@ services:
       - ./deployments.env
       - ./.env.kurtosis
     environment:
+      # Coinbase of every L2 block (priority fees). Required so the operator
+      # chooses it explicitly; the zero address is allowed if set deliberately.
+      EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
       # ── Embedded L1 = a reth "devnet" node that joins the Kurtosis L1 ──
       EEZ_L1_EMBEDDED: "1"
       EEZ_L1_CHAIN: devnet
