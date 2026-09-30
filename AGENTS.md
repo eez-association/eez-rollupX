@@ -152,7 +152,10 @@ its Solidity implementation/tests and the applicable fork contract:
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run
-  `bash scripts/update-eezl2-genesis.sh --check`. The script updates `genesis.json`,
+  `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production
+  base `genesis.json` (predeploys only; it fails if that file allocates ETH), the
+  development base `genesis.dev.json` (public test accounts; Kurtosis and Chiado
+  test networks select it with `EEZ_GENESIS_BASE`),
   `crates/eez-node-e2e/tests/fixtures/genesis.json`, and
   `testing/kurtosis/l2-genesis-profile.json`. It requires the initialized protocol,
   Foundry 1.7.1, `jq`, Python, and this revision's `eez-genesis-state-root` on `PATH`

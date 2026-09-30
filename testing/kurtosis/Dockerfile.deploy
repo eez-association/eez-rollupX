@@ -24,7 +24,9 @@ WORKDIR /repo
 COPY scripts ./scripts
 COPY contracts ./contracts
 COPY eez-core-protocol ./eez-core-protocol
-COPY genesis.json ./genesis.json
+# genesis.json is the ETH-free production base; genesis.dev.json additionally
+# funds the public development keys used by Kurtosis and test networks.
+COPY genesis.json genesis.dev.json ./
 # Deployment values are injected by the Kurtosis task.
 RUN touch /repo/.env
 

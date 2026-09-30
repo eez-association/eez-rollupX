@@ -75,8 +75,6 @@ eez:
   blob_sidecar_encoding: eip7594
 
   fee_recipient: "0x0000000000000000000000000000000000000000"
-  # Dedicated deterministic devnet identity; deployment derives and funds its
-  # address in the generated L2 genesis.
 
   # Keep the mandatory new-network policy explicit in the CI deployment. The
   # interval is short enough to establish canonical readiness even before a

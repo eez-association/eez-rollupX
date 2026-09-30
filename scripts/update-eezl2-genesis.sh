@@ -25,7 +25,8 @@ usage:
   scripts/update-eezl2-genesis.sh --render --rollup-id ID --system-address ADDRESS \
       --output PATH [--base PATH] [--profile-output PATH]
 
-The default mode regenerates the committed test genesis files from
+The default mode regenerates the committed genesis files (genesis.dev.json,
+the ETH-free production base genesis.json and the E2E fixture) from
 testing/kurtosis/l2-genesis-profile.json. --render creates a deployment-specific
 genesis without modifying committed files. Private keys are never accepted;
 the deployment uses the reserved native system address.
@@ -362,7 +363,11 @@ if [[ "$mode" == "render" ]]; then
     exit 0
 fi
 
+# The profile describes the first file: the development genesis that Kurtosis
+# deploys. genesis.json is the production base and must never allocate ETH:
+# every L2 wei is minted against value locked on L1.
 genesis_files=(
+    "$REPO/genesis.dev.json"
     "$REPO/genesis.json"
     "$REPO/crates/eez-node-e2e/tests/fixtures/genesis.json"
 )
@@ -370,6 +375,12 @@ rendered_files=()
 for genesis in "${genesis_files[@]}"; do
     rendered_files+=("$(render_genesis "$genesis" "$genesis")")
 done
+if ! jq -e '[.alloc[] | .balance // "0x0" | ltrimstr("0x") | test("^0*$")] | all' \
+    "${rendered_files[1]}" >/dev/null
+then
+    echo "production base genesis.json must not allocate ETH" >&2
+    exit 1
+fi
 state_root="$(genesis_state_root "${rendered_files[0]}")"
 rendered_profile="$(write_profile "$FIXTURE_PROFILE" "$state_root")"
 
@@ -397,4 +408,4 @@ for index in "${!genesis_files[@]}"; do
     mv "${rendered_files[$index]}" "${genesis_files[$index]}"
 done
 mv "$rendered_profile" "$FIXTURE_PROFILE"
-echo "updated both EEZL2 genesis predeploys; state root: $state_root"
+echo "updated all EEZL2 genesis predeploys; state root: $state_root"

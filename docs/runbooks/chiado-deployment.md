@@ -179,14 +179,23 @@ supplies matching contracts and tools; host builds and submodules are unnecessar
 
 #### Genesis allocations
 
-The deploy image uses its bundled `/repo/genesis.json`, which contains funded
-public development accounts. To inspect the selected image's allocations:
+The deploy image bundles two base genesis files:
+
+- `/repo/genesis.json`, the default production base. It contains only the EEZL2
+  and EIP-2935 predeploys and allocates no ETH: all L2 ETH is minted against
+  value locked on L1.
+- `/repo/genesis.dev.json`, which additionally funds the public development
+  accounts used by the staged workloads. `.env.chiado.example` selects it with
+  `EEZ_GENESIS_BASE=/repo/genesis.dev.json` for the Chiado test network.
+
+To inspect the selected base's allocations:
 
 ```bash
 source .env
 mkdir -p datadir
 docker run --rm --pull always --platform linux/amd64 --entrypoint cat \
-  "$EEZ_DEPLOY_IMAGE" /repo/genesis.json > datadir/base-genesis.json
+  "$EEZ_DEPLOY_IMAGE" "${EEZ_GENESIS_BASE:-/repo/genesis.json}" \
+  > datadir/base-genesis.json
 chmod 644 datadir/base-genesis.json
 ```
 
@@ -198,7 +207,14 @@ EEZL2 predeploy entry; deployment regenerates its code with the fixed native sys
 address, which requires no prefunding. Keep the base file mode `644`: generated genesis inherits it,
 and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
-The host's tracked `genesis.json` is not used unless selected explicitly.
+The host's tracked genesis files are not used unless selected explicitly.
+
+Every L2 block burns the balances of EEZL2 and the native system address before
+its first transaction, so neither account holds ETH at a block start; see the
+[signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
+execution: nodes, followers and signers from before this rule cannot replay a
+network created with it, and it is not a binary-only upgrade for an existing
+network.
 
 ### 2. Download the L1 snapshot and create JWT
 
@@ -212,8 +228,8 @@ openssl rand -hex 32 > data/jwt.hex
 
 ### 3. Deploy — broadcasts transactions
 
-This spends gas and creates a fresh registry, proof system, manager, rollup **1**,
-and L1 bridges, even if `deployments.env` already exists. It is not a restart
+This spends gas and creates a fresh registry, proof system, manager and rollup
+**1**, even if `deployments.env` already exists. It is not a restart
 command. Before broadcasting, the deploy image reads a finalized L1 reference,
 copies its timestamp and RANDAO into genesis, and records its exact chain/block
 identity under `config.rollupX`. Chiado requires 1-second L2 blocks and five
@@ -297,9 +313,7 @@ L2 confirmations do not establish completed catch-up or canonical L1 settlement.
 ### Optional wallet bridge UI
 
 The wallet UI requires the protocol's `src/periphery/Bridge.sol` contract on both
-chains. The deployment workload's `BridgeSender` and `BridgeReceiver` contracts
-are test helpers and do not implement that interface. Do not copy their addresses
-from `deployments.env` into the UI's `bridgeL1Address` / `bridgeL2Address` fields.
+chains. Protocol deployment does not create any bridge contract.
 
 Deploy the pinned protocol bridge with the same address on both chains, initialize
 L1 with the current registry and rollup ID 0, and L2 with `EEZL2_ADDRESS` and the

@@ -368,7 +368,7 @@ indexing, wait briefly and run the corresponding command again.
 ### Use a funded development account
 
 The following public Hardhat account has 1,000,000 test ETH in both the
-canonical L1 configuration and the L2 genesis:
+canonical L1 configuration and the L2 development genesis (`genesis.dev.json`):
 
 ```text
 Private key: 0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a
@@ -917,7 +917,8 @@ Kurtosis assigns different host ports automatically. Remember that
   keys.
 - `crosschain-limit-args.yaml`: disposable cap-`3` spillover validation profile.
 - `l2-genesis-profile.json`: reproducible public inputs and hashes for the
-  committed test genesis; it contains no private key.
+  committed development genesis (`genesis.dev.json`) that the deployment task
+  selects with `EEZ_GENESIS_BASE`; it contains no private key.
 - `Dockerfile.deploy`: deployment image containing Foundry, contracts, scripts,
   and the genesis state-root/block-hash utilities copied from the selected node image.
 - `start.sh` and `stop.sh`: local network lifecycle.

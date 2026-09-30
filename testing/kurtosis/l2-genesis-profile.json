@@ -5,6 +5,6 @@
   "useGasLeft": false,
   "eezL2Address": "0x4200000000000000000000000000000000000007",
   "runtimeCodeHash": "0xd0fd68d48153fc181e0b56cde2f063d6e549e72c71a546cfa8ebe460f689251f",
-  "genesisStateRoot": "0xa87041467bb5234c56c66dc344205edca09c14969dccceee7a447ea579065250",
+  "genesisStateRoot": "0x50e6b6b1d897d587e8cf19c66e73bf8a0f2582ae7058892bf8bfd82b3899e3db",
   "foundryVersion": "1.7.1"
 }
