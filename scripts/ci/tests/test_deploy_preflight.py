@@ -27,10 +27,14 @@ class DeployPreflightTest(unittest.TestCase):
             "EEZ_L1_BLOCK_TIME_MS=5000\nEEZ_L2_BLOCK_TIME_MS=1000\n"
         )
         self.tool("bin/cast", '''
-if [[ "$1" == chain-id ]]; then echo 10200; exit; fi
+if [[ "$1" == chain-id ]]; then echo "${CHAIN_ID:-10200}"; exit; fi
 if [[ "$1 $2" == "block finalized" ]]; then
     if [[ "$FAIL_STAGE" == reference ]]; then echo null; exit; fi
     echo '{"number":"0x2a","timestamp":"0x3e8","hash":"0x1111111111111111111111111111111111111111111111111111111111111111","mixHash":"0x2222222222222222222222222222222222222222222222222222222222222222"}'
+    exit
+fi
+if [[ "$1 $2" == "block 0" ]]; then
+    echo '{"number":"0x0","timestamp":"0x64","hash":"0x4444444444444444444444444444444444444444444444444444444444444444","mixHash":"0x5555555555555555555555555555555555555555555555555555555555555555"}'
     exit
 fi
 [[ "$1 $2" == "wallet address" ]] || exit 91
@@ -68,14 +72,38 @@ exit 97
         path.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body)
         path.chmod(0o755)
 
-    def run_deploy(self, failure):
+    def run_deploy(self, failure, **extra):
         environment = {k: v for k, v in os.environ.items() if not k.startswith("EEZ_")}
         return subprocess.run(
             ["bash", str(self.root / "scripts/deploy.sh")],
             env={**environment, "PATH": str(self.root / "bin") + os.pathsep + os.environ["PATH"],
-                 "FAIL_STAGE": failure, "BROADCAST_LOG": str(self.root / "broadcast.log")},
+                 "FAIL_STAGE": failure, "BROADCAST_LOG": str(self.root / "broadcast.log"),
+                 **extra},
             capture_output=True, text=True,
         )
+
+    def test_private_devnet_can_pin_l1_genesis_without_waiting_for_finality(self):
+        result = self.run_deploy("", CHAIN_ID="31337", EEZ_L1_REFERENCE="genesis")
+        self.assertIn("DeployEEZ failed", result.stderr)
+        genesis = json.loads((self.root / "datadir/genesis.json").read_text())
+        self.assertEqual(genesis["timestamp"], "0x64")
+        self.assertEqual(genesis["mixHash"], "0x" + "55" * 32)
+        self.assertEqual(genesis["config"]["rollupX"]["l1Reference"], {
+            "chainId": 31337, "number": 0, "timestamp": 100,
+            "hash": "0x" + "44" * 32, "prevRandao": "0x" + "55" * 32})
+
+    def test_genesis_reference_is_rejected_on_public_or_ambiguous_selection(self):
+        for chain, value, message in (
+            ("10200", "genesis", "only for private devnets"),
+            ("1", "genesis", "only for private devnets"),
+            ("31337", "", "must be 'finalized' or 'genesis'"),
+            ("31337", "latest", "must be 'finalized' or 'genesis'"),
+        ):
+            with self.subTest(chain=chain, value=value):
+                result = self.run_deploy("", CHAIN_ID=chain, EEZ_L1_REFERENCE=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((self.root / "broadcast.log").exists())
 
     def test_failed_render_or_hash_prevents_broadcast(self):
         for stage in ("render", "hash"):
