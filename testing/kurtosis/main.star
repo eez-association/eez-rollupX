@@ -136,23 +136,24 @@ def run(plan, args):
         store=[StoreSpec(src="/jwt/jwtsecret", name="eez-jwt")],
     )
 
-    # RPC availability precedes finality on a fresh L1. Deployment pins its
-    # genesis reference before broadcasting and validates the returned header.
-    # Mainnet-preset epochs can take more than 15 minutes to finalize at startup.
+    # The devnet pins L1 block zero as its genesis reference: it is final by
+    # definition, so startup does not wait the 20+ minutes a fresh
+    # mainnet-preset beacon chain needs for its first finalized checkpoint.
+    # An open RPC port alone is still insufficient; wait for the header itself.
     plan.wait(
         service_name=l1_el.service_name,
         recipe=PostHttpRequestRecipe(
             port_id="rpc",
             endpoint="/",
-            body='{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["finalized",false]}',
+            body='{"jsonrpc":"2.0","id":1,"method":"eth_getBlockByNumber","params":["0x0",false]}',
             extract={"available": '.error == null and (.result | type == "object")'},
         ),
         field="extract.available",
         assertion="==",
         target_value=True,
         interval="2s",
-        timeout="1800s",
-        description="wait for the canonical L1 finalized genesis reference",
+        timeout="300s",
+        description="wait for the canonical L1 genesis reference",
     )
 
     # Deploy protocol contracts and emit /out/deployments.env + /out/l2-genesis.json.
@@ -168,6 +169,8 @@ def run(plan, args):
             "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
             # Workloads fund L2 accounts from the public development keys.
             "EEZ_GENESIS_BASE": "/repo/genesis.dev.json",
+            # Private devnet only: L1 block zero needs no finality wait.
+            "EEZ_L1_REFERENCE": "genesis",
             "EEZ_GENESIS_OUT": "/out/l2-genesis.json",
         },
         run="mkdir -p /out && bash /repo/scripts/deploy.sh && cp -R /repo/contracts/broadcast /out/foundry-broadcast",

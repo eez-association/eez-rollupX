@@ -68,6 +68,12 @@ pub struct DerivationSource<P = alloy_provider::DynProvider> {
 impl<P: Provider> DerivationSource<P> {
     /// Authenticate the immutable genesis reference. A source that cannot serve
     /// `finalized` is unavailable, never implicitly treated as final.
+    ///
+    /// The L1 genesis block (number zero) is final by definition: no fork
+    /// choice can replace it without changing the chain itself. It only has to
+    /// match the canonical block zero, so a fresh devnet need not wait for its
+    /// first finalized checkpoint (execution clients report no `finalized`
+    /// block until then). Any later reference still requires finality.
     pub async fn authenticate(provider: P, schedule: Schedule) -> Result<Self, DerivationError> {
         let reference = schedule.config().l1_reference;
         let chain = provider
@@ -78,6 +84,16 @@ impl<P: Provider> DerivationSource<P> {
             return Err(DerivationError::Mismatch(
                 "genesis reference chain identity",
             ));
+        }
+        if reference.number == 0 {
+            let genesis = fetch(&provider, chain, 0.into()).await?;
+            if genesis.hash != reference.hash
+                || genesis.header.timestamp != reference.timestamp
+                || genesis.header.mix_hash != reference.prev_randao
+            {
+                return Err(DerivationError::Mismatch("L1 genesis reference header"));
+            }
+            return Ok(Self { provider, schedule });
         }
         let finalized = fetch(&provider, chain, BlockNumberOrTag::Finalized).await?;
         if finalized.header.number < reference.number {

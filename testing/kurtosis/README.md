@@ -79,11 +79,16 @@ pulls the Ethereum client images. It can take several minutes. The command retur
 after Kurtosis has deployed the contracts and started the network services. It
 leaves the enclave running.
 
-Before deployment, startup waits up to 30 minutes for the canonical L1 RPC to
-return a finalized block. That block supplies the native L2 genesis reference;
-an open RPC port alone is insufficient. If finality stays unavailable, startup
-fails before deployment broadcasts. The deployment script still validates the
-header and genesis commitments; it never substitutes `latest` for `finalized`.
+Before deployment, startup waits up to 5 minutes for the canonical L1 RPC to
+return block zero; an open RPC port alone is insufficient. The devnet deploys
+with `EEZ_L1_REFERENCE=genesis`, so L1 block zero supplies the native L2
+genesis reference. The L1 genesis block is final by definition, so startup
+does not wait for the fresh beacon chain's first finalized checkpoint (more
+than 20 minutes with mainnet-preset epochs). The node and signer accept a
+block-zero reference once it matches the canonical L1 block zero; any other
+reference still requires L1 finality. Public networks (Ethereum mainnet and
+Chiado) always use the `finalized` default, and deployment rejects `genesis`
+there. The deployment script never substitutes `latest` for `finalized`.
 
 ### 3. Check the deployment
 
@@ -748,8 +753,13 @@ A successful L1 posting alone does not establish that every deferred effect
 settled.
 
 These CI-only checks require L1 `debug_traceTransaction` and L2
-`debug_getRawBlock`, `debug_getRawReceipts`, `debug_executionWitnessByBlockHash`
-and `debug_chainConfig` (available in the test topology). The helper runs
+`debug_getRawBlock`, `debug_getRawReceipts`, `eez_executionWitnessByBlockHash`
+and `debug_chainConfig` (available in the test topology). The node installs
+`eez_executionWitnessByBlockHash` only on transports with the `debug`
+namespace enabled. It returns the proving feed's witness: Reth's minimal
+`debug_executionWitnessByBlockHash` can omit sibling trie nodes that an
+intermediate prefix root needs after a deletion, which makes the replay fail
+even though the block is valid. The helper runs
 Stateless with the native L2 EVM, verifies the full block and receipts, and
 reconstructs prefix headers from replayed roots. The empty prefix includes
 pre-execution state updates; the parent block's state root cannot replace it.

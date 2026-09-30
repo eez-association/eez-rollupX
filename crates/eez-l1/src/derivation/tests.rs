@@ -155,6 +155,66 @@ async fn wrong_network_unfinalized_or_fabricated_genesis_reference_fails_closed(
     }
 }
 
+#[tokio::test]
+async fn l1_genesis_reference_needs_no_finalized_checkpoint_but_must_be_canonical_block_zero() {
+    let reference = block(0, 1000, 7);
+    let schedule = Schedule::new(
+        DerivationConfig {
+            block_interval_seconds: 1,
+            sync_interval_blocks: 4,
+            l1_reference: GenesisL1Reference {
+                chain_id: 31337,
+                number: 0,
+                hash: reference.header.hash,
+                timestamp: 1000,
+                prev_randao: reference.header.mix_hash,
+            },
+        },
+        &Header {
+            timestamp: 1000,
+            mix_hash: reference.header.mix_hash,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    // Only chain identity and block zero are served. A `finalized` request
+    // would consume block zero out of order and then find no reply left.
+    for case in 0..4 {
+        let replies = Asserter::new();
+        replies.push_success(&alloy_primitives::U64::from(31337));
+        let mut served = reference.clone();
+        match case {
+            0 => {}
+            1 => served.header.inner.mix_hash = B256::with_last_byte(88),
+            2 => served.header.inner.timestamp += 1,
+            3 => served.header.inner.number = 1,
+            _ => unreachable!(),
+        }
+        served.header.hash = served.header.inner.hash_slow();
+        replies.push_success(&served);
+        let result = DerivationSource::authenticate(
+            ProviderBuilder::new().connect_mocked_client(replies.clone()),
+            schedule,
+        )
+        .await;
+        match case {
+            0 => {
+                assert!(result.is_ok());
+                assert!(replies.read_q().is_empty(), "no finalized request");
+            }
+            1 | 2 => assert!(matches!(
+                result,
+                Err(DerivationError::Mismatch("L1 genesis reference header"))
+            )),
+            3 => assert!(matches!(
+                result,
+                Err(DerivationError::Mismatch("canonical RPC header identity"))
+            )),
+            _ => unreachable!(),
+        }
+    }
+}
+
 fn endpoint(number: u64, seed: u8, variant: u8) -> Header {
     Header {
         number,

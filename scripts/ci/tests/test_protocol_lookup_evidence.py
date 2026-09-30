@@ -144,7 +144,7 @@ elif command == "rpc":
         value = f["trace"]
     elif rpc == "debug_getRawBlock": value = "0x00"
     elif rpc == "debug_getRawReceipts": value = []
-    elif rpc in ("debug_executionWitnessByBlockHash", "debug_chainConfig"): value = {}
+    elif rpc in ("eez_executionWitnessByBlockHash", "debug_chainConfig"): value = {}
     else: raise AssertionError(args)
 elif command == "to-dec": value = str(int(args[1], 0))
 elif command == "decode-calldata": value = f["load_decoded"] if args[2].startswith("loadExecutionTable(") else f["decoded"]

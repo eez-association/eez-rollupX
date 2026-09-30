@@ -27,7 +27,7 @@ def fail(message):
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq is required")
-class FinalizedReferenceReadinessTest(unittest.TestCase):
+class GenesisReferenceReadinessTest(unittest.TestCase):
     def run_until_deployment(self, responses):
         class DeploymentReached(Exception):
             pass
@@ -41,14 +41,15 @@ class FinalizedReferenceReadinessTest(unittest.TestCase):
         def wait(**kwargs):
             events.append("wait")
             test.assertEqual(kwargs["service_name"], "el-1-reth-lighthouse")
-            test.assertEqual(kwargs["timeout"], "1800s")
+            test.assertEqual(kwargs["timeout"], "300s")
             test.assertEqual(kwargs["assertion"], "==")
             test.assertIs(kwargs["target_value"], True)
             recipe = kwargs["recipe"]
             test.assertEqual(recipe["port_id"], "rpc")
             request = json.loads(recipe["body"])
             test.assertEqual(request["method"], "eth_getBlockByNumber")
-            test.assertEqual(request["params"], ["finalized", False])
+            # L1 block zero is the devnet's genesis reference; no finality wait.
+            test.assertEqual(request["params"], ["0x0", False])
             expression = recipe["extract"][kwargs["field"].removeprefix("extract.")]
             for response in responses:
                 value = json.loads(subprocess.check_output(
@@ -60,6 +61,7 @@ class FinalizedReferenceReadinessTest(unittest.TestCase):
 
         def run_sh(**kwargs):
             if kwargs["description"].startswith("deploy EEZ contracts"):
+                test.assertEqual(kwargs["env_vars"]["EEZ_L1_REFERENCE"], "genesis")
                 events.append("deploy")
                 raise DeploymentReached
 
@@ -86,16 +88,16 @@ class FinalizedReferenceReadinessTest(unittest.TestCase):
             return "unavailable", events
         self.fail("startup did not reach the finality/deployment boundary")
 
-    def test_deployment_waits_for_a_finalized_header(self):
+    def test_deployment_waits_for_the_l1_genesis_header(self):
         header = {"hash": "0x" + "11" * 32, "number": "0x0"}
         outcome, events = self.run_until_deployment([
-            {"error": {"code": -32000, "message": "block finalized not found"}},
+            {"error": {"code": -32000, "message": "connection refused"}},
             {"result": None}, {"result": header},
         ])
         self.assertEqual(outcome, "deploy")
         self.assertEqual(events, ["wait", False, False, True, "deploy"])
 
-    def test_missing_or_errored_finality_never_reaches_deployment(self):
+    def test_missing_or_errored_genesis_header_never_reaches_deployment(self):
         for response in ({"result": None}, {"result": []},
                          {"error": {"code": -32000}, "result": {"hash": "0x1234"}}):
             with self.subTest(response=response):

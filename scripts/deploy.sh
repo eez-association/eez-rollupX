@@ -143,7 +143,27 @@ EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
 
 # One explicit new-network profile. The finalized L1 reference fixes the initial
 # seed and slot phase; it is not inferred from the later deployment receipt.
+# EEZ_L1_REFERENCE=genesis pins L1 block zero instead. It is final by
+# definition, so a fresh private devnet need not wait for its first finalized
+# checkpoint. Genesis inherits the reference timestamp, so this is rejected on
+# public networks whose block zero would leave years of L2 blocks to catch up.
 REFERENCE_CHAIN_ID="$(cast chain-id --rpc-url "$EEZ_L1_RPC_URL")"
+case "${EEZ_L1_REFERENCE-finalized}" in
+    finalized) REFERENCE_BLOCK=finalized ;;
+    genesis)
+        case "$REFERENCE_CHAIN_ID" in
+            1|10200)
+                echo "deploy: EEZ_L1_REFERENCE=genesis is only for private devnets" >&2
+                exit 1
+                ;;
+        esac
+        REFERENCE_BLOCK=0
+        ;;
+    *)
+        echo "deploy: EEZ_L1_REFERENCE must be 'finalized' or 'genesis'" >&2
+        exit 1
+        ;;
+esac
 case "$REFERENCE_CHAIN_ID" in
     1)
         : "${EEZ_L1_BLOCK_TIME_MS=12000}" "${EEZ_L2_BLOCK_TIME_MS=2000}"
@@ -157,7 +177,7 @@ case "$REFERENCE_CHAIN_ID" in
         ;;
 esac
 GENESIS_TIMESTAMP_TMP="$(mktemp "${GENESIS_OUT}.tmp.XXXXXX")"
-cast block finalized --rpc-url "$EEZ_L1_RPC_URL" --json | python3 -c '
+cast block "$REFERENCE_BLOCK" --rpc-url "$EEZ_L1_RPC_URL" --json | python3 -c '
 import json, re, sys
 base, output, chain, l1_ms, l2_ms = sys.argv[1:]
 chain, l1_ms, l2_ms = int(chain), int(l1_ms), int(l2_ms)

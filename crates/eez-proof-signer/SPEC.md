@@ -404,6 +404,12 @@ Source unavailability returns `Unavailable`; a replaced target during
 authentication returns `Aborted`.
 Neither error carries an eviction hint.
 
+The genesis reference is authenticated when its exact header is canonical and
+the source's `finalized` block is at or above its height. A reference at L1
+block zero is final by definition and only has to match the canonical block
+zero, so a fresh private devnet can be served before its first finalized
+checkpoint. Deployment permits that reference only on private networks.
+
 All replayed headers, including prepared cache hits, must extend the authenticated
 parent and carry its independently established descendant seed. The registry
 root must equal that parent or a terminal prefix independently bound by execution
