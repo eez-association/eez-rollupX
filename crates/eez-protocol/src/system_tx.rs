@@ -3,7 +3,7 @@
 //! Composer, follower and independent proof validation use these builders with
 //! the same checked execution tables and parent-state nonce. Loads, their user
 //! transactions, and callback deliveries retain the fork's grouped ordering.
-//! Native type `0x76` has a fixed sender, fixed gas budget and zero fees; no
+//! Native type `0x76` has a fixed sender, a block-position gas budget and zero fees; no
 //! participant needs a system private key.
 
 use alloy_eips::eip2718::Encodable2718;

@@ -1,11 +1,14 @@
 //! Rollup block lifecycle: history writes remain, beacon and request calls do not.
 //! Transaction execution, receipts and gas accounting delegate to the pinned
-//! Ethereum executor. The inner counters remain accessible to the candidate-local
+//! Ethereum executor, except that native transactions execute with the remaining
+//! block gas instead of a reserved declared limit. The inner counters remain accessible to the candidate-local
 //! prefix cache, whose checkpoint is always taken before block finalization.
 
 use crate::{EezEvmFactory, EezReceiptBuilder, ensure_supported_transaction};
+use alloy_consensus::{Transaction as _, TransactionEnvelope as _};
+use alloy_eips::eip2718::Encodable2718 as _;
 use alloy_evm::{
-    Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, RecoveredTx,
+    Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, RecoveredTx, TransactionEnvMut,
     block::{
         BlockExecutionError, BlockExecutionResult, BlockExecutor, BlockExecutorFactory,
         ExecutableTx, GasOutput, StateDB,
@@ -13,8 +16,10 @@ use alloy_evm::{
     eth::{EthBlockExecutionCtx, EthBlockExecutor, EthTxResult, spec::EthExecutorSpec},
 };
 use alloy_primitives::{Address, U256};
-use eez_primitives::{EEZL2_ADDRESS, EezTxEnvelope, EezTxType, Receipt, SYSTEM_ADDRESS};
-use revm::{Inspector, primitives::hardfork::SpecId, state::Account};
+use eez_primitives::{
+    EEZL2_ADDRESS, EezTxEnvelope, EezTxType, Receipt, SYSTEM_ADDRESS, system_tx_gas_limit,
+};
+use revm::{Inspector, context::Block as _, primitives::hardfork::SpecId, state::Account};
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -107,7 +112,9 @@ where
     E: Evm<
             DB: StateDB,
             Spec: Into<SpecId> + Clone,
-            Tx: FromRecoveredTx<EezTxEnvelope> + FromTxWithEncoded<EezTxEnvelope>,
+            Tx: FromRecoveredTx<EezTxEnvelope>
+                    + FromTxWithEncoded<EezTxEnvelope>
+                    + TransactionEnvMut,
         >,
     S: EthExecutorSpec,
 {
@@ -150,9 +157,39 @@ where
         &mut self,
         tx: impl ExecutableTx<Self>,
     ) -> Result<Self::Result, BlockExecutionError> {
-        let (env, recovered) = tx.into_parts();
+        let (mut env, recovered) = tx.into_parts();
         if self.layer == ExecutionLayer::Rollup {
             ensure_supported_transaction(recovered.tx()).map_err(BlockExecutionError::other)?;
+            if matches!(recovered.tx(), EezTxEnvelope::System(_)) {
+                // Ethereum's rule charges a transaction's declared limit against
+                // the block before execution. A native transaction instead runs
+                // with the remaining block gas, bounded by the Osaka cap, so it
+                // never needs reserved headroom and the block total can never
+                // exceed the limit. The profile is Osaka-only (checked in
+                // `apply_pre_execution_changes`), so `cumulative_tx_gas_used` is
+                // the block-gas measure the inner executor also applies.
+                //
+                // A budget below the intrinsic cost is rejected by revm, which
+                // invalidates the block: execution never shortens the call data
+                // or skips the transaction.
+                let budget = system_tx_gas_limit(
+                    self.inner.evm.block().gas_limit(),
+                    self.inner.cumulative_tx_gas_used,
+                );
+                env.set_gas_limit(budget);
+                // The remainder mirrors the pinned inner executor after its
+                // declared-limit check.
+                let result = self
+                    .inner
+                    .evm
+                    .transact(env)
+                    .map_err(|err| BlockExecutionError::evm(err, recovered.tx().trie_hash()))?;
+                return Ok(EthTxResult {
+                    result,
+                    blob_gas_used: recovered.tx().blob_gas_used().unwrap_or_default(),
+                    tx_type: recovered.tx().tx_type(),
+                });
+            }
         }
         self.inner
             .execute_transaction_without_commit((env, recovered))

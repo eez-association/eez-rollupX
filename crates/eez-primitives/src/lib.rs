@@ -11,8 +11,29 @@ use reth_primitives_traits::InMemorySize;
 
 /// Reserved EIP-2718 type for EEZ's unsigned system transactions.
 pub const SYSTEM_TX_TYPE: u8 = 0x76;
-/// Protocol execution budget. Native transactions carry no configurable gas fields.
-pub const SYSTEM_TX_GAS_LIMIT: u64 = 2_000_000;
+/// Upper bound of a native transaction's execution budget: Osaka's EIP-7825
+/// per-transaction cap. Native transactions carry no gas field. In an L2 block
+/// each one executes with [`system_tx_gas_limit`] of the block's remaining gas,
+/// so this cap is not reserved in the block; only metered use is charged.
+pub const SYSTEM_TX_GAS_CAP: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
+
+/// Execution budget of a native transaction at its position in an L2 block:
+/// the remaining block gas, bounded by [`SYSTEM_TX_GAS_CAP`].
+///
+/// `cumulative_gas_used` is the receipts' cumulative gas of the preceding
+/// transactions, the figure Ethereum's block-gas rule charges. Every execution
+/// that must agree with consensus (block executor, Composer draft, follower and
+/// signer replay) derives the budget here. A budget below the transaction's
+/// intrinsic gas makes the transaction, and therefore the block, invalid.
+#[must_use]
+pub const fn system_tx_gas_limit(block_gas_limit: u64, cumulative_gas_used: u64) -> u64 {
+    let remaining = block_gas_limit.saturating_sub(cumulative_gas_used);
+    if remaining < SYSTEM_TX_GAS_CAP {
+        remaining
+    } else {
+        SYSTEM_TX_GAS_CAP
+    }
+}
 /// Codeless EEZ privilege domain, distinct from Ethereum's block-level system caller.
 pub const SYSTEM_ADDRESS: Address = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076");
 /// The L2 execution manager is a protocol predeploy.
@@ -55,7 +76,7 @@ impl serde::Serialize for SystemTransaction {
         tx.serialize_field("to", &self.to)?;
         tx.serialize_field("value", &self.value)?;
         tx.serialize_field("input", &self.input)?;
-        tx.serialize_field("gas", &U64::from(SYSTEM_TX_GAS_LIMIT))?;
+        tx.serialize_field("gas", &U64::from(SYSTEM_TX_GAS_CAP))?;
         tx.serialize_field("gasPrice", &U256::ZERO)?;
         tx.serialize_field("v", &U256::ZERO)?;
         tx.serialize_field("r", &U256::ZERO)?;
@@ -118,8 +139,11 @@ impl SignerRecoverable for SystemTransaction {
     }
 }
 
-/// Expose a fixed execution budget and zero fees through Ethereum's transaction
-/// interface. Native envelopes carry neither gas settings nor fee settings.
+/// Expose the budget cap and zero fees through Ethereum's transaction interface.
+/// Native envelopes carry neither gas settings nor fee settings. `gas_limit`
+/// reports [`SYSTEM_TX_GAS_CAP`], an upper bound: the L2 block executor runs the
+/// transaction with [`system_tx_gas_limit`] instead, so generic Ethereum checks
+/// on the declared limit must not be applied to native transactions.
 impl Transaction for SystemTransaction {
     fn chain_id(&self) -> Option<u64> {
         Some(self.chain_id)
@@ -130,7 +154,7 @@ impl Transaction for SystemTransaction {
     }
 
     fn gas_limit(&self) -> u64 {
-        SYSTEM_TX_GAS_LIMIT
+        SYSTEM_TX_GAS_CAP
     }
 
     fn gas_price(&self) -> Option<u128> {
@@ -298,9 +322,13 @@ impl reth_codecs::Compact for EezTxType {
 }
 
 impl alloy_evm::FromRecoveredTx<EezTxEnvelope> for revm::context::TxEnv {
-    /// Native calls use the protocol sender, fixed gas budget, and zero price.
+    /// Native calls use the protocol sender, the budget cap, and zero price.
     /// Keeping type `0x76` selects revm's Custom validation, bypassing Ethereum
     /// fee checks while retaining nonce, chain ID, and metered gas rules.
+    ///
+    /// The cap is the budget only when the block has at least that much gas
+    /// left. Block execution replaces it with [`system_tx_gas_limit`]; callers
+    /// executing outside a block (tracing, previews) observe the cap.
     fn from_recovered_tx(tx: &EezTxEnvelope, sender: Address) -> Self {
         match tx {
             EezTxEnvelope::Ethereum(tx) => Self::from_recovered_tx(tx, sender),
@@ -309,7 +337,7 @@ impl alloy_evm::FromRecoveredTx<EezTxEnvelope> for revm::context::TxEnv {
                 // sender so the EVM rejects inconsistent recovered input instead
                 // of silently granting it native authority.
                 caller: sender,
-                gas_limit: SYSTEM_TX_GAS_LIMIT,
+                gas_limit: SYSTEM_TX_GAS_CAP,
                 gas_price: 0,
                 kind: TxKind::Call(tx.to),
                 value: tx.value,

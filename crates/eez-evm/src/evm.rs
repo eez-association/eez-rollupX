@@ -8,7 +8,7 @@ use alloy_evm::{
     precompiles::PrecompilesMap,
 };
 use alloy_primitives::{Address, Bytes, TxKind};
-use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_LIMIT, SYSTEM_TX_TYPE};
+use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE};
 use revm::{
     Inspector,
     context::{BlockEnv, CfgEnv, TxEnv},
@@ -68,10 +68,12 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
             return self.ethereum.transact_raw(tx);
         }
         // Direct TxEnv callers bypass envelope conversion; enforce native sender,
-        // target, and gas rules here before executing or minting value.
+        // target, and gas rules here before executing or minting value. The
+        // budget is position-dependent (`system_tx_gas_limit`), so only its cap
+        // is checkable here; the block executor supplies the exact value.
         if tx.caller != SYSTEM_ADDRESS
             || tx.kind != TxKind::Call(EEZL2_ADDRESS)
-            || tx.gas_limit != SYSTEM_TX_GAS_LIMIT
+            || tx.gas_limit > SYSTEM_TX_GAS_CAP
             || tx.gas_price != 0
             || tx.chain_id.is_none()
             || tx.gas_priority_fee.is_some()
