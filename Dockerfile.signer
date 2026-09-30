@@ -34,7 +34,8 @@ RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharin
     && install -D -m 0555 "/build/target/$BUILD_PROFILE/eez-proof-signer" /out/eez-proof-signer
 
 FROM debian:bookworm-slim AS runtime
-RUN apt-get update && apt-get install -y --no-install-recommends netcat-openbsd \
+# The L1 reader's TLS client loads the system trust store for HTTPS RPC URLs.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=builder --chmod=0555 /out/eez-proof-signer /usr/local/bin/eez-proof-signer
 WORKDIR /app
