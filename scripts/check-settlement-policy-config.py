@@ -36,6 +36,8 @@ def main():
             example = repo / f".env.{profile}.example"
             fixture = example.read_text()
             fixture += "\n" + "\n".join(f"{key}={value}" for key, value in policy.items())
+            # Required operator choice; the examples leave it empty on purpose.
+            fixture += "\nEEZ_L2_FEE_RECIPIENT=0x0000000000000000000000000000000000000f00\n"
             env_file = root / f".env.{profile}"
             env_file.write_text(fixture)
             env = os.environ.copy()

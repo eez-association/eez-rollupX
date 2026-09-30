@@ -9,6 +9,7 @@ import unittest
 
 
 REPO = Path(__file__).resolve().parents[3]
+FEE_RECIPIENT = "0x0000000000000000000000000000000000000f00"
 
 
 @unittest.skipUnless(shutil.which("docker"),
@@ -28,7 +29,10 @@ class ChiadoConfigTest(unittest.TestCase):
             target = self.repo / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO / name, target, follow_symlinks=False)
-        shutil.copy2(self.repo / ".env.chiado.example", self.repo / ".env")
+        example = (self.repo / ".env.chiado.example").read_text()
+        self.assertIn("\nEEZ_L2_FEE_RECIPIENT=\n", example)
+        (self.repo / ".env").write_text(example.replace(
+            "\nEEZ_L2_FEE_RECIPIENT=\n", f"\nEEZ_L2_FEE_RECIPIENT={FEE_RECIPIENT}\n"))
         (self.repo / "deployments.env").touch()
 
     def render(self, overrides=None, compose_file=None):
@@ -42,6 +46,31 @@ class ChiadoConfigTest(unittest.TestCase):
             cwd=self.repo, env={**environment, **(overrides or {})},
             text=True, capture_output=True,
         )
+
+    def test_fee_recipient_is_required_and_reaches_only_the_node(self):
+        env_file = self.repo / ".env"
+        configured = env_file.read_text()
+        for dotenv, shell, expected in (
+            (configured, {}, FEE_RECIPIENT),
+            (configured, {"EEZ_L2_FEE_RECIPIENT": "0x" + "0" * 40}, "0x" + "0" * 40),
+            (configured.replace(f"EEZ_L2_FEE_RECIPIENT={FEE_RECIPIENT}\n", ""), {}, None),
+            (configured.replace(f"EEZ_L2_FEE_RECIPIENT={FEE_RECIPIENT}\n",
+                                "EEZ_L2_FEE_RECIPIENT=\n"), {}, None),
+            (configured, {"EEZ_L2_FEE_RECIPIENT": ""}, None),
+        ):
+            with self.subTest(shell=shell, expected=expected):
+                env_file.write_text(dotenv)
+                result = self.render(shell)
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("EEZ_L2_FEE_RECIPIENT", result.stderr)
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(
+                    services["eez-node"]["environment"]["EEZ_L2_FEE_RECIPIENT"], expected)
+                self.assertNotIn("EEZ_L2_FEE_RECIPIENT",
+                                 services["eez-proof-signer"]["environment"])
 
     def test_default_profile_loads_from_dotenv(self):
         result = self.render()
