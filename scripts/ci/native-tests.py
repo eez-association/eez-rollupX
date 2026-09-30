@@ -20,36 +20,45 @@ NEXTEST_VERSION = "0.9.143"
 RUST_VERSION = "1.95.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
-E2E_TARGETS = (
-    "e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
-    "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
-    "queue_liveness", "queue_reorg")
-E2E_BINARIES = {f"eez-node-e2e::{name}" for name in E2E_TARGETS}
-TARGETS = [*E2E_TARGETS,
+# All node process tests are modules of one test binary: in the release test
+# profile each separate target re-optimized and linked the whole node stack.
+E2E_TARGET = "node_e2e"
+EMBEDDED_MODULES = ("e2e", "settlement_policy", "settlement_policy_cost", "kurtosis_policy_replay")
+CROSS_CHAIN_MODULES = (
+    "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
+    "settlement_policy_gas", "dynamic_admission", "queue_liveness", "queue_reorg")
+E2E_MODULES = (*EMBEDDED_MODULES, *CROSS_CHAIN_MODULES)
+E2E_BINARIES = {f"eez-node-e2e::{E2E_TARGET}"}
+TARGETS = [E2E_TARGET,
            "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence", "ethereum_kzg_compatibility", "issue35"]
-# Build the node tests before enabling composer's Tokio test-util dev feature.
-# The latter invalidates Tokio and its dependants, including the shipping node
-# binaries Cargo automatically builds for integration tests. Only composer unit
-# tests need that variant; archive them last, without any node targets.
+# One Cargo invocation, hence one unified feature set for every test target.
+# Dev-dependencies already enable Tokio's test-util here (e.g. eez-deriver), so a
+# separate composer invocation only rebuilt dependencies under another feature
+# set. Shipping bytes are unaffected: the producer copies the release candidate
+# into release/eez-runtime first and rechecks its hashes after archiving.
 ARCHIVES = {
-    "native-tests.tar.zst": ["--workspace", "--exclude", "eez-composer", "--lib",
+    "native-tests.tar.zst": ["--workspace", "--lib",
                              "--bin", "eez-proof-signer", "--example", "verify_blob_evidence",
                              *[arg for target in TARGETS for arg in ("--test", target)]],
-    "composer-unit-tests.tar.zst": ["--package", "eez-composer", "--lib"],
 }
+
+
+def e2e_modules(modules):
+    """Nextest filter for tests in the given node_e2e modules."""
+    tests = " | ".join(f"test(/^{module}::/)" for module in modules)
+    return f"package(=eez-node-e2e) & binary(={E2E_TARGET}) & ({tests})"
+
+
 SUITES = {
     "unit": "kind(lib) | kind(bin) | "
             "(package(=eez-l1) & binary(=verify_blob_evidence)) | "
             "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors) | binary(=causal_evidence))) | "
             "(package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility)) | "
             "(package(=eez-payload-codec) & binary(=issue35))",
-    # The Kurtosis target is archived too; its test stays explicitly ignored
+    # The Kurtosis module is archived too; its test stays explicitly ignored
     # here and is run by verify-policy-replay.sh against a live enclave.
-    "embedded": "package(=eez-node-e2e) & (binary(=e2e) | binary(=settlement_policy) | "
-                "binary(=settlement_policy_cost) | binary(=kurtosis_policy_replay))",
-    "cross-chain": "package(=eez-node-e2e) & (binary(=cross_chain) | binary(=native_system) | binary(=derivable_operations) | binary(=chained_interstate) | "
-                   "binary(=partial_consumption) | binary(=settlement_policy_gas) | binary(=dynamic_admission) | "
-                   "binary(=queue_liveness) | binary(=queue_reorg))",
+    "embedded": e2e_modules(EMBEDDED_MODULES),
+    "cross-chain": e2e_modules(CROSS_CHAIN_MODULES),
 }
 
 
@@ -65,7 +74,7 @@ def digest(path):
 def build_contract():
     if platform.system() != "Linux" or platform.machine() != "x86_64":
         raise ValueError("native test artifacts currently require Linux amd64")
-    return {"schema": 3, "cargo_lock_sha256": digest(REPO / "Cargo.lock"),
+    return {"schema": 4, "cargo_lock_sha256": digest(REPO / "Cargo.lock"),
             "platform": "linux/amd64", "profile": "release", "rustflags": RUSTFLAGS,
             "nextest": NEXTEST_VERSION, "rust": RUST_VERSION}
 
@@ -119,14 +128,12 @@ def build(directory, runtime_bin):
         shutil.copy2(runtime_bin / name, frozen / name)
     command = ["bash", "scripts/ci/with-compiler-cache.sh"]
     for name, selection in ARCHIVES.items():
-        phase = "test-archive" if name == "native-tests.tar.zst" else "composer-unit-archive"
         args = ["cargo", "nextest", "archive", "--release", "--locked", "--timings", *selection,
                 "--profile", "ci-archive", "--zstd-level", "1", "--archive-file", str(directory / name)]
-        subprocess.run(command + [phase, *args], cwd=REPO, check=True)
+        subprocess.run(command + ["test-archive", *args], cwd=REPO, check=True)
         if runtime_hashes(frozen) != hashes or runtime_hashes(runtime_bin) != hashes:
             raise ValueError("test compilation modified the frozen release candidate")
-        timing = "cargo-timing.html" if name == "native-tests.tar.zst" else "cargo-timing-composer-unit.html"
-        shutil.copy2(target / "cargo-timings/cargo-timing.html", directory / timing)
+        shutil.copy2(target / "cargo-timings/cargo-timing.html", directory / "cargo-timing.html")
     manifest.update(archives_sha256={name: digest(directory / name) for name in ARCHIVES}, runtime_sha256=hashes,
                     glibc=output("getconf", "GNU_LIBC_VERSION"))
     (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -281,8 +288,8 @@ def run(directory, suite, partition=None):
     selected = ARCHIVES if suite == "unit" else ("native-tests.tar.zst",)
     failure = None
     for name in selected:
-        # Feature variants have separate metadata/output paths. Never overlay
-        # two archives or rely on Cargo to reconcile their fingerprints.
+        # Each archive extracts to its own path. Never overlay archives or rely
+        # on Cargo to reconcile their fingerprints.
         extraction = target / name.removesuffix(".tar.zst")
         extraction.mkdir()
         if manifest.get("e2e_only") is True:
@@ -312,7 +319,7 @@ def run(directory, suite, partition=None):
         try:
             subprocess.run(command, cwd=REPO, env=env, check=True)
         except subprocess.CalledProcessError as error:
-            # Preserve --no-fail-fast across both unit archives as well.
+            # Preserve --no-fail-fast across archives as well.
             failure = failure or error
     if failure is not None:
         raise failure

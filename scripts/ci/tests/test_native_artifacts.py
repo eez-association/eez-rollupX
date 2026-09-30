@@ -28,7 +28,7 @@ class NativeArtifactTest(unittest.TestCase):
         self.archive = self.root / "native-tests.tar.zst"
         for name in native.ARCHIVES:
             (self.root / name).write_bytes(b"fixture archive")
-        self.identity = {"schema": 3, "root_commit": "a" * 40, "protocol_commit": "b" * 40,
+        self.identity = {"schema": 4, "root_commit": "a" * 40, "protocol_commit": "b" * 40,
                          "cargo_lock_sha256": "c" * 64, "platform": "linux/amd64",
                          "profile": "release", "rustflags": native.RUSTFLAGS,
                          "nextest": native.NEXTEST_VERSION, "rust": native.RUST_VERSION}
@@ -119,47 +119,41 @@ class NativeArtifactTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "checksum"):
             self.run_archive()
 
-    def test_missing_unknown_or_corrupt_auxiliary_archive_fails_closed(self):
+    def test_missing_or_unknown_archive_inventory_fails_closed(self):
         hashes = self.manifest["archives_sha256"]
-        for invalid in (None, {}, {"native-tests.tar.zst": hashes["native-tests.tar.zst"]},
-                        dict(hashes, **{"../unexpected.tar.zst": "a" * 64})):
+        for invalid in (None, {}, dict(hashes, **{"../unexpected.tar.zst": "a" * 64}),
+                        dict(hashes, **{"composer-unit-tests.tar.zst": "a" * 64})):
             with self.subTest(hashes=invalid):
                 self.manifest["archives_sha256"] = invalid
                 with self.assertRaisesRegex(ValueError, "inventory"):
                     self.run_archive()
-        self.manifest["archives_sha256"] = hashes
-        (self.root / "composer-unit-tests.tar.zst").write_bytes(b"corrupt")
-        with self.assertRaisesRegex(ValueError, "checksum"):
-            self.run_archive("embedded")
         self.assertEqual(self.calls, [])
 
-    def test_unit_suite_runs_both_archives_with_distinct_extractions(self):
+    def test_unit_suite_runs_the_single_archive_without_fail_fast(self):
         self.run_archive()
         commands = [call.args[0] for call in self.calls]
         extracts = [c[c.index("--extract-to") + 1] for c in commands if c[2] == "list"]
-        self.assertEqual(extracts, [str(self.target / "native-tests"), str(self.target / "composer-unit-tests")])
+        self.assertEqual(extracts, [str(self.target / "native-tests")])
         runs = [c for c in commands if c[2] == "run"]
-        self.assertEqual(len(runs), 2)
-        self.assertTrue(all("--no-fail-fast" in c for c in runs))
+        self.assertEqual(len(runs), 1)
+        self.assertIn("--no-fail-fast", runs[0])
+        self.assertEqual(runs[0][runs[0].index("-E") + 1], native.SUITES["unit"])
 
-    def test_unit_failures_remain_failing_and_do_not_skip_other_archive(self):
-        for name in ("native-tests", "composer-unit-tests"):
-            with self.subTest(archive=name):
-                if self.target.exists():
-                    shutil.rmtree(self.target)
-                with self.assertRaises(subprocess.CalledProcessError):
-                    self.run_archive(failures=(name,))
-                runs = [call.args[0] for call in self.calls if call.args[0][2] == "run"]
-                self.assertEqual(len(runs), 2)
+    def test_unit_failures_remain_failing(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.run_archive(failures=("native-tests",))
+        self.assertFalse((self.root / "unit-passed.json").exists())
 
-    def test_e2e_suites_do_not_run_composer_unit_tests(self):
+    def test_e2e_suites_select_only_node_e2e_modules(self):
         for suite in ("embedded", "cross-chain"):
             with self.subTest(suite=suite):
                 if self.target.exists():
                     shutil.rmtree(self.target)
-                self.run_archive(suite)
+                args = self.run_archive(suite)
                 self.assertEqual(len(self.calls), 2)
-                self.assertTrue(all("composer-unit-tests" not in " ".join(call.args[0]) for call in self.calls))
+                expression = args.args[0][args.args[0].index("-E") + 1]
+                self.assertTrue(expression.startswith(f"package(=eez-node-e2e) & binary(={native.E2E_TARGET}) & ("))
+                self.assertNotIn("kind(lib)", expression)
 
     def test_incompatible_glibc_or_native_cpu_flags_are_rejected(self):
         self.manifest["glibc"] = "glibc 99.1"
@@ -253,14 +247,14 @@ class NativeArtifactTest(unittest.TestCase):
     def test_lean_payload_detects_tampering_and_incomplete_inventory(self):
         destination, manifest = self.export_fixture()
         for relative in ("target/nextest/binaries-metadata.json", "target/nextest/cargo-metadata.json",
-                         "target/release/deps/eez-node-e2e-e2e-123", "target/release/test-helper",
+                         "target/release/deps/eez-node-e2e-node_e2e-123", "target/release/test-helper",
                          "target/release/eez-runtime/eez-composer"):
             with self.subTest(relative=relative):
                 digest = manifest["files_sha256"].pop(relative)
                 with self.assertRaisesRegex(ValueError, "inventory"):
                     native.verify_e2e(destination, manifest)
                 manifest["files_sha256"][relative] = digest
-        path = destination / "target/release/deps/eez-node-e2e-e2e-123"
+        path = destination / "target/release/deps/eez-node-e2e-node_e2e-123"
         path.write_text("modified")
         with self.assertRaisesRegex(ValueError, "checksum"):
             native.verify_e2e(destination, manifest)
@@ -275,49 +269,65 @@ class NativeArtifactTest(unittest.TestCase):
             native.export_e2e(self.root, self.root / "lean")
 
     def test_test_inventory_and_serialism_are_preserved(self):
-        self.assertEqual(native.TARGETS, ["e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
-                                         "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay", "dynamic_admission",
-                                         "queue_liveness", "queue_reorg",
+        self.assertEqual(native.TARGETS, ["node_e2e",
                                          "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence",
                                          "ethereum_kzg_compatibility", "issue35"])
+        self.assertEqual(sorted(native.E2E_MODULES), sorted([
+            "e2e", "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
+            "settlement_policy", "settlement_policy_gas", "settlement_policy_cost", "kurtosis_policy_replay",
+            "dynamic_admission", "queue_liveness", "queue_reorg"]))
         self.assertIn("kind(lib) | kind(bin)", native.SUITES["unit"])
         self.assertIn("binary(=causal_evidence)", native.SUITES["unit"])
         self.assertNotIn("--test-threads=1", self.run_archive().args[0])
 
     def test_every_standalone_integration_target_is_selected(self):
-        # Cargo auto-discovers these test entrypoints. A new target must be
-        # deliberately classified, not silently omitted from executable CI.
-        paths = list(REPO.glob("crates/*/tests/*.rs")) + list(REPO.glob("crates/*/tests/*/main.rs"))
-        discovered = {path.parent.name if path.name == "main.rs" else path.stem for path in paths}
+        # A new test target must be deliberately classified, not silently
+        # omitted from executable CI. Cargo auto-discovers tests/*.rs unless a
+        # package sets autotests = false and declares its [[test]] targets.
+        import tomllib
+        discovered = set()
+        for manifest_path in REPO.glob("crates/*/Cargo.toml"):
+            package = tomllib.loads(manifest_path.read_text())
+            tests = manifest_path.parent / "tests"
+            if package["package"].get("autotests", True):
+                discovered |= {path.stem for path in tests.glob("*.rs")}
+                discovered |= {path.parent.name for path in tests.glob("*/main.rs")}
+            discovered |= {target["name"] for target in package.get("test", [])}
         self.assertEqual(discovered, set(native.TARGETS))
         self.assertIn("package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility)", native.SUITES["unit"])
         self.assertIn("package(=eez-payload-codec) & binary(=issue35)", native.SUITES["unit"])
 
-    def test_every_archived_node_target_has_exactly_one_execution_suite(self):
-        for binary in native.E2E_BINARIES:
-            name = binary.split("::", 1)[1]
+    def test_every_node_e2e_module_has_exactly_one_execution_suite(self):
+        # A module declared in main.rs but absent from both suites would compile
+        # and never run in CI.
+        import tomllib
+        self.assertEqual(native.E2E_BINARIES, {f"eez-node-e2e::{native.E2E_TARGET}"})
+        package = tomllib.loads((REPO / "crates/eez-node-e2e/Cargo.toml").read_text())
+        self.assertIs(package["package"]["autotests"], False)
+        self.assertEqual(package["test"], [{"name": native.E2E_TARGET, "path": "tests/main.rs"}])
+        root = (REPO / "crates/eez-node-e2e/tests/main.rs").read_text()
+        declared = re.findall(r"^mod (\w+);$", root, re.MULTILINE)
+        self.assertEqual(sorted(declared), sorted(native.E2E_MODULES))
+        self.assertEqual(len(native.E2E_MODULES), len(set(native.E2E_MODULES)))
+        for module in native.E2E_MODULES:
+            self.assertTrue((REPO / f"crates/eez-node-e2e/tests/{module}.rs").is_file(), module)
             selected = [suite for suite, expression in native.SUITES.items()
-                        if f"binary(={name})" in expression]
-            self.assertEqual(len(selected), 1, f"{binary}: {selected}")
-            self.assertIn(name, native.TARGETS)
-        self.assertIn("binary(=settlement_policy_gas)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=derivable_operations)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=native_system)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=dynamic_admission)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=queue_liveness)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=queue_reorg)", native.SUITES["cross-chain"])
-        self.assertIn("binary(=settlement_policy)", native.SUITES["embedded"])
+                        if f"test(/^{module}::/)" in expression]
+            self.assertEqual(len(selected), 1, f"{module}: {selected}")
+        self.assertIn("test(/^settlement_policy_gas::/)", native.SUITES["cross-chain"])
+        self.assertIn("test(/^settlement_policy::/)", native.SUITES["embedded"])
 
-    def test_test_features_are_isolated_without_losing_binary_unit_tests(self):
+    def test_all_test_targets_share_one_cargo_invocation(self):
+        # A second selection resolves another feature set and rebuilds shared
+        # dependencies; shipping bytes are protected by the frozen-hash check.
+        self.assertEqual(list(native.ARCHIVES), ["native-tests.tar.zst"])
         main = native.ARCHIVES["native-tests.tar.zst"]
         self.assertIn("--workspace", main)
-        self.assertEqual(main[main.index("--exclude") + 1], "eez-composer")
+        self.assertNotIn("--exclude", main)
         self.assertIn("--lib", main)
         self.assertNotIn("--bins", main)
         self.assertEqual(main[main.index("--bin") + 1], "eez-proof-signer")
         self.assertEqual([main[i + 1] for i, arg in enumerate(main) if arg == "--test"], native.TARGETS)
-        self.assertEqual(native.ARCHIVES["composer-unit-tests.tar.zst"], ["--package", "eez-composer", "--lib"])
-        self.assertEqual(list(native.ARCHIVES), ["native-tests.tar.zst", "composer-unit-tests.tar.zst"])
 
     def test_omitted_node_binary_test_programs_are_only_empty_entrypoint_shims(self):
         # If tests or extra logic are added here, reconsider the CI selection.
@@ -371,7 +381,7 @@ class NativeArtifactTest(unittest.TestCase):
                     native.build(self.root / "producer", self.frozen)
                 run.assert_not_called()
 
-    def test_producer_reuses_release_target_with_composer_unit_archive_last(self):
+    def test_producer_reuses_release_target_in_one_archive_invocation(self):
         producer = self.root / "producer"
         self.target.mkdir()
         (self.target / "runtime-marker").write_text("existing Cargo objects")
@@ -393,10 +403,10 @@ class NativeArtifactTest(unittest.TestCase):
                 patch.dict(os.environ, CARGO_TARGET_DIR=str(self.target), CARGO_INCREMENTAL="0",
                            RUSTFLAGS=native.RUSTFLAGS, CARGO_ENCODED_RUSTFLAGS="", CARGO_BUILD_TARGET=""):
             native.build(producer, self.frozen)
-        self.assertEqual(run.call_count, 2)
-        self.assertEqual([call.args[0][2] for call in run.call_args_list], ["test-archive", "composer-unit-archive"])
+        self.assertEqual(run.call_count, 1)
+        self.assertEqual([call.args[0][2] for call in run.call_args_list], ["test-archive"])
         self.assertEqual((producer / "cargo-timing.html").read_text(), "test timings")
-        self.assertEqual((producer / "cargo-timing-composer-unit.html").read_text(), "test timings")
+        self.assertFalse((producer / "cargo-timing-composer-unit.html").exists())
         metadata = json.loads((producer / "manifest.json").read_text())
         self.assertEqual(set(metadata["archives_sha256"]), set(native.ARCHIVES))
         self.assertEqual(metadata["runtime_sha256"], native.runtime_hashes(self.frozen))
@@ -473,8 +483,8 @@ class NativeRelocationTest(unittest.TestCase):
 }
 '''
                 # An offline equivalent of the real Tokio dev-feature fan-out.
-                # Node binaries must reuse the production feature graph, while
-                # composer's separately archived unit tests require test-util.
+                # Composer's unit tests require test-util in the unified test
+                # graph; the executed node binaries are the frozen production ones.
                 if name == "eez-node":
                     manifest += '[dependencies]\neez-composer={path="../eez-composer"}\n'
                 elif name == "eez-follower":
@@ -539,15 +549,16 @@ fn check_node(bin: NodeBinary) {
     if let Ok(path) = std::env::var("EEZ_FIXTURE_FAILURE_LOG") {
         use std::io::Write;
         let mut log = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
-        writeln!(log, "{}", file!()).unwrap();
+        writeln!(log, "{}", module_path!()).unwrap();
         panic!("intentional fixture failure");
     }
 }
 '''
             node_targets = [target for target in native.TARGETS
                             if f"eez-node-e2e::{target}" in native.E2E_BINARIES]
-            for target in node_targets:
-                (node / f"tests/{target}.rs").write_text(test_source)
+            self.assertEqual(node_targets, [native.E2E_TARGET])
+            (node / f"tests/{native.E2E_TARGET}.rs").write_text("".join(
+                f"mod {module} {{\n{test_source}\n}}\n" for module in native.E2E_MODULES))
             for target in (target for target in native.TARGETS if target not in node_targets):
                 package = {"ethereum_kzg_compatibility": "eez-blob-codec", "issue35": "eez-payload-codec"}.get(target, "eez-protocol")
                 (repo / f"crates/{package}/tests/{target}.rs").write_text('''
@@ -593,12 +604,9 @@ fn check_node(bin: NodeBinary) {
             self.assertIn("eez-node", metadata)
             for name in node_targets:
                 self.assertIn(f"eez-node-e2e::{name}", metadata)
-            self.assertNotIn("eez-composer", metadata)
+            self.assertIn("eez-composer", metadata)
             self.assertFalse(any(key.startswith("eez-node::bin/") for key in metadata))
-            composer_metadata = json.loads(subprocess.check_output([
-                "tar", "--zstd", "-xOf", str(artifact / "composer-unit-tests.tar.zst"),
-                "target/nextest/binaries-metadata.json"], text=True))["rust-binaries"]
-            self.assertEqual(list(composer_metadata), ["eez-composer"])
+            self.assertEqual(sorted(path.name for path in artifact.glob("*.tar.zst")), ["native-tests.tar.zst"])
             runtime_archive = root / "runtime.tar.gz"
             with tarfile.open(runtime_archive, "w:gz") as archive:
                 for name in native.RUNTIME_BINARIES:
@@ -654,9 +662,9 @@ fn check_node(bin: NodeBinary) {
                                                  capture_output=True, text=True)
                         self.assertEqual(failing.returncode, 100, failing.stdout + failing.stderr)
                         attempts = failure_log.read_text().splitlines()
-                        expected = sum(f"binary(={target})" in native.SUITES[suite] for target in node_targets)
+                        expected = sum(f"test(/^{module}::/)" in native.SUITES[suite] for module in native.E2E_MODULES)
                         self.assertEqual(len(attempts), expected, "CI must not rerun a failed test")
-                        self.assertEqual(len(set(attempts)), expected, "all selected binaries must run")
+                        self.assertEqual(len(set(attempts)), expected, "all selected modules must run")
                 if suite == "unit":
                     self.assertEqual((consumer / "crates/eez-blob-codec/compatibility.executed").read_text(), "passed")
                     subprocess.run([sys.executable, "scripts/ci/native-tests.py", "export-e2e", str(artifact),

@@ -41,4 +41,4 @@ export EEZ_L1_BLOCK_TIME_MS="$(curl -fsS "$EEZ_L1_BEACON_URL/eth/v1/config/spec"
 export EEZ_PROOF_TIME_MS="${EEZ_PROOF_TIME_MS:-4000}"
 export EEZ_SUBMISSION_SLACK_MS="${EEZ_SUBMISSION_SLACK_MS:-500}"
 cd "$REPO"
-cargo test --locked -p eez-node-e2e --test kurtosis_policy_replay -- --ignored --test-threads=1
+cargo test --locked -p eez-node-e2e --test node_e2e -- kurtosis_policy_replay:: --ignored --test-threads=1
