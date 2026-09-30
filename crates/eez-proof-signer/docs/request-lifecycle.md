@@ -3,7 +3,7 @@
 > This is an implementation guide. [`SPEC.md`](../SPEC.md) is authoritative for
 > protocol behavior and compatibility requirements.
 
-The service deliberately admits one request at a time. This keeps peak
+The service deliberately admits one final `Prove` request at a time. This keeps peak
 validation memory and blocking work predictable and makes shutdown semantics
 explicit. An overlapping `Prove` RPC is rejected immediately rather than
 waiting with an open client stream, even when both RPCs share one connection.
@@ -89,6 +89,26 @@ completes first. It still owns the request permit, so an immediate retry
 receives `Unavailable`. This is transient capacity, not persisted protocol
 state: once the worker exits and a retry is admitted, the window is evaluated
 from scratch.
+
+## Ordinary preparation
+
+`PrepareOrdinary` has a separate admission slot and shares the validation worker
+with final proofs. One absolute deadline covers upload, validation, publication,
+and response. Each message/EOF wait also has its own idle timeout. Timing out an
+upload drops its admitted input and releases its preparation slot immediately.
+
+Each block worker owns the validation permit until it exits, even if its RPC
+times out. Cancellation aborts queued work and is cooperative for running work.
+Fully checked block facts stay private to the request until the entire range
+succeeds; preparation never reaches settlement or the attester.
+
+The publication worker takes ownership of the preparation slot, so a blocked
+cache lock cannot leave an unbounded series of detached publishers. It checks
+deadline and cancellation again under that lock before the atomic update. If
+the update has already begun, it finishes without exposing a partial range;
+the response still checks the deadline. A lost acknowledgement can leave a
+lease that expires normally. Shutdown waits for the publication slot and the
+validation worker to become idle.
 
 ## Actionable settlement rejection
 

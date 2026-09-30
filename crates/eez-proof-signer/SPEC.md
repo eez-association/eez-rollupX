@@ -328,6 +328,25 @@ MUST NOT release the active slot while its worker is still running.
 If the absolute deadline expires during signing, the signature MUST NOT be
 returned even if local signing completed.
 
+`PrepareOrdinary` uses the same absolute request bound from its first header
+through response construction, including every chunk/EOF read, shared-worker
+wait, validation, and cache publication. Progress MUST NOT reset that deadline;
+the per-message idle timeout remains independent. An ingestion timeout releases
+the preparation slot without executing, publishing, or signing. A running
+validation worker retains its shared-worker permit until it exits.
+
+Cache publication runs off the async executor and retains the preparation slot
+until its worker exits. After acquiring the cache lock, it MUST reject an expired
+or cancelled request before starting the atomic update. An update already admitted
+under that lock may finish atomically after cancellation/deadline expiry; the RPC
+MUST NOT return a successful response after its deadline. An unacknowledged lease
+remains bounded by the normal cache capacity and lease expiry rules.
+
+Enforcing these existing time bounds changes no wire fields, validation identity,
+genesis, or database format. Existing clients remain compatible; a signer upgrade
+needs no coordinated node upgrade or migration. Rollback restores the old timeout
+behavior without changing historical decoding or follower replay.
+
 ## 5. Stream admission
 
 Admission proves stream shape and quota compliance only. It does not prove
