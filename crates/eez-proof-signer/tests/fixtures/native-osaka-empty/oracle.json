@@ -1,9 +1,9 @@
 {
   "number": 2,
-  "hash": "0xd40a8604d1f93838a94c02f4d8b5107fc3e8a7825c31660a60103642fd15cb86",
-  "parent_hash": "0x7786d324f6db0d651935ceefe4d08edf27e59bb674b36adbda5941047b5228d5",
-  "pre_state_root": "0xaef3914574a8ead9d2d4487aab6b9f91956009b5dcda7fd47c45ba013f1f93f2",
-  "post_state_root": "0x69ac02e15af67cfe45aa22cc1df6fedfe219c1188cd676a988fc6738264ce091",
+  "hash": "0xf9a2d05681fc869691c20806f30c0020825cec4d466d233dc32bce9c1a3ee2bb",
+  "parent_hash": "0x47fcbbaf6bfa403bf50ba4b1a5722859c22170ae08cbdba52a53e837c8a72cd6",
+  "pre_state_root": "0xa61be4c56605eaa9a68f17b57f019afc8897dde04f3a7f10c840f31d4d19e649",
+  "post_state_root": "0xae1a8e07e0113403ce9baea14e92bf29047c0de74db530aea7dd640720e6a977",
   "base_fee": 960571021,
   "parent_base_fee": 980000000,
   "parent_gas_used": 130883,
@@ -12,12 +12,12 @@
     3,
     4
   ],
-  "source_capture": "l1-auth-phase-four-node-1",
+  "source_capture": "protocol-balance-burn/empty",
   "sha256": {
-    "block.rlp": "ad28d29b531ebddffa417564b98aec92c8a2878bb7dd2c8345622f143f81ee87",
-    "blocks.protobuf": "a899861b4a5366e85a062b591e8714d50f717133cf301608707bd8167d01585b",
-    "chain-config.json": "2776c0f0d9dd6ded97962b30ac5dfcf6dc2bfd2b12714d5516cd0b3d710c591d",
-    "l2-genesis.json": "5da251c1e52ac12f3b19435e631e46c77ef0f3bd9dfdd7507464efaa3ab071a8",
-    "witness.json": "118231124c25faacc24eaac58fba73cc9f427720bbcc5180e0319f68b2d72c6d"
+    "block.rlp": "8d1e24c7c5a4f5cb792d38cc36a2fdc7825e51b1389e8ad560aa822d52c48b14",
+    "blocks.protobuf": "05c1b0773ab29835ecb9189c2219054fc77d00a7c6c505115e7c5ab826edbc8e",
+    "chain-config.json": "0c0de5b7fa2bd4436d45b182556b8076add8085ef270928c9206a6429f4ed95c",
+    "l2-genesis.json": "697b47ac1c375c96711fe3173b08152338e132f1f6009465765c52dece51f3e9",
+    "witness.json": "bf6c969de859d3c7ae6d5decc398a4f9e890f54984cf0647f21248a580b89feb"
   }
 }

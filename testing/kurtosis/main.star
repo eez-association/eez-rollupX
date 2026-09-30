@@ -166,6 +166,8 @@ def run(plan, args):
             "EEZ_L1_BLOCK_TIME_MS": str(eez.get("l1_block_time_ms", 12000)),
             "EEZ_L2_BLOCK_TIME_MS": str(eez.get("l2_block_time_ms", 2000)),
             "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
+            # Workloads fund L2 accounts from the public development keys.
+            "EEZ_GENESIS_BASE": "/repo/genesis.dev.json",
             "EEZ_GENESIS_OUT": "/out/l2-genesis.json",
         },
         run="mkdir -p /out && bash /repo/scripts/deploy.sh && cp -R /repo/contracts/broadcast /out/foundry-broadcast",
@@ -262,7 +264,7 @@ def run(plan, args):
             "if [ \"$EEZ_COMPOSER_DEBUG_LOGGING\" = 1 ]; then export RUST_LOG='info,eez_composer=debug'; fi;",
             "echo 'eez-node: sourcing /out/deployments.env';",
             "test -f /out/deployments.env;",
-            "grep -E '^(EEZ_REGISTRY_ADDRESS|EEZ_REGISTRY_DEPLOY_BLOCK|EEZ_ROLLUP_ID|EEZ_INITIAL_BLOCK_HASH|EEZ_L2_GENESIS_STATE_ROOT|EEZ_L1_L2_PROXY|EEZ_L1_BRIDGE_SENDER)=' /out/deployments.env;",
+            "grep -E '^(EEZ_REGISTRY_ADDRESS|EEZ_REGISTRY_DEPLOY_BLOCK|EEZ_ROLLUP_ID|EEZ_INITIAL_BLOCK_HASH|EEZ_L2_GENESIS_STATE_ROOT)=' /out/deployments.env;",
             "set -a; . /out/deployments.env; set +a;",
             'echo "eez-node: loaded EEZ_REGISTRY_ADDRESS=$EEZ_REGISTRY_ADDRESS EEZ_ROLLUP_ID=$EEZ_ROLLUP_ID EEZ_INITIAL_BLOCK_HASH=$EEZ_INITIAL_BLOCK_HASH";',
             "exec eez-composer node",

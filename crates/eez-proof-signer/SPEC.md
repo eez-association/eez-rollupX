@@ -217,6 +217,17 @@ normal fees. Receipts retain type `0x76`. Public RPC/txpool admission MUST rejec
 native transactions; only independently authorized reconstruction can supply
 them for settlement.
 
+A native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
+execution and removed again if the call reverts or halts. As a pre-execution
+change of every L2 block, after the EIP-2935 history write, execution sets the
+balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
+zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
+outbound value and proxy recovery sweeps but can spend only freshly minted
+value, and an EEZL2 table is consumable only in the block that loaded it, so
+both balances are dead at the next block start. The burn is not a
+post-transaction change: prefix block hashes derived from per-transaction state
+roots include it through the pre-transaction state.
+
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed
 root shape and call identity. Flat rolling hashes are checked at conversion;

@@ -131,6 +131,7 @@ class RuntimeDockerTest(unittest.TestCase):
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
             (repo / "genesis.json").write_text("{}")
+            (repo / "genesis.dev.json").write_text("{}")
             protocol = repo / "eez-core-protocol"
             protocol.mkdir()
             (protocol / "fixture").touch()

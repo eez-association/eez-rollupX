@@ -12,8 +12,9 @@ use alloy_evm::{
     },
     eth::{EthBlockExecutionCtx, EthBlockExecutor, EthTxResult, spec::EthExecutorSpec},
 };
-use eez_primitives::{EezTxEnvelope, EezTxType, Receipt};
-use revm::{Inspector, primitives::hardfork::SpecId};
+use alloy_primitives::{Address, U256};
+use eez_primitives::{EEZL2_ADDRESS, EezTxEnvelope, EezTxType, Receipt, SYSTEM_ADDRESS};
+use revm::{Inspector, primitives::hardfork::SpecId, state::Account};
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -62,6 +63,45 @@ impl<E, S> DerefMut for EezBlockExecutor<'_, E, S> {
     }
 }
 
+/// Accounts whose ETH is dead by the start of every L2 block and is burned there.
+///
+/// - `SYSTEM_ADDRESS` receives `EEZL2`'s outbound "burn" transfers and proxy
+///   pre-deployment sweeps, and anyone may transfer to it. It cannot spend:
+///   ordinary transactions from it are rejected and each native transaction
+///   spends only the value minted for it.
+/// - `EEZL2` holds value minted for its current execution table. A table is
+///   consumable only in the block that loaded it (`lastLoadBlock`), so any
+///   balance left at the next block start is unconsumed or reverted value.
+pub const BURNED_AT_BLOCK_START: [Address; 2] = [EEZL2_ADDRESS, SYSTEM_ADDRESS];
+
+/// Zero [`BURNED_AT_BLOCK_START`] balances as a pre-execution change.
+///
+/// This runs before the first transaction, never at finalization: the signer
+/// derives prefix block hashes from per-transaction state roots and requires
+/// no post-transaction state changes. Pre-execution changes are part of every
+/// prefix. Zero or absent accounts are left untouched, so a block without
+/// protocol ETH commits no transition for them.
+fn burn_protocol_balances<DB: StateDB>(db: &mut DB) -> Result<(), BlockExecutionError> {
+    let mut burned = Vec::with_capacity(BURNED_AT_BLOCK_START.len());
+    for address in BURNED_AT_BLOCK_START {
+        let info = db.basic(address).map_err(|_| {
+            BlockExecutionError::msg(format!("cannot load protocol account {address}"))
+        })?;
+        if let Some(info) = info
+            && !info.balance.is_zero()
+        {
+            let mut account = Account::from(info);
+            account.info.balance = U256::ZERO;
+            account.mark_touch();
+            burned.push((address, account));
+        }
+    }
+    if !burned.is_empty() {
+        db.commit_iter(&mut burned.into_iter());
+    }
+    Ok(())
+}
+
 impl<E, S> BlockExecutor for EezBlockExecutor<'_, E, S>
 where
     E: Evm<
@@ -102,7 +142,8 @@ where
         }
         self.inner
             .system_caller
-            .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)
+            .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)?;
+        burn_protocol_balances(self.inner.evm.db_mut())
     }
 
     fn execute_transaction_without_commit(

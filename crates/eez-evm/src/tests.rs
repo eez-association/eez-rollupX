@@ -26,6 +26,22 @@ fn config() -> EezEvmConfig {
     EezEvmConfig::new(Arc::new(profile::chain_spec(genesis).unwrap()))
 }
 
+#[test]
+fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
+    let genesis: alloy_genesis::Genesis =
+        serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
+    // All L2 ETH is minted against value locked on L1; any genesis balance
+    // would be unbacked and withdrawable from other users' deposits.
+    for (address, account) in &genesis.alloc {
+        assert!(account.balance.is_zero(), "{address} is funded");
+    }
+    let mut addresses: Vec<_> = genesis.alloc.keys().copied().collect();
+    addresses.sort();
+    let mut expected = vec![EEZL2_ADDRESS, alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS];
+    expected.sort();
+    assert_eq!(addresses, expected);
+}
+
 fn block(nonce: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {
     let tx: EezTxEnvelope = SystemTransaction {
         chain_id,
@@ -83,7 +99,7 @@ fn database(balance: U256, code: Bytes) -> InMemoryDB {
 }
 
 #[test]
-fn native_mints_without_prefunding_and_rolls_back_failed_calls_without_spending_existing_eth() {
+fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_prior_system_eth() {
     for balance in [U256::ZERO, U256::from(5), U256::from(1_000_000)] {
         for (code, success, out_of_gas) in [
             // Store CALLER; revert after the store; loop until out of gas.
@@ -112,7 +128,9 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_without_spending_
                 .as_ref()
                 .unwrap();
             assert_eq!(system.nonce, 1);
-            assert_eq!(system.balance, balance);
+            // Prior ETH is burned before the block's first transaction. The
+            // mint is spent by a successful call and removed on failure.
+            assert_eq!(system.balance, U256::ZERO);
             let beneficiary_balance = bundle
                 .state
                 .get(&alloy_primitives::Address::ZERO)

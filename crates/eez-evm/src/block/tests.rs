@@ -7,16 +7,19 @@ use alloy_eips::{
     eip7685::EMPTY_REQUESTS_HASH,
 };
 use alloy_evm::EvmEnv;
-use alloy_primitives::{B256, U256, bytes};
+use alloy_primitives::{B256, bytes};
 use reth_chainspec::ChainSpecBuilder;
 use revm::{
     Database,
     context::{BlockEnv, CfgEnv},
-    database::{InMemoryDB, State},
+    database::{InMemoryDB, State, states::bundle_state::BundleRetention},
     state::{AccountInfo, Bytecode},
 };
 
-fn execute_empty_blocks(layer: ExecutionLayer) -> State<InMemoryDB> {
+fn execute_empty_blocks(
+    layer: ExecutionLayer,
+    accounts: &[(Address, AccountInfo)],
+) -> State<InMemoryDB> {
     let spec = Arc::new(ChainSpecBuilder::mainnet().osaka_activated().build());
     let factory = EezBlockExecutorFactory::new(spec, layer);
     let mut db = InMemoryDB::default();
@@ -42,6 +45,9 @@ fn execute_empty_blocks(layer: ExecutionLayer) -> State<InMemoryDB> {
         );
         db.insert_account_storage(address, U256::ZERO, U256::from(37))
             .unwrap();
+    }
+    for (address, info) in accounts {
+        db.insert_account_info(*address, info.clone());
     }
     let mut state = State::builder()
         .with_database(db)
@@ -86,7 +92,7 @@ fn execute_empty_blocks(layer: ExecutionLayer) -> State<InMemoryDB> {
 #[test]
 fn issue35_empty_l2_blocks_write_history_without_beacon_or_request_side_effects() {
     for layer in [ExecutionLayer::Rollup, ExecutionLayer::L1Simulation] {
-        let mut state = execute_empty_blocks(layer);
+        let mut state = execute_empty_blocks(layer, &[]);
         for (slot, expected) in [(0, 1), (1, 2)] {
             assert_eq!(
                 state
@@ -112,4 +118,66 @@ fn issue35_empty_l2_blocks_write_history_without_beacon_or_request_side_effects(
             );
         }
     }
+}
+
+#[test]
+fn rollup_blocks_burn_protocol_balances_before_execution_and_l1_simulation_keeps_them() {
+    let code = Bytecode::new_raw(bytes!("00"));
+    let accounts = [
+        (
+            SYSTEM_ADDRESS,
+            AccountInfo {
+                balance: U256::from(17),
+                nonce: 3,
+                ..Default::default()
+            },
+        ),
+        (
+            EEZL2_ADDRESS,
+            AccountInfo {
+                balance: U256::from(29),
+                code_hash: code.hash_slow(),
+                code: Some(code),
+                ..Default::default()
+            },
+        ),
+    ];
+    for layer in [ExecutionLayer::Rollup, ExecutionLayer::L1Simulation] {
+        let mut state = execute_empty_blocks(layer, &accounts);
+        for (address, original) in &accounts {
+            let info = state.basic(*address).unwrap().unwrap();
+            let expected = if layer == ExecutionLayer::Rollup {
+                U256::ZERO
+            } else {
+                original.balance
+            };
+            assert_eq!(info.balance, expected, "{layer:?} {address}");
+            // Only the balance is burned; nonce and code remain.
+            assert_eq!(info.nonce, original.nonce, "{layer:?} {address}");
+            assert_eq!(info.code_hash, original.code_hash, "{layer:?} {address}");
+        }
+    }
+}
+
+#[test]
+fn rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts() {
+    let code = Bytecode::new_raw(bytes!("00"));
+    // EEZL2 exists with a zero balance; SYSTEM_ADDRESS is absent from genesis.
+    let accounts = [(
+        EEZL2_ADDRESS,
+        AccountInfo {
+            code_hash: code.hash_slow(),
+            code: Some(code),
+            ..Default::default()
+        },
+    )];
+    let mut state = execute_empty_blocks(ExecutionLayer::Rollup, &accounts);
+    state.merge_transitions(BundleRetention::Reverts);
+    for address in BURNED_AT_BLOCK_START {
+        assert!(
+            !state.bundle_state.state.contains_key(&address),
+            "{address} must not receive a transition"
+        );
+    }
+    assert!(state.basic(SYSTEM_ADDRESS).unwrap().is_none());
 }

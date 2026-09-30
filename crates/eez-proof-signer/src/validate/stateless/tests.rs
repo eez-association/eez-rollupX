@@ -509,8 +509,8 @@ fn validates_the_golden_block_through_stateless() {
     let output = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate(&[fixture_input()])
         .unwrap();
-    let pre_root = b256!("aef3914574a8ead9d2d4487aab6b9f91956009b5dcda7fd47c45ba013f1f93f2");
-    let post_root = b256!("69ac02e15af67cfe45aa22cc1df6fedfe219c1188cd676a988fc6738264ce091");
+    let pre_root = b256!("a61be4c56605eaa9a68f17b57f019afc8897dde04f3a7f10c840f31d4d19e649");
+    let post_root = b256!("ae1a8e07e0113403ce9baea14e92bf29047c0de74db530aea7dd640720e6a977");
     assert_ne!(
         pre_root, post_root,
         "an empty block still writes its parent's hash via EIP-2935"
@@ -520,7 +520,7 @@ fn validates_the_golden_block_through_stateless() {
     let block = &output.blocks[0];
     assert_eq!(
         block.computed_hash,
-        b256!("d40a8604d1f93838a94c02f4d8b5107fc3e8a7825c31660a60103642fd15cb86")
+        b256!("f9a2d05681fc869691c20806f30c0020825cec4d466d233dc32bce9c1a3ee2bb")
     );
     assert_eq!(block.post_state_root, post_root);
     assert!(block.receipt_successes.is_empty());
