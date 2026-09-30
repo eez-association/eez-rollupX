@@ -1,19 +1,19 @@
 {
-  "base": "dc9f50f8e9fa694c6bb5d2d1af9a4ca70e87447c",
+  "base": "1d3ee4530205c259a54b288fd940e7b65436177d",
   "protocol_gitlink": "160000 commit 9d13218a355e7d543ca8a9927eea2962600b716d\teez-core-protocol",
   "binaries_sha256": {
-    "target/debug/eez-composer": "09773ade913381dcf1ff4891e85d95037d885fbf5cf617eb7263b448c2c261aa",
-    "target/debug/eez-follower": "74aaafc05a2e5d901a40664f8ddaf01e4ab5b2e7bd93c7601a51f5f07f754fd1",
-    "target/debug/eez-proof-signer": "f3290842de8694afc56ec435b6c3ebd1bd07bb9c33547e2b81fa840b24baa85b"
+    "target/debug/eez-composer": "ddb483f38efc8c7db1935cb55ee3b55207f5ebcc00e2ac93252e0890223c83f2",
+    "target/debug/eez-follower": "3ede2a67d929b74b33a86eff9818f555bcd7654dce0f9443e57eac70373b23e3",
+    "target/debug/eez-proof-signer": "574674e33b6d8e86549ac324b89e5cb6efa2088e56a90844cb198b11301643f2"
   },
   "files_sha256": {
-    "chain-config.json": "9ca9a80927c78ea811aeb5315f2aab67cf7887ff6d16d75e700aa2cbba5d9ee3",
-    "cold-request.protobuf": "ec9a0f6a2dfb04e6592626d785b4789728edef7f5fb93bfa2b95fac85bc78754",
+    "chain-config.json": "cf4d2f8a83ed087d7d7ef143c712baf1f51e6b6f6ceebb172299e6546a69ded8",
+    "cold-request.protobuf": "97c92e7e77bd33930a14cb80fbdde14c2c4cbaf1cae6645119be4a25183e809a",
     "identity.json": "97ce3ae062ac91934790dda8ee4be8c590e567b5fd673e733ff702da54156f07",
-    "l1-genesis.json": "3dde7998955a6023492005c0a87aa7eec173157ac993da2deca6462ec37eecff",
-    "l2-genesis.json": "0c85ce296b5cb1aeb251332c392579aa62019b1f3e0fd7c0fb7b31ccf2575ef2",
-    "request.protobuf": "f0159c7e3ae31c13c5c1cac67d5f41477051d4cdfbaf44a43e36c50203bbf9b8",
-    "response.json": "eb25bf64cc15be52cd9a87f7eb16a66b7e1bc21c34995ffe85cefd197e14bdf7"
+    "l1-genesis.json": "941357a2ef5cc113ae0296e579e9afe3335dad99d1190af436445e101d3a2b7e",
+    "l2-genesis.json": "2accea77523f8e970878072c9164f7de7627501b3247c03e7e46b5bdd036c674",
+    "request.protobuf": "10a35c4d064b373624470dadb62c887ccca6d54131a811f1c695992aeb86fd46",
+    "response.json": "591cb8a7f06e3f4e00ee3ec379e6778d7a34918b337c209846536543c6442a92"
   },
-  "local_evidence": "artifacts/native-system-backport/e2e/profile-captures-1-executed-identity.json"
+  "local_evidence": "artifacts/protocol-balance-burn/capture/lookup"
 }

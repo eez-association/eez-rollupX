@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft, implemented on `feat/zero-system-balances`; process validation pending |
+| Design status | Draft, implemented on `feat/zero-system-balances`; local unit and process validation recorded below |
 | Date | 2026-09-30 |
 | Source baseline | `eduadiez/rollupX` `main` at `b791d78` |
 | Protocol baseline | `eez-core-protocol` `9d13218` (unchanged) |
@@ -87,5 +87,30 @@ changes alter the rendered genesis identity; they affect new deployments only.
 
 ## Implementation and follow-up
 
-Implementation is on `feat/zero-system-balances`. Record the validation results
-and any unmet criteria in the pull request before acceptance.
+Implementation is on `feat/zero-system-balances`. Local validation on 2026-09-30
+(Rust 1.95.0, Foundry 1.7.1, LLVM 22.1.2, protocol `9d13218`):
+
+| Check | Result |
+| --- | --- |
+| `cargo clippy --workspace --all-targets -D warnings`, `cargo fmt --check` | Pass |
+| `eez-evm` unit tests (R1–R3, R5) | 19 passed |
+| Composer, driver, deriver, `eez-l1`, node-common, control RPC, prover client unit tests | Pass (Composer 290) |
+| `eez-proof-signer` unit tests | 330 passed, 2 ignored utilities |
+| `eez-node-e2e` `cross_chain` (R4) | 24 passed |
+| `eez-node-e2e` `partial_consumption` (R4) | 5 passed |
+| `eez-node-e2e` `queue_liveness` | 3 passed |
+| `eez-node-e2e` `native_system` (R1: outbound ETH at `SYSTEM_ADDRESS` in its block, zero at the next block on both Composers) | 1 passed |
+| `update-eezl2-genesis.sh --check` (R5, with a funded-base negative check) | Pass |
+| `forge test --root contracts`; Python CI tooling suite; settlement policy config | Pass (81; 284 with 5 environment-gated skips) |
+
+Captured signer fixtures recorded under the old rules lacked witness proofs for
+the burned accounts. Only the three local process captures
+(`native-osaka-empty`, `-changing-static`, `-lookup`) replay through `eez-evm`;
+they were re-captured from the same process tests at `1d3ee45` and their
+README/`capture.json` provenance updated. Chiado-derived fixtures do not execute
+through `eez-evm` and are unchanged. The first `native_system` capture failed on
+the old assertion that outbound ETH remains at `SYSTEM_ADDRESS`; the test now
+asserts the burn. Evidence is local-only under `artifacts/protocol-balance-burn/`.
+
+Not run: Kurtosis CI workloads with `genesis.dev.json` (R6) and the remaining
+`eez-node-e2e` targets outside the queue/partial-consumption set.

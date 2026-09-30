@@ -191,10 +191,34 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     })
     .await?;
 
+    // Outbound ETH reaches the system address in the outbound block and is burned
+    // before the next block's first transaction. Keyless followers import only
+    // settled blocks, so the next block is checked on both producing Composers;
+    // followers must later derive the same block hashes.
+    let balance_at = |url: String, block: u64| async move {
+        rpc(&url, "eth_getBalance", json!([system, format!("0x{block:x}")]))
+            .await?
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("balance at {url}"))?
+            .parse::<U256>()
+            .map_err(anyhow::Error::from)
+    };
+    for url in [&primary_rpc, &mirror_rpc] {
+        wait_for(SETTLE_TIMEOUT, || async {
+            composer.assert_healthy();
+            let block = json!([format!("0x{:x}", final_height + 1), false]);
+            Ok((!rpc(url, "eth_getBlockByNumber", block).await?.is_null()).then_some(()))
+        })
+        .await?;
+        ensure!(
+            balance_at(url.clone(), final_height + 1).await? == U256::ZERO,
+            "outbound ETH must be burned at the next block start on {url}"
+        );
+    }
     for url in urls {
         ensure!(
-            l2_balance(url, system).await? == withdrawal,
-            "outbound ETH must remain at the system address on {url}"
+            balance_at(url.clone(), final_height).await? == withdrawal,
+            "outbound ETH must reach the system address in its block on {url}"
         );
         ensure!(
             rpc(url, "eth_getTransactionCount", json!([system, "latest"])).await? == "0x2",
