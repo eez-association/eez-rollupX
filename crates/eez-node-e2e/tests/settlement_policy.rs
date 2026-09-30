@@ -2346,6 +2346,10 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     use eez_testkit::{onchain_nonce, sign_and_send, wait_for};
     let mut env = policy_env(vec![], "interval");
     env.push(("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "120000".into()));
+    // Six-blob KZG preparation plus final preflight exceeds the default
+    // two-second window on CI. Start earlier in the same L1 slot; the proof
+    // still binds its known parent and submission keeps the original cutoff.
+    env.push(("EEZ_PREPARATION_TIME_MS", "2500".into()));
     // The native relay inserts the ordered bundle into a fee-sorted dev pool.
     // Keep the post ahead of its 1-gwei companion, as in the other bundle tests.
     env.push(("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()));

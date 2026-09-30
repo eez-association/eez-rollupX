@@ -542,3 +542,61 @@ These results establish the corrected behavior on the locally recovered network.
 They do not claim a clean first pass, an unattended startup after the interruption,
 or GitHub CI success. All evidence locations and exact helper/runtime identities
 are recorded in `validation.json`; bulk logs and datadirs are local-only.
+
+## CI six-blob preparation window (2026-09-30)
+
+[Run 36624627691](https://github.com/eduadiez/rollupX/actions/runs/36624627691)
+at `ac8a8b5fb0796ce243b65b4b81f02a635a593601` failed only embedded shard
+2/4's `ethereum_ordinary_burst_is_budgeted_across_sync_intervals`. Lint,
+runtime production, the other embedded shards, all cross-chain shards and
+Kurtosis passed. The follower's 180-second convergence timeout was the symptom:
+Composer repeatedly missed finalization while settling the first six-blob prefix.
+The signer successfully validated and signed that prefix; canonical settlement
+remained at genesis because the late bundles were not dispatched.
+
+The fixture used a 5-second L1 cadence, 1-second L2 cadence, 1,000 ms proof
+allocation and 100 ms submission slack, with no preparation override. Its
+rounded trigger left only 1,900 ms before the exclusive submission deadline.
+One retained CI attempt began preparation at `1790716259022`, requested proof
+at `1790716260357`, received it at `1790716260515`, and began finalization by
+`1790716260635`. Final preflight completed at `1790716261166`, after the
+`1790716260900` deadline. Subsequent attempts repeated the same failure. Merely
+increasing the convergence timeout would not give any attempt more time.
+
+The burst fixture now supplies the existing `EEZ_PREPARATION_TIME_MS=2500`
+setting. This starts composition 1,600 ms earlier in the same slot and allows
+3,500 ms before the same cutoff. It changes neither production defaults nor
+target-parent binding, deadline enforcement, blob limits or protocol format.
+The regression still requires historical recovery, multi-blob settlement,
+canonical follower receipt agreement and a subsequent cross-chain call.
+
+Local baseline replay used the manifest-verified `ea17be9` shipping runtime
+and archived test, with CPU affinity `0,1`. Runtime/test sources are unchanged
+between that revision and `ac8a8b5`; only the unused blob-evidence example
+changed. The baseline passed in 135.24 seconds, with six-blob preparation about
+947 ms: the CI timing failure did **not** reproduce on this faster host.
+This local pass does not supersede the failed CI result. The first local
+archive launch failed before setup because `CARGO_MANIFEST_DIR` was missing;
+the actual run supplies the archive relocation variable.
+
+Local-only diagnostics, executable hashes and commands/results are retained in
+`artifacts/reth-v2.7-review/ci-deadline-fix/`. The original CI job log is retained
+under `artifacts/reth-v2.7-review/ci-36624627691/embedded-2-raw.log`.
+
+Validation of the changed fixture:
+
+- `cargo +1.95.0 test --locked -p eez-node-e2e --test settlement_policy --no-run`
+  built the changed test. Running its two `ordinary_burst_is_budgeted_across_sync_intervals`
+  cases serially with `taskset -c 0,1` and the verified release runtime passed
+  **2/2 in 283.91 seconds**. Ethereum's six-blob final preflight completed
+  1,962 ms before the submission cutoff; neither profile logged a preflight
+  failure. Both exercised semantic assertions and independent follower replay.
+- `cargo +1.95.0 test --locked -p eez-driver timing::tests --lib`: **37 passed**.
+- `cargo +1.95.0 fmt --all --check`,
+  `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings`, and
+  `git diff --check`: passed.
+
+Runtime source, dependencies, genesis and protocol are unchanged. The full
+workspace test suite, artifact producer, Anvil and Kurtosis were not rerun for
+this fixture-only correction. A new GitHub CI result is still required; local
+success does not establish that the original runner's failure is resolved.
