@@ -20,7 +20,10 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 cast rpc debug_getRawBlock "$hash" --rpc-url "$L2_RPC" >"$scratch/block.json"
 cast rpc debug_getRawReceipts "$hash" --rpc-url "$L2_RPC" >"$scratch/receipts.json"
-cast rpc debug_executionWitnessByBlockHash "$hash" --rpc-url "$L2_RPC" >"$scratch/witness.json"
+# Reth's minimal debug witness can omit sibling nodes needed to recompute an
+# intermediate prefix root after a deletion. Use the proving feed's witness.
+cast rpc eez_executionWitnessByBlockHash "$hash" --rpc-url "$L2_RPC" >"$scratch/witness.json"
+jq -e 'type == "object"' "$scratch/witness.json" >/dev/null
 cast rpc debug_chainConfig --rpc-url "$L2_RPC" >"$scratch/config.json"
 genesis_hash="$(cast rpc eth_getBlockByNumber 0x0 false --rpc-url "$L2_RPC" | jq -er '.hash')"
 jq -n --arg hash "$hash" --arg genesis_hash "$genesis_hash" \
