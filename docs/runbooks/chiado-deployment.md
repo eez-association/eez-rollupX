@@ -99,6 +99,7 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | --- | --- |
 | `.env` | Private RPC/keys, node/signer/deploy images, and Compose settings; copied from `.env.chiado.example`, used by deployment and startup; preserve |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
+| `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: coinbase of every Live and Sync L2 block, which receives priority fees. Compose refuses to start while it is unset or empty; set the zero address to choose the historical zero coinbase deliberately. Not a consensus value: it can change at any restart, and followers take each block's published beneficiary. |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
 | `L1_SNAPSHOT_DIR` | `./data/chiado-l1`; writable embedded L1 database |

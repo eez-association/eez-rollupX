@@ -1366,6 +1366,8 @@ struct Inner<L2: BlockReader> {
     posting: Arc<posting::PostingRuntime>,
     gas_trace: Option<gas_trace::Config>,
     max_user_txs_per_bundle: Option<usize>,
+    /// Sync-block coinbase; the node configures Live blocks with the same value.
+    fee_recipient: Address,
     automatic_admission: HashMap<u64, std::sync::Mutex<admission::AutomaticAdmission>>,
 }
 
@@ -1422,6 +1424,7 @@ where
             posting_fees,
             gas_trace,
             emission,
+            fee_recipient,
             ..
         } = settings;
         event!(name: "eez.composer.settlement.policy", Level::INFO,
@@ -1442,6 +1445,7 @@ where
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
             automatic_admission = max_user_txs_per_bundle.is_none(),
             k = timing.k(),
+            %fee_recipient,
             "posting settings; policy resolves network gas limits per target");
 
         Ok(Self {
@@ -1459,6 +1463,7 @@ where
                 posting,
                 gas_trace,
                 max_user_txs_per_bundle,
+                fee_recipient,
             }),
         })
     }
@@ -1746,7 +1751,7 @@ where
         // on a stale parent (see [`eez_driver::ParentContext`]).
         let parent_header = parent.header;
         let parent_number = parent_header.number();
-        let suggested_fee_recipient: Address = Address::ZERO;
+        let suggested_fee_recipient = self.inner.fee_recipient;
 
         // Policy catch-up selects its earliest feasible target below.
 

@@ -11,6 +11,7 @@ mod l1_embedded;
 mod queue_metrics;
 mod queue_rpc;
 mod settlement_metrics;
+mod witness_rpc;
 mod witness_source;
 
 // Offline/native recovery tools use the same validated persistent reader as the producer.
@@ -733,6 +734,20 @@ async fn launch_composer(
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
+            // Parsed rather than imported: `RethRpcModule` is not re-exported by
+            // this crate's Reth dependencies, and the parameter type fixes it.
+            use reth_node_api::FullNodeComponents as _;
+            let debug = "debug"
+                .parse()
+                .map_err(|e| eyre::eyre!("debug RPC namespace: {e}"))?;
+            ctx.modules.merge_if_module_configured(
+                debug,
+                witness_rpc::module(
+                    ctx.provider().clone(),
+                    ctx.node().evm_config().clone(),
+                    ctx.node().task_executor.clone(),
+                )?,
+            )?;
             correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
         })
         .launch_with_debug_capabilities()
@@ -745,7 +760,9 @@ async fn launch_composer(
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
 
-    let attributes = EthAttributesBuilder::new(chain_spec.clone());
+    // Live blocks share the Composer's Sync-block coinbase.
+    let attributes = EthAttributesBuilder::new(chain_spec.clone())
+        .with_fee_recipient(composer_settings.fee_recipient());
 
     let block_committer = BlockCommitterHandle::spawn_from_provider(
         &provider,
