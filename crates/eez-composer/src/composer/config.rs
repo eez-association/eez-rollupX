@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 
+use alloy_primitives::Address;
 use eez_driver::RollupTiming;
 use eez_l1::posting_fees::{PostingFeeConfig, PostingFeeError};
 
@@ -19,6 +20,9 @@ pub struct ComposerSettings {
     pub(super) posting_fees: PostingFeeConfig,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
+    /// Coinbase of every L2 block this node builds, Live and Sync alike, so
+    /// priority fees are not split across recipients.
+    pub(super) fee_recipient: Address,
     max_speculative_depth: u64,
 }
 
@@ -118,6 +122,14 @@ impl ComposerSettings {
             },
             Err(error) => return Err(error),
         };
+        // Unset keeps the historical zero coinbase; a supplied value must be a
+        // valid address, so an empty or mistyped setting cannot silently fall back.
+        let fee_recipient = match get("EEZ_L2_FEE_RECIPIENT")? {
+            None => Address::ZERO,
+            Some(value) => value.trim().parse::<Address>().map_err(|_| {
+                PolicyError::Config("EEZ_L2_FEE_RECIPIENT must be a 20-byte hex address".into())
+            })?,
+        };
         let max_speculative_depth = policy.max_speculative_depth;
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
@@ -133,12 +145,18 @@ impl ComposerSettings {
             posting_fees,
             gas_trace,
             emission,
+            fee_recipient,
             max_speculative_depth,
         })
     }
 
     pub const fn max_speculative_depth(&self) -> u64 {
         self.max_speculative_depth
+    }
+
+    /// Coinbase for Live and Sync blocks (`EEZ_L2_FEE_RECIPIENT`, default zero).
+    pub const fn fee_recipient(&self) -> Address {
+        self.fee_recipient
     }
 }
 
@@ -186,6 +204,40 @@ mod tests {
         let reduced = settings.clone().with_prover_block_limit(k * 2 + 1).unwrap();
         assert_eq!(reduced.emission.max_blocks, k * 2 + 1);
         assert!(settings.with_prover_block_limit(k - 1).is_err());
+    }
+
+    #[test]
+    fn fee_recipient_defaults_to_zero_and_rejects_empty_or_malformed_values() {
+        assert_eq!(settings(&[]).unwrap().fee_recipient(), Address::ZERO);
+        let recipient = "0x2eA2A5A1fe1BA4F4134c993E0c9A700706031E52";
+        assert_eq!(
+            settings(&[("EEZ_L2_FEE_RECIPIENT", recipient)])
+                .unwrap()
+                .fee_recipient(),
+            recipient.parse::<Address>().unwrap()
+        );
+        // An explicit zero address is a deliberate choice, not an error.
+        assert_eq!(
+            settings(&[(
+                "EEZ_L2_FEE_RECIPIENT",
+                "0x0000000000000000000000000000000000000000"
+            )])
+            .unwrap()
+            .fee_recipient(),
+            Address::ZERO
+        );
+        for value in [
+            "",
+            "0x",
+            "0x1234",
+            "not-an-address",
+            "0xZZA2A5A1fe1BA4F4134c993E0c9A700706031E52",
+        ] {
+            assert!(
+                settings(&[("EEZ_L2_FEE_RECIPIENT", value)]).is_err(),
+                "{value:?} must be rejected"
+            );
+        }
     }
 
     #[test]

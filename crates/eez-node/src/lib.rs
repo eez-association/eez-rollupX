@@ -745,7 +745,9 @@ async fn launch_composer(
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
 
-    let attributes = EthAttributesBuilder::new(chain_spec.clone());
+    // Live blocks share the Composer's Sync-block coinbase.
+    let attributes = EthAttributesBuilder::new(chain_spec.clone())
+        .with_fee_recipient(composer_settings.fee_recipient());
 
     let block_committer = BlockCommitterHandle::spawn_from_provider(
         &provider,
