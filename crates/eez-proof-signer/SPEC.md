@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses the
+`8d458919a8165341489f06d6adbc4c42a77e6ca2`. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
 pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
 [recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
@@ -228,11 +228,18 @@ execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value and proxy recovery sweeps but can spend only freshly minted
-value, and an EEZL2 table is consumable only in the block that loaded it, so
-both balances are dead at the next block start. The burn is not a
-post-transaction change: prefix block hashes derived from per-transaction state
-roots include it through the pre-transaction state.
+outbound value but can spend only freshly minted value, and an EEZL2 table is
+consumable only in the block that loaded it, so both balances are dead at the
+next block start. Proxy recovery sweeps go to EEZL2's separate
+`RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
+and are not burned: they move ether already held at an undeployed proxy
+address and mint nothing. Together these rules are the node-side accounting the
+pinned core protocol requires for
+[L2 funding and inventory](../../eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md#l2-funding-and-inventory):
+each load's funding is minted for its own transaction, and unused or reverted
+inventory is never reused across blocks. The burn is not a post-transaction
+change: prefix block hashes derived from per-transaction state roots include it
+through the pre-transaction state.
 
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed
