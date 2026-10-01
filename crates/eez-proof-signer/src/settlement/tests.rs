@@ -120,14 +120,39 @@ fn verify_anchor_only_da_payload<'a>(
     )
 }
 
-// Fixed signed transaction fixtures. All except `USER_INBOUND_SELECTOR_TX`
-// use the deterministic system identity in `testkit`.
-// Transaction classification is derived from these bytes; no signer is
-// injected.
-const EIP1559_SYSTEM_TX: &str = "02f862018001018252089442000000000000000000000000000000000000078080c080a01a1ff6a847a249f83cde3536899f858e52db7ab221c7d452d1164a484859f3f3a02c507280e556114e9c646082a07a51c58d23338ff511d18c5805d90ddba8d196";
+// Fixed signed transaction fixtures from the public Anvil account #0
+// (`testkit::LEGACY_USER_PRIVATE_KEY`), which is not a system identity: only the
+// native type carries system privilege. Transaction classification is derived
+// from these bytes; no signer is injected. `EIP1559_SYSTEM_TX` reproduces with
+// `cast mktx --private-key <key> --chain 1 --nonce 0 --gas-price 1
+// --priority-gas-price 1 --gas-limit 21000 <EEZL2_ADDRESS>`.
+const EIP1559_SYSTEM_TX: &str = "02f86201800101825208944b2760f84b83d6b3829e30a7573b0172b6d6402c8080c001a0f32f0cfbbce05894e53c7e1880765724988b458eae0538bcd41ea5dff909766ea02ea7c34b7b7b43130042708472d1aeb67ef08c72cdfbe9434533700afc5749d0";
 const SYSTEM_SIGNER_OTHER_TARGET_TX: &str = "f85f02018252089400000000000000000000000000000000000000aa808025a0961dcce4a5ba76fdf8652d8717ccb28e00743fc448c29e131a64a14523791af0a023c6c8ab26b39a97709e43bd9f36da40b0e8a1259d20b0a7ae38eb973e4df201";
 const CREATE_TX: &str = "f84b010182cf0880800026a042168e79fe83854ac3f35cce0ec5cd01d422dee84a077986bb1ab3d1773ba5b9a0456e4766eef810187b80eef3d7a935018f8aa5a469910e6179fbf23d9a29b495";
-const USER_INBOUND_SELECTOR_TX: &str = "f8648001830186a09442000000000000000000000000000000000000078084eb49424626a09ffe9b2bb85f6d6a32ea19f2643e9e640b97d3189bfa0668ec4eb708e1ce6131a02778884f1c1e1e96cac6cea89f51182eec19bdb33d98e8f56297bdf7328e0c28";
+
+/// Signed legacy user transaction (chain 1, nonce 0, gas price 1, gas 100000)
+/// that calls EEZL2 with only the inbound selector. Its sender is the
+/// deterministic non-system test key `0x11..11`, so it must remain an ordinary
+/// transaction despite its target and selector.
+fn user_inbound_selector_transaction() -> TransactionSigned {
+    let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
+    let transaction = alloy_consensus::TxLegacy {
+        chain_id: Some(1),
+        nonce: 0,
+        gas_price: 1,
+        gas_limit: 100_000,
+        to: alloy_primitives::TxKind::Call(crate::EEZL2_ADDRESS),
+        value: U256::ZERO,
+        input: EXECUTE_INCOMING_SELECTOR.to_vec().into(),
+    };
+    let (signature, recovery_id) = key
+        .credential()
+        .sign_prehash_recoverable(transaction.signature_hash().as_slice())
+        .unwrap();
+    transaction
+        .into_signed(Signature::from((signature, recovery_id)))
+        .into()
+}
 
 fn expected_rollup_id() -> NonZeroU64 {
     NonZeroU64::new(1).unwrap()

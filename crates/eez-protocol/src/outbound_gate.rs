@@ -235,7 +235,7 @@ mod tests {
     /// other address must not authorize an entry.
     #[test]
     fn observations_come_only_from_the_configured_manager() {
-        let eez_l2 = address!("0x4200000000000000000000000000000000000007");
+        let eez_l2 = address!("0x4B2760F84B83d6b3829E30A7573B0172B6d6402C");
         let impostor = address!("0x00000000000000000000000000000000deadbeef");
         let hash = B256::repeat_byte(0xab);
 
@@ -254,7 +254,7 @@ mod tests {
     /// decoding — one event may not authorize two entries.
     #[test]
     fn duplicate_events_are_both_observed() {
-        let eez_l2 = address!("0x4200000000000000000000000000000000000007");
+        let eez_l2 = address!("0x4B2760F84B83d6b3829E30A7573B0172B6d6402C");
         let hash = B256::repeat_byte(0xcd);
         let logs = [cc_log(eez_l2, hash, 0), cc_log(eez_l2, hash, 0)];
         assert_eq!(observations_from_logs(&logs, eez_l2).len(), 2);

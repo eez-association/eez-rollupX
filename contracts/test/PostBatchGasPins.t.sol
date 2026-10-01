@@ -15,6 +15,7 @@ import {
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
 
@@ -1559,23 +1560,31 @@ contract PostBatchGasPinsTest is Test {
         assertEq(actualRoot, expectedRoot, "outer success must apply the intended root");
     }
 
-    /// Mirrors `scripts/deploy.sh`: registry, proof system, threshold-1 manager
-    /// whose vkey is the signer-address membership ticket, then `registerRollup`.
+    /// Mirrors `scripts/deploy.sh`: registry proxy, proof system, threshold-1
+    /// manager proxy whose vkey is the signer-address membership ticket, then
+    /// `registerRollup`. The implementations behind both proxies are cooled
+    /// too, so measurements include cold proxy dispatch.
     function _deployProtocol() private returns (EEZ eez, ECDSAProofSystem proofSystem) {
         address prover = vm.addr(PROVER_KEY);
-        eez = new EEZ(address(0xDEAD));
+        eez = RollupDeployment.deployEEZ(address(0xDEAD), address(this));
         proofSystem = new ECDSAProofSystem(prover);
 
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = address(proofSystem);
         bytes32[] memory vkeys = new bytes32[](1);
         vkeys[0] = bytes32(uint256(uint160(prover)));
-        Rollup manager = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        Rollup manager = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
 
         assertEq(eez.registerRollup(address(manager), GENESIS_ROOT), ROLLUP_ID, "unexpected rollup id");
         touched.push(address(eez));
+        touched.push(_implementation(address(eez)));
         touched.push(address(proofSystem));
         touched.push(address(manager));
+        touched.push(_implementation(address(manager)));
+    }
+
+    function _implementation(address proxy) private view returns (address) {
+        return address(uint160(uint256(vm.load(proxy, RollupDeployment.IMPLEMENTATION_SLOT))));
     }
 
     /// A composer-shaped call: the leading anchor plus `outboundEntries` entries,

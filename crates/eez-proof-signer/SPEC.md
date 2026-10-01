@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`9d13218a355e7d543ca8a9927eea2962600b716d`. Stateless execution uses the
+`855fe0602484750861b4c31502a1a91355d33ed6`. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
 pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
 [recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
@@ -202,12 +202,24 @@ The active deployment bindings are:
 
 ```text
 SYSTEM_ADDRESS = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
-EEZL2_ADDRESS  = 0x4200000000000000000000000000000000000007
+EEZL2_ADDRESS  = 0x4B2760F84B83d6b3829E30A7573B0172B6d6402C
 ```
 
 The signer rejects a noncanonical `EEZ_L2_SYSTEM_ADDRESS`. Matching EEZL2's
 immutable system address to this fixed value remains a genesis/deployment
 invariant; the signer does not independently query deployed code.
+
+`EEZL2_ADDRESS` is an upgradeable `EEZProxy` genesis predeploy, as in the pinned
+protocol's `deployment/Deploy.s.sol`. Its genesis implementation is
+`0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA` and its ProxyAdmin is
+`CREATE(EEZL2_ADDRESS, 1)`, owned by the deployment's L2 upgrade owner. The proxy
+holds EEZL2's storage, balance and events and deploys its cross-chain proxies,
+so every rule below applies to `EEZL2_ADDRESS`. An upgrade is an ordinary L2
+transaction from that owner, and execution validation uses whatever
+implementation is in state: the upgrade owner is therefore trusted with the L2
+manager's behaviour. An implementation that changes the ABI, events or table
+semantics this profile assumes requires a coordinated Composer/signer release
+before the upgrade transaction is sequenced.
 
 Native transactions are `0x76 || rlp([chainId, nonce, to, value, input])` with
 the fixed sender, EEZL2 destination and zero gas price. Their metered gas budget
@@ -228,11 +240,18 @@ execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value and proxy recovery sweeps but can spend only freshly minted
-value, and an EEZL2 table is consumable only in the block that loaded it, so
-both balances are dead at the next block start. The burn is not a
-post-transaction change: prefix block hashes derived from per-transaction state
-roots include it through the pre-transaction state.
+outbound value but can spend only freshly minted value, and an EEZL2 table is
+consumable only in the block that loaded it, so both balances are dead at the
+next block start. Proxy recovery sweeps go to EEZL2's separate
+`RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
+and are not burned: they move ether already held at an undeployed proxy
+address and mint nothing. Together these rules are the node-side accounting the
+pinned core protocol requires for
+[L2 funding and inventory](../../eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md#l2-funding-and-inventory):
+each load's funding is minted for its own transaction, and unused or reverted
+inventory is never reused across blocks. The burn is not a post-transaction
+change: prefix block hashes derived from per-transaction state roots include it
+through the pre-transaction state.
 
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed

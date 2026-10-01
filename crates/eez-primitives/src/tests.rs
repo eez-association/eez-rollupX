@@ -98,7 +98,7 @@ fn native_wire_sender_hash_and_storage_round_trip() {
     let tx = system();
     let bytes = tx.encoded_2718();
     let expected =
-        alloy_primitives::hex!("76dd0180944200000000000000000000000000000000000007808401020304");
+        alloy_primitives::hex!("76dd0180944b2760f84b83d6b3829e30a7573b0172b6d6402c808401020304");
     assert_eq!(bytes, expected);
     assert_eq!(tx.tx_hash(), &alloy_primitives::keccak256(expected));
     assert_eq!(tx.recover_signer().unwrap(), SYSTEM_ADDRESS);

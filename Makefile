@@ -51,10 +51,10 @@ fmt:
 #
 # Runs the 4-step deploy sequence:
 #
-#   1. DeployEEZ                 → EEZ_REGISTRY_ADDRESS + deploy block
+#   1. DeployEEZ                 → EEZ_REGISTRY_ADDRESS (EEZProxy) + deploy block
 #   2. DeployECDSAProofSystem     → EEZ_ECDSA_PROOF_SYSTEM_ADDRESS
 #                                   (authorizedSigner derived from EEZ_PROOF_SIGNER_KEY)
-#   3. DeployRollup              → Rollup manager contract
+#   3. DeployRollup              → Rollup manager (transparent proxy)
 #   4. RegisterRollup            → EEZ_ROLLUP_ID = 1
 #
 # Outputs land in deployments.env (gitignored). eez-node loads it

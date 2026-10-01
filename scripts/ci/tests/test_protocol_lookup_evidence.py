@@ -409,6 +409,32 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(json.loads(result.stdout)["verified"])
 
+    def test_lookup_trace_accepts_only_the_registry_proxy_forwarding_frame(self):
+        def forward(f):
+            read = f["trace"]["calls"][0]["calls"][0]
+            read["calls"] = [{"type": "DELEGATECALL", "from": read["to"], "to": "0x" + "ab" * 20,
+                              "input": read["input"], "output": read["output"]}]
+            return read["calls"][0]
+
+        for scenario in ("revertCounter", "topLevelStaticCounter"):
+            with self.subTest(scenario=scenario, case="proxied"):
+                data = fixture(scenario)
+                forward(data)
+                result = self.run_fixture(scenario, data)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for case, mutate in {
+                "plain call": lambda c: c.update(type="CALL"),
+                "other input": lambda c: c.update(input="0xwrong"),
+                "failed": lambda c: c.update(error="execution reverted"),
+                "nested call": lambda c: c.update(calls=[copy.deepcopy(c)]),
+            }.items():
+                with self.subTest(scenario=scenario, case=case):
+                    data = fixture(scenario)
+                    mutate(forward(data))
+                    result = self.run_fixture(scenario, data)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(self.output.exists())
+
     def test_lookup_trace_rejects_wrong_or_ambiguous_execution(self):
         mutations = {
             "missing trace": lambda f: f.update(trace_unavailable=True),

@@ -3187,7 +3187,7 @@ mod outbound_wiring_tests {
     use eez_protocol::action::{CallHashInput, l2_outbound_call_hash};
     use eez_protocol::outbound_gate::{OutboundCallObservation, verify_outbound_authorized};
 
-    const EEZL2: Address = address!("4200000000000000000000000000000000000007");
+    const EEZL2: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
     const OTHER: Address = address!("00000000000000000000000000000000deadbeef");
     const L2_RID: u64 = 1;
 

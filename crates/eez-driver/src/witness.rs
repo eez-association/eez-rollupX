@@ -378,7 +378,7 @@ mod tests {
     use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
     use std::sync::Arc;
 
-    const MANAGER: Address = address!("4200000000000000000000000000000000000007");
+    const MANAGER: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
     const TARGET: Address = address!("0000000000000000000000000000000000001234");
 
     #[test]
@@ -497,6 +497,8 @@ mod tests {
         let mut genesis: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
         genesis["timestamp"] = serde_json::json!("0x3dc");
+        // A private L1: mainnet references require the 2-second, six-position schedule.
+        genesis["config"]["rollupX"]["l1Reference"]["chainId"] = serde_json::json!(1337);
         genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
         genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
         genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);

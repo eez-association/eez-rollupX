@@ -70,11 +70,14 @@ impl<E, S> DerefMut for EezBlockExecutor<'_, E, S> {
 
 /// Accounts whose ETH is dead by the start of every L2 block and is burned there.
 ///
-/// - `SYSTEM_ADDRESS` receives `EEZL2`'s outbound "burn" transfers and proxy
-///   pre-deployment sweeps, and anyone may transfer to it. It cannot spend:
-///   ordinary transactions from it are rejected and each native transaction
-///   spends only the value minted for it.
-/// - `EEZL2` holds value minted for its current execution table. A table is
+/// - `SYSTEM_ADDRESS` receives `EEZL2`'s outbound "burn" transfers, and anyone
+///   may transfer to it. It cannot spend: ordinary transactions from it are
+///   rejected and each native transaction spends only the value minted for it.
+///   Proxy pre-deployment sweeps are not burned: they move ether a user
+///   already sent to an undeployed proxy address (nothing is minted) to
+///   `EEZL2.RECOVERY_ADDRESS`, a separate genesis immutable.
+/// - `EEZL2` (its proxy address, which keeps the balance across implementation
+///   upgrades) holds value minted for its current execution table. A table is
 ///   consumable only in the block that loaded it (`lastLoadBlock`), so any
 ///   balance left at the next block start is unconsumed or reverted value.
 pub const BURNED_AT_BLOCK_START: [Address; 2] = [EEZL2_ADDRESS, SYSTEM_ADDRESS];

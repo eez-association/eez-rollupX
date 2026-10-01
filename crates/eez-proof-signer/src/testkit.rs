@@ -56,10 +56,13 @@ pub(crate) const LEGACY_USER_PRIVATE_KEY: B256 =
 
 /// Legacy Ethereum transaction from the public Anvil account #0, used to
 /// exercise ordinary signature recovery and historical block decoding.
-pub(crate) const LEGACY_USER_TX: &str = "f85f8001825208944200000000000000000000000000000000000007808026a0ed95c78ea14cbb6af669c61f27c5fb7fb0192101d4d706d055ab9ff9895c9f66a027c2e67303de8fa1cad36d0e59298a98df684e54295eb5f61ab99609c1738f73";
+/// Chain 1, nonce 0, gas price 1, gas 21000, to EEZL2, no value or input;
+/// reproduce with `cast mktx --legacy --private-key <LEGACY_USER_PRIVATE_KEY>
+/// --chain 1 --nonce 0 --gas-price 1 --gas-limit 21000 <EEZL2_ADDRESS>`.
+pub(crate) const LEGACY_USER_TX: &str = "f85f8001825208944b2760f84b83d6b3829e30a7573b0172b6d6402c808025a0e89cbbd24d25863a59a811d77b98a9c2ad4c9ea8712c5f04eeae1b12e1cf53e6a03477c662e64a29190132f5c647ee0e0f40e1589959cdac9951f1afab86652d04";
 
 /// Canonical native wire vector: chain 1, nonce 0, EEZL2, zero value and input.
-pub(crate) const SYSTEM_TX: &str = "76d901809442000000000000000000000000000000000000078080";
+pub(crate) const SYSTEM_TX: &str = "76d90180944b2760f84b83d6b3829e30a7573b0172b6d6402c8080";
 
 /// Canonical context for reconstructing system transactions in tests; tests
 /// that need a noncanonical variant mutate one field of a fresh copy.

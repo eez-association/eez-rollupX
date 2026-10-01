@@ -1629,6 +1629,10 @@ sol! {
         function registerRollup(address rollupContract, bytes32 initialRoot) external returns (uint64 rollupId);
         function executeCrossChainCall(address sourceAddress, bytes calldata callData) external payable returns (bytes memory result);
     }
+
+    interface IRollupInit {
+        function initialize(address initialOwner, uint256 initialThreshold, address[] proofSystems, bytes32[] vkeys) external;
+    }
 }
 
 pub const INVALID_PROOF_SELECTOR: [u8; 4] = IEEZ::InvalidProof::SELECTOR;
@@ -1766,11 +1770,20 @@ async fn deploy_contracts_with_initial(
 
     let out = repo_root().join("contracts/out");
 
-    let eez_address = deploy(
+    // EEZ sits behind an EEZProxy, as in DeployEEZ.s.sol. EEZ has no
+    // initializer; the proxy address is the registry.
+    let eez_implementation = deploy(
         &provider,
         signer_addr,
         &out.join("EEZ.sol/EEZ.json"),
         signer_addr.abi_encode(),
+    )
+    .await?;
+    let eez_address = deploy(
+        &provider,
+        signer_addr,
+        &out.join("EEZProxy.sol/EEZProxy.json"),
+        (eez_implementation, signer_addr).abi_encode_params(),
     )
     .await?;
     let deploy_block = provider.get_block_number().await?;
@@ -1785,22 +1798,36 @@ async fn deploy_contracts_with_initial(
     )
     .await?;
 
-    // Rollup(address eez, address owner, uint256 threshold,
-    //        address[] proofSystems, bytes32[] vkeys)
+    // Rollup is upgradeable, as in DeployRollup.s.sol: the implementation
+    // (constructor `Rollup(address eez)`) locks itself, and a transparent proxy
+    // runs `initialize(owner, threshold, proofSystems, vkeys)` at construction.
+    // The proxy is the rollup manager; the deployer also owns upgrades.
     let proof_systems: Vec<Address> = vec![proof_system_address];
     // vkey embeds the authorized signer address; the registry treats vkey as
-    // opaque but checks non-zero + membership (see DeployRollup.s.sol:60).
+    // opaque but checks non-zero + membership (see DeployRollup.s.sol).
     let vkeys: Vec<B256> = vec![attester.into_word()];
-    let rollup_manager_address = deploy(
+    let rollup_implementation = deploy(
         &provider,
         signer_addr,
         &out.join("Rollup.sol/Rollup.json"),
+        eez_address.abi_encode(),
+    )
+    .await?;
+    let initialize = IRollupInit::initializeCall {
+        initialOwner: signer_addr,
+        initialThreshold: U256::from(1u64),
+        proofSystems: proof_systems,
+        vkeys,
+    }
+    .abi_encode();
+    let rollup_manager_address = deploy(
+        &provider,
+        signer_addr,
+        &out.join("TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json"),
         (
-            eez_address,
+            rollup_implementation,
             signer_addr,
-            U256::from(1u64),
-            proof_systems,
-            vkeys,
+            alloy_primitives::Bytes::from(initialize),
         )
             .abi_encode_params(),
     )
@@ -3668,8 +3695,9 @@ fn require_artifact_method(
     Ok(())
 }
 
-/// Deploy EEZ + ECDSAProofSystem + Rollup on the embedded dev L1 and
-/// register the rollup. Contract addresses are deterministic.
+/// Deploy EEZ and the Rollup behind transparent proxies, plus the
+/// ECDSAProofSystem, on the embedded dev L1, then register the Rollup proxy.
+/// Contract addresses are deterministic.
 pub async fn deploy_protocol_dev(
     l1_rpc: &str,
     deployer_key: &str,
@@ -3682,10 +3710,15 @@ pub async fn deploy_protocol_dev(
     let out = repo_root().join("contracts/out");
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
     let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
-    let register_nonce = nonce.checked_add(3).context("fixture nonce overflow")?;
-    let eez_address = signer_addr.create(nonce);
-    let proof_system_address = signer_addr.create(nonce + 1);
-    let rollup_manager_address = signer_addr.create(nonce + 2);
+    let register_nonce = nonce.checked_add(5).context("fixture nonce overflow")?;
+    // EEZ and the Rollup sit behind transparent proxies, as in DeployEEZ.s.sol
+    // and DeployRollup.s.sol; the proxies are the registry and rollup manager.
+    // Each proxy creates its ProxyAdmin itself, using no deployer nonce.
+    let eez_implementation = signer_addr.create(nonce);
+    let eez_address = signer_addr.create(nonce + 1);
+    let proof_system_address = signer_addr.create(nonce + 2);
+    let rollup_implementation = signer_addr.create(nonce + 3);
+    let rollup_manager_address = signer_addr.create(nonce + 4);
 
     let vkeys: Vec<B256> = vec![B256::from_slice(&{
         let mut padded = [0u8; 32];
@@ -3694,9 +3727,25 @@ pub async fn deploy_protocol_dev(
     })];
     // CREATE addresses are known before mining. Queue dependent transactions
     // from one signer in nonce order, then verify every receipt. Waiting after
-    // each send would spend four L1 slots on identical setup in every test.
+    // each send would spend six L1 slots on identical setup in every test.
+    let initialize = IRollupInit::initializeCall {
+        initialOwner: signer_addr,
+        initialThreshold: U256::from(1u64),
+        proofSystems: vec![proof_system_address],
+        vkeys,
+    }
+    .abi_encode();
     let deployments = [
-        ("EEZ.sol/EEZ.json", signer_addr.abi_encode(), eez_address),
+        (
+            "EEZ.sol/EEZ.json",
+            signer_addr.abi_encode(),
+            eez_implementation,
+        ),
+        (
+            "EEZProxy.sol/EEZProxy.json",
+            (eez_implementation, signer_addr).abi_encode_params(),
+            eez_address,
+        ),
         (
             "ECDSAProofSystem.sol/ECDSAProofSystem.json",
             attester.abi_encode(),
@@ -3704,12 +3753,15 @@ pub async fn deploy_protocol_dev(
         ),
         (
             "Rollup.sol/Rollup.json",
+            eez_address.abi_encode(),
+            rollup_implementation,
+        ),
+        (
+            "TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json",
             (
-                eez_address,
+                rollup_implementation,
                 signer_addr,
-                U256::from(1u64),
-                vec![proof_system_address],
-                vkeys,
+                alloy_primitives::Bytes::from(initialize),
             )
                 .abi_encode_params(),
             rollup_manager_address,
@@ -4248,10 +4300,11 @@ impl CrossChainConfig {
         let attester_key = ANVIL_ATTESTER_KEY;
         let poster_key = ANVIL_KEY;
         let deployer = signer_of(deployer_key)?.address();
-        // These CREATE nonces must match `deploy_protocol_dev`.
-        let eez_address = deployer.create(0);
-        let proof_system_address = deployer.create(1);
-        let rollup_manager_address = deployer.create(2);
+        // These CREATE nonces must match `deploy_protocol_dev`: the EEZ and
+        // Rollup addresses are their proxies.
+        let eez_address = deployer.create(1);
+        let proof_system_address = deployer.create(2);
+        let rollup_manager_address = deployer.create(4);
         let ts = now_unix_secs();
         let l2_genesis = write_l2_genesis_at(ts)?;
         let l1_http_lease = PortLease::http_pair();
@@ -6179,8 +6232,11 @@ async fn setup_cross_chain_inner(
         cfg.initial_state,
     )
     .await?;
-    if dep.eez_address != cfg.eez_address {
-        bail!("EEZ address not deterministic");
+    if dep.eez_address != cfg.eez_address
+        || dep.proof_system_address != cfg.proof_system_address
+        || dep.rollup_manager_address != cfg.rollup_manager_address
+    {
+        bail!("protocol deployment addresses are not deterministic");
     }
     if dep.rollup_id != cfg.rollup_id {
         bail!(

@@ -922,6 +922,8 @@ mod tests {
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         genesis["timestamp"] = serde_json::json!("0x3dc"); // 988: parent 1 at 1000, child 2 at 1012.
         genesis["config"]["chainId"] = serde_json::json!(1);
+        // A private L1: mainnet references require the 2-second, six-position schedule.
+        genesis["config"]["rollupX"]["l1Reference"]["chainId"] = serde_json::json!(1337);
         genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
         genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
         genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);

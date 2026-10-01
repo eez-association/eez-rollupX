@@ -141,7 +141,7 @@ deadline=$((SECONDS + TIMEOUT))
 recovered=false
 while (( SECONDS < deadline )); do
     chain_id="$(cast chain-id --rpc-url "$L2_RPC" 2>/dev/null || true)"
-    if [[ "$chain_id" == "6290" ]] &&
+    if [[ "$chain_id" == "696990" ]] &&
         cast rpc eth_getBlockByHash "$target_hash" false --rpc-url "$L2_RPC" \
             >"$temp_dir/retrieved-after.json" 2>/dev/null &&
         [[ "$(jq -r '.hash // empty | ascii_downcase' "$temp_dir/retrieved-after.json")" == "$target_hash" ]]; then
@@ -233,7 +233,7 @@ done
 public_https_recovered=null
 if [[ -n "$PUBLIC_L2_RPC" ]]; then
     public_chain_id="$(cast chain-id --rpc-url "$PUBLIC_L2_RPC")"
-    [[ "$public_chain_id" == "6290" ]] || {
+    [[ "$public_chain_id" == "696990" ]] || {
         echo "public L2 RPC returned chain ID $public_chain_id after restart" >&2
         exit 1
     }

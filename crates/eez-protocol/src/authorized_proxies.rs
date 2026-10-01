@@ -11,9 +11,12 @@
 //!   `rollups` (2), and `verificationByRollup` (3).
 //! - **L2 `EEZL2.sol`** — slot [`EEZL2_AUTHORIZED_PROXIES_SLOT`] (0).
 //!   Source side for L2→L1 composition. The persistent L2 layout is:
-//!   `authorizedProxies` (0, from `EEZBase`), `entries` (1),
-//!   `staticEntries` (2), `lastLoadBlock` (3), `entryIndex` (4).
-//!   `ROLLUP_ID` and `SYSTEM_ADDRESS` are immutables (no storage slot).
+//!   `authorizedProxies` (0, from `EEZBase`), the reusable `entries`
+//!   (1) and `staticEntries` (2) mappings, `lastLoadBlock` (3),
+//!   `entryIndex` (4), `entriesLength` (5) and `staticEntriesLength` (6).
+//!   Only indices below the two lengths belong to the loaded table.
+//!   `ROLLUP_ID`, `SYSTEM_ADDRESS`, `USE_GAS_LEFT` and `RECOVERY_ADDRESS`
+//!   are immutables (no storage slot).
 //!
 //! The two constants are equal (both 0) but kept distinct to document
 //! intent at call sites and to leave room for re-divergence if upstream

@@ -43,6 +43,17 @@ EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
 PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
+POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
+# EEZ, the Rollup and the EEZL2 genesis predeploy sit behind transparent
+# proxies, as in the pinned protocol's deployment/Deploy.s.sol. Each proxy's
+# ProxyAdmin owner can replace its implementation; all default to the deployer.
+# The L2 owner is baked into genesis and upgrades with an L2 transaction.
+EEZ_UPGRADE_OWNER="${EEZ_UPGRADE_OWNER:-$OWNER}"
+EEZ_ROLLUP_UPGRADE_OWNER="${EEZ_ROLLUP_UPGRADE_OWNER:-$OWNER}"
+EEZ_L2_UPGRADE_OWNER="${EEZ_L2_UPGRADE_OWNER:-$OWNER}"
+# EEZL2 sweeps ether found at a proxy address during deployment to this L2
+# account. It is baked into the genesis predeploy; default to the L1 poster.
+EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
 EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
 if [[ "${AUTHORIZED_SIGNER,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]; then
     echo "deploy: proof attestation address must differ from the reserved native system address" >&2
@@ -51,8 +62,12 @@ fi
 
 echo "deploy: RPC                  = $EEZ_L1_RPC_URL"
 echo "deploy: deployer / owner     = $OWNER"
+echo "deploy: EEZ upgrade owner    = $EEZ_UPGRADE_OWNER"
+echo "deploy: Rollup upgrade owner = $EEZ_ROLLUP_UPGRADE_OWNER"
+echo "deploy: EEZL2 upgrade owner  = $EEZ_L2_UPGRADE_OWNER"
 echo "deploy: authorized signer    = $AUTHORIZED_SIGNER"
 echo "deploy: L2 system address    = $EEZ_L2_SYSTEM_ADDRESS"
+echo "deploy: L2 recovery address  = $EEZ_L2_RECOVERY_ADDRESS"
 echo
 
 CONTRACTS="$REPO/contracts"
@@ -130,16 +145,21 @@ GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.jso
 # Development networks select genesis.dev.json, which funds public test keys.
 GENESIS_BASE="${EEZ_GENESIS_BASE:-$REPO/genesis.json}"
 
-echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
+echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, recovery=$EEZ_L2_RECOVERY_ADDRESS)"
 "$REPO/scripts/update-eezl2-genesis.sh" --render \
     --rollup-id "$EXPECTED_ROLLUP_ID" \
     --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
+    --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
+    --upgrade-owner "$EEZ_L2_UPGRADE_OWNER" \
     --base "$GENESIS_BASE" \
     --output "$GENESIS_OUT" \
     --profile-output "$GENESIS_PROFILE_OUT"
 
 EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
 EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
+EEZL2_ADDRESS="$(jq -er '.eezL2Address' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_IMPLEMENTATION_ADDRESS="$(jq -er '.eezL2ImplementationAddress' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_PROXY_ADMIN="$(jq -er '.eezL2ProxyAdminAddress' "$GENESIS_PROFILE_OUT")"
 
 # One explicit new-network profile. The finalized L1 reference fixes the initial
 # seed and slot phase; it is not inferred from the later deployment receipt.
@@ -225,11 +245,14 @@ compute_genesis_block_hash "$GENESIS_OUT" >/dev/null
 # ── 1/4 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/4] DeployEEZ"
 run_forge "DeployEEZ" forge script script/DeployEEZ.s.sol:DeployEEZ \
-    --sig "run(address)" "$OWNER" $RPC $KEY --broadcast
+    --sig "run(address,address)" "$OWNER" "$EEZ_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_REGISTRY_ADDRESS="$(extract EEZ "$OUT")"
-[[ -n "$EEZ_REGISTRY_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture EEZ address" >&2; exit 1; }
+EEZ_REGISTRY_IMPLEMENTATION="$(extract EEZ_IMPLEMENTATION "$OUT")"
+EEZ_REGISTRY_PROXY_ADMIN="$(extract EEZ_PROXY_ADMIN "$OUT")"
+[[ -n "$EEZ_REGISTRY_ADDRESS" && -n "$EEZ_REGISTRY_IMPLEMENTATION" && -n "$EEZ_REGISTRY_PROXY_ADMIN" ]] \
+    || { echo "$OUT" >&2; echo "deploy: failed to capture EEZ proxy addresses" >&2; exit 1; }
 EEZ_REGISTRY_DEPLOY_BLOCK="$(cast block-number --rpc-url "$EEZ_L1_RPC_URL")"
-echo "      EEZ        = $EEZ_REGISTRY_ADDRESS"
+echo "      EEZ        = $EEZ_REGISTRY_ADDRESS (proxy; implementation $EEZ_REGISTRY_IMPLEMENTATION)"
 echo "      deployBlock= $EEZ_REGISTRY_DEPLOY_BLOCK"
 
 # ── 2/4 DeployECDSAProofSystem ───────────────────────────────────────
@@ -243,12 +266,15 @@ echo "      ECDSA_PS   = $EEZ_ECDSA_PROOF_SYSTEM_ADDRESS"
 # ── 3/4 DeployRollup ────────────────────────────────────────────────
 echo "[3/4] DeployRollup"
 run_forge "DeployRollup" forge script script/DeployRollup.s.sol:DeployRollup \
-    --sig "run(address,address,address,address)" \
+    --sig "run(address,address,address,address,address)" \
     "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER" "$OWNER" \
-    $RPC $KEY --broadcast
+    "$EEZ_ROLLUP_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_ROLLUP_MANAGER_ADDRESS="$(extract ROLLUP_CONTRACT "$OUT")"
-[[ -n "$EEZ_ROLLUP_MANAGER_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture ROLLUP_CONTRACT address" >&2; exit 1; }
-echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS"
+EEZ_ROLLUP_IMPLEMENTATION="$(extract ROLLUP_IMPLEMENTATION "$OUT")"
+EEZ_ROLLUP_PROXY_ADMIN="$(extract ROLLUP_PROXY_ADMIN "$OUT")"
+[[ -n "$EEZ_ROLLUP_MANAGER_ADDRESS" && -n "$EEZ_ROLLUP_IMPLEMENTATION" && -n "$EEZ_ROLLUP_PROXY_ADMIN" ]] \
+    || { echo "$OUT" >&2; echo "deploy: failed to capture Rollup proxy addresses" >&2; exit 1; }
+echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS (proxy; implementation $EEZ_ROLLUP_IMPLEMENTATION)"
 
 # ── Finalize deployment-bound L2 genesis ────────────────────────────
 # Confirm the registry is empty before registering the rendered rollup 1.
@@ -302,6 +328,12 @@ cat > "$OUT_FILE" <<EOF
 
 EEZ_REGISTRY_ADDRESS=$EEZ_REGISTRY_ADDRESS
 EEZ_REGISTRY_DEPLOY_BLOCK=$EEZ_REGISTRY_DEPLOY_BLOCK
+# Upgrade records (not read by the node): implementations and ProxyAdmins
+# behind the EEZ and Rollup proxy addresses above.
+EEZ_REGISTRY_IMPLEMENTATION=$EEZ_REGISTRY_IMPLEMENTATION
+EEZ_REGISTRY_PROXY_ADMIN=$EEZ_REGISTRY_PROXY_ADMIN
+EEZ_ROLLUP_IMPLEMENTATION=$EEZ_ROLLUP_IMPLEMENTATION
+EEZ_ROLLUP_PROXY_ADMIN=$EEZ_ROLLUP_PROXY_ADMIN
 EEZ_ECDSA_PROOF_SYSTEM_ADDRESS=$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS
 EEZ_PROOF_SYSTEM_KIND=real
 EEZ_PROOF_SYSTEM=$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS
@@ -314,10 +346,15 @@ EEZ_L2_GENESIS_STATE_ROOT=$EEZ_L2_GENESIS_STATE_ROOT
 EEZ_L2_GENESIS_PATH=$GENESIS_OUT
 EEZ_L2_GENESIS_PROFILE_PATH=$GENESIS_PROFILE_OUT
 
-# EEZL2 predeploy baked into genesis.json.
-EEZL2_ADDRESS=0x4200000000000000000000000000000000000007
+# EEZL2 proxy predeploy baked into genesis.json; integrations use this address.
+# The implementation and ProxyAdmin are upgrade records, not read by the node.
+EEZL2_ADDRESS=$EEZL2_ADDRESS
+EEZ_L2_IMPLEMENTATION_ADDRESS=$EEZ_L2_IMPLEMENTATION_ADDRESS
+EEZ_L2_PROXY_ADMIN=$EEZ_L2_PROXY_ADMIN
+EEZ_L2_UPGRADE_OWNER=$EEZ_L2_UPGRADE_OWNER
 # Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
+EEZ_L2_RECOVERY_ADDRESS=$EEZ_L2_RECOVERY_ADDRESS
 EEZ_L2_EEZL2_CODE_HASH=$EEZ_L2_EEZL2_CODE_HASH
 EOF
 

@@ -1,19 +1,19 @@
 {
-  "base": "637c445aff1a87d513309e243a4af1b678a49f48 plus the commit adding this capture (empty L1-origin tx_data)",
-  "protocol_gitlink": "160000 commit 9d13218a355e7d543ca8a9927eea2962600b716d\teez-core-protocol",
+  "base": "a01b34c7f532031eb14f0cabb59c95e85ee7264e (feat/protocol-main-8d45891) plus test-only eez-proof-signer vector edits",
+  "protocol_gitlink": "160000 commit 855fe0602484750861b4c31502a1a91355d33ed6\teez-core-protocol",
   "binaries_sha256": {
-    "target/debug/eez-composer": "19f58199d430ebf1ceabcbc4c2f8f244974fb0d06203c81d0f42badf15e9aedc",
-    "target/debug/eez-follower": "9071968e8beb997ee821e1177751ac734f5337d3b1e95ca1203901679ca3f940",
-    "target/debug/eez-proof-signer": "c686e1967128567adcaee9474f9463b3ed438f89a67483557b2ca6f67dc71e38"
+    "target/debug/eez-composer": "d7ff66734f330f2ee3cfe3419c8c791c2f7a65f91c39375e9a19c2de2922ffe6",
+    "target/debug/eez-follower": "c6b71200b02437cba97dc928aa5278ebf1b9f9dbca176d684cdfdd564fe01bf7",
+    "target/debug/eez-proof-signer": "186874170d96ccea9e71d27c806da7cfc5ef07418cceba772e49b43a68145e39"
   },
   "files_sha256": {
-    "chain-config.json": "eeba3447ba22ce726d1da5035ca8c6681989ebcb68a7728898299a3a088d64b6",
-    "cold-request.protobuf": "396e68b14c65feb6243231cced8210ad31bd0ec9ae47d22166942653dcee42c3",
-    "identity.json": "97ce3ae062ac91934790dda8ee4be8c590e567b5fd673e733ff702da54156f07",
-    "l1-genesis.json": "6083b9af690f6ee4d791650edcab63901fbace98c34de38b834dd78d855d0488",
-    "l2-genesis.json": "7cc46b6b8b7cc01fc0ccc1e387460234255a28f0b549f5e9f1584f32727649b2",
-    "request.protobuf": "2bf8baafd8dbf0ac73e5613eb34af27278488f200c70ea36378e0054af027a50",
-    "response.json": "62b36c495f401768e1fa34dd33f384fb7e0385073a63c57b18782e4dae0a99c8"
+    "chain-config.json": "7de2b206a2c6cb9d935f21712f3352c7f816612fb48ea747373142cb0fe7ea87",
+    "cold-request.protobuf": "e0349c8230cec57bfa3128088c5251bb670e3bff6fba64c5bbb974eb1476c01a",
+    "identity.json": "d776b4f66867c5e432bd1df5fb06193b74d290e48c5f4629576f45465e9580a3",
+    "l1-genesis.json": "e8d11b0e6a512145573cb8dd8d8e41caa250fa00dfc14963f7b8e118c6b9b70e",
+    "l2-genesis.json": "10b72a11c4e94374a6e20c0d159a5b2552849b96cfdf2101e2e31b587b7a378d",
+    "request.protobuf": "c9f9434f855ae45e25eb5a215cc2bace16b5bc963af238f87220da1d44e5f1c0",
+    "response.json": "f24805801e54e3747fa554e393495828e9a0a59ed36cf7b01e93f3a37054d544"
   },
-  "local_evidence": "local-only job directory (not retained): capture/lookup/ with the test log and all four exported requests"
+  "local_evidence": "local-only job directory (not retained): capture-proxy/lookup/ with the test log and all four exported requests"
 }

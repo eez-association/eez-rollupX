@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {EEZ} from "eez-core-protocol/src/EEZ.sol";
 import {EEZL2} from "eez-core-protocol/src/L2/EEZL2.sol";
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
 
@@ -20,7 +21,12 @@ contract DeploymentSmokeTest is Test {
     bytes32 private constant INITIAL_STATE_ROOT = keccak256("eez deployment smoke initial state");
 
     function testFreshProtocolDeployment() external {
-        EEZ eez = new EEZ(RECOVERY_ADDRESS);
+        EEZ eez = RollupDeployment.deployEEZ(RECOVERY_ADDRESS, OWNER);
+        assertNotEq(
+            address(uint160(uint256(vm.load(address(eez), RollupDeployment.IMPLEMENTATION_SLOT)))),
+            address(0),
+            "registry is a proxy"
+        );
         ECDSAProofSystem proofSystem = new ECDSAProofSystem(SIGNER);
         bytes32 vkey = bytes32(uint256(uint160(SIGNER)));
 
@@ -29,7 +35,7 @@ contract DeploymentSmokeTest is Test {
         bytes32[] memory vkeys = new bytes32[](1);
         vkeys[0] = vkey;
 
-        Rollup rollup = new Rollup(address(eez), OWNER, 1, proofSystems, vkeys);
+        Rollup rollup = RollupDeployment.deploy(address(eez), OWNER, 1, proofSystems, vkeys);
         vm.prank(OWNER);
         uint64 rollupId = eez.registerRollup(address(rollup), INITIAL_STATE_ROOT);
 
@@ -43,25 +49,26 @@ contract DeploymentSmokeTest is Test {
         assertEq(rollup.verificationKey(address(proofSystem)), vkey);
         assertEq(proofSystem.signer(), SIGNER);
 
-        // Rust reads this field directly, so verify its raw mapping slot too.
+        // Rust reads this field directly, so verify its raw mapping slot in
+        // the proxy's storage too.
         bytes32 rollupSlot = keccak256(abi.encode(uint256(rollupId), uint256(2)));
         bytes32 stateRootSlot = bytes32(uint256(rollupSlot) + 1);
         assertEq(vm.load(address(eez), stateRootSlot), INITIAL_STATE_ROOT);
 
-        EEZL2 eezL2 = new EEZL2(rollupId, SYSTEM_ADDRESS, false);
+        EEZL2 eezL2 = new EEZL2(rollupId, SYSTEM_ADDRESS, false, RECOVERY_ADDRESS);
         assertNotEq(eezL2.SYSTEM_ADDRESS(), address(0));
         assertEq(eezL2.ROLLUP_ID(), rollupId);
         assertEq(eezL2.SYSTEM_ADDRESS(), SYSTEM_ADDRESS);
-        assertEq(eezL2.RECOVERY_ADDRESS(), SYSTEM_ADDRESS);
+        assertEq(eezL2.RECOVERY_ADDRESS(), RECOVERY_ADDRESS);
         assertFalse(eezL2.USE_GAS_LEFT());
     }
 
     function testProxyInfoStorageMatchesRustLayout() external {
-        EEZ eez = new EEZ(RECOVERY_ADDRESS);
+        EEZ eez = RollupDeployment.deployEEZ(RECOVERY_ADDRESS, OWNER);
         address l1Proxy = eez.createCrossChainProxy(PROXY_ORIGINAL_ADDRESS, PROXY_ORIGINAL_ROLLUP_ID);
         _assertPackedProxyInfo(address(eez), l1Proxy);
 
-        EEZL2 eezL2 = new EEZL2(1, SYSTEM_ADDRESS, false);
+        EEZL2 eezL2 = new EEZL2(1, SYSTEM_ADDRESS, false, RECOVERY_ADDRESS);
         address l2Proxy = eezL2.createCrossChainProxy(PROXY_ORIGINAL_ADDRESS, PROXY_ORIGINAL_ROLLUP_ID);
         _assertPackedProxyInfo(address(eezL2), l2Proxy);
     }

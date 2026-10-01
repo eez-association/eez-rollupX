@@ -19,10 +19,10 @@
     "blockIntervalSeconds": 1,
     "l1Reference": {
       "chainId": 1337,
-      "hash": "0x2d170b61a84da2f29c9f0b2735bfcfabb0e50d69928cee80e05f4c5979c64441",
+      "hash": "0x852fbab2c3a19ac4b243fda711b6b370a21bb70a681fa321c600b6a3d09c591a",
       "number": 0,
       "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "timestamp": 1790768814
+      "timestamp": 1790852139
     },
     "syncIntervalBlocks": 5
   },

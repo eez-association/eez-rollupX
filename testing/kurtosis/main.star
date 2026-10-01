@@ -18,7 +18,7 @@ L2_XCHAIN_PORT = 18998
 BUILDER_FLASHBOTS_RPC_PORT = 8645
 PROOF_SIGNER_GRPC_PORT = 50061
 UI_HTTP_PORT = 8080
-L2_CHAIN_ID = "6290"
+L2_CHAIN_ID = "696990"
 
 
 def settlement_environment(values):
@@ -256,7 +256,7 @@ def run(plan, args):
         "EEZ_L2_XCHAIN_PORT": str(L2_XCHAIN_PORT),
         "EEZ_L2_AUTH_PORT": str(L2_ENGINE_PORT),
         "EEZ_L2_P2P_PORT": str(L2_P2P_PORT),
-        "EEZL2_ADDRESS": "0x4200000000000000000000000000000000000007",
+        "EEZL2_ADDRESS": "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c",
         "RUST_LOG": eez.get("node_rust_log", "info"),
     }
     eez_env.update(settlement_environment(eez.get("settlement_env", {})))

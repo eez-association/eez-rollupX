@@ -36,8 +36,13 @@ pub const fn system_tx_gas_limit(block_gas_limit: u64, cumulative_gas_used: u64)
 }
 /// Codeless EEZ privilege domain, distinct from Ethereum's block-level system caller.
 pub const SYSTEM_ADDRESS: Address = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076");
-/// The L2 execution manager is a protocol predeploy.
-pub const EEZL2_ADDRESS: Address = address!("4200000000000000000000000000000000000007");
+/// The L2 execution manager: an upgradeable `EEZProxy` genesis predeploy whose
+/// address, storage and balance stay fixed across implementation upgrades.
+pub const EEZL2_ADDRESS: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
+/// The genesis implementation behind [`EEZL2_ADDRESS`]. Consumers use the proxy;
+/// an upgrade replaces the implementation without changing the manager address.
+pub const EEZL2_GENESIS_IMPLEMENTATION_ADDRESS: Address =
+    address!("4C3D971b1079E58843D0E1af155A2e54b9E54dbA");
 
 /// Canonical wire body: chain ID, nonce, destination, value, calldata.
 /// Signatures and an arbitrary sender are deliberately absent. Authorization is
