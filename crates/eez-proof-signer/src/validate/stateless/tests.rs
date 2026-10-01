@@ -509,8 +509,8 @@ fn validates_the_golden_block_through_stateless() {
     let output = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
         .validate(&[fixture_input()])
         .unwrap();
-    let pre_root = b256!("a61be4c56605eaa9a68f17b57f019afc8897dde04f3a7f10c840f31d4d19e649");
-    let post_root = b256!("ae1a8e07e0113403ce9baea14e92bf29047c0de74db530aea7dd640720e6a977");
+    let pre_root = b256!("345cfb3dfd143f8484075eccccd3e14c3adaa3da42adfcda081328be75a7b178");
+    let post_root = b256!("c03f7e9458ad5d7523f21bd518ad68730effb14c1323ac0264a1bcd817819ce2");
     assert_ne!(
         pre_root, post_root,
         "an empty block still writes its parent's hash via EIP-2935"
@@ -520,7 +520,7 @@ fn validates_the_golden_block_through_stateless() {
     let block = &output.blocks[0];
     assert_eq!(
         block.computed_hash,
-        b256!("f9a2d05681fc869691c20806f30c0020825cec4d466d233dc32bce9c1a3ee2bb")
+        b256!("d5fdf6983f57dddaff35f2004d7965813b7bff1a4da48e47734fda8042acb858")
     );
     assert_eq!(block.post_state_root, post_root);
     assert!(block.receipt_successes.is_empty());
@@ -755,12 +755,20 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
         calldata,
     );
 
+    // The caller is the source's CREATE2 proxy under EEZL2. This source is
+    // chosen so that the proxy's account path reaches a blinded node in the
+    // captured witness; a path whose absence the witness proves is a legitimate
+    // read, so the constant depends on the fixture and the EEZL2 address.
     let mut missing_account = claim.clone();
-    missing_account.source_address = Address::repeat_byte(0x77);
+    missing_account.source_address = Address::repeat_byte(0x78);
     let error = backend
         .verify_observations(&window, &[missing_account])
         .unwrap_err();
-    assert!(matches!(error, ObservationValidationError::Replay(_)));
+    assert!(
+        matches!(&error, ObservationValidationError::Replay(reason)
+            if reason.contains("incomplete account witness")),
+        "{error:?}"
+    );
 
     window.settling_block.replay_input.witness.codes.clear();
     let error = backend.verify_observations(&window, &[claim]).unwrap_err();

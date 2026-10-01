@@ -4,7 +4,7 @@ use super::*;
 fn derives_system_flags_and_effect_candidates_from_exact_block_rlp() {
     let rlp = block_rlp(vec![
         transaction(SYSTEM_TX),
-        transaction(USER_INBOUND_SELECTOR_TX),
+        user_inbound_selector_transaction(),
         transaction(SYSTEM_TX),
         transaction(SYSTEM_TX),
     ]);
@@ -19,8 +19,8 @@ fn derives_system_flags_and_effect_candidates_from_exact_block_rlp() {
 fn validated_settling_block_uses_backend_recovered_sender_facts() {
     let rlp = block_rlp(vec![
         transaction(SYSTEM_TX),
-        transaction(USER_INBOUND_SELECTOR_TX),
-        transaction(USER_INBOUND_SELECTOR_TX),
+        user_inbound_selector_transaction(),
+        user_inbound_selector_transaction(),
     ]);
     let observation = OutboundEventObservation::decoded_for_test(2, 1, B256::repeat_byte(0x44), 0);
     let block = ValidatedBlock::for_test(
@@ -142,7 +142,7 @@ fn statuses_must_cover_exactly_every_transaction() {
 fn reverted_system_transactions_are_rejected_but_user_reverts_are_allowed() {
     let rlp = block_rlp(vec![
         transaction(SYSTEM_TX),
-        transaction(USER_INBOUND_SELECTOR_TX),
+        user_inbound_selector_transaction(),
     ]);
 
     assert_eq!(
@@ -474,7 +474,7 @@ fn intermediate_native_transactions_are_rejected() {
 fn validated_intermediate_blocks_use_backend_recovered_sender_facts() {
     let block = validated_block(
         41,
-        block_rlp(vec![transaction(USER_INBOUND_SELECTOR_TX)]),
+        block_rlp(vec![user_inbound_selector_transaction()]),
         vec![true],
     );
 
@@ -491,7 +491,7 @@ fn validated_intermediate_blocks_use_backend_recovered_sender_facts() {
 fn validated_intermediate_blocks_reject_unbound_sender_fact_count() {
     let block = validated_block(
         41,
-        block_rlp(vec![transaction(USER_INBOUND_SELECTOR_TX)]),
+        block_rlp(vec![user_inbound_selector_transaction()]),
         Vec::new(),
     );
 
@@ -509,7 +509,7 @@ fn validated_intermediate_blocks_reject_unbound_sender_fact_count() {
 fn validated_intermediate_blocks_reject_outbound_events() {
     let block = ValidatedBlock::for_test(
         41,
-        block_rlp(vec![transaction(USER_INBOUND_SELECTOR_TX)]),
+        block_rlp(vec![user_inbound_selector_transaction()]),
         SettlementBlockEvidence::for_test(
             vec![false],
             vec![OutboundEventObservation::decoded_for_test(

@@ -1,9 +1,9 @@
 {
   "number": 2,
-  "hash": "0xf9a2d05681fc869691c20806f30c0020825cec4d466d233dc32bce9c1a3ee2bb",
-  "parent_hash": "0x47fcbbaf6bfa403bf50ba4b1a5722859c22170ae08cbdba52a53e837c8a72cd6",
-  "pre_state_root": "0xa61be4c56605eaa9a68f17b57f019afc8897dde04f3a7f10c840f31d4d19e649",
-  "post_state_root": "0xae1a8e07e0113403ce9baea14e92bf29047c0de74db530aea7dd640720e6a977",
+  "hash": "0xd5fdf6983f57dddaff35f2004d7965813b7bff1a4da48e47734fda8042acb858",
+  "parent_hash": "0xdba69b849beec2028b5af0599bb3e49b8048c070cc987c9145208fcf33d9e920",
+  "pre_state_root": "0x345cfb3dfd143f8484075eccccd3e14c3adaa3da42adfcda081328be75a7b178",
+  "post_state_root": "0xc03f7e9458ad5d7523f21bd518ad68730effb14c1323ac0264a1bcd817819ce2",
   "base_fee": 960571021,
   "parent_base_fee": 980000000,
   "parent_gas_used": 130883,
@@ -12,12 +12,12 @@
     3,
     4
   ],
-  "source_capture": "protocol-balance-burn/empty",
+  "source_capture": "upgradeable-eezl2-proxy/empty",
   "sha256": {
-    "block.rlp": "8d1e24c7c5a4f5cb792d38cc36a2fdc7825e51b1389e8ad560aa822d52c48b14",
-    "blocks.protobuf": "05c1b0773ab29835ecb9189c2219054fc77d00a7c6c505115e7c5ab826edbc8e",
-    "chain-config.json": "0c0de5b7fa2bd4436d45b182556b8076add8085ef270928c9206a6429f4ed95c",
-    "l2-genesis.json": "697b47ac1c375c96711fe3173b08152338e132f1f6009465765c52dece51f3e9",
-    "witness.json": "bf6c969de859d3c7ae6d5decc398a4f9e890f54984cf0647f21248a580b89feb"
+    "block.rlp": "e63b2a0a92df185cb5d9a4482d254b9681c4e4aa0eac0b17a876a834fddfb7d5",
+    "blocks.protobuf": "d17f720b56872dadab72f80b83639e473b42d87e6765409583a42d8742551909",
+    "chain-config.json": "db40866905240524cb4ff545668d6c9a3f9563b0548adde3a8c49737774ec4d6",
+    "l2-genesis.json": "0152aafda192023e4a7c92e3c6abfa4ab9d63755121441ac896af7b8faedc946",
+    "witness.json": "b9effa5b5818d08c16cf622b735a7e229c9ec64e749c41dfd7c80a593222d8dc"
   }
 }

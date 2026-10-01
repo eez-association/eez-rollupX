@@ -1,19 +1,19 @@
 {
-  "base": "1d3ee4530205c259a54b288fd940e7b65436177d",
-  "protocol_gitlink": "160000 commit 9d13218a355e7d543ca8a9927eea2962600b716d\teez-core-protocol",
+  "base": "a01b34c7f532031eb14f0cabb59c95e85ee7264e (feat/protocol-main-8d45891) plus test-only eez-proof-signer vector edits",
+  "protocol_gitlink": "160000 commit 855fe0602484750861b4c31502a1a91355d33ed6\teez-core-protocol",
   "binaries_sha256": {
-    "target/debug/eez-composer": "ddb483f38efc8c7db1935cb55ee3b55207f5ebcc00e2ac93252e0890223c83f2",
-    "target/debug/eez-follower": "3ede2a67d929b74b33a86eff9818f555bcd7654dce0f9443e57eac70373b23e3",
-    "target/debug/eez-proof-signer": "574674e33b6d8e86549ac324b89e5cb6efa2088e56a90844cb198b11301643f2"
+    "target/debug/eez-composer": "d7ff66734f330f2ee3cfe3419c8c791c2f7a65f91c39375e9a19c2de2922ffe6",
+    "target/debug/eez-follower": "c6b71200b02437cba97dc928aa5278ebf1b9f9dbca176d684cdfdd564fe01bf7",
+    "target/debug/eez-proof-signer": "186874170d96ccea9e71d27c806da7cfc5ef07418cceba772e49b43a68145e39"
   },
   "files_sha256": {
-    "chain-config.json": "f3c71d3b78123ba1fbfc932c2f930500fecfc2c3f071383b46b9c6aa4594f430",
-    "cold-request.protobuf": "e79fff863f0243ddcc11025a1dd0294b4722d02371b3d4403428d5a28f00c950",
-    "identity.json": "97ce3ae062ac91934790dda8ee4be8c590e567b5fd673e733ff702da54156f07",
-    "l1-genesis.json": "57ba5abef051048d73b6152247aaacb1d1ba0458ce6d8447ca2fd3c39b8ba515",
-    "l2-genesis.json": "930c74876a98fdef1d35ef3d5ad9aeec284d8ec8f24b83f0525f26a355d97776",
-    "request.protobuf": "e03d34a89b768c20516e4cffac0e6cad68a6d26c48aa8fd0e682753fe2c969a6",
-    "response.json": "0f81707119b7035b9aa0cee44442e4496b69faf38c93f1f3ab3cfece6cb1af61"
+    "chain-config.json": "64efc0c72b35298419d48e14d596fadcfcb1f18cec62c86c7be2b62434b7f9e7",
+    "cold-request.protobuf": "7d9217a1778c91c283e9a1166447251be9fc22923c97c2e74018c70b1fa970f2",
+    "identity.json": "d776b4f66867c5e432bd1df5fb06193b74d290e48c5f4629576f45465e9580a3",
+    "l1-genesis.json": "d602512a197f9b8aa669278246ea99e6b7e7f3cda11ab3644e173652a5550b4a",
+    "l2-genesis.json": "e7a2c74b31ea2ede9605adcd7663b50a49b8f006be2cc67dfc3c295aad3a4802",
+    "request.protobuf": "5eaddc5cdc8f7514d806fc3209ec5ff76956d84e3739cac67694417dcb7f1852",
+    "response.json": "1a18f3098cf7174b60bd87d9d3174ae79490a76a36df3f8b76fa8dd512b37f32"
   },
-  "local_evidence": "artifacts/protocol-balance-burn/capture/changing-static"
+  "local_evidence": "local-only job directory (not retained): capture-proxy/changing-static/"
 }
