@@ -196,7 +196,20 @@ The deploy image bundles two base genesis files:
   accounts used by the staged workloads. `.env.chiado.example` selects it with
   `EEZ_GENESIS_BASE=/repo/genesis.dev.json` for the Chiado test network.
 
-To inspect the selected base's allocations:
+Deployment reads the copy bundled in the deploy image, not the checkout's files.
+To inspect the selected base's allocations, copy it to `datadir/base-genesis.json`.
+If you [built the deploy image](#local-source-development) from this checkout,
+the bundled files are the checkout's, so copy them directly:
+
+```bash
+mkdir -p datadir
+cp genesis.json datadir/base-genesis.json   # or genesis.dev.json for a test network
+chmod 644 datadir/base-genesis.json
+```
+
+With a published image, the checkout can differ from the image, so read the file
+from the image itself (use `--pull never` for a locally built tag). The image path
+must be `/repo/genesis.json` or `/repo/genesis.dev.json`, not a host path:
 
 ```bash
 source .env

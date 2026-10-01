@@ -59,7 +59,7 @@ in genesis or immutables cannot be changed without a new deployment.
 | EEZL2 recovery address (`EEZ_L2_RECOVERY_ADDRESS`) | Poster | Immutable in genesis. |
 | Proof attester (`EEZ_PROOF_SIGNER_KEY`) | — | A single ECDSA attester with threshold 1 authorizes every settlement. Generate a fresh key: public inputs do not bind chain ID or registry ([CAVEATS](../../eez-core-protocol/docs/CAVEATS.md)), so never reuse a testnet attester. |
 | L2 chain ID | 696990 (base `genesis.json`) | Not a deploy input; changing it requires an edited `EEZ_GENESIS_BASE`. |
-| Genesis base | `/repo/genesis.json` (no ETH allocations) | Never use `genesis.dev.json` on mainnet: it funds public development keys. |
+| Genesis base | `/repo/genesis.json` (no ETH allocations) | Never use `genesis.dev.json` on mainnet: it funds public development keys. To review or customize it, follow [genesis allocations](chiado-deployment.md#genesis-allocations); with a deploy image built from this checkout, copy `genesis.json` directly. |
 | Settlement fees and builder | — | Choose fee ceilings, priority band and an `eth_sendBundle` builder for mainnet; Chiado and Kurtosis values are not mainnet defaults ([settlement policy](../configurable-settlement-policy.md)). A single builder limits inclusion to blocks it wins. |
 
 ## Keys, funding and files
