@@ -30,7 +30,7 @@ use revm::{
     Database, Inspector,
     context::Journal,
     context_interface::{Cfg as _, ContextTr},
-    interpreter::{CallInputs, CallOutcome},
+    interpreter::{CallInputs, CallOutcome, CallScheme},
 };
 use tracing::{Level, event};
 
@@ -759,7 +759,12 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         let data = inputs.input.as_bytes(context);
-        let recognized = inputs.target_address == self.registry
+        // The registry is a transparent proxy: its DELEGATECALL into the
+        // implementation repeats the target (storage context), caller and
+        // calldata of the CALL that entered it. Only the entering frame is
+        // the cross-chain call, so recording both would count it twice.
+        let recognized = matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall)
+            && inputs.target_address == self.registry
             && (data.starts_with(&executeCrossChainCallCall::SELECTOR)
                 || data.starts_with(&eez_protocol::abi::staticCrossChainCallCall::SELECTOR));
         self.frames.push(recognized.then(|| {

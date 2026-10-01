@@ -14,21 +14,25 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 ///
 ///         `Rollup` is upgradeable: its implementation locks itself, so
 ///         operational state lives in a transparent proxy initialized
-///         atomically at construction (the protocol's deployment pattern).
-///         The rollup owner also owns upgrades through the proxy's
-///         ProxyAdmin; register and use the proxy address.
+///         atomically at construction, as in the pinned protocol's
+///         `deployment/Deploy.s.sol`. `upgradeOwner` owns the proxy's
+///         ProxyAdmin and may differ from the operational `owner`; register
+///         and use the proxy address.
 ///
 ///         Outputs: ROLLUP_CONTRACT=<proxy address>,
 ///                  ROLLUP_IMPLEMENTATION=<address>, ROLLUP_PROXY_ADMIN=<address>
 ///
 ///         Call shape:
 ///           forge script ... DeployRollup
-///             --sig "run(address,address,address,address)"
-///                   $EEZ $ECDSA_PS $AUTHORIZED_SIGNER $OWNER
+///             --sig "run(address,address,address,address,address)"
+///                   $EEZ $ECDSA_PS $AUTHORIZED_SIGNER $OWNER $UPGRADE_OWNER
 ///             --rpc-url $L1_RPC --broadcast --private-key $PK
 ///
 ///         Args:
-///           - eez                — central registry address (from DeployEEZ).
+///           - eez                — central registry **proxy** address
+///                                  (from DeployEEZ). The Rollup binds it
+///                                  immutably, so never pass the
+///                                  implementation.
 ///           - proofSystem        — workspace-local proof-system address
 ///                                  (from DeployECDSAProofSystem).
 ///           - authorizedSigner   — the same value passed to
@@ -46,6 +50,7 @@ import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transpa
 ///                                  owner — `msg.sender` inside a Foundry
 ///                                  `run()` is the script-runner default,
 ///                                  not the broadcaster.
+///           - upgradeOwner       — owner of the Rollup proxy's ProxyAdmin.
 contract DeployRollup is Script {
     error InvalidProofSystem();
 
@@ -53,9 +58,12 @@ contract DeployRollup is Script {
         address eez,
         address proofSystem,
         address authorizedSigner,
-        address owner
+        address owner,
+        address upgradeOwner
     ) external {
         if (proofSystem == address(0)) revert InvalidProofSystem();
+        require(eez.code.length != 0, "EEZ has no code");
+        require(owner != address(0) && upgradeOwner != address(0), "Zero address");
 
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = proofSystem;
@@ -73,9 +81,9 @@ contract DeployRollup is Script {
         vm.startBroadcast();
         Rollup implementation = new Rollup(eez);
         bytes memory init = abi.encodeCall(Rollup.initialize, (owner, /* threshold */ 1, proofSystems, vkeys));
-        Rollup rollup = Rollup(address(new TransparentUpgradeableProxy(address(implementation), owner, init)));
+        Rollup rollup = Rollup(address(new TransparentUpgradeableProxy(address(implementation), upgradeOwner, init)));
         vm.stopBroadcast();
-        // ERC-1967 admin slot: the ProxyAdmin contract the proxy created for `owner`.
+        // ERC-1967 admin slot: the ProxyAdmin contract the proxy created for `upgradeOwner`.
         address proxyAdmin = address(
             uint160(uint256(vm.load(address(rollup), 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103)))
         );

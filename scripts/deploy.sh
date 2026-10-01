@@ -44,6 +44,11 @@ AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
 PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
 POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
+# EEZ and the Rollup are deployed behind transparent proxies, as in the pinned
+# protocol's deployment/Deploy.s.sol. Each proxy's ProxyAdmin owner can replace
+# its implementation; both default to the deployer.
+EEZ_UPGRADE_OWNER="${EEZ_UPGRADE_OWNER:-$OWNER}"
+EEZ_ROLLUP_UPGRADE_OWNER="${EEZ_ROLLUP_UPGRADE_OWNER:-$OWNER}"
 # EEZL2 sweeps ether found at a proxy address during deployment to this L2
 # account. It is baked into the genesis predeploy; default to the L1 poster.
 EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
@@ -55,6 +60,8 @@ fi
 
 echo "deploy: RPC                  = $EEZ_L1_RPC_URL"
 echo "deploy: deployer / owner     = $OWNER"
+echo "deploy: EEZ upgrade owner    = $EEZ_UPGRADE_OWNER"
+echo "deploy: Rollup upgrade owner = $EEZ_ROLLUP_UPGRADE_OWNER"
 echo "deploy: authorized signer    = $AUTHORIZED_SIGNER"
 echo "deploy: L2 system address    = $EEZ_L2_SYSTEM_ADDRESS"
 echo "deploy: L2 recovery address  = $EEZ_L2_RECOVERY_ADDRESS"
@@ -231,11 +238,14 @@ compute_genesis_block_hash "$GENESIS_OUT" >/dev/null
 # ── 1/4 DeployEEZ ────────────────────────────────────────────────────
 echo "[1/4] DeployEEZ"
 run_forge "DeployEEZ" forge script script/DeployEEZ.s.sol:DeployEEZ \
-    --sig "run(address)" "$OWNER" $RPC $KEY --broadcast
+    --sig "run(address,address)" "$OWNER" "$EEZ_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_REGISTRY_ADDRESS="$(extract EEZ "$OUT")"
-[[ -n "$EEZ_REGISTRY_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture EEZ address" >&2; exit 1; }
+EEZ_REGISTRY_IMPLEMENTATION="$(extract EEZ_IMPLEMENTATION "$OUT")"
+EEZ_REGISTRY_PROXY_ADMIN="$(extract EEZ_PROXY_ADMIN "$OUT")"
+[[ -n "$EEZ_REGISTRY_ADDRESS" && -n "$EEZ_REGISTRY_IMPLEMENTATION" && -n "$EEZ_REGISTRY_PROXY_ADMIN" ]] \
+    || { echo "$OUT" >&2; echo "deploy: failed to capture EEZ proxy addresses" >&2; exit 1; }
 EEZ_REGISTRY_DEPLOY_BLOCK="$(cast block-number --rpc-url "$EEZ_L1_RPC_URL")"
-echo "      EEZ        = $EEZ_REGISTRY_ADDRESS"
+echo "      EEZ        = $EEZ_REGISTRY_ADDRESS (proxy; implementation $EEZ_REGISTRY_IMPLEMENTATION)"
 echo "      deployBlock= $EEZ_REGISTRY_DEPLOY_BLOCK"
 
 # ── 2/4 DeployECDSAProofSystem ───────────────────────────────────────
@@ -249,12 +259,15 @@ echo "      ECDSA_PS   = $EEZ_ECDSA_PROOF_SYSTEM_ADDRESS"
 # ── 3/4 DeployRollup ────────────────────────────────────────────────
 echo "[3/4] DeployRollup"
 run_forge "DeployRollup" forge script script/DeployRollup.s.sol:DeployRollup \
-    --sig "run(address,address,address,address)" \
+    --sig "run(address,address,address,address,address)" \
     "$EEZ_REGISTRY_ADDRESS" "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" "$AUTHORIZED_SIGNER" "$OWNER" \
-    $RPC $KEY --broadcast
+    "$EEZ_ROLLUP_UPGRADE_OWNER" $RPC $KEY --broadcast
 EEZ_ROLLUP_MANAGER_ADDRESS="$(extract ROLLUP_CONTRACT "$OUT")"
-[[ -n "$EEZ_ROLLUP_MANAGER_ADDRESS" ]] || { echo "$OUT" >&2; echo "deploy: failed to capture ROLLUP_CONTRACT address" >&2; exit 1; }
-echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS"
+EEZ_ROLLUP_IMPLEMENTATION="$(extract ROLLUP_IMPLEMENTATION "$OUT")"
+EEZ_ROLLUP_PROXY_ADMIN="$(extract ROLLUP_PROXY_ADMIN "$OUT")"
+[[ -n "$EEZ_ROLLUP_MANAGER_ADDRESS" && -n "$EEZ_ROLLUP_IMPLEMENTATION" && -n "$EEZ_ROLLUP_PROXY_ADMIN" ]] \
+    || { echo "$OUT" >&2; echo "deploy: failed to capture Rollup proxy addresses" >&2; exit 1; }
+echo "      rollupMgr  = $EEZ_ROLLUP_MANAGER_ADDRESS (proxy; implementation $EEZ_ROLLUP_IMPLEMENTATION)"
 
 # ── Finalize deployment-bound L2 genesis ────────────────────────────
 # Confirm the registry is empty before registering the rendered rollup 1.
@@ -308,6 +321,12 @@ cat > "$OUT_FILE" <<EOF
 
 EEZ_REGISTRY_ADDRESS=$EEZ_REGISTRY_ADDRESS
 EEZ_REGISTRY_DEPLOY_BLOCK=$EEZ_REGISTRY_DEPLOY_BLOCK
+# Upgrade records (not read by the node): implementations and ProxyAdmins
+# behind the EEZ and Rollup proxy addresses above.
+EEZ_REGISTRY_IMPLEMENTATION=$EEZ_REGISTRY_IMPLEMENTATION
+EEZ_REGISTRY_PROXY_ADMIN=$EEZ_REGISTRY_PROXY_ADMIN
+EEZ_ROLLUP_IMPLEMENTATION=$EEZ_ROLLUP_IMPLEMENTATION
+EEZ_ROLLUP_PROXY_ADMIN=$EEZ_ROLLUP_PROXY_ADMIN
 EEZ_ECDSA_PROOF_SYSTEM_ADDRESS=$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS
 EEZ_PROOF_SYSTEM_KIND=real
 EEZ_PROOF_SYSTEM=$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS

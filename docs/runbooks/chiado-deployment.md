@@ -88,7 +88,12 @@ HTTPS, explorers, and UI routing are separate; see the
 | `EEZ_PROOF_SIGNER_KEY` | Batch attestation; registered in proof system | No transaction funding needed for attestation |
 
 Generate dedicated keys with your wallet tooling. Keep the poster separate from
-the proof signer. Native L2 system transactions use the reserved `0x76` sender;
+the proof signer. The L1 registry and Rollup are deployed behind transparent
+proxies, as in the pinned protocol's
+[deployment procedure](../../eez-core-protocol/deployment/README.md). Their
+ProxyAdmin owners, `EEZ_UPGRADE_OWNER` and `EEZ_ROLLUP_UPGRADE_OWNER`, default to
+the deployer and can replace the implementations; set them to dedicated
+accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x76` sender;
 they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
@@ -230,7 +235,9 @@ openssl rand -hex 32 > data/jwt.hex
 ### 3. Deploy — broadcasts transactions
 
 This spends gas and creates a fresh registry, proof system, manager and rollup
-**1**, even if `deployments.env` already exists. It is not a restart
+**1**, even if `deployments.env` already exists. The registry and manager are
+proxies; `deployments.env` also records their implementations and ProxyAdmins.
+Use only the proxy addresses in configuration and integrations. It is not a restart
 command. Before broadcasting, the deploy image reads a finalized L1 reference,
 copies its timestamp and RANDAO into genesis, and records its exact chain/block
 identity under `config.rollupX`. Chiado requires 1-second L2 blocks and five
@@ -646,7 +653,7 @@ the [audit template](../audits/TEMPLATE.md), linked to this runbook:
 | Record | Required contents |
 | --- | --- |
 | Source/runtime | UTC date, operator, host/checkout reference, fork commit and dirty patch identity, protocol pin, CI run URL, node/signer/deploy references, resolved digests and local IDs, Lighthouse tag/resolved digest, tool versions |
-| Chain identity | L1/L2 chain IDs, registry/rollup/manager, proof system and attester, system/bridge addresses, deploy block, transaction receipts |
+| Chain identity | L1/L2 chain IDs, registry/rollup/manager proxies with their implementations, ProxyAdmins and upgrade owners, proof system and attester, system/bridge addresses, deploy block, transaction receipts |
 | State/files | Genesis/profile SHA-256 digests, initial block hash and state root; retained locations of bindings, data, JWT, and backups |
 | Credentials | Private secret-manager/access references; never commit keys or authenticated URLs |
 | Configuration | Timing, settlement/fee/blob policy, endpoint ownership, checkpoint/archival dependencies, and retention limits |

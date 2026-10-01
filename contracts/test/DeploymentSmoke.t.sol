@@ -21,7 +21,12 @@ contract DeploymentSmokeTest is Test {
     bytes32 private constant INITIAL_STATE_ROOT = keccak256("eez deployment smoke initial state");
 
     function testFreshProtocolDeployment() external {
-        EEZ eez = new EEZ(RECOVERY_ADDRESS);
+        EEZ eez = RollupDeployment.deployEEZ(RECOVERY_ADDRESS, OWNER);
+        assertNotEq(
+            address(uint160(uint256(vm.load(address(eez), RollupDeployment.IMPLEMENTATION_SLOT)))),
+            address(0),
+            "registry is a proxy"
+        );
         ECDSAProofSystem proofSystem = new ECDSAProofSystem(SIGNER);
         bytes32 vkey = bytes32(uint256(uint160(SIGNER)));
 
@@ -44,7 +49,8 @@ contract DeploymentSmokeTest is Test {
         assertEq(rollup.verificationKey(address(proofSystem)), vkey);
         assertEq(proofSystem.signer(), SIGNER);
 
-        // Rust reads this field directly, so verify its raw mapping slot too.
+        // Rust reads this field directly, so verify its raw mapping slot in
+        // the proxy's storage too.
         bytes32 rollupSlot = keccak256(abi.encode(uint256(rollupId), uint256(2)));
         bytes32 stateRootSlot = bytes32(uint256(rollupSlot) + 1);
         assertEq(vm.load(address(eez), stateRootSlot), INITIAL_STATE_ROOT);
@@ -58,7 +64,7 @@ contract DeploymentSmokeTest is Test {
     }
 
     function testProxyInfoStorageMatchesRustLayout() external {
-        EEZ eez = new EEZ(RECOVERY_ADDRESS);
+        EEZ eez = RollupDeployment.deployEEZ(RECOVERY_ADDRESS, OWNER);
         address l1Proxy = eez.createCrossChainProxy(PROXY_ORIGINAL_ADDRESS, PROXY_ORIGINAL_ROLLUP_ID);
         _assertPackedProxyInfo(address(eez), l1Proxy);
 

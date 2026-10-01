@@ -3,6 +3,13 @@
 # that would also be true after ExecutionNotFound or an out-of-gas error.
 def lower: ascii_downcase;
 def frames: ., (.calls[]? | frames);
+# The registry is a transparent proxy: a call into it may contain only its own
+# forwarding DELEGATECALL to the implementation (callTracer reports the
+# implementation as `to`), with the same input and no further calls.
+def only_forwarded($input):
+  (.calls // []) | length == 0
+    or (length == 1 and (.[0] | .type == "DELEGATECALL" and (.from | lower) == $registry
+        and (.input | lower) == $input and (.error // "") == "" and ((.calls // []) | length) == 0));
 select(.type == "CALL" and (.to | lower) == $source
        and (.input | lower) == $trigger_input and (.error // "") == "")
 # The pinned proxy first reads the registry's detector gas cap, then performs
@@ -15,7 +22,7 @@ select(.type == "CALL" and (.to | lower) == $source
 | if length != 2 then error("expected the gas-cap read and one executed registry lookup") else . end
 | select(.[0] | .type == "STATICCALL" and (.from | lower) == $proxy
     and (.input | lower) == $static_check_gas_input and (.error // "") == ""
-    and (.value // "0x0") == "0x0" and (.calls // [] | length) == 0
+    and (.value // "0x0") == "0x0" and only_forwarded($static_check_gas_input)
     and (.output | test("^0x[0-9a-fA-F]{64}$")))
 | .[1]
 | select((.from | lower) == $proxy and (.value // "0x0") == "0x0"

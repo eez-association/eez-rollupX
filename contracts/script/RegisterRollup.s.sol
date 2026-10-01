@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 
 import {EEZ} from "eez-core-protocol/src/EEZ.sol";
+import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 
 /// @title RegisterRollup
 /// @notice Calls `EEZ.registerRollup(rollupContract, initialRoot)`. The
@@ -22,7 +23,7 @@ import {EEZ} from "eez-core-protocol/src/EEZ.sol";
 ///             --rpc-url $L1_RPC --broadcast --private-key $PK
 ///
 ///         Args:
-///           - eez            — central registry address.
+///           - eez            — central registry proxy address.
 ///           - rollupContract — the per-rollup manager deployed by
 ///                              DeployRollup.
 ///           - initialRoot    — genesis block hash commitment for the new
@@ -31,7 +32,13 @@ import {EEZ} from "eez-core-protocol/src/EEZ.sol";
 ///                              semantics to the opaque bytes32 value.
 contract RegisterRollup is Script {
     function run(address eez, address rollupContract, bytes32 initialRoot) external {
+        // The pinned protocol's `deployment/Deploy.s.sol:RegisterRollup` checks.
+        require(eez.code.length != 0 && rollupContract.code.length != 0, "Contract has no code");
+        require(Rollup(rollupContract).EEZContract() == eez, "Wrong registry");
+        require(Rollup(rollupContract).rollupId() == 0, "Already registered");
         vm.startBroadcast();
+        (, address broadcaster,) = vm.readCallers();
+        require(broadcaster == Rollup(rollupContract).owner(), "Broadcast as rollup owner");
         uint64 rollupId = EEZ(eez).registerRollup(rollupContract, initialRoot);
         vm.stopBroadcast();
         console.log("L2_ROLLUP_ID=%s", rollupId);
