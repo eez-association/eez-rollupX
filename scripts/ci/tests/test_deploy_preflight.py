@@ -55,7 +55,7 @@ while (( $# )); do
 done
 mkdir -p "$(dirname "$genesis")"
 echo '{"config":{}}' > "$genesis"
-echo '{"genesisStateRoot":"0x1234","runtimeCodeHash":"0x5678"}' > "$profile"
+echo '{"genesisStateRoot":"0x1234","runtimeCodeHash":"0x5678","eezL2Address":"0x4b2760f84b83d6b3829e30a7573b0172b6d6402c","eezL2ImplementationAddress":"0x4c3d971b1079e58843d0e1af155a2e54b9e54dba","eezL2ProxyAdminAddress":"0x57bf29a07746a25b87c613e01d5da49f6119e96c"}' > "$profile"
 ''')
         self.tool("bin/eez-genesis-block-hash", '''
 [[ -f "$1" ]] || exit 93

@@ -76,7 +76,8 @@ impl<E, S> DerefMut for EezBlockExecutor<'_, E, S> {
 ///   Proxy pre-deployment sweeps are not burned: they move ether a user
 ///   already sent to an undeployed proxy address (nothing is minted) to
 ///   `EEZL2.RECOVERY_ADDRESS`, a separate genesis immutable.
-/// - `EEZL2` holds value minted for its current execution table. A table is
+/// - `EEZL2` (its proxy address, which keeps the balance across implementation
+///   upgrades) holds value minted for its current execution table. A table is
 ///   consumable only in the block that loaded it (`lastLoadBlock`), so any
 ///   balance left at the next block start is unconsumed or reverted value.
 pub const BURNED_AT_BLOCK_START: [Address; 2] = [EEZL2_ADDRESS, SYSTEM_ADDRESS];

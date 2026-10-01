@@ -56,7 +56,7 @@ async function main() {
           chainId: window.__envs.NEXT_PUBLIC_NETWORK_ID,
           apiHost: window.__envs.NEXT_PUBLIC_API_HOST,
         }));
-        assert.equal(result.env.chainId, '6290');
+        assert.equal(result.env.chainId, '696990');
         assert(sockets.some(s => s.joins > 0 && s.blocks > 0 && !s.errors.length));
         assert(sockets.every(s => s.url.startsWith(blockscoutOrigin.replace(/^http/, 'ws') + '/')));
       } else {

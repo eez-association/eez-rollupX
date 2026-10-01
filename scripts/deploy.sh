@@ -44,11 +44,13 @@ AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
 PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
 POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
-# EEZ and the Rollup are deployed behind transparent proxies, as in the pinned
-# protocol's deployment/Deploy.s.sol. Each proxy's ProxyAdmin owner can replace
-# its implementation; both default to the deployer.
+# EEZ, the Rollup and the EEZL2 genesis predeploy sit behind transparent
+# proxies, as in the pinned protocol's deployment/Deploy.s.sol. Each proxy's
+# ProxyAdmin owner can replace its implementation; all default to the deployer.
+# The L2 owner is baked into genesis and upgrades with an L2 transaction.
 EEZ_UPGRADE_OWNER="${EEZ_UPGRADE_OWNER:-$OWNER}"
 EEZ_ROLLUP_UPGRADE_OWNER="${EEZ_ROLLUP_UPGRADE_OWNER:-$OWNER}"
+EEZ_L2_UPGRADE_OWNER="${EEZ_L2_UPGRADE_OWNER:-$OWNER}"
 # EEZL2 sweeps ether found at a proxy address during deployment to this L2
 # account. It is baked into the genesis predeploy; default to the L1 poster.
 EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
@@ -62,6 +64,7 @@ echo "deploy: RPC                  = $EEZ_L1_RPC_URL"
 echo "deploy: deployer / owner     = $OWNER"
 echo "deploy: EEZ upgrade owner    = $EEZ_UPGRADE_OWNER"
 echo "deploy: Rollup upgrade owner = $EEZ_ROLLUP_UPGRADE_OWNER"
+echo "deploy: EEZL2 upgrade owner  = $EEZ_L2_UPGRADE_OWNER"
 echo "deploy: authorized signer    = $AUTHORIZED_SIGNER"
 echo "deploy: L2 system address    = $EEZ_L2_SYSTEM_ADDRESS"
 echo "deploy: L2 recovery address  = $EEZ_L2_RECOVERY_ADDRESS"
@@ -147,12 +150,16 @@ echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_S
     --rollup-id "$EXPECTED_ROLLUP_ID" \
     --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
     --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
+    --upgrade-owner "$EEZ_L2_UPGRADE_OWNER" \
     --base "$GENESIS_BASE" \
     --output "$GENESIS_OUT" \
     --profile-output "$GENESIS_PROFILE_OUT"
 
 EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
 EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
+EEZL2_ADDRESS="$(jq -er '.eezL2Address' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_IMPLEMENTATION_ADDRESS="$(jq -er '.eezL2ImplementationAddress' "$GENESIS_PROFILE_OUT")"
+EEZ_L2_PROXY_ADMIN="$(jq -er '.eezL2ProxyAdminAddress' "$GENESIS_PROFILE_OUT")"
 
 # One explicit new-network profile. The finalized L1 reference fixes the initial
 # seed and slot phase; it is not inferred from the later deployment receipt.
@@ -339,8 +346,12 @@ EEZ_L2_GENESIS_STATE_ROOT=$EEZ_L2_GENESIS_STATE_ROOT
 EEZ_L2_GENESIS_PATH=$GENESIS_OUT
 EEZ_L2_GENESIS_PROFILE_PATH=$GENESIS_PROFILE_OUT
 
-# EEZL2 predeploy baked into genesis.json.
-EEZL2_ADDRESS=0x4200000000000000000000000000000000000007
+# EEZL2 proxy predeploy baked into genesis.json; integrations use this address.
+# The implementation and ProxyAdmin are upgrade records, not read by the node.
+EEZL2_ADDRESS=$EEZL2_ADDRESS
+EEZ_L2_IMPLEMENTATION_ADDRESS=$EEZ_L2_IMPLEMENTATION_ADDRESS
+EEZ_L2_PROXY_ADMIN=$EEZ_L2_PROXY_ADMIN
+EEZ_L2_UPGRADE_OWNER=$EEZ_L2_UPGRADE_OWNER
 # Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
 EEZ_L2_RECOVERY_ADDRESS=$EEZ_L2_RECOVERY_ADDRESS

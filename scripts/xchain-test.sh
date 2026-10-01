@@ -38,7 +38,7 @@ L1=http://localhost:18645          # embedded chiado L1 (composer watches + post
 L2=http://localhost:18688          # L2 RPC
 L1F=http://localhost:18999         # L1 front (Inbound)
 L2F=http://localhost:18998         # L2 front (Outbound)
-EEZL2_ADDRESS=0x4200000000000000000000000000000000000007; MAINNET_RID=0
+EEZL2_ADDRESS=0x4b2760f84b83d6b3829e30a7573b0172b6d6402c; MAINNET_RID=0
 NODE_CONTAINER="${NODE_CONTAINER:-eez-node-chiado}"
 
 # ── Knobs ────────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ test -f "${EEZ_DEPLOYMENTS_FILE:-}" && {
 }
 
 ROLLUPS="${ROLLUPS:-${EEZ_REGISTRY_ADDRESS:?set ROLLUPS or EEZ_REGISTRY_ADDRESS}}"
-MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4200000000000000000000000000000000000007}}"
+MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4b2760f84b83d6b3829e30a7573b0172b6d6402c}}"
 
 for tool in cast forge; do
     command -v "$tool" >/dev/null || { echo "$tool not found in PATH" >&2; exit 1; }

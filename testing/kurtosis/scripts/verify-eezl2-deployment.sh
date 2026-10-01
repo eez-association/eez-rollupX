@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Verify the live EEZL2 predeploy against the public deployment bindings.
+# EEZL2 is an EEZProxy predeploy: check its ERC-1967 implementation/admin slots,
+# the ProxyAdmin owner and the genesis implementation code. A later upgrade
+# changes the implementation, so this verifies a deployment, not upgrades.
 
 set -euo pipefail
 
@@ -9,7 +12,9 @@ ENCLAVE="${KURTOSIS_ENCLAVE:-eez-ci}"
 source "$K/scripts/lib.sh"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
-EXPECTED_PROXY_ADDRESS="0xc789b12d9aa4a9f0f0130346d80f749be743ebde"
+EXPECTED_PROXY_ADDRESS="0x37bf538cadaffd0421ff26d10269a7084be60a2d"
+ERC1967_IMPLEMENTATION_SLOT="0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
+ERC1967_ADMIN_SLOT="0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
 
 for tool in cast jq kurtosis; do
     command -v "$tool" >/dev/null || { echo "$tool not in PATH" >&2; exit 1; }
@@ -39,6 +44,9 @@ set +a
 
 for name in \
     EEZL2_ADDRESS \
+    EEZ_L2_IMPLEMENTATION_ADDRESS \
+    EEZ_L2_PROXY_ADMIN \
+    EEZ_L2_UPGRADE_OWNER \
     EEZ_L2_SYSTEM_ADDRESS \
     EEZ_L2_EEZL2_CODE_HASH \
     EEZ_ROLLUP_ID \
@@ -51,7 +59,15 @@ done
 actual_system="$(cast call "$EEZL2_ADDRESS" 'SYSTEM_ADDRESS()(address)' --rpc-url "$L2")"
 actual_rollup_id="$(cast call "$EEZL2_ADDRESS" 'ROLLUP_ID()(uint64)' --rpc-url "$L2" | awk '{print $1}')"
 actual_use_gas_left="$(cast call "$EEZL2_ADDRESS" 'USE_GAS_LEFT()(bool)' --rpc-url "$L2")"
-runtime="$(cast code "$EEZL2_ADDRESS" --rpc-url "$L2")"
+slot_address() {
+    local word
+    word="$(cast storage "$EEZL2_ADDRESS" "$1" --rpc-url "$L2")"
+    printf '0x%s\n' "${word: -40}"
+}
+actual_implementation="$(slot_address "$ERC1967_IMPLEMENTATION_SLOT")"
+actual_proxy_admin="$(slot_address "$ERC1967_ADMIN_SLOT")"
+actual_upgrade_owner="$(cast call "$EEZ_L2_PROXY_ADMIN" 'owner()(address)' --rpc-url "$L2")"
+runtime="$(cast code "$EEZ_L2_IMPLEMENTATION_ADDRESS" --rpc-url "$L2")"
 actual_runtime_hash="$(cast keccak "$runtime")"
 actual_state_root="$(cast block 0 --rpc-url "$L2" --json | jq -er '.stateRoot')"
 actual_block_hash="$(cast block 0 --rpc-url "$L2" --json | jq -er '.hash')"
@@ -74,8 +90,20 @@ actual_proxy_address="$(cast call \
     echo "live EEZL2 USE_GAS_LEFT is $actual_use_gas_left; expected false" >&2
     exit 1
 }
+[[ "${actual_implementation,,}" == "${EEZ_L2_IMPLEMENTATION_ADDRESS,,}" ]] || {
+    echo "live EEZL2 implementation mismatch: $actual_implementation != $EEZ_L2_IMPLEMENTATION_ADDRESS" >&2
+    exit 1
+}
+[[ "${actual_proxy_admin,,}" == "${EEZ_L2_PROXY_ADMIN,,}" ]] || {
+    echo "live EEZL2 ProxyAdmin mismatch: $actual_proxy_admin != $EEZ_L2_PROXY_ADMIN" >&2
+    exit 1
+}
+[[ "${actual_upgrade_owner,,}" == "${EEZ_L2_UPGRADE_OWNER,,}" ]] || {
+    echo "live EEZL2 upgrade owner mismatch: $actual_upgrade_owner != $EEZ_L2_UPGRADE_OWNER" >&2
+    exit 1
+}
 [[ "${actual_runtime_hash,,}" == "${EEZ_L2_EEZL2_CODE_HASH,,}" ]] || {
-    echo "live EEZL2 runtime hash mismatch: $actual_runtime_hash != $EEZ_L2_EEZL2_CODE_HASH" >&2
+    echo "live EEZL2 implementation runtime hash mismatch: $actual_runtime_hash != $EEZ_L2_EEZL2_CODE_HASH" >&2
     exit 1
 }
 [[ "${actual_state_root,,}" == "${EEZ_L2_GENESIS_STATE_ROOT,,}" ]] || {
@@ -91,4 +119,4 @@ actual_proxy_address="$(cast call \
     exit 1
 }
 
-echo "EEZL2 deployment bindings and proxy derivation verified (rollupId=$EEZ_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
+echo "EEZL2 proxy, implementation and proxy derivation verified (rollupId=$EEZ_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, upgradeOwner=$EEZ_L2_UPGRADE_OWNER)"

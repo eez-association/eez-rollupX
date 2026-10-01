@@ -366,7 +366,8 @@ EEZ_PROTOCOL_DIR="$PWD/eez-core-protocol" \
 ```
 
 The L1 helper submits each saved `CREATE`/`CREATE2` deployment. The L2 helper
-uses Standard JSON because the genesis predeploy has no creation transaction.
+verifies the EEZL2 implementation behind the genesis proxy with Standard JSON,
+because a genesis predeploy has no creation transaction.
 Both print their result without modifying either chain. If an explorer is still
 indexing, wait briefly and run the corresponding command again.
 

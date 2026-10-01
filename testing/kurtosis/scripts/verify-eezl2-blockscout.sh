@@ -34,13 +34,18 @@ BLOCKSCOUT_CURL_ARGS=(
 # shellcheck disable=SC1090
 source "$EEZ_DEPLOYMENTS_FILE"
 
-for name in EEZL2_ADDRESS EEZ_L2_SYSTEM_ADDRESS EEZ_L2_EEZL2_CODE_HASH EEZ_ROLLUP_ID; do
+for name in EEZL2_ADDRESS EEZ_L2_IMPLEMENTATION_ADDRESS EEZ_L2_SYSTEM_ADDRESS \
+    EEZ_L2_RECOVERY_ADDRESS EEZ_L2_EEZL2_CODE_HASH EEZ_ROLLUP_ID
+do
     [[ -n "${!name:-}" ]] || { echo "$name missing from $EEZ_DEPLOYMENTS_FILE" >&2; exit 1; }
 done
 
-runtime="$(cast code "$EEZL2_ADDRESS" --rpc-url "$EEZ_L2_RPC_URL")"
+# EEZL2_ADDRESS is an EEZProxy; the EEZL2 source belongs to its genesis
+# implementation, which Blockscout resolves through the ERC-1967 slot.
+IMPLEMENTATION="$EEZ_L2_IMPLEMENTATION_ADDRESS"
+runtime="$(cast code "$IMPLEMENTATION" --rpc-url "$EEZ_L2_RPC_URL")"
 runtime_hash="$(cast keccak "$runtime")"
-[[ "$runtime" != "0x" ]] || { echo "no L2 code at $EEZL2_ADDRESS" >&2; exit 1; }
+[[ "$runtime" != "0x" ]] || { echo "no L2 code at $IMPLEMENTATION" >&2; exit 1; }
 [[ "${runtime_hash,,}" == "${EEZ_L2_EEZL2_CODE_HASH,,}" ]] || {
     echo "live EEZL2 runtime hash mismatch: $runtime_hash != $EEZ_L2_EEZL2_CODE_HASH" >&2
     exit 1
@@ -49,7 +54,7 @@ runtime_hash="$(cast keccak "$runtime")"
 address_info=""
 for ((attempt = 0; attempt < WAIT_SECS; attempt++)); do
     address_info="$(curl "${BLOCKSCOUT_CURL_ARGS[@]}" -fsS \
-        "$URL/api/v2/addresses/$EEZL2_ADDRESS" 2>/dev/null || true)"
+        "$URL/api/v2/addresses/$IMPLEMENTATION" 2>/dev/null || true)"
     if [[ "$(jq -r '.is_contract // false' <<<"$address_info" 2>/dev/null)" == "true" ]]; then
         break
     fi
@@ -57,13 +62,13 @@ for ((attempt = 0; attempt < WAIT_SECS; attempt++)); do
 done
 
 if [[ "$(jq -r '.is_contract // false' <<<"$address_info" 2>/dev/null)" != "true" ]]; then
-    echo "Blockscout has not classified $EEZL2_ADDRESS as a contract" >&2
+    echo "Blockscout has not classified $IMPLEMENTATION as a contract" >&2
     echo "recreate the devnet so the L2 explorer imports l2-genesis.json" >&2
     exit 1
 fi
 
 if [[ "$(jq -r '.is_verified // false' <<<"$address_info")" == "true" ]]; then
-    echo "EEZL2 already verified @ $EEZL2_ADDRESS"
+    echo "EEZL2 implementation already verified @ $IMPLEMENTATION (proxy $EEZL2_ADDRESS)"
     exit 0
 fi
 
@@ -79,12 +84,12 @@ contract_id="$(jq -er '
     | "\(.[0].key):\(.[0].value)"
 ' "$artifact")"
 constructor_args="$(cast abi-encode \
-    'constructor(uint64,address,bool)' \
-    "$EEZ_ROLLUP_ID" "$EEZ_L2_SYSTEM_ADDRESS" false)"
+    'constructor(uint64,address,bool,address)' \
+    "$EEZ_ROLLUP_ID" "$EEZ_L2_SYSTEM_ADDRESS" false "$EEZ_L2_RECOVERY_ADDRESS")"
 standard_input="$(
     cd "$PROTOCOL"
     forge verify-contract \
-        "$EEZL2_ADDRESS" "$contract_id" \
+        "$IMPLEMENTATION" "$contract_id" \
         --constructor-args "$constructor_args" \
         --show-standard-json-input
 )"
@@ -96,7 +101,7 @@ response="$(curl "${BLOCKSCOUT_CURL_ARGS[@]}" -fsS -X POST "$URL/api" \
     --data module=contract \
     --data action=verifysourcecode \
     --data codeformat=solidity-standard-json-input \
-    --data "contractaddress=$EEZL2_ADDRESS" \
+    --data "contractaddress=$IMPLEMENTATION" \
     --data "contractname=$contract_id" \
     --data-urlencode "compilerversion=v$compiler_version" \
     --data-urlencode "sourceCode=$standard_input" \
@@ -131,10 +136,10 @@ done
 }
 
 address_info="$(curl "${BLOCKSCOUT_CURL_ARGS[@]}" -fsS \
-    "$URL/api/v2/addresses/$EEZL2_ADDRESS")"
+    "$URL/api/v2/addresses/$IMPLEMENTATION")"
 [[ "$(jq -r '.is_verified // false' <<<"$address_info")" == "true" ]] || {
     echo "Blockscout accepted verification but did not mark EEZL2 as verified" >&2
     exit 1
 }
 
-echo "EEZL2 source verified @ $EEZL2_ADDRESS"
+echo "EEZL2 implementation source verified @ $IMPLEMENTATION (proxy $EEZL2_ADDRESS)"

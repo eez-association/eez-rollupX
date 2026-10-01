@@ -81,7 +81,7 @@ services:
       # Remote window validation.
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50081}
       # ── Cross-chain wiring ──
-      EEZ_CCM_L2_ADDRESS: "0x4200000000000000000000000000000000000007"
+      EEZ_CCM_L2_ADDRESS: "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c"
       EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS: "7331"
       EEZ_L2_RPC_URL: http://127.0.0.1:18688
       EEZ_L1_XCHAIN_PORT: "18999"    # L1→L2 inbound front

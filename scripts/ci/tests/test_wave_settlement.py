@@ -256,9 +256,9 @@ class WaveProxySetupTest(unittest.TestCase):
         start = script.index("create_l2_proxy() {")
         end = len(script)
         setup = r'''
-L2=http://l2.invalid L2_CHAIN_ID=6290
+L2=http://l2.invalid L2_CHAIN_ID=696990
 HH_KEY_2=fixture-key HH_KEY_2_ADDR=0x2222222222222222222222222222222222222222
-EEZL2_ADDRESS=0x4200000000000000000000000000000000000007 MAINNET_RID=0
+EEZL2_ADDRESS=0x4b2760f84b83d6b3829e30a7573b0172b6d6402c MAINNET_RID=0
 PRIORITY_GAS_PRICE=1
 gas_price_for() { echo 15; }
 retry() { "$@"; }

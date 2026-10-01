@@ -23,7 +23,7 @@ DEVNET_ENV defaults to eez-core-protocol/chain.env. The profile must contain
 the deployed RPCs, ingress URLs, registry, manager and a funded SOURCE_PK.
 
 Defaults: PREPARE_PARALLEL=200, FUND_ETH=0.005, FLOOR_ETH=0.005,
-SEND_WORKERS=28, POLL_INTERVAL=1, EEZ_STAGED_L2_CHAIN_ID=6290.
+SEND_WORKERS=28, POLL_INTERVAL=1, EEZ_STAGED_L2_CHAIN_ID=696990.
 EEZ_STAGED_SCALE multiplies every target count (default 1; 4 gives 3,080 jobs
 and 3,480 source transactions).
 Environment overrides are passed through the existing profile and runner.
@@ -47,7 +47,7 @@ export PREPARE_PARALLEL="${PREPARE_PARALLEL:-200}"
 export FUND_ETH="${FUND_ETH:-0.005}" FLOOR_ETH="${FLOOR_ETH:-0.005}"
 export SEND_WORKERS="${SEND_WORKERS:-28}" POLL_INTERVAL="${POLL_INTERVAL:-1}"
 export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}" TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
-export EEZ_STAGED_L2_CHAIN_ID="${EEZ_STAGED_L2_CHAIN_ID:-6290}"
+export EEZ_STAGED_L2_CHAIN_ID="${EEZ_STAGED_L2_CHAIN_ID:-696990}"
 export EEZ_STAGED_SCALE="${EEZ_STAGED_SCALE:-1}"
 # Same working directory and profile precedence as the upstream entrypoint.
 cd "$PROTOCOL"

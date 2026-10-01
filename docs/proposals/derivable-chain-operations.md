@@ -468,8 +468,8 @@ keccak256(rlp([
 ```
 
 Schema 2 accompanies the position-bound L2 static ABI. The validator revision
-currently binds protocol `8d458919a8165341489f06d6adbc4c42a77e6ca2`; peers
-using the earlier `9d13218` or `820e50f` pins or cached facts have a different identity.
+currently binds protocol `855fe0602484750861b4c31502a1a91355d33ed6`; peers
+using the earlier `8d45891`, `9d13218` or `820e50f` pins or cached facts have a different identity.
 Canonicalizer v1 is unchanged.
 
 Canonicalizer v1 decodes and sorts object keys by UTF-8 bytes, emits strings with

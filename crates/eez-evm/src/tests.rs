@@ -2,9 +2,10 @@ use super::*;
 use alloy_consensus::{SignableTransaction, TxEip1559, TxEip4844};
 use alloy_eips::eip4895::Withdrawal;
 use alloy_evm::{EvmFactory, FromRecoveredTx};
-use alloy_primitives::{Address, B256, Signature, TxKind, U256, address, bytes};
+use alloy_primitives::{Address, B256, Signature, TxKind, U256, address, b256, bytes};
 use eez_primitives::{
-    EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE, SystemTransaction,
+    EEZL2_ADDRESS, EEZL2_GENESIS_IMPLEMENTATION_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP,
+    SYSTEM_TX_TYPE, SystemTransaction,
 };
 use reth_evm::{ConvertTx, ExecutableTxTuple, execute::Executor};
 use revm::{
@@ -35,11 +36,36 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
     for (address, account) in &genesis.alloc {
         assert!(account.balance.is_zero(), "{address} is funded");
     }
+    // EEZL2 is an EEZProxy whose constructor created its ProxyAdmin with nonce 1.
+    let proxy_admin = EEZL2_ADDRESS.create(1);
     let mut addresses: Vec<_> = genesis.alloc.keys().copied().collect();
     addresses.sort();
-    let mut expected = vec![EEZL2_ADDRESS, alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS];
+    let mut expected = vec![
+        EEZL2_ADDRESS,
+        EEZL2_GENESIS_IMPLEMENTATION_ADDRESS,
+        proxy_admin,
+        alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+    ];
     expected.sort();
     assert_eq!(addresses, expected);
+
+    // ERC-1967 slots: the proxy delegates to the genesis implementation and is
+    // administered by its ProxyAdmin.
+    let implementation_slot =
+        b256!("360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc");
+    let admin_slot = b256!("b53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103");
+    let proxy_storage = genesis.alloc[&EEZL2_ADDRESS].storage.as_ref().unwrap();
+    assert_eq!(
+        proxy_storage[&implementation_slot],
+        EEZL2_GENESIS_IMPLEMENTATION_ADDRESS.into_word()
+    );
+    assert_eq!(proxy_storage[&admin_slot], proxy_admin.into_word());
+    assert!(
+        genesis.alloc[&EEZL2_GENESIS_IMPLEMENTATION_ADDRESS]
+            .code
+            .as_ref()
+            .is_some_and(|code| !code.is_empty())
+    );
 }
 
 fn block(nonce: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {

@@ -10,7 +10,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
-const MANAGER: Address = address!("4200000000000000000000000000000000000007");
+const MANAGER: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
 const REGISTRY: Address = address!("1111111111111111111111111111111111111111");
 fn hash(n: u64) -> B256 {
     B256::from(U256::from(n))

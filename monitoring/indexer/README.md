@@ -474,8 +474,8 @@ See the [contract and coverage](../../docs/proposals/posting-lifecycle-history.m
    Composer, locate `posting.log` below the mount. Use its containing directory
    in step 3. This changes the existing file sink's filter; stdout can retain
    general diagnostics. Do not enable another logger or parse human log messages.
-3. Add `"posting_logs_dir": "/var/log/eez-posting/6291"` to the indexer JSON
-   config, replacing `6291` with the actual directory from step 2. Set
+3. Add `"posting_logs_dir": "/var/log/eez-posting/696990"` to the indexer JSON
+   config, replacing `696990` with the actual directory from step 2. Set
    `POSTING_LOGS_DIR` to the absolute host log root in `.env.indexer`. Start with
    the optional overlay:
 

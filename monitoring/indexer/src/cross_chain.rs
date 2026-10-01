@@ -8,7 +8,7 @@ use anyhow::{Context, Result, ensure};
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MANAGER: Address = address!("4200000000000000000000000000000000000007");
+const MANAGER: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
 const L1_CONSUMED: &str = "ExecutionConsumed(bytes32,uint64,uint256)";
 const L2_CONSUMED: &str = "ExecutionConsumed(bytes32,uint256)";
 const INCOMING: &str =

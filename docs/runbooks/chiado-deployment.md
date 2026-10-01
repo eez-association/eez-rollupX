@@ -188,8 +188,10 @@ supplies matching contracts and tools; host builds and submodules are unnecessar
 The deploy image bundles two base genesis files:
 
 - `/repo/genesis.json`, the default production base. It contains only the EEZL2
-  and EIP-2935 predeploys and allocates no ETH: all L2 ETH is minted against
-  value locked on L1.
+  (proxy, implementation and ProxyAdmin) and EIP-2935 predeploys and allocates no
+  ETH: all L2 ETH is minted against value locked on L1. Its default L1 reference
+  is Ethereum mainnet's genesis block and its L2 chain ID is 696990; deployment
+  replaces the reference with the live finalized L1 block.
 - `/repo/genesis.dev.json`, which additionally funds the public development
   accounts used by the staged workloads. `.env.chiado.example` selects it with
   `EEZ_GENESIS_BASE=/repo/genesis.dev.json` for the Chiado test network.
@@ -209,8 +211,12 @@ Review the allocations in `datadir/base-genesis.json`. To deploy with changes, e
 that file and set
 `EEZ_GENESIS_BASE=/absolute/path/to/checkout/datadir/base-genesis.json` in `.env`.
 The deploy command's absolute-path mount makes that file available. Preserve the
-EEZL2 predeploy entry; deployment regenerates its code with the fixed native system
-address, which requires no prefunding. Keep the base file mode `644`: generated genesis inherits it,
+EEZL2 proxy entry at `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C`; deployment
+regenerates the proxy, its implementation at
+`0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA` and its ProxyAdmin with the fixed
+native system address and `EEZ_L2_UPGRADE_OWNER`, which requires no prefunding.
+That owner upgrades EEZL2 with an L2 transaction, so it needs L2 gas; coordinate
+any behavioural upgrade with a matching node/signer release. Keep the base file mode `644`: generated genesis inherits it,
 and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
 The host's tracked genesis files are not used unless selected explicitly.

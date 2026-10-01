@@ -832,7 +832,7 @@ mod tests {
 
     fn ctx() -> SystemTxContext {
         SystemTxContext {
-            eezl2_address: address!("4200000000000000000000000000000000000007"),
+            eezl2_address: address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C"),
             l2_chain_id: 1,
             this_rollup_id: 1,
         }

@@ -3,7 +3,7 @@
 Status: normative fork Composer profile, adapted from upstream PR #89 (`e4a76aa`)
 
 Protocol baseline: `eez-core-protocol` at
-`8d458919a8165341489f06d6adbc4c42a77e6ca2`. This profile uses native blobs,
+`855fe0602484750861b4c31502a1a91355d33ed6`. This profile uses native blobs,
 block-hash commitments, and the grouped-call ABI with position-bound L2 static
 entries. Composer MUST preserve each L2 static `expectedEntryIndex` in the load
 and the enclosing semantic DA; the Signer independently binds it to ordered
