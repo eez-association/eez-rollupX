@@ -199,8 +199,10 @@ f = json.loads(open(os.environ["FIXTURE"]).read())
 post, chain, output, sidecars, *triggers = sys.argv[1:]
 if f.get("blob_failure") or post == f.get("blob_failure_post"): raise SystemExit(1)
 if "post_triggers" in f: assert triggers == f["post_triggers"][post], (post, triggers)
+evidence = dict(verified=True, settlement_hash=post, triggers=triggers, sidecars=sidecars)
+if f.get("blob_padding"): evidence["padding"] = "0" * f["blob_padding"]
 with open(output, "w") as stream:
-    json.dump(dict(verified=True, settlement_hash=post, triggers=triggers, sidecars=sidecars), stream)
+    json.dump(evidence, stream)
 PY
 ''')
             scenario = root / "E2ECounter.s.sol"
@@ -241,7 +243,8 @@ L2 call exec: {other["hash"]}
                        CAUSAL_VERIFIER=str(tools / "causal"), BLOB_VERIFIER="unused", BEACON_URL="unused")
             original_log = log.read_text()
             successes = {"pass", "outbound-without-call-search", "outbound-replayed",
-                         "settlement-summary-hint", "outbound-receipt-snapshot", "split"}
+                         "settlement-summary-hint", "outbound-receipt-snapshot", "split",
+                         "oversize-evidence"}
             failures = {
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
@@ -352,6 +355,10 @@ L2 call exec: {other["hash"]}
                         current["inputs"][wanted["input"]][0][0][0] = word(8)
                     if case == "outbound-reorg-during-collection":
                         current["recheck_hash"] = {"l2": word(999)}
+                    if case == "oversize-evidence":
+                        # Larger than Linux's 128 KiB per-argument limit: the
+                        # collector must pass evidence to jq through files.
+                        current["blob_padding"] = 300_000
                     if case == "settlement-orphan":
                         current["receipts"][post["hash"]]["blockHash"] = word(999)
                     if case == "settlement-reorg-during-collection":
@@ -372,6 +379,8 @@ L2 call exec: {other["hash"]}
                             self.assertTrue(evidence["blob_da"]["verified"])
                             self.assertEqual([b["triggers"] for b in blobs], list(current["post_triggers"].values()))
                             self.assertNotEqual(blobs[0]["sidecars"], blobs[1]["sidecars"])
+                        if case == "oversize-evidence":
+                            self.assertEqual(len(evidence["blob_da"]["padding"]), 300_000)
                         if case == "outbound-replayed":
                             user = evidence["trigger_transactions"][0]
                             self.assertEqual(user["reported_block"], 10)
