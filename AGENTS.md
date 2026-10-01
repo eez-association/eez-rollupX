@@ -189,8 +189,8 @@ task authorization.
 | Rust code | `cargo +1.95.0 fmt --all --check`; `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings`; affected package tests, e.g. `cargo +1.95.0 test --locked -p eez-composer --lib` |
 | ABI, commitments, blob codecs | `cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec`; affected Solidity/process tests. Preserve independent `public_inputs_hash_vectors`, `rolling_hash_vectors`, and `ethereum_kzg_compatibility` oracles. |
 | Signer or prover RPC | `cargo +1.95.0 test --locked -p eez-proof-signer -p eez-control-rpc -p eez-prover-client`; the signer contributor guide's checks; `cross_chain` process tests for rejection/status/signing changes |
-| Settlement/admission | Composer unit tests; relevant `eez-node-e2e` targets: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
-| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` targets: `partial_consumption`, `queue_liveness`, `queue_reorg`, `resumption`; `cross_chain` / `chained_interstate` when group semantics change |
+| Settlement/admission | Composer unit tests; relevant `eez-node-e2e` modules: `settlement_policy`, `settlement_policy_gas`, `settlement_policy_cost`, `dynamic_admission` |
+| Queue, partial consumption, reorg/restart | Relevant `eez-node-e2e` modules: `partial_consumption`, `queue_liveness`, `queue_reorg`; `cross_chain` / `chained_interstate` when group semantics change |
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
 | Protocol pin or core-contract integration | Core tests below; `forge build --root eez-core-protocol`; `bash scripts/ci/run-protocol-anvil.sh`; affected fork/E2E checks |
 | EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`; affected contract tests; deployment verification in the [Kurtosis guide](testing/kurtosis/README.md#run-the-pinned-protocol-e2e-suite) |
@@ -228,11 +228,12 @@ stale prebuilt executables, build integration contracts, and retain diagnostics:
   forge build --root contracts
   EEZ_TEST_LOG_DIR="$PWD/artifacts/native-e2e/logs" \
   EEZ_TEST_DATADIR_DIR="$PWD/artifacts/native-e2e/datadirs" \
-  cargo +1.95.0 test --locked -p eez-node-e2e --test cross_chain -- --test-threads=1
+  cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- cross_chain:: --test-threads=1
 )
 ```
 
-Select affected `--test` targets from the table and run `eez-node-e2e` suites serially;
+All `eez-node-e2e` process tests are modules of the single `node_e2e` target; select
+affected modules from the table with a `<module>::` filter and run them serially;
 [Nextest](.config/nextest.toml) also isolates `eez-node-e2e`. Do not add `--ignored`
 indiscriminately: `kurtosis_policy_replay` requires a live enclave. Follow the
 Kurtosis guide for topology/DA/PBS validation.
@@ -243,8 +244,10 @@ Read the [runtime producer](.github/workflows/build-runtime.yml),
 [artifact verifier](scripts/ci/prepare-runtime-artifacts.sh), and
 [native runner](scripts/ci/native-tests.py) before changing this pipeline.
 Consumers must execute verified, exact-revision runtime/test artifacts; do not
-rebuild missing artifacts or substitute cached binaries. Preserve the separate
-Composer unit archive: its Tokio `test-util` feature changes shipping dependencies.
+rebuild missing artifacts or substitute cached binaries. Archive all test targets in
+one Cargo invocation: another selection resolves another feature set and rebuilds
+shared dependencies. Test-only features must not reach shipping bytes; the producer
+freezes the release candidate before archiving and rechecks its hashes afterwards.
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 

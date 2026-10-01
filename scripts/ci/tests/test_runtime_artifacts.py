@@ -98,13 +98,11 @@ elif args[:2] == ["buildx", "build"]:
         tests = output / "native-tests"
         tests.mkdir()
         (tests / "native-tests.tar.zst").write_bytes(b"fixture tests")
-        (tests / "composer-unit-tests.tar.zst").write_bytes(b"fixture composer tests")
         (tests / "manifest.json").write_text(json.dumps({
-            "schema": 3, "cargo_lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
+            "schema": 4, "cargo_lock_sha256": hashlib.sha256(Path("Cargo.lock").read_bytes()).hexdigest(),
             "platform": "linux/amd64", "profile": "release", "rustflags": "-C link-arg=-fuse-ld=mold",
             "nextest": "0.9.143", "rust": "1.95.0", "glibc": "glibc 2.36",
-            "archives_sha256": {"native-tests.tar.zst": hashlib.sha256(b"fixture tests").hexdigest(),
-                                "composer-unit-tests.tar.zst": hashlib.sha256(b"fixture composer tests").hexdigest()},
+            "archives_sha256": {"native-tests.tar.zst": hashlib.sha256(b"fixture tests").hexdigest()},
             "runtime_sha256": {name: hashlib.sha256((output / "bin" / name).read_bytes()).hexdigest()
                                for name in ("eez-composer", "eez-follower", "eez-proof-signer")},
         }))

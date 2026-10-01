@@ -6,6 +6,12 @@ license.workspace      = true
 rust-version.workspace = true
 description            = "Cross-role integration tests for eez node binaries."
 publish                = false
+# Every tests/*.rs file is a module of the single `node_e2e` target below.
+autotests              = false
+
+[[test]]
+name = "node_e2e"
+path = "tests/main.rs"
 
 [dependencies]
 eez-follower.workspace = true

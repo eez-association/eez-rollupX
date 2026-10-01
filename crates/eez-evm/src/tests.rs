@@ -4,7 +4,7 @@ use alloy_eips::eip4895::Withdrawal;
 use alloy_evm::{EvmFactory, FromRecoveredTx};
 use alloy_primitives::{Address, B256, Signature, TxKind, U256, address, bytes};
 use eez_primitives::{
-    EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_LIMIT, SYSTEM_TX_TYPE, SystemTransaction,
+    EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE, SystemTransaction,
 };
 use reth_evm::{ConvertTx, ExecutableTxTuple, execute::Executor};
 use revm::{
@@ -114,9 +114,10 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_pri
             assert_eq!(receipt.tx_type.ty(), SYSTEM_TX_TYPE);
             assert_eq!(receipt.success, success);
             assert!(receipt.cumulative_gas_used > 0);
-            assert!(receipt.cumulative_gas_used <= SYSTEM_TX_GAS_LIMIT);
+            assert!(receipt.cumulative_gas_used <= SYSTEM_TX_GAS_CAP);
             if out_of_gas {
-                assert_eq!(receipt.cumulative_gas_used, SYSTEM_TX_GAS_LIMIT);
+                // An empty 30M block leaves more than the cap, so the budget is the cap.
+                assert_eq!(receipt.cumulative_gas_used, SYSTEM_TX_GAS_CAP);
             }
             let mut state = executor.into_state();
             let bundle = state.take_bundle();
@@ -175,45 +176,139 @@ fn native_execution_retains_nonce_chain_and_block_gas_validation() {
             "wrong validation error: {error:?}"
         );
     }
-    // Every native transaction still consumes the shared 30M budget. Fifteen
-    // out-of-gas transactions fill it exactly; a sixteenth must fail admission.
+    // Native transactions share the 30M block budget without reserving the cap:
+    // the first out-of-gas call burns the cap, the second exactly the remainder,
+    // and a third has no budget left, which invalidates the block.
     let mut full = block(0, 1).into_block();
-    full.body.transactions = (0..15)
-        .map(|nonce| {
-            SystemTransaction {
-                chain_id: 1,
-                nonce,
-                to: EEZL2_ADDRESS,
-                value: U256::from(13),
-                input: Bytes::new(),
-            }
-            .into()
-        })
-        .collect();
+    full.body.transactions = (0..2).map(|nonce| native_tx(nonce, Bytes::new())).collect();
     let recovered = SealedBlock::seal_slow(full.clone()).try_recover().unwrap();
     let output = config()
         .executor(database(U256::ZERO, bytes!("5b600056")))
         .execute_one(&recovered)
         .unwrap();
     assert_eq!(output.gas_used, eez_protocol::l2::GAS_LIMIT);
-    assert_eq!(output.receipts.len(), 15);
+    let cumulative: Vec<_> = output
+        .receipts
+        .iter()
+        .map(|r| r.cumulative_gas_used)
+        .collect();
+    assert_eq!(cumulative, [SYSTEM_TX_GAS_CAP, eez_protocol::l2::GAS_LIMIT]);
     assert!(output.receipts.iter().all(|receipt| !receipt.success));
-    full.body.transactions.push(
-        SystemTransaction {
-            chain_id: 1,
-            nonce: 15,
-            to: EEZL2_ADDRESS,
-            value: U256::from(13),
-            input: Bytes::new(),
-        }
-        .into(),
-    );
+    full.body.transactions.push(native_tx(2, Bytes::new()));
     let error = config()
         .executor(database(U256::ZERO, bytes!("5b600056")))
         .execute_one(&SealedBlock::seal_slow(full).try_recover().unwrap())
         .unwrap_err();
     assert!(
-        format!("{error:?}").contains("TransactionGasLimitMoreThanAvailableBlockGas"),
+        format!("{error:?}").contains("CallGasCostMoreThanGasLimit"),
+        "{error:?}"
+    );
+}
+
+fn native_tx(nonce: u64, input: Bytes) -> EezTxEnvelope {
+    SystemTransaction {
+        chain_id: 1,
+        nonce,
+        to: EEZL2_ADDRESS,
+        value: U256::from(13),
+        input,
+    }
+    .into()
+}
+
+const LOOP: Address = address!("3333333333333333333333333333333333333333");
+
+/// An EIP-1559 call burning `gas_limit` in `LOOP`, from a recoverable dummy
+/// signature. Returns the transaction and its recovered sender.
+fn looping_user_tx(gas_limit: u64) -> (EezTxEnvelope, Address) {
+    let tx = EezTxEnvelope::Ethereum(
+        TxEip1559 {
+            chain_id: 1,
+            gas_limit,
+            max_fee_per_gas: 1,
+            to: TxKind::Call(LOOP),
+            ..Default::default()
+        }
+        .into_signed(Signature::new(U256::ONE, U256::ONE, false))
+        .into(),
+    );
+    let sender = alloy_consensus::transaction::SignerRecoverable::recover_signer(&tx).unwrap();
+    (tx, sender)
+}
+
+fn looping_database(user: Address) -> InMemoryDB {
+    let mut db = database(U256::ZERO, bytes!("5b600056"));
+    let code = Bytecode::new_raw(bytes!("5b600056"));
+    db.insert_account_info(
+        LOOP,
+        AccountInfo {
+            code_hash: code.hash_slow(),
+            code: Some(code),
+            ..Default::default()
+        },
+    );
+    db.insert_account_info(
+        user,
+        AccountInfo {
+            balance: U256::from(u64::MAX),
+            ..Default::default()
+        },
+    );
+    db
+}
+
+#[test]
+fn native_budget_is_the_remaining_block_gas_after_ordinary_transactions() {
+    // 16M is spent first. Ethereum's declared-limit rule would refuse any native
+    // transaction declaring the 16,777,216 cap here; the native budget is the
+    // 14M remainder, which an out-of-gas call burns exactly.
+    let (user_tx, user) = looping_user_tx(16_000_000);
+    let mut body = block(0, 1).into_block();
+    body.body.transactions = vec![user_tx, native_tx(0, Bytes::new())];
+    let recovered = SealedBlock::seal_slow(body).try_recover().unwrap();
+    let run = || {
+        config()
+            .executor(looping_database(user))
+            .execute_one(&recovered)
+            .unwrap()
+    };
+    let output = run();
+    let cumulative: Vec<_> = output
+        .receipts
+        .iter()
+        .map(|r| r.cumulative_gas_used)
+        .collect();
+    assert_eq!(cumulative, [16_000_000, eez_protocol::l2::GAS_LIMIT]);
+    assert_eq!(output.gas_used, eez_protocol::l2::GAS_LIMIT);
+    // The budget derives only from block contents, so independent replay agrees.
+    let replay = run();
+    assert_eq!(replay.receipts, output.receipts);
+    assert_eq!(replay.gas_used, output.gas_used);
+}
+
+#[test]
+fn native_budget_below_intrinsic_gas_invalidates_the_block() {
+    // 350,000 nonzero calldata bytes cost 14,021,000 under EIP-7623's floor: valid
+    // with the cap in an empty block, but above the 13,222,784 left after a cap-
+    // burning call. The transaction is rejected, never executed short.
+    let heavy = Bytes::from(vec![1u8; 350_000]);
+    let mut alone = block(0, 1).into_block();
+    alone.body.transactions = vec![native_tx(0, heavy.clone())];
+    let output = config()
+        .executor(database(U256::ZERO, bytes!("00")))
+        .execute_one(&SealedBlock::seal_slow(alone).try_recover().unwrap())
+        .unwrap();
+    assert!(output.receipts[0].success);
+    assert!(output.gas_used > eez_protocol::l2::GAS_LIMIT - SYSTEM_TX_GAS_CAP);
+
+    let mut crowded = block(0, 1).into_block();
+    crowded.body.transactions = vec![native_tx(0, Bytes::new()), native_tx(1, heavy)];
+    let error = config()
+        .executor(database(U256::ZERO, bytes!("5b600056")))
+        .execute_one(&SealedBlock::seal_slow(crowded).try_recover().unwrap())
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("GasFloorMoreThanGasLimit"),
         "{error:?}"
     );
 }
@@ -286,9 +381,9 @@ fn native_execution_rejects_noncanonical_gas_fields_without_mutating_state() {
     let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
     for value in [U256::ZERO, U256::from(13)] {
         for (gas_limit, gas_price) in [
-            (SYSTEM_TX_GAS_LIMIT - 1, 0),
-            (SYSTEM_TX_GAS_LIMIT + 1, 0),
-            (SYSTEM_TX_GAS_LIMIT, 7),
+            (SYSTEM_TX_GAS_CAP + 1, 0),
+            (u64::MAX, 0),
+            (SYSTEM_TX_GAS_CAP, 7),
         ] {
             let invalid = TxEnv {
                 gas_limit,
@@ -305,6 +400,14 @@ fn native_execution_rejects_noncanonical_gas_fields_without_mutating_state() {
             assert_eq!(account.nonce, 0);
         }
     }
+    // Any budget up to the cap is a valid position-dependent native budget.
+    let clamped = evm
+        .transact_raw(TxEnv {
+            gas_limit: 100_000,
+            ..tx.clone()
+        })
+        .unwrap();
+    assert!(clamped.result.is_success());
     let output = evm.transact_raw(tx).unwrap();
     assert!(output.result.is_success());
     assert_eq!(output.state[&SYSTEM_ADDRESS].info.balance, balance);
@@ -439,7 +542,7 @@ fn inspection_and_normal_execution_apply_identical_mint_and_rollback_rules() {
             db.insert_account_info(
                 user,
                 AccountInfo {
-                    balance: U256::from(3_000_000),
+                    balance: U256::from(30_000_000),
                     ..Default::default()
                 },
             );
@@ -502,7 +605,7 @@ fn native_gasprice_is_zero_in_nested_calls_including_reimbursement_and_positive_
             db.insert_account_info(
                 user,
                 AccountInfo {
-                    balance: U256::from(20_000_000),
+                    balance: U256::from(200_000_000),
                     ..Default::default()
                 },
             );

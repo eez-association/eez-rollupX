@@ -46,14 +46,17 @@ def fixture(scenario):
             "payload": {
                 "block_count": 1,
                 "count_runs": [dict(blocks=1, transactions_per_block=0)],
-                "semantic_transactions": [{"origin_chain": 0, "tx_data": "0xraw", "actions": [{
+                # L1-origin brackets publish no transaction bytes.
+                "semantic_transactions": [{"origin_chain": 0, "tx_data": "0x", "actions": [{
                     "parent_index": None, "kind": "StaticCall" if static else "Call",
                     "source_chain": 0, "target_chain": 1, "from_address": SOURCE,
                     "to_address": DESTINATION, "value": "0", "data": "0x61bc221a" if static else "0xd09de08a",
                     "success": static, "return_data": result, "revert_span": None,
                 }]}],
             },
-            "semantic_evidence": {"raw_trigger_transactions": [{"raw_transaction": "0xraw"}]},
+            "semantic_evidence": {"raw_trigger_transactions": [{"raw_transaction": "0xraw"}],
+                                  "trigger_binding": "settlement_table",
+                                  "semantics_bound_to_settlement": True},
         },
         "trace": {"type":"CALL", "to":SOURCE, "input":user["input"], "calls":[
             {"type":"STATICCALL" if static else "CALL", "from":SOURCE, "to":PROXY, "calls":[
@@ -371,6 +374,26 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("actual registry lookup", result.stderr)
         self.assertFalse(self.output.exists())
+
+    def test_lookup_bracket_binding_requires_settlement_tables_and_one_empty_origin(self):
+        # L1-origin brackets carry no bytes: the lookup is bound through the
+        # settlement tables and must match exactly one empty-origin bracket.
+        for scenario in ("topLevelStaticCounter", "revertCounter"):
+            for case in ("unbound", "duplicate", "origin_bytes"):
+                with self.subTest(scenario=scenario, case=case):
+                    data = fixture(scenario)
+                    blob = data["blob"]
+                    if case == "unbound":
+                        blob["semantic_evidence"]["semantics_bound_to_settlement"] = False
+                    elif case == "duplicate":
+                        transactions = blob["payload"]["semantic_transactions"]
+                        transactions.append(copy.deepcopy(transactions[0]))
+                    else:
+                        blob["payload"]["semantic_transactions"][0]["tx_data"] = "0xraw"
+                    result = self.run_fixture(scenario, data)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertIn("lookup is not bound to the authenticated semantic action", result.stderr)
+                    self.assertFalse(self.output.exists())
 
     def test_canonical_events_proxy_traces_include_the_gas_cap_read(self):
         for scenario in ("topLevelStaticCounter", "revertCounter"):

@@ -145,18 +145,21 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 bash "$HERE/verify-semantic-settlement-blob.sh" "$post_hash" L1 \
     "$scratch/blob.json" "${OUTPUT_JSON%.json}.blob-sidecars.json" "$trigger_hash"
-# The exact trigger's signed semantics must contain this one lookup action,
-# not an unrelated successful transaction in an otherwise valid blob.
+# L1-origin brackets carry no transaction bytes. The blob verifier bound every
+# bracket to the posted settlement tables; this trigger's traced lookup
+# (scenario-unique source/destination) must be exactly one of those brackets,
+# not an unrelated transaction in an otherwise valid blob.
 jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg kind "$kind" \
     --arg data "$(cast sig "$call_sig")" --arg result "${result,,}" --argjson success "$success" \
     --argjson rollup "$ROLLUP_ID" '
-    .semantic_evidence.raw_trigger_transactions[0].raw_transaction as $raw
-    | [.payload.semantic_transactions[] | select(.tx_data == $raw)]
-    | length == 1 and (.[0].origin_chain == 0 and (.[0].actions | length) == 1
-      and (.[0].actions[0] | .parent_index == null and .kind == $kind and .source_chain == 0
+    .semantic_evidence.semantics_bound_to_settlement == true
+    and ([.payload.semantic_transactions[] | select(.origin_chain == 0 and .tx_data == "0x"
+      and (.actions | length) == 1
+      and (.actions[0] | .parent_index == null and .kind == $kind and .source_chain == 0
            and .target_chain == $rollup and (.from_address | ascii_downcase) == $source
            and (.to_address | ascii_downcase) == $destination and .value == "0" and .data == $data
-           and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null))
+           and .success == $success and (.return_data | ascii_downcase) == $result and .revert_span == null))]
+      | length == 1)
     ' "$scratch/blob.json" >/dev/null || die "lookup is not bound to the authenticated semantic action"
 # V0 carries counts and ordinary transaction bytes, not block headers. Bind
 # the calldata's endpoint claims to canonical L2 headers before using its range.
@@ -222,7 +225,7 @@ jq -n --arg scenario "$SCENARIO" --arg scenario_path "$SCENARIO_SOL" --arg proto
                      l2_absence_range: {from: $first, to: $end}},
       claims: {upstream_pass_required: true, receipts_revalidated: true, post_batch_preceded_trigger: true,
                no_destination_delivery_required: true, l2_absence_verified: true,
-               blob_kzg_authenticated: true, native_semantics_decoded: true, semantic_trigger_bytes_bound: true,
+               blob_kzg_authenticated: true, native_semantics_decoded: true, semantic_trigger_bound: true,
                actual_lookup_result_traced: true, lookup_root_bound: true},
       source_log: {path: $log, sha256: $log_sha256}}' >"${OUTPUT_JSON}.tmp"
 mv "${OUTPUT_JSON}.tmp" "$OUTPUT_JSON"

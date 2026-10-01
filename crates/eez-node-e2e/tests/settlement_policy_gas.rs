@@ -767,3 +767,165 @@ async fn ethereum_actual_companion_gas_reduces_whole_groups_before_proving() {
 async fn gnosis_actual_companion_gas_reduces_whole_groups_before_proving() {
     assert_companion_gas_first(NativeL1Profile::GnosisPrague).await;
 }
+
+/// Deploy `runtime` on L2 from the funded fixture deployer.
+async fn deploy_l2_fixture_code(world: &CrossChainWorld, runtime: Vec<u8>) -> Address {
+    let size = u16::try_from(runtime.len()).unwrap().to_be_bytes();
+    let mut creation = vec![
+        0x61, size[0], size[1], 0x80, 0x61, 0, 11, 0x5f, 0x39, 0x5f, 0xf3,
+    ];
+    creation.extend(runtime);
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let deploy = sign_and_send(
+        &world.l2_rpc(),
+        TARGET_DEPLOYER,
+        world.l2_chain_id,
+        onchain_nonce(&world.l2_rpc(), TARGET_DEPLOYER)
+            .await
+            .unwrap(),
+        None,
+        U256::ZERO,
+        creation,
+        3_000_000,
+    )
+    .await
+    .unwrap();
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(deploy).await?)
+    })
+    .await
+    .unwrap();
+    assert!(receipt.status());
+    receipt.contract_address.unwrap()
+}
+
+/// Two inbound deliveries of about 13.4M gas each share one Sync block. Each
+/// needs far more than the former fixed 2M native budget, and the second runs
+/// after more than `30M - 16,777,216` gas is used, where a reserved cap-sized
+/// native limit could not be admitted. The second delivery's budget is the
+/// block remainder, below the cap; a follower must replay that block exactly.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn heavy_inbound_deliveries_share_a_block_without_reserving_the_native_cap() {
+    // 600 cold SSTOREs cost 13,260,000 gas before call overhead.
+    const WRITES: u16 = 600;
+    let world = setup_cross_chain_with_profile(NativeL1Profile::default(), &env())
+        .await
+        .unwrap();
+    let mut targets = Vec::new();
+    for _ in 0..2 {
+        let mut runtime = fresh_storage_writes(WRITES);
+        runtime.extend([0x60, 1, 0x5f, 0x52, 0x60, 32, 0x5f, 0xf3]);
+        let target = deploy_l2_fixture_code(&world, runtime).await;
+        let proxy = eez_testkit::create_cross_chain_proxy(
+            &world.l1_rpc(),
+            world.cfg.deployer_key,
+            world.cfg.eez_address,
+            target,
+            world.cfg.rollup_id,
+        )
+        .await
+        .unwrap();
+        targets.push((target, proxy));
+    }
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower = NodeHandle::start(
+        "native-budget-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let chain = l1.get_chain_id().await.unwrap();
+    quiet_sync(&world).await;
+    let mut sources = Vec::new();
+    for ((_, proxy), key) in targets.iter().zip([ANVIL_KEY_2, ANVIL_KEY_4]) {
+        sources.push(
+            sign_and_send(
+                &world.l1_xchain(),
+                key,
+                chain,
+                onchain_nonce(&world.l1_rpc(), key).await.unwrap(),
+                Some(*proxy),
+                U256::ZERO,
+                vec![0x12, 0x34, 0x56, 0x78],
+                1_000_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let mut l1_blocks = std::collections::BTreeSet::new();
+    let mut roots = Vec::new();
+    for hash in sources {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l1.get_transaction_receipt(hash).await?)
+        })
+        .await
+        .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+        assert!(receipt.status(), "{}", world.settlement_diagnostics());
+        l1_blocks.insert(receipt.block_number.unwrap());
+        roots.extend(
+            receipt
+                .inner
+                .logs()
+                .iter()
+                .filter_map(|log| {
+                    log.log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
+                        .ok()
+                })
+                .filter(|event| event.inner.data.rollupId == world.cfg.rollup_id)
+                .map(|event| event.inner.data.newRoot),
+        );
+    }
+    assert_eq!(l1_blocks.len(), 1, "{}", world.settlement_diagnostics());
+    let root = *roots.last().expect("inbound sources apply their L2 root");
+    let block = wait_for(TIMEOUT, || async { Ok(l2.get_block_by_hash(root).await?) })
+        .await
+        .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
+    let number = block.header.number;
+    // Ethereum's typed receipt decoding does not know native type 0x76.
+    let receipts: Vec<serde_json::Value> = l2
+        .raw_request("eth_getBlockReceipts".into(), (format!("0x{number:x}"),))
+        .await
+        .unwrap();
+    let quantity =
+        |value: &serde_json::Value| u64::from_str_radix(&value.as_str().unwrap()[2..], 16).unwrap();
+    let deliveries: Vec<_> = receipts
+        .iter()
+        .filter(|receipt| quantity(&receipt["type"]) == u64::from(eez_primitives::SYSTEM_TX_TYPE))
+        .map(|receipt| {
+            (
+                quantity(&receipt["status"]) == 1,
+                quantity(&receipt["gasUsed"]),
+            )
+        })
+        .collect();
+    assert_eq!(deliveries.len(), 2, "{}", world.settlement_diagnostics());
+    assert!(deliveries.iter().all(|(success, _)| *success));
+    assert!(
+        deliveries.iter().all(|(_, gas)| *gas > 13_000_000),
+        "each delivery needs far more than the former fixed budget"
+    );
+    // The second delivery started after the cap no longer fit the block.
+    assert!(
+        deliveries[0].1 > block.header.gas_limit - eez_primitives::SYSTEM_TX_GAS_CAP,
+        "the second delivery must have run with a clamped budget"
+    );
+    for (target, _) in &targets {
+        assert_eq!(
+            l2.get_storage_at(*target, U256::from(WRITES - 1))
+                .await
+                .unwrap(),
+            U256::from(1)
+        );
+    }
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], number, TIMEOUT)
+        .await
+        .unwrap();
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}

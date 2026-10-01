@@ -207,6 +207,25 @@ fn run() -> Result<(), Box<dyn Error>> {
     let semantic_transactions =
         eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)?;
     let payload = eez_payload_codec::v0::Payload::decode(&native.operations)?;
+    // With the L2 chain id, bind the semantic brackets to this batch's exact
+    // settlement tables as the deriver does. L1-origin brackets publish no
+    // transaction bytes, so this table binding (plus a canonical
+    // trigger-to-table check by the caller) is what ties them to their triggers.
+    let semantics_bound_to_settlement = match evidence.pointer("/l2_chain_id") {
+        None => false,
+        Some(chain) => {
+            let chain = chain
+                .as_u64()
+                .ok_or("l2_chain_id is not an unsigned integer")?;
+            eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+                &semantic_transactions,
+                eez_protocol::RollupId(rollup_id),
+                chain,
+            )?
+            .bind_settlement(&posted.batch)?;
+            true
+        }
+    };
     // Report supplied runs rather than expanding an attacker-declared empty
     // span. No block heights or hashes can be authenticated by syntax alone.
     let count_runs = payload
@@ -294,6 +313,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     .map(|transaction| transaction.origin_chain.0)
                     .collect::<Vec<_>>(),
                 "semantic_transactions": semantic_details,
+                "semantics_bound_to_settlement": semantics_bound_to_settlement,
                 "block_count": payload.block_count(),
                 "count_runs": count_runs,
                 "execution_verified": false,

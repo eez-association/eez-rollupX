@@ -240,7 +240,7 @@ jq -n \
       claims: {upstream_pass_required: true, receipts_revalidated: true,
                causal_graph_bijection: true,
                blob_kzg_authenticated: true, native_semantics_decoded: true,
-               semantic_trigger_bytes_bound: true,
+               semantic_trigger_bound: true,
                exact_same_block_static_table_decoded: true, table_load_preceded_trigger: true,
                l1_settlement_verified: true, posted_table_field_match: true,
                rolling_hashes_replayed: true, producer_remained_read_only: true},

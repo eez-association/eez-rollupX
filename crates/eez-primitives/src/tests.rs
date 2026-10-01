@@ -171,9 +171,9 @@ fn rpc_serialization_has_native_execution_fields_and_zero_signature_placeholders
     assert_eq!(json["hash"], serde_json::to_value(tx.tx_hash()).unwrap());
     assert_eq!(json["chainId"], "0x1");
     assert_eq!(json["nonce"], "0x0");
-    assert_eq!(json["gas"], "0x1e8480");
+    assert_eq!(json["gas"], "0x1000000");
     assert_eq!(json["gasPrice"], "0x0");
-    assert_eq!(tx.gas_limit(), SYSTEM_TX_GAS_LIMIT);
+    assert_eq!(tx.gas_limit(), SYSTEM_TX_GAS_CAP);
     assert_eq!(tx.effective_gas_price(Some(100)), 0);
     let rpc = alloy_rpc_types_eth::Transaction::from_transaction(
         alloy_consensus::transaction::Recovered::new_unchecked(tx.clone(), SYSTEM_ADDRESS),
@@ -183,7 +183,7 @@ fn rpc_serialization_has_native_execution_fields_and_zero_signature_placeholders
         },
     );
     let rpc_json = serde_json::to_value(&rpc).unwrap();
-    assert_eq!(rpc_json["gas"], "0x1e8480");
+    assert_eq!(rpc_json["gas"], "0x1000000");
     assert_eq!(rpc_json["gasPrice"], "0x0");
     assert_eq!(
         rpc_json["from"],
@@ -239,4 +239,18 @@ fn receipt_type_survives_consensus_and_database_encoding() {
             }
         }
     }
+}
+
+#[test]
+fn native_budget_is_the_remaining_block_gas_bounded_by_the_osaka_cap() {
+    assert_eq!(SYSTEM_TX_GAS_CAP, 1 << 24);
+    assert_eq!(system_tx_gas_limit(30_000_000, 0), SYSTEM_TX_GAS_CAP);
+    assert_eq!(
+        system_tx_gas_limit(30_000_000, 30_000_000 - SYSTEM_TX_GAS_CAP),
+        SYSTEM_TX_GAS_CAP
+    );
+    assert_eq!(system_tx_gas_limit(30_000_000, 20_000_000), 10_000_000);
+    assert_eq!(system_tx_gas_limit(30_000_000, 30_000_000), 0);
+    // A corrupt cumulative figure above the limit leaves no budget, never wraps.
+    assert_eq!(system_tx_gas_limit(30_000_000, u64::MAX), 0);
 }

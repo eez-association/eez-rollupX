@@ -89,13 +89,16 @@ class RuntimeDockerTest(unittest.TestCase):
                         '    assert!(source.contains("contract PostBatchGasPinsTest"));\n'
                         '}\n'
                     )
-                for test in ({"eez-node-e2e": native.E2E_TARGETS,
+                for test in ({"eez-node-e2e": (native.E2E_TARGET,),
                               "eez-protocol": ("public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence"),
                               "eez-blob-codec": ("ethereum_kzg_compatibility",),
                               "eez-payload-codec": ("issue35",)}.get(name, ())):
                     (package / "tests").mkdir(exist_ok=True)
-                    (package / f"tests/{test}.rs").write_text(
-                        '#[test] fn release_test() { assert!(!cfg!(debug_assertions)); assert_eq!(2+2,4); }\n')
+                    release_test = '#[test] fn release_test() { assert!(!cfg!(debug_assertions)); assert_eq!(2+2,4); }\n'
+                    if test == native.E2E_TARGET:
+                        # CI suites select node_e2e tests by module path.
+                        release_test = "".join(f"mod {module} {{ {release_test} }}\n" for module in native.E2E_MODULES)
+                    (package / f"tests/{test}.rs").write_text(release_test)
                 for path, output in targets.items():
                     target = package / path
                     target.parent.mkdir(parents=True, exist_ok=True)

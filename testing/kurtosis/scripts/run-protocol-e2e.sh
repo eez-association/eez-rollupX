@@ -401,7 +401,7 @@ jq \
     'def causal_ok: .result == "PASS" and .causal_graph.verified == true;
      def semantic_ok: .result == "PASS" and .blob_da.verified == true and
        .claims.blob_kzg_authenticated == true and .claims.native_semantics_decoded == true and
-       .claims.semantic_trigger_bytes_bound == true;
+       .claims.semantic_trigger_bound == true;
      [.[] | select(causal_ok | not) | .scenario] as $causal_missing |
      [.[] | select(semantic_ok | not) | .scenario] as $semantic_missing |
      [.[] | select(.result == "PASS") | .scenario] as $passed |

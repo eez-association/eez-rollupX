@@ -412,6 +412,15 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
         let semantics =
             eez_protocol::blob_semantics::decode_semantic_transactions(&native.semantic_messages)
                 .unwrap();
+        // The producing Composer publishes the signed origin only for an L2 origin.
+        for transaction in &semantics {
+            assert_eq!(
+                transaction.tx_data.is_empty(),
+                transaction.origin_chain.is_mainnet(),
+                "{name}: tx_data publication for origin {}",
+                transaction.origin_chain.0
+            );
+        }
         let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
             &semantics,
             eez_protocol::RollupId(1),

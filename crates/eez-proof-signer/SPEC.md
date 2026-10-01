@@ -210,7 +210,13 @@ immutable system address to this fixed value remains a genesis/deployment
 invariant; the signer does not independently query deployed code.
 
 Native transactions are `0x76 || rlp([chainId, nonce, to, value, input])` with
-the fixed sender, EEZL2 destination, zero gas price, and 2,000,000 metered gas.
+the fixed sender, EEZL2 destination and zero gas price. Their metered gas budget
+is position-dependent: `min(16,777,216, block gas limit - cumulative gas used by
+the preceding transactions)`, where the cap is Osaka's EIP-7825 per-transaction
+limit. The budget is not reserved against the block; only metered use counts. A
+budget below the transaction's intrinsic gas (including EIP-7623's floor) makes
+the block invalid. Replay derives the budget from block contents alone, so the
+signer's stateless execution and the Composer agree without any carried field.
 The nonce and chain ID MUST match execution state/rules. Encoding contains no
 signature or configurable gas fields. Ordinary Ethereum transactions retain
 normal fees. Receipts retain type `0x76`. Public RPC/txpool admission MUST reject
@@ -924,7 +930,7 @@ signature    = none
 target       = EEZL2_ADDRESS
 chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
-gas limit    = 2_000_000, fixed and metered
+gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
 first nonce  = nonce of the first validated native transaction
 ```
@@ -998,12 +1004,16 @@ entry may advance the commitment without an executed effect. Every deferred
 entry and static entry MUST be consumed exactly once by this schedule, with no
 reordering or remainder.
 
-L1 `tx_data` remains an opaque chain-defined sidecar:
-this signer validates the `postBatch` transaction and L2 window but does not
-execute the later L1 user transactions in the atomic bundle. Consequently, the
-aggregate effects are exact, but L1 semantic transaction boundaries and the
-relative ordering of transactions that land in different mutable/static pools
-are descriptive rather than independently authenticated by this signer.
+An L1-origin transaction's `tx_data` MUST be empty; any other value is rejected.
+The originating L1 transaction is not part of any L2 block, is not in the Prove
+request, and is already published on L1, so a copy in the blob could never be
+bound to anything. (The blob format leaves the field chain-defined; this
+deployment defines it as empty for an L1 origin.) This signer validates the
+`postBatch` transaction and L2 window but does not execute the later L1 user
+transactions in the atomic bundle. Consequently, the aggregate effects are
+exact, but L1 semantic transaction boundaries and the relative ordering of
+transactions that land in different mutable/static pools are descriptive rather
+than independently authenticated by this signer.
 
 The signer recomputes every KZG versioned hash from physical blobs. Mixed,
 missing, surplus, reordered, malformed, wrong-rollup, semantically unbound, or
