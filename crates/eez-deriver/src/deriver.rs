@@ -38,6 +38,7 @@ use crate::correlation::{BatchCorrelation, CorrelationStore, L2BlockCorrelation}
 use crate::error::{DeriverError, DeriverResult};
 
 mod inputs;
+mod source_retry;
 use inputs::ExecutionInputs;
 
 /// Watcher seed: the finalized block, kept inside the range this scan read.
@@ -138,8 +139,12 @@ where
     ) -> DeriverResult<Self> {
         let schedule =
             eez_evm::profile::schedule(chain_spec.as_ref()).map_err(DeriverError::l2_provider)?;
-        let derivation = l1_reader
-            .derivation_source(schedule)
+        // Readiness was established before construction, but the source can
+        // drop out again (e.g. an embedded L1 restart); retry only that case.
+        let derivation =
+            source_retry::retry_unavailable(source_retry::POLL, source_retry::MAX_ATTEMPTS, || {
+                l1_reader.derivation_source(schedule)
+            })
             .await
             .map_err(DeriverError::l2_provider)?;
         l1_head.restore_derivation(derivation.seed_history());
@@ -793,13 +798,14 @@ where
             .map_or((number, expected_hash), |previous| {
                 (previous.number, Some(previous.hash))
             });
-        let hash = self
-            .inner
-            .l1_reader
-            .canonical_l1_hash(number)
-            .await
-            .map_err(DeriverError::l1_scan)?
-            .ok_or_else(|| DeriverError::l2_provider("scan completion block is unavailable"))?;
+        let hash = scan_completion_hash(
+            number,
+            self.inner
+                .l1_reader
+                .canonical_l1_hash(number)
+                .await
+                .map_err(DeriverError::l1_scan)?,
+        )?;
         if expected_hash.is_some_and(|expected| expected != hash) {
             return Err(DeriverError::l2_provider(
                 "L1 changed before scan completion",
@@ -2772,6 +2778,20 @@ fn find_batch_anchor(
 
 /// L2 heights a batch's settled part covers. A resumed batch reuses the Sync
 /// block at `cumulative_l2`; a fresh height would re-apply EIP-2935/4788.
+/// The canonical hash at a scan's completion height. A source that does not
+/// serve the height yet is incomplete, not invalid: an embedded L1 that has
+/// just restarted can briefly report a lower head. Boot catch-up retries
+/// [`DeriverError::is_source_incomplete`]; the live loop resyncs on any error.
+fn scan_completion_hash(number: u64, hash: Option<B256>) -> DeriverResult<B256> {
+    hash.ok_or_else(|| {
+        DeriverError::l1_scan(eez_l1::L1Error::SourceIncomplete {
+            block: number,
+            tx_hash: B256::ZERO,
+            detail: "scan completion block not served by the L1 source yet".into(),
+        })
+    })
+}
+
 const fn batch_l2_range(cumulative_l2: u64, resumed: bool, claimed_block_count: u64) -> (u64, u64) {
     if resumed {
         (cumulative_l2, cumulative_l2)
@@ -2829,6 +2849,20 @@ impl SuffixReplay {
     const fn required(&mut self, local_matches: bool) -> bool {
         self.active |= !local_matches;
         self.active
+    }
+}
+
+#[cfg(test)]
+mod scan_completion_tests {
+    use super::*;
+
+    #[test]
+    fn unserved_scan_completion_block_is_retryable_source_incompleteness() {
+        let error = scan_completion_hash(42, None).unwrap_err();
+        assert!(error.is_source_incomplete(), "{error}");
+        assert!(!error.is_l1_transport());
+        let hash = B256::with_last_byte(7);
+        assert_eq!(scan_completion_hash(42, Some(hash)).unwrap(), hash);
     }
 }
 
