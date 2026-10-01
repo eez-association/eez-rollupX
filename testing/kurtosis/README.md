@@ -728,8 +728,8 @@ Mixed L2 read/write scenarios bind the complete per-user `loadExecutionTable`
 calldata, including every static row and its mutable-entry position, to one L1
 host. Their retained mutable-call events must still match exactly. The
 `eez-protocol::causal_evidence` test target exercises the shipping verifier
-against captured canonical inputs and malformed variants; CI runs it in the
-release unit archive.
+against captured canonical inputs and malformed variants; CI runs it from the
+producer's release test archive.
 
 The pinned proxy reads `STATIC_CHECK_GAS()` from the registry before its actual
 lookup. Lookup trace evidence requires that exact successful configuration read
@@ -768,7 +768,7 @@ Chain configuration and canonicality still come from the test-node RPCs, so
 this is integration evidence and does not authorize a production proof.
 Do not expose debug APIs publicly for this purpose. Raw trace, witness/prefix
 input and selected-root evidence are retained for diagnosis. The helper's
-regressions run in the release unit-test archive.
+regressions run from the producer's release test archive.
 
 After updating the protocol pin, regenerate the committed genesis artifacts
 with `bash scripts/update-eezl2-genesis.sh` and verify them with `--check`.

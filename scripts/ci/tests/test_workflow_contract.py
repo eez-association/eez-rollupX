@@ -50,6 +50,16 @@ class WorkflowContractTest(unittest.TestCase):
         results["kurtosis-e2e"]["result"] = "skipped"
         self.assertNotEqual(self.run_gate(results).returncode, 0)
 
+    def test_debug_unit_lane_is_required_in_both_execution_modes(self):
+        # It does not depend on publication, so it must never be skipped.
+        self.assertIn("debug-unit-tests", self.jobs["ci-result"]["needs"])
+        for mode in ("true", "false"):
+            for state in ("failure", "cancelled", "skipped"):
+                with self.subTest(mode=mode, state=state):
+                    results = self.result(mode)
+                    results["debug-unit-tests"]["result"] = state
+                    self.assertNotEqual(self.run_gate(results).returncode, 0)
+
     def test_native_matrices_cover_every_partition_and_block_promotion_on_failure(self):
         for name in ("embedded-e2e", "cross-chain-e2e"):
             job = self.jobs[name]
@@ -175,9 +185,9 @@ elif args[0] != "logout":
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(copies, [])
 
-    def test_two_initial_lanes_keep_lint_and_runtime_checks(self):
+    def test_initial_lanes_keep_lint_unit_and_runtime_checks(self):
         self.assertEqual({name for name, job in self.jobs.items() if not job.get("needs")},
-                         {"build-runtime", "lint"})
+                         {"build-runtime", "lint", "debug-unit-tests"})
         lint = "\n".join(s.get("run", "") for s in self.jobs["lint"]["steps"])
         for command in ("cargo fmt", "cargo deny check", "cargo audit", "cargo clippy",
                         "unittest discover"):
@@ -275,7 +285,13 @@ elif args[0] != "logout":
         self.assertTrue(all(not s.get("continue-on-error", False) for s in steps
                             if "run" in s and s.get("id") != "cargo-export"))
 
-    def test_docker_cargo_state_is_optional_and_saves_only_after_units_on_main(self):
+    def test_compile_cap_is_optional_repository_configuration(self):
+        job = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())["jobs"]["build"]
+        # Unset variables expand to empty strings; the producer then uses 4 CPUs / 20g.
+        self.assertEqual(job["env"]["EEZ_CI_BUILD_CPUS"], "${{ vars.CI_BUILD_CPUS }}")
+        self.assertEqual(job["env"]["EEZ_CI_BUILD_MEMORY"], "${{ vars.CI_BUILD_MEMORY }}")
+
+    def test_docker_cargo_state_is_optional_and_saves_only_after_producer_tests_on_main(self):
         workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
         job = workflow["jobs"]["build"]
         steps = job["steps"]
@@ -296,7 +312,7 @@ elif args[0] != "logout":
         self.assertIn("steps.cargo-restore.outputs.cache-hit != 'true'", export["if"])
         self.assertIn("steps.cargo-export.outcome == 'success'", save["if"])
         self.assertIn("steps.cargo-export.outputs.upload == 'true'", save["if"])
-        unit = next(s for s in steps if '--suite unit' in s.get("run", ""))
+        unit = next(s for s in steps if '--suite producer' in s.get("run", ""))
         build = next(s for s in steps if s.get("run") == 'bash scripts/ci/build-runtime-artifacts.sh')
         self.assertLess(steps.index(restore), steps.index(build))
         self.assertLess(steps.index(build), steps.index(unit))

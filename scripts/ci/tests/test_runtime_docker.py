@@ -80,9 +80,9 @@ class RuntimeDockerTest(unittest.TestCase):
                 )
                 (package / "src/lib.rs").write_text("#[test] fn unit_test() { assert_eq!(2+2,4); }\n")
                 if name == "eez-composer":
-                    # Match the real composer's compile-time dependency on a
-                    # Solidity fixture outside crates/. Both the Docker build
-                    # context and the builder stage must carry this input.
+                    # Match the real composer's test-time dependency on a
+                    # Solidity fixture outside crates/. Composer unit tests now
+                    # run in the debug lane, but the Docker context keeps it.
                     (package / "src/lib.rs").write_text(
                         '#[test] fn gas_pin_source_is_packaged() {\n'
                         '    let source = include_str!("../../../contracts/test/PostBatchGasPins.t.sol");\n'
@@ -185,13 +185,13 @@ class RuntimeDockerTest(unittest.TestCase):
                     blocked.write_text('#!/bin/sh\necho "Unexpected compilation" >&2\nexit 99\n')
                     blocked.chmod(0o755)
                 consumer_env = dict(env, PATH=str(tools) + os.pathsep + env["PATH"])
-                for suite in ("unit", "embedded", "cross-chain"):
+                for suite in ("producer", "embedded", "cross-chain"):
                     consumer_env["CARGO_TARGET_DIR"] = str(root / f"consumer-{suite}")
-                    payload = root / ("test-artifacts" if suite == "unit" else "e2e-only")
+                    payload = root / ("test-artifacts" if suite == "producer" else "e2e-only")
                     subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "run",
                                     str(payload), "--suite", suite],
                                    env=consumer_env, check=True)
-                    if suite == "unit":
+                    if suite == "producer":
                         subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "export-e2e",
                                         str(payload), "--output-dir", str(root / "e2e-only")],
                                        env=consumer_env, check=True)
@@ -283,7 +283,7 @@ class RuntimeDockerTest(unittest.TestCase):
         producer = ["bash", str(repo / "scripts/ci/build-runtime-artifacts.sh")]
         state = repo / ".ci-cargo-state"
 
-        def build(name, *, prepare=False, expected_unit_failure=False):
+        def build(name, *, prepare=False, expected_producer_failure=False):
             env.update(EEZ_RUNTIME_OUTPUT_DIR=str(root / name),
                        EEZ_NATIVE_TEST_OUTPUT_DIR=str(root / (name + "-tests")))
             if prepare:
@@ -298,17 +298,17 @@ class RuntimeDockerTest(unittest.TestCase):
             tests = json.loads((root / (name + "-tests") / "manifest.json").read_text())
             run_env = dict(consumer_env, GITHUB_SHA=env["GITHUB_SHA"],
                            CARGO_TARGET_DIR=str(root / (name + "-execution")))
-            units = subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "run",
-                                    env["EEZ_NATIVE_TEST_OUTPUT_DIR"], "--suite", "unit"],
-                                   env=run_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            (root / (name + "-units.log")).write_text(units.stdout)
-            if expected_unit_failure:
-                self.assertNotEqual(units.returncode, 0, units.stdout)
-                self.assertIn("OCI_TEST_FAILURE_EXECUTED", units.stdout)
-                self.assertFalse((root / (name + "-tests") / "unit-passed.json").exists())
+            tests_run = subprocess.run([sys.executable, str(repo / "scripts/ci/native-tests.py"), "run",
+                                        env["EEZ_NATIVE_TEST_OUTPUT_DIR"], "--suite", "producer"],
+                                       env=run_env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            (root / (name + "-producer.log")).write_text(tests_run.stdout)
+            if expected_producer_failure:
+                self.assertNotEqual(tests_run.returncode, 0, tests_run.stdout)
+                self.assertIn("OCI_TEST_FAILURE_EXECUTED", tests_run.stdout)
+                self.assertFalse((root / (name + "-tests") / native.PRODUCER_PASSED).exists())
             else:
-                self.assertEqual(units.returncode, 0, units.stdout[-16000:])
-                self.assertIn("passed", units.stdout)
+                self.assertEqual(tests_run.returncode, 0, tests_run.stdout[-16000:])
+                self.assertIn("passed", tests_run.stdout)
             return build_log, tests
 
         cold, cold_manifest = build("state-cold", prepare=True)
@@ -414,12 +414,13 @@ class RuntimeDockerTest(unittest.TestCase):
         self.assertEqual(subprocess.check_output([str(binary_dir / "eez-follower")], text=True).strip(),
                          "OCI_CHANGED_FOLLOWER")
 
-        composer = repo / "crates/eez-composer/src/lib.rs"
-        composer.write_text(composer.read_text() + '\n#[test] fn new_failure() { panic!("OCI_TEST_FAILURE_EXECUTED"); }\n')
+        # Workspace lib tests run in the debug lane; the producer runs vectors.
+        vector = repo / "crates/eez-protocol/tests/rolling_hash_vectors.rs"
+        vector.write_text(vector.read_text() + '\n#[test] fn new_failure() { panic!("OCI_TEST_FAILURE_EXECUTED"); }\n')
         changed_commit("changed-test")
-        build("state-failing-test", expected_unit_failure=True)
+        build("state-failing-test", expected_producer_failure=True)
         rejected = subprocess.run(producer + ["export-state"], env=env, capture_output=True)
-        self.assertNotEqual(rejected.returncode, 0, "failed units must not permit a new seed")
+        self.assertNotEqual(rejected.returncode, 0, "failed producer tests must not permit a new seed")
 
 
 if __name__ == "__main__":

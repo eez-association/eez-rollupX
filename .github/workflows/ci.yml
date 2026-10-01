@@ -30,7 +30,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
-  # Clippy does not need debug symbols. Executable tests use the release producer.
+  # Clippy and debug unit tests do not need debug symbols. E2E and protocol
+  # vector tests execute the release producer's verified artifacts.
   CARGO_PROFILE_DEV_DEBUG: "0"
   CARGO_PROFILE_TEST_DEBUG: "0"
 
@@ -130,6 +131,75 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lint-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/build-metrics
+            ${{ env.CARGO_TARGET_DIR }}/cargo-timings/*.html
+          if-no-files-found: ignore
+          retention-days: 3
+
+  debug-unit-tests:
+    name: Debug Unit Tests
+    # Workspace lib/bin unit tests in the ordinary test profile, in parallel with
+    # the producer. Their dev-dependencies enable test-only features (Tokio's
+    # test-util), so they stay out of the release archive, whose dependency
+    # feature set must equal the shipping build's.
+    runs-on: ${{ inputs.runner || vars.CI_RUNNER || 'homelab-rust' }}
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - name: Prepare hosted runner disk
+        run: bash scripts/ci/prepare-hosted-runner.sh
+      - name: Initialize Cargo target directory
+        run: bash scripts/ci/init-cargo-target.sh
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # @stable
+        with:
+          toolchain: "1.95.0"
+      - name: Rust source cache
+        if: ${{ runner.environment == 'github-hosted' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-targets: "false"
+          cache-on-failure: "false"
+          cache-bin: "false"
+          add-rust-environment-hash-key: "false"
+          shared-key: registry
+          key: ${{ hashFiles('**/Cargo.lock') }}
+      - uses: ./.github/actions/compiler-cache
+        with:
+          enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
+      - name: Install system dependencies
+        if: ${{ runner.environment == 'github-hosted' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
+      - name: Install LLVM 22 for upstream Reth
+        run: |
+          sudo bash scripts/ci/install-llvm.sh
+          echo "LLVM_SYS_221_PREFIX=/usr/lib/llvm-22" >> "$GITHUB_ENV"
+          echo "/usr/lib/llvm-22/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/native-test-tools
+      - name: Workspace unit tests (debug)
+        env:
+          # Any test that would launch a node or signer must fail, not compile one.
+          EEZ_TEST_PREBUILT: "1"
+        run: >-
+          bash scripts/ci/with-compiler-cache.sh debug-units
+          cargo nextest run --locked --timings --workspace --lib --bins
+          --profile ci --no-fail-fast --no-tests=fail
+      - name: Cargo failure diagnostics
+        if: failure()
+        run: bash scripts/ci/cargo-failure-diagnostics.sh
+      - name: Upload build measurements
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: debug-unit-build-metrics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             artifacts/build-metrics
             ${{ env.CARGO_TARGET_DIR }}/cargo-timings/*.html
@@ -242,7 +312,7 @@ jobs:
   ci-result:
     name: CI Result
     if: always()
-    needs: [build-runtime, lint, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
+    needs: [build-runtime, lint, debug-unit-tests, embedded-e2e, cross-chain-e2e, kurtosis-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
