@@ -245,10 +245,16 @@ Read the [runtime producer](.github/workflows/build-runtime.yml),
 [artifact verifier](scripts/ci/prepare-runtime-artifacts.sh), and
 [native runner](scripts/ci/native-tests.py) before changing this pipeline.
 Consumers must execute verified, exact-revision runtime/test artifacts; do not
-rebuild missing artifacts or substitute cached binaries. Archive all test targets in
-one Cargo invocation: another selection resolves another feature set and rebuilds
-shared dependencies. Test-only features must not reach shipping bytes; the producer
-freezes the release candidate before archiving and rechecks its hashes afterwards.
+rebuild missing artifacts or substitute cached binaries. Archive E2E, protocol-vector
+and `verify_blob_evidence` tests in one release Cargo invocation whose dependency
+feature set equals the shipping build's; the archive step fails if it compiles any
+non-workspace crate. Workspace lib/bin unit tests, whose dev-dependencies enable
+test-only features (Tokio `test-util`), run in CI's separate debug unit lane.
+Test-only features must not reach shipping bytes; the producer freezes the
+release candidate before archiving and rechecks its hashes afterwards.
+The retained-state compile cap (`CI_BUILD_CPUS`/`CI_BUILD_MEMORY`, default 4 CPUs
+and `20g`) must stay within the ARC DinD sidecar's limits; Cargo cannot detect them.
+See the [test-archive split](docs/proposals/ci-test-archive-split.md).
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 

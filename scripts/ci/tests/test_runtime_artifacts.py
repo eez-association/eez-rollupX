@@ -259,6 +259,68 @@ class RuntimeArtifactsTest(unittest.TestCase):
             self.assertNotIn("--secret", command)
             self.assertTrue(any(c.startswith("previous-state=oci-layout://") for c in command))
 
+    def test_compile_cap_is_configurable_and_consistent_across_state_builds(self):
+        state = self.prepare_state()
+        self.env.update(EEZ_CI_BUILD_CPUS="6", EEZ_CI_BUILD_MEMORY="28g", GITHUB_EVENT_NAME="push",
+                        GITHUB_REF="refs/heads/main")
+        self.run_script("build-runtime-artifacts.sh")
+        tests = Path(self.env["EEZ_NATIVE_TEST_OUTPUT_DIR"])
+        (tests / "producer-passed.json").write_text((tests / "manifest.json").read_text())
+        self.run_script("build-runtime-artifacts.sh", "export-state")
+        calls = [c for c in self.commands() if c[:3] == ["docker", "buildx", "build"] and "Dockerfile.runtime" in c]
+        # Restore check, compilation, packaging and state export must share one
+        # build-stage cache identity, or a later target would recompile.
+        self.assertEqual({c[c.index("--target") + 1] for c in calls},
+                         {"checked-state", "binaries", "node", "signer", "cargo-state"})
+        for command in calls:
+            for setting in ("cpu-period=100000", "cpu-quota=600000", "memory=28g", "memory-swap=28g",
+                            "EEZ_BUILD_CPUS=6", f"EEZ_BUILD_MEMORY_BYTES={28 * 1024**3}"):
+                self.assertIn(setting, command)
+            self.assertNotIn("cpu-quota=400000", command)
+        self.assertTrue((state / "transport/index.json").is_file())
+
+    def test_default_compile_cap_is_unchanged(self):
+        self.prepare_state(seed=False)
+        for empty in ("", None):
+            with self.subTest(empty=empty):
+                for key in ("EEZ_CI_BUILD_CPUS", "EEZ_CI_BUILD_MEMORY"):
+                    if empty is None:
+                        self.env.pop(key, None)
+                    else:
+                        self.env[key] = empty
+                self.env["EEZ_RUNTIME_OUTPUT_DIR"] = str(self.root / f"default-cap-{empty}")
+                self.log.write_text("")
+                self.run_script("build-runtime-artifacts.sh")
+                build = next(c for c in self.commands() if "binaries" in c)
+                for setting in ("cpu-quota=400000", "memory=20g", "memory-swap=20g",
+                                "EEZ_BUILD_CPUS=4", "EEZ_BUILD_MEMORY_BYTES=21474836480"):
+                    self.assertIn(setting, build)
+
+    def test_invalid_compile_cap_fails_before_docker(self):
+        for key, value in (("EEZ_CI_BUILD_CPUS", "0"), ("EEZ_CI_BUILD_CPUS", "-4"), ("EEZ_CI_BUILD_CPUS", "4.5"),
+                           ("EEZ_CI_BUILD_CPUS", "four"), ("EEZ_CI_BUILD_CPUS", "1000"),
+                           ("EEZ_CI_BUILD_MEMORY", "20"), ("EEZ_CI_BUILD_MEMORY", "20G"),
+                           ("EEZ_CI_BUILD_MEMORY", "20gb"), ("EEZ_CI_BUILD_MEMORY", "0g"),
+                           ("EEZ_CI_BUILD_MEMORY", "512m"), ("EEZ_CI_BUILD_MEMORY", "1.5g")):
+            for operation in ((), ("prepare-state",)):
+                with self.subTest(key=key, value=value, operation=operation):
+                    env = dict(self.env, EEZ_CARGO_STATE_CACHE="true", **{key: value})
+                    self.log.write_text("")
+                    result = subprocess.run(["bash", str(self.repo / "scripts/ci/build-runtime-artifacts.sh"), *operation],
+                                            env=env, text=True, capture_output=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(key, result.stderr)
+                    self.assertEqual(self.commands(), [])
+
+    def test_state_host_memory_check_follows_the_configured_cap(self):
+        self.env.update(EEZ_CARGO_STATE_CACHE="true", EEZ_CI_BUILD_MEMORY="40g",
+                        MOCK_MEMORY=str(40 * 1024**3 + 4 * 1024**3 - 1))
+        result = self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
+        self.assertIn("40g Cargo builds require", result.stderr)
+        self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+        self.env["MOCK_MEMORY"] = str(44 * 1024**3)
+        self.run_script("build-runtime-artifacts.sh", "prepare-state")
+
     def test_unusable_oci_layouts_fall_back_before_compilation(self):
         state = self.prepare_state()
         transport = state / "transport"
@@ -300,7 +362,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.assertEqual(sum("binaries" in c for c in self.commands()), 1)
         self.assertFalse(any(c[:2] == ["docker", "push"] for c in self.commands()))
 
-    def test_oci_export_requires_main_push_and_exact_unit_success(self):
+    def test_oci_export_requires_main_push_and_exact_producer_success(self):
         state = self.prepare_state(seed=False)
         self.run_script("build-runtime-artifacts.sh")
         self.env.update(GITHUB_EVENT_NAME="workflow_dispatch", GITHUB_REF="refs/heads/main")
@@ -308,10 +370,14 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.env["GITHUB_EVENT_NAME"] = "push"
         self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
         tests = Path(self.env["EEZ_NATIVE_TEST_OUTPUT_DIR"])
-        (tests / "unit-passed.json").write_text("wrong candidate")
+        (tests / "producer-passed.json").write_text("wrong candidate")
+        self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
+        # The superseded marker name certifies nothing.
+        (tests / "producer-passed.json").unlink()
+        (tests / "unit-passed.json").write_text(json.dumps(json.loads((tests / "manifest.json").read_text())))
         self.run_script("build-runtime-artifacts.sh", "export-state", success=False)
         # The real runner writes compact JSON, while sealing uses indentation.
-        (tests / "unit-passed.json").write_text(json.dumps(json.loads((tests / "manifest.json").read_text())))
+        (tests / "producer-passed.json").write_text(json.dumps(json.loads((tests / "manifest.json").read_text())))
         self.log.write_text("")
         self.run_script("build-runtime-artifacts.sh", "export-state")
         self.assertTrue((state / "transport/index.json").is_file())
@@ -371,8 +437,17 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.assertLess(dockerfile.index("-newermt now"), dockerfile.index("cargo fetch --locked"))
         fetched = dockerfile.split("FROM checked-state AS build-inputs", 1)[1].split("FROM build-inputs AS build-online", 1)[0]
         self.assertIn("cargo fetch --locked", fetched)
-        self.assertIn("FROM build-inputs AS build-offline\nENV EEZ_EXPORT_CARGO_STATE=true\nRUN --network=none bash /usr/local/lib/eez/build-runtime.sh", dockerfile)
-        self.assertIn("export CARGO_BUILD_JOBS=4 CARGO_NET_OFFLINE=true", dockerfile)
+        self.assertIn("ENV EEZ_EXPORT_CARGO_STATE=true\nRUN --network=none bash /usr/local/lib/eez/build-runtime.sh", dockerfile)
+        self.assertIn('export CARGO_BUILD_JOBS="$EEZ_BUILD_CPUS" CARGO_NET_OFFLINE=true', dockerfile)
+        offline = dockerfile.split("FROM build-inputs AS build-offline", 1)[1].split("\nFROM ", 1)[0]
+        self.assertIn("ARG EEZ_BUILD_CPUS=4\n", offline)
+        self.assertIn("ARG EEZ_BUILD_MEMORY_BYTES=21474836480\n", offline)
+        online = dockerfile.split("FROM build-inputs AS build-online", 1)[1].split("\nFROM ", 1)[0]
+        self.assertNotIn("EEZ_BUILD_", online)
+        script = dockerfile.split("COPY <<'BUILD_RUNTIME'", 1)[1].split("\nBUILD_RUNTIME", 1)[0]
+        self.assertIn('test "$(cat /sys/fs/cgroup/cpu.max)" = "$((EEZ_BUILD_CPUS * 100000)) 100000"', script)
+        self.assertIn('test "$(cat /sys/fs/cgroup/memory.max)" = "$EEZ_BUILD_MEMORY_BYTES"', script)
+        self.assertIn('test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0', script)
 
     def test_no_publication_same_job_needs_no_image_archive_or_pull(self):
         self.build(published=False)

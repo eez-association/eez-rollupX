@@ -20,6 +20,10 @@ NEXTEST_VERSION = "0.9.143"
 RUST_VERSION = "1.95.0"
 RUSTFLAGS = "-C link-arg=-fuse-ld=mold"
 RUNTIME_BINARIES = ("eez-composer", "eez-follower", "eez-proof-signer")
+# Written only after the producer suite passes for this exact manifest. It gates
+# the E2E export and the optional retained Cargo-state export; it says nothing
+# about the debug unit lane, which ci.yml's gate requires separately.
+PRODUCER_PASSED = "producer-passed.json"
 # All node process tests are modules of one test binary: in the release test
 # profile each separate target re-optimized and linked the whole node stack.
 E2E_TARGET = "node_e2e"
@@ -29,16 +33,28 @@ CROSS_CHAIN_MODULES = (
     "settlement_policy_gas", "dynamic_admission", "queue_liveness", "queue_reorg")
 E2E_MODULES = (*EMBEDDED_MODULES, *CROSS_CHAIN_MODULES)
 E2E_BINARIES = {f"eez-node-e2e::{E2E_TARGET}"}
-TARGETS = [E2E_TARGET,
-           "public_inputs_hash_vectors", "rolling_hash_vectors", "causal_evidence", "ethereum_kzg_compatibility", "issue35"]
-# One Cargo invocation, hence one unified feature set for every test target.
-# Dev-dependencies already enable Tokio's test-util here (e.g. eez-deriver), so a
-# separate composer invocation only rebuilt dependencies under another feature
-# set. Shipping bytes are unaffected: the producer copies the release candidate
-# into release/eez-runtime first and rechecks its hashes after archiving.
+# Standalone protocol/codec regressions, keyed by test target, with their package.
+VECTOR_TARGETS = {
+    "public_inputs_hash_vectors": "eez-protocol", "rolling_hash_vectors": "eez-protocol",
+    "causal_evidence": "eez-protocol", "ethereum_kzg_compatibility": "eez-blob-codec",
+    "issue35": "eez-payload-codec",
+}
+TARGETS = [E2E_TARGET, *VECTOR_TARGETS]
+# The release archive holds node_e2e (which runs the frozen shipping binaries),
+# the protocol vectors and verify_blob_evidence's example tests. One Cargo
+# invocation keeps their dependency feature set identical to the shipping
+# build, so it reuses the release target's dependency artifacts; the build guard
+# fails if any non-workspace crate is compiled. Keep the eez-l1 example here:
+# without it, eez-node-e2e alone resolves another stateless/alloy feature set.
+# Workspace lib/bin unit tests are excluded: eez-composer and eez-deriver
+# dev-dependencies enable tokio/test-util, which rebuilt ~126 dependencies. They
+# run in ci.yml's separate debug unit lane. Shipping bytes are unaffected: the
+# producer copies the release candidate into release/eez-runtime first and
+# rechecks its hashes after archiving.
+RELEASE_PACKAGES = ("eez-node-e2e", "eez-l1", *dict.fromkeys(VECTOR_TARGETS.values()))
 ARCHIVES = {
-    "native-tests.tar.zst": ["--workspace", "--lib",
-                             "--bin", "eez-proof-signer", "--example", "verify_blob_evidence",
+    "native-tests.tar.zst": [*[arg for package in RELEASE_PACKAGES for arg in ("-p", package)],
+                             "--example", "verify_blob_evidence",
                              *[arg for target in TARGETS for arg in ("--test", target)]],
 }
 
@@ -50,11 +66,10 @@ def e2e_modules(modules):
 
 
 SUITES = {
-    "unit": "kind(lib) | kind(bin) | "
-            "(package(=eez-l1) & binary(=verify_blob_evidence)) | "
-            "(package(=eez-protocol) & (binary(=public_inputs_hash_vectors) | binary(=rolling_hash_vectors) | binary(=causal_evidence))) | "
-            "(package(=eez-blob-codec) & binary(=ethereum_kzg_compatibility)) | "
-            "(package(=eez-payload-codec) & binary(=issue35))",
+    # Release tests that run in the producer before the E2E payload is exported.
+    "producer": " | ".join(["(package(=eez-l1) & binary(=verify_blob_evidence))",
+                            *(f"(package(={package}) & binary(={target}))"
+                              for target, package in VECTOR_TARGETS.items())]),
     # The Kurtosis module is archived too; its test stays explicitly ignored
     # here and is run by verify-policy-replay.sh against a live enclave.
     "embedded": e2e_modules(EMBEDDED_MODULES),
@@ -100,6 +115,51 @@ def runtime_hashes(directory):
     return {name: digest(directory / name) for name in RUNTIME_BINARIES}
 
 
+def workspace_members():
+    metadata = subprocess.check_output(["cargo", "metadata", "--format-version", "1", "--no-deps", "--offline"],
+                                       cwd=REPO, text=True)
+    return set(json.loads(metadata)["workspace_members"])
+
+
+def compiled_dependencies(lines, members):
+    """Yield the package ID of every non-workspace unit Cargo compiled (fail closed).
+
+    Non-JSON lines (wrapper/status output) are echoed. Missing fields count as
+    compiled: a guard that cannot read a message must not pass it.
+    """
+    for line in lines:
+        try:
+            message = json.loads(line)
+        except ValueError:
+            message = None
+        if not isinstance(message, dict):
+            sys.stdout.write(line)
+            continue
+        if (message.get("reason") == "compiler-artifact" and message.get("fresh") is not True
+                and message.get("package_id") not in members):
+            yield str(message.get("package_id"))
+
+
+def guarded_archive(command, members):
+    """Run one archive invocation; fail if it compiled any non-workspace crate.
+
+    The shipping build has already compiled every dependency of the release test
+    graph with the same features. A dependency compiled here means a test-only
+    feature (or a dev-only crate) entered that graph, which would silently spend
+    most of the archive step rebuilding the dependency stack. Cargo's JSON goes
+    to stdout; rendered diagnostics and progress stay on stderr.
+    """
+    with subprocess.Popen(command, cwd=REPO, stdout=subprocess.PIPE, text=True) as process:
+        compiled = sorted(set(compiled_dependencies(process.stdout, members)))
+    if process.returncode:
+        raise subprocess.CalledProcessError(process.returncode, command)
+    if compiled:
+        listed = "\n  ".join(compiled[:40]) + ("\n  ..." if len(compiled) > 40 else "")
+        raise ValueError(f"release test archive compiled {len(compiled)} non-workspace crate(s); its dependency "
+                         "feature set must equal the shipping build's. Run tests whose dev-dependencies enable "
+                         f"test-only features in the debug unit lane instead:\n  {listed}")
+
+
 def build(directory, runtime_bin):
     # Git metadata stays outside Docker's build context. The exact-revision host
     # producer seals this metadata after export; doc-only edits can reuse layers.
@@ -121,6 +181,7 @@ def build(directory, runtime_bin):
     if any(directory.iterdir()):
         raise ValueError("native artifact output directory must be empty")
     hashes = runtime_hashes(runtime_bin)
+    members = workspace_members()
     target = Path(os.environ["CARGO_TARGET_DIR"]).resolve()
     frozen = target / "release/eez-runtime"
     frozen.mkdir(parents=True, exist_ok=False)
@@ -129,8 +190,9 @@ def build(directory, runtime_bin):
     command = ["bash", "scripts/ci/with-compiler-cache.sh"]
     for name, selection in ARCHIVES.items():
         args = ["cargo", "nextest", "archive", "--release", "--locked", "--timings", *selection,
+                "--cargo-message-format", "json-render-diagnostics",
                 "--profile", "ci-archive", "--zstd-level", "1", "--archive-file", str(directory / name)]
-        subprocess.run(command + ["test-archive", *args], cwd=REPO, check=True)
+        guarded_archive(command + ["test-archive", *args], members)
         if runtime_hashes(frozen) != hashes or runtime_hashes(runtime_bin) != hashes:
             raise ValueError("test compilation modified the frozen release candidate")
         shutil.copy2(target / "cargo-timings/cargo-timing.html", directory / "cargo-timing.html")
@@ -179,14 +241,14 @@ def verify_e2e(directory, manifest):
 
 
 def export_e2e(directory, destination):
-    """Keep only execution inputs; units have already passed in this producer.
+    """Keep only execution inputs; the producer suite has already passed here.
 
     Nextest supports manually transferred binaries/metadata. Do not recompile,
     reconstruct Cargo state, or introduce another compression/archive format.
     """
     manifest = json.loads((directory / "manifest.json").read_text())
-    if json.loads((directory / "unit-passed.json").read_text()) != manifest:
-        raise ValueError("unit tests must pass for this exact candidate before export")
+    if json.loads((directory / PRODUCER_PASSED).read_text()) != manifest:
+        raise ValueError("producer release tests must pass for this exact candidate before export")
     for key, expected in identity().items():
         if manifest.get(key) != expected:
             raise ValueError(f"native artifact mismatch: {key}")
@@ -260,18 +322,18 @@ def seal(directory, runtime_archive):
 
 
 def run(directory, suite, partition=None):
-    if partition is not None and suite == "unit":
-        raise ValueError("unit validation must run in full before exporting E2E inputs")
-    if suite == "unit":
-        (directory / "unit-passed.json").unlink(missing_ok=True)
+    if partition is not None and suite == "producer":
+        raise ValueError("producer validation must run in full before exporting E2E inputs")
+    if suite == "producer":
+        (directory / PRODUCER_PASSED).unlink(missing_ok=True)
     check_nextest()
     manifest = json.loads((directory / "manifest.json").read_text())
     for key, expected in identity().items():
         if manifest.get(key) != expected:
             raise ValueError(f"native artifact mismatch: {key}")
     if manifest.get("e2e_only") is True:
-        if suite == "unit":
-            raise ValueError("unit executables are producer-only")
+        if suite == "producer":
+            raise ValueError("producer-suite executables are not in the E2E payload")
         verify_e2e(directory, manifest)
     else:
         verify_archives(directory, manifest)
@@ -285,7 +347,7 @@ def run(directory, suite, partition=None):
     target.mkdir(parents=True, exist_ok=True)
     if any(target.iterdir()):
         raise ValueError("native archive extraction requires an empty job-local target")
-    selected = ARCHIVES if suite == "unit" else ("native-tests.tar.zst",)
+    selected = ARCHIVES if suite == "producer" else ("native-tests.tar.zst",)
     failure = None
     for name in selected:
         # Each archive extracts to its own path. Never overlay archives or rely
@@ -311,7 +373,7 @@ def run(directory, suite, partition=None):
                    "--binaries-metadata", str(extracted / "nextest/binaries-metadata.json"),
                    "--target-dir-remap", str(extracted), "--workspace-remap", str(REPO),
                    "--no-fail-fast", "--no-tests=fail", "-E", SUITES[suite]]
-        if suite != "unit":
+        if suite != "producer":
             command.extend(["--profile", "ci", "--test-threads=1", "--color=never"])
         if partition is not None:
             command.extend(["--partition", partition])
@@ -323,22 +385,22 @@ def run(directory, suite, partition=None):
             failure = failure or error
     if failure is not None:
         raise failure
-    if suite == "unit":
+    if suite == "producer":
         # Generated only by actual successful execution, never by a cached build.
-        (directory / "unit-passed.json").write_text(json.dumps(manifest) + "\n")
+        (directory / PRODUCER_PASSED).write_text(json.dumps(manifest) + "\n")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=["build", "seal", "run", "export-e2e"])
     parser.add_argument("directory", type=Path)
-    parser.add_argument("--suite", choices=SUITES, default="unit")
+    parser.add_argument("--suite", choices=SUITES, default="producer")
     parser.add_argument("--partition", help="nextest partition for an E2E run, e.g. slice:1/4")
     parser.add_argument("--runtime-bin", type=Path)
     parser.add_argument("--runtime-archive", type=Path)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
-    if args.partition is not None and (args.operation != "run" or args.suite == "unit"):
+    if args.partition is not None and (args.operation != "run" or args.suite == "producer"):
         parser.error("--partition is only supported for E2E runs")
     try:
         if args.operation == "build":

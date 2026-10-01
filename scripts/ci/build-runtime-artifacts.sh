@@ -21,6 +21,20 @@ cache="${EEZ_RUNTIME_CACHE:-true}"
 [[ "$cache" == true || "$cache" == false ]] || { echo "EEZ_RUNTIME_CACHE must be true or false" >&2; exit 1; }
 state_cache="${EEZ_CARGO_STATE_CACHE:-false}"
 [[ "$state_cache" == true || "$state_cache" == false ]] || { echo "EEZ_CARGO_STATE_CACHE must be true or false" >&2; exit 1; }
+# Compile cap for the retained-state (offline) build. ARC runs this job's Docker
+# daemon in a per-pod DinD sidecar, so the sidecar's Kubernetes limits are the
+# outer bound; keep these values within them. Cargo inside the nested build
+# container cannot see the sidecar's quota (only this container's cgroup), so
+# CARGO_BUILD_JOBS is set from the same CPU count rather than detected.
+build_cpus="${EEZ_CI_BUILD_CPUS:-4}"
+build_memory="${EEZ_CI_BUILD_MEMORY:-20g}"
+[[ "$build_cpus" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "EEZ_CI_BUILD_CPUS must be a positive integer" >&2; exit 1; }
+[[ "$build_memory" =~ ^[1-9][0-9]{0,3}g$ ]] || { echo "EEZ_CI_BUILD_MEMORY must be whole GiB, such as 20g" >&2; exit 1; }
+build_memory_bytes=$(( ${build_memory%g} * 1073741824 ))
+# Docker enforces the limits; build-runtime.sh verifies them in its cgroup.
+build_cap=(--resource cpu-period=100000 --resource "cpu-quota=$(( build_cpus * 100000 ))"
+           --resource "memory=$build_memory" --resource "memory-swap=$build_memory"
+           --build-arg "EEZ_BUILD_CPUS=$build_cpus" --build-arg "EEZ_BUILD_MEMORY_BYTES=$build_memory_bytes")
 operation="${1:-build}"
 [[ "$operation" == build || "$operation" == prepare-state || "$operation" == export-state ]] || exit 2
 
@@ -64,17 +78,16 @@ inputs=(Cargo.toml Cargo.lock crates contracts/test/PostBatchGasPins.t.sol
         .config/nextest.toml scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh)
 state_build=(docker buildx build --builder default --platform linux/amd64 --progress plain
              --provenance=false -f Dockerfile.runtime --build-arg EEZ_COMPILER_CACHE=none
-             --build-arg BUILD_STAGE=build-offline
-             --resource cpu-period=100000 --resource cpu-quota=400000
-             --resource memory=20g --resource memory-swap=20g)
+             --build-arg BUILD_STAGE=build-offline "${build_cap[@]}")
 if [[ "$operation" == prepare-state ]]; then
     [[ "$state_cache" == true ]]
     git diff --quiet HEAD -- "${inputs[@]}" || { echo 'Cargo state requires clean compilation inputs' >&2; exit 1; }
     [[ -z "$(git ls-files --others --exclude-standard -- "${inputs[@]}")" ]] || {
         echo 'Cargo state requires tracked compilation inputs' >&2; exit 1;
     }
-    [[ "$(docker info --format '{{.MemTotal}}')" -ge 25769803776 ]] || {
-        echo '20-GiB Cargo builds require a Docker host with at least 24 GiB RAM' >&2; exit 1;
+    # MemTotal is the node's memory even inside DinD, not the sidecar's limit.
+    [[ "$(docker info --format '{{.MemTotal}}')" -ge $(( build_memory_bytes + 4294967296 )) ]] || {
+        echo "$build_memory Cargo builds require a Docker host with at least 4 GiB more RAM" >&2; exit 1;
     }
     [[ "$(df -PB1 "$REPO" | awk 'NR == 2 {print $4}')" -ge 53687091200 ]] || {
         echo 'Cargo state requires 50 GiB free disk; no automatic cleanup' >&2; exit 1;
@@ -133,7 +146,7 @@ if [[ "$operation" == export-state ]]; then
     jq -e -s --arg root "$root_commit" --arg protocol "$protocol_commit" '
         length == 2 and .[0] == .[1] and
         .[0].root_commit == $root and .[0].protocol_commit == $protocol
-    ' "$EEZ_NATIVE_TEST_OUTPUT_DIR/manifest.json" "$EEZ_NATIVE_TEST_OUTPUT_DIR/unit-passed.json" >/dev/null
+    ' "$EEZ_NATIVE_TEST_OUTPUT_DIR/manifest.json" "$EEZ_NATIVE_TEST_OUTPUT_DIR/producer-passed.json" >/dev/null
     previous="$(jq -er '.previous // ""' "$state_dir/plan.json")"
     [[ -z "$previous" ]] || state_build+=(--build-context "previous-state=$previous")
     "${state_build[@]}" --target cargo-state \
@@ -237,9 +250,7 @@ labels=(--label "org.opencontainers.image.source=$source_url"
         --label "io.eez.build.profile=release")
 
 if [[ "$state_cache" == true ]]; then
-    runtime_build+=(--build-arg BUILD_STAGE=build-offline
-                    --resource cpu-period=100000 --resource cpu-quota=400000
-                    --resource memory=20g --resource memory-swap=20g)
+    runtime_build+=(--build-arg BUILD_STAGE=build-offline "${build_cap[@]}")
     previous=""
     if digest="$(state_digest "$state_dir/transport" "$compatibility" 2>/dev/null)"; then
         candidate="oci-layout://$state_dir/transport@$digest"

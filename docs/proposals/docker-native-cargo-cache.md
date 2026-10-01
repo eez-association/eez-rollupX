@@ -50,6 +50,10 @@ GHCR state-image retention policy is needed.
   gates. Cached compilation never marks tests passed.
 - Restore/export/save are optional and time-bounded. Save only after unit success
   on default-branch pushes, and do not re-upload exact cache hits.
+- Update (2026-10-01, [test-archive split](ci-test-archive-split.md), draft): the
+  CPU/memory cap is configurable (default unchanged), and "unit success" is now
+  the producer's release suite (`producer-passed.json`); workspace unit tests run
+  in a separate debug lane that does not gate the state export.
 
 ## Rollout and rollback
 

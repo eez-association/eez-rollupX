@@ -52,10 +52,12 @@ COPY <<'BUILD_RUNTIME' /usr/local/lib/eez/build-runtime.sh
 set -euo pipefail
 case "$EEZ_EXPORT_CARGO_STATE" in true|false) ;; *) exit 2 ;; esac
 if [ "$EEZ_EXPORT_CARGO_STATE" = true ]; then
-    test "$(cat /sys/fs/cgroup/cpu.max)" = '400000 100000'
-    test "$(cat /sys/fs/cgroup/memory.max)" = 21474836480
+    # The producer's configured cap must be the one actually enforced here.
+    # Cargo cannot detect an outer (e.g. DinD sidecar) quota, so set its jobs.
+    test "$(cat /sys/fs/cgroup/cpu.max)" = "$((EEZ_BUILD_CPUS * 100000)) 100000"
+    test "$(cat /sys/fs/cgroup/memory.max)" = "$EEZ_BUILD_MEMORY_BYTES"
     test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0
-    export CARGO_BUILD_JOBS=4 CARGO_NET_OFFLINE=true
+    export CARGO_BUILD_JOBS="$EEZ_BUILD_CPUS" CARGO_NET_OFFLINE=true
 fi
 rm -rf /build/target/release/eez-runtime
 EEZ_BUILD_METRICS_DIR=/out/build-metrics \
@@ -121,6 +123,9 @@ RUN --mount=type=secret,id=ACTIONS_RESULTS_URL,env=ACTIONS_RESULTS_URL \
     bash /usr/local/lib/eez/build-runtime.sh
 
 FROM build-inputs AS build-offline
+# Defaults match build-runtime-artifacts.sh: four CPUs and 20 GiB.
+ARG EEZ_BUILD_CPUS=4
+ARG EEZ_BUILD_MEMORY_BYTES=21474836480
 ENV EEZ_EXPORT_CARGO_STATE=true
 RUN --network=none bash /usr/local/lib/eez/build-runtime.sh
 
