@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {EEZ, ProofSystemBatchPerVerificationEntries, RollupIdWithProofSystems} from "eez-core-protocol/src/EEZ.sol";
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {RollupDeployment} from "./utils/RollupDeployment.sol";
 import {
     ExecutionEntry,
     ExpectedRootPerRollup,
@@ -99,7 +100,7 @@ contract PublicInputsHashVectorsTest is Test {
         ECDSAProofSystem proofSystem = new ECDSAProofSystem(signer);
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = address(proofSystem);
-        Rollup rollup = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        Rollup rollup = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
         uint64 rollupId = eez.registerRollup(address(rollup), bytes32(uint256(0x1111)));
         ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
         batch.blockNumber = type(uint64).max;
@@ -284,7 +285,7 @@ contract PublicInputsHashVectorsTest is Test {
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = address(proofSystem);
         bytes32[] memory vkeys = _singleton(vkey);
-        Rollup rollup = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        Rollup rollup = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
         uint64 rollupId = eez.registerRollup(address(rollup), bytes32(uint256(0x1111)));
 
         ProofSystemBatchPerVerificationEntries memory batch = _emptyBatch();
@@ -497,7 +498,7 @@ contract PublicInputsHashVectorsTest is Test {
         private
         returns (uint64)
     {
-        Rollup rollup = new Rollup(address(eez), address(this), 1, _addresses(systems), vkeys);
+        Rollup rollup = RollupDeployment.deploy(address(eez), address(this), 1, _addresses(systems), vkeys);
         return eez.registerRollup(address(rollup), initialState);
     }
 

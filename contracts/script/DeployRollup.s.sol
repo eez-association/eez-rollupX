@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeployRollup
 /// @notice Deploys the per-rollup `IRollupContract` manager (reference
@@ -11,7 +12,14 @@ import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 ///         the workspace-local `ECDSAProofSystem` with vkey =
 ///         `bytes32(uint256(uint160(authorizedSigner)))`.
 ///
-///         Outputs: ROLLUP_CONTRACT=<address>
+///         `Rollup` is upgradeable: its implementation locks itself, so
+///         operational state lives in a transparent proxy initialized
+///         atomically at construction (the protocol's deployment pattern).
+///         The rollup owner also owns upgrades through the proxy's
+///         ProxyAdmin; register and use the proxy address.
+///
+///         Outputs: ROLLUP_CONTRACT=<proxy address>,
+///                  ROLLUP_IMPLEMENTATION=<address>, ROLLUP_PROXY_ADMIN=<address>
 ///
 ///         Call shape:
 ///           forge script ... DeployRollup
@@ -63,14 +71,16 @@ contract DeployRollup is Script {
         vkeys[0] = bytes32(uint256(uint160(authorizedSigner)));
 
         vm.startBroadcast();
-        Rollup rollup = new Rollup(
-            eez,
-            owner,
-            /* threshold */ 1,
-            proofSystems,
-            vkeys
-        );
+        Rollup implementation = new Rollup(eez);
+        bytes memory init = abi.encodeCall(Rollup.initialize, (owner, /* threshold */ 1, proofSystems, vkeys));
+        Rollup rollup = Rollup(address(new TransparentUpgradeableProxy(address(implementation), owner, init)));
         vm.stopBroadcast();
+        // ERC-1967 admin slot: the ProxyAdmin contract the proxy created for `owner`.
+        address proxyAdmin = address(
+            uint160(uint256(vm.load(address(rollup), 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103)))
+        );
         console.log("ROLLUP_CONTRACT=%s", address(rollup));
+        console.log("ROLLUP_IMPLEMENTATION=%s", address(implementation));
+        console.log("ROLLUP_PROXY_ADMIN=%s", proxyAdmin);
     }
 }

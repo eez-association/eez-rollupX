@@ -1629,6 +1629,10 @@ sol! {
         function registerRollup(address rollupContract, bytes32 initialRoot) external returns (uint64 rollupId);
         function executeCrossChainCall(address sourceAddress, bytes calldata callData) external payable returns (bytes memory result);
     }
+
+    interface IRollupInit {
+        function initialize(address initialOwner, uint256 initialThreshold, address[] proofSystems, bytes32[] vkeys) external;
+    }
 }
 
 pub const INVALID_PROOF_SELECTOR: [u8; 4] = IEEZ::InvalidProof::SELECTOR;
@@ -1785,22 +1789,36 @@ async fn deploy_contracts_with_initial(
     )
     .await?;
 
-    // Rollup(address eez, address owner, uint256 threshold,
-    //        address[] proofSystems, bytes32[] vkeys)
+    // Rollup is upgradeable, as in DeployRollup.s.sol: the implementation
+    // (constructor `Rollup(address eez)`) locks itself, and a transparent proxy
+    // runs `initialize(owner, threshold, proofSystems, vkeys)` at construction.
+    // The proxy is the rollup manager; the deployer also owns upgrades.
     let proof_systems: Vec<Address> = vec![proof_system_address];
     // vkey embeds the authorized signer address; the registry treats vkey as
-    // opaque but checks non-zero + membership (see DeployRollup.s.sol:60).
+    // opaque but checks non-zero + membership (see DeployRollup.s.sol).
     let vkeys: Vec<B256> = vec![attester.into_word()];
-    let rollup_manager_address = deploy(
+    let rollup_implementation = deploy(
         &provider,
         signer_addr,
         &out.join("Rollup.sol/Rollup.json"),
+        eez_address.abi_encode(),
+    )
+    .await?;
+    let initialize = IRollupInit::initializeCall {
+        initialOwner: signer_addr,
+        initialThreshold: U256::from(1u64),
+        proofSystems: proof_systems,
+        vkeys,
+    }
+    .abi_encode();
+    let rollup_manager_address = deploy(
+        &provider,
+        signer_addr,
+        &out.join("TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json"),
         (
-            eez_address,
+            rollup_implementation,
             signer_addr,
-            U256::from(1u64),
-            proof_systems,
-            vkeys,
+            alloy_primitives::Bytes::from(initialize),
         )
             .abi_encode_params(),
     )

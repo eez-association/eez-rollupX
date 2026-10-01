@@ -49,7 +49,7 @@ contract L1RollingHashHarness is EEZ {
 }
 
 contract L2RollingHashHarness is EEZL2 {
-    constructor() EEZL2(1, address(0xBEEF), false) {}
+    constructor() EEZL2(1, address(0xBEEF), false, address(0xA11CE)) {}
 
     function entryBegin(bytes32 proxyEntryHash) external returns (bytes32 result) {
         _seedRollingHash(proxyEntryHash);

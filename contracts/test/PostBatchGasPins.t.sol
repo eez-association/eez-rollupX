@@ -15,6 +15,7 @@ import {
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
 import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
 
@@ -1570,7 +1571,7 @@ contract PostBatchGasPinsTest is Test {
         proofSystems[0] = address(proofSystem);
         bytes32[] memory vkeys = new bytes32[](1);
         vkeys[0] = bytes32(uint256(uint160(prover)));
-        Rollup manager = new Rollup(address(eez), address(this), 1, proofSystems, vkeys);
+        Rollup manager = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
 
         assertEq(eez.registerRollup(address(manager), GENESIS_ROOT), ROLLUP_ID, "unexpected rollup id");
         touched.push(address(eez));
