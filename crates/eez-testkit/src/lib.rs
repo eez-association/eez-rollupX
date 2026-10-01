@@ -4804,9 +4804,19 @@ impl CrossChainWorld {
     /// Hold the next proved request until `release_bundle` supplies its L1
     /// execution sequence. The fixture relay times out rather than hanging.
     pub fn hold_next_bundle(&self) -> Result<()> {
+        self.hold_bundle_after(0)
+    }
+
+    /// Forward the next `skip` bundles, then hold the following one. Arm it
+    /// before the targeted bundle can be composed: arming after observing an
+    /// earlier settlement races the composer's next dispatch.
+    pub fn hold_bundle_after(&self, skip: u32) -> Result<()> {
         let directory = self.builder_stub.capture_dir().join("control");
         let temporary = directory.join("hold-next.new");
-        std::fs::write(&temporary, b"{}")?;
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec(&serde_json::json!({"skip": skip}))?,
+        )?;
         std::fs::rename(temporary, directory.join("hold-next.json"))?;
         Ok(())
     }
