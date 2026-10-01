@@ -260,6 +260,38 @@ This mapping means “the L1 transaction that published and settled this L2
 block.” It is distinct from an L1-origin field embedded in every L2 header,
 which this protocol does not currently define.
 
+### Composer discovery RPC
+
+Composer nodes (not followers) also expose `eez_composerInfo` on the L2 RPC, so
+clients can discover the deployment instead of hardcoding it. It takes no
+parameters (absent, `[]` or `{}`; any argument is rejected with `-32602`) and
+returns the configured contracts, the L1/L2 chain IDs and the Composer version:
+
+```json
+{
+  "eezContracts": {
+    "eezRegistryAddress": "0x…",
+    "eezRollupManagerAddress": "0x…",
+    "eezL1BridgeSender": "0x…",
+    "eezL2Address": "0x…",
+    "eezL2BridgeReceiver": "0x…"
+  },
+  "supportedNetworks": { "eezL1": 10200, "eezL2": 10201 },
+  "version": "0.1.0"
+}
+```
+
+The method and field names match upstream `eez-association/eez-rollup0`
+[#164](https://github.com/eez-association/eez-rollup0/pull/164). Addresses are
+the stable **proxy** addresses this fork deploys: `eezRegistryAddress` is
+`EEZ_REGISTRY_ADDRESS`, `eezL2Address` is `EEZL2_ADDRESS` and
+`eezRollupManagerAddress` is `EEZ_ROLLUP_MANAGER_ADDRESS` (all written by
+`scripts/deploy.sh`); implementation addresses are never advertised. The rollup
+manager and the bridge fields (`EEZ_L1_BRIDGE_SENDER`, `EEZ_L2_BRIDGE_RECEIVER`)
+are omitted when unset or empty; a malformed or zero value fails startup.
+`eezL1` is the embedded L1's chain ID and `eezL2` the L2 chain specification's.
+The response is fixed at startup.
+
 ## Build, test, teardown
 
 Use Rust 1.95.0 and the checked-in lockfile. Reth is pinned to upstream v2.7.0 commit

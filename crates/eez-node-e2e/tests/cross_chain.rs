@@ -1,6 +1,7 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
+use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
 
 use eez_protocol::EEZL2_ADDRESS;
@@ -150,6 +151,27 @@ async fn minimal_bidirectional_cross_chain_smoke() {
     let w = setup_cross_chain().await.unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
+
+    // Discovery advertises the proxy bindings and chain IDs the Composer uses.
+    // The fixture configures no bridge, so optional bridge fields are absent.
+    let info: serde_json::Value = ProviderBuilder::new()
+        .connect_http(l2_rpc.parse().unwrap())
+        .client()
+        .request("eez_composerInfo", ())
+        .await
+        .expect("composer discovery RPC");
+    assert_eq!(
+        info,
+        serde_json::json!({
+            "eezContracts": {
+                "eezRegistryAddress": format!("{:#x}", w.cfg.eez_address),
+                "eezRollupManagerAddress": format!("{:#x}", w.cfg.rollup_manager_address),
+                "eezL2Address": format!("{EEZL2_ADDRESS:#x}"),
+            },
+            "supportedNetworks": {"eezL1": DEV_CHAIN_ID, "eezL2": w.l2_chain_id},
+            "version": env!("CARGO_PKG_VERSION"),
+        })
+    );
 
     let inbound = sign_and_send(
         &w.l1_xchain(),
