@@ -80,6 +80,16 @@ load_row="$(
 causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
 trap 'rm -rf "$causal_tmp"' EXIT
 
+# Pass evidence JSON to jq through files (`--slurpfile`), never argv: receipts,
+# calldata, tables and blob evidence grow with the batch and exceed Linux's
+# 128 KiB per-argument limit (E2BIG, "Argument list too long"). Writing the
+# file uses the printf builtin, so the value itself never crosses exec.
+json_file() {
+    local path="$causal_tmp/arg-$1.json"
+    printf '%s\n' "$2" >"$path"
+    printf '%s\n' "$path"
+}
+
 transaction_evidence() {
     local rpc="$1" chain="$2" role="$3" hash="$4" expected_block="$5"
     local canonical_tx="${6:-}"
@@ -97,13 +107,17 @@ transaction_evidence() {
             || die "cannot read canonical $chain block $block_hex"
         tx_index="$(cast to-dec "$(jq -er '.transactionIndex' <<<"$receipt")")" \
             || die "invalid $role transaction index"
-        canonical_tx="$(jq -ce --arg hash "$hash" --argjson index "$tx_index" --argjson receipt "$receipt" '
+        canonical_tx="$(jq -ce --arg hash "$hash" --argjson index "$tx_index" \
+            --slurpfile receipt "$(json_file receipt "$receipt")" '
+            $receipt[0] as $receipt |
             select(.number == $receipt.blockNumber and .hash == $receipt.blockHash)
             | . as $block | .transactions[$index]
             | select(.hash == $hash and .blockHash == $block.hash and .blockNumber == $block.number)
             ' <<<"$canonical_block")" || die "$role transaction $hash is absent from its canonical block"
     fi
-    jq -en --arg hash "$hash" --argjson canonical "$canonical_tx" --argjson tx "$tx" --argjson receipt "$receipt" '
+    jq -en --arg hash "$hash" --slurpfile canonical "$(json_file canonical "$canonical_tx")" \
+        --slurpfile tx "$(json_file tx "$tx")" --slurpfile receipt "$(json_file receipt "$receipt")" '
+        $canonical[0] as $canonical | $tx[0] as $tx | $receipt[0] as $receipt |
         $canonical.hash == $hash and $tx.hash == $hash and $receipt.transactionHash == $hash
         and $tx.blockHash == $canonical.blockHash and $receipt.blockHash == $canonical.blockHash
         and $tx.blockNumber == $canonical.blockNumber and $receipt.blockNumber == $canonical.blockNumber
@@ -137,7 +151,7 @@ transaction_evidence() {
         --argjson block_number "$block_number" --argjson reported_block "$expected_block" \
         --argjson transaction_index "$tx_index" \
         --argjson reported_block_matches "$reported_block_matches" \
-        --arg to "$tx_to" --arg input "$input" \
+        --arg to "$tx_to" --rawfile input <(printf '%s' "$input") \
         '{role: $role, chain: $chain, hash: $hash, status: $status,
           block_number: $block_number, block_hex: $block_hex,
           transaction_index: $transaction_index,
@@ -179,7 +193,9 @@ if (( ${#post_hashes[@]} > 1 )); then
     # The pinned L1 protocol consumes a posted table only in its posting block.
     # Require one selected settlement before each trigger in that block; never
     # assign a trigger to a blob merely because it appeared in a summary.
-    jq -en --argjson posts "$post_receipts_json" --argjson users "$user_receipts_json" '
+    jq -en --slurpfile posts "$(json_file posts "$post_receipts_json")" \
+        --slurpfile users "$(json_file users "$user_receipts_json")" '
+        $posts[0] as $posts | $users[0] as $users |
         all($users[]; . as $user |
             [$posts[] | select(.block_number == $user.block_number and
                               .transaction_index < $user.transaction_index)] | length == 1)
@@ -256,9 +272,10 @@ l2_calls_verified=false
 grep -Eq 'PASS: [0-9]+/[0-9]+ expected L2 calls verified' "$SCENARIO_LOG" \
     && l2_calls_verified=true
 summary_blocks_match="$(jq -n \
-    --argjson users "$user_receipts_json" --argjson settlements "$post_receipts_json" \
-    --argjson systems "$system_receipts_json" \
-    '($users + $settlements + $systems) | all(.reported_block_matches)')"
+    --slurpfile users "$(json_file users "$user_receipts_json")" \
+    --slurpfile settlements "$(json_file settlements "$post_receipts_json")" \
+    --slurpfile systems "$(json_file systems "$system_receipts_json")" \
+    '($users[0] + $settlements[0] + $systems[0]) | all(.reported_block_matches)')"
 
 # Build a canonical receipt/calldata input for the Rust verifier. It invokes
 # the same independent two-table verifier used by the deriver, then requires
@@ -283,14 +300,14 @@ direction=L1_to_L2
 jq -n \
     --arg direction "$direction" --arg registry "$ROLLUPS" --arg manager_l2 "$MANAGER_L2" \
     --argjson rollup_id "${ROLLUP_ID:-1}" \
-    --argjson l1_calldata "$(jq 'map(.input) | if length == 1 then .[0] else . end' <<<"$post_receipts_json")" \
-    --argjson l2_calldata "$(jq '[.[].input]' <<<"$system_receipts_json")" \
-    --argjson expected_l2_entry_hashes "$expected_l2_json" \
+    --slurpfile l1_calldata <(jq 'map(.input) | if length == 1 then .[0] else . end' <<<"$post_receipts_json") \
+    --slurpfile l2_calldata <(jq '[.[].input]' <<<"$system_receipts_json") \
+    --slurpfile expected_l2_entry_hashes "$(json_file expected_l2_entry_hashes "$expected_l2_json")" \
     --slurpfile l1_receipts "$causal_tmp/l1-receipts.json" \
     --slurpfile l2_receipts "$causal_tmp/l2-receipts.json" \
     '{direction: $direction, registry: $registry, manager_l2: $manager_l2,
-      rollup_id: $rollup_id, l1_calldata: $l1_calldata, l2_calldata: $l2_calldata,
-      expected_l2_entry_hashes: $expected_l2_entry_hashes,
+      rollup_id: $rollup_id, l1_calldata: $l1_calldata[0], l2_calldata: $l2_calldata[0],
+      expected_l2_entry_hashes: $expected_l2_entry_hashes[0],
       l1_receipts: $l1_receipts[0], l2_receipts: $l2_receipts[0]}' \
     >"$causal_tmp/input.json"
 # Public canonical calldata/receipts permit offline reproduction of failures.
@@ -309,9 +326,9 @@ causal_graph="$(jq -c . "$causal_tmp/output.json")"
 blob_evidence=()
 while read -r post; do
     hash="$(jq -r '.hash' <<<"$post")"
-    mapfile -t trigger_hashes < <(jq -r --argjson post "$post" \
+    mapfile -t trigger_hashes < <(jq -r --slurpfile post "$(json_file post "$post")" \
         --argjson count "${#post_hashes[@]}" \
-        '.[] | select($count == 1 or .block_number == $post.block_number) | .hash' \
+        '$post[0] as $post | .[] | select($count == 1 or .block_number == $post.block_number) | .hash' \
         <<<"$user_receipts_json")
     blob_evidence_file="$causal_tmp/blob-$hash.json"
     sidecars_file="${OUTPUT_JSON%.json}.blob-sidecars.json"
@@ -356,20 +373,21 @@ jq -n \
     --arg log_sha256 "$log_sha256" \
     --arg upstream_table_hash "$load_hash" \
     --arg trigger_chain "$trigger_chain" \
-    --argjson trigger_transactions "$user_receipts_json" \
-    --argjson settlement_transactions "$post_receipts_json" \
-    --argjson system_transactions "$system_receipts_json" \
-    --argjson expected_l1_entries "$expected_l1_json" \
-    --argjson expected_l2_entries "$expected_l2_json" \
-    --argjson expected_l1_calls "$expected_l1_calls_json" \
-    --argjson expected_l2_calls "$expected_l2_calls_json" \
-    --argjson proof_statements "$proofs_json" \
+    --slurpfile trigger_transactions "$(json_file trigger_transactions "$user_receipts_json")" \
+    --slurpfile settlement_transactions "$(json_file settlement_transactions "$post_receipts_json")" \
+    --slurpfile system_transactions "$(json_file system_transactions "$system_receipts_json")" \
+    --slurpfile expected_l1_entries "$(json_file expected_l1_entries "$expected_l1_json")" \
+    --slurpfile expected_l2_entries "$(json_file expected_l2_entries "$expected_l2_json")" \
+    --slurpfile expected_l1_calls "$(json_file expected_l1_calls "$expected_l1_calls_json")" \
+    --slurpfile expected_l2_calls "$(json_file expected_l2_calls "$expected_l2_calls_json")" \
+    --slurpfile proof_statements "$(json_file proof_statements "$proofs_json")" \
     --argjson rolling_replayed "$rolling_replayed" \
     --argjson l2_calls_verified "$l2_calls_verified" \
     --argjson summary_blocks_match "$summary_blocks_match" \
-    --argjson causal_graph "$causal_graph" \
-    --argjson blob_da "$blob_da" \
-    '{schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
+    --slurpfile causal_graph "$(json_file causal_graph "$causal_graph")" \
+    --slurpfile blob_da "$(json_file blob_da "$blob_da")" \
+    '$trigger_transactions[0] as $trigger_transactions | $settlement_transactions[0] as $settlement_transactions | $system_transactions[0] as $system_transactions | $expected_l1_entries[0] as $expected_l1_entries | $expected_l2_entries[0] as $expected_l2_entries | $expected_l1_calls[0] as $expected_l1_calls | $expected_l2_calls[0] as $expected_l2_calls | $proof_statements[0] as $proof_statements | $causal_graph[0] as $causal_graph | $blob_da[0] as $blob_da |
+     {schema_version: $schema_version, scenario: $scenario, scenario_path: $scenario_path,
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
       trigger_chain: $trigger_chain, trigger_transactions: $trigger_transactions,
       settlement_transactions: $settlement_transactions,
