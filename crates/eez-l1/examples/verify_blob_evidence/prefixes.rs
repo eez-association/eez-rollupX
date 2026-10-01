@@ -213,8 +213,18 @@ mod tests {
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
 
     fn profile_input() -> Value {
-        let genesis: alloy_genesis::Genesis =
+        let mut genesis: alloy_genesis::Genesis =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
+        // A deployed genesis on a private L1: the production base references
+        // Ethereum mainnet's block zero, whose timestamp is zero, while these
+        // tests need a genesis that starts after a nonzero L1 reference.
+        let reference_timestamp = 1_687_223_762;
+        genesis.timestamp = reference_timestamp;
+        let rollup_x = genesis.config.extra_fields.get_mut("rollupX").unwrap();
+        rollup_x["l1Reference"]["chainId"] = json!(1337);
+        rollup_x["l1Reference"]["timestamp"] = json!(reference_timestamp);
+        rollup_x["blockIntervalSeconds"] = json!(1);
+        rollup_x["syncIntervalBlocks"] = json!(4);
         let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
         let mut config = genesis.config.clone();
         for fork in ["cancun", "prague", "osaka"] {
