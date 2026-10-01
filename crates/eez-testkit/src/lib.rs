@@ -3686,8 +3686,9 @@ fn require_artifact_method(
     Ok(())
 }
 
-/// Deploy EEZ + ECDSAProofSystem + Rollup on the embedded dev L1 and
-/// register the rollup. Contract addresses are deterministic.
+/// Deploy EEZ + ECDSAProofSystem + the Rollup implementation and its
+/// transparent proxy on the embedded dev L1, then register the proxy as the
+/// rollup. Contract addresses are deterministic.
 pub async fn deploy_protocol_dev(
     l1_rpc: &str,
     deployer_key: &str,
@@ -3700,10 +3701,12 @@ pub async fn deploy_protocol_dev(
     let out = repo_root().join("contracts/out");
     let provider = ProviderBuilder::new().connect_http(l1_rpc.parse()?);
     let nonce = onchain_nonce(l1_rpc, deployer_key).await?;
-    let register_nonce = nonce.checked_add(3).context("fixture nonce overflow")?;
+    let register_nonce = nonce.checked_add(4).context("fixture nonce overflow")?;
     let eez_address = signer_addr.create(nonce);
     let proof_system_address = signer_addr.create(nonce + 1);
-    let rollup_manager_address = signer_addr.create(nonce + 2);
+    let rollup_implementation = signer_addr.create(nonce + 2);
+    // The transparent proxy is the rollup manager, as in DeployRollup.s.sol.
+    let rollup_manager_address = signer_addr.create(nonce + 3);
 
     let vkeys: Vec<B256> = vec![B256::from_slice(&{
         let mut padded = [0u8; 32];
@@ -3712,7 +3715,14 @@ pub async fn deploy_protocol_dev(
     })];
     // CREATE addresses are known before mining. Queue dependent transactions
     // from one signer in nonce order, then verify every receipt. Waiting after
-    // each send would spend four L1 slots on identical setup in every test.
+    // each send would spend five L1 slots on identical setup in every test.
+    let initialize = IRollupInit::initializeCall {
+        initialOwner: signer_addr,
+        initialThreshold: U256::from(1u64),
+        proofSystems: vec![proof_system_address],
+        vkeys,
+    }
+    .abi_encode();
     let deployments = [
         ("EEZ.sol/EEZ.json", signer_addr.abi_encode(), eez_address),
         (
@@ -3722,12 +3732,15 @@ pub async fn deploy_protocol_dev(
         ),
         (
             "Rollup.sol/Rollup.json",
+            eez_address.abi_encode(),
+            rollup_implementation,
+        ),
+        (
+            "TransparentUpgradeableProxy.sol/TransparentUpgradeableProxy.json",
             (
-                eez_address,
+                rollup_implementation,
                 signer_addr,
-                U256::from(1u64),
-                vec![proof_system_address],
-                vkeys,
+                alloy_primitives::Bytes::from(initialize),
             )
                 .abi_encode_params(),
             rollup_manager_address,
