@@ -38,6 +38,7 @@ use crate::correlation::{BatchCorrelation, CorrelationStore, L2BlockCorrelation}
 use crate::error::{DeriverError, DeriverResult};
 
 mod inputs;
+mod source_retry;
 use inputs::ExecutionInputs;
 
 /// Watcher seed: the finalized block, kept inside the range this scan read.
@@ -138,8 +139,12 @@ where
     ) -> DeriverResult<Self> {
         let schedule =
             eez_evm::profile::schedule(chain_spec.as_ref()).map_err(DeriverError::l2_provider)?;
-        let derivation = l1_reader
-            .derivation_source(schedule)
+        // Readiness was established before construction, but the source can
+        // drop out again (e.g. an embedded L1 restart); retry only that case.
+        let derivation =
+            source_retry::retry_unavailable(source_retry::POLL, source_retry::MAX_ATTEMPTS, || {
+                l1_reader.derivation_source(schedule)
+            })
             .await
             .map_err(DeriverError::l2_provider)?;
         l1_head.restore_derivation(derivation.seed_history());
