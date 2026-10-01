@@ -252,9 +252,12 @@ non-workspace crate. Workspace lib/bin unit tests, whose dev-dependencies enable
 test-only features (Tokio `test-util`), run in CI's separate debug unit lane.
 Test-only features must not reach shipping bytes; the producer freezes the
 release candidate before archiving and rechecks its hashes afterwards.
-The retained-state compile cap (`CI_BUILD_CPUS`/`CI_BUILD_MEMORY`, default 4 CPUs
-and `20g`) must stay within the ARC DinD sidecar's limits; Cargo cannot detect them.
-See the [test-archive split](docs/proposals/ci-test-archive-split.md).
+The retained-state compile cap is sized from the build's Docker daemon (all CPUs;
+memory in whole GiB minus 4 GiB), which under ARC DinD reports the node. That
+assumes one build job per node; if the DinD sidecar's limits are smaller, the
+runner must set `EEZ_CI_BUILD_CPUS`/`EEZ_CI_BUILD_MEMORY` from them. Cargo cannot
+detect an outer quota, so the producer passes the job count explicitly.
+See the [test-archive split](docs/proposals/ci-test-archive-split.md#compile-cap).
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 

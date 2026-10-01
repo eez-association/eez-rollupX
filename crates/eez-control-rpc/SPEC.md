@@ -551,8 +551,12 @@ transaction construction, and relay or submitter delivery.
 
 The Composer therefore MUST determine its latest safe settlement cutoff before
 starting an attempt and re-check it before every retry. Under the current EEZ
-slot profile, the proven bundle must reach the relay before the terminal Sync
-block's timestamp minus the configured submission slack. A third-party
+slot profile, the proven bundle must reach the configured relays before the
+terminal Sync block's timestamp minus the configured submission slack. The
+reference Composer sends one identical request to every configured relay as a
+single delivery attempt; one acknowledgement suffices to begin canonical
+observation and never establishes inclusion (see the
+[relay fan-out contract](../../docs/configurable-settlement-policy.md#builder-relay-fan-out)). A third-party
 Composer MAY organize its scheduler differently, but MUST enforce an equivalent
 cutoff and reserve time for all post-proof work.
 

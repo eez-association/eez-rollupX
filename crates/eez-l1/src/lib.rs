@@ -7,7 +7,7 @@
 //!
 //! - [`L1Reader`] — read-only historical batch scans and canonicality checks.
 //! - [`Submitter`] — the signed L1 send primitive: `postAndVerifyBatch`
-//!   via the bundle relay.
+//!   via the configured bundle relays.
 //! - [`L1Watcher`] — polls L1, fans out `NewHead` / `BatchPosted` /
 //!   `Reorg` / `Finalized` over a broadcast channel.
 //! - [`L1CanonicalHead`] — shared `posted_through` cursor (Deriver
@@ -31,7 +31,7 @@ pub mod scan;
 pub mod submitter;
 
 #[doc(inline)]
-pub use config::{L1ReaderConfig, SubmitterConfig};
+pub use config::{BuilderRelays, L1ReaderConfig, SubmitterConfig};
 #[doc(inline)]
 pub use error::{L1Error, L1Result};
 #[doc(inline)]
@@ -49,5 +49,6 @@ pub use reconciled_settlement::{
 pub use scan::{BatchLogChunks, ScannedBatch, Settlement};
 #[doc(inline)]
 pub use submitter::{
-    BundleDropReason, BundleTarget, PolicySubmissionFailure, SendOutcome, Submitter,
+    BuilderDelivery, BuilderDeliveryStatus, BundleDelivery, BundleDropReason, BundleTarget,
+    PolicySubmissionFailure, SendOutcome, Submitter,
 };

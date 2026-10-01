@@ -7590,7 +7590,10 @@ async fn observe_bundle_outcome(
                         "target_block":delivery.target_block,
                         "target_timestamp":delivery.target_timestamp,
                         "expected_parent_hash":expected_parent_hash,
-                        "transaction_count":delivery.transaction_count}),
+                        "transaction_count":delivery.transaction_count,
+                        // Per-relay outcomes of this single delivery attempt.
+                        "builders":delivery.builders.iter()
+                            .map(eez_l1::BuilderDelivery::json).collect::<Vec<_>>()}),
                         );
                     }
                 },

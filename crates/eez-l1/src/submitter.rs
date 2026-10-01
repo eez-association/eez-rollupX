@@ -9,6 +9,12 @@
 //! anvil-side `scripts/builder-stub.py` does (it forwards via
 //! `eth_sendRawTransaction`), but the cursor-race guard +
 //! `pending` nonce read keep both paths correct.
+//!
+//! One dispatch sends the same serialized request to every configured relay
+//! concurrently (see [`crate::config::BuilderRelays`]). It is one delivery
+//! attempt regardless of the relay count: at least one acknowledgement starts
+//! the same canonical observation as before, and only when no relay
+//! acknowledges does the dispatch fail.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -18,25 +24,106 @@ use alloy_primitives::{B256, TxHash, hex};
 use alloy_provider::{Provider, ProviderBuilder, RootProvider};
 use tracing::{Level, event};
 
-use crate::config::SubmitterConfig;
+use crate::config::{BuilderRelays, SubmitterConfig};
 use crate::error::{L1Error, L1Result};
 use crate::l1_reader::L1Reader;
 
-/// Bounded delivery observation. A missing acknowledgement after dispatch is
-/// uncertain submission, not evidence that the relay did not receive the bundle.
-#[derive(Debug, Clone, Copy)]
+/// Bounded delivery observation for one dispatch to every configured relay.
+/// A missing acknowledgement after dispatch is uncertain submission, not
+/// evidence that a relay did not receive the bundle. Acknowledgement, by one
+/// relay or several, never implies inclusion.
+#[derive(Debug, Clone)]
 pub struct BundleDelivery {
+    /// Time to the first acknowledgement, or to the end of the fan-out when no
+    /// relay acknowledged.
     pub elapsed: Duration,
+    /// At least one relay acknowledged the bundle.
     pub acknowledged: bool,
-    /// Relay-supplied correlation identifier, if it is a valid 32-byte hash.
-    /// It is not an inclusion commitment and may differ between relays.
+    /// Correlation identifier from the first acknowledging relay, if it is a
+    /// valid 32-byte hash. It is not an inclusion commitment and may differ
+    /// between relays; see [`Self::builders`] for each relay's value.
     pub relay_bundle_hash: Option<B256>,
-    /// Shared delivery window left after the reply or transport failure.
+    /// Shared delivery window left at the first acknowledgement, or at the
+    /// end of the fan-out when no relay acknowledged.
     pub remaining: Duration,
     pub target_block: u64,
     pub target_timestamp: u64,
     pub expected_parent_hash: Option<B256>,
     pub transaction_count: usize,
+    /// Per-relay outcomes in configured order.
+    pub builders: Vec<BuilderDelivery>,
+}
+
+/// How one relay answered a dispatch. Relay-supplied error text is not
+/// retained here; only the classification derived from the error variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuilderDeliveryStatus {
+    /// The relay returned a JSON-RPC result.
+    Acknowledged,
+    /// HTTP error status or JSON-RPC error other than method-not-found.
+    Rejected,
+    /// JSON-RPC `-32601`: the endpoint has no `eth_sendBundle`.
+    Unsupported,
+    /// Connection, timeout or response-decoding failure; delivery uncertain.
+    TransportError,
+    /// No reply before the shared delivery deadline; delivery uncertain.
+    DeadlineExceeded,
+    /// Still pending when another relay had acknowledged and the latest-safe
+    /// submission boundary passed; delivery uncertain.
+    AbandonedAfterAcknowledgement,
+}
+
+impl BuilderDeliveryStatus {
+    /// Stable identifier used in structured logs, delivery events and
+    /// bundle captures.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Acknowledged => "acknowledged",
+            Self::Rejected => "rejected",
+            Self::Unsupported => "unsupported",
+            Self::TransportError => "transport_error",
+            Self::DeadlineExceeded => "deadline_exceeded",
+            Self::AbandonedAfterAcknowledgement => "abandoned_after_acknowledgement",
+        }
+    }
+
+    const fn of(result: &L1Result<Option<B256>>) -> Self {
+        match result {
+            Ok(_) => Self::Acknowledged,
+            Err(L1Error::BundleRpcUnsupported) => Self::Unsupported,
+            Err(L1Error::Provider(_)) => Self::TransportError,
+            Err(_) => Self::Rejected,
+        }
+    }
+}
+
+/// One relay's part of a dispatch, identified by configured position and host
+/// only because relay URLs may carry credentials.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuilderDelivery {
+    pub index: usize,
+    pub host: String,
+    pub status: BuilderDeliveryStatus,
+    /// This relay's correlation identifier, if it acknowledged with a valid
+    /// 32-byte `bundleHash`.
+    pub relay_bundle_hash: Option<B256>,
+    /// Time from dispatch to this relay's reply or abandonment.
+    pub elapsed: Duration,
+}
+
+impl BuilderDelivery {
+    /// Log-safe JSON form shared by delivery events and bundle captures.
+    #[must_use]
+    pub fn json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "index": self.index,
+            "host": self.host,
+            "outcome": self.status.as_str(),
+            "relay_bundle_hash": self.relay_bundle_hash,
+            "elapsed_ms": self.elapsed.as_secs_f64() * 1000.0,
+        })
+    }
 }
 
 struct DeliveryWindow {
@@ -1192,44 +1279,65 @@ impl Inner {
             .map(|t| hex::encode_prefixed(t.as_ref()))
             .collect();
         let hex_refs: Vec<&str> = hexes.iter().map(String::as_str).collect();
-        let request = post_bundle(
-            &self.http,
-            self.config.builder_rpc_url.as_str(),
+        // Serialize once so every relay receives byte-identical requests.
+        let body = serde_json::to_vec(&bundle_request(
             &hex_refs,
             target.block,
             target.timestamp,
             reverting_hashes,
+        ))
+        .map_err(|error| L1Error::Submission(format!("encode eth_sendBundle request: {error}")))?;
+        // After one acknowledgement, a reply that arrives after the
+        // latest-safe submission boundary cannot improve this attempt. Stop
+        // waiting for slower relays there so they cannot delay observation.
+        // Without an acknowledgement each relay keeps its existing bound.
+        let (_, latest_safe_ms) =
+            submission_window_bounds(target.timestamp, self.submission_timing);
+        let straggler_cutoff = SystemClock.now_unix_ms().ok().map(|now_ms| {
+            tokio::time::Instant::now()
+                + Duration::from_millis(latest_safe_ms.saturating_sub(now_ms))
+        });
+        let fan_out = fan_out_bundle(
+            &self.http,
+            &self.config.builder_relays,
+            alloy_primitives::bytes::Bytes::from(body),
+            target.block,
+            raw_txs.len(),
+            delivery.as_ref().map(|window| window.deadline),
+            straggler_cutoff,
+        )
+        .await;
+        event!(
+            name: "eez.submitter.bundle.fanout",
+            Level::INFO,
+            event_name = "eez.submitter.bundle.fanout",
+            tx_hash = %post_batch_hash,
+            target_block = target.block,
+            builders = fan_out.builders.len(),
+            acknowledged = fan_out.acknowledged_count(),
+            outcomes = %fan_out.outcomes_json(),
+            "eth_sendBundle fan-out finished",
         );
-        let acknowledgement = if let Some(window) = delivery {
-            let started = tokio::time::Instant::now();
-            let result = tokio::time::timeout_at(window.deadline, request)
-                .await
-                .unwrap_or_else(|_| {
-                    Err(L1Error::Submission(
-                        "relay acknowledgement exceeded the shared deadline; delivery uncertain"
-                            .into(),
-                    ))
-                });
+        if let Some(window) = delivery {
+            let reply_at = fan_out.first_ack.map_or(fan_out.finished_at, |ack| ack.at);
             (window.observed)(BundleDelivery {
-                elapsed: started.elapsed(),
-                acknowledged: result.is_ok(),
-                relay_bundle_hash: result.as_ref().ok().copied().flatten(),
-                remaining: window
-                    .deadline
-                    .saturating_duration_since(tokio::time::Instant::now()),
+                elapsed: reply_at.saturating_duration_since(fan_out.started_at),
+                acknowledged: fan_out.first_ack.is_some(),
+                relay_bundle_hash: fan_out.first_ack.and_then(|ack| ack.relay_bundle_hash),
+                remaining: window.deadline.saturating_duration_since(reply_at),
                 target_block: target.block,
                 target_timestamp: target.timestamp,
                 expected_parent_hash: target.expected_parent_hash,
                 transaction_count: raw_txs.len(),
+                builders: fan_out.builders.clone(),
             });
-            result
-        } else {
-            request.await
-        };
-        let result = match acknowledgement {
+        }
+        let builders = fan_out.builders.clone();
+        let result = match fan_out.into_acknowledgement(&self.config.builder_relays) {
             Ok(_) => {
                 // Relay path: Exact and derived NextBlock targets both carry a
                 // min/max timestamp pin, which unlocks the early verdict.
+                // Acknowledgements never decide inclusion; observation does.
                 self.observe(post_batch_hash, target).await
             }
             Err(other) => Err(other),
@@ -1240,6 +1348,7 @@ impl Inner {
             target,
             &result,
             reverting_hashes,
+            &builders,
         );
         result
     }
@@ -1251,6 +1360,7 @@ impl Inner {
         target: PreparedTarget,
         result: &L1Result<SendOutcome>,
         reverting_hashes: &[B256],
+        builders: &[BuilderDelivery],
     ) {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
             return;
@@ -1267,9 +1377,18 @@ impl Inner {
             target.timestamp,
             reverting_hashes,
         );
+        // Version 2 replaces v1's `builderRpcUrl` with per-relay outcomes.
+        // URLs may carry credentials and are never written; replay supplies
+        // the endpoint explicitly (testing/kurtosis/scripts/replay-bundle.sh).
         let metadata = serde_json::json!({
-            "version": 1,
-            "builderRpcUrl": self.config.builder_rpc_url.as_str(),
+            "version": 2,
+            "builders": builders.iter().map(|builder| serde_json::json!({
+                "index": builder.index,
+                "host": builder.host,
+                "outcome": builder.status.as_str(),
+                "relayBundleHash": builder.relay_bundle_hash,
+                "elapsedMs": builder.elapsed.as_secs_f64() * 1000.0,
+            })).collect::<Vec<_>>(),
             "postBatchHash": post_batch_hash.to_string(),
             "targetBlock": target.block,
             "pinnedTimestamp": target.timestamp,
@@ -1429,49 +1548,278 @@ impl Inner {
     }
 }
 
-/// POST a multi-tx bundle to a Flashbots-style `eth_sendBundle` relay.
+/// Error for a relay that did not reply before the shared delivery deadline.
+/// Kept identical to the single-relay message so existing diagnostics match.
+const DELIVERY_DEADLINE_MESSAGE: &str =
+    "relay acknowledgement exceeded the shared deadline; delivery uncertain";
+
+type RelayRequest<'a> = std::pin::Pin<Box<dyn Future<Output = L1Result<Option<B256>>> + Send + 'a>>;
+
+/// First acknowledgement observed during a fan-out.
+#[derive(Debug, Clone, Copy)]
+struct FirstAcknowledgement {
+    at: tokio::time::Instant,
+    relay_bundle_hash: Option<B256>,
+}
+
+/// Completed fan-out: per-relay outcomes plus the errors needed to classify a
+/// dispatch that no relay acknowledged.
+#[derive(Debug)]
+struct FanOut {
+    started_at: tokio::time::Instant,
+    finished_at: tokio::time::Instant,
+    first_ack: Option<FirstAcknowledgement>,
+    builders: Vec<BuilderDelivery>,
+    /// Errors of non-acknowledging relays, in configured order.
+    errors: Vec<(usize, L1Error)>,
+}
+
+impl FanOut {
+    fn acknowledged_count(&self) -> usize {
+        self.builders
+            .iter()
+            .filter(|builder| builder.status == BuilderDeliveryStatus::Acknowledged)
+            .count()
+    }
+
+    fn outcomes_json(&self) -> serde_json::Value {
+        serde_json::Value::Array(self.builders.iter().map(BuilderDelivery::json).collect())
+    }
+
+    /// Acknowledged when any relay acknowledged. Otherwise classify the
+    /// failure from the error variants, never from error text:
+    ///
+    /// - one relay: its error, unchanged from the single-relay behavior;
+    /// - every relay answered `-32601`: [`L1Error::BundleRpcUnsupported`];
+    /// - every other failure was transport ([`L1Error::is_transport`]):
+    ///   [`L1Error::Provider`], since no relay is known to have answered;
+    /// - otherwise [`L1Error::Submission`] (a rejection or deadline expiry).
+    ///
+    /// Unsupported relays carry no information about this bundle, so they do
+    /// not decide the class when other relays failed differently.
+    fn into_acknowledgement(self, relays: &BuilderRelays) -> L1Result<Option<B256>> {
+        if let Some(ack) = self.first_ack {
+            return Ok(ack.relay_bundle_hash);
+        }
+        let mut errors = self.errors;
+        if errors.len() == 1 {
+            return Err(errors.remove(0).1);
+        }
+        if errors
+            .iter()
+            .all(|(_, error)| matches!(error, L1Error::BundleRpcUnsupported))
+        {
+            return Err(L1Error::BundleRpcUnsupported);
+        }
+        let transport_only = errors
+            .iter()
+            .filter(|(_, error)| !matches!(error, L1Error::BundleRpcUnsupported))
+            .all(|(_, error)| error.is_transport());
+        let summary = errors
+            .iter()
+            .map(|(index, error)| format!("{}: {error}", relays.label(*index)))
+            .collect::<Vec<_>>()
+            .join("; ");
+        let message = format!(
+            "no builder acknowledged eth_sendBundle ({} configured): {summary}",
+            relays.len()
+        );
+        Err(if transport_only {
+            L1Error::Provider(message)
+        } else {
+            L1Error::Submission(message)
+        })
+    }
+}
+
+/// Send one serialized request to every relay concurrently and collect each
+/// relay's outcome.
+///
+/// Requests are polled in this task (no spawned work), so dropping the
+/// returned future cancels every outstanding request. Each relay is bounded by
+/// the HTTP client timeout and, when present, the shared `deadline`. After the
+/// first acknowledgement, relays still pending at `straggler_cutoff` are
+/// abandoned. Without an acknowledgement every relay keeps its full bound.
+async fn fan_out_bundle(
+    http: &reqwest::Client,
+    relays: &BuilderRelays,
+    body: alloy_primitives::bytes::Bytes,
+    target_block: u64,
+    tx_count: usize,
+    deadline: Option<tokio::time::Instant>,
+    straggler_cutoff: Option<tokio::time::Instant>,
+) -> FanOut {
+    use std::task::Poll;
+
+    let started_at = tokio::time::Instant::now();
+    let mut pending: Vec<Option<RelayRequest<'_>>> = relays
+        .urls()
+        .iter()
+        .enumerate()
+        .map(|(index, url)| {
+            let request: RelayRequest<'_> = Box::pin(post_bundle(
+                http,
+                url,
+                body.clone(),
+                relays,
+                index,
+                target_block,
+                tx_count,
+            ));
+            Some(request)
+        })
+        .collect();
+    let mut replies: Vec<Option<(L1Result<Option<B256>>, tokio::time::Instant)>> =
+        (0..pending.len()).map(|_| None).collect();
+    let mut first_ack: Option<FirstAcknowledgement> = None;
+    let mut cutoff = deadline;
+    let mut cutoff_after_ack = false;
+    loop {
+        let next = std::future::poll_fn(|cx| {
+            let mut open = false;
+            for (index, slot) in pending.iter_mut().enumerate() {
+                if let Some(request) = slot {
+                    if let Poll::Ready(result) = request.as_mut().poll(cx) {
+                        *slot = None;
+                        return Poll::Ready(Some((index, result)));
+                    }
+                    open = true;
+                }
+            }
+            if open {
+                Poll::Pending
+            } else {
+                Poll::Ready(None)
+            }
+        });
+        let polled = match cutoff {
+            Some(at) => tokio::time::timeout_at(at, next).await.ok(),
+            None => Some(next.await),
+        };
+        let Some(Some((index, result))) = polled else {
+            break;
+        };
+        let at = tokio::time::Instant::now();
+        if first_ack.is_none()
+            && let Ok(relay_bundle_hash) = &result
+        {
+            first_ack = Some(FirstAcknowledgement {
+                at,
+                relay_bundle_hash: *relay_bundle_hash,
+            });
+            if let Some(straggler) = straggler_cutoff
+                && cutoff.is_none_or(|current| straggler < current)
+            {
+                cutoff = Some(straggler);
+                cutoff_after_ack = true;
+            }
+        }
+        replies[index] = Some((result, at));
+    }
+    let finished_at = tokio::time::Instant::now();
+    let mut builders = Vec::with_capacity(replies.len());
+    let mut errors = Vec::new();
+    for (index, reply) in replies.into_iter().enumerate() {
+        let (status, relay_bundle_hash, at) = match reply {
+            Some((result, at)) => {
+                let status = BuilderDeliveryStatus::of(&result);
+                match result {
+                    Ok(hash) => (status, hash, at),
+                    Err(error) => {
+                        errors.push((index, error));
+                        (status, None, at)
+                    }
+                }
+            }
+            None if cutoff_after_ack => (
+                BuilderDeliveryStatus::AbandonedAfterAcknowledgement,
+                None,
+                finished_at,
+            ),
+            None => {
+                errors.push((index, L1Error::Submission(DELIVERY_DEADLINE_MESSAGE.into())));
+                (BuilderDeliveryStatus::DeadlineExceeded, None, finished_at)
+            }
+        };
+        builders.push(BuilderDelivery {
+            index,
+            host: relays.host(index).to_owned(),
+            status,
+            relay_bundle_hash,
+            elapsed: at.saturating_duration_since(started_at),
+        });
+    }
+    FanOut {
+        started_at,
+        finished_at,
+        first_ack,
+        builders,
+        errors,
+    }
+}
+
+/// Describe a relay HTTP failure without its URL, which may carry credentials.
+/// `reqwest` puts the URL only in the outer error; the source chain (connect,
+/// timeout, status or decode cause) is kept for diagnosis.
+fn relay_error(error: reqwest::Error) -> String {
+    let error = error.without_url();
+    let mut message = error.to_string();
+    let mut source = std::error::Error::source(&error);
+    while let Some(cause) = source {
+        message.push_str(": ");
+        message.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    message
+}
+
+/// POST one serialized bundle to a Flashbots-style `eth_sendBundle` relay.
 /// Returns an optional, strictly decoded relay bundle hash on a successful reply
 /// (any non-error `result` — most relays use `{"result": {"bundleHash":
 /// "0x..."}}`, the chiado builder returns `{"result": null}`). Errors
 /// surface relay-side rejections as [`L1Error::Submission`].
 ///
-/// `target_block` is encoded as `0x{hex}` in the bundle params. Caller
-/// is responsible for picking a not-yet-proposed block — the relay
-/// silently drops bundles aimed at already-built blocks.
+/// The caller is responsible for picking a not-yet-proposed block — the relay
+/// silently drops bundles aimed at already-built blocks. Errors and logs omit
+/// the URL (it may carry credentials) and name the relay by position and host.
 ///
 /// # Errors
 ///
-/// - [`L1Error::Provider`] on transport (DNS, TCP, JSON decode) failure.
+/// - [`L1Error::Provider`] on transport (DNS, TCP, timeout, JSON decode) failure.
 /// - [`L1Error::Submission`] when the relay HTTP status is non-2xx OR
 ///   the JSON body carries an `error` field.
+/// - [`L1Error::BundleRpcUnsupported`] for JSON-RPC `-32601`.
 async fn post_bundle(
     http: &reqwest::Client,
-    builder_rpc_url: &str,
-    raw_tx_hexes: &[&str],
+    url: &url::Url,
+    body: alloy_primitives::bytes::Bytes,
+    relays: &BuilderRelays,
+    index: usize,
     target_block: u64,
-    pin_timestamp: u64,
-    reverting_hashes: &[B256],
+    tx_count: usize,
 ) -> L1Result<Option<B256>> {
     // Permit only the validated signed L1 users to revert; postBatch remains
     // required. Invalid-transaction omission depends on builder configuration,
     // and every user still requires canonical source reconciliation.
-    let body = bundle_request(raw_tx_hexes, target_block, pin_timestamp, reverting_hashes);
     let resp: serde_json::Value = http
-        .post(builder_rpc_url)
-        .json(&body)
+        .post(url.clone())
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(body)
         .send()
         .await
-        .map_err(|e| L1Error::Provider(format!("eth_sendBundle POST: {e}")))?
+        .map_err(|e| L1Error::Provider(format!("eth_sendBundle POST: {}", relay_error(e))))?
         .error_for_status()
-        .map_err(|e| L1Error::Submission(format!("eth_sendBundle HTTP: {e}")))?
+        .map_err(|e| L1Error::Submission(format!("eth_sendBundle HTTP: {}", relay_error(e))))?
         .json()
         .await
-        .map_err(|e| L1Error::Provider(format!("eth_sendBundle decode: {e}")))?;
+        .map_err(|e| L1Error::Provider(format!("eth_sendBundle decode: {}", relay_error(e))))?;
     event!(
         name: "eez.submitter.bundle.sent",
         Level::INFO,
+        builder_index = index,
+        builder_host = relays.host(index),
         target_block,
-        tx_count = raw_tx_hexes.len(),
+        tx_count,
         response = %resp,
         "eth_sendBundle response received",
     );
@@ -1670,7 +2018,7 @@ mod tests {
                     rollup_id: 1,
                     deploy_block: 0,
                 },
-                builder_rpc_url: url.clone(),
+                builder_relays: crate::BuilderRelays::new(vec![url.clone()]).unwrap(),
                 target_rpc_url: Some(url),
                 poster: B256::with_last_byte(1).to_string().parse().unwrap(),
                 bundle_capture_dir: None,
@@ -2020,9 +2368,17 @@ mod tests {
                 .map(|delivery| delivery.acknowledged),
             Some(false)
         );
-        let delivery = observed.lock().unwrap().unwrap();
+        let delivery = observed.lock().unwrap().take().unwrap();
         assert!(delivery.relay_bundle_hash.is_none());
         assert!(delivery.remaining.is_zero());
+        assert_eq!(
+            delivery
+                .builders
+                .iter()
+                .map(|builder| builder.status)
+                .collect::<Vec<_>>(),
+            [super::BuilderDeliveryStatus::DeadlineExceeded]
+        );
         assert_eq!(
             (
                 delivery.target_block,
@@ -2056,13 +2412,16 @@ mod tests {
             ),
         ] {
             let (url, server) = rpc_server(vec![response], false).await;
+            let relays = crate::BuilderRelays::new(vec![url.clone()]).unwrap();
+            let body = serde_json::to_vec(&bundle_request(&["0x01"], 42, PIN, &[])).unwrap();
             let result = super::post_bundle(
                 &reqwest::Client::new(),
-                url.as_str(),
-                &["0x01"],
+                &url,
+                body.into(),
+                &relays,
+                0,
                 42,
-                PIN,
-                &[],
+                1,
             )
             .await;
             if rejected {
@@ -2198,8 +2557,25 @@ mod tests {
                         std::fs::read(attempt.join("request.json")).unwrap(),
                         serde_json::to_vec_pretty(&requests[0]).unwrap(),
                     );
+                    let raw_metadata =
+                        std::fs::read_to_string(attempt.join("metadata.json")).unwrap();
+                    // Relay URLs may carry credentials and are never captured.
+                    assert!(!raw_metadata.contains(url.as_str().trim_end_matches('/')));
+                    let mut metadata: serde_json::Value =
+                        serde_json::from_str(&raw_metadata).unwrap();
+                    let elapsed = metadata["builders"][0]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("elapsedMs")
+                        .unwrap();
+                    assert!(elapsed.as_f64().unwrap() >= 0.0);
                     let expected = serde_json::json!({
-                        "version": 1, "builderRpcUrl": url.as_str(),
+                        "version": 2,
+                        "builders": [{
+                            "index": 0, "host": "127.0.0.1",
+                            "outcome": if outcome == "dropped" { "acknowledged" } else { "unsupported" },
+                            "relayBundleHash": null,
+                        }],
                         "postBatchHash": post_hash.to_string(), "targetBlock": 42,
                         "pinnedTimestamp": PIN, "expectedParentHash": B256::ZERO.to_string(),
                         "outcome": outcome,
@@ -2207,13 +2583,360 @@ mod tests {
                         "error": (outcome == "submission_error").then_some("builder relay does not support eth_sendBundle"),
                         "requestFile": "request.json",
                     });
-                    assert_eq!(
-                        std::fs::read(attempt.join("metadata.json")).unwrap(),
-                        serde_json::to_vec_pretty(&expected).unwrap(),
-                    );
+                    assert_eq!(metadata, expected);
                 }
             }
         }
+    }
+
+    const RELAY_SECRET: &str = "fixture-relay-secret";
+
+    /// One-request `eth_sendBundle` relay. Reports the exact request body as
+    /// soon as it is read, waits `delay`, then answers with `response`
+    /// (JSON-RPC envelope added) or never answers when `response` is `None`.
+    async fn fake_relay(
+        response: Option<serde_json::Value>,
+        delay: Duration,
+    ) -> (
+        url::Url,
+        tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        tokio::task::JoinHandle<()>,
+    ) {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        // Credentials and secret path/query parts must never reach errors,
+        // logs, delivery events or captures.
+        let url = format!(
+            "http://relay:{RELAY_SECRET}@{}/{RELAY_SECRET}?key={RELAY_SECRET}",
+            listener.local_addr().unwrap()
+        )
+        .parse()
+        .unwrap();
+        let (bodies, received) = tokio::sync::mpsc::unbounded_channel();
+        let server = tokio::spawn(async move {
+            let mut stream = BufReader::new(listener.accept().await.unwrap().0);
+            let mut length = None;
+            loop {
+                let mut line = String::new();
+                assert!(stream.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':')
+                    && name.eq_ignore_ascii_case("content-length")
+                {
+                    length = Some(value.trim().parse::<usize>().unwrap());
+                }
+            }
+            let mut body = vec![0; length.expect("bundle request length")];
+            stream.read_exact(&mut body).await.unwrap();
+            let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+            // Tests that ignore the body drop the receiver.
+            let _ = bodies.send(body);
+            tokio::time::sleep(delay).await;
+            let Some(mut response) = response else {
+                std::future::pending::<()>().await;
+                return;
+            };
+            response["jsonrpc"] = serde_json::json!("2.0");
+            response["id"] = request["id"].clone();
+            let body = serde_json::to_vec(&response).unwrap();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len(),
+            );
+            stream.get_mut().write_all(header.as_bytes()).await.unwrap();
+            stream.get_mut().write_all(&body).await.unwrap();
+        });
+        (url, received, server)
+    }
+
+    /// A relay URL whose port refuses connections: a transport failure.
+    fn unreachable_relay() -> url::Url {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        format!("http://relay:{RELAY_SECRET}@{address}/{RELAY_SECRET}")
+            .parse()
+            .unwrap()
+    }
+
+    fn ack(hash: Option<B256>) -> serde_json::Value {
+        serde_json::json!({"result": hash.map(|hash| serde_json::json!({"bundleHash": hash}))})
+    }
+
+    fn rejection(code: i64) -> serde_json::Value {
+        serde_json::json!({"error": {"code": code, "message": "fixture relay rejection"}})
+    }
+
+    async fn run_fan_out(
+        urls: Vec<url::Url>,
+        deadline: Option<Duration>,
+        straggler: Option<Duration>,
+    ) -> (super::FanOut, crate::BuilderRelays) {
+        let relays = crate::BuilderRelays::new(urls).unwrap();
+        let body = serde_json::to_vec(&bundle_request(&["0x01"], 42, PIN, &[])).unwrap();
+        let now = tokio::time::Instant::now();
+        let fan_out = super::fan_out_bundle(
+            &reqwest::Client::new(),
+            &relays,
+            body.into(),
+            42,
+            1,
+            deadline.map(|delay| now + delay),
+            straggler.map(|delay| now + delay),
+        )
+        .await;
+        (fan_out, relays)
+    }
+
+    fn statuses(builders: &[super::BuilderDelivery]) -> Vec<super::BuilderDeliveryStatus> {
+        builders.iter().map(|builder| builder.status).collect()
+    }
+
+    fn assert_redacted(text: &str) {
+        assert!(!text.contains(RELAY_SECRET), "relay secret leaked: {text}");
+    }
+
+    #[tokio::test]
+    async fn fan_out_sends_identical_requests_and_needs_one_acknowledgement() {
+        use super::BuilderDeliveryStatus::{Acknowledged, Rejected, TransportError};
+        let hash = B256::repeat_byte(0xcd);
+        let (rejecting, mut rejected_body, rejecting_server) =
+            fake_relay(Some(rejection(-32000)), Duration::ZERO).await;
+        let (accepting, mut accepted_body, accepting_server) =
+            fake_relay(Some(ack(Some(hash))), Duration::from_millis(50)).await;
+        let unreachable = unreachable_relay();
+        let (fan_out, relays) = run_fan_out(
+            vec![rejecting, unreachable, accepting],
+            Some(Duration::from_secs(5)),
+            None,
+        )
+        .await;
+        let rejected_body = rejected_body.recv().await.unwrap();
+        let accepted_body = accepted_body.recv().await.unwrap();
+        assert_eq!(
+            rejected_body, accepted_body,
+            "relays must receive identical bytes"
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&accepted_body).unwrap(),
+            bundle_request(&["0x01"], 42, PIN, &[])
+        );
+        assert_eq!(
+            statuses(&fan_out.builders),
+            [Rejected, TransportError, Acknowledged]
+        );
+        assert_eq!(fan_out.builders[2].relay_bundle_hash, Some(hash));
+        assert_eq!(fan_out.acknowledged_count(), 1);
+        assert_redacted(&fan_out.outcomes_json().to_string());
+        assert_eq!(fan_out.into_acknowledgement(&relays).unwrap(), Some(hash));
+        rejecting_server.await.unwrap();
+        accepting_server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn fan_out_failure_class_follows_error_variants() {
+        // (relay responses, expected class); `None` is an unreachable relay.
+        type Case = (Vec<Option<serde_json::Value>>, &'static str);
+        let cases: Vec<Case> = vec![
+            (
+                vec![Some(rejection(-32601)), Some(rejection(-32601))],
+                "unsupported",
+            ),
+            (vec![None, None], "transport"),
+            (vec![Some(rejection(-32601)), None], "transport"),
+            (vec![Some(rejection(-32000)), None], "submission"),
+            (
+                vec![Some(rejection(-32601)), Some(rejection(-32000))],
+                "submission",
+            ),
+            // A single relay keeps its exact pre-fan-out error.
+            (vec![Some(rejection(-32601))], "unsupported"),
+            (vec![Some(rejection(-32000))], "single_submission"),
+        ];
+        for (relays, expected) in cases {
+            let mut urls = Vec::new();
+            let mut servers = Vec::new();
+            for relay in &relays {
+                match relay {
+                    Some(response) => {
+                        let (url, _, server) =
+                            fake_relay(Some(response.clone()), Duration::ZERO).await;
+                        urls.push(url);
+                        servers.push(server);
+                    }
+                    None => urls.push(unreachable_relay()),
+                }
+            }
+            let (fan_out, relays) = run_fan_out(urls, Some(Duration::from_secs(5)), None).await;
+            assert_eq!(fan_out.acknowledged_count(), 0);
+            let error = fan_out.into_acknowledgement(&relays).unwrap_err();
+            assert_redacted(&error.to_string());
+            match (expected, &error) {
+                ("unsupported", L1Error::BundleRpcUnsupported) => {}
+                ("transport", L1Error::Provider(message))
+                | ("submission", L1Error::Submission(message)) => {
+                    assert!(
+                        message.starts_with("no builder acknowledged eth_sendBundle"),
+                        "{message}"
+                    );
+                    assert!(message.contains("builder[0] (127.0.0.1)"), "{message}");
+                }
+                ("single_submission", L1Error::Submission(message)) => {
+                    assert!(message.starts_with("eth_sendBundle: "), "{message}");
+                }
+                _ => panic!("expected {expected}, got {error:?}"),
+            }
+            for server in servers {
+                server.await.unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn slow_relays_are_bounded_by_the_deadline_or_the_latest_safe_boundary() {
+        use super::BuilderDeliveryStatus::{
+            AbandonedAfterAcknowledgement, Acknowledged, DeadlineExceeded,
+        };
+        // Shared deadline: a silent relay cannot extend the fan-out.
+        let (silent, _, silent_server) = fake_relay(None, Duration::ZERO).await;
+        let (fast, _, fast_server) = fake_relay(Some(ack(None)), Duration::ZERO).await;
+        let started = tokio::time::Instant::now();
+        let (fan_out, relays) = run_fan_out(
+            vec![silent, fast],
+            Some(Duration::from_millis(300)),
+            Some(Duration::from_mins(1)),
+        )
+        .await;
+        let elapsed = started.elapsed();
+        assert!(elapsed >= Duration::from_millis(300), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(2), "{elapsed:?}");
+        assert_eq!(
+            statuses(&fan_out.builders),
+            [DeadlineExceeded, Acknowledged]
+        );
+        assert!(fan_out.first_ack.unwrap().at < started + Duration::from_millis(300));
+        assert_eq!(fan_out.into_acknowledgement(&relays).unwrap(), None);
+        silent_server.abort();
+        fast_server.await.unwrap();
+
+        // No delivery deadline: after an acknowledgement the latest-safe
+        // boundary releases observation instead of the 30 s client timeout.
+        let (silent, _, silent_server) = fake_relay(None, Duration::ZERO).await;
+        let (fast, _, fast_server) = fake_relay(Some(ack(None)), Duration::ZERO).await;
+        let started = tokio::time::Instant::now();
+        let (fan_out, _) =
+            run_fan_out(vec![silent, fast], None, Some(Duration::from_millis(200))).await;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(
+            statuses(&fan_out.builders),
+            [AbandonedAfterAcknowledgement, Acknowledged]
+        );
+        silent_server.abort();
+        fast_server.await.unwrap();
+
+        // Without an acknowledgement the boundary does not cut delivery short:
+        // only the shared deadline ends it, as with a single relay.
+        let (first, _, first_server) = fake_relay(None, Duration::ZERO).await;
+        let (second, _, second_server) = fake_relay(None, Duration::ZERO).await;
+        let started = tokio::time::Instant::now();
+        let (fan_out, relays) = run_fan_out(
+            vec![first, second],
+            Some(Duration::from_millis(300)),
+            Some(Duration::ZERO),
+        )
+        .await;
+        assert!(started.elapsed() >= Duration::from_millis(300));
+        assert_eq!(
+            statuses(&fan_out.builders),
+            [DeadlineExceeded, DeadlineExceeded]
+        );
+        assert!(matches!(
+            fan_out.into_acknowledgement(&relays),
+            Err(L1Error::Submission(message)) if message.contains(super::DELIVERY_DEADLINE_MESSAGE)
+        ));
+        first_server.abort();
+        second_server.abort();
+    }
+
+    #[tokio::test]
+    async fn one_rejecting_relay_does_not_prevent_observed_inclusion() {
+        let (post, post_hash) = signed_user(1, 0);
+        let block_hash = B256::with_last_byte(1);
+        let relay_hash = B256::repeat_byte(0xef);
+        let receipt = serde_json::json!({
+            "transactionHash": post_hash, "transactionIndex": "0x0",
+            "blockHash": block_hash, "blockNumber": "0x2a",
+            "from": alloy_primitives::Address::ZERO,
+            "to": alloy_primitives::Address::ZERO,
+            "gasUsed": "0x5208", "effectiveGasPrice": "0x1",
+            "cumulativeGasUsed": "0x5208", "type": "0x2", "status": "0x1",
+            "logs": [], "logsBloom": alloy_primitives::Bloom::ZERO,
+        });
+        let mut block = serde_json::to_value(mock_block(42, PIN, block_hash)).unwrap();
+        block["transactions"] = serde_json::json!([post_hash]);
+        let (target_url, target_server) = rpc_server(
+            vec![
+                serde_json::json!({"result": receipt}),
+                serde_json::json!({"result": block}),
+            ],
+            false,
+        )
+        .await;
+        let (rejecting, _, rejecting_server) =
+            fake_relay(Some(rejection(-32000)), Duration::ZERO).await;
+        let (accepting, _, accepting_server) =
+            fake_relay(Some(ack(Some(relay_hash))), Duration::ZERO).await;
+        let mut submitter = test_submitter(target_url);
+        std::sync::Arc::get_mut(&mut submitter.inner)
+            .unwrap()
+            .config
+            .builder_relays = crate::BuilderRelays::new(vec![rejecting, accepting]).unwrap();
+        let observed = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let saved = observed.clone();
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            submitter.inner.dispatch_and_observe(
+                &[post],
+                post_hash,
+                PreparedTarget {
+                    block: 42,
+                    timestamp: PIN,
+                    expected_parent_hash: None,
+                },
+                &[],
+                Some(super::DeliveryWindow {
+                    deadline: tokio::time::Instant::now() + Duration::from_secs(5),
+                    observed: Box::new(move |delivery| *saved.lock().unwrap() = Some(delivery)),
+                }),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(
+            matches!(result, Ok(super::SendOutcome::Included { tx_hash, l1_block: 42, .. }) if tx_hash == post_hash),
+            "{result:?}"
+        );
+        let delivery = observed.lock().unwrap().take().unwrap();
+        assert!(delivery.acknowledged);
+        assert_eq!(delivery.relay_bundle_hash, Some(relay_hash));
+        assert_eq!(
+            statuses(&delivery.builders),
+            [
+                super::BuilderDeliveryStatus::Rejected,
+                super::BuilderDeliveryStatus::Acknowledged
+            ]
+        );
+        for builder in &delivery.builders {
+            assert_eq!(builder.host, "127.0.0.1");
+            assert_redacted(&builder.json().to_string());
+        }
+        let requests = target_server.await.unwrap();
+        assert_eq!(requests[0]["method"], "eth_getTransactionReceipt");
+        rejecting_server.await.unwrap();
+        accepting_server.await.unwrap();
     }
 
     #[tokio::test]

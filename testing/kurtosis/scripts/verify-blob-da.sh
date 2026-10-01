@@ -67,10 +67,10 @@ if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
     # A public bundle builder need not expose the local PBS fixture's
     # validator-registration API. Check its real submission method instead;
     # successful inclusion and full blob retrieval are still required below.
-    curl --fail --silent --show-error --max-time 15 \
-        -H 'content-type: application/json' \
-        --data '{"jsonrpc":"2.0","method":"eth_sendBundle","params":[{"txs":[],"blockNumber":"0x0"}],"id":1}' \
-        "$RELAY_URL" | jq -e 'has("result") or (has("error") and .error.code != -32601)' >/dev/null
+    # The list may name several comma-separated relays; at least one must
+    # serve eth_sendBundle.
+    source "$REPO/scripts/builder-relays.sh"
+    probe_bundle_relays "$RELAY_URL"
     echo "==> public bundle submission endpoint available"
 else
 echo "==> waiting for MEV relay validator registrations"

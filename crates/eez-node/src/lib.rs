@@ -6,6 +6,7 @@
 //! batch submission (Composer umbrella).
 //!
 mod bundle_rpc;
+mod composer_rpc;
 mod ingress;
 mod l1_embedded;
 mod queue_metrics;
@@ -688,6 +689,43 @@ async fn launch_composer(
         }
     };
 
+    // Cross-chain contract bindings. Read before the L2 node starts so the
+    // discovery RPC advertises exactly the addresses used for composition.
+    // `EEZ_REGISTRY_ADDRESS` and `EEZL2_ADDRESS` are the stable proxy
+    // addresses written by deploy.sh, not the upgradeable implementations.
+    let eez_registry: Address =
+        Address::from_str(&env::var("EEZ_REGISTRY_ADDRESS").map_err(|_| {
+            eyre::eyre!(
+                "EEZ_REGISTRY_ADDRESS required for the cross-chain composer (set by deploy.sh)"
+            )
+        })?)?;
+    let eezl2_address: Address = Address::from_str(&env::var("EEZL2_ADDRESS").map_err(|_| {
+        eyre::eyre!("EEZL2_ADDRESS required for the cross-chain composer (set by deploy.sh)")
+    })?)?;
+    let l1_source_chain_id = match &embedded_l1 {
+        EmbeddedL1::Ethereum(l1_handle) => l1_handle.node.chain_spec().chain().id(),
+        EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
+    };
+    let composer_info = composer_rpc::ComposerInfo::new(
+        composer_rpc::ComposerContracts {
+            registry: eez_registry,
+            rollup_manager: composer_rpc::optional_address_from_env(
+                composer_rpc::ROLLUP_MANAGER_ENV,
+            )?,
+            l1_bridge_sender: composer_rpc::optional_address_from_env(
+                composer_rpc::L1_BRIDGE_SENDER_ENV,
+            )?,
+            l2_predeploy: eezl2_address,
+            l2_bridge_receiver: composer_rpc::optional_address_from_env(
+                composer_rpc::L2_BRIDGE_RECEIVER_ENV,
+            )?,
+        },
+        composer_rpc::SupportedNetworks {
+            eez_l1: l1_source_chain_id,
+            eez_l2: builder.config().chain.chain().id(),
+        },
+    );
+
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
     // yield identical headers.
@@ -734,6 +772,10 @@ async fn launch_composer(
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
+            // Discovery is served on every configured transport, independent
+            // of the `--http.api` namespace selection, like the queue methods.
+            ctx.modules
+                .merge_configured(composer_rpc::module(composer_info)?)?;
             // Parsed rather than imported: `RethRpcModule` is not re-exported by
             // this crate's Reth dependencies, and the parameter type fixes it.
             use reth_node_api::FullNodeComponents as _;
@@ -821,10 +863,6 @@ async fn launch_composer(
     let (sequencer, composer, held_pool, system_tx_cfg, l1_source_chain_id, preparation_worker) = {
         let rollup_id = rollup_config.rollup_id;
         let l1_variant = &embedded_l1;
-        let l1_source_chain_id = match l1_variant {
-            EmbeddedL1::Ethereum(l1_handle) => l1_handle.node.chain_spec().chain().id(),
-            EmbeddedL1::Chiado(chiado_handle) => chiado_handle.node.chain_spec().inner.chain().id(),
-        };
         // Share the SAME HeldPool the ingress middleware pushes into.
         let rollup_state = RollupState {
             config: rollup_config.clone(),
@@ -848,19 +886,6 @@ async fn launch_composer(
         use eez_protocol::rollup_id::RollupId;
         use eez_protocol::{ProxyLookupConfig, TargetConfig};
 
-        let eez_registry: Address =
-            Address::from_str(&env::var("EEZ_REGISTRY_ADDRESS").map_err(|_| {
-                eyre::eyre!(
-                    "EEZ_REGISTRY_ADDRESS required for the cross-chain composer (set by deploy.sh)"
-                )
-            })?)?;
-
-        let eezl2_address: Address =
-            Address::from_str(&env::var("EEZL2_ADDRESS").map_err(|_| {
-                eyre::eyre!(
-                    "EEZL2_ADDRESS required for the cross-chain composer (set by deploy.sh)"
-                )
-            })?)?;
         let l1_rollup_id_u64 = read_l1_rollup_id()?;
         let l1_rollup_id = RollupId(l1_rollup_id_u64);
         let l2_rollup_id_typed = RollupId(rollup_id);

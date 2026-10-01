@@ -502,7 +502,11 @@ per chain. These are funding transfers, not settlement fees.
 Explicit mode requires all four endpoints and a readable deployment file; it
 never falls back to an enclave. Node/signer log assertions use the named Docker
 containers. Blob verification probes the public builder's bundle method while
-retaining real inclusion, KZG, decoded payload and correlation assertions. Set
+retaining real inclusion, KZG, decoded payload and correlation assertions.
+`EEZ_L1_BUILDER_RPC_URL` may list several comma-separated relays, matching the
+Composer setting; the probe requires at least one that serves `eth_sendBundle`
+and warns about the others. The `eez.builder_rpc_url` argument accepts the same
+format and defaults to the enclave's rbuilder. Set
 `EEZ_VERIFY_BLOBSCAN=false` when no Blobscan instance is available; this only
 omits explorer checks. Native Beacon/KZG verification remains required.
 

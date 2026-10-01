@@ -1,7 +1,7 @@
 //! In-process `eth_sendBundle` support for the embedded **dev** L1.
 //!
-//! On chiado the composer submits batches to an external Flashbots-style
-//! relay (`EEZ_L1_BUILDER_RPC_URL`) that speaks `eth_sendBundle`. The
+//! On chiado the composer submits batches to the external Flashbots-style
+//! relays listed in `EEZ_L1_BUILDER_RPC_URL` that speak `eth_sendBundle`. The
 //! local dev L1 has no such relay, so the `Submitter` used to get a
 //! JSON-RPC `-32601` (method not found) and silently degrade to ordered
 //! `eth_sendRawTransaction` mempool submission

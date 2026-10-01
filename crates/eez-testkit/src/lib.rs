@@ -412,6 +412,87 @@ impl Drop for BeaconStub {
     }
 }
 
+/// Test-only marker for [`setup_cross_chain_with_env`]: when set to `1`, the
+/// Composer's relay list is a [`RejectingBuilder`] followed by the normal
+/// forwarding stub. Consumed by the fixture, never passed to the node.
+pub const REJECTING_BUILDER_ENV: &str = "EEZ_TEST_REJECTING_BUILDER";
+
+/// `eth_sendBundle` relay that answers every request with a JSON-RPC
+/// rejection (`-32000`), so multi-relay tests can show that one failing relay
+/// does not prevent settlement through another.
+pub struct RejectingBuilder {
+    endpoint: String,
+    bundle_requests: Arc<AtomicUsize>,
+    task: JoinHandle<()>,
+}
+
+impl RejectingBuilder {
+    async fn spawn() -> Result<Self> {
+        use http_body_util::BodyExt as _;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let bundle_requests = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&bundle_requests);
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((stream, _)) = listener.accept().await else {
+                    break;
+                };
+                let counter = Arc::clone(&counter);
+                tokio::spawn(async move {
+                    let service = hyper::service::service_fn(
+                        move |request: HttpRequest<Incoming>| {
+                            let counter = Arc::clone(&counter);
+                            async move {
+                                let body = request
+                                    .into_body()
+                                    .collect()
+                                    .await
+                                    .map(http_body_util::Collected::to_bytes);
+                                let request: serde_json::Value = body
+                                    .ok()
+                                    .and_then(|body| serde_json::from_slice(&body).ok())
+                                    .unwrap_or_default();
+                                if request["method"] == "eth_sendBundle" {
+                                    counter.fetch_add(1, Ordering::SeqCst);
+                                }
+                                Ok::<_, Infallible>(beacon_json_response(
+                                    StatusCode::OK,
+                                    serde_json::json!({
+                                        "jsonrpc": "2.0",
+                                        "id": request["id"],
+                                        "error": {"code": -32000, "message": "fixture builder rejects every bundle"},
+                                    }),
+                                ))
+                            }
+                        },
+                    );
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        Ok(Self {
+            endpoint: format!("http://{address}"),
+            bundle_requests,
+            task,
+        })
+    }
+
+    /// `eth_sendBundle` requests received (and rejected) so far.
+    pub fn bundle_requests(&self) -> usize {
+        self.bundle_requests.load(Ordering::SeqCst)
+    }
+}
+
+impl Drop for RejectingBuilder {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
 async fn beacon_fixture_response(
     request: HttpRequest<Incoming>,
     state: BeaconFixtureState,
@@ -2152,7 +2233,10 @@ impl NodeHandle {
             // May be overridden below when a test uses another L2 upstream.
             .env("EEZ_L2_RPC_URL", format!("http://127.0.0.1:{http_port}"));
         for (k, v) in env {
-            if *k == TEST_L2_GENESIS_ENV || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS" {
+            if *k == TEST_L2_GENESIS_ENV
+                || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS"
+                || *k == REJECTING_BUILDER_ENV
+            {
                 continue; // test-only marker (consumed as --chain above)
             }
             cmd.env(*k, v);
@@ -4538,6 +4622,8 @@ pub struct CrossChainWorld {
     /// Present only when the existing fixture uses controlled L1 consensus.
     pub l1_reorg_control: Option<L1ReorgControl>,
     builder_stub: BundleStub,
+    /// Present only when [`REJECTING_BUILDER_ENV`] selected a second relay.
+    rejecting_builder: Option<RejectingBuilder>,
     beacon: BeaconStub,
     witness_dir: tempfile::TempDir,
     datadir: FailureDatadir,
@@ -4635,6 +4721,14 @@ impl std::ops::Deref for CrossChainCodelessWorld {
 impl CrossChainWorld {
     /// Durable witnesses for this fixture. Readers must use the same database
     /// path as the writer so MDBX's process locks remain shared.
+    /// Bundles rejected by the extra relay selected with
+    /// [`REJECTING_BUILDER_ENV`], or `None` when the fixture has one relay.
+    pub fn rejected_bundle_requests(&self) -> Option<usize> {
+        self.rejecting_builder
+            .as_ref()
+            .map(RejectingBuilder::bundle_requests)
+    }
+
     pub fn witness_db_path(&self) -> &std::path::Path {
         self.witness_dir.path()
     }
@@ -6213,6 +6307,21 @@ async fn setup_cross_chain_inner(
     if let Some(control) = &l1_reorg_control {
         env.extend(control.env());
     }
+    // The rejecting relay is listed first so success cannot depend on only
+    // the first configured relay being consulted.
+    let rejecting_builder = if extra_env
+        .iter()
+        .any(|(name, value)| *name == REJECTING_BUILDER_ENV && value == "1")
+    {
+        let relay = RejectingBuilder::spawn().await?;
+        env.push((
+            "EEZ_L1_BUILDER_RPC_URL",
+            format!("{},{}", relay.endpoint, builder_stub.url),
+        ));
+        Some(relay)
+    } else {
+        None
+    };
     assert!(
         !env.iter().any(|(name, _)| *name == "EEZ_PROOF_SIGNER_KEY"),
         "remote composer environment must not contain the proof-signer key",
@@ -6350,6 +6459,7 @@ async fn setup_cross_chain_inner(
         proof_signer,
         l1_reorg_control,
         builder_stub,
+        rejecting_builder,
         beacon,
         witness_dir,
         datadir,

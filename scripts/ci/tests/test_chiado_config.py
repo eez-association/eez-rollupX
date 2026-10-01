@@ -23,7 +23,7 @@ class ChiadoConfigTest(unittest.TestCase):
         for name in (
             "docker-compose.chiado-node.yml", "docker-compose.chiado.yml",
             "docker-compose.chiado-postings.yml",
-            ".env.chiado.example", "scripts/chiado-up.sh",
+            ".env.chiado.example", "scripts/chiado-up.sh", "scripts/builder-relays.sh",
             "configs/chiado/bootnodes.yaml", "configs/chiado/bootstrap_nodes.yaml",
         ):
             target = self.repo / name
@@ -353,6 +353,24 @@ esac
                 for key in keys:
                     self.assertEqual(node[key], overrides.get(key, ""))
                     self.assertNotIn(key, signer)
+
+    def test_builder_relay_list_reaches_only_the_node_unchanged(self):
+        # The Composer parses and validates the list; Compose must forward the
+        # exact value, including several comma-separated relays.
+        key = "EEZ_L1_BUILDER_RPC_URL"
+        relays = "https://a.example/rpc, https://u:p@b.example:8545/?k=v"
+        for overrides, expected in (({}, "https://builder.chiado.gcd.ovh/"),
+                                    ({key: relays}, relays), ({key: ""}, None)):
+            with self.subTest(overrides=overrides):
+                result = self.render(overrides, "docker-compose.chiado-node.yml")
+                if expected is None:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(key, result.stderr)
+                    continue
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["eez-node"]["environment"][key], expected)
+                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
 
 
 

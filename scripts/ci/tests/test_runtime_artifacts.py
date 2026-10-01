@@ -17,6 +17,10 @@ BINARIES = (
     "eez-genesis-state-root", "eez-genesis-block-hash",
     "e2e-causal-verify", "verify_blob_evidence",
 )
+GIB = 1024**3
+# A nominal 32 GiB node: the kernel and firmware reserve some memory, so
+# MemTotal rounds down to 31 GiB and the cap is 27 GiB after 4 GiB headroom.
+NODE_MEMORY = 32 * GIB - 700 * 1024**2
 MOCK_TOOL = r'''#!/usr/bin/env python3
 import hashlib, json, os, sys
 from pathlib import Path
@@ -66,6 +70,8 @@ elif args[0] == "info":
                          if os.environ.get("MOCK_IMAGE_STORE") == "containerd" else []))
     elif option("--format") == "{{.MemTotal}}":
         print(os.environ.get("MOCK_MEMORY", "64000000000"))
+    elif option("--format") == "{{.NCPU}}":
+        print(os.environ.get("MOCK_NCPU", "16"))
     else:
         print("x86_64")
 elif args[:2] == ["buildx", "build"]:
@@ -184,6 +190,7 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.env.update({
             "PATH": str(self.tools) + os.pathsep + os.environ["PATH"],
             "MOCK_LOG": str(self.log), "MOCK_BINARIES": ",".join(BINARIES),
+            "MOCK_NCPU": "16", "MOCK_MEMORY": str(NODE_MEMORY),
             "MOCK_PROTOCOL_SHA": self.git(protocol, "rev-parse", "HEAD").strip(),
             "GITHUB_REPOSITORY": "eduadiez/rollupX", "GITHUB_SHA": self.sha,
             "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "2",
@@ -253,56 +260,132 @@ class RuntimeArtifactsTest(unittest.TestCase):
         for command in calls:
             if "Dockerfile.runtime" not in command:
                 continue
-            for setting in ("cpu-quota=400000", "memory=20g", "memory-swap=20g",
+            for setting in ("cpu-quota=1600000", "memory=27g", "memory-swap=27g",
                             "BUILD_STAGE=build-offline", "EEZ_COMPILER_CACHE=none"):
                 self.assertIn(setting, command)
             self.assertNotIn("--secret", command)
             self.assertTrue(any(c.startswith("previous-state=oci-layout://") for c in command))
 
-    def test_compile_cap_is_configurable_and_consistent_across_state_builds(self):
-        state = self.prepare_state()
-        self.env.update(EEZ_CI_BUILD_CPUS="6", EEZ_CI_BUILD_MEMORY="28g", GITHUB_EVENT_NAME="push",
-                        GITHUB_REF="refs/heads/main")
-        self.run_script("build-runtime-artifacts.sh")
+    def state_build_caps(self):
+        """Distinct (CPUs, GiB) caps passed to state builds since the last log reset."""
+        caps = set()
+        for command in self.commands():
+            if command[:3] != ["docker", "buildx", "build"] or "Dockerfile.runtime" not in command:
+                continue
+            cpus = int(next(v for v in command if v.startswith("EEZ_BUILD_CPUS=")).split("=")[1])
+            memory = int(next(v for v in command if v.startswith("EEZ_BUILD_MEMORY_BYTES=")).split("=")[1])
+            gib = memory // GIB
+            self.assertEqual(memory, gib * GIB)
+            # The enforced Docker limits must equal the build arguments that
+            # Dockerfile.runtime asserts and turns into CARGO_BUILD_JOBS.
+            for setting in ("cpu-period=100000", f"cpu-quota={cpus * 100000}",
+                            f"memory={gib}g", f"memory-swap={gib}g"):
+                self.assertIn(setting, command)
+            caps.add((cpus, gib))
+        return caps
+
+    def prepare_cap(self, success=True):
+        self.env["EEZ_CARGO_STATE_CACHE"] = "true"
+        shutil.rmtree(self.repo / ".ci-cargo-state", ignore_errors=True)
+        self.log.write_text("")
+        return self.run_script("build-runtime-artifacts.sh", "prepare-state", success=success)
+
+    def test_auto_compile_cap_is_resolved_once_and_shared_by_every_state_build(self):
+        result = self.prepare_cap()
+        self.assertIn("compile cap: 16 CPUs (auto: docker info NCPU), 27 GiB "
+                      f"(auto: docker info MemTotal {NODE_MEMORY} bytes", result.stdout)
+        self.assertEqual(self.state_build_caps(), {(16, 27)})
+        state = self.repo / ".ci-cargo-state"
+        plan = json.loads((state / "plan.json").read_text())
+        self.assertEqual(plan["build_cap"],
+                         {"cpus": 16, "memory_gib": 27, "cpu_source": "auto: docker info NCPU",
+                          "memory_source": f"auto: docker info MemTotal {NODE_MEMORY} bytes"})
+        subprocess.run([str(self.tools / "docker"), "buildx", "build", "--target", "cargo-state",
+                        "--label", f"io.eez.cargo.compatibility={plan['compatibility']}",
+                        "--output", f"type=oci,dest={state / 'transport'}"], env=self.env, check=True)
+        # Later steps use the recorded cap, never a second detection or a changed
+        # override, so the restore check, compilation, packaging and export share
+        # one BuildKit identity.
+        self.env.update(MOCK_NCPU="64", MOCK_MEMORY=str(256 * GIB), EEZ_CI_BUILD_CPUS="2",
+                        GITHUB_EVENT_NAME="push", GITHUB_REF="refs/heads/main")
+        self.log.write_text("")
+        result = self.run_script("build-runtime-artifacts.sh")
+        self.assertIn("compile cap: 16 CPUs (auto: docker info NCPU), 27 GiB", result.stdout)
         tests = Path(self.env["EEZ_NATIVE_TEST_OUTPUT_DIR"])
         (tests / "producer-passed.json").write_text((tests / "manifest.json").read_text())
         self.run_script("build-runtime-artifacts.sh", "export-state")
         calls = [c for c in self.commands() if c[:3] == ["docker", "buildx", "build"] and "Dockerfile.runtime" in c]
-        # Restore check, compilation, packaging and state export must share one
-        # build-stage cache identity, or a later target would recompile.
         self.assertEqual({c[c.index("--target") + 1] for c in calls},
                          {"checked-state", "binaries", "node", "signer", "cargo-state"})
-        for command in calls:
-            for setting in ("cpu-period=100000", "cpu-quota=600000", "memory=28g", "memory-swap=28g",
-                            "EEZ_BUILD_CPUS=6", f"EEZ_BUILD_MEMORY_BYTES={28 * 1024**3}"):
-                self.assertIn(setting, command)
-            self.assertNotIn("cpu-quota=400000", command)
+        self.assertEqual(self.state_build_caps(), {(16, 27)})
+        self.assertFalse(any(c[:2] == ["docker", "info"] and "{{.NCPU}}" in c for c in self.commands()))
         self.assertTrue((state / "transport/index.json").is_file())
 
-    def test_default_compile_cap_is_unchanged(self):
-        self.prepare_state(seed=False)
-        for empty in ("", None):
-            with self.subTest(empty=empty):
-                for key in ("EEZ_CI_BUILD_CPUS", "EEZ_CI_BUILD_MEMORY"):
-                    if empty is None:
-                        self.env.pop(key, None)
-                    else:
-                        self.env[key] = empty
-                self.env["EEZ_RUNTIME_OUTPUT_DIR"] = str(self.root / f"default-cap-{empty}")
-                self.log.write_text("")
-                self.run_script("build-runtime-artifacts.sh")
-                build = next(c for c in self.commands() if "binaries" in c)
-                for setting in ("cpu-quota=400000", "memory=20g", "memory-swap=20g",
-                                "EEZ_BUILD_CPUS=4", "EEZ_BUILD_MEMORY_BYTES=21474836480"):
-                    self.assertIn(setting, build)
+    def test_memory_cap_is_whole_gib_minus_fixed_headroom(self):
+        for memory, gib in ((NODE_MEMORY, 27), (32 * GIB, 28), (64000000000, 55),
+                            (12 * GIB, 8), (13 * GIB - 1, 8), (16 * GIB + 4095, 12)):
+            with self.subTest(memory=memory):
+                self.env["MOCK_MEMORY"] = str(memory)
+                self.prepare_cap()
+                self.assertEqual(self.state_build_caps(), {(16, gib)})
 
-    def test_invalid_compile_cap_fails_before_docker(self):
+    def test_too_small_or_invalid_docker_host_is_rejected_before_building(self):
+        for ncpu, memory, message in (("16", 12 * GIB - 1, "at least 8 GiB after 4 GiB headroom"),
+                                      ("16", 4 * GIB, "at least 8 GiB after 4 GiB headroom"),
+                                      ("1", 3 * GIB, "at least 8 GiB after 4 GiB headroom"),
+                                      ("0", NODE_MEMORY, "invalid NCPU/MemTotal"),
+                                      ("x86_64", NODE_MEMORY, "invalid NCPU/MemTotal"),
+                                      ("", NODE_MEMORY, "invalid NCPU/MemTotal"),
+                                      ("16", "0", "invalid NCPU/MemTotal"),
+                                      ("16", "3.2e10", "invalid NCPU/MemTotal")):
+            with self.subTest(ncpu=ncpu, memory=memory):
+                self.env.update(MOCK_NCPU=ncpu, MOCK_MEMORY=str(memory))
+                result = self.prepare_cap(success=False)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+                self.assertFalse((self.repo / ".ci-cargo-state").exists())
+        # One CPU is accepted; the minimum is a memory floor, not a CPU floor.
+        self.env.update(MOCK_NCPU="1", MOCK_MEMORY=str(12 * GIB))
+        self.prepare_cap()
+        self.assertEqual(self.state_build_caps(), {(1, 8)})
+
+    def test_overrides_replace_detected_resources_and_may_only_lower_them(self):
+        cases = (({"EEZ_CI_BUILD_CPUS": "6", "EEZ_CI_BUILD_MEMORY": str(24 * GIB)}, (6, 20),
+                  "6 CPUs (override: EEZ_CI_BUILD_CPUS), 20 GiB (override: EEZ_CI_BUILD_MEMORY"),
+                 ({"EEZ_CI_BUILD_CPUS": "6", "EEZ_CI_BUILD_MEMORY": ""}, (6, 27),
+                  "6 CPUs (override: EEZ_CI_BUILD_CPUS), 27 GiB (auto: docker info MemTotal"),
+                 ({"EEZ_CI_BUILD_CPUS": "", "EEZ_CI_BUILD_MEMORY": str(NODE_MEMORY)}, (16, 27),
+                  "16 CPUs (auto: docker info NCPU), 27 GiB (override: EEZ_CI_BUILD_MEMORY"),
+                 ({"EEZ_CI_BUILD_CPUS": "16"}, (16, 27), "16 CPUs (override: EEZ_CI_BUILD_CPUS)"))
+        for overrides, cap, log in cases:
+            with self.subTest(overrides=overrides):
+                for key in ("EEZ_CI_BUILD_CPUS", "EEZ_CI_BUILD_MEMORY"):
+                    self.env.pop(key, None)
+                self.env.update(overrides)
+                result = self.prepare_cap()
+                self.assertIn(log, result.stdout)
+                self.assertEqual(self.state_build_caps(), {cap})
+        for key, value, message in (("EEZ_CI_BUILD_CPUS", "17", "exceeds the Docker daemon's 16 CPUs"),
+                                    ("EEZ_CI_BUILD_MEMORY", str(NODE_MEMORY + 1), "exceeds the Docker daemon's"),
+                                    ("EEZ_CI_BUILD_MEMORY", str(12 * GIB - 1), "at least 8 GiB after 4 GiB headroom"),
+                                    # A value in GiB (downward API divisor 1Gi) is not a byte count.
+                                    ("EEZ_CI_BUILD_MEMORY", "28", "at least 8 GiB after 4 GiB headroom")):
+            with self.subTest(key=key, value=value):
+                for name in ("EEZ_CI_BUILD_CPUS", "EEZ_CI_BUILD_MEMORY"):
+                    self.env.pop(name, None)
+                self.env[key] = value
+                result = self.prepare_cap(success=False)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
+
+    def test_invalid_override_format_fails_before_docker(self):
         for key, value in (("EEZ_CI_BUILD_CPUS", "0"), ("EEZ_CI_BUILD_CPUS", "-4"), ("EEZ_CI_BUILD_CPUS", "4.5"),
                            ("EEZ_CI_BUILD_CPUS", "four"), ("EEZ_CI_BUILD_CPUS", "1000"),
-                           ("EEZ_CI_BUILD_MEMORY", "20"), ("EEZ_CI_BUILD_MEMORY", "20G"),
-                           ("EEZ_CI_BUILD_MEMORY", "20gb"), ("EEZ_CI_BUILD_MEMORY", "0g"),
-                           ("EEZ_CI_BUILD_MEMORY", "512m"), ("EEZ_CI_BUILD_MEMORY", "1.5g")):
-            for operation in ((), ("prepare-state",)):
+                           ("EEZ_CI_BUILD_CPUS", "16000m"), ("EEZ_CI_BUILD_MEMORY", "20g"),
+                           ("EEZ_CI_BUILD_MEMORY", "28Gi"), ("EEZ_CI_BUILD_MEMORY", "0"),
+                           ("EEZ_CI_BUILD_MEMORY", "-1"), ("EEZ_CI_BUILD_MEMORY", "3.2e10"),
+                           ("EEZ_CI_BUILD_MEMORY", "1" * 17)):
+            for operation in ((), ("prepare-state",), ("export-state",)):
                 with self.subTest(key=key, value=value, operation=operation):
                     env = dict(self.env, EEZ_CARGO_STATE_CACHE="true", **{key: value})
                     self.log.write_text("")
@@ -312,14 +395,20 @@ class RuntimeArtifactsTest(unittest.TestCase):
                     self.assertIn(key, result.stderr)
                     self.assertEqual(self.commands(), [])
 
-    def test_state_host_memory_check_follows_the_configured_cap(self):
-        self.env.update(EEZ_CARGO_STATE_CACHE="true", EEZ_CI_BUILD_MEMORY="40g",
-                        MOCK_MEMORY=str(40 * 1024**3 + 4 * 1024**3 - 1))
-        result = self.run_script("build-runtime-artifacts.sh", "prepare-state", success=False)
-        self.assertIn("40g Cargo builds require", result.stderr)
-        self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
-        self.env["MOCK_MEMORY"] = str(44 * 1024**3)
-        self.run_script("build-runtime-artifacts.sh", "prepare-state")
+    def test_state_builds_require_a_valid_recorded_cap(self):
+        state = self.prepare_state()
+        plan = json.loads((state / "plan.json").read_text())
+        for name, cap in (("missing", None), ("zero-cpus", {**plan["build_cap"], "cpus": 0}),
+                          ("string-memory", {**plan["build_cap"], "memory_gib": "27g"})):
+            with self.subTest(case=name):
+                changed = {k: v for k, v in plan.items() if k != "build_cap"}
+                if cap is not None:
+                    changed["build_cap"] = cap
+                (state / "plan.json").write_text(json.dumps(changed))
+                self.env["EEZ_RUNTIME_OUTPUT_DIR"] = str(self.root / f"cap-{name}")
+                self.log.write_text("")
+                self.run_script("build-runtime-artifacts.sh", success=False)
+                self.assertFalse(any(c[:3] == ["docker", "buildx", "build"] for c in self.commands()))
 
     def test_unusable_oci_layouts_fall_back_before_compilation(self):
         state = self.prepare_state()
@@ -440,11 +529,13 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.assertIn("ENV EEZ_EXPORT_CARGO_STATE=true\nRUN --network=none bash /usr/local/lib/eez/build-runtime.sh", dockerfile)
         self.assertIn('export CARGO_BUILD_JOBS="$EEZ_BUILD_CPUS" CARGO_NET_OFFLINE=true', dockerfile)
         offline = dockerfile.split("FROM build-inputs AS build-offline", 1)[1].split("\nFROM ", 1)[0]
-        self.assertIn("ARG EEZ_BUILD_CPUS=4\n", offline)
-        self.assertIn("ARG EEZ_BUILD_MEMORY_BYTES=21474836480\n", offline)
+        # No defaults: an offline build without the producer's resolved cap fails.
+        self.assertIn("ARG EEZ_BUILD_CPUS\n", offline)
+        self.assertIn("ARG EEZ_BUILD_MEMORY_BYTES\n", offline)
         online = dockerfile.split("FROM build-inputs AS build-online", 1)[1].split("\nFROM ", 1)[0]
         self.assertNotIn("EEZ_BUILD_", online)
         script = dockerfile.split("COPY <<'BUILD_RUNTIME'", 1)[1].split("\nBUILD_RUNTIME", 1)[0]
+        self.assertIn(': "${EEZ_BUILD_CPUS:?}" "${EEZ_BUILD_MEMORY_BYTES:?}"', script)
         self.assertIn('test "$(cat /sys/fs/cgroup/cpu.max)" = "$((EEZ_BUILD_CPUS * 100000)) 100000"', script)
         self.assertIn('test "$(cat /sys/fs/cgroup/memory.max)" = "$EEZ_BUILD_MEMORY_BYTES"', script)
         self.assertIn('test "$(cat /sys/fs/cgroup/memory.swap.max)" = 0', script)

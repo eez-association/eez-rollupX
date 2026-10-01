@@ -53,7 +53,7 @@ overrides, which can take precedence over `.env`. Its `COMPOSE_FILE` selects
 | Storage capacity | Space for images, L1 snapshot, PeerDAS data, and growing databases. Check `df -h .` and Docker storage; no measured minimum is established here. |
 | Network access | Public GHCR images, Solidity compiler download, snapshot download, checkpoint source, deployment RPC, builder, and P2P peers. |
 | Deployment RPC | Synchronized Chiado execution RPC, chain ID **10200**; remains required by startup even when the embedded L1 is running |
-| Builder | Separate endpoint implementing `eth_sendBundle`; an ordinary execution RPC is insufficient |
+| Builder | One or more endpoints implementing `eth_sendBundle`, comma-separated in `EEZ_L1_BUILDER_RPC_URL`; an ordinary execution RPC is insufficient. Each bundle goes to every listed relay ([fan-out contract](../configurable-settlement-policy.md#builder-relay-fan-out)) |
 | Beacon | Packaged Lighthouse **v8.1.3**, checked-in `configs/chiado`, `--semi-supernode`, full-blob API, and `EEZ_L1_BLOB_SIDECAR_ENCODING=eip7594`; built-in Chiado config in this image leaves Fulu disabled |
 
 ### Ports and service ownership
@@ -428,7 +428,7 @@ Use these diagnostics when startup fails or a running service stalls. Begin with
 | L1/Beacon cannot catch up | Check [sync/peers and L1 agreement](#health-checks), shared JWT, checkpoint source (`LH_CHECKPOINT_URL`), snapshot backfill, and checked-in Fulu config. `configs/chiado/bootstrap_nodes.yaml` must be nonempty and match `bootnodes.yaml`. |
 | Beacon has no peers | `curl -fsS http://127.0.0.1:6152/eth/v1/node/identity \| jq '.data'`; inspect advertised `ip`/`udp`, firewall, NAT, and UDP 9205 reachability. See [discovery change](#discovery-change--recreates-lighthouse-only). |
 | Blob retrieval fails | Use the [blob diagnostic](#blob-diagnostic--read-only) with the settlement's slot and versioned hash. Check retention, sync, Fulu config, and semi-supernode mode. |
-| Builder probe fails | Check `EEZ_L1_BUILDER_RPC_URL` reachability and `eth_sendBundle` support. Startup sends an empty bundle; JSON-RPC error `-32601` means the method is unavailable. Probe success does not prove inclusion. |
+| Builder probe fails | Check reachability and `eth_sendBundle` support of each `EEZ_L1_BUILDER_RPC_URL` entry. Startup sends an empty bundle to every listed relay and names them `builder[<index>] (<host>)`; JSON-RPC error `-32601` means the method is unavailable. Startup fails only when no relay passes; failing additional relays print a warning. Probe success does not prove inclusion. |
 | L2 advances without settlement | Check [L1 agreement](#health-checks), then [poster funding and settlement](#settlement-diagnostic). Inspect node/signer logs for builder inclusion, proof failure, policy due-work, fee ceilings, and gas/blob/timing deferrals. |
 | Simulation cannot fetch a block | Verify deployment RPC freshness. Skip-simulation bypasses that phase only; inspect prior broadcasts before retrying. |
 

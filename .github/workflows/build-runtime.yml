@@ -37,11 +37,10 @@ jobs:
       # Optional registry layer cache; compiler caching is configured separately.
       EEZ_RUNTIME_CACHE: ${{ vars.CI_RUNTIME_CACHE != 'false' }}
       EEZ_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      # The retained-state compile cap is sized from the build's Docker daemon,
+      # assuming one build job per node; see build-runtime-artifacts.sh for the
+      # runner-environment overrides when the DinD sidecar is smaller than its node.
       EEZ_CARGO_STATE_CACHE: ${{ (inputs.cargo-state-cache || vars.CI_CARGO_STATE_CACHE == 'true') && inputs.runner == 'homelab-rust' }}
-      # Optional compile cap for the retained-state build (unset: 4 CPUs, 20g).
-      # Keep within the runner's DinD sidecar limits; see build-runtime-artifacts.sh.
-      EEZ_CI_BUILD_CPUS: ${{ vars.CI_BUILD_CPUS }}
-      EEZ_CI_BUILD_MEMORY: ${{ vars.CI_BUILD_MEMORY }}
     outputs:
       runtime-ref: ${{ steps.payloads.outputs.runtime-ref }}
       tests-ref: ${{ steps.payloads.outputs.tests-ref }}

@@ -98,6 +98,9 @@ def run(plan, args):
             builder_el = p.el_context
             break
 
+    # One relay URL or a comma-separated list, passed unchanged to the
+    # Composer's EEZ_L1_BUILDER_RPC_URL (validated there). Defaults to the
+    # enclave's single rbuilder.
     builder_rpc = eez.get("builder_rpc_url", "")
     if builder_rpc == "":
         if builder_el == None:
