@@ -24,13 +24,6 @@ state_cache="${EEZ_CARGO_STATE_CACHE:-false}"
 operation="${1:-build}"
 [[ "$operation" == build || "$operation" == prepare-state || "$operation" == export-state ]] || exit 2
 
-# Only default-branch pushes may save Cargo state; builds that may be exported
-# must compile offline (see the stage selection below).
-exports_state() {
-    [[ "$state_cache" == true && "${GITHUB_EVENT_NAME:-}" == push &&
-       "${GITHUB_REF:-}" == "refs/heads/${EEZ_DEFAULT_BRANCH:-main}" ]]
-}
-
 root_commit="$(git rev-parse HEAD)"
 protocol_commit="$(git -C eez-core-protocol rev-parse HEAD)"
 pinned_protocol="$(git ls-files -s eez-core-protocol | awk '{print $2}')"
@@ -133,7 +126,8 @@ if [[ "$state_cache" == true ]]; then
     state_build+=(--build-arg "RUST_IMAGE=$rust_base")
 fi
 if [[ "$operation" == export-state ]]; then
-    exports_state || {
+    [[ "$state_cache" == true && "${GITHUB_EVENT_NAME:-}" == push &&
+       "${GITHUB_REF:-}" == "refs/heads/${EEZ_DEFAULT_BRANCH:-main}" ]] || {
         echo 'Only default-branch pushes may save Cargo state' >&2; exit 1;
     }
     jq -e -s --arg root "$root_commit" --arg protocol "$protocol_commit" '
@@ -217,43 +211,10 @@ runtime_base="$(resolve_base "${RUNTIME_IMAGE:-debian:bookworm-slim}")"
 build=(docker buildx build --builder default --platform linux/amd64 --progress plain --provenance=false
        --build-arg "RUNTIME_IMAGE=$runtime_base")
 runtime_build=("${build[@]}" "${runtime_cache_from[@]}" -f Dockerfile.runtime --build-arg "RUST_IMAGE=$rust_base")
-
-build_stage=""
-if [[ "$state_cache" == true ]]; then
-    previous=""
-    if digest="$(state_digest "$state_dir/transport" "$compatibility" 2>/dev/null)"; then
-        candidate="oci-layout://$state_dir/transport@$digest"
-        # Only restoration can fall back. A Cargo or test failure is never retried.
-        if timeout 600 "${state_build[@]}" --build-context "previous-state=$candidate" \
-            --target checked-state --output type=cacheonly .; then
-            previous="$candidate"
-            runtime_build+=(--build-context "previous-state=$previous")
-        else
-            echo '::warning::Cargo state rejected before compilation; building cold'
-        fi
-    fi
-    jq --arg previous "$previous" '. + {previous:$previous}' "$state_dir/plan.json" > "$state_dir/selected.json"
-    mv "$state_dir/selected.json" "$state_dir/plan.json"
-    echo "==> Docker Cargo state: $([[ -n "$previous" ]] && echo hit || echo miss)"
-    # Restored state holds previously built programs, so it only compiles in
-    # the offline stage without compiler-cache credentials. Exported state must
-    # come from that stage too: only default-branch pushes export, and
-    # export-state reuses this build's offline layers. Any other miss restores
-    # nothing, so it compiles online with the compiler cache, exactly like a
-    # build without retained state, instead of fully cold.
-    build_stage=build-offline
-    if [[ -z "$previous" ]] && ! exports_state; then
-        build_stage=build-online
-    fi
-    runtime_build+=(--build-arg "BUILD_STAGE=$build_stage"
-                    --resource cpu-period=100000 --resource cpu-quota=400000
-                    --resource memory=20g --resource memory-swap=20g)
-fi
-
 # Only the backend name is a build argument. Credential values travel through
 # BuildKit secret mounts, never argv, layer history, metadata or GHCR caches.
 compiler_cache="${EEZ_COMPILER_CACHE:-none}"
-[[ "$build_stage" != build-offline ]] || compiler_cache=none
+[[ "$state_cache" == false ]] || compiler_cache=none
 [[ "$compiler_cache" == none || "$compiler_cache" == redis || "$compiler_cache" == gha ]] || {
     echo "Invalid runtime compiler cache backend" >&2; exit 1;
 }
@@ -274,6 +235,27 @@ labels=(--label "org.opencontainers.image.source=$source_url"
         --label "org.opencontainers.image.revision=$root_commit"
         --label "io.eez.protocol.revision=$protocol_commit"
         --label "io.eez.build.profile=release")
+
+if [[ "$state_cache" == true ]]; then
+    runtime_build+=(--build-arg BUILD_STAGE=build-offline
+                    --resource cpu-period=100000 --resource cpu-quota=400000
+                    --resource memory=20g --resource memory-swap=20g)
+    previous=""
+    if digest="$(state_digest "$state_dir/transport" "$compatibility" 2>/dev/null)"; then
+        candidate="oci-layout://$state_dir/transport@$digest"
+        # Only restoration can fall back. A Cargo or test failure is never retried.
+        if timeout 600 "${state_build[@]}" --build-context "previous-state=$candidate" \
+            --target checked-state --output type=cacheonly .; then
+            previous="$candidate"
+            runtime_build+=(--build-context "previous-state=$previous")
+        else
+            echo '::warning::Cargo state rejected before compilation; building cold'
+        fi
+    fi
+    jq --arg previous "$previous" '. + {previous:$previous}' "$state_dir/plan.json" > "$state_dir/selected.json"
+    mv "$state_dir/selected.json" "$state_dir/plan.json"
+    echo "==> Docker Cargo state: $([[ -n "$previous" ]] && echo hit || echo miss)"
+fi
 
 phase=compilation
 echo "==> compiling runtime binaries, then release tests (linux/amd64, same target)"

@@ -296,10 +296,6 @@ elif args[0] != "logout":
         self.assertIn("steps.cargo-restore.outputs.cache-hit != 'true'", export["if"])
         self.assertIn("steps.cargo-export.outcome == 'success'", save["if"])
         self.assertIn("steps.cargo-export.outputs.upload == 'true'", save["if"])
-        # The compiler cache is selected with Cargo state too: the build script
-        # uses it only for misses that can never be exported.
-        compiler = next(s for s in steps if s.get("uses") == "./.github/actions/compiler-cache")
-        self.assertNotIn("if", compiler)
         unit = next(s for s in steps if '--suite unit' in s.get("run", ""))
         build = next(s for s in steps if s.get("run") == 'bash scripts/ci/build-runtime-artifacts.sh')
         self.assertLess(steps.index(restore), steps.index(build))

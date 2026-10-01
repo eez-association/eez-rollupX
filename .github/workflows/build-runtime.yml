@@ -89,10 +89,8 @@ jobs:
           EEZ_CACHE_DOCKER_HOST: ${{ steps.cache-docker.outputs.sock }}
           EEZ_ORIGINAL_DOCKER_HOST: ${{ steps.docker-cache.outputs.original-host }}
         run: bash scripts/ci/hosted-docker-cache.sh select
-      # Also selected with Cargo state: a miss outside default-branch pushes
-      # compiles online with it. Offline (restored or exportable) builds never
-      # receive compiler-cache credentials; build-runtime-artifacts.sh decides.
       - uses: ./.github/actions/compiler-cache
+        if: ${{ env.EEZ_CARGO_STATE_CACHE != 'true' }}
         with:
           mode: docker
           enabled: ${{ vars.CI_COMPILER_CACHE != 'false' }}
