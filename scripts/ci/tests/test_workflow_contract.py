@@ -285,11 +285,16 @@ elif args[0] != "logout":
         self.assertTrue(all(not s.get("continue-on-error", False) for s in steps
                             if "run" in s and s.get("id") != "cargo-export"))
 
-    def test_compile_cap_is_optional_repository_configuration(self):
+    def test_compile_cap_is_not_repository_configuration(self):
+        # The producer sizes the cap from its Docker daemon. Overrides belong to
+        # the runner environment (the DinD sidecar's limits), not to workflows.
         job = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())["jobs"]["build"]
-        # Unset variables expand to empty strings; the producer then uses 4 CPUs / 20g.
-        self.assertEqual(job["env"]["EEZ_CI_BUILD_CPUS"], "${{ vars.CI_BUILD_CPUS }}")
-        self.assertEqual(job["env"]["EEZ_CI_BUILD_MEMORY"], "${{ vars.CI_BUILD_MEMORY }}")
+        self.assertFalse({"EEZ_CI_BUILD_CPUS", "EEZ_CI_BUILD_MEMORY"} & set(job["env"]))
+        for path in (REPO / ".github").rglob("*.yml"):
+            with self.subTest(path=path.name):
+                text = path.read_text()
+                for name in ("CI_BUILD_CPUS", "CI_BUILD_MEMORY"):
+                    self.assertNotIn(name, text)
 
     def test_docker_cargo_state_is_optional_and_saves_only_after_producer_tests_on_main(self):
         workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())

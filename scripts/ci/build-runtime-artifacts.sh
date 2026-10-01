@@ -21,20 +21,16 @@ cache="${EEZ_RUNTIME_CACHE:-true}"
 [[ "$cache" == true || "$cache" == false ]] || { echo "EEZ_RUNTIME_CACHE must be true or false" >&2; exit 1; }
 state_cache="${EEZ_CARGO_STATE_CACHE:-false}"
 [[ "$state_cache" == true || "$state_cache" == false ]] || { echo "EEZ_CARGO_STATE_CACHE must be true or false" >&2; exit 1; }
-# Compile cap for the retained-state (offline) build. ARC runs this job's Docker
-# daemon in a per-pod DinD sidecar, so the sidecar's Kubernetes limits are the
-# outer bound; keep these values within them. Cargo inside the nested build
-# container cannot see the sidecar's quota (only this container's cgroup), so
-# CARGO_BUILD_JOBS is set from the same CPU count rather than detected.
-build_cpus="${EEZ_CI_BUILD_CPUS:-4}"
-build_memory="${EEZ_CI_BUILD_MEMORY:-20g}"
-[[ "$build_cpus" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "EEZ_CI_BUILD_CPUS must be a positive integer" >&2; exit 1; }
-[[ "$build_memory" =~ ^[1-9][0-9]{0,3}g$ ]] || { echo "EEZ_CI_BUILD_MEMORY must be whole GiB, such as 20g" >&2; exit 1; }
-build_memory_bytes=$(( ${build_memory%g} * 1073741824 ))
-# Docker enforces the limits; build-runtime.sh verifies them in its cgroup.
-build_cap=(--resource cpu-period=100000 --resource "cpu-quota=$(( build_cpus * 100000 ))"
-           --resource "memory=$build_memory" --resource "memory-swap=$build_memory"
-           --build-arg "EEZ_BUILD_CPUS=$build_cpus" --build-arg "EEZ_BUILD_MEMORY_BYTES=$build_memory_bytes")
+# Optional resource overrides for the retained-state compile cap; see
+# resolve_build_cap. Unset or empty selects the Docker daemon's own values.
+cpus_override="${EEZ_CI_BUILD_CPUS:-}"
+memory_override="${EEZ_CI_BUILD_MEMORY:-}"
+[[ -z "$cpus_override" || "$cpus_override" =~ ^[1-9][0-9]{0,2}$ ]] || {
+    echo "EEZ_CI_BUILD_CPUS must be a positive whole number of CPUs" >&2; exit 1;
+}
+[[ -z "$memory_override" || "$memory_override" =~ ^[1-9][0-9]{0,15}$ ]] || {
+    echo "EEZ_CI_BUILD_MEMORY must be a byte count, such as the downward API's limits.memory" >&2; exit 1;
+}
 operation="${1:-build}"
 [[ "$operation" == build || "$operation" == prepare-state || "$operation" == export-state ]] || exit 2
 
@@ -71,6 +67,61 @@ resolve_base() {
     printf '%s\n' "$reference"
 }
 
+# Size the retained-state compile cap from the Docker daemon that runs the build.
+# CPUs: all of the daemon's CPUs. Memory: its MemTotal rounded down to whole GiB,
+# minus a fixed 4 GiB for the daemon, BuildKit and the runner, so Cargo fails at
+# its own cgroup limit instead of the node OOM-killing the job. Whole GiB keeps
+# the value, and the BuildKit cache identity derived from it, stable across
+# nominally identical nodes whose kernels reserve slightly different memory.
+# Under ARC's DinD sidecar, `docker info` reports the node, not the sidecar's
+# Kubernetes limits. That is correct only when the scale set gives this job the
+# whole node. Otherwise the runner must export the sidecar's limits (downward API
+# resourceFieldRef limits.cpu and limits.memory, default divisor) as
+# EEZ_CI_BUILD_CPUS/EEZ_CI_BUILD_MEMORY; overrides replace the detected values
+# and may only lower them. Cargo inside the nested build container cannot see an
+# outer quota, so CARGO_BUILD_JOBS is passed explicitly from the same CPU count.
+resolve_build_cap() {
+    local cpus memory
+    cpus="$(docker info --format '{{.NCPU}}')"
+    memory="$(docker info --format '{{.MemTotal}}')"
+    [[ "$cpus" =~ ^[1-9][0-9]{0,3}$ && "$memory" =~ ^[1-9][0-9]{0,15}$ ]] || {
+        echo "Docker reported invalid NCPU/MemTotal: $cpus/$memory" >&2; exit 1;
+    }
+    cpu_source="auto: docker info NCPU"
+    memory_source="auto: docker info MemTotal $memory bytes"
+    if [[ -n "$cpus_override" ]]; then
+        (( cpus_override <= cpus )) || {
+            echo "EEZ_CI_BUILD_CPUS=$cpus_override exceeds the Docker daemon's $cpus CPUs" >&2; exit 1;
+        }
+        cpus="$cpus_override" cpu_source="override: EEZ_CI_BUILD_CPUS"
+    fi
+    if [[ -n "$memory_override" ]]; then
+        (( memory_override <= memory )) || {
+            echo "EEZ_CI_BUILD_MEMORY=$memory_override exceeds the Docker daemon's $memory bytes" >&2; exit 1;
+        }
+        memory="$memory_override" memory_source="override: EEZ_CI_BUILD_MEMORY $memory_override bytes"
+    fi
+    build_cpus="$cpus"
+    build_memory_gib=$(( memory / 1073741824 - 4 ))
+    (( build_memory_gib >= 8 )) || {
+        echo "Cargo state builds require at least 8 GiB after 4 GiB headroom; $memory bytes available ($memory_source)" >&2
+        exit 1
+    }
+}
+
+# Docker enforces the limits; build-runtime.sh verifies them in its cgroup and
+# sets CARGO_BUILD_JOBS. The build arguments are part of build-offline's
+# BuildKit cache identity, so every state build in one job (restore check,
+# compilation, packaging, export) uses the cap recorded once in plan.json.
+set_build_cap() {
+    build_cap=(--resource cpu-period=100000 --resource "cpu-quota=$(( build_cpus * 100000 ))"
+               --resource "memory=${build_memory_gib}g" --resource "memory-swap=${build_memory_gib}g"
+               --build-arg "EEZ_BUILD_CPUS=$build_cpus"
+               --build-arg "EEZ_BUILD_MEMORY_BYTES=$(( build_memory_gib * 1073741824 ))")
+    state_build+=("${build_cap[@]}")
+    echo "==> Cargo state compile cap: $build_cpus CPUs ($cpu_source), ${build_memory_gib} GiB ($memory_source, rounded down to whole GiB, minus 4 GiB headroom)"
+}
+
 # Keep the cache path stable for Actions, but never reuse a local job directory.
 # Only transport/ belongs to the cache; the authoritative checkout and plan do not.
 state_dir="$REPO/.ci-cargo-state"
@@ -78,21 +129,19 @@ inputs=(Cargo.toml Cargo.lock crates contracts/test/PostBatchGasPins.t.sol
         .config/nextest.toml scripts/ci/native-tests.py scripts/ci/with-compiler-cache.sh)
 state_build=(docker buildx build --builder default --platform linux/amd64 --progress plain
              --provenance=false -f Dockerfile.runtime --build-arg EEZ_COMPILER_CACHE=none
-             --build-arg BUILD_STAGE=build-offline "${build_cap[@]}")
+             --build-arg BUILD_STAGE=build-offline)
 if [[ "$operation" == prepare-state ]]; then
     [[ "$state_cache" == true ]]
     git diff --quiet HEAD -- "${inputs[@]}" || { echo 'Cargo state requires clean compilation inputs' >&2; exit 1; }
     [[ -z "$(git ls-files --others --exclude-standard -- "${inputs[@]}")" ]] || {
         echo 'Cargo state requires tracked compilation inputs' >&2; exit 1;
     }
-    # MemTotal is the node's memory even inside DinD, not the sidecar's limit.
-    [[ "$(docker info --format '{{.MemTotal}}')" -ge $(( build_memory_bytes + 4294967296 )) ]] || {
-        echo "$build_memory Cargo builds require a Docker host with at least 4 GiB more RAM" >&2; exit 1;
-    }
+    resolve_build_cap
     [[ "$(df -PB1 "$REPO" | awk 'NR == 2 {print $4}')" -ge 53687091200 ]] || {
         echo 'Cargo state requires 50 GiB free disk; no automatic cleanup' >&2; exit 1;
     }
     mkdir "$state_dir"
+    set_build_cap
     rust_base="$(resolve_base "${RUST_IMAGE:-rust:1.95.0-bookworm}")"
     "${state_build[@]}" --build-arg "RUST_IMAGE=$rust_base" --target build-contract \
         --output "type=local,dest=$state_dir/contract" .
@@ -102,7 +151,10 @@ if [[ "$operation" == prepare-state ]]; then
     source="$(git ls-tree -r HEAD -- "${inputs[@]}" | sha256sum | cut -d' ' -f1)"
     jq -n --arg root "$root_commit" --arg protocol "$protocol_commit" --arg rust "$rust_base" \
         --arg compatibility "$compatibility" --arg source "$source" \
-        '{root:$root, protocol:$protocol, rust:$rust, compatibility:$compatibility, source:$source}' \
+        --argjson cpus "$build_cpus" --argjson memory_gib "$build_memory_gib" \
+        --arg cpu_source "$cpu_source" --arg memory_source "$memory_source" \
+        '{root:$root, protocol:$protocol, rust:$rust, compatibility:$compatibility, source:$source,
+          build_cap:{cpus:$cpus, memory_gib:$memory_gib, cpu_source:$cpu_source, memory_source:$memory_source}}' \
         > "$state_dir/plan.json"
     prefix="cargo-oci-v1-linux-amd64-$compatibility-"
     printf 'key=%s%s\nprefix=%s\n' "$prefix" "$source" "$prefix" >> "${GITHUB_OUTPUT:?}"
@@ -136,6 +188,12 @@ if [[ "$state_cache" == true ]]; then
     git diff --quiet HEAD -- "${inputs[@]}" || exit 1
     rust_base="$(jq -er .rust "$state_dir/plan.json")"
     compatibility="$(jq -er .compatibility "$state_dir/plan.json")"
+    build_cpus="$(jq -er '.build_cap.cpus | tostring' "$state_dir/plan.json")"
+    build_memory_gib="$(jq -er '.build_cap.memory_gib | tostring' "$state_dir/plan.json")"
+    cpu_source="$(jq -er .build_cap.cpu_source "$state_dir/plan.json")"
+    memory_source="$(jq -er .build_cap.memory_source "$state_dir/plan.json")"
+    [[ "$build_cpus" =~ ^[1-9][0-9]{0,3}$ && "$build_memory_gib" =~ ^[1-9][0-9]{0,6}$ ]]
+    set_build_cap
     state_build+=(--build-arg "RUST_IMAGE=$rust_base")
 fi
 if [[ "$operation" == export-state ]]; then
