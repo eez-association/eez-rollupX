@@ -338,7 +338,9 @@ For Chiado operation or deployment changes, read the
 [quick start](docs/runbooks/chiado-quickstart.md) and
 [deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Before adding or
 replacing a Composer on an existing Chiado L2, read the
-[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). Preserve these boundaries:
+[existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). An Ethereum
+mainnet deployment follows the [mainnet draft](docs/runbooks/mainnet-deployment.md);
+its readiness blockers must be resolved first. Preserve these boundaries:
 
 - Normal deployment uses the published deploy image's bundled contracts/tools;
   host builds and `:local` images are for development. Match node/signer/deploy
