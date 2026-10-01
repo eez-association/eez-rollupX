@@ -100,6 +100,28 @@ class BuilderControlTest(unittest.TestCase):
         with patch.object(MODULE.time, "sleep", side_effect=AssertionError("held twice")):
             self.send(maintenance)
 
+    def test_hold_with_skip_forwards_that_many_matching_bundles_first(self):
+        first, second, third = bundle("0x0301"), bundle("0x0302"), bundle("0x0303")
+        hold = self.directory / "hold-next.json"
+        hold.write_text(json.dumps({"skip": 1}))
+        with patch.object(MODULE.time, "sleep", side_effect=self.release(second)):
+            self.send(first)
+            self.assertEqual(self.forwarded, [first])
+            self.assertEqual(json.loads(hold.read_text()), {"skip": 0})
+            self.assertFalse((self.directory / "held-bundle.json").exists())
+            self.send(second)
+        self.assertEqual(json.loads((self.directory / "held-bundle.json").read_text()), second)
+        self.assertFalse(hold.exists())
+        (self.directory / "released-bundle.json").unlink()
+        with patch.object(MODULE.time, "sleep", side_effect=AssertionError("held twice")):
+            self.send(third)
+        self.assertEqual(self.forwarded, [first, second, third])
+
+    def test_hold_rejects_an_invalid_skip(self):
+        (self.directory / "hold-next.json").write_text(json.dumps({"skip": -1}))
+        with self.assertRaises(ValueError):
+            self.send(bundle("0x0301"))
+
     def test_rpc_outage_affects_only_selected_methods_and_recovers(self):
         request = {"jsonrpc": "2.0", "id": 5,
                    "method": "eth_maxPriorityFeePerGas", "params": []}

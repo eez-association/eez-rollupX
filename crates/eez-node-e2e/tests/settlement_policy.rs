@@ -1995,6 +1995,11 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             .unwrap(),
         0
     );
+    if restart_after_prefix {
+        // Let the first drain settlement through and hold the second, armed
+        // before the drain starts so the hold cannot miss the second bundle.
+        world.hold_bundle_after(1).unwrap();
+    }
     if !cross_chain_trigger {
         world
             .restart_composer_with_env(&[("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "45000".into())])
@@ -2067,9 +2072,8 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             first.header.number < covered,
             "fixture must restart during the drain"
         );
-        // Hold the following bundle so the graceful policy restart occurs
-        // during the drain, before a second canonical settlement.
-        world.hold_next_bundle().unwrap();
+        // The second drain bundle is held (armed before the drain), so the
+        // graceful policy restart occurs before a second canonical settlement.
         wait_for(TIMEOUT, || async { world.held_bundle() })
             .await
             .unwrap();

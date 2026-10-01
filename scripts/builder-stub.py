@@ -160,8 +160,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         with open(hold_path) as source:
                             hold = json.load(source)
                         if hold.get("transaction") is None or hold["transaction"] in txs:
-                            os.replace(hold_path, hold_path + ".used")
-                            hold_next = True
+                            # `skip` lets that many matching bundles through
+                            # first, so a test can arm the hold before the
+                            # bundle it targets is composed.
+                            skip = hold.get("skip", 0)
+                            if not isinstance(skip, int) or skip < 0:
+                                raise ValueError("hold skip must be a non-negative integer")
+                            if skip:
+                                with open(hold_path + ".new", "w") as output:
+                                    json.dump(dict(hold, skip=skip - 1), output)
+                                os.replace(hold_path + ".new", hold_path)
+                            else:
+                                os.replace(hold_path, hold_path + ".used")
+                                hold_next = True
                     except FileNotFoundError:
                         # Another request may have consumed this one-shot control.
                         pass
