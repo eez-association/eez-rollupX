@@ -22,8 +22,13 @@ fn config() -> EezEvmConfig {
         serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
     genesis.timestamp = 0;
     genesis.config.chain_id = 1;
-    genesis.config.extra_fields.get_mut("rollupX").unwrap()["l1Reference"]["timestamp"] =
-        serde_json::json!(0);
+    // A private L1 with one-second blocks: the production base references
+    // Ethereum mainnet, which requires the 2-second, six-position schedule.
+    let rollup_x = genesis.config.extra_fields.get_mut("rollupX").unwrap();
+    rollup_x["l1Reference"]["chainId"] = serde_json::json!(1337);
+    rollup_x["l1Reference"]["timestamp"] = serde_json::json!(0);
+    rollup_x["blockIntervalSeconds"] = serde_json::json!(1);
+    rollup_x["syncIntervalBlocks"] = serde_json::json!(4);
     EezEvmConfig::new(Arc::new(profile::chain_spec(genesis).unwrap()))
 }
 
