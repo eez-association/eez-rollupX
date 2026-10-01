@@ -14,8 +14,8 @@ EEZL2_ADDRESS="0x4200000000000000000000000000000000000007"
 PROXY_VECTOR_ORIGINAL_ADDRESS="0x11223344556677889900aabbccddeeff00112233"
 PROXY_VECTOR_ORIGINAL_ROLLUP_ID=0
 EXPECTED_PROXY_SALT="0x7c432a8c413604983b9f189bb5b6650220b6b9b038267802fef07276a796e168"
-EXPECTED_PROXY_INIT_CODE_HASH="0x62aa17a3312ccb683291e34b3fc0969177ecf64c0fd7fb321892e8655aa25d3c"
-EXPECTED_PROXY_ADDRESS="0xa23698cefade17c7a50c1a7e0e0eb54ae6e5aa12"
+EXPECTED_PROXY_INIT_CODE_HASH="0x26f77730044fbffb547593b1a676eb53cbbb9a57879c3f2cf090cee88a283a4a"
+EXPECTED_PROXY_ADDRESS="0xc789b12d9aa4a9f0f0130346d80f749be743ebde"
 
 usage() {
     cat >&2 <<'EOF'
@@ -23,19 +23,22 @@ usage:
   scripts/update-eezl2-genesis.sh
   scripts/update-eezl2-genesis.sh --check
   scripts/update-eezl2-genesis.sh --render --rollup-id ID --system-address ADDRESS \
-      --output PATH [--base PATH] [--profile-output PATH]
+      --recovery-address ADDRESS --output PATH [--base PATH] [--profile-output PATH]
 
 The default mode regenerates the committed genesis files (genesis.dev.json,
 the ETH-free production base genesis.json and the E2E fixture) from
 testing/kurtosis/l2-genesis-profile.json. --render creates a deployment-specific
 genesis without modifying committed files. Private keys are never accepted;
-the deployment uses the reserved native system address.
+the deployment uses the reserved native system address. The recovery address
+receives ether swept from proxies at construction; deployments use the L1
+poster account, and the fixtures use the public development poster.
 EOF
 }
 
 mode="update"
 rollup_id=""
 system_address=""
+recovery_address=""
 base_genesis=""
 output=""
 profile_output=""
@@ -58,6 +61,10 @@ while (( $# > 0 )); do
             ;;
         --system-address)
             system_address="${2:-}"
+            shift 2
+            ;;
+        --recovery-address)
+            recovery_address="${2:-}"
             shift 2
             ;;
         --base)
@@ -92,13 +99,13 @@ if [[ "${GITHUB_ACTIONS:-false}" == true && ( -z "$genesis_tool" || ! -x "$genes
 fi
 
 if [[ "$mode" == "render" ]]; then
-    [[ -n "$rollup_id" && -n "$system_address" && -n "$output" ]] || {
+    [[ -n "$rollup_id" && -n "$system_address" && -n "$recovery_address" && -n "$output" ]] || {
         usage
         exit 2
     }
     base_genesis="${base_genesis:-$REPO/genesis.json}"
 else
-    [[ -z "$rollup_id$system_address$base_genesis$output$profile_output" ]] || {
+    [[ -z "$rollup_id$system_address$recovery_address$base_genesis$output$profile_output" ]] || {
         usage
         exit 2
     }
@@ -108,6 +115,7 @@ else
     }
     rollup_id="$(jq -er '.rollupId | tostring' "$FIXTURE_PROFILE")"
     system_address="$(jq -er '.systemAddress' "$FIXTURE_PROFILE")"
+    recovery_address="$(jq -er '.recoveryAddress' "$FIXTURE_PROFILE")"
 fi
 
 python3 - "$rollup_id" <<'PY'
@@ -128,6 +136,18 @@ fi
 system_address="$(cast to-check-sum-address "$system_address")"
 if [[ "${system_address,,}" != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" ]]; then
     echo "system address must be the reserved native address 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" >&2
+    exit 1
+fi
+if [[ ! "$recovery_address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+    echo "recovery address must contain exactly 20 hexadecimal bytes" >&2
+    exit 1
+fi
+recovery_address="$(cast to-check-sum-address "$recovery_address")"
+# EEZL2 rejects zero. Distinct values also keep the immutable identification
+# below unambiguous; the protocol separates recovery from system funding.
+if [[ "${recovery_address,,}" == "0x0000000000000000000000000000000000000000" ||
+      "${recovery_address,,}" == "${system_address,,}" ]]; then
+    echo "recovery address must be nonzero and differ from the system address" >&2
     exit 1
 fi
 
@@ -162,8 +182,8 @@ cp "$GENERATOR" "$build_root/script/GenerateEEZL2Runtime.s.sol"
 forge_output="$({
     cd "$build_root"
     forge script script/GenerateEEZL2Runtime.s.sol:GenerateEEZL2Runtime \
-        --sig "run(uint64,address,bool)" \
-        "$rollup_id" "$system_address" "$USE_GAS_LEFT"
+        --sig "run(uint64,address,bool,address)" \
+        "$rollup_id" "$system_address" "$USE_GAS_LEFT" "$recovery_address"
 } 2>&1)"
 runtime="$(sed -n 's/^  \(0x[0-9a-fA-F]*\)$/\1/p' <<<"$forge_output")"
 
@@ -218,9 +238,10 @@ done
 rollup_word="$(cast abi-encode 'f(uint64)' "$rollup_id")"
 system_word="$(cast abi-encode 'f(address)' "$system_address")"
 use_gas_left_word="$(cast abi-encode 'f(bool)' "$USE_GAS_LEFT")"
+recovery_word="$(cast abi-encode 'f(address)' "$recovery_address")"
 mapfile -t immutable_ids < <(jq -er '.deployedBytecode.immutableReferences | keys[]' "$artifact")
-if (( ${#immutable_ids[@]} != 4 )); then
-    echo "expected exactly four EEZL2 immutable reference sets; found ${#immutable_ids[@]}" >&2
+if (( ${#immutable_ids[@]} != 5 )); then
+    echo "expected exactly five EEZL2 immutable reference sets; found ${#immutable_ids[@]}" >&2
     exit 1
 fi
 
@@ -256,6 +277,7 @@ for immutable_id in "${immutable_ids[@]}"; do
         "${rollup_word,,}") matched_public_immutables[rollup]=1 ;;
         "${system_word,,}") matched_public_immutables[system]=1 ;;
         "${use_gas_left_word,,}") matched_public_immutables[use_gas_left]=1 ;;
+        "${recovery_word,,}") matched_public_immutables[recovery]=1 ;;
         *)
             [[ -z "$proxy_immutable_id" ]] || {
                 echo "more than one unknown EEZL2 immutable reference set" >&2
@@ -270,7 +292,7 @@ for immutable_id in "${immutable_ids[@]}"; do
     esac
 done
 
-for public_immutable in rollup system use_gas_left; do
+for public_immutable in rollup system use_gas_left recovery; do
     [[ "${matched_public_immutables[$public_immutable]:-}" == "1" ]] || {
         echo "could not identify EEZL2 $public_immutable immutable references" >&2
         exit 1
@@ -327,14 +349,16 @@ write_profile() {
     jq -n \
         --argjson rollup_id "$rollup_id" \
         --arg system_address "$system_address" \
+        --arg recovery_address "$recovery_address" \
         --arg eezl2_address "$EEZL2_ADDRESS" \
         --arg runtime_hash "$runtime_hash" \
         --arg state_root "$state_root" \
         --arg foundry_version "$EXPECTED_FOUNDRY_VERSION" \
         '{
-            schemaVersion: 1,
+            schemaVersion: 2,
             rollupId: $rollup_id,
             systemAddress: $system_address,
+            recoveryAddress: $recovery_address,
             useGasLeft: false,
             eezL2Address: $eezl2_address,
             runtimeCodeHash: $runtime_hash,
@@ -358,6 +382,7 @@ if [[ "$mode" == "render" ]]; then
         mv "$rendered_profile" "$profile_output"
     fi
     printf 'EEZ_L2_SYSTEM_ADDRESS=%s\n' "$system_address"
+    printf 'EEZ_L2_RECOVERY_ADDRESS=%s\n' "$recovery_address"
     printf 'EEZ_L2_EEZL2_CODE_HASH=%s\n' "$runtime_hash"
     printf 'EEZ_L2_GENESIS_STATE_ROOT=%s\n' "$state_root"
     exit 0

@@ -43,6 +43,10 @@ EEZ_DEPLOY_KEY="${EEZ_DEPLOY_KEY:-$EEZ_L1_POSTER_KEY}"
 AUTHORIZED_SIGNER="$(cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY")"
 PROOF_SYSTEM_VKEY="0x000000000000000000000000${AUTHORIZED_SIGNER#0x}"
 OWNER="$(cast wallet address --private-key "$EEZ_DEPLOY_KEY")"
+POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
+# EEZL2 sweeps ether found at a proxy address during deployment to this L2
+# account. It is baked into the genesis predeploy; default to the L1 poster.
+EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
 EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
 if [[ "${AUTHORIZED_SIGNER,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]; then
     echo "deploy: proof attestation address must differ from the reserved native system address" >&2
@@ -53,6 +57,7 @@ echo "deploy: RPC                  = $EEZ_L1_RPC_URL"
 echo "deploy: deployer / owner     = $OWNER"
 echo "deploy: authorized signer    = $AUTHORIZED_SIGNER"
 echo "deploy: L2 system address    = $EEZ_L2_SYSTEM_ADDRESS"
+echo "deploy: L2 recovery address  = $EEZ_L2_RECOVERY_ADDRESS"
 echo
 
 CONTRACTS="$REPO/contracts"
@@ -130,10 +135,11 @@ GENESIS_PROFILE_OUT="${EEZ_GENESIS_PROFILE_OUT:-${GENESIS_OUT%.json}.profile.jso
 # Development networks select genesis.dev.json, which funds public test keys.
 GENESIS_BASE="${EEZ_GENESIS_BASE:-$REPO/genesis.json}"
 
-echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS)"
+echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, recovery=$EEZ_L2_RECOVERY_ADDRESS)"
 "$REPO/scripts/update-eezl2-genesis.sh" --render \
     --rollup-id "$EXPECTED_ROLLUP_ID" \
     --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
+    --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
     --base "$GENESIS_BASE" \
     --output "$GENESIS_OUT" \
     --profile-output "$GENESIS_PROFILE_OUT"
@@ -318,6 +324,7 @@ EEZ_L2_GENESIS_PROFILE_PATH=$GENESIS_PROFILE_OUT
 EEZL2_ADDRESS=0x4200000000000000000000000000000000000007
 # Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
+EEZ_L2_RECOVERY_ADDRESS=$EEZ_L2_RECOVERY_ADDRESS
 EEZ_L2_EEZL2_CODE_HASH=$EEZ_L2_EEZL2_CODE_HASH
 EOF
 
