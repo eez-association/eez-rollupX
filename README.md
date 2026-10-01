@@ -196,8 +196,10 @@ cargo run -p eez-follower -- node \
 
 ### Partial consumption and recovery
 
-Partial consumption is always enabled. Configure a timestamp-pinned bundle
-relay; all submissions use the relay.
+Partial consumption is always enabled. Configure one or more timestamp-pinned
+bundle relays in `EEZ_L1_BUILDER_RPC_URL` (comma-separated); every submission
+sends the identical bundle to all of them, as described in the
+[policy guide](docs/configurable-settlement-policy.md#builder-relay-fan-out).
 Only actual signed L1 users following postBatch enter `revertingTxHashes`.
 The required postBatch and its native blob sidecar are preserved. There is no
 submission policy flag or raw-mempool fallback.

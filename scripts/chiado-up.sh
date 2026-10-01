@@ -40,20 +40,11 @@ done
 }
 
 # Every settlement, including a blob-backed one, is submitted atomically via
-# eth_sendBundle. Accept relay validation errors for the deliberately empty
-# probe, but reject an unreachable endpoint or a relay without the method.
-builder_probe="$(curl --fail --silent --show-error --max-time 15 \
-    -H 'content-type: application/json' \
-    --data '{"jsonrpc":"2.0","method":"eth_sendBundle","params":[{"txs":[],"blockNumber":"0x0"}],"id":1}' \
-    "$EEZ_L1_BUILDER_RPC_URL")" || {
-        echo "✗ Chiado builder is unreachable: $EEZ_L1_BUILDER_RPC_URL" >&2
-        exit 1
-    }
-if ! jq -e 'has("result") or (has("error") and .error.code != -32601)' >/dev/null <<<"$builder_probe"; then
-    echo "✗ Chiado builder does not expose eth_sendBundle" >&2
-    exit 1
-fi
-echo "==> builder eth_sendBundle endpoint available"
+# eth_sendBundle to each comma-separated relay. Accept relay validation errors
+# for the deliberately empty probe. At least one relay must be reachable and
+# expose the method; other failing relays only warn (scripts/builder-relays.sh).
+source "$REPO/scripts/builder-relays.sh"
+probe_bundle_relays "$EEZ_L1_BUILDER_RPC_URL" || exit 1
 
 # ── 1. Verify existing deployment ──────────────────────────────────────
 echo "==> [1/5] using existing deployments.env"

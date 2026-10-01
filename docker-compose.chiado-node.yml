@@ -54,6 +54,7 @@ services:
       # Coinbase of every L2 block (priority fees). Required so the operator
       # chooses it explicitly; the zero address is allowed if set deliberately.
       EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
+      # One relay URL or a comma-separated list; forwarded unchanged.
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50061}
       EEZ_WITNESS_DB_PATH: /l2/witnesses

@@ -832,3 +832,8 @@ mean a successful relay returned no identifier. Correlate by postBatch hash
 and exact target in that case. These fields do not establish builder rejection
 causes or canonical settlement. Dashboard provisioning can be updated before
 or after the Composer; old collectors retain the existing delivery event.
+With several configured relays, these fields describe the first
+acknowledgement and the event adds a `builders` array of per-relay outcomes
+(position, host, outcome class, identifier, elapsed time); the collector stores
+it in the retained event JSON without a schema change. See the
+[fan-out contract](../../docs/configurable-settlement-policy.md#builder-relay-fan-out).

@@ -10,15 +10,16 @@ use eez_testkit::{
     ANVIL_ATTESTER_KEY, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall, INBOUND_USER, INestedSetterInner,
     INestedSetterOuter, IReturnData, IReturnDataWrapper, IRevertBubbleWrapper, IRevertingTarget,
     ISetterWrapper, IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, ProverMutation,
-    SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead, TARGET_DEPLOYER, account_code,
-    assert_latest_batch_signature, batches_posted, call_read, call_revert_data, count_events,
-    cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer, events_since,
-    l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word, receipt_ok,
-    run_scenarios, safe_block_hash, setter_call, setup_cross_chain, setup_cross_chain_codeless,
-    setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
+    REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead, TARGET_DEPLOYER,
+    account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
+    count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
+    events_since, l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word,
+    receipt_ok, run_scenarios, safe_block_hash, setter_call, setup_cross_chain,
+    setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
     setup_cross_chain_outbound_return_data, setup_cross_chain_proxied,
-    setup_cross_chain_return_data, setup_cross_chain_reverting, sign_and_send, signer_address,
-    state_root, value_no_ret, value_read, wait_for, wait_for_receipt_or_failure,
+    setup_cross_chain_return_data, setup_cross_chain_reverting, setup_cross_chain_with_env,
+    sign_and_send, signer_address, state_root, value_no_ret, value_read, wait_for,
+    wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -250,6 +251,76 @@ async fn minimal_bidirectional_cross_chain_smoke() {
             .unwrap(),
         0,
         "valid smoke transactions must not be evicted",
+    );
+    w.node.assert_no_divergence_failure_logs();
+}
+
+/// Two configured relays: the first rejects every bundle and the second
+/// forwards it. One dispatch to both must still settle through the accepting
+/// relay without a retry or a user failure charge.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rejecting_builder_does_not_block_settlement() {
+    let w = setup_cross_chain_with_env(&[(REJECTING_BUILDER_ENV, "1".to_owned())])
+        .await
+        .unwrap();
+    let l1_rpc = w.l1_rpc();
+    let l2_rpc = w.l2_rpc();
+    let inbound = sign_and_send(
+        &w.l1_xchain(),
+        INBOUND_USER,
+        DEV_CHAIN_ID,
+        onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap(),
+        Some(w.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall {
+            v: U256::from(47u64),
+        }
+        .abi_encode(),
+        600_000,
+    )
+    .await
+    .expect("inbound transaction must be admitted");
+    assert_all_transactions_succeeded(&w, &l1_rpc, &[inbound], "multi-relay inbound").await;
+    let (eez, rollup_id) = (w.cfg.eez_address, w.cfg.rollup_id);
+    let converged = wait_for(SETTLE_TIMEOUT, || {
+        let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
+        async move {
+            let applied = l2_value(&l2_rpc, w.value_l2).await? == U256::from(47u64);
+            let l1_root = state_root(&l1_rpc, eez, rollup_id).await?;
+            let l2_root = safe_block_hash(&l2_rpc).await?;
+            Ok((applied && l2_root == Some(l1_root)).then_some(()))
+        }
+    })
+    .await;
+    if let Err(err) = converged {
+        panic!(
+            "multi-relay submission did not settle: {err:#}{}",
+            w.settlement_diagnostics()
+        );
+    }
+    assert!(
+        batches_posted(&l1_rpc, w.cfg.eez_address, w.dep.deploy_block)
+            .await
+            .unwrap()
+            >= 1,
+        "multi-relay submission must post at least one batch",
+    );
+    // Every bundle also reached the rejecting relay; its rejection was
+    // aggregated instead of failing the dispatch.
+    assert!(
+        w.rejected_bundle_requests().unwrap() >= 1,
+        "the rejecting relay must receive the bundle",
+    );
+    assert_eq!(
+        w.node
+            .count_signals(&[
+                signals::COMPOSER_POISON_EVICTION_COMPLETED,
+                signals::TX_POISON_EVICTED,
+                signals::TX_NONCE_CHAIN_EVICTED,
+            ])
+            .unwrap(),
+        0,
+        "a relay rejection must not evict a valid user",
     );
     w.node.assert_no_divergence_failure_logs();
 }

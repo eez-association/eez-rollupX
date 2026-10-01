@@ -692,7 +692,8 @@ Delivery events now add optional relay bundle hash, exact target/parent,
 transaction count and remaining shared deadline after acknowledgement. A relay
 hash is accepted only as a 32-byte correlation identifier; absent or malformed
 identifiers stay null without changing acknowledgement semantics. Neither a
-hash nor an acknowledgement proves inclusion. Historical readers use null for
+hash nor an acknowledgement proves inclusion. With several relays, see
+[builder relay fan-out](#builder-relay-fan-out) for the per-relay `builders` field. Historical readers use null for
 missing fields. No RPC, storage or protocol migration is needed; upgrade the
 Composer and dashboard independently. Rolling back removes the discount and new
 observations without changing historical decoding or follower replay.
@@ -721,3 +722,59 @@ Rollback restores the older extrapolation; no queue, database or wire migration
 is required, and older collectors continue to accept the version string.
 The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.
+
+### Builder relay fan-out
+
+`EEZ_L1_BUILDER_RPC_URL` lists one or more `eth_sendBundle` relays as absolute
+HTTP(S) URLs separated by commas; surrounding whitespace is ignored and a
+literal comma inside a URL must be written as `%2C`. A single URL is the
+previous configuration and behaves as before. Startup rejects an absent or
+empty value, an empty entry (including a trailing comma), a malformed or
+non-HTTP(S) entry, duplicate entries after URL normalization, and more than 16
+relays. `EEZ_L1_BUILDER_RPC_URLS` is not a setting: its presence fails startup
+so a misspelled list cannot be ignored. URLs may contain credentials, so
+configuration errors, logs, delivery events and captures identify a relay only
+by position and host (`builder[1] (relay.example)`).
+
+Each dispatch serializes the timestamp-pinned request once (same transactions,
+target block, `minTimestamp`/`maxTimestamp` and `revertingTxHashes`) and sends
+the identical bytes to every relay concurrently. Each relay is bounded by the
+HTTP client timeout and, with dynamic admission, the shared delivery deadline.
+After the first acknowledgement, relays still pending at the latest-safe
+submission boundary are abandoned instead of delaying observation. The dispatch
+fails only when no relay acknowledges: a lone relay keeps its exact previous
+error; if every relay answered `-32601` the error is `BundleRpcUnsupported`; if
+every other failure was transport the error is a provider (transport) error;
+otherwise it is a submission error. Classification uses error variants, never
+error text.
+
+A fan-out is one delivery attempt. Dispatch is recorded once before any relay is
+contacted, so retry and episode accounting, the replacement bound and user
+failure charges are unchanged by the relay count. Acknowledgement by one or
+several relays never implies inclusion: the existing canonical observation
+alone decides inclusion or exclusion at the pinned target.
+
+The delivery event keeps its fields with unchanged single-relay meaning:
+`delivery_ms` and `ack_remaining_ms` refer to the first acknowledgement (or the
+end of the fan-out when none arrived) and `relay_bundle_hash` is the first
+acknowledging relay's identifier. A new `builders` array records each relay's
+`index`, `host`, `outcome` (`acknowledged`, `rejected`, `unsupported`,
+`transport_error`, `deadline_exceeded` or `abandoned_after_acknowledgement`),
+`relay_bundle_hash` and `elapsed_ms`; relay error text is not retained there.
+Bundle capture metadata is version 2: `builderRpcUrl` is replaced by the same
+per-relay outcomes, and replaying a version 2 capture requires an explicit relay
+URL (`testing/kurtosis/scripts/replay-bundle.sh CAPTURE URL`).
+
+Startup scripts probe every listed relay with an empty bundle
+([`scripts/builder-relays.sh`](../scripts/builder-relays.sh)). At least one relay
+must be reachable and serve `eth_sendBundle`; other failing relays only warn,
+because one acknowledging relay suffices per dispatch. The Composer itself does
+not probe relays at startup.
+
+Compatibility: single-URL configurations need no change. The change is
+Composer-only; signers, followers, protocol encoding and storage are unchanged.
+Older Composers parse the whole value as one URL: depending on its spelling a
+list is rejected at startup or silently becomes one wrong endpoint. Set a list
+only after upgrading and return to a single URL before rolling back.
+Collectors that ignore unknown fields keep reading delivery events; version 1
+capture readers must handle version 2 metadata.
