@@ -51,7 +51,11 @@ GHCR state-image retention policy is needed.
 - Restore/export/save are optional and time-bounded. Save only after unit success
   on default-branch pushes, and do not re-upload exact cache hits.
 - Update (2026-10-01, [test-archive split](ci-test-archive-split.md), draft): the
-  CPU/memory cap is configurable (default unchanged), and "unit success" is now
+  CPU/memory cap is sized from the build's Docker daemon (all CPUs; whole-GiB
+  memory minus 4 GiB headroom, at least 8 GiB), replacing the fixed four CPUs and
+  20 GiB, with runner-environment overrides for DinD sidecars smaller than their
+  node ([compile cap](ci-test-archive-split.md#compile-cap)); the 24-GiB host check
+  is subsumed by the headroom. "Unit success" is now
   the producer's release suite (`producer-passed.json`); workspace unit tests run
   in a separate debug lane that does not gate the state export.
 

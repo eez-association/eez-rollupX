@@ -20,7 +20,7 @@ cold-state producer. (`reth-provider/test-utils` is not a difference: `reth_gnos
 already enables it in shipping bytes.)
 
 Scope: CI test selection, the producer's test-archive guard, a new debug unit lane,
-the configurable compile cap for the retained-state build, and the affected
+the automatically sized compile cap for the retained-state build, and the affected
 tooling tests and contributor guidance. Non-goals: debug-profile E2E execution,
 runner/ARC configuration, repository variables, and Rust source changes.
 
@@ -35,7 +35,7 @@ runner/ARC configuration, repository variables, and Rust source changes.
 | R5 | Four-way E2E sharding, partition inventories and the E2E target/module inventory are unchanged. | `test_native_artifacts`, `test_workflow_contract`. |
 | R6 | Promotion requires the debug unit lane in both execution modes, alongside every existing lane. | `ci-result` gate tests (`test_workflow_contract`). |
 | R7 | Retained Cargo state is saved only after the producer's release tests pass for the exact candidate on a default-branch push. | `test_runtime_artifacts` export-state checks. |
-| R8 | The retained-state compile cap is configurable, validated, and defaults to four CPUs and 20 GiB. | `test_runtime_artifacts` default/custom/invalid cap checks. |
+| R8 | The retained-state compile cap is sized from the build's Docker daemon (all CPUs; whole-GiB memory minus 4 GiB headroom), resolved once per job, logged with its source, enforced by Docker, asserted inside the build and equal to `CARGO_BUILD_JOBS`. Runner-environment overrides may only lower it; hosts below 8 GiB of cap are rejected before building. No repository variable selects it. | `test_runtime_artifacts` auto/headroom/override/invalid/too-small/recorded-cap checks; `test_workflow_contract`. |
 
 ## Design and alternatives
 
@@ -64,17 +64,8 @@ pattern (integration pool, not the auxiliary pool), and inherits the workflow's
 that would launch a node or signer fail instead of compiling one. `ci-result`
 requires it in both publication modes.
 
-**Compile cap.** `build-runtime-artifacts.sh` derives the retained-state build's
-Docker limits and `CARGO_BUILD_JOBS` from `EEZ_CI_BUILD_CPUS` (default 4) and
-`EEZ_CI_BUILD_MEMORY` (default `20g`), wired from the optional repository variables
-`CI_BUILD_CPUS`/`CI_BUILD_MEMORY`. The same limits and build arguments apply to the
-restore check, compilation, packaging and state export, so they share one BuildKit
-cache identity. The build step still verifies the enforced cgroup limits. ARC runs
-the job's Docker daemon in a per-pod DinD sidecar: the sidecar's Kubernetes limits
-bound the build, and Cargo inside the nested build container cannot see that outer
-quota, so `CARGO_BUILD_JOBS` must equal the configured, effective CPU limit. Keep
-both values within the sidecar's limits. The host-memory precheck requires the cap
-plus 4 GiB of `docker info` memory, which under DinD reports the node, not the sidecar.
+**Compile cap.** The retained-state build sizes its Docker limits and
+`CARGO_BUILD_JOBS` from the Docker daemon that runs it; see [Compile cap](#compile-cap).
 
 Alternatives:
 
@@ -88,6 +79,72 @@ Alternatives:
   feature in another package would reintroduce the rebuild.
 - **Upstream-style debug E2E** (deferred): would remove the release-binary E2E
   gate and needs its own measurement of debug-E2E runtime and flakiness.
+
+## Compile cap
+
+Update (2026-10-01): the retained-state cap is sized automatically. The first
+revision of this draft read `EEZ_CI_BUILD_CPUS`/`EEZ_CI_BUILD_MEMORY` from the
+repository variables `CI_BUILD_CPUS`/`CI_BUILD_MEMORY` (default 4 CPUs/`20g`);
+workflows no longer pass those variables, and the producer no longer has defaults.
+
+**Resolution.** `build-runtime-artifacts.sh prepare-state` reads `docker info`'s
+`NCPU` and `MemTotal` from the daemon that runs the build. The cap is all `NCPU`
+CPUs and `MemTotal` rounded down to whole GiB minus a fixed 4 GiB headroom for the
+daemon, BuildKit and the runner, so Cargo fails at its own cgroup limit instead of
+the node OOM-killing the job. Whole GiB keeps the value identical across nominally
+identical nodes whose kernels reserve slightly different memory. A cap below 8 GiB
+(or an invalid `docker info` value) fails before any build; any whole CPU count of
+at least one is accepted. The values pass, as before, to BuildKit's `--resource`
+limits, the build step's cgroup assertions and `CARGO_BUILD_JOBS`, so the enforced
+cap equals the job count. Each state step logs
+`Cargo state compile cap: <N> CPUs (<source>), <M> GiB (<source>, ...)`, with source
+`auto: docker info ...` or `override: ...`.
+
+**DinD and overrides.** Under ARC's per-pod DinD sidecar, `docker info` reports the
+node, not the sidecar's Kubernetes limits, and Cargo inside the nested build
+container cannot see an outer quota. Auto-sizing is therefore correct only when the
+job has the whole node. If the DinD sidecar's limits are below the node, set
+`EEZ_CI_BUILD_CPUS` (whole CPUs) and `EEZ_CI_BUILD_MEMORY` (bytes) in the runner
+container's environment from the Kubernetes downward API: `valueFrom.resourceFieldRef`
+with `containerName: dind` and `resource: limits.cpu` / `limits.memory` (default
+divisor). Use whole-CPU limits; the downward API rounds fractional CPUs up.
+Overrides replace the detected `NCPU`/`MemTotal`, may only lower them, and receive
+the same rounding and headroom. Without them, the auto value oversubscribes such a
+sidecar: Cargo runs more jobs than its CPU quota, and the memory cap exceeds the
+sidecar's limit, so the sidecar is OOM-killed instead of the build failing cleanly.
+
+**Scheduling assumption.** The cap reserves nothing. One build job per node must be
+enforced by the runner scale set, for example with runner-pod resource requests that
+cover the node's allocatable CPU and memory, or an equivalent dedicated node pool.
+Two auto-sized builds on one node would each claim the whole node.
+
+**Capacity (advice only, not implemented).** With three single-job nodes, the
+producer, debug unit lane, eight E2E shards and Kurtosis compete for three slots:
+sharding reduces elapsed time only when runners are free, otherwise shards queue.
+Consider keeping heavy compilation (producer, debug unit lane) isolated one per
+node and running lighter jobs in a separate scale set whose pods share nodes. A
+build that shares its node that way must not claim the whole node: give its DinD
+sidecar limits below the node and export them through the overrides above.
+
+**Cache identity.**
+
+- The retained Cargo-state key (`cargo-oci-v1-linux-amd64-<compatibility>-<source>`)
+  does not include the cap. Cargo's fingerprints and outputs do not depend on the
+  job count or cgroup limits (`CARGO_BUILD_JOBS` only schedules; release codegen
+  units come from the profile), so state saved on one node size is valid on
+  another, and Cargo reconciles it by fingerprint as for any restore.
+- The cap reaches the `build-offline` step as build arguments, so it is part of that
+  step's BuildKit cache key and of everything derived from it: binaries, node and
+  signer images, the state export and the GHCR `mode=min` output cache. In a local
+  probe (Docker Engine 29.8.1, Buildx v0.37.1) `--resource` alone did not change the
+  key: a step built with `memory=1g` was `CACHED` with `memory=2g`. `prepare-state`
+  records the resolved cap in `.ci-cargo-state/plan.json`; the build and export steps
+  use that record and never re-detect, so the restore check, compilation, packaging
+  and export share one identity. Identical nodes produce identical keys; a different
+  node size or override misses the GHCR output cache and compiles from retained
+  state, never reusing output built under another cap.
+- `Dockerfile.runtime` changed (no cap defaults; required cap arguments), which
+  changes the compatibility key: the first state build after merging is cold.
 
 ## Measurements
 
@@ -129,8 +186,9 @@ release candidate and 24.5 min archiving tests from cold state.
 compatibility key and to BuildKit layer keys, so the first run after merging
 rebuilds from cold state once. The producer marker is renamed; an old
 `unit-passed.json` no longer authorizes export. Published E2E payloads keep their
-format and verification. Rollback: revert the change; no data migration, and the
-repository variables are optional.
+format and verification. Rollback: revert the change; no data migration. Reverting
+only the auto-sizing restores the 4-CPU/20-GiB default and the optional repository
+variables, again with one cold state build.
 
 ## Validation plan
 
@@ -149,5 +207,8 @@ repository variables are optional.
 Implementation and evidence are tracked in the draft PR from
 `ci/split-test-archive`. Unverified until that CI run: real CI timings, the debug
 lane's peak memory on the runner pool (it sets no job cap), and the one-time cold
-state rebuild. Separate pre-existing gap: `eez-protocol`'s `e2e-causal-verify`
+state rebuild. Auto-sizing additionally leaves unverified until CI runs on the
+homelab: the resolved values on its nodes, that runner-container environment
+variables reach the job steps (the override path), and build timings at the
+resolved cap. Separate pre-existing gap: `eez-protocol`'s `e2e-causal-verify`
 example contains tests that no CI selection runs, before or after this change.
