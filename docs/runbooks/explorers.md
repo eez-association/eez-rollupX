@@ -127,7 +127,12 @@ Blockscout's canonical landing URL is `/explorer`, and Blobscan's is
 `/blobscan`; both accept prefixed assets and deep links. The public gateway
 must preserve these prefixes. Its `/explorer/api/*` and
 `/explorer/socket/*` routes reach the local Blockscout Nginx proxy, which
-removes the prefix for the backend. Keep Blobscan's archive API private.
+removes the prefix for the backend. The proxy also serves Etherscan-style
+`/explorer/api?module=...` requests without the trailing slash (the dashboard's
+ABI lookup uses this form) and emits only relative redirects. An absolute
+redirect would name the proxy's internal `http://<host>:8080` listener, which
+HTTPS pages block as mixed content. Recreate `blockscout-gateway` after changing
+either Nginx file; it holds no data. Keep Blobscan's archive API private.
 
 Before a live cutover, verify prefixed pages, a known deep link, browser API
 calls, Blockscout WebSocket updates, and a Blobscan data download against
