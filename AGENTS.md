@@ -195,7 +195,7 @@ task authorization.
 | Integration contracts | `forge fmt --check --root contracts`; `forge test --root contracts` |
 | Protocol pin or core-contract integration | Core tests below; `forge build --root eez-core-protocol`; `bash scripts/ci/run-protocol-anvil.sh`; affected fork/E2E checks |
 | EEZL2 runtime, compiler settings, genesis | `bash scripts/update-eezl2-genesis.sh --check`; affected contract tests; deployment verification in the [Kurtosis guide](testing/kurtosis/README.md#run-the-pinned-protocol-e2e-suite) |
-| Chiado/settlement configuration | `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v`; `python3 scripts/check-settlement-policy-config.py`; affected runtime tests for parsing/behavior changes |
+| Chiado/Ethereum/settlement configuration | `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v`; `python3 -m unittest discover -s scripts/ci/tests -p 'test_ethereum_config.py' -v`; `python3 scripts/check-settlement-policy-config.py`; affected runtime tests for parsing/behavior changes |
 | Deployment scripts | `python3 -m unittest discover -s scripts/ci/tests -p 'test_deploy_preflight.py' -v`; affected genesis/configuration checks. Mocked preflight tests do not validate a broadcast. |
 | CI tooling/workflows | `python3 -m unittest discover -s scripts/ci/tests -v`; exercise the changed producer/consumer path |
 | Dependencies/lockfile | `cargo deny check advisories bans sources`; `cargo audit`; affected builds and compatibility tests |

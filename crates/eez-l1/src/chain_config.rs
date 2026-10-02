@@ -50,6 +50,10 @@ pub fn load_l1_chain_spec(path: &Path) -> eyre::Result<std::sync::Arc<reth_chain
             ))
         }
         Some("mainnet") => Ok(reth_chainspec::MAINNET.clone()),
+        // Public Ethereum test networks share mainnet's execution rules; they
+        // mirror the embedded node's EEZ_L1_CHAIN kinds for rehearsals.
+        Some("sepolia") => Ok(reth_chainspec::SEPOLIA.clone()),
+        Some("hoodi") => Ok(reth_chainspec::HOODI.clone()),
         Some("chiado") => {
             use reth_gnosis::spec::{chains::CHIADO_GENESIS, gnosis_spec::GnosisChainSpec};
             Ok(std::sync::Arc::new(

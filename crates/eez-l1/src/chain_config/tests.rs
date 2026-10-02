@@ -134,6 +134,19 @@ fn kurtosis_mixhash_alias_is_preserved_and_conflicts_fail() {
 
 #[cfg(feature = "chain-spec")]
 #[test]
+fn public_ethereum_presets_resolve_to_their_networks() {
+    use reth_chainspec::EthChainSpec as _;
+    for (profile, chain_id) in [("mainnet", 1), ("sepolia", 11_155_111), ("hoodi", 560_048)] {
+        let spec = load_l1_chain_spec(Path::new(profile)).unwrap();
+        assert_eq!(spec.chain().id(), chain_id, "{profile}");
+    }
+    // Names are exact: anything else is treated as a document path.
+    assert!(load_l1_chain_spec(Path::new("Hoodi")).is_err());
+    assert!(load_l1_chain_spec(Path::new("holesky")).is_err());
+}
+
+#[cfg(feature = "chain-spec")]
+#[test]
 fn l1_presets_keep_gnosis_rules_distinct_from_ethereum_at_each_fork() {
     use reth_chainspec::{EthChainSpec as _, EthereumHardfork};
     let chiado = load_l1_chain_spec(Path::new("chiado")).unwrap();
