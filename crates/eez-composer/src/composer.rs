@@ -159,6 +159,14 @@ struct CompositionGas {
     l1_target: u64,
 }
 
+/// Whether a Sync block carries no transactions, and therefore no cross-chain
+/// group that a deadline replacement would need to remove.
+fn sync_block_is_empty(
+    header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
+) -> bool {
+    header.transactions_root() == alloy_consensus::constants::EMPTY_ROOT_HASH
+}
+
 /// Only L1 destination frames execute inside the outbound postBatch. Nested
 /// callbacks on L2 execute in the Sync block instead. The composition inspector
 /// returns intercepted calls' gas to their caller, so every recorded L1 frame
@@ -1799,7 +1807,7 @@ where
                     rollup_id,
                     rollup,
                     cursor,
-                    sync_height,
+                    &parent_header,
                     bundle_target,
                     "block_limit",
                 )
@@ -2075,37 +2083,41 @@ where
         // transactions in descendants. The sequencer rebuilds those blocks on
         // this empty Sync before composing the new terminal cross-chain group.
         let head = self.inner.committer.last_header();
-        let own_hash = if head.number() == attempt.sync_height {
-            Some(head.hash())
+        let own = if head.number() == attempt.sync_height {
+            Some(head)
         } else {
             rollup
                 .l2_provider
                 .sealed_header(attempt.sync_height)
                 .map_err(|error| error.to_string())?
-                .map(|header| header.hash())
         };
-        if own_hash != Some(attempt.manifest.sync_hash) {
+        let Some(own) = own.filter(|header| header.hash() == attempt.manifest.sync_hash) else {
             return Ok(());
-        }
-        let built = build_sync_block(
-            rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
-            &attempt.parent,
-            attempt
-                .parent
-                .timestamp()
-                .checked_add(timing.l2_block_time().as_secs())
-                .ok_or("replacement timestamp overflow")?,
-            rollup
-                .l1_head
-                .next_block_context(&attempt.parent)
-                .map_err(|e| e.to_string())?
-                .1,
-            Address::ZERO,
-            &[],
-        )
-        .map_err(|error| error.to_string())?;
-        if built.header.hash() != attempt.manifest.sync_hash {
+        };
+        // Historical and anchor-only attempts end at an empty Sync, which
+        // holds no cross-chain group to remove. Never switch to a rebuild of
+        // it: an equivalent empty block can still differ by header fields
+        // such as the coinbase, and the branch switch would unwind every
+        // descendant, possibly far more than the speculative suffix.
+        if !sync_block_is_empty(&own) {
+            let built = build_sync_block(
+                rollup.l2_provider.as_ref(),
+                &self.inner.evm_config,
+                &attempt.parent,
+                attempt
+                    .parent
+                    .timestamp()
+                    .checked_add(timing.l2_block_time().as_secs())
+                    .ok_or("replacement timestamp overflow")?,
+                rollup
+                    .l1_head
+                    .next_block_context(&attempt.parent)
+                    .map_err(|e| e.to_string())?
+                    .1,
+                Address::ZERO,
+                &[],
+            )
+            .map_err(|error| error.to_string())?;
             self.inner
                 .committer
                 .commit_derived(built.payload, built.header, true)
@@ -2379,15 +2391,20 @@ where
         if !attempt.txs.is_empty() && endpoint.number < attempt.sync_height {
             let head = self.inner.committer.last_header();
             let own_block = match head.number().cmp(&attempt.sync_height) {
-                std::cmp::Ordering::Equal => Some(head.hash()),
+                std::cmp::Ordering::Equal => Some(head),
                 std::cmp::Ordering::Greater => rollup
                     .l2_provider
                     .sealed_header(attempt.sync_height)
-                    .map_err(|error| error.to_string())?
-                    .map(|header| header.hash()),
+                    .map_err(|error| error.to_string())?,
                 std::cmp::Ordering::Less => None,
             };
-            if own_block == Some(attempt.manifest.sync_hash) {
+            // A static-only inbound attempt may already have an empty Sync.
+            // Nothing on L2 needs replacing in that case; a rebuild can differ
+            // only by header fields such as the coinbase, and switching to it
+            // would unnecessarily discard descendants.
+            if own_block.is_some_and(|header| {
+                header.hash() == attempt.manifest.sync_hash && !sync_block_is_empty(&header)
+            }) {
                 let timestamp = attempt
                     .parent
                     .timestamp()
@@ -2414,17 +2431,12 @@ where
                 // A branch switch reports the complete old chain, including
                 // persisted blocks. The pool gate keeps our submitted sources
                 // out of ordinary sequencing while their ownership reconciles.
-                // A static-only inbound attempt may already have an empty
-                // Sync. Nothing on L2 needs replacing in that case; pointing
-                // at the same ancestor would unnecessarily discard descendants.
-                if built.header.hash() != attempt.manifest.sync_hash {
-                    self.inner
-                        .committer
-                        .commit_derived(built.payload, built.header, true)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                    result = RecoveryOutcome::HeadMoved;
-                }
+                self.inner
+                    .committer
+                    .commit_derived(built.payload, built.header, true)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                result = RecoveryOutcome::HeadMoved;
             }
         }
         let charge = post.receipt.is_some()
@@ -5417,7 +5429,7 @@ where
                         rollup_id,
                         rollup,
                         cursor,
-                        sync_height,
+                        parent_header,
                         bundle_target,
                         match &err {
                             PreparePostBatchError::OverBudget { constraint, .. } => constraint,
@@ -5536,11 +5548,16 @@ where
         rollup_id: u64,
         rollup: &RollupState<L2>,
         cursor: u64,
-        sync_height: u64,
+        parent: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
         bundle_target: BundleTarget,
         split_reason: &'static str,
     ) -> Result<(), String> {
         let preparation_started_ms = crate::prover_retry::unix_time_millis();
+        let sync_height = parent.number() + 1;
+        // A previous prefix may have advanced canonical settlement since the
+        // last sizing; candidate sizes must start at the current anchor.
+        self.refresh_historical_index(rollup_id, rollup, parent)
+            .await?;
         let limits = self.inner.emission;
         let k = u64::from(limits.timing.k());
         // Under the cap the cap-bounded boundary is the sync height itself, which

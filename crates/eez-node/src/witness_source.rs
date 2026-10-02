@@ -524,9 +524,38 @@ where
         .map_err(|e| format!("witness for block {id:?}: {e}"))
 }
 
+enum Captured {
+    Stored { purged: usize },
+    Unwound { error: String },
+}
+
+/// Whether a queued block was unwound after it was committed: Reth no longer
+/// serves its hash and its height holds another block or lies above the
+/// canonical tip. Requiring both keeps a block that is still known by hash
+/// (for example while the height index lags its insertion) on the fail-closed
+/// retry path.
+fn left_canonical_chain<P>(provider: &P, endpoint: eez_l1::L2Endpoint) -> Result<bool, String>
+where
+    P: BlockReader + HeaderProvider,
+{
+    if provider
+        .header(endpoint.hash)
+        .map_err(|e| format!("header({}): {e}", endpoint.hash))?
+        .is_some()
+    {
+        return Ok(false);
+    }
+    Ok(provider
+        .block_hash(endpoint.number)
+        .map_err(|e| format!("block_hash({}): {e}", endpoint.number))?
+        != Some(endpoint.hash))
+}
+
 /// Drain committed-block hashes, capture each block's witness at commit (parent
 /// state fresh), persist it, and purge everything the L1 has FINALIZED
-/// (`settled_floor`). Runs until the channel closes.
+/// (`settled_floor`). A queued block that a later branch switch unwound is
+/// skipped; every other failure pauses admission and retries the exact block.
+/// Runs until the channel closes.
 pub async fn run_capture<P, E, F>(
     mut rx: mpsc::UnboundedReceiver<eez_l1::L2Endpoint>,
     store: WitnessStore,
@@ -547,9 +576,9 @@ pub async fn run_capture<P, E, F>(
 {
     while let Some(endpoint) = rx.recv().await {
         let hash = endpoint.hash;
-        // Do not drop a failed identity and continue capturing newer blocks.
-        // Admission pauses while this exact block retries. All trie/database
-        // work stays off the async runtime threads.
+        // Do not drop a failed canonical identity and continue capturing newer
+        // blocks. Admission pauses while this exact block retries. All
+        // trie/database work stays off the async runtime threads.
         loop {
             let provider = provider.clone();
             let evm_config = evm_config.clone();
@@ -561,7 +590,7 @@ pub async fn run_capture<P, E, F>(
                 store.capture_status(None);
                 break;
             }
-            let result = tokio::task::spawn_blocking(move || -> Result<usize, String> {
+            let result = tokio::task::spawn_blocking(move || -> Result<Captured, String> {
                 // Finalized pruning may free map space after a previous failure.
                 let purged = capture_store
                     .purge_settled(floor)
@@ -571,17 +600,38 @@ pub async fn run_capture<P, E, F>(
                     .map_err(|e| e.to_string())?
                     .is_some()
                 {
-                    return Ok(purged);
+                    return Ok(Captured::Stored { purged });
                 }
-                let bw =
-                    build_block_witness(&provider, &evm_config, BlockHashOrNumber::Hash(hash))?;
-                validate_identity(&bw, endpoint.number, hash).map_err(|e| e.to_string())?;
-                capture_store.put(&bw).map_err(|e| e.to_string())?;
-                Ok(purged)
+                let captured =
+                    build_block_witness(&provider, &evm_config, BlockHashOrNumber::Hash(hash))
+                        .and_then(|bw| {
+                            validate_identity(&bw, endpoint.number, hash)
+                                .map_err(|e| e.to_string())?;
+                            capture_store.put(&bw).map_err(|e| e.to_string())
+                        });
+                match captured {
+                    Ok(()) => Ok(Captured::Stored { purged }),
+                    Err(error) if left_canonical_chain(&provider, endpoint)? => {
+                        Ok(Captured::Unwound { error })
+                    }
+                    Err(error) => Err(error),
+                }
             })
             .await;
             let error = match result {
-                Ok(Ok(purged)) => {
+                Ok(Ok(Captured::Unwound { error })) => {
+                    // The committer only queues blocks after they became
+                    // canonical, so an unknown hash at a height that no longer
+                    // holds it was unwound by a later branch switch. Its
+                    // replacement is queued separately; a re-derived copy is
+                    // served by the on-demand path if a proof ever needs it.
+                    store.capture_status(None);
+                    event!(name: "eez.node.witness_capture.unwound", Level::WARN,
+                        number = endpoint.number, %hash, %error,
+                        "skipping witness capture for a block that left the canonical chain");
+                    break;
+                }
+                Ok(Ok(Captured::Stored { purged })) => {
                     store.capture_status(None);
                     if let Some(preparation) = &preparation {
                         preparation.notify(endpoint);
@@ -725,8 +775,7 @@ mod tests {
         use eez_evm::EezEvmConfig;
         use reth_chainspec::ChainSpecBuilder;
         use reth_provider::test_utils::MockEthProvider;
-        for (number, stored, must_fail) in [(9, false, false), (10, true, false), (10, false, true)]
-        {
+        for (number, stored, must_fail) in [(9, false, false), (10, true, false)] {
             let directory = tempfile::tempdir().unwrap();
             let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
             let block = sample(number);
@@ -753,6 +802,81 @@ mod tests {
             .await;
             assert_eq!(store.ensure_ready().is_err(), must_fail);
             assert_eq!(store.get(number, block.hash).unwrap().is_some(), stored);
+        }
+    }
+
+    /// A deadline replacement or L1-driven reorg can unwind blocks that were
+    /// already queued for capture. Those identities are no longer canonical and
+    /// Reth no longer serves them, so retrying them would pause admission
+    /// forever. A canonical block that cannot be captured must still fail closed.
+    #[tokio::test]
+    async fn capture_skips_only_blocks_that_left_the_canonical_chain() {
+        use eez_evm::EezEvmConfig;
+        use reth_chainspec::ChainSpecBuilder;
+        use reth_provider::test_utils::MockEthProvider;
+        let orphan = sample(10);
+        let replacement = Header {
+            number: 10,
+            parent_hash: orphan.parent_hash,
+            extra_data: Bytes::from_static(b"replacement"),
+            ..Default::default()
+        };
+        let tip = Header {
+            number: 9,
+            ..Default::default()
+        };
+        let next = sample(11);
+        // (canonical headers, orphan still served by hash, expected failure)
+        for (headers, orphan_known, must_fail) in [
+            // The height now holds a different canonical block.
+            (vec![replacement], false, false),
+            // The canonical chain was unwound below the queued height.
+            (vec![tip], false, false),
+            // Still canonical by hash and height but its body is unavailable:
+            // this is a capture failure, not a reorg.
+            (vec![], true, true),
+        ] {
+            let directory = tempfile::tempdir().unwrap();
+            let store = Arc::new(WitnessDb::open(directory.path()).unwrap());
+            store.put(&next).unwrap();
+            let provider = MockEthProvider::<EezPrimitives>::new();
+            for header in headers {
+                provider.add_header(header.hash_slow(), header);
+            }
+            if orphan_known {
+                let block: Block = alloy_rlp::decode_exact(&orphan.rlp).unwrap();
+                provider.add_header(orphan.hash, block.header);
+            }
+            let (notifier, mut prepared) = PreparationNotifier::channel(4);
+            let (tx, rx) = mpsc::unbounded_channel();
+            for block in [&orphan, &next] {
+                tx.send(eez_l1::L2Endpoint {
+                    number: block.number,
+                    hash: block.hash,
+                })
+                .unwrap();
+            }
+            drop(tx);
+            run_capture(
+                rx,
+                Arc::clone(&store),
+                provider,
+                EezEvmConfig::new(Arc::new(
+                    ChainSpecBuilder::mainnet().shanghai_activated().build(),
+                )),
+                || 0,
+                Some(notifier),
+            )
+            .await;
+            assert_eq!(store.ensure_ready().is_err(), must_fail);
+            assert!(store.get(orphan.number, orphan.hash).unwrap().is_none());
+            // A skipped orphan is never handed to signer preparation, and
+            // capture continues with the next queued canonical block.
+            let expected = (!must_fail).then_some(eez_l1::L2Endpoint {
+                number: next.number,
+                hash: next.hash,
+            });
+            assert_eq!(prepared.try_recv().ok(), expected);
         }
     }
 

@@ -357,6 +357,16 @@ async fn run_preparation_worker(
                 // resource exhaustion; exact renewal distinguishes them without
                 // weakening either failure.
                 renewal_due = tokio::time::Instant::now();
+                // Retry toward the newest durable endpoint. A branch switch can
+                // leave `target` on an unwound branch the signer can never
+                // accept; its canonical replacement only arrives through this
+                // queue. The ancestry walk still covers every skipped block.
+                while let Ok(queued) = receiver.try_recv() {
+                    target = queued;
+                }
+                if let Some(watermark) = notifier.take_watermark() {
+                    target = watermark;
+                }
                 tokio::time::sleep(Duration::from_secs(1)).await;
                 continue;
             }
