@@ -1,0 +1,220 @@
+# Packaged public Ethereum L1 (mainnet, or hoodi/sepolia for rehearsals):
+# embedded L1 + Composer/L2, independent signer, Lighthouse.
+# EEZ_L1_NETWORK selects the network for all three services; EEZ_L1_CHAIN_ID
+# must be its chain ID. Pin EEZ_NODE_IMAGE and EEZ_PROOF_SIGNER_IMAGE to the
+# same full commit tag or digest: the signer accepts proofs only from a Composer
+# built from the same lockfile. This deployment definition never builds images.
+# Services use host networking with the Chiado profile's ports, so run one
+# packaged network per host. Container names differ from the Chiado profile.
+#
+# The Composer embeds its own reth (v2.7) as the L1 execution client. Mount a
+# reth datadir synced for EEZ_L1_NETWORK at L1_SNAPSHOT_DIR, or an empty one to
+# sync from scratch. Lighthouse drives it through the engine API on L1_AUTH_PORT.
+# Runbook: docs/runbooks/ethereum-node.md
+
+services:
+  eez-proof-signer:
+    image: "${EEZ_PROOF_SIGNER_IMAGE:?pin EEZ_PROOF_SIGNER_IMAGE to the node's commit tag or digest}"
+    platform: linux/amd64
+    container_name: eez-proof-signer-ethereum
+    network_mode: host
+    restart: unless-stopped
+    # Admitted proof requests can outlive this grace period and be killed.
+    stop_grace_period: 30s
+    env_file:
+      - ./deployments.env
+    environment:
+      EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50061}
+      EEZ_L1_RPC_URL: http://127.0.0.1:18645
+      EEZ_CHAIN_CONFIG: /app/genesis.json
+      # Trusted L1 profile; must name the same network as the embedded L1.
+      EEZ_L1_CHAIN_CONFIG: "${EEZ_L1_NETWORK:?set EEZ_L1_NETWORK (mainnet, hoodi or sepolia)}"
+      EEZ_PROOF_SIGNER_KEY: "${EEZ_PROOF_SIGNER_KEY:?set EEZ_PROOF_SIGNER_KEY}"
+      EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS: "${EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS-2048}"
+      RUST_LOG: "${EEZ_PROOF_SIGNER_RUST_LOG:-info}"
+    volumes:
+      - ${FRESH_GENESIS:?set FRESH_GENESIS}:/app/genesis.json:ro
+    healthcheck:
+      test: ["CMD", "/bin/bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/${EEZ_SIGNER_PORT:-50061}"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
+    logging:
+      driver: "local"
+
+  eez-node:
+    image: "${EEZ_NODE_IMAGE:?pin EEZ_NODE_IMAGE to a full commit tag or digest}"
+    platform: linux/amd64
+    container_name: eez-node-ethereum
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      eez-proof-signer:
+        condition: service_healthy
+    # Public deployment bindings come from the generated file. Private node
+    # inputs are mapped explicitly below so the attestation key is never
+    # injected into this container.
+    env_file:
+      - ./deployments.env
+    environment:
+      EEZ_L1_POSTER_KEY: "${EEZ_L1_POSTER_KEY:?set EEZ_L1_POSTER_KEY}"
+      # Coinbase of every L2 block (priority fees). Required so the operator
+      # chooses it explicitly; the zero address is allowed if set deliberately.
+      EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
+      # One relay URL or a comma-separated list; forwarded unchanged.
+      EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
+      # X-Flashbots-Signature key; BuilderNet rejects unsigned bundles.
+      EEZ_L1_BUNDLE_SIGNING_KEY: "${EEZ_L1_BUNDLE_SIGNING_KEY:-}"
+      EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50061}
+      EEZ_WITNESS_DB_PATH: /l2/witnesses
+      # Embedded public Ethereum L1 (reth's built-in chain spec, no
+      # EEZ_L1_CHAIN_PATH) driven by the Lighthouse service below.
+      EEZ_L1_CHAIN: "${EEZ_L1_NETWORK:?set EEZ_L1_NETWORK (mainnet, hoodi or sepolia)}"
+      EEZ_L1_CHAIN_ID: "${EEZ_L1_CHAIN_ID:?set EEZ_L1_CHAIN_ID (1 mainnet, 560048 hoodi, 11155111 sepolia)}"
+      EEZ_L1_HTTP_PORT: "18645"
+      # Embedded-L1 engine-API port. Override (L1_AUTH_PORT) if the host
+      # already runs an execution client on 18551.
+      EEZ_L1_AUTH_PORT: "${L1_AUTH_PORT:-18551}"
+      EEZ_L1_P2P_PORT: "${L1_P2P_PORT:-30544}"
+      EEZ_L1_DATADIR: /l1
+      EEZ_L1_JWT_SECRET: /jwt/jwt.hex
+      EEZ_L1_RPC_URL: http://127.0.0.1:18645
+      # Ethereum is post-Fulu: blob posting uses the EIP-7594 pooled wrapper and
+      # derivation reads full blobs reconstructed by the colocated
+      # semi-supernode Lighthouse.
+      EEZ_L1_BEACON_URL: "${EEZ_L1_BEACON_URL:?set the mandatory native blob Beacon API}"
+      EEZ_L1_BLOB_SIDECAR_ENCODING: "${EEZ_L1_BLOB_SIDECAR_ENCODING:?set the mandatory native blob sidecar encoding}"
+      # Optional tip-following RPC for target-block selection; empty falls back
+      # to the embedded L1.
+      EEZ_L1_TARGET_RPC_URL: "${EEZ_L1_TARGET_RPC_URL:-}"
+      # Keep explicit peers available when the embedded L1 backfills on restart.
+      EEZ_L1_TRUSTED_PEERS: "${EEZ_L1_TRUSTED_PEERS:-}"
+      EEZ_L1_ROLLUP_ID: "0"
+      # Cross-chain wiring.
+      EEZL2_ADDRESS: "0x4b2760f84b83d6b3829e30a7573b0172b6d6402c"
+      EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS: "${EEZ_L1_CHAIN_ID:?set EEZ_L1_CHAIN_ID}"
+      # L2 RPC — outbound front upstream + composer L2 reads.
+      EEZ_L2_RPC_URL: http://127.0.0.1:18688
+      # Transparent cross-chain ingress fronts (both required in composer mode).
+      # Send L1→L2 (Inbound) txs to :18999, L2→L1 (Outbound) txs to :18998; every
+      # other eth_* is transparently forwarded to the matching source-chain RPC.
+      EEZ_L1_XCHAIN_PORT: "18999"
+      EEZ_L2_XCHAIN_PORT: "18998"
+      # The env preset selects adaptive admission. The numeric fallback keeps
+      # Compose rendering deterministic; runtime still requires the policy.
+      EEZ_MAX_USER_TXS_PER_BUNDLE: "${EEZ_MAX_USER_TXS_PER_BUNDLE:-12}"
+      # Select one signed source hash and a writable /l2 directory for tracing.
+      EEZ_COMPOSER_GAS_TRACE_TX_HASH: "${EEZ_COMPOSER_GAS_TRACE_TX_HASH:-}"
+      EEZ_COMPOSER_GAS_TRACE_ADDRESS: "${EEZ_COMPOSER_GAS_TRACE_ADDRESS:-}"
+      EEZ_COMPOSER_GAS_TRACE_DIR: "${EEZ_COMPOSER_GAS_TRACE_DIR:-}"
+      # Omitted optional values stay absent. Required policy and fee settings
+      # come from the environment file and fail startup when missing; there are
+      # no Ethereum defaults (docs/configurable-settlement-policy.md).
+      EEZ_MAX_POSTBATCH_GAS:
+      EEZ_SETTLEMENT_PURE_L2_MODE:
+      EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS:
+      EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS:
+      EEZ_SETTLEMENT_BLOB_FULLNESS_BPS:
+      EEZ_MAX_BLOBS_PER_BATCH:
+      EEZ_L1_POSTBATCH_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE:
+      EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS:
+      EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS:
+      EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS:
+      EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS:
+      EEZ_L1_POSTBATCH_GAS_MARGIN_BPS:
+      EEZ_L1_REORG_MAX_DEPTH_BLOCKS: "${EEZ_L1_REORG_MAX_DEPTH_BLOCKS:-62}"
+      # Ethereum schedule required by the genesis profile for chain 1 (2-second
+      # L2 blocks, six per 12-second slot); rehearsals use the same grid.
+      EEZ_L1_BLOCK_TIME_MS: "12000"
+      EEZ_L2_BLOCK_TIME_MS: "2000"
+      # Without explicit preparation, runtime retains the rounded trigger.
+      EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS-750}"
+      EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
+      EEZ_PREPARATION_TIME_MS:
+      EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
+      EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"
+      # Multi-composer: tolerate + adopt batches posted by a competing composer.
+      EEZ_COMPOSER_EXPECT_EXTERNAL_BATCHES: "true"
+      # L2.
+      EEZ_L2_DATADIR: /l2
+      EEZ_L2_GENESIS_PATH: /app/genesis.json
+      # EEZ_INITIAL_BLOCK_HASH comes from deployments.env — the mounted genesis
+      # must produce that exact registered block hash.
+    volumes:
+      - ${L1_SNAPSHOT_DIR:?set L1_SNAPSHOT_DIR (reth datadir for EEZ_L1_NETWORK)}:/l1
+      - ${L2_DATA_DIR:?set L2_DATA_DIR}:/l2
+      # Bounded posting lifecycle history, separate from chain databases.
+      - ${POSTING_LOGS_DIR:-./data/posting-logs}:/var/log/eez-posting
+      - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
+      # The registered L2 genesis; its block hash is timestamp-dependent.
+      - ${FRESH_GENESIS:?set FRESH_GENESIS}:/app/genesis.json:ro
+    command:
+      - node
+      - --chain=/app/genesis.json
+      - --datadir=/l2
+      - --http
+      - --http.addr=0.0.0.0
+      - --http.port=18688
+      - --http.api=eth,net,web3,debug,trace
+      - --ws
+      - --ws.addr=127.0.0.1
+      - --ws.port=${EEZ_L2_WS_PORT:-18689}
+      - --ws.api=eth,net,web3
+      - --authrpc.addr=127.0.0.1
+      - --authrpc.port=18684
+      - --port=30640
+      - --discovery.port=30640
+      - --discovery.v5.port=30641
+      - --ipcdisable
+      - --disable-discovery
+      - --engine.persistence-threshold=256
+      - --engine.memory-block-buffer-target=128
+      # Existing Reth metrics, kept on localhost for the optional monitoring stack.
+      - --metrics=127.0.0.1:19091
+      - --log.stdout.format=json
+      - --log.file.format=json
+      - --log.file.filter=off,eez_posting=info
+      - --log.file.directory=/var/log/eez-posting
+      - --log.file.name=posting.log
+      - --log.file.max-size=10
+      - --log.file.max-files=20
+    logging:
+      driver: "local"
+
+  lighthouse:
+    image: "${LIGHTHOUSE_IMAGE:-sigp/lighthouse:v8.1.3}"
+    container_name: eez-ethereum-lighthouse
+    network_mode: host
+    restart: unless-stopped
+    stop_grace_period: 30s
+    depends_on:
+      - eez-node
+    volumes:
+      - ${LIGHTHOUSE_DATA:?set LIGHTHOUSE_DATA}:/data
+      - ${JWT_FILE:?set JWT_FILE}:/jwt/jwt.hex:ro
+    # Built-in network profile. A semi-supernode custodies half the data
+    # columns and reconstructs full PeerDAS blobs for the deriver; a regular
+    # node cannot. Checkpoint sync applies only to an empty datadir.
+    # Optional public ENR settings support hosts where automatic advertisement
+    # cannot bootstrap. Compose splits this scalar into argv, without a shell.
+    command: >-
+      lighthouse beacon_node
+      --network=${EEZ_L1_NETWORK:?set EEZ_L1_NETWORK (mainnet, hoodi or sepolia)}
+      --listen-address=0.0.0.0
+      --port=${LH_P2P_PORT:-9205}
+      --quic-port=${LH_QUIC_PORT:-9206}
+      --http
+      --http-address=127.0.0.1
+      --http-port=6152
+      --execution-endpoints=http://127.0.0.1:${L1_AUTH_PORT:-18551}
+      --jwt-secrets=/jwt/jwt.hex
+      --datadir=/data
+      --checkpoint-sync-url=${LH_CHECKPOINT_URL:?set LH_CHECKPOINT_URL for EEZ_L1_NETWORK}
+      --semi-supernode
+      ${LH_ENR_ADDRESS:+--enr-address=}${LH_ENR_ADDRESS:-}
+      ${LH_ENR_UDP_PORT:+--enr-udp-port=}${LH_ENR_UDP_PORT:-}
+    logging:
+      driver: "local"

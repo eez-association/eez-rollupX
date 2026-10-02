@@ -163,7 +163,7 @@ The CLI value takes precedence.
 | --- | --- | --- | --- |
 | `--listen-addr` | `EEZ_PROOF_SIGNER_ADDR` | `127.0.0.1:50061` | Valid socket address. |
 | `--chain-config` | `EEZ_CHAIN_CONFIG` | none | Path to the complete, strict L2 `Genesis` document. |
-| `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required trusted L1 profile: `mainnet`, `chiado`, or a Genesis/ChainConfig path. |
+| `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required trusted L1 profile: `mainnet`, `hoodi`, `sepolia`, `chiado`, or a Genesis/ChainConfig path. |
 | `--l1-rpc-url` | `EEZ_L1_RPC_URL` | none | Required operator-trusted HTTP(S) canonical L1 source; credentials are redacted. |
 | `--registry-address` | `EEZ_REGISTRY_ADDRESS` | none | Required nonzero deployed EEZ registry. |
 | `--rollup-id` | `EEZ_ROLLUP_ID` | none | Nonzero L1 registry rollup ID. This is not the L2 EIP-155 chain ID. |
