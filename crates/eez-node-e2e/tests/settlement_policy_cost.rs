@@ -100,7 +100,8 @@ async fn check_bounded_fee_history_priority(profile: NativeL1Profile) {
                         == tx.inner.max_priority_fee_per_gas()
             })
             .expect("included poster must match a fresh quote for its canonical parent");
-        assert_eq!(quote.fields["priority_source"], "fee_history_p90_of_p90");
+        assert_eq!(quote.fields["priority_source"], "fee_history");
+        assert_eq!(quote.u64("priority_reward_percentile").unwrap(), 90);
         assert_eq!(quote.u64("priority_history_blocks").unwrap(), 20);
         assert_eq!(quote.u64("priority_min").unwrap(), 0);
         assert_eq!(quote.u64("priority_max").unwrap(), 100_000_000_000);

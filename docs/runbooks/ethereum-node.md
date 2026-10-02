@@ -47,10 +47,15 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    regular node to semi-supernode backfills data columns before blobs are complete.
 4. Keys: a funded poster, the registered proof signer, and a **dedicated unfunded**
    `EEZ_L1_BUNDLE_SIGNING_KEY` (BuilderNet rejects unsigned bundles).
-5. **Settlement policy and fee limits.** The example sets no Ethereum fee values.
-   The node refuses to start until `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS`,
-   `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` and the priority bounds are chosen
-   ([policy reference](../configurable-settlement-policy.md)).
+5. **Settlement policy and fee limits.** Review the example's starting values
+   before deploying ([policy reference](../configurable-settlement-policy.md)):
+   - **Price ceilings:** 10 gwei (base fee + tip) and 2 gwei (blob). A post above a ceiling waits and retries; it never pays more.
+   - **Tip:** the median of recent blocks' median tips (`EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE=50`), kept within 0.05–2 gwei.
+   - **Cadence:** ordinary L2 activity settles at most every 15 minutes; an idle chain posts every 4 hours.
+   - **Proof window:** `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS=8192`, so an idle cycle needs one post.
+
+   Confirm proof time for a full window and the timing budgets in the rehearsal. The
+   poster balance is the only total spending limit.
 
 ## First start
 

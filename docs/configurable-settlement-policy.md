@@ -38,6 +38,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
 | `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Fee-history estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
+| `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` | 90 | Integer from 1 to 99 used by the fee-history estimator: each recent block's gas-weighted reward at this percentile, then this percentile of those samples. 90 bids above most recent transactions; 50 bids near the typical recent tip. Ignored with a fixed override. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
@@ -495,9 +496,18 @@ transactions retain their original signed bytes and authorized fees.
 
 ### Bounded next-block priority estimation
 
-Dynamic mode requests the gas-weighted p90 reward for each of the latest 20
-canonical blocks with `eth_feeHistory`, selects the p90 of those 20 samples,
-and clamps it to an optional relay floor and an independent priority ceiling.
+Dynamic mode requests the gas-weighted reward at percentile P for each of the
+latest 20 canonical blocks with `eth_feeHistory`, selects the P-th percentile of
+those 20 samples, and clamps it to an optional relay floor and an independent
+priority ceiling. P is `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` (default 90, the
+p90 of p90 described below). On Ethereum mainnet, a 7-day replay
+(2026-09-25 to 2026-10-02) of P=50 within 0.05–2 gwei averaged about 0.375 gwei:
+- it was at or above each next block's 25th-percentile tip in 97% of blocks, and
+  at or above its median tip in 59%;
+- the default P=90 within the same bounds averaged about 1.95 gwei (99% and 95%).
+
+These measure competitiveness against the block's own transactions, not
+builder inclusion.
 This targets prompt inclusion without a multiplier or mutable feedback state:
 
 ```dotenv
@@ -529,7 +539,8 @@ the signed tip. Missing, malformed or stale history preserves due work for
 retry. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses fee history and remains
 exact.
 
-One poster transaction among a 20-block window cannot raise the outer p90, so
+One poster transaction among a 20-block window cannot raise the outer
+percentile (for any P below 100), so
 an isolated post cannot feed its own price back into the next quote. On a chain
 where the poster occupies several recent blocks its paid tip can contribute to
 the market sample, but there is still no uplift and therefore no recursive
