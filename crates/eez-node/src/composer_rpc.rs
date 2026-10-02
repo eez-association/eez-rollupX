@@ -1,9 +1,11 @@
 //! Composer discovery JSON-RPC (`eez_composerInfo`).
 //!
-//! Only the Composer binary installs this method, so its presence also acts as
-//! a cheap capability probe for clients connecting to an EEZ node. Method and
-//! field names match upstream `eez-association/eez-rollup0` PR #164 so clients
-//! can share one discovery parser.
+//! Served only by the Composer's two cross-chain fronts (the L1 and the L2
+//! entry points clients submit through), not by the L2 node RPC: clients
+//! discover the deployment from the endpoint they will use. Followers have no
+//! fronts, so the method's presence also acts as a cheap capability probe.
+//! Method and field names match upstream `eez-association/eez-rollup0` PR #164
+//! so clients can share one discovery parser.
 //!
 //! Every advertised value is read once at startup from the same configuration
 //! the Composer uses for submission and cross-chain wiring. The response is
@@ -13,9 +15,12 @@ use std::env;
 use std::str::FromStr as _;
 
 use alloy_primitives::Address;
-use jsonrpsee::RpcModule;
-use jsonrpsee::types::ErrorObjectOwned;
 use serde::Serialize;
+use serde_json::{Value, json};
+
+/// JSON-RPC method name, shared with upstream clients.
+pub(crate) const METHOD: &str = "eez_composerInfo";
+const INVALID_PARAMS: i64 = -32602;
 
 /// Optional deployment bindings advertised when configured. Absent or empty
 /// values are omitted from the response.
@@ -122,32 +127,32 @@ fn parse_optional_address(name: &str, value: &str) -> eyre::Result<Option<Addres
     Ok(Some(address))
 }
 
-/// Build the RPC module serving `eez_composerInfo`.
+/// Answer one single (non-batch) `eez_composerInfo` JSON-RPC request.
 ///
-/// # Errors
-///
-/// Returns an error if the method cannot be registered.
-pub(crate) fn module(info: ComposerInfo) -> eyre::Result<RpcModule<ComposerInfo>> {
-    let mut module = RpcModule::new(info);
-    module.register_method("eez_composerInfo", |params, info, _| {
-        // Accept the standard zero-argument forms (absent, `[]`, `{}`) while
-        // rejecting actual arguments instead of silently ignoring a client
-        // mistake.
-        if let Some(raw) = params.as_str() {
-            let value: serde_json::Value = params.parse()?;
-            let empty = matches!(&value, serde_json::Value::Array(values) if values.is_empty())
-                || matches!(&value, serde_json::Value::Object(values) if values.is_empty());
-            if !empty {
-                return Err(ErrorObjectOwned::owned(
-                    jsonrpsee::types::error::INVALID_PARAMS_CODE,
-                    "eez_composerInfo takes no parameters",
-                    Some(raw),
-                ));
-            }
-        }
-        Ok::<_, ErrorObjectOwned>(info.clone())
-    })?;
-    Ok(module)
+/// `info` is the serialized [`ComposerInfo`]. The standard zero-argument forms
+/// (absent, `null`, `[]`, `{}`) are accepted; actual arguments are rejected with
+/// `-32602` instead of being silently ignored.
+pub(crate) fn respond(request: &Value, info: &Value) -> Value {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let empty = match request.get("params") {
+        None | Some(Value::Null) => true,
+        Some(Value::Array(values)) => values.is_empty(),
+        Some(Value::Object(values)) => values.is_empty(),
+        Some(_) => false,
+    };
+    if empty {
+        json!({"jsonrpc": "2.0", "id": id, "result": info})
+    } else {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": INVALID_PARAMS,
+                "message": "eez_composerInfo takes no parameters",
+                "data": request.get("params"),
+            },
+        })
+    }
 }
 
 #[cfg(test)]
@@ -226,27 +231,27 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn composer_info_rpc_returns_config_and_rejects_params() {
-        let module = module(info(false)).unwrap();
-        for params in ["", r#","params":[]"#, r#","params":{}"#] {
-            let request =
-                format!(r#"{{"jsonrpc":"2.0","method":"eez_composerInfo","id":1{params}}}"#);
-            let (response, _) = module.raw_json_request(&request, 1).await.unwrap();
-            let response: serde_json::Value = serde_json::from_str(response.get()).unwrap();
+    #[test]
+    fn respond_returns_config_and_rejects_params() {
+        let info = serde_json::to_value(info(false)).unwrap();
+        for request in [
+            json!({"jsonrpc": "2.0", "method": METHOD, "id": 1}),
+            json!({"jsonrpc": "2.0", "method": METHOD, "params": null, "id": 1}),
+            json!({"jsonrpc": "2.0", "method": METHOD, "params": [], "id": 1}),
+            json!({"jsonrpc": "2.0", "method": METHOD, "params": {}, "id": 1}),
+        ] {
             assert_eq!(
-                response["result"],
-                serde_json::to_value(info(false)).unwrap(),
+                respond(&request, &info),
+                json!({"jsonrpc": "2.0", "id": 1, "result": info}),
                 "{request}"
             );
         }
-        for params in ["[1]", r#"{"verbose":true}"#] {
-            let request = format!(
-                r#"{{"jsonrpc":"2.0","method":"eez_composerInfo","params":{params},"id":2}}"#
-            );
-            let (response, _) = module.raw_json_request(&request, 1).await.unwrap();
-            let response: serde_json::Value = serde_json::from_str(response.get()).unwrap();
-            assert_eq!(response["error"]["code"], -32602, "{request}");
+        for params in [json!([1]), json!({"verbose": true}), json!("x")] {
+            let request = json!({"jsonrpc": "2.0", "method": METHOD, "params": params, "id": "a"});
+            let response = respond(&request, &info);
+            assert_eq!(response["id"], "a");
+            assert_eq!(response["error"]["code"], INVALID_PARAMS, "{request}");
+            assert_eq!(response["error"]["data"], params);
             assert!(response.get("result").is_none());
         }
     }
