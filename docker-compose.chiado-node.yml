@@ -56,6 +56,9 @@ services:
       EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
       # One relay URL or a comma-separated list; forwarded unchanged.
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
+      # Optional X-Flashbots-Signature key for builders that authenticate
+      # eth_sendBundle requests; empty sends unsigned requests.
+      EEZ_L1_BUNDLE_SIGNING_KEY: "${EEZ_L1_BUNDLE_SIGNING_KEY:-}"
       EEZ_PROVER_URL: http://127.0.0.1:${EEZ_SIGNER_PORT:-50061}
       EEZ_WITNESS_DB_PATH: /l2/witnesses
       # Embedded chiado L1 (reth_gnosis) — single L1 for the whole node.

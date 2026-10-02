@@ -1287,6 +1287,13 @@ impl Inner {
             reverting_hashes,
         ))
         .map_err(|error| L1Error::Submission(format!("encode eth_sendBundle request: {error}")))?;
+        // One signature over the shared bytes authenticates every relay copy.
+        let signature = self
+            .config
+            .bundle_signer
+            .as_ref()
+            .map(|signer| flashbots_signature(signer, &body))
+            .transpose()?;
         // After one acknowledgement, a reply that arrives after the
         // latest-safe submission boundary cannot improve this attempt. Stop
         // waiting for slower relays there so they cannot delay observation.
@@ -1301,6 +1308,7 @@ impl Inner {
             &self.http,
             &self.config.builder_relays,
             alloy_primitives::bytes::Bytes::from(body),
+            signature.as_ref(),
             target.block,
             raw_txs.len(),
             delivery.as_ref().map(|window| window.deadline),
@@ -1640,10 +1648,12 @@ impl FanOut {
 /// the HTTP client timeout and, when present, the shared `deadline`. After the
 /// first acknowledgement, relays still pending at `straggler_cutoff` are
 /// abandoned. Without an acknowledgement every relay keeps its full bound.
+#[allow(clippy::too_many_arguments)]
 async fn fan_out_bundle(
     http: &reqwest::Client,
     relays: &BuilderRelays,
     body: alloy_primitives::bytes::Bytes,
+    signature: Option<&reqwest::header::HeaderValue>,
     target_block: u64,
     tx_count: usize,
     deadline: Option<tokio::time::Instant>,
@@ -1661,6 +1671,7 @@ async fn fan_out_bundle(
                 http,
                 url,
                 body.clone(),
+                signature,
                 relays,
                 index,
                 target_block,
@@ -1773,6 +1784,32 @@ fn relay_error(error: reqwest::Error) -> String {
     message
 }
 
+/// `X-Flashbots-Signature` value authenticating one serialized request body:
+/// `<address>:<signature>`, where the signature is an EIP-191 personal-message
+/// signature over the 0x-prefixed lowercase hex TEXT of `keccak256(body)`
+/// (ethers' `wallet.signMessage(id(body))`), as Flashbots, BuilderNet and
+/// Quasar verify it. It must be computed over the exact bytes sent.
+///
+/// # Errors
+///
+/// [`L1Error::Submission`] if signing fails or the value is not a valid header.
+fn flashbots_signature(
+    signer: &alloy_signer_local::PrivateKeySigner,
+    body: &[u8],
+) -> L1Result<reqwest::header::HeaderValue> {
+    use alloy_signer::SignerSync;
+    let digest_text = hex::encode_prefixed(alloy_primitives::keccak256(body));
+    let signature = signer
+        .sign_message_sync(digest_text.as_bytes())
+        .map_err(|error| L1Error::Submission(format!("sign eth_sendBundle request: {error}")))?;
+    reqwest::header::HeaderValue::from_str(&format!(
+        "{}:{}",
+        signer.address(),
+        hex::encode_prefixed(signature.as_bytes())
+    ))
+    .map_err(|error| L1Error::Submission(format!("X-Flashbots-Signature header: {error}")))
+}
+
 /// POST one serialized bundle to a Flashbots-style `eth_sendBundle` relay.
 /// Returns an optional, strictly decoded relay bundle hash on a successful reply
 /// (any non-error `result` — most relays use `{"result": {"bundleHash":
@@ -1782,6 +1819,8 @@ fn relay_error(error: reqwest::Error) -> String {
 /// The caller is responsible for picking a not-yet-proposed block — the relay
 /// silently drops bundles aimed at already-built blocks. Errors and logs omit
 /// the URL (it may carry credentials) and name the relay by position and host.
+/// `signature`, when present, is sent as `X-Flashbots-Signature` and must have
+/// been computed over `body` (see [`flashbots_signature`]).
 ///
 /// # Errors
 ///
@@ -1789,10 +1828,12 @@ fn relay_error(error: reqwest::Error) -> String {
 /// - [`L1Error::Submission`] when the relay HTTP status is non-2xx OR
 ///   the JSON body carries an `error` field.
 /// - [`L1Error::BundleRpcUnsupported`] for JSON-RPC `-32601`.
+#[allow(clippy::too_many_arguments)]
 async fn post_bundle(
     http: &reqwest::Client,
     url: &url::Url,
     body: alloy_primitives::bytes::Bytes,
+    signature: Option<&reqwest::header::HeaderValue>,
     relays: &BuilderRelays,
     index: usize,
     target_block: u64,
@@ -1801,9 +1842,13 @@ async fn post_bundle(
     // Permit only the validated signed L1 users to revert; postBatch remains
     // required. Invalid-transaction omission depends on builder configuration,
     // and every user still requires canonical source reconciliation.
-    let resp: serde_json::Value = http
+    let mut request = http
         .post(url.clone())
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::CONTENT_TYPE, "application/json");
+    if let Some(signature) = signature {
+        request = request.header("X-Flashbots-Signature", signature.clone());
+    }
+    let resp: serde_json::Value = request
         .body(body)
         .send()
         .await
@@ -2021,6 +2066,7 @@ mod tests {
                 builder_relays: crate::BuilderRelays::new(vec![url.clone()]).unwrap(),
                 target_rpc_url: Some(url),
                 poster: B256::with_last_byte(1).to_string().parse().unwrap(),
+                bundle_signer: None,
                 bundle_capture_dir: None,
                 bundle_submission_lead: Duration::from_millis(DEFAULT_BUNDLE_SUBMISSION_LEAD_MS),
             },
@@ -2049,21 +2095,31 @@ mod tests {
                     None => BufReader::new(listener.accept().await.unwrap().0),
                 };
                 let mut length = None;
+                let mut flashbots_signature = None;
                 loop {
                     let mut line = String::new();
                     assert!(stream.read_line(&mut line).await.unwrap() > 0);
                     if line == "\r\n" {
                         break;
                     }
-                    if let Some((name, value)) = line.split_once(':')
-                        && name.eq_ignore_ascii_case("content-length")
-                    {
-                        length = Some(value.trim().parse::<usize>().unwrap());
+                    if let Some((name, value)) = line.split_once(':') {
+                        if name.eq_ignore_ascii_case("content-length") {
+                            length = Some(value.trim().parse::<usize>().unwrap());
+                        } else if name.eq_ignore_ascii_case("x-flashbots-signature") {
+                            flashbots_signature = Some(value.trim().to_string());
+                        }
                     }
                 }
                 let mut body = vec![0; length.expect("JSON RPC request length")];
                 stream.read_exact(&mut body).await.unwrap();
-                let request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                let mut request: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                // Record the raw body and auth header for signature tests;
+                // unsigned requests keep their previous shape.
+                if let Some(signature) = flashbots_signature {
+                    request["__x_flashbots_signature"] = serde_json::json!(signature);
+                    request["__raw_body"] =
+                        serde_json::json!(String::from_utf8(body.clone()).unwrap());
+                }
                 response["jsonrpc"] = serde_json::json!("2.0");
                 response["id"] = request["id"].clone();
                 let body = serde_json::to_vec(&response).unwrap();
@@ -2418,6 +2474,7 @@ mod tests {
                 &reqwest::Client::new(),
                 &url,
                 body.into(),
+                None,
                 &relays,
                 0,
                 42,
@@ -2682,6 +2739,7 @@ mod tests {
             &reqwest::Client::new(),
             &relays,
             body.into(),
+            None,
             42,
             1,
             deadline.map(|delay| now + delay),
@@ -2689,6 +2747,92 @@ mod tests {
         )
         .await;
         (fan_out, relays)
+    }
+
+    fn signing_key() -> alloy_signer_local::PrivateKeySigner {
+        B256::with_last_byte(1).to_string().parse().unwrap()
+    }
+
+    #[test]
+    fn flashbots_signature_matches_the_independent_reference_vector() {
+        // Produced with cast (EIP-191 over the hex text of keccak256(body)),
+        // the procedure Titan, BuilderNet and Quasar accepted live.
+        let body = br#"{"jsonrpc":"2.0","id":1,"method":"eth_sendBundle","params":[]}"#;
+        let header = super::flashbots_signature(&signing_key(), body).unwrap();
+        assert_eq!(
+            header.to_str().unwrap(),
+            "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf:\
+             0xde098351bb885003ea9ef6f6ede76d4fc38fc44e61ff44ff7bf63a9ac0ab40fe\
+             0abf97616c9707188f974278244635efa6c81927bb3a07d6f6fe7ca3938e8dfb1b"
+        );
+    }
+
+    #[test]
+    fn flashbots_signature_recovers_the_signer_from_the_digest_text_only() {
+        let body = serde_json::to_vec(&bundle_request(&["0x01"], 42, PIN, &[])).unwrap();
+        let header = super::flashbots_signature(&signing_key(), &body).unwrap();
+        let (address, signature) = header.to_str().unwrap().split_once(':').unwrap();
+        assert_eq!(
+            address.parse::<alloy_primitives::Address>().unwrap(),
+            signing_key().address()
+        );
+        let signature: alloy_primitives::Signature = signature.parse().unwrap();
+        let text = alloy_primitives::hex::encode_prefixed(alloy_primitives::keccak256(&body));
+        assert_eq!(
+            signature.recover_address_from_msg(text.as_bytes()).unwrap(),
+            signing_key().address()
+        );
+        // Signing the raw hash bytes instead of their text is a different scheme.
+        let raw = alloy_primitives::keccak256(&body);
+        assert_ne!(
+            signature.recover_address_from_msg(raw.as_slice()).ok(),
+            Some(signing_key().address())
+        );
+        // Any change to the body invalidates the header.
+        let mut tampered = body.clone();
+        tampered.push(b' ');
+        assert_ne!(
+            super::flashbots_signature(&signing_key(), &tampered).unwrap(),
+            header
+        );
+    }
+
+    #[tokio::test]
+    async fn bundle_requests_carry_the_signature_only_when_a_key_is_configured() {
+        let ok = serde_json::json!({"result": {"bundleHash": B256::with_last_byte(7)}});
+        let body = serde_json::to_vec(&bundle_request(&["0x01"], 42, PIN, &[])).unwrap();
+        let header = super::flashbots_signature(&signing_key(), &body).unwrap();
+        for signature in [None, Some(&header)] {
+            let (first, first_server) = rpc_server(vec![ok.clone()], false).await;
+            let (second, second_server) = rpc_server(vec![ok.clone()], false).await;
+            let relays = crate::BuilderRelays::new(vec![first, second]).unwrap();
+            let fan_out = super::fan_out_bundle(
+                &reqwest::Client::new(),
+                &relays,
+                body.clone().into(),
+                signature,
+                42,
+                1,
+                None,
+                None,
+            )
+            .await;
+            assert_eq!(fan_out.acknowledged_count(), 2);
+            for server in [first_server, second_server] {
+                let request = server.await.unwrap().remove(0);
+                match signature {
+                    None => assert!(request.get("__x_flashbots_signature").is_none()),
+                    Some(header) => {
+                        // Every relay copy carries the same header over the exact bytes sent.
+                        assert_eq!(request["__x_flashbots_signature"], header.to_str().unwrap());
+                        assert_eq!(
+                            request["__raw_body"],
+                            String::from_utf8(body.clone()).unwrap()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn statuses(builders: &[super::BuilderDelivery]) -> Vec<super::BuilderDeliveryStatus> {

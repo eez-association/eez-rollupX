@@ -21,6 +21,7 @@ const ENV_BUILDER_RPC_URL: &str = "EEZ_L1_BUILDER_RPC_URL";
 const ENV_BUILDER_RPC_URLS_UNSUPPORTED: &str = "EEZ_L1_BUILDER_RPC_URLS";
 const ENV_TARGET_RPC_URL: &str = "EEZ_L1_TARGET_RPC_URL";
 const ENV_POSTER_KEY: &str = "EEZ_L1_POSTER_KEY";
+const ENV_BUNDLE_SIGNING_KEY: &str = "EEZ_L1_BUNDLE_SIGNING_KEY";
 const ENV_EEZ_ADDRESS: &str = "EEZ_REGISTRY_ADDRESS";
 const ENV_ROLLUP_ID: &str = "EEZ_ROLLUP_ID";
 const ENV_BUNDLE_CAPTURE_DIR: &str = "EEZ_BUNDLE_CAPTURE_DIR";
@@ -100,6 +101,12 @@ pub struct SubmitterConfig {
     pub target_rpc_url: Option<Url>,
     /// EOA that signs L1 txs (pays gas).
     pub poster: PrivateKeySigner,
+    /// Optional key that authenticates `eth_sendBundle` requests with the
+    /// Flashbots `X-Flashbots-Signature` header (`EEZ_L1_BUNDLE_SIGNING_KEY`).
+    /// It signs request bodies only, never transactions, and needs no funds;
+    /// builders use the address as a searcher identity (BuilderNet requires
+    /// it and pays refunds to it). `None` sends unsigned requests.
+    pub bundle_signer: Option<PrivateKeySigner>,
     /// Optional directory for exact `eth_sendBundle` request captures when an
     /// attempt is dropped or rejected. Unset keeps production writes off.
     pub bundle_capture_dir: Option<PathBuf>,
@@ -119,6 +126,10 @@ impl std::fmt::Debug for SubmitterConfig {
                 &self.target_rpc_url.as_ref().map(Url::as_str),
             )
             .field("poster", &self.poster.address())
+            .field(
+                "bundle_signer",
+                &self.bundle_signer.as_ref().map(PrivateKeySigner::address),
+            )
             .field("bundle_capture_dir", &self.bundle_capture_dir)
             .field("bundle_submission_lead", &self.bundle_submission_lead)
             .finish()
@@ -153,6 +164,7 @@ impl SubmitterConfig {
             builder_relays,
             target_rpc_url,
             poster: parse_key(ENV_POSTER_KEY)?,
+            bundle_signer: optional_key(ENV_BUNDLE_SIGNING_KEY)?,
             bundle_capture_dir: optional_path(ENV_BUNDLE_CAPTURE_DIR)?,
             bundle_submission_lead: Duration::from_millis(parse_u64_or(
                 ENV_BUNDLE_SUBMISSION_LEAD_MS,
@@ -337,6 +349,21 @@ fn parse_key(name: &str) -> L1Result<PrivateKeySigner> {
         .map_err(|e| L1Error::Config(format!("{name}: {e}")))
 }
 
+fn optional_key(name: &str) -> L1Result<Option<PrivateKeySigner>> {
+    parse_optional_key(name, env::var(name).ok().as_deref())
+}
+
+/// Unset or empty means `None`; a malformed key is an error that never echoes
+/// the value.
+fn parse_optional_key(name: &str, raw: Option<&str>) -> L1Result<Option<PrivateKeySigner>> {
+    match raw.map(str::trim) {
+        Some(raw) if !raw.is_empty() => PrivateKeySigner::from_str(raw.trim_start_matches("0x"))
+            .map(Some)
+            .map_err(|_| L1Error::Config(format!("{name} is not a valid secp256k1 private key"))),
+        _ => Ok(None),
+    }
+}
+
 fn parse_u64(name: &str) -> L1Result<u64> {
     require(name)?
         .parse::<u64>()
@@ -368,6 +395,41 @@ mod tests {
     fn config_error(result: L1Result<BuilderRelays>) -> String {
         match result {
             Err(L1Error::Config(message)) => message,
+            other => panic!("expected configuration error, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bundle_signing_key_is_optional_and_never_echoed() {
+        for raw in [None, Some(""), Some("   ")] {
+            assert!(
+                parse_optional_key(ENV_BUNDLE_SIGNING_KEY, raw)
+                    .unwrap()
+                    .is_none()
+            );
+        }
+        let key = "0x0000000000000000000000000000000000000000000000000000000000000001";
+        for raw in [
+            key,
+            key.trim_start_matches("0x"),
+            " 0x0000000000000000000000000000000000000000000000000000000000000001 ",
+        ] {
+            let signer = parse_optional_key(ENV_BUNDLE_SIGNING_KEY, Some(raw))
+                .unwrap()
+                .unwrap();
+            assert_eq!(
+                signer.address(),
+                "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+                    .parse::<Address>()
+                    .unwrap()
+            );
+        }
+        let secret = "0xnot-a-key-fixture-secret";
+        match parse_optional_key(ENV_BUNDLE_SIGNING_KEY, Some(secret)) {
+            Err(L1Error::Config(message)) => {
+                assert!(message.contains(ENV_BUNDLE_SIGNING_KEY), "{message}");
+                assert!(!message.contains("fixture-secret"), "{message}");
+            }
             other => panic!("expected configuration error, got {other:?}"),
         }
     }
