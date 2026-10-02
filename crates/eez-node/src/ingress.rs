@@ -226,6 +226,8 @@ struct Ctx {
     /// EEZ on L1 or EEZL2 on L2. A trace that calls one of its cross-chain
     /// entrypoints must be composed instead of entering the ordinary mempool.
     dispatch_address: Address,
+    /// Serialized `eez_composerInfo` result, shared by both fronts.
+    composer_info: Arc<Value>,
 }
 
 /// Verify that a configured cross-chain front points at its expected source chain.
@@ -263,6 +265,7 @@ pub async fn run_cross_chain_front(
     expected_source_chain_id: u64,
     dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
+    composer_info: Arc<Value>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
@@ -288,6 +291,7 @@ pub async fn run_cross_chain_front(
         validation_provider,
         expected_source_chain_id,
         dispatch_address,
+        composer_info,
     };
     loop {
         let (stream, _peer) = match listener.accept().await {
@@ -454,6 +458,15 @@ async fn handle(
     }
 
     let method = json.get("method").and_then(Value::as_str).unwrap_or("");
+
+    // Discovery is answered locally (never forwarded) and does not depend on
+    // readiness: the advertised configuration is static for the process.
+    // Batches remain limited to forwarded `eth_*` methods below.
+    if method == crate::composer_rpc::METHOD {
+        return Ok(json_response(
+            crate::composer_rpc::respond(&json, &ctx.composer_info).to_string(),
+        ));
+    }
 
     // An unrouted variant would be forwarded to the source chain, skipping the
     // held pool entirely.
@@ -1028,6 +1041,62 @@ mod tests {
         panic!("cross-chain front did not bind to port {port}");
     }
 
+    async fn post(port: u16, body: &Value) -> Value {
+        reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}"))
+            .json(body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap()
+    }
+
+    /// Discovery is answered by the front itself: before readiness, without
+    /// contacting the (here unreachable) upstream, and only for single requests.
+    #[tokio::test]
+    async fn front_answers_composer_info_locally() {
+        let port = free_port();
+        let info = serde_json::json!({"eezContracts": {"eezRegistryAddress": "0x11"}});
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            "http://127.0.0.1:1".into(),
+            Direction::Inbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            Arc::new(info.clone()),
+        ));
+        wait_for_front(port).await;
+
+        let response = post(
+            port,
+            &serde_json::json!({"jsonrpc": "2.0", "method": "eez_composerInfo", "id": 7}),
+        )
+        .await;
+        assert_eq!(
+            response,
+            serde_json::json!({"jsonrpc": "2.0", "id": 7, "result": info})
+        );
+        let response = post(
+            port,
+            &serde_json::json!({"jsonrpc": "2.0", "method": "eez_composerInfo", "params": [1], "id": 8}),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32602);
+        // Batches stay limited to forwarded eth_* methods.
+        let response = post(
+            port,
+            &serde_json::json!([{"jsonrpc": "2.0", "method": "eez_composerInfo", "id": 9}]),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32601);
+        task.abort();
+    }
+
     async fn send_raw(port: u16, raw: &Bytes, id: u64) -> Value {
         reqwest::Client::new()
             .post(format!("http://127.0.0.1:{port}"))
@@ -1265,6 +1334,7 @@ mod tests {
             1,
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({"fixture": true})),
         ));
         let outbound_task = tokio::spawn(run_cross_chain_front(
             outbound_port,
@@ -1275,6 +1345,7 @@ mod tests {
             1,
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({"fixture": true})),
         ));
         wait_for_front(inbound_port).await;
         wait_for_front(outbound_port).await;
@@ -1328,6 +1399,7 @@ mod tests {
             1,
             Address::ZERO,
             Arc::clone(&ready),
+            Arc::new(serde_json::json!({"fixture": true})),
         ));
         wait_for_front(port).await;
 
@@ -1423,6 +1495,7 @@ mod tests {
             1,
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({"fixture": true})),
         ));
         wait_for_front(port).await;
 
@@ -1470,6 +1543,7 @@ mod tests {
             1,
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({"fixture": true})),
         ));
         wait_for_front(port).await;
 

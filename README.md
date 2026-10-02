@@ -264,8 +264,13 @@ which this protocol does not currently define.
 
 ### Composer discovery RPC
 
-Composer nodes (not followers) also expose `eez_composerInfo` on the L2 RPC, so
-clients can discover the deployment instead of hardcoding it. It takes no
+Composer nodes (not followers) also expose `eez_composerInfo` on **both
+cross-chain fronts**, the L1 and L2 endpoints clients submit through
+(`EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`, 18999 / 18998 in the Chiado
+profile), so clients can discover the deployment instead of hardcoding it. The
+front answers it locally, also before L1 catch-up completes; it is not served by
+the L2 node RPC, and batches containing it are rejected like other non-`eth_*`
+methods. It takes no
 parameters (absent, `[]` or `{}`; any argument is rejected with `-32602`) and
 returns the configured contracts, the L1/L2 chain IDs and the Composer version:
 

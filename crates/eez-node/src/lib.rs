@@ -725,6 +725,8 @@ async fn launch_composer(
             eez_l2: builder.config().chain.chain().id(),
         },
     );
+    // Discovery is served by the two cross-chain fronts only, not the L2 RPC.
+    let composer_info = Arc::new(serde_json::to_value(&composer_info)?);
 
     // L2 reth. `EezPayloadBuilder` writes `gas_limit`/`extra_data` from
     // shared `eez-driver` constants so deriver replay and sequencer builds
@@ -772,10 +774,6 @@ async fn launch_composer(
         .extend_rpc_modules(move |ctx| {
             ctx.modules
                 .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
-            // Discovery is served on every configured transport, independent
-            // of the `--http.api` namespace selection, like the queue methods.
-            ctx.modules
-                .merge_configured(composer_rpc::module(composer_info)?)?;
             // Parsed rather than imported: `RethRpcModule` is not re-exported by
             // this crate's Reth dependencies, and the parameter type fixes it.
             use reth_node_api::FullNodeComponents as _;
@@ -1211,6 +1209,7 @@ async fn launch_composer(
     for (spec, port, url, validation_provider, dispatch_address) in xchain_fronts {
         let pool = Arc::clone(&held_pool);
         let ready = Arc::clone(&xchain_ready);
+        let composer_info = Arc::clone(&composer_info);
         task_executor.spawn_critical_task(spec.task, async move {
             ingress::run_cross_chain_front(
                 port,
@@ -1221,6 +1220,7 @@ async fn launch_composer(
                 spec.expected_source_chain_id,
                 dispatch_address,
                 ready,
+                composer_info,
             )
             .await
             .unwrap_or_else(|e| panic!("configured cross-chain front exited: {e:#}"));
