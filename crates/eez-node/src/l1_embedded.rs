@@ -1,12 +1,20 @@
 //! Embedded L1 reth — config builder for the second `NodeBuilder` that
 //! composer mode launches alongside the L2 reth. Runtime modes:
+//!   - **Ethereum** (vanilla EthereumNode, CL-driven) — a public Ethereum
+//!     network with reth's built-in chain spec, synced from its peers and
+//!     driven via engine-API by an external consensus client.
+//!     `EEZ_L1_CHAIN=mainnet|sepolia|hoodi`.
 //!   - **Devnet** (vanilla EthereumNode, CL-driven) — private PoS L1.
 //!     `EEZ_L1_CHAIN=devnet`.
 //!   - **Chiado** (reth_gnosis::GnosisNode) — real chiado state from the
 //!     mounted datadir, driven via engine-API by an external lighthouse
 //!     CL. `EEZ_L1_CHAIN=chiado`.
 //!   - **Testing** (vanilla EthereumNode, 5s auto-mine) — dev mode with the
-//!     non-atomic mock bundle RPC; the default. `EEZ_L1_CHAIN=testing`.
+//!     non-atomic mock bundle RPC. `EEZ_L1_CHAIN=testing`.
+//!
+//! `EEZ_L1_CHAIN` is required. [`select_l1_chain`] rejects unset and unknown
+//! values: a silent fallback to the self-mining Testing node would run the
+//! Composer against a private chain while looking healthy.
 //!
 //! The `NodeBuilder` launch is inline in [`crate::run_composer`] — the
 //! nested-generic `NodeHandle` AddOns types resist a typed helper.
@@ -75,12 +83,17 @@ pub fn testing_slot_timestamp(genesis: u64, parent: u64, sampled: u64) -> Result
 }
 
 /// Which L1 chain the embedded L1 NodeBuilder should serve. Selected
-/// by `EEZ_L1_CHAIN` env at startup; defaults to `Testing`.
+/// by `EEZ_L1_CHAIN` env at startup via [`select_l1_chain`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum L1ChainKind {
     /// `reth_gnosis::GnosisNode` loading the chiado preset; no
     /// auto-mine — engine API driven by an external lighthouse CL.
     Chiado,
+    /// Public Ethereum network (one of [`PUBLIC_ETHEREUM_NETWORKS`]) using
+    /// reth's built-in chain spec, driven by an external consensus client.
+    /// Launched like [`Self::Devnet`]; the distinct kind keeps the chain
+    /// spec tied to the operator's explicit network choice.
+    Ethereum,
     /// Private PoS Ethereum node driven by an external consensus client.
     Devnet,
     /// Vanilla `EthereumNode` in dev mode (5s auto-mine, --chain dev) with the non-atomic mock bundle RPC.
@@ -90,13 +103,66 @@ pub enum L1ChainKind {
     TestingGnosis,
 }
 
-impl L1ChainKind {
-    pub fn from_env() -> Self {
-        match std::env::var("EEZ_L1_CHAIN").as_deref() {
-            Ok("chiado") => Self::Chiado,
-            Ok("devnet") => Self::Devnet,
-            Ok("testing-gnosis") => Self::TestingGnosis,
-            _ => Self::Testing,
+/// Public Ethereum networks accepted as `EEZ_L1_CHAIN` values. Reth ships
+/// their chain specs, so they need no `EEZ_L1_CHAIN_PATH`.
+pub const PUBLIC_ETHEREUM_NETWORKS: [&str; 3] = ["mainnet", "sepolia", "hoodi"];
+
+/// Chain names that reth's Ethereum chain-spec parser resolves to a public
+/// network. `devnet` rejects them: a public network is not a private devnet,
+/// and an operator selecting one should say so with `EEZ_L1_CHAIN`.
+const PUBLIC_CHAIN_SPEC_NAMES: [&str; 4] = ["mainnet", "sepolia", "holesky", "hoodi"];
+
+const SUPPORTED_L1_CHAINS: &str =
+    "chiado, devnet, hoodi, mainnet, sepolia, testing, testing-gnosis";
+
+/// Resolve `EEZ_L1_CHAIN` and `EEZ_L1_CHAIN_PATH` into the embedded L1 kind
+/// and the argument for reth's Ethereum chain-spec parser.
+///
+/// Unset, empty and unknown `EEZ_L1_CHAIN` values are errors. For a public
+/// Ethereum network the chain spec is the network itself, so
+/// `EEZ_L1_CHAIN_PATH` must be unset or name the same network. `devnet`
+/// rejects public chain names. The other kinds keep their previous chain-path
+/// behaviour: `testing`, `testing-gnosis` and `devnet` default to reth's
+/// `dev` spec, and `chiado` ignores the parsed spec.
+pub fn select_l1_chain(
+    chain: Option<&str>,
+    chain_path: Option<&str>,
+) -> Result<(L1ChainKind, String)> {
+    let chain_path = chain_path.map(str::trim).filter(|path| !path.is_empty());
+    let chain = chain
+        .map(str::trim)
+        .filter(|chain| !chain.is_empty())
+        .ok_or_else(|| {
+            eyre::eyre!("EEZ_L1_CHAIN is required; supported values: {SUPPORTED_L1_CHAINS}")
+        })?;
+    let private_spec = || chain_path.unwrap_or("dev").to_string();
+    match chain {
+        "chiado" => Ok((L1ChainKind::Chiado, private_spec())),
+        "testing" => Ok((L1ChainKind::Testing, private_spec())),
+        "testing-gnosis" => Ok((L1ChainKind::TestingGnosis, private_spec())),
+        "devnet" => {
+            let spec = private_spec();
+            if PUBLIC_CHAIN_SPEC_NAMES.contains(&spec.as_str()) {
+                if PUBLIC_ETHEREUM_NETWORKS.contains(&spec.as_str()) {
+                    eyre::bail!(
+                        "EEZ_L1_CHAIN=devnet is for private networks; for the public {spec} network set EEZ_L1_CHAIN={spec}"
+                    );
+                }
+                eyre::bail!(
+                    "EEZ_L1_CHAIN=devnet is for private networks; EEZ_L1_CHAIN_PATH={spec} is not supported"
+                );
+            }
+            Ok((L1ChainKind::Devnet, spec))
+        }
+        network if PUBLIC_ETHEREUM_NETWORKS.contains(&network) => match chain_path {
+            None => Ok((L1ChainKind::Ethereum, network.to_string())),
+            Some(path) if path == network => Ok((L1ChainKind::Ethereum, network.to_string())),
+            Some(path) => eyre::bail!(
+                "EEZ_L1_CHAIN={network} uses reth's built-in {network} chain spec; EEZ_L1_CHAIN_PATH must be unset or {network}, got {path}"
+            ),
+        },
+        other => {
+            eyre::bail!("unsupported EEZ_L1_CHAIN={other}; supported values: {SUPPORTED_L1_CHAINS}")
         }
     }
 }
@@ -105,7 +171,8 @@ impl L1ChainKind {
 /// `eez-node::main`; defaults match a no-config-needed testing workflow.
 #[derive(Debug, Clone)]
 pub struct EmbeddedL1Config {
-    /// L1 dev chain spec (genesis + hardforks). Used by Testing and Devnet;
+    /// L1 Ethereum chain spec (genesis + hardforks). Used by Testing, Devnet
+    /// and Ethereum (where it is reth's built-in public network spec);
     /// ignored by Chiado (which loads its own GnosisChainSpec).
     pub dev_chain_spec: Arc<ChainSpec>,
     /// Which L1 chain the embedded node serves.
@@ -207,7 +274,9 @@ pub fn build_chiado_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<Gno
     Ok(node_cfg)
 }
 
-/// Build a private L1 driven by an external consensus client.
+/// Build an Ethereum L1 driven by an external consensus client: a private
+/// devnet, or a public network ([`L1ChainKind::Ethereum`]) whose chain spec
+/// is reth's built-in one. Discovery stays enabled for peer sync.
 pub fn build_devnet_node_config(cfg: &EmbeddedL1Config) -> Result<NodeConfig<ChainSpec>> {
     let (network_args, mut rpc_args) = build_network_rpc_args(cfg)?;
     rpc_args.auth_addr = "0.0.0.0".parse().expect("static addr");
@@ -395,5 +464,118 @@ mod tests {
                 .max_account_slots,
             reth_node_core::args::TxPoolArgs::default().max_account_slots
         );
+    }
+
+    fn select_err(chain: Option<&str>, path: Option<&str>) -> String {
+        select_l1_chain(chain, path).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn l1_chain_is_required_and_unknown_values_are_rejected() {
+        for chain in [None, Some(""), Some("  ")] {
+            let error = select_err(chain, Some("mainnet"));
+            assert!(error.contains("EEZ_L1_CHAIN is required"), "{error}");
+        }
+        // Former silent fallbacks to the self-mining Testing node.
+        for chain in ["Mainnet", "ethereum", "gnosis", "holesky", "dev", "Devnet"] {
+            let error = select_err(Some(chain), None);
+            assert!(
+                error.contains(&format!("unsupported EEZ_L1_CHAIN={chain}")),
+                "{error}"
+            );
+            assert!(
+                error.contains("supported values: chiado, devnet"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn public_ethereum_networks_use_their_builtin_spec() {
+        for network in PUBLIC_ETHEREUM_NETWORKS {
+            for path in [None, Some(""), Some(network)] {
+                assert_eq!(
+                    select_l1_chain(Some(network), path).unwrap(),
+                    (L1ChainKind::Ethereum, network.to_string())
+                );
+            }
+            for path in ["dev", "/genesis/genesis.json", "sepolia-ish"] {
+                if path == network {
+                    continue;
+                }
+                let error = select_err(Some(network), Some(path));
+                assert!(
+                    error.contains(&format!(
+                        "EEZ_L1_CHAIN_PATH must be unset or {network}, got {path}"
+                    )),
+                    "{error}"
+                );
+            }
+        }
+        assert!(select_l1_chain(Some("mainnet"), Some("sepolia")).is_err());
+        assert!(select_l1_chain(Some(" mainnet "), None).is_ok());
+    }
+
+    #[test]
+    fn private_kinds_keep_their_chain_path_defaults() {
+        for (chain, kind) in [
+            ("testing", L1ChainKind::Testing),
+            ("testing-gnosis", L1ChainKind::TestingGnosis),
+            ("devnet", L1ChainKind::Devnet),
+            ("chiado", L1ChainKind::Chiado),
+        ] {
+            assert_eq!(
+                select_l1_chain(Some(chain), None).unwrap(),
+                (kind, "dev".to_string())
+            );
+            assert_eq!(
+                select_l1_chain(Some(chain), Some("/genesis/genesis.json")).unwrap(),
+                (kind, "/genesis/genesis.json".to_string())
+            );
+        }
+    }
+
+    #[test]
+    fn devnet_rejects_public_chain_specs() {
+        for network in PUBLIC_ETHEREUM_NETWORKS {
+            let error = select_err(Some("devnet"), Some(network));
+            assert!(
+                error.contains(&format!("set EEZ_L1_CHAIN={network}")),
+                "{error}"
+            );
+        }
+        let error = select_err(Some("devnet"), Some("holesky"));
+        assert!(
+            error.contains("EEZ_L1_CHAIN_PATH=holesky is not supported"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn public_ethereum_spec_resolves_to_the_network_chain_id() {
+        use reth_cli::chainspec::ChainSpecParser;
+        for (network, chain_id) in [("mainnet", 1), ("sepolia", 11_155_111), ("hoodi", 560_048)] {
+            let (kind, spec) = select_l1_chain(Some(network), None).unwrap();
+            assert_eq!(kind, L1ChainKind::Ethereum);
+            let spec = reth_ethereum_cli::chainspec::EthereumChainSpecParser::parse(&spec).unwrap();
+            assert_eq!(spec.chain().id(), chain_id);
+            let cfg = EmbeddedL1Config {
+                dev_chain_spec: spec,
+                kind,
+                datadir: PathBuf::from("/tmp/unused-eez-ethereum-test"),
+                http_port: 18_545,
+                auth_port: 18_551,
+                p2p_port: 30_303,
+                discv5_port: 30_304,
+                jwtsecret: None,
+                trusted_peers: Vec::new(),
+            };
+            let node_cfg = build_devnet_node_config(&cfg).unwrap();
+            assert_eq!(node_cfg.chain.chain().id(), chain_id);
+            assert!(
+                !node_cfg.dev.dev,
+                "public Ethereum must not run in dev (self-mining) mode"
+            );
+        }
     }
 }

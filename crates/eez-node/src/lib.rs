@@ -553,7 +553,12 @@ async fn launch_composer(
     let embedded_l1: EmbeddedL1<_, _> = {
         let l1_cfg = build_embedded_l1_config()?;
         match l1_cfg.kind {
-            l1_embedded::L1ChainKind::Devnet => {
+            l1_embedded::L1ChainKind::Devnet | l1_embedded::L1ChainKind::Ethereum => {
+                let kind = if l1_cfg.kind == l1_embedded::L1ChainKind::Ethereum {
+                    "ethereum"
+                } else {
+                    "devnet"
+                };
                 let node_cfg = l1_embedded::build_devnet_node_config(&l1_cfg)?;
                 let db = reth_db::init_db(
                     node_cfg.datadir().db(),
@@ -563,10 +568,11 @@ async fn launch_composer(
                 event!(
                     name: "eez.node.l1_embedded.launching",
                     Level::INFO,
-                    kind = "devnet",
+                    kind,
+                    l1_chain_id = %l1_cfg.dev_chain_spec.chain(),
                     http_port = l1_cfg.http_port,
                     auth_port = l1_cfg.auth_port,
-                    "launching embedded L1 reth (devnet); external consensus client must connect to authrpc",
+                    "launching embedded L1 reth; external consensus client must connect to authrpc",
                 );
                 let l1_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
@@ -577,9 +583,9 @@ async fn launch_composer(
                 event!(
                     name: "eez.node.l1_embedded.ready",
                     Level::INFO,
-                    kind = "devnet",
+                    kind,
                     l1_chain_id = %l1_handle.node.chain_spec().chain(),
-                    "embedded L1 reth (devnet) ready",
+                    "embedded L1 reth ready",
                 );
                 EmbeddedL1::Ethereum(l1_handle)
             }
@@ -1462,16 +1468,17 @@ fn parse_xchain_front_config(
     Ok((port, url_raw.to_string(), parsed))
 }
 
-/// Build the `EmbeddedL1Config` from env; all vars optional, with testing
-/// defaults so the smoke harness only overrides what it needs.
+/// Build the `EmbeddedL1Config` from env. `EEZ_L1_CHAIN` is required (see
+/// [`l1_embedded::select_l1_chain`]); the other vars are optional:
 ///
 ///   - `EEZ_L1_HTTP_PORT` — default `18545` (WS = http_port + 1)
 ///   - `EEZ_L1_AUTH_PORT` — default `http_port + 6`
 ///   - `EEZ_L1_P2P_PORT`  — default `30444` (P2P + discv4)
 ///   - `EEZ_L1_DISCV5_PORT` — default `p2p_port + 10` (discv5 UDP)
 ///   - `EEZ_L1_DATADIR`   — default `$TMPDIR/eez-l1-embedded` (ephemeral)
-///   - `EEZ_L1_CHAIN_PATH` — L1 genesis JSON; unset → reth's `dev`
-///     chainspec (all forks at genesis, no funded accounts)
+///   - `EEZ_L1_CHAIN_PATH` — L1 genesis JSON for private kinds; unset →
+///     reth's `dev` chainspec (all forks at genesis, no funded accounts).
+///     Public Ethereum kinds use their built-in spec instead.
 fn build_embedded_l1_config() -> eyre::Result<l1_embedded::EmbeddedL1Config> {
     use reth_cli::chainspec::ChainSpecParser;
 
@@ -1503,21 +1510,18 @@ fn build_embedded_l1_config() -> eyre::Result<l1_embedded::EmbeddedL1Config> {
         std::path::PathBuf::from,
     );
 
-    // Chain spec: explicit path wins. Otherwise default to reth's
-    // built-in `dev` chainspec — same shape `reth --chain dev` uses,
-    // which has all forks (including Cancun/Prague where supported)
-    // active at genesis with a couple of pre-funded dev EOAs.
-    let chain_arg = env::var("EEZ_L1_CHAIN_PATH").unwrap_or_else(|_| "dev".to_string());
+    // L1 chain selector and chain spec. Public Ethereum networks use reth's
+    // built-in spec; private kinds take EEZ_L1_CHAIN_PATH or default to
+    // reth's `dev` spec — same shape `reth --chain dev` uses, with all forks
+    // active at genesis and a couple of pre-funded dev EOAs.
+    let (kind, chain_arg) = l1_embedded::select_l1_chain(
+        env::var("EEZ_L1_CHAIN").ok().as_deref(),
+        env::var("EEZ_L1_CHAIN_PATH").ok().as_deref(),
+    )?;
     let dev_chain_spec = EthereumChainSpecParser::parse(&chain_arg)
-        .map_err(|e| eyre::eyre!("EEZ_L1_CHAIN_PATH={chain_arg}: {e}"))?;
+        .map_err(|e| eyre::eyre!("L1 chain spec {chain_arg}: {e}"))?;
 
-    // L1 chain selector: `testing` (vanilla EthereumNode, auto-mine 5s),
-    // `devnet` (EthereumNode + external CL), or `chiado`
-    // (reth_gnosis::GnosisNode, real chiado state). The
-    // `dev_chain_spec` is consumed by testing/devnet paths.
-    let kind = l1_embedded::L1ChainKind::from_env();
-
-    // JWT secret path — required for chiado/devnet (lighthouse engine API
+    // JWT secret path — required for CL-driven kinds (engine API
     // auth); optional for testing mode (no external CL).
     let jwtsecret = env::var("EEZ_L1_JWT_SECRET")
         .ok()
