@@ -1664,6 +1664,18 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() {
+    historical_prefix_replacement(None).await;
+}
+
+/// Sync blocks carry the configured coinbase. A deadline replacement must not
+/// rebuild an already empty historical boundary with a different header and
+/// unwind every descendant through a branch switch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn historical_prefix_replacement_keeps_the_empty_boundary_with_a_configured_coinbase() {
+    historical_prefix_replacement(Some(alloy_primitives::Address::repeat_byte(0x3e))).await;
+}
+
+async fn historical_prefix_replacement(fee_recipient: Option<alloy_primitives::Address>) {
     let mut config = env();
     config.extend([
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
@@ -1673,6 +1685,9 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
         ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
     ]);
+    if let Some(fee_recipient) = fee_recipient {
+        config.push(("EEZ_L2_FEE_RECIPIENT", format!("{fee_recipient:#x}")));
+    }
     let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
     let follower = NodeHandle::start(
         "historical-prefix-follower",
@@ -1732,20 +1747,31 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
     )
     .unwrap();
     let target_timestamp = target["minTimestamp"].as_u64().unwrap();
-    assert!(
-        world
-            .node
-            .signals_since(cursor)
-            .unwrap()
-            .iter()
-            .any(|event| {
-                event.name == "eez.composer.emission.historical_chunk"
-                    && event.fields["split_reasons"]
-                        .as_str()
-                        .is_some_and(|s| s.contains("blob_limit"))
-            }),
-        "fixture must reach the historical blob-prefix path"
-    );
+    let boundary = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| {
+            event.name == "eez.composer.emission.historical_chunk"
+                && event.fields["split_reasons"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("blob_limit"))
+        })
+        .and_then(|event| event.fields["boundary"].as_u64())
+        .expect("fixture must reach the historical blob-prefix path");
+    let boundary_block = l2
+        .get_block_by_number(boundary.into())
+        .await
+        .unwrap()
+        .expect("historical boundary block");
+    if let Some(fee_recipient) = fee_recipient {
+        assert_eq!(
+            boundary_block.header.beneficiary, fee_recipient,
+            "fixture must exercise a boundary carrying the configured coinbase"
+        );
+    }
     world
         .l1_reorg_control
         .as_mut()
@@ -1767,6 +1793,17 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
             world.settlement_diagnostics()
         )
     });
+    // The replacement re-proves the unchanged prefix at the next slot. The
+    // boundary it ends at, and therefore every descendant, stays canonical.
+    assert_eq!(
+        l2.get_block_by_number(boundary.into())
+            .await
+            .unwrap()
+            .map(|block| block.header.hash),
+        Some(boundary_block.header.hash),
+        "deadline replacement rewrote the historical boundary{}",
+        world.settlement_diagnostics()
+    );
     let mut covered = 0;
     for hash in hashes {
         let receipt = wait_for(TIMEOUT, || async {

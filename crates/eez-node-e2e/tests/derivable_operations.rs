@@ -906,6 +906,7 @@ async fn retained_native_history_cold_checkpoint() {
         signer_key: eez_testkit::ANVIL_ATTESTER_KEY,
         vkey: metadata["vkey"].as_str().unwrap().parse().unwrap(),
         proof_system: metadata["proof_system"].as_str().unwrap().parse().unwrap(),
+        max_request_blocks: None,
     })
     .await
     .unwrap();

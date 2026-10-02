@@ -218,6 +218,11 @@ impl ActivityIndex {
             ))
     }
 
+    /// Settled endpoint that prefix sums start after.
+    pub fn anchor(&self) -> Option<L2Endpoint> {
+        self.anchor
+    }
+
     pub fn endpoint_at(&self, number: u64) -> Option<L2Endpoint> {
         self.blocks
             .get(&number)

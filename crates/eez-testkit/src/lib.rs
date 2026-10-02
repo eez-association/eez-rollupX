@@ -417,6 +417,11 @@ impl Drop for BeaconStub {
 /// forwarding stub. Consumed by the fixture, never passed to the node.
 pub const REJECTING_BUILDER_ENV: &str = "EEZ_TEST_REJECTING_BUILDER";
 
+/// Test-only marker for [`setup_cross_chain_with_env`]: the proof signer's
+/// `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS`, which the Composer adopts as its
+/// batch block cap. Consumed by the fixture, never passed to the node.
+pub const SIGNER_MAX_REQUEST_BLOCKS_ENV: &str = "EEZ_TEST_SIGNER_MAX_REQUEST_BLOCKS";
+
 /// `eth_sendBundle` relay that answers every request with a JSON-RPC
 /// rejection (`-32000`), so multi-relay tests can show that one failing relay
 /// does not prevent settlement through another.
@@ -752,6 +757,9 @@ pub struct ProofSignerConfig<'a> {
     /// tests can deliberately configure a key that differs from L1's registry.
     pub vkey: B256,
     pub proof_system: Address,
+    /// Signer window block limit (`EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS`). The
+    /// Composer adopts it as its batch block cap; `None` keeps the default.
+    pub max_request_blocks: Option<u64>,
 }
 
 /// The native Anvil harness and embedded test L1 use this same fork profile.
@@ -830,6 +838,9 @@ impl ProofSignerHandle {
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log));
+        if let Some(blocks) = cfg.max_request_blocks {
+            command.env("EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS", blocks.to_string());
+        }
         drop(port_lease);
         let mut child = command.spawn().context("spawn eez-proof-signer")?;
 
@@ -1658,6 +1669,7 @@ impl Harness {
                 // the wrong authority, so L1's real registry rejects the proof.
                 vkey: attester.into_word(),
                 proof_system: self.dep.proof_system_address,
+                max_request_blocks: None,
             })
             .await?;
             let witness_dir = tempfile::tempdir().context("witness DB tempdir")?;
@@ -2236,6 +2248,7 @@ impl NodeHandle {
             if *k == TEST_L2_GENESIS_ENV
                 || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS"
                 || *k == REJECTING_BUILDER_ENV
+                || *k == SIGNER_MAX_REQUEST_BLOCKS_ENV
             {
                 continue; // test-only marker (consumed as --chain above)
             }
@@ -6251,6 +6264,18 @@ async fn setup_cross_chain_inner(
         )?;
     }
     let signer_attester = signer_address(cfg.attester_key)?;
+    // Test-only: a small signer window drives the Composer's batch block cap,
+    // reaching the historical-prefix path without a multi-thousand-block chain.
+    let max_request_blocks = extra_env
+        .iter()
+        .rev()
+        .find(|(name, _)| *name == SIGNER_MAX_REQUEST_BLOCKS_ENV)
+        .map(|(_, blocks)| {
+            blocks.parse::<u64>().with_context(|| {
+                format!("{SIGNER_MAX_REQUEST_BLOCKS_ENV} must be an unsigned integer")
+            })
+        })
+        .transpose()?;
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
         l1_rpc_url: cfg.l1_rpc_url(),
         registry_address: cfg.eez_address,
@@ -6260,6 +6285,7 @@ async fn setup_cross_chain_inner(
         signer_key: cfg.attester_key,
         vkey: signer_address(cfg.attester_key)?.into_word(),
         proof_system: cfg.proof_system_address,
+        max_request_blocks,
     })
     .await?;
     let mutation = mutation.or_else(|| fixture_directory.as_ref().map(|_| ProverMutation::None));

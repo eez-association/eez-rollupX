@@ -688,7 +688,11 @@ or storage migration and rollback restores the smaller scheduling allowance.
 The replacement uses a fresh proof, the next slot's exact timestamp and the same
 poster nonce. Replace the original nonempty Sync with an empty Sync and rebuild
 its speculative descendants before placing complete cross-chain groups in the
-new terminal Sync. Retain ordinary transactions through normal reorg recovery.
+new terminal Sync. An original Sync that is already empty, as for
+historical-prefix and anchor-only attempts, stays canonical with its
+descendants; only the proof and bundle are rebuilt. A rebuilt empty block can
+differ by header fields such as the coinbase, so switching to it would unwind
+retained history. Retain ordinary transactions through normal reorg recovery.
 Final bundle execution and target checks remain mandatory. If the original
 settles late, canonical replay replaces the active branch and source
 reconciliation determines which users remain pending. The scheduling deadline
