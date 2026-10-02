@@ -94,6 +94,13 @@ independent follower reaches the settled prefix. Preserve the baseline failure
 and repeat the same test against the correction. Existing delayed-original and
 ordinary skipped-slot regressions remain required.
 
+October 2 correction: a historical-prefix or anchor-only attempt ends at an
+already empty Sync. Since the configured coinbase reached Sync blocks, an empty
+rebuild no longer matched that boundary, and a deadline replacement switched to
+it, unwinding every descendant (about 8,900 blocks on Chiado). Replacement now
+leaves an empty original Sync canonical and only re-proves it. See the
+[settlement-stall audit](../audits/2026-10-02-chiado-settlement-stall/README.md).
+
 ## Compatibility and operations
 
 No protocol pin, contract, wire format, signer profile, genesis or database
