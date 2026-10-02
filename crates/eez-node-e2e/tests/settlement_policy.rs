@@ -1454,7 +1454,7 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
         signals
             .iter()
             .any(|signal| signal.name == "eez.composer.postbatch.fee_quote"
-                && signal.fields["priority_source"] == "fee_history_p90_of_p90"),
+                && signal.fields["priority_source"] == "fee_history"),
         "no implicit smoke-test tip"
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());

@@ -92,12 +92,38 @@ class EthereumConfigTest(unittest.TestCase):
             self.assertNotIn(name, services["eez-proof-signer"]["environment"])
         self.assertNotIn("EEZ_PROOF_SIGNER_KEY", node)
 
-    def test_fee_limits_have_no_ethereum_defaults(self):
-        node = self.services()["eez-node"]["environment"]
-        for name in ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
-                     "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE"):
-            self.assertIsNone(node.get(name), name)
+    def test_example_fee_limits_and_cadence_reach_the_node(self):
+        services = self.services()
+        node = services["eez-node"]["environment"]
+        for name, value in (
+            ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "10000000000"),
+            ("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS", "2000000000"),
+            ("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", "50"),
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "50000000"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000"),
+            ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "7200"),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000"),
+        ):
+            self.assertEqual(node.get(name), value, name)
+        self.assertIsNone(node.get("EEZ_L1_POSTBATCH_PRIORITY_FEE"))
         self.assertIsNone(node.get("EEZ_MAX_BLOCKS_PER_BATCH"))
+        signer = services["eez-proof-signer"]["environment"]
+        # One proof window covers a whole idle cycle.
+        self.assertGreaterEqual(int(signer["EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS"]),
+                                int(node["EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS"]))
+        budget = sum(int(node[name]) for name in (
+            "EEZ_PREPARATION_TIME_MS", "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS"))
+        self.assertLessEqual(budget, (6 - 1) * 2000)
+
+    def test_priority_percentile_is_absent_unless_configured(self):
+        configured = (self.repo / ".env").read_text()
+        line = "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE=50\n"
+        self.assertIn(line, configured)
+        result = self.render(dotenv=configured.replace(line, ""))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        # Absent keeps the runtime default (90) rather than a Compose value.
+        self.assertIsNone(node.get("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE"))
 
     def test_required_choices_fail_when_absent_or_empty(self):
         configured = (self.repo / ".env").read_text()

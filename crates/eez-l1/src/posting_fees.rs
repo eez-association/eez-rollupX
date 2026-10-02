@@ -7,16 +7,18 @@ use crate::{BundleTarget, L1BlockRef};
 
 /// Recent canonical blocks used to price an exact-next-block submission.
 pub const PRIORITY_FEE_HISTORY_BLOCKS: u64 = 20;
-/// Gas-weighted reward percentile requested for each historical block.
-pub const PRIORITY_FEE_REWARD_PERCENTILE: f64 = 90.0;
-/// Percentile of the per-block rewards selected as the next-block bid.
-const PRIORITY_FEE_CONFIDENCE_PERCENTILE: usize = 90;
+/// Default `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE`: the gas-weighted p90 reward
+/// of each recent block, then the p90 of those samples.
+pub const DEFAULT_PRIORITY_FEE_PERCENTILE: u8 = 90;
 
 /// All prices are native base units per gas unit. Ceilings are mandatory for
 /// enabled production posting; profile examples choose their own values.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PostingFeeConfig {
     pub priority_override: Option<u128>,
+    /// Percentile (1..=99) used by the fee-history estimator, both for each
+    /// block's gas-weighted reward and for the selection across blocks.
+    pub priority_percentile: u8,
     pub priority_min: u128,
     pub priority_max: u128,
     pub execution_price_ceiling: u128,
@@ -75,6 +77,15 @@ impl PostingFeeConfig {
             integer("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS")?,
         )?;
         let priority_override = integer("EEZ_L1_POSTBATCH_PRIORITY_FEE")?;
+        let priority_percentile = match integer("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE")? {
+            None => DEFAULT_PRIORITY_FEE_PERCENTILE,
+            Some(value @ 1..=99) => value as u8,
+            Some(_) => {
+                return Err(PostingFeeError::Config(
+                    "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE must be an integer from 1 to 99".into(),
+                ));
+            }
+        };
         let priority_min = integer("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE")?.unwrap_or(0);
         let configured_priority_max = integer("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")?;
         let mut bps = |name: &str, default: u64| -> Result<u64, PostingFeeError> {
@@ -93,6 +104,7 @@ impl PostingFeeConfig {
         };
         let config = Self {
             priority_override,
+            priority_percentile,
             priority_min,
             priority_max,
             execution_price_ceiling,
@@ -211,16 +223,25 @@ impl PostingFeeConfig {
 
 /// Select a deadline-oriented priority fee from `eth_feeHistory` rewards.
 ///
-/// The RPC request asks for one gas-weighted p90 reward per block. Taking the
-/// p90 of those recent block samples avoids reacting to one isolated spike but
-/// prices above ordinary transactions in most recent blocks. Empty blocks
-/// contribute the zero reward returned by the RPC; configured bounds are
-/// applied later by [`PostingFeeConfig::quote`].
+/// The RPC request asks for one gas-weighted reward per block at `percentile`
+/// (the caller passes the same value). Taking the same percentile of those
+/// recent block samples avoids reacting to one isolated spike. The default
+/// p90-of-p90 prices above ordinary transactions in most recent blocks; a lower
+/// percentile (for example 50, the median of the block medians) bids closer to
+/// the typical recent tip. Empty blocks contribute the zero reward returned by
+/// the RPC; configured bounds are applied later by [`PostingFeeConfig::quote`].
+/// `percentile` must be in 1..=99, as enforced by [`PostingFeeConfig::parse`].
 pub fn estimate_next_block_priority_fee(
     oldest_block: u64,
     head_block: u64,
     rewards: Option<&[Vec<u128>]>,
+    percentile: u8,
 ) -> Result<u128, PostingFeeError> {
+    if !(1..=99).contains(&percentile) {
+        return Err(PostingFeeError::Config(
+            "priority fee percentile must be from 1 to 99".into(),
+        ));
+    }
     let rewards = rewards
         .filter(|rewards| !rewards.is_empty())
         .ok_or(PostingFeeError::Unavailable("priority fee history"))?;
@@ -239,7 +260,7 @@ pub fn estimate_next_block_priority_fee(
         samples.push(*sample);
     }
     samples.sort_unstable();
-    let index = (samples.len() - 1) * PRIORITY_FEE_CONFIDENCE_PERCENTILE / 100;
+    let index = (samples.len() - 1) * usize::from(percentile) / 100;
     Ok(samples[index])
 }
 
@@ -413,6 +434,82 @@ mod tests {
     use super::*;
     use alloy_primitives::B256;
 
+    const P90: u8 = DEFAULT_PRIORITY_FEE_PERCENTILE;
+
+    #[test]
+    fn priority_percentile_defaults_to_p90_and_rejects_out_of_range_values() {
+        assert_eq!(config(&[]).unwrap().priority_percentile, 90);
+        for (value, expected) in [("1", 1), ("50", 50), ("90", 90), ("99", 99)] {
+            let fees = config(&[("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", value)]).unwrap();
+            assert_eq!(fees.priority_percentile, expected);
+        }
+        for value in ["0", "100", "250", "", "-1", "50.5", "p50"] {
+            let error = config(&[("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", value)]).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE"),
+                "{value}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn fee_history_percentile_selects_the_matching_recent_sample() {
+        // Block samples 1..=20 (already the per-block reward at the percentile).
+        let ascending: Vec<_> = (1..=20).map(|reward| vec![reward]).collect();
+        for (percentile, expected) in [(1, 1), (25, 5), (50, 10), (75, 15), (90, 18), (99, 19)] {
+            assert_eq!(
+                estimate_next_block_priority_fee(81, 100, Some(&ascending), percentile).unwrap(),
+                expected,
+                "p{percentile}"
+            );
+        }
+        // The median still ignores one isolated spike.
+        let mut one_spike = vec![vec![7]; 20];
+        one_spike[19][0] = u128::MAX;
+        assert_eq!(
+            estimate_next_block_priority_fee(81, 100, Some(&one_spike), 50).unwrap(),
+            7
+        );
+        for percentile in [0, 100] {
+            assert!(
+                estimate_next_block_priority_fee(81, 100, Some(&ascending), percentile).is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn lower_percentile_estimates_stay_within_independent_bounds() {
+        let config = config(&[
+            ("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", "50"),
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+        ])
+        .unwrap();
+        for (history, selected) in [
+            (vec![0u128; 20], 5),
+            (vec![30; 20], 30),
+            (vec![u128::MAX; 20], 50),
+        ] {
+            let rewards: Vec<_> = history.into_iter().map(|reward| vec![reward]).collect();
+            let market = estimate_next_block_priority_fee(
+                81,
+                100,
+                Some(&rewards),
+                config.priority_percentile,
+            )
+            .unwrap();
+            let quote = config
+                .quote(FeeSample {
+                    estimated_priority_fee: Some(market),
+                    ..sample()
+                })
+                .unwrap();
+            assert_eq!(quote.max_priority_fee_per_gas, selected);
+        }
+    }
+
     fn config(extra: &[(&str, &str)]) -> Result<PostingFeeConfig, PostingFeeError> {
         let mut values = std::collections::HashMap::from([
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1000"),
@@ -501,14 +598,14 @@ mod tests {
     fn fee_history_selects_recent_p90_of_p90_without_chasing_one_spike() {
         let ascending: Vec<_> = (1..=20).map(|reward| vec![reward]).collect();
         assert_eq!(
-            estimate_next_block_priority_fee(81, 100, Some(&ascending)).unwrap(),
+            estimate_next_block_priority_fee(81, 100, Some(&ascending), P90).unwrap(),
             18
         );
 
         let mut one_spike = vec![vec![7]; 20];
         one_spike[19][0] = u128::MAX;
         assert_eq!(
-            estimate_next_block_priority_fee(81, 100, Some(&one_spike)).unwrap(),
+            estimate_next_block_priority_fee(81, 100, Some(&one_spike), P90).unwrap(),
             7
         );
 
@@ -518,10 +615,12 @@ mod tests {
             Some([vec![]].as_slice()),
             Some([vec![1, 2]].as_slice()),
         ] {
-            assert!(estimate_next_block_priority_fee(81, 100, malformed).is_err());
+            assert!(estimate_next_block_priority_fee(81, 100, malformed, P90).is_err());
         }
-        assert!(estimate_next_block_priority_fee(80, 100, Some(&ascending)).is_err());
-        assert!(estimate_next_block_priority_fee(u64::MAX, u64::MAX, Some(&ascending)).is_err());
+        assert!(estimate_next_block_priority_fee(80, 100, Some(&ascending), P90).is_err());
+        assert!(
+            estimate_next_block_priority_fee(u64::MAX, u64::MAX, Some(&ascending), P90).is_err()
+        );
     }
 
     #[test]
@@ -538,7 +637,7 @@ mod tests {
         for _ in 0..20 {
             let mut history = vec![vec![0]; 20];
             history[19][0] = estimate;
-            let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
+            let market = estimate_next_block_priority_fee(81, 100, Some(&history), P90).unwrap();
             let quote = config
                 .quote(FeeSample {
                     estimated_priority_fee: Some(market),
@@ -593,7 +692,8 @@ mod tests {
             .into_iter()
             .map(|estimate| {
                 let history = vec![vec![estimate]; 20];
-                let market = estimate_next_block_priority_fee(81, 100, Some(&history)).unwrap();
+                let market =
+                    estimate_next_block_priority_fee(81, 100, Some(&history), P90).unwrap();
                 config
                     .quote(FeeSample {
                         estimated_priority_fee: Some(market),
