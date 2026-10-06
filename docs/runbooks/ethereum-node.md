@@ -93,6 +93,33 @@ cast block-number --rpc-url http://127.0.0.1:18688                              
 Bundle acceptance is not inclusion. Measure the share of settlement slots that
 land before relying on a builder set.
 
+### Why a post was excluded
+
+The Composer logs `bundle dropped … reason=excluded` without saying why.
+[`scripts/why-excluded.py`](../../scripts/why-excluded.py) classifies each
+excluded target from public block and relay data (read-only, standard library):
+
+```bash
+source .env   # EEZ_L1_BUILDER_RPC_URL lists the builders bundles are sent to
+sudo docker logs --since 2h eez-node-ethereum 2>&1 | \
+  python3 scripts/why-excluded.py --logs - --poster <POSTER_ADDRESS>
+python3 scripts/why-excluded.py 26131577 26131674   # or explicit target blocks
+```
+
+| Category | Meaning | Action |
+| --- | --- | --- |
+| `LOCAL` | The proposer built the block without MEV-Boost | None: no bundle can land there |
+| `OTHER_BUILDER` | A builder outside `EEZ_L1_BUILDER_RPC_URL` won | Consider adding it after probing that it accepts the bundle shape |
+| `CONFIGURED_BUILDER` | One of our builders won without our bundle | Check the tip and blob count; the builder's bundle stats are shown when available |
+| `TARGET_MISMATCH` | The target height has another timestamp | Skipped slot or reorg |
+
+`--poster` reports where the post finally landed. With `--logs`, it also uses the
+expected target timestamp and each builder's acknowledged bundle hash. Builder
+stats expire quickly, so run it soon after the slot. `--rpc` defaults to the
+embedded L1 (`http://127.0.0.1:18645`); `--json` prints one object per target.
+Every `excluded` drop currently charges the user's settlement-attempt budget,
+whichever category it falls in.
+
 ## Stop and restart
 
 `docker compose down` keeps every datadir. Pending requests and retry counters
