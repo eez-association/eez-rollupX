@@ -1603,7 +1603,7 @@ where
                             }
                             match submitter.canonical_block_hash(block.number).await {
                                 Ok(Some(hash)) if hash == block.hash => {
-                                    if let Err(error) = optimistic.forget_finalized(id, block) {
+                                    if let Err(error) = held_pool.forget_finalized(id, block) {
                                         event!(Level::ERROR, %error, "finality update failed; retaining records");
                                     } else {
                                         posting
@@ -1624,8 +1624,7 @@ where
                                         .invalidate_after_l1(block.number.saturating_sub(1))
                                     {
                                         event!(Level::ERROR, %error, "finality audit found a reorg; ownership invalidation failed");
-                                    } else if let Err(error) =
-                                        optimistic.forget_finalized(id, block)
+                                    } else if let Err(error) = held_pool.forget_finalized(id, block)
                                     {
                                         // Invalidation reopened every canonical outcome still
                                         // owned here. Only fully transferred history or local

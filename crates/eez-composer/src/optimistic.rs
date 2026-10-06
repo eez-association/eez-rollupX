@@ -112,6 +112,16 @@ pub enum SourceOutcome {
     },
 }
 
+/// Terminal user whose ownership record was pruned after finality. Diagnostic
+/// only: it never authorizes execution, admission or recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinalizedUser {
+    pub hash: B256,
+    pub identity: (Address, Direction, u64),
+    pub reason: TerminalReason,
+    pub canonical: Option<L1BlockRef>,
+}
+
 /// Nonce suffix that cannot progress after a retry budget is exhausted.
 #[derive(Debug, Clone, Copy)]
 pub struct NonceGap {
@@ -565,7 +575,15 @@ impl OptimisticallyIncluded {
 
     /// Called only after a conclusive canonical finality audit. Errors or a
     /// reorg retain the record. No held-pool reservation is released here.
-    pub fn forget_finalized(&self, id: AttemptId, audited: L1BlockRef) -> Result<(), String> {
+    ///
+    /// Returns the terminal users whose ownership records were pruned, so the
+    /// held pool can keep their outcome in its bounded diagnostic history.
+    /// An ineligible attempt prunes nothing and returns an empty list.
+    pub fn forget_finalized(
+        &self,
+        id: AttemptId,
+        audited: L1BlockRef,
+    ) -> Result<Vec<FinalizedUser>, String> {
         self.update(|state| {
             let eligible =
                 state.attempts.get(&id.generation).is_some_and(|attempt| {
@@ -574,11 +592,26 @@ impl OptimisticallyIncluded {
                     user.owner == id.generation
                         && !matches!(user.location, UserLocation::Terminal { .. })
                 });
-            if eligible {
-                state.attempts.remove(&id.generation);
-                state.users.retain(|_, user| user.owner != id.generation);
+            if !eligible {
+                return Ok(Vec::new());
             }
-            Ok(())
+            state.attempts.remove(&id.generation);
+            let mut released = Vec::new();
+            state.users.retain(|hash, user| {
+                if user.owner != id.generation {
+                    return true;
+                }
+                if let UserLocation::Terminal { reason, canonical } = user.location {
+                    released.push(FinalizedUser {
+                        hash: *hash,
+                        identity: (user.tx.sender, user.tx.direction, user.tx.nonce),
+                        reason,
+                        canonical,
+                    });
+                }
+                false
+            });
+            Ok(released)
         })
     }
 }
@@ -1577,6 +1610,51 @@ mod tests {
                 }
             ));
         });
+    }
+
+    #[test]
+    fn finalized_terminal_outcomes_remain_queryable_after_ledger_pruning() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut exhausted = tx(1, 0);
+        exhausted.attempts = u32::MAX;
+        let committed = tx(2, 0);
+        for user in [&exhausted, &committed] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let id = begin(&ledger, pool.pop_all(), 10);
+        let outcomes = [
+            SourceOutcome::Retryable { source_nonce: 0 },
+            SourceOutcome::Terminal(TerminalReason::Committed),
+        ];
+        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
+            .unwrap();
+
+        // A finality audit for another block is not this attempt's
+        // reconciliation and must not prune it.
+        pool.forget_finalized(id, block(99)).unwrap();
+        ledger.read(|state| assert_eq!(state.users.len(), 2));
+
+        pool.forget_finalized(id, block(100)).unwrap();
+        ledger.read(|state| {
+            assert!(state.users.is_empty());
+            assert!(state.attempts.is_empty());
+        });
+
+        let status = pool.transaction_status(exhausted.hash).unwrap();
+        assert_eq!(status["lifecycle"], "terminal");
+        assert_eq!(status["ownership"]["reason"], "AttemptsExhausted");
+        assert!(status["ownership"]["canonical"].is_null());
+        assert_eq!(status["nonce"], 0);
+
+        let status = pool.transaction_status(committed.hash).unwrap();
+        assert_eq!(status["lifecycle"], "terminal");
+        assert_eq!(status["ownership"]["reason"], "Committed");
+        assert_eq!(status["ownership"]["canonical"]["number"], 100);
+        assert_eq!(
+            status["ownership"]["canonical"]["hash"],
+            serde_json::json!(block(100).hash)
+        );
     }
 
     #[test]
