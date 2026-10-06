@@ -11,6 +11,34 @@ pub const PRIORITY_FEE_HISTORY_BLOCKS: u64 = 20;
 /// of each recent block, then the p90 of those samples.
 pub const DEFAULT_PRIORITY_FEE_PERCENTILE: u8 = 90;
 
+/// Which configured priority bid prices one posting attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PriorityProfile {
+    /// A bundle with no cross-chain call: anchor-only and ordinary L2 batches.
+    #[default]
+    Base,
+    /// A bundle that executes cross-chain calls on L1, either immediate
+    /// outbound entries inside postBatch or inbound L1-origin transactions.
+    /// Their outcomes can depend on L1 state that earlier transactions in the
+    /// target block change, so their position within the block matters.
+    CrossChain,
+}
+
+/// Optional fee-history estimator settings for [`PriorityProfile::CrossChain`].
+///
+/// A higher bid ranks the bundle above more of the block's transactions, but
+/// builders also value direct payments and choose their own ordering, so it
+/// improves rather than guarantees an early position. Final execution
+/// validation is unchanged: a bundle is still dispatched only after its exact
+/// signed bytes complete every intended effect at the parent state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CrossChainPriority {
+    /// Percentile (1..=99), used like `priority_percentile`.
+    pub percentile: u8,
+    /// Priority ceiling for this profile; the shared minimum still applies.
+    pub max: u128,
+}
+
 /// All prices are native base units per gas unit. Ceilings are mandatory for
 /// enabled production posting; profile examples choose their own values.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,6 +49,9 @@ pub struct PostingFeeConfig {
     pub priority_percentile: u8,
     pub priority_min: u128,
     pub priority_max: u128,
+    /// Unset unless either cross-chain setting is supplied; then that profile
+    /// uses it and every other bundle keeps the base percentile and ceiling.
+    pub cross_chain_priority: Option<CrossChainPriority>,
     pub execution_price_ceiling: u128,
     pub blob_price_ceiling: u128,
     pub execution_headroom_bps: u64,
@@ -77,15 +108,23 @@ impl PostingFeeConfig {
             integer("EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS")?,
         )?;
         let priority_override = integer("EEZ_L1_POSTBATCH_PRIORITY_FEE")?;
-        let priority_percentile = match integer("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE")? {
-            None => DEFAULT_PRIORITY_FEE_PERCENTILE,
-            Some(value @ 1..=99) => value as u8,
-            Some(_) => {
-                return Err(PostingFeeError::Config(
-                    "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE must be an integer from 1 to 99".into(),
-                ));
-            }
+        let percentile = |name: &str, value: Option<u128>| match value {
+            None => Ok(None),
+            Some(value @ 1..=99) => Ok(Some(value as u8)),
+            Some(_) => Err(PostingFeeError::Config(format!(
+                "{name} must be an integer from 1 to 99"
+            ))),
         };
+        let priority_percentile = percentile(
+            "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE",
+            integer("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE")?,
+        )?
+        .unwrap_or(DEFAULT_PRIORITY_FEE_PERCENTILE);
+        let cross_chain_percentile = percentile(
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+            integer("EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE")?,
+        )?;
+        let cross_chain_max = integer("EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE")?;
         let priority_min = integer("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE")?.unwrap_or(0);
         let configured_priority_max = integer("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")?;
         let mut bps = |name: &str, default: u64| -> Result<u64, PostingFeeError> {
@@ -102,11 +141,27 @@ impl PostingFeeConfig {
                 ));
             }
         };
+        let cross_chain_priority = match (cross_chain_percentile, cross_chain_max) {
+            (None, None) => None,
+            // A fixed override is one exact bid for every bundle; a second
+            // estimator profile beside it would make the override ambiguous.
+            _ if priority_override.is_some() => {
+                return Err(PostingFeeError::Config(
+                    "EEZ_L1_POSTBATCH_CROSS_CHAIN_* priority settings cannot be combined with EEZ_L1_POSTBATCH_PRIORITY_FEE"
+                        .into(),
+                ));
+            }
+            (percentile, max) => Some(CrossChainPriority {
+                percentile: percentile.unwrap_or(priority_percentile),
+                max: max.unwrap_or(priority_max),
+            }),
+        };
         let config = Self {
             priority_override,
             priority_percentile,
             priority_min,
             priority_max,
+            cross_chain_priority,
             execution_price_ceiling,
             blob_price_ceiling,
             // These retain the existing 2x base-fee headroom, now configurable.
@@ -123,6 +178,14 @@ impl PostingFeeConfig {
                     .into(),
             ));
         }
+        if config.cross_chain_priority.is_some_and(|profile| {
+            config.priority_min > profile.max || profile.max > config.execution_price_ceiling
+        }) {
+            return Err(PostingFeeError::Config(
+                "priority minimum <= EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE <= execution price ceiling is required"
+                    .into(),
+            ));
+        }
         if config
             .priority_override
             .is_some_and(|value| value < config.priority_min || value > config.priority_max)
@@ -132,6 +195,22 @@ impl PostingFeeConfig {
             ));
         }
         Ok(config)
+    }
+
+    /// Fee-history percentile for `profile`.
+    pub fn priority_percentile_for(&self, profile: PriorityProfile) -> u8 {
+        match (profile, self.cross_chain_priority) {
+            (PriorityProfile::CrossChain, Some(cross_chain)) => cross_chain.percentile,
+            _ => self.priority_percentile,
+        }
+    }
+
+    /// Priority ceiling for `profile`.
+    pub fn priority_max_for(&self, profile: PriorityProfile) -> u128 {
+        match (profile, self.cross_chain_priority) {
+            (PriorityProfile::CrossChain, Some(cross_chain)) => cross_chain.max,
+            _ => self.priority_max,
+        }
     }
 
     /// Select fees for one actual attempt. Base fees and the estimated tip
@@ -156,7 +235,7 @@ impl PostingFeeConfig {
             None => sample
                 .estimated_priority_fee
                 .ok_or(PostingFeeError::Unavailable("priority fee history"))?
-                .clamp(self.priority_min, self.priority_max),
+                .clamp(self.priority_min, self.priority_max_for(sample.profile)),
         };
         let required_execution = execution_base
             .checked_add(priority)
@@ -272,6 +351,9 @@ pub struct FeeSample {
     pub target: BundleTarget,
     pub execution_base_fee: Option<u128>,
     pub blob_base_fee: Option<u128>,
+    /// Selects the priority ceiling; it must be the profile whose percentile
+    /// produced `estimated_priority_fee`.
+    pub profile: PriorityProfile,
     pub estimated_priority_fee: Option<u128>,
 }
 
@@ -510,6 +592,132 @@ mod tests {
         }
     }
 
+    #[test]
+    fn cross_chain_priority_is_optional_and_inherits_unset_base_values() {
+        const PERCENTILE: &str = "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE";
+        const MAX: &str = "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE";
+        let base = [("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", "50")];
+        let parsed = |extra: &[(&str, &str)]| {
+            let values: Vec<_> = base.iter().chain(extra).copied().collect();
+            config(&values)
+        };
+        let unset = parsed(&[]).unwrap();
+        assert_eq!(unset.cross_chain_priority, None);
+        for profile in [PriorityProfile::Base, PriorityProfile::CrossChain] {
+            assert_eq!(unset.priority_percentile_for(profile), 50);
+            assert_eq!(unset.priority_max_for(profile), 500);
+        }
+        for (extra, expected) in [
+            (
+                [(PERCENTILE, "90")].as_slice(),
+                CrossChainPriority {
+                    percentile: 90,
+                    max: 500,
+                },
+            ),
+            (
+                [(MAX, "800")].as_slice(),
+                CrossChainPriority {
+                    percentile: 50,
+                    max: 800,
+                },
+            ),
+            (
+                [(PERCENTILE, "99"), (MAX, "1000")].as_slice(),
+                CrossChainPriority {
+                    percentile: 99,
+                    max: 1000,
+                },
+            ),
+        ] {
+            let fees = parsed(extra).unwrap();
+            assert_eq!(fees.cross_chain_priority, Some(expected), "{extra:?}");
+            assert_eq!(
+                fees.priority_percentile_for(PriorityProfile::CrossChain),
+                expected.percentile
+            );
+            assert_eq!(
+                fees.priority_max_for(PriorityProfile::CrossChain),
+                expected.max
+            );
+            // Bundles without cross-chain calls keep the base settings.
+            assert_eq!(fees.priority_percentile_for(PriorityProfile::Base), 50);
+            assert_eq!(fees.priority_max_for(PriorityProfile::Base), 500);
+        }
+    }
+
+    #[test]
+    fn cross_chain_priority_rejects_invalid_or_conflicting_values() {
+        const PERCENTILE: &str = "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE";
+        const MAX: &str = "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE";
+        for value in ["0", "100", "", "-1", "50.5", "p90"] {
+            let error = config(&[(PERCENTILE, value)]).unwrap_err();
+            assert!(error.to_string().contains(PERCENTILE), "{value}: {error}");
+        }
+        for value in ["", "-1", "2gwei"] {
+            let error = config(&[(MAX, value)]).unwrap_err();
+            assert!(error.to_string().contains(MAX), "{value}: {error}");
+        }
+        // Bounds: shared minimum <= cross-chain ceiling <= execution ceiling.
+        assert!(config(&[(MAX, "1000")]).is_ok());
+        assert!(config(&[(MAX, "1001")]).is_err());
+        assert!(config(&[("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "10"), (MAX, "9")]).is_err());
+        assert!(config(&[("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "10"), (MAX, "10")]).is_ok());
+        // A fixed override prices every bundle exactly.
+        for extra in [(PERCENTILE, "90"), (MAX, "800")] {
+            let error = config(&[("EEZ_L1_POSTBATCH_PRIORITY_FEE", "7"), extra]).unwrap_err();
+            assert!(
+                error.to_string().contains("EEZ_L1_POSTBATCH_PRIORITY_FEE"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn cross_chain_profile_uses_its_own_ceiling_and_the_shared_floor() {
+        let fees = config(&[
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE", "80"),
+        ])
+        .unwrap();
+        let unset = config(&[
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "5"),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "50"),
+        ])
+        .unwrap();
+        let selected = |fees: &PostingFeeConfig, profile, estimate| {
+            fees.quote(FeeSample {
+                profile,
+                estimated_priority_fee: Some(estimate),
+                ..sample()
+            })
+            .unwrap()
+            .max_priority_fee_per_gas
+        };
+        for (estimate, base, cross_chain) in [(0, 5, 5), (40, 40, 40), (70, 50, 70), (90, 50, 80)] {
+            assert_eq!(selected(&fees, PriorityProfile::Base, estimate), base);
+            assert_eq!(
+                selected(&fees, PriorityProfile::CrossChain, estimate),
+                cross_chain
+            );
+            // Without the setting, the cross-chain profile is the base profile.
+            assert_eq!(
+                selected(&unset, PriorityProfile::CrossChain, estimate),
+                base
+            );
+        }
+        let quote = fees
+            .quote(FeeSample {
+                profile: PriorityProfile::CrossChain,
+                estimated_priority_fee: Some(90),
+                ..sample()
+            })
+            .unwrap();
+        assert_eq!(quote.max_fee_per_gas, 2 * 100 + 80);
+        assert_eq!(quote.estimated_effective_gas_price, 100 + 80);
+    }
+
     fn config(extra: &[(&str, &str)]) -> Result<PostingFeeConfig, PostingFeeError> {
         let mut values = std::collections::HashMap::from([
             ("EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "1000"),
@@ -533,6 +741,7 @@ mod tests {
             },
             execution_base_fee: Some(100),
             blob_base_fee: Some(3),
+            profile: PriorityProfile::Base,
             estimated_priority_fee: Some(2),
         }
     }

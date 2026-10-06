@@ -2687,10 +2687,20 @@ where
             prefix_hash_elapsed += started.elapsed();
             result
         };
+        // The drain is nonempty and the held pool holds only cross-chain
+        // work, so composition simulates at the price final pricing will use
+        // when any of it survives. The final quote is selected again from the
+        // surviving semantics, and final validation re-executes the exact
+        // signed bundle, so a price-dependent outcome cannot be dispatched
+        // with a stale expectation.
         let composition_quote = self
             .inner
             .posting
-            .quote(bundle_target, false)
+            .quote(
+                bundle_target,
+                false,
+                eez_l1::posting_fees::PriorityProfile::CrossChain,
+            )
             .await
             .map_err(|error| error.to_string())?;
         let slot_ctx = L1SlotState::open(&local.l1_entry)
@@ -7189,7 +7199,11 @@ where
 
         let posting = &self.inner.posting;
         let quote = posting
-            .quote(bundle_target, false)
+            .quote(
+                bundle_target,
+                false,
+                posting::priority_profile(semantic_transactions),
+            )
             .await
             .map_err(|error| error.to_string())?;
         if quote.quote.sample

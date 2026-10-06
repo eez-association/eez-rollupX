@@ -26,6 +26,13 @@ async fn check_bounded_fee_history_priority(profile: NativeL1Profile) {
             ),
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "0".into()),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "100000000000".into()),
+            // These posts carry no cross-chain call. A 1 wei cross-chain
+            // ceiling would visibly change their price if it leaked to them.
+            (
+                "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+                "99".into(),
+            ),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE", "1".into()),
         ],
     )
     .await
@@ -101,6 +108,7 @@ async fn check_bounded_fee_history_priority(profile: NativeL1Profile) {
             })
             .expect("included poster must match a fresh quote for its canonical parent");
         assert_eq!(quote.fields["priority_source"], "fee_history");
+        assert_eq!(quote.fields["priority_profile"], "Base");
         assert_eq!(quote.u64("priority_reward_percentile").unwrap(), 90);
         assert_eq!(quote.u64("priority_history_blocks").unwrap(), 20);
         assert_eq!(quote.u64("priority_min").unwrap(), 0);

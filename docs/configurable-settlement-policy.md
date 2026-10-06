@@ -41,6 +41,8 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` | 90 | Integer from 1 to 99 used by the fee-history estimator: each recent block's gas-weighted reward at this percentile, then this percentile of those samples. 90 bids above most recent transactions; 50 bids near the typical recent tip. Ignored with a fixed override. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
+| `EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE` | Unset: base percentile | Optional integer from 1 to 99 for bundles that execute cross-chain calls on L1 ([cross-chain priority](#cross-chain-priority)). Setting only the cross-chain maximum keeps the base percentile. Rejected with a fixed override. |
+| `EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE` | Unset: base maximum | Optional priority ceiling for those bundles. Must be at least the shared minimum and no greater than the execution-price ceiling. Setting only the cross-chain percentile keeps the base maximum. Rejected with a fixed override. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
@@ -522,6 +524,69 @@ Chiado uses a network-specific 1–2 gwei band:
 EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
 EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
 ```
+
+#### Cross-chain priority
+
+A bundle whose users execute cross-chain calls on L1 (immediate outbound
+entries inside postBatch, or inbound L1-origin transactions) can depend on L1
+state that earlier transactions in the target block change. The Composer
+simulates against the parent state. A builder can place the bundle after a
+transaction that changes that state, for example a swap on a pool whose
+`slot0()` the call reads. The call then fails on L1 even though the postBatch
+lands: the entry is skipped with `RollingHashMismatch`, and its dependents with
+`RootMismatch`. Each such landing is charged as an incomplete settlement and
+still pays for its gas.
+
+Setting either `EEZ_L1_POSTBATCH_CROSS_CHAIN_*` variable gives these bundles
+their own percentile and ceiling. Every other bundle keeps the base settings,
+and the shared minimum applies to both. Selection follows the bundle's contents:
+- composition prices a nonempty held-pool drain, which is always cross-chain work,
+  at the cross-chain profile;
+- final pricing selects the profile again from the surviving users' semantic
+  transactions;
+- a postBatch with none of them, such as an anchor-only or ordinary L2 batch,
+  uses the base profile.
+
+Final validation is unchanged. The exact signed bundle is re-executed at the
+final fees, so an outcome that depends on the gas price is never dispatched
+with a stale expectation.
+
+A higher bid ranks the bundle above more of the block's transactions; it does
+not guarantee a position. Searchers often pay builders directly instead of
+through the tip, and builders choose their own ordering.
+
+Evidence from Ethereum mainnet, 2026-10-06:
+- 54 postBatches from deployment to L1 26133707. 25 carried cross-chain calls,
+  and 16 of those landed with the call skipped.
+- All 16 followed at least one swap on the Uniswap V3 USDC/WETH 0.01% pool in
+  the same block, which the call read. The 3 successful calls in those retry
+  bursts followed no such swap.
+- The base P50 bid was 0.06–0.56 gwei. The best-paying swap ahead of each
+  skipped post paid 0.10–40 gwei per gas, through the tip or by direct transfer
+  to the builder.
+- Recomputed with this estimator, P90 limited to cross-chain bundles would have
+  outbid that swap in 9 of the 16 cases at a 2 gwei ceiling, 11 at 3.5 gwei,
+  and 12 with no ceiling.
+- Over those 54 posts, total spend would have risen from 0.0062 ETH to at most
+  0.0176 ETH at 3.5 gwei. This upper bound assumes no retry was avoided.
+- The other bundles keep P50.
+
+The Ethereum example therefore uses:
+
+```dotenv
+EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE=90
+EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE=3500000000
+```
+
+Unset, both profiles are identical and behaviour is unchanged. Node images
+built before these variables existed ignore them and price every bundle with
+the base settings, so they can be added to `.env` before or after upgrading,
+and removing them is a complete rollback. They affect only local pricing, not
+wire formats, storage or the signer. A fixed
+`EEZ_L1_POSTBATCH_PRIORITY_FEE` prices every bundle exactly, so it cannot be
+combined with these variables. Applications that read volatile L1 state remain
+better served by values a same-block transaction cannot change, such as a TWAP
+that ends before the current block.
 
 The minimum is intentional on Chiado. A 2026-09-18 sample of 1,024 canonical
 blocks ended with 19 zero-reward blocks and one 1-gwei block in its latest

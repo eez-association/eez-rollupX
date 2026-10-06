@@ -203,6 +203,10 @@ class SettlementEnvironmentTest(unittest.TestCase):
         for percentile in ("50", "90", "0"):
             explicit = dict(values, EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE=percentile)
             self.assertEqual(configure(explicit), explicit)
+        cross_chain = dict(values,
+                           EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE="90",
+                           EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE="3500000000")
+        self.assertEqual(configure(cross_chain), cross_chain)
         without_priority_bound = dict(values)
         without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
         with self.assertRaises(ValueError):

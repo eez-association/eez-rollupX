@@ -51,6 +51,7 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    before deploying ([policy reference](../configurable-settlement-policy.md)):
    - **Price ceilings:** 10 gwei (base fee + tip) and 2 gwei (blob). A post above a ceiling waits and retries; it never pays more.
    - **Tip:** the median of recent blocks' median tips (`EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE=50`), kept within 0.05–2 gwei.
+   - **Cross-chain tip:** bundles that execute cross-chain calls on L1 bid p90 of p90 within 0.05–3.5 gwei (`EEZ_L1_POSTBATCH_CROSS_CHAIN_*`), so they more often run before same-block transactions that change the L1 state they read ([cross-chain priority](../configurable-settlement-policy.md#cross-chain-priority)).
    - **Cadence:** ordinary L2 activity settles at most every 15 minutes; an idle chain posts every 4 hours.
    - **Proof window:** `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS=8192`, so an idle cycle needs one post.
 
