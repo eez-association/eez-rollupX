@@ -435,6 +435,23 @@ impl HeldPool {
         Ok(())
     }
 
+    /// Prune one finality-audited attempt from the shared ledger and keep each
+    /// released user's terminal outcome in the bounded diagnostic history, so
+    /// `eez_getCrossChainTransaction` still reports why it ended. Both happen
+    /// under the pool lock, so a status read never sees the gap between them.
+    pub fn forget_finalized(
+        &self,
+        id: crate::optimistic::AttemptId,
+        audited: eez_l1::L1BlockRef,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let released = state.ledger.forget_finalized(id, audited)?;
+        for user in released {
+            state.telemetry.finalized(user);
+        }
+        Ok(())
+    }
+
     /// Reopen canonical outcomes and restore their reservations atomically
     /// with respect to ingress and a concurrent reconciliation decision.
     pub fn invalidate_after_l1(&self, ancestor: u64) -> Result<(), String> {

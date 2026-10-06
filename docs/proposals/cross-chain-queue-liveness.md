@@ -256,6 +256,16 @@ null as unknown. Old clients may ignore the additional fields. Oldest local
 observations expire by count, and all are lost on restart. No migration,
 configuration change, contract change, or mixed-node execution change is needed.
 
+Finality pruning feeds the same cache. When the finality audit removes an
+attempt from the settlement ledger, each released terminal user (`Committed`,
+`AttemptsExhausted`, `NonceGap`, source outcomes) is recorded with its reason
+and, for canonical outcomes, `ownership.canonical`. Previously such a request
+answered null about one L1 finality period after its outcome, although it had
+settled or been evicted. Recording happens under the pool lock with the pruning,
+so a read never observes the gap. The entries share the same count bound and
+restart loss, and remain observations: they never authorize execution,
+admission or recovery.
+
 The observatory currently computes `healthy` from L1/L2 RPC health and head
 freshness in `eez-rollup-ui/network-observatory/app/server.py`. Add an explicit
 cross-chain processing status so fresh heads cannot produce an unqualified
