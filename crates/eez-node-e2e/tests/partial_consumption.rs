@@ -54,7 +54,59 @@ fn policy_env() -> Vec<(&'static str, String)> {
         // Native test miner ordering only; atomic builder ordering is exercised
         // by the separate Kurtosis fixture.
         ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()),
+        // Distinct from the base p90 / 100 gwei so a quote proves its profile.
+        (
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+            CROSS_CHAIN_PERCENTILE.to_string(),
+        ),
+        (
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE",
+            CROSS_CHAIN_MAX_PRIORITY_FEE.to_string(),
+        ),
     ]
+}
+
+const CROSS_CHAIN_PERCENTILE: u64 = 77;
+const CROSS_CHAIN_MAX_PRIORITY_FEE: u64 = 2_000_000_000;
+
+/// The final poster was priced with the cross-chain profile, and any bundle
+/// without cross-chain calls kept the base settings. `settlement_policy_cost`
+/// checks base-only posts against a deliberately tiny cross-chain ceiling.
+fn assert_priority_profiles(world: &eez_testkit::CrossChainWorld, priority_fee: u128) {
+    let quotes = world
+        .node
+        .signals_since(0)
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.name == "eez.composer.postbatch.fee_quote")
+        .collect::<Vec<_>>();
+    let final_quote = quotes
+        .iter()
+        .find(|quote| {
+            quote.fields["priority_profile"] == "CrossChain"
+                && quote.u64("priority_fee").ok().map(u128::from) == Some(priority_fee)
+        })
+        .expect("the three-user poster must be priced with the cross-chain profile");
+    assert_eq!(
+        final_quote.u64("priority_reward_percentile").unwrap(),
+        CROSS_CHAIN_PERCENTILE
+    );
+    assert_eq!(
+        final_quote.u64("priority_max").unwrap(),
+        CROSS_CHAIN_MAX_PRIORITY_FEE
+    );
+    let estimate = final_quote.u64("estimated_priority_fee").unwrap();
+    assert_eq!(
+        u128::from(estimate.clamp(1_000_000_001, CROSS_CHAIN_MAX_PRIORITY_FEE)),
+        priority_fee
+    );
+    for quote in quotes
+        .iter()
+        .filter(|quote| quote.fields["priority_profile"] == "Base")
+    {
+        assert_eq!(quote.u64("priority_reward_percentile").unwrap(), 90);
+        assert_eq!(quote.u64("priority_max").unwrap(), 100_000_000_000);
+    }
 }
 
 async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
@@ -118,6 +170,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     let raw: Bytes = request["txs"][0].as_str().unwrap().parse().unwrap();
     let post = EthereumTxEnvelope::<TxEip4844WithSidecar>::decode_2718(&mut raw.as_ref()).unwrap();
     let post_hash = *post.tx_hash();
+    assert_priority_profiles(&world, post.max_priority_fee_per_gas().unwrap());
     let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(post.input()).unwrap();
     let proposed_roots = call
         .batch

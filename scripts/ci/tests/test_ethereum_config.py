@@ -101,6 +101,8 @@ class EthereumConfigTest(unittest.TestCase):
             ("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE", "50"),
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "50000000"),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000"),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE", "90"),
+            ("EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE", "3500000000"),
             ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "7200"),
             ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000"),
         ):
@@ -124,6 +126,23 @@ class EthereumConfigTest(unittest.TestCase):
         node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
         # Absent keeps the runtime default (90) rather than a Compose value.
         self.assertIsNone(node.get("EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE"))
+
+    def test_cross_chain_priority_is_absent_unless_configured(self):
+        configured = (self.repo / ".env").read_text()
+        lines = (
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE=90\n",
+            "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE=3500000000\n",
+        )
+        for line in lines:
+            self.assertIn(line, configured)
+            configured = configured.replace(line, "")
+        result = self.render(dotenv=configured)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        # Absent prices cross-chain bundles with the base settings.
+        for name in ("EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE",
+                     "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE"):
+            self.assertIsNone(node.get(name), name)
 
     def test_required_choices_fail_when_absent_or_empty(self):
         configured = (self.repo / ".env").read_text()
