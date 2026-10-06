@@ -18,8 +18,9 @@ use crate::{
 };
 
 use super::SUBMISSION_BACKOFF_THRESHOLD;
-// The fifth charged exclusion must leave room for its reduced retry. Prover
-// rejection keeps its existing, smaller episode bound in composer.rs.
+// The fifth charged settlement failure must leave room for its reduced retry.
+// Prover rejection keeps its existing, smaller episode bound in composer.rs;
+// excluded target slots have their own bound (MAX_EXCLUDED_SLOT_ATTEMPTS).
 pub(super) const MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS: u32 = SUBMISSION_BACKOFF_THRESHOLD + 1;
 
 #[derive(Clone, Copy, Debug)]
