@@ -4949,8 +4949,9 @@ impl CrossChainWorld {
 
     /// Acknowledge a bounded series of bundles without including them, allowing
     /// process tests to observe consecutive canonical exclusions and recovery.
+    /// The bound covers the Composer's excluded-slot budget (12).
     pub fn drop_next_bundles(&self, count: u32) -> Result<()> {
-        anyhow::ensure!((1..=6).contains(&count), "drop count must be in 1..=6");
+        anyhow::ensure!((1..=12).contains(&count), "drop count must be in 1..=12");
         std::fs::write(
             self.builder_stub
                 .capture_dir()

@@ -1103,8 +1103,30 @@ async fn automatic_selection_backs_off_after_five_exclusions_and_retries_every_s
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix() {
+async fn automatic_settlement_six_exclusions_keep_sources_eligible() {
+    // Six landed incomplete settlements would exhaust a source; six excluded
+    // target slots spend no postBatch gas and stay within their own budget.
     consecutive_exclusions(6).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_settlement_twelfth_exclusion_exhausts_sources_and_releases_nonce_suffix() {
+    consecutive_exclusions(EXCLUDED_SLOT_BUDGET).await;
+}
+
+/// `eez_composer::optimistic::MAX_EXCLUDED_SLOT_ATTEMPTS`.
+const EXCLUDED_SLOT_BUDGET: u32 = 12;
+
+/// Groups submitted in the `index`th consecutive failed attempt of a wave of
+/// four sources, and the selection limit that failure leaves for the next
+/// one: from the fifth failure, automatic admission halves the selection.
+fn backoff_shape(index: usize) -> (usize, Option<usize>) {
+    match index {
+        0..4 => (4, None),
+        4 => (4, Some(2)),
+        5 => (2, Some(1)),
+        _ => (1, Some(1)),
+    }
 }
 
 async fn consecutive_exclusions(failures: u32) {
@@ -1180,7 +1202,9 @@ async fn consecutive_exclusions(failures: u32) {
     for i in 1..=4 {
         hashes.push(send(&world, chain, nonce + i, i + 1).await);
     }
-    if failures == 6 {
+    if failures == EXCLUDED_SLOT_BUDGET {
+        // The first source is in every attempt, so its excluded-slot budget
+        // is exhausted first and its nonce gap releases the suffix.
         wait_for(TIMEOUT, || async {
             Ok(world
                 .node
@@ -1188,8 +1212,8 @@ async fn consecutive_exclusions(failures: u32) {
                 .iter()
                 .any(|e| {
                     e.name == "eez.composer.admission.submission_failure"
-                        && e.fields["consecutive_failures"] == 6
-                        && e.fields["submitted_groups"] == 2
+                        && e.fields["consecutive_failures"] == failures
+                        && e.fields["submitted_groups"] == 1
                 })
                 .then_some(()))
         })
@@ -1265,11 +1289,12 @@ async fn consecutive_exclusions(failures: u32) {
         onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
         nonce + 5
     );
+    let last = failures as usize - 1;
     let dropped = world.dropped_bundle().unwrap().unwrap();
     assert_eq!(
         dropped["params"][0]["txs"].as_array().unwrap().len(),
-        5,
-        "the learned one-blob allowance must admit all four queued sources"
+        1 + backoff_shape(last).0,
+        "the poster and each submitted source of the last excluded attempt"
     );
     let events = world.node.signals_since(cursor).unwrap();
     let observed: Vec<_> = events
@@ -1284,27 +1309,27 @@ async fn consecutive_exclusions(failures: u32) {
         world.settlement_diagnostics()
     );
     for (index, (_, event)) in observed.iter().enumerate() {
-        assert_eq!(event.fields["submitted_groups"], 4);
+        let (submitted, next) = backoff_shape(index);
+        assert_eq!(event.fields["submitted_groups"], submitted);
         assert_eq!(event.fields["consecutive_failures"], index + 1);
         assert_eq!(event.fields["backoff_threshold"], 5);
-        if index < 4 {
-            assert!(
+        match next {
+            None => assert!(
                 event
                     .fields
                     .get("next_selection_max")
                     .is_none_or(serde_json::Value::is_null)
-            );
-        } else {
-            assert_eq!(event.fields["next_selection_max"], 2);
+            ),
+            Some(next) => assert_eq!(event.fields["next_selection_max"], next),
         }
     }
     let backoffs: Vec<_> = events
         .iter()
         .filter(|e| e.name == "eez.composer.admission.submission_backoff")
         .collect();
-    assert_eq!(backoffs.len(), usize::from(failures == 5));
+    assert_eq!(backoffs.len(), (failures as usize).saturating_sub(4));
     let backoff = observed.last().unwrap().0;
-    let expected = if failures == 5 { 2 } else { 4 };
+    let expected = backoff_shape(last).1.unwrap_or(4);
     let next = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.sync_slot.drain")
