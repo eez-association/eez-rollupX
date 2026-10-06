@@ -499,6 +499,7 @@ mod tests {
             direction,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         }
@@ -665,6 +666,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };
@@ -719,6 +721,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };

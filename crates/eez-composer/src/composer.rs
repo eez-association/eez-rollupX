@@ -2178,7 +2178,9 @@ where
         rollup: &RollupState<L2>,
         attempt: crate::optimistic::AttemptRecord,
     ) -> Result<RecoveryOutcome, String> {
-        use crate::optimistic::{SourceOutcome, SubmissionObservation, TerminalReason};
+        use crate::optimistic::{
+            AttemptCharge, SourceOutcome, SubmissionObservation, TerminalReason,
+        };
         let snapshot = rollup.l1_head.settlement_snapshot();
         let (Some(at), Some(endpoint)) = (snapshot.through, snapshot.endpoint) else {
             return Ok(RecoveryOutcome::HeadUnchanged);
@@ -2438,14 +2440,22 @@ where
                 result = RecoveryOutcome::HeadMoved;
             }
         }
-        let charge = post.receipt.is_some()
-            || matches!(
-                attempt.observation,
-                SubmissionObservation::Excluded {
-                    charge_attempt: true,
-                    ..
-                }
-            );
+        // A landed postBatch that left users incomplete spent L1 gas and
+        // counts toward the settlement bound; an excluded slot spent nothing
+        // and counts only toward its own, larger bound.
+        let charge = if post.receipt.is_some() {
+            AttemptCharge::Settlement
+        } else if matches!(
+            attempt.observation,
+            SubmissionObservation::Excluded {
+                charge_attempt: true,
+                ..
+            }
+        ) {
+            AttemptCharge::ExcludedSlot
+        } else {
+            AttemptCharge::None
+        };
         rollup.held_pool.resolve_attempt(
             attempt.id,
             at,
@@ -2462,7 +2472,7 @@ where
             let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
             if !submission_backoff_required(&outcomes, false) {
                 automatic.submission_completed();
-            } else if charge {
+            } else if charge != AttemptCharge::None {
                 let next_selection_max = automatic.submission_failed(attempt.txs.len());
                 event!(name: "eez.composer.admission.submission_failure", Level::INFO,
                     event_name = "eez.composer.admission.submission_failure", rollup_id,
@@ -2491,7 +2501,8 @@ where
             rollup_id, attempt = ?attempt.id, at_l1 = at.number,
             post_batch_hash = %attempt.id.post_batch_hash,
             canonical_l2_number = endpoint.number, canonical_l2_hash = %endpoint.hash,
-            outcomes = ?outcomes, charge_attempt = charge,
+            outcomes = ?outcomes, charge_attempt = charge != AttemptCharge::None,
+            attempt_charge = ?charge,
             "canonical source dispositions recorded and ownership transferred");
         Ok(result)
     }
@@ -8100,6 +8111,7 @@ mod tests {
             raw_tx: Bytes::from(vec![hash_byte; 4]),
             hash: TxHash::repeat_byte(hash_byte),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(hash_byte),
             priority_fee_per_gas: u128::from(hash_byte),
             sender,

@@ -313,6 +313,7 @@ mod tests {
                     raw_tx: Bytes::from(vec![byte]),
                     hash: B256::repeat_byte(byte),
                     attempts: 0,
+                    excluded_slots: 0,
                     sender: Address::repeat_byte(byte),
                     nonce: 0,
                     direction,
