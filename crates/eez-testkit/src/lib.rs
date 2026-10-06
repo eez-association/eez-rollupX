@@ -417,6 +417,16 @@ impl Drop for BeaconStub {
 /// forwarding stub. Consumed by the fixture, never passed to the node.
 pub const REJECTING_BUILDER_ENV: &str = "EEZ_TEST_REJECTING_BUILDER";
 
+/// Test-only marker for [`setup_cross_chain_with_env`]: when set to `1`, the
+/// fixture deploys `contracts/src/EEZPostBatcher.sol` for the registry from
+/// [`POST_BATCHER_DEPLOYER`] and sets `EEZ_L1_POSTBATCH_TARGET` to it. Consumed
+/// by the fixture, never passed to the node.
+pub const POST_BATCHER_ENV: &str = "EEZ_TEST_POST_BATCHER";
+
+/// Deploys the [`POST_BATCHER_ENV`] wrapper at its first L1 nonce, so the node
+/// can be configured with the address before the wrapper exists.
+pub const POST_BATCHER_DEPLOYER: &str = ANVIL_KEY_6;
+
 /// Test-only marker for [`setup_cross_chain_with_env`]: the proof signer's
 /// `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS`, which the Composer adopts as its
 /// batch block cap. Consumed by the fixture, never passed to the node.
@@ -2248,6 +2258,7 @@ impl NodeHandle {
             if *k == TEST_L2_GENESIS_ENV
                 || *k == "EEZ_TEST_L2_GENESIS_AGE_SECONDS"
                 || *k == REJECTING_BUILDER_ENV
+                || *k == POST_BATCHER_ENV
                 || *k == SIGNER_MAX_REQUEST_BLOCKS_ENV
             {
                 continue; // test-only marker (consumed as --chain above)
@@ -3941,6 +3952,23 @@ pub async fn deploy_value(
     .await
 }
 
+/// Deploy the `EEZPostBatcher` fixture forwarding to `registry`.
+pub async fn deploy_post_batcher(
+    rpc_url: &str,
+    key: &str,
+    chain_id: u64,
+    registry: Address,
+) -> Result<Address> {
+    let artifact = repo_root().join("contracts/out/EEZPostBatcher.sol/EEZPostBatcher.json");
+    // Derivation decodes the poster's input with the registry ABI.
+    require_artifact_method(
+        &artifact,
+        eez_protocol::abi::postAndVerifyBatchCall::SIGNATURE,
+        eez_protocol::abi::postAndVerifyBatchCall::SELECTOR,
+    )?;
+    deploy_raw(rpc_url, key, chain_id, &artifact, registry.abi_encode()).await
+}
+
 async fn deploy_empty_call(rpc_url: &str, key: &str, chain_id: u64) -> Result<Address> {
     let out = repo_root().join("contracts/out");
     deploy_raw(
@@ -4629,6 +4657,8 @@ pub struct CrossChainWorld {
     pub outbound_no_ret_proxy: Address,
     pub withdrawal_proxy: Address,
     pub outbound_wrapper: Address,
+    /// `to` of every postBatch: the registry, or the [`POST_BATCHER_ENV`] wrapper.
+    pub post_batch_target: Address,
     /// Present only in signer-mutation tests.
     pub prover_proxy: Option<ProverProxyHandle>,
     pub proof_signer: ProofSignerHandle,
@@ -6331,6 +6361,18 @@ async fn setup_cross_chain_inner(
     ]);
     // Before the assertion below, so caller-supplied vars are checked too.
     env.extend_from_slice(extra_env);
+    // The node validates the wrapper during boot and does not post until it
+    // exists, so its precomputed address can be configured before deployment.
+    let post_batcher = if extra_env
+        .iter()
+        .any(|(name, value)| *name == POST_BATCHER_ENV && value == "1")
+    {
+        let address = signer_address(POST_BATCHER_DEPLOYER)?.create(0);
+        env.push(("EEZ_L1_POSTBATCH_TARGET", format!("{address:#x}")));
+        Some(address)
+    } else {
+        None
+    };
     if let Some(control) = &l1_reorg_control {
         env.extend(control.env());
     }
@@ -6391,6 +6433,20 @@ async fn setup_cross_chain_inner(
             cfg.rollup_id
         );
     }
+    if let Some(expected) = post_batcher {
+        let deployed = deploy_post_batcher(
+            &l1_rpc,
+            POST_BATCHER_DEPLOYER,
+            DEV_CHAIN_ID,
+            cfg.eez_address,
+        )
+        .await?;
+        ensure!(
+            deployed == expected,
+            "post batcher deployed at {deployed}, configured {expected}"
+        );
+    }
+    let post_batch_target = post_batcher.unwrap_or(cfg.eez_address);
 
     node.wait_for_rpc(&l2_rpc, SETUP_TIMEOUT, "L2 RPC").await?;
     let l2_chain_id = ProviderBuilder::new()
@@ -6482,6 +6538,7 @@ async fn setup_cross_chain_inner(
         outbound_no_ret_proxy,
         withdrawal_proxy,
         outbound_wrapper,
+        post_batch_target,
         prover_proxy,
         proof_signer,
         l1_reorg_control,
