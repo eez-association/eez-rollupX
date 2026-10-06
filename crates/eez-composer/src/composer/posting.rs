@@ -57,6 +57,10 @@ pub(super) struct PostingRuntime {
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
+    /// Destination of the postBatch transaction: the registry, or a wrapper
+    /// validated at startup to forward `postAndVerifyBatch` to it. Preflight
+    /// still observes registry calls and logs, which the wrapper performs.
+    pub post_batch_target: Address,
     pub operator_gas_cap: u64,
     pub operator_blob_cap: Option<u64>,
     pub costs: std::sync::Mutex<super::costs::CostLedger>,

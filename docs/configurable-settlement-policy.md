@@ -43,6 +43,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
 | `EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE` | Unset: base percentile | Optional integer from 1 to 99 for bundles that execute cross-chain calls on L1 ([cross-chain priority](#cross-chain-priority)). Setting only the cross-chain maximum keeps the base percentile. Rejected with a fixed override. |
 | `EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE` | Unset: base maximum | Optional priority ceiling for those bundles. Must be at least the shared minimum and no greater than the execution-price ceiling. Setting only the cross-chain percentile keeps the base maximum. Rejected with a fixed override. |
+| `EEZ_L1_POSTBATCH_TARGET` | Unset: `EEZ_REGISTRY_ADDRESS` | Optional nonzero address used only as the postBatch transaction's destination ([postBatch target](#postbatch-target)). Boot waits until it has code and its `eez()` returns the registry; a different registry is a configuration error. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
@@ -803,6 +804,55 @@ Rollback restores the older extrapolation; no queue, database or wire migration
 is required, and older collectors continue to accept the version string.
 The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.
+
+### PostBatch target
+
+By default the poster transaction calls `postAndVerifyBatch` on the registry.
+`EEZ_L1_POSTBATCH_TARGET` sends it to another contract instead. The intended
+use is a wrapper such as `EEZPostBatcher` (a fixture copy is in
+`contracts/src/EEZPostBatcher.sol`): it forwards the batch to the registry and
+then reverts with `LastImmediateRootMismatch` unless the registry's root
+equals the last immediate entry's `newRoot`.
+
+**Why use it.** Without the wrapper, a failed immediate entry is caught
+(`L2TxSkipped`), the postBatch still lands, and its gas is spent although the
+user stays unsettled. With the wrapper the poster transaction reverts instead.
+The poster is never in `revertingTxHashes`, so a builder cannot include the
+bundle in that position: the slot is observed as excluded, which spends no
+postBatch gas and uses the separate excluded-slot budget. The trade-off is
+that the whole batch, including other users and the rollup's root advance,
+waits for a slot in which every immediate entry completes.
+
+**Contract requirements.**
+- The target must expose `postAndVerifyBatch` with the registry's exact
+  selector and calldata. The Composer sends the registry ABI unchanged, and
+  derivation finds each post through the registry's `BatchPosted` log and
+  decodes the transaction input with that ABI, whatever its destination.
+  Calling a different entry point, such as `EEZPostBatcher.postBatch(batch,
+  bool)`, would make the post undecodable.
+- `eez()` must return `EEZ_REGISTRY_ADDRESS`. Boot treats a target without
+  code as not yet ready and retries; a target forwarding to another registry
+  is reported as a configuration error and readiness stays closed.
+- The registry sees the target as `msg.sender`. The supported proof profile
+  always sets `bindMsgSenderInPublicInput = false`, so proofs do not change.
+  If an immediate prefix ever contained meta-hook entries, the registry would
+  call the target's `executeMetaCrossChainTransactions()` rather than revert
+  for a codeless sender; the Composer does not produce such batches.
+
+**Unchanged.** Every registry read (state, proxies, events, gas projection)
+still uses `EEZ_REGISTRY_ADDRESS`. Final preflight executes the exact signed
+poster through the target and still requires the registry's calls, logs and
+final root, so a target that does not forward the batch is never dispatched.
+The wrapper's extra call and root read are included in the measured gas
+limit, but not in the static admission projection, which may under-reserve
+by those few thousand gas.
+
+**Compatibility.** Unset, the destination and behaviour are unchanged. Older
+node images ignore the variable and post to the registry. Followers at this
+revision derive posts made through a conforming target, because the L1 scan
+decodes the transaction input by selector, not by destination; verify that an
+older follower's scan does the same before mixing versions. Removing the
+variable is a complete rollback.
 
 ### Builder relay fan-out
 

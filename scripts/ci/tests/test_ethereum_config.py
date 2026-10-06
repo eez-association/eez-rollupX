@@ -144,6 +144,23 @@ class EthereumConfigTest(unittest.TestCase):
                      "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE"):
             self.assertIsNone(node.get(name), name)
 
+    def test_post_batch_target_reaches_the_node_only_when_configured(self):
+        configured = (self.repo / ".env").read_text()
+        self.assertIn("# EEZ_L1_POSTBATCH_TARGET=\n", configured)
+        result = self.render(dotenv=configured)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        # Absent posts directly to the registry.
+        self.assertIsNone(node.get("EEZ_L1_POSTBATCH_TARGET"))
+        target = "0x5f531064587c3e4D08145a6f564Ce06Bf33D3E84"
+        result = self.render(dotenv=configured + f"EEZ_L1_POSTBATCH_TARGET={target}\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        self.assertEqual(node.get("EEZ_L1_POSTBATCH_TARGET"), target)
+        for service in ("eez-proof-signer", "lighthouse"):
+            environment = json.loads(result.stdout)["services"][service].get("environment") or {}
+            self.assertNotIn("EEZ_L1_POSTBATCH_TARGET", environment, service)
+
     def test_required_choices_fail_when_absent_or_empty(self):
         configured = (self.repo / ".env").read_text()
         for line, name in (

@@ -1433,16 +1433,20 @@ where
             gas_trace,
             emission,
             fee_recipient,
+            post_batch_target,
             ..
         } = settings;
         event!(name: "eez.composer.settlement.policy", Level::INFO,
             ?policy_config, "settlement policy settings apply until restart");
         let policy = policy::EnabledPolicy::new(policy_config, rollups.keys().copied(), blob_cap);
+        let registry = cross_chain.local.l1_entry.manager_address();
+        let post_batch_target = post_batch_target.unwrap_or(registry);
         let posting = Arc::new(posting::PostingRuntime {
             fees: posting_fees,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
-            registry: cross_chain.local.l1_entry.manager_address(),
+            registry,
+            post_batch_target,
             operator_gas_cap: emission.max_gas,
             operator_blob_cap: blob_cap,
             costs: std::sync::Mutex::default(),
@@ -1453,7 +1457,7 @@ where
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
             automatic_admission = max_user_txs_per_bundle.is_none(),
             k = timing.k(),
-            %fee_recipient,
+            %fee_recipient, %registry, %post_batch_target,
             "posting settings; policy resolves network gas limits per target");
 
         Ok(Self {
@@ -7172,8 +7176,9 @@ where
             "postBatch commitments: current block hash at cursor, claimed final Sync block hash",
         );
 
-        // Reuse the deployment identity validated during startup.
-        let eez_address = self.inner.cross_chain.local.l1_entry.manager_address();
+        // The registry, or a wrapper validated at startup to forward this exact
+        // calldata to it. Registry reads elsewhere keep using the registry.
+        let post_batch_target = self.inner.posting.post_batch_target;
 
         let poster = ctx.l1_poster_signer.address();
         let poster_nonce = ctx
@@ -7237,7 +7242,7 @@ where
                 max_fee_per_gas: quote.quote.max_fee_per_gas,
                 max_priority_fee_per_gas: quote.quote.max_priority_fee_per_gas,
                 max_fee_per_blob_gas: quote.quote.max_fee_per_blob_gas,
-                to: eez_address,
+                to: post_batch_target,
                 value: U256::ZERO,
                 access_list: Default::default(),
                 input: calldata.into(),

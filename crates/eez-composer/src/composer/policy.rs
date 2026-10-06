@@ -164,9 +164,56 @@ where
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
+        self.validate_post_batch_target().await?;
         for (&rollup_id, rollup) in &self.inner.rollups {
             self.canonical_policy_anchor(rollup_id, rollup).await?;
         }
+        Ok(())
+    }
+
+    /// A postBatch target other than the registry must be a deployed contract
+    /// whose `eez()` is this registry, so posts cannot reach another registry
+    /// or an address that would accept and drop them. Missing code is retried
+    /// like any other unavailable boot input; a different registry is a
+    /// configuration error. This checks identity only: whether the wrapper
+    /// forwards the exact calldata is proved per attempt by final preflight,
+    /// which executes the signed poster and requires the registry's effects.
+    async fn validate_post_batch_target(&self) -> Result<(), PolicyError> {
+        alloy_sol_types::sol! {
+            #[sol(rpc)]
+            interface IPostBatchTarget {
+                function eez() external view returns (address);
+            }
+        }
+        let posting = &self.inner.posting;
+        let (target, registry) = (posting.post_batch_target, posting.registry);
+        if target == registry {
+            return Ok(());
+        }
+        let provider = &self.inner.cross_chain.exec_ctx.l1_provider;
+        let code = provider.get_code_at(target).await.map_err(|error| {
+            PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} code: {error}"))
+        })?;
+        if code.is_empty() {
+            return Err(PolicyError::Unavailable(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} has no code"
+            )));
+        }
+        let forwarded = IPostBatchTarget::new(target, provider)
+            .eez()
+            .call()
+            .await
+            .map_err(|error| {
+                PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} eez(): {error}"))
+            })?;
+        if forwarded != registry {
+            return Err(PolicyError::Config(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} forwards to {forwarded}, not registry {registry}"
+            )));
+        }
+        event!(name: "eez.composer.postbatch.target_validated", Level::INFO,
+            event_name = "eez.composer.postbatch.target_validated", %target, %registry,
+            "postBatch transactions are sent through a wrapper that forwards to the registry");
         Ok(())
     }
 

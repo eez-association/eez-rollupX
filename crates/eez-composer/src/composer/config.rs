@@ -23,6 +23,10 @@ pub struct ComposerSettings {
     /// Coinbase of every L2 block this node builds, Live and Sync alike, so
     /// priority fees are not split across recipients.
     pub(super) fee_recipient: Address,
+    /// Destination of the postBatch transaction (`EEZ_L1_POSTBATCH_TARGET`).
+    /// `None` posts directly to the registry. A wrapper must expose EEZ's
+    /// `postAndVerifyBatch` with identical calldata; registry reads never use it.
+    pub(super) post_batch_target: Option<Address>,
     max_speculative_depth: u64,
 }
 
@@ -130,6 +134,23 @@ impl ComposerSettings {
                 PolicyError::Config("EEZ_L2_FEE_RECIPIENT must be a 20-byte hex address".into())
             })?,
         };
+        // Unset posts to the registry. A supplied value must be a nonzero
+        // address; whether it forwards to the registry is checked on L1 at startup.
+        let post_batch_target = match get("EEZ_L1_POSTBATCH_TARGET")? {
+            None => None,
+            Some(value) => Some(
+                value
+                    .trim()
+                    .parse::<Address>()
+                    .ok()
+                    .filter(|address| !address.is_zero())
+                    .ok_or_else(|| {
+                        PolicyError::Config(
+                            "EEZ_L1_POSTBATCH_TARGET must be a nonzero 20-byte hex address".into(),
+                        )
+                    })?,
+            ),
+        };
         let max_speculative_depth = policy.max_speculative_depth;
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
@@ -146,6 +167,7 @@ impl ComposerSettings {
             gas_trace,
             emission,
             fee_recipient,
+            post_batch_target,
             max_speculative_depth,
         })
     }
@@ -388,6 +410,31 @@ mod tests {
             ],
         ] {
             assert!(settings(&invalid).is_err(), "{invalid:?}");
+        }
+    }
+
+    #[test]
+    fn post_batch_target_defaults_to_the_registry_and_rejects_unusable_values() {
+        assert_eq!(settings(&[]).unwrap().post_batch_target, None);
+        let target = "0x5f531064587c3e4D08145a6f564Ce06Bf33D3E84";
+        assert_eq!(
+            settings(&[("EEZ_L1_POSTBATCH_TARGET", &format!(" {target} "))])
+                .unwrap()
+                .post_batch_target,
+            Some(target.parse().unwrap())
+        );
+        for value in [
+            "",
+            " ",
+            "0x0000000000000000000000000000000000000000",
+            "0x1234",
+            "not-an-address",
+        ] {
+            let error = settings(&[("EEZ_L1_POSTBATCH_TARGET", value)]).unwrap_err();
+            assert!(
+                error.to_string().contains("EEZ_L1_POSTBATCH_TARGET"),
+                "{value:?}: {error}"
+            );
         }
     }
 }
