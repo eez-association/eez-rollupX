@@ -207,8 +207,13 @@ replacement. Source dispositions and replacement ownership still reconcile
 independently. `admission.skipped_slot` records this distinction.
 
 Automatic submitted-attempt reconciliation permits six cumulative charged
-failures per source, allowing a smaller retry after the fifth exclusion. Numeric
-admission retains its three-failure limit. Prover/immediate relay rejection also
+failures per source, allowing a smaller retry after the fifth failure. Numeric
+admission retains its three-failure limit. These count landed postBatches that
+left the source incomplete, which spend L1 gas. Excluded target slots, whose block
+was built without the bundle and spent no gas, count separately up to twelve per
+source in both modes (`MAX_EXCLUDED_SLOT_ATTEMPTS`); either bound exhausts the
+source and requires resubmission. The automatic admission streak and its backoff
+still record both kinds of failure. Prover/immediate relay rejection also
 retains its three-failure bound on the same cumulative source episode counter;
 switching failure paths never resets a source's counter. Only eligible unspent
 sources retry; spent nonces, partial consumption and dependent nonce eviction
