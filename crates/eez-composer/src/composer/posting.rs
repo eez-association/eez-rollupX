@@ -13,8 +13,8 @@ use alloy_sol_types::{SolCall, SolEvent};
 use eez_l1::{
     BundleTarget, L1BlockRef,
     posting_fees::{
-        FeeQuote, FeeSample, PRIORITY_FEE_HISTORY_BLOCKS, PRIORITY_FEE_REWARD_PERCENTILE,
-        PostingFeeConfig, PostingFeeError, estimate_next_block_priority_fee,
+        FeeQuote, FeeSample, PRIORITY_FEE_HISTORY_BLOCKS, PostingFeeConfig, PostingFeeError,
+        PriorityProfile, estimate_next_block_priority_fee,
     },
 };
 use eez_protocol::{CallMode, ExecutionOutcome, blob_semantics::SemanticTransaction};
@@ -57,10 +57,25 @@ pub(super) struct PostingRuntime {
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
+    /// Destination of the postBatch transaction: the registry, or a wrapper
+    /// validated at startup to forward `postAndVerifyBatch` to it. Preflight
+    /// still observes registry calls and logs, which the wrapper performs.
+    pub post_batch_target: Address,
     pub operator_gas_cap: u64,
     pub operator_blob_cap: Option<u64>,
     pub costs: std::sync::Mutex<super::costs::CostLedger>,
     pub gas_trace: Option<gas_trace::Config>,
+}
+
+/// Price a bundle as cross-chain when any of its users executes a cross-chain
+/// call on L1. Only cross-chain users carry semantic transactions; ordinary L2
+/// transactions travel in the blob without one.
+pub(super) fn priority_profile(semantics: &[SemanticTransaction]) -> PriorityProfile {
+    if semantics.iter().any(|tx| !tx.actions.is_empty()) {
+        PriorityProfile::CrossChain
+    } else {
+        PriorityProfile::Base
+    }
 }
 
 pub(super) struct PostingQuote {
@@ -172,13 +187,15 @@ impl PostingRuntime {
     }
 
     /// Sample only for selected posting work. An unset override uses recent
-    /// canonical fee-history rewards; unavailable data is never replaced by a
-    /// guessed tip.
+    /// canonical fee-history rewards at `profile`'s percentile and ceiling;
+    /// unavailable data is never replaced by a guessed tip.
     pub async fn quote(
         &self,
         target: BundleTarget,
         final_parent: bool,
+        profile: PriorityProfile,
     ) -> Result<PostingQuote, PostingError> {
+        let percentile = self.fees.priority_percentile_for(profile);
         let provider = &self.ctx.l1_provider;
         let chain_id = provider
             .get_chain_id()
@@ -212,7 +229,7 @@ impl PostingRuntime {
                 .get_fee_history(
                     PRIORITY_FEE_HISTORY_BLOCKS,
                     BlockNumberOrTag::Latest,
-                    &[PRIORITY_FEE_REWARD_PERCENTILE],
+                    &[f64::from(percentile)],
                 )
                 .await
                 .map_err(|e| PostingError::Unavailable(format!("priority fee history: {e}")))?;
@@ -221,6 +238,7 @@ impl PostingRuntime {
                 history.oldest_block,
                 sample.number,
                 rewards,
+                percentile,
             )?)
         } else {
             None
@@ -234,6 +252,7 @@ impl PostingRuntime {
                 .block_env
                 .blob_excess_gas_and_price
                 .map(|blob| blob.blob_gasprice),
+            profile,
             estimated_priority_fee,
         })?;
         let check = provider
@@ -255,12 +274,12 @@ impl PostingRuntime {
             event_name = "eez.composer.postbatch.fee_quote", chain_id, sample_block = sample.number,
             sample_hash = %sample.hash, target = ?target, gas_budget,
             network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
-            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "fee_history_p90_of_p90" },
+            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "fee_history" },
             priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
-            priority_reward_percentile = PRIORITY_FEE_REWARD_PERCENTILE,
+            priority_profile = ?profile, priority_reward_percentile = percentile,
             execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,
             estimated_priority_fee,
-            priority_min = self.fees.priority_min, priority_max = self.fees.priority_max,
+            priority_min = self.fees.priority_min, priority_max = self.fees.priority_max_for(profile),
             priority_fee = quote.max_priority_fee_per_gas, execution_fee_cap = quote.max_fee_per_gas,
             blob_fee_cap = quote.max_fee_per_blob_gas, "selected network posting quote");
         Ok(PostingQuote {
@@ -435,7 +454,9 @@ impl PostingRuntime {
         endpoint: B256,
         semantics: &[SemanticTransaction],
     ) -> Result<(Vec<Bytes>, FeeQuote, BundleExecution), PostingError> {
-        let quote = self.quote(target, true).await?;
+        let quote = self
+            .quote(target, true, priority_profile(semantics))
+            .await?;
         let (_, blobs) = decode_transaction(
             raw.first()
                 .ok_or_else(|| PostingError::Transaction("empty bundle".into()))?,
@@ -1296,6 +1317,23 @@ mod tests {
                 revert_span: None,
             }],
         }]
+    }
+
+    #[test]
+    fn only_bundles_with_cross_chain_calls_use_the_cross_chain_priority() {
+        assert_eq!(priority_profile(&[]), PriorityProfile::Base);
+        let mut without_calls = static_semantics();
+        without_calls[0].actions.clear();
+        assert_eq!(priority_profile(&without_calls), PriorityProfile::Base);
+        assert_eq!(
+            priority_profile(&static_semantics()),
+            PriorityProfile::CrossChain
+        );
+        without_calls.extend(static_semantics());
+        assert_eq!(
+            priority_profile(&without_calls),
+            PriorityProfile::CrossChain
+        );
     }
 
     #[test]

@@ -38,8 +38,12 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
 | `EEZ_L1_POSTBATCH_PRIORITY_FEE` | Fee-history estimator | Optional nonnegative exact override within configured bounds. When no separate priority maximum is supplied, this fixed value is also its safe maximum. |
+| `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` | 90 | Integer from 1 to 99 used by the fee-history estimator: each recent block's gas-weighted reward at this percentile, then this percentile of those samples. 90 bids above most recent transactions; 50 bids near the typical recent tip. Ignored with a fixed override. |
 | `EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE` | 0 | Nonnegative integer; include any actual relay minimum. |
 | `EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE` | Required with fee-history estimation; fixed override otherwise | Independent nonnegative priority-price ceiling. Must be at least the minimum and no greater than the execution-price ceiling. It never inherits the execution-price ceiling. |
+| `EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE` | Unset: base percentile | Optional integer from 1 to 99 for bundles that execute cross-chain calls on L1 ([cross-chain priority](#cross-chain-priority)). Setting only the cross-chain maximum keeps the base percentile. Rejected with a fixed override. |
+| `EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE` | Unset: base maximum | Optional priority ceiling for those bundles. Must be at least the shared minimum and no greater than the execution-price ceiling. Setting only the cross-chain percentile keeps the base maximum. Rejected with a fixed override. |
+| `EEZ_L1_POSTBATCH_TARGET` | Unset: `EEZ_REGISTRY_ADDRESS` | Optional nonzero address used only as the postBatch transaction's destination ([postBatch target](#postbatch-target)). Boot waits until it has code and its `eez()` returns the registry; a different registry is a configuration error. |
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
@@ -204,8 +208,13 @@ replacement. Source dispositions and replacement ownership still reconcile
 independently. `admission.skipped_slot` records this distinction.
 
 Automatic submitted-attempt reconciliation permits six cumulative charged
-failures per source, allowing a smaller retry after the fifth exclusion. Numeric
-admission retains its three-failure limit. Prover/immediate relay rejection also
+failures per source, allowing a smaller retry after the fifth failure. Numeric
+admission retains its three-failure limit. These count landed postBatches that
+left the source incomplete, which spend L1 gas. Excluded target slots, whose block
+was built without the bundle and spent no gas, count separately up to twelve per
+source in both modes (`MAX_EXCLUDED_SLOT_ATTEMPTS`); either bound exhausts the
+source and requires resubmission. The automatic admission streak and its backoff
+still record both kinds of failure. Prover/immediate relay rejection also
 retains its three-failure bound on the same cumulative source episode counter;
 switching failure paths never resets a source's counter. Only eligible unspent
 sources retry; spent nonces, partial consumption and dependent nonce eviction
@@ -495,9 +504,18 @@ transactions retain their original signed bytes and authorized fees.
 
 ### Bounded next-block priority estimation
 
-Dynamic mode requests the gas-weighted p90 reward for each of the latest 20
-canonical blocks with `eth_feeHistory`, selects the p90 of those 20 samples,
-and clamps it to an optional relay floor and an independent priority ceiling.
+Dynamic mode requests the gas-weighted reward at percentile P for each of the
+latest 20 canonical blocks with `eth_feeHistory`, selects the P-th percentile of
+those 20 samples, and clamps it to an optional relay floor and an independent
+priority ceiling. P is `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` (default 90, the
+p90 of p90 described below). On Ethereum mainnet, a 7-day replay
+(2026-09-25 to 2026-10-02) of P=50 within 0.05–2 gwei averaged about 0.375 gwei:
+- it was at or above each next block's 25th-percentile tip in 97% of blocks, and
+  at or above its median tip in 59%;
+- the default P=90 within the same bounds averaged about 1.95 gwei (99% and 95%).
+
+These measure competitiveness against the block's own transactions, not
+builder inclusion.
 This targets prompt inclusion without a multiplier or mutable feedback state:
 
 ```dotenv
@@ -512,6 +530,69 @@ Chiado uses a network-specific 1–2 gwei band:
 EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE=1000000000
 EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE=2000000000
 ```
+
+#### Cross-chain priority
+
+A bundle whose users execute cross-chain calls on L1 (immediate outbound
+entries inside postBatch, or inbound L1-origin transactions) can depend on L1
+state that earlier transactions in the target block change. The Composer
+simulates against the parent state. A builder can place the bundle after a
+transaction that changes that state, for example a swap on a pool whose
+`slot0()` the call reads. The call then fails on L1 even though the postBatch
+lands: the entry is skipped with `RollingHashMismatch`, and its dependents with
+`RootMismatch`. Each such landing is charged as an incomplete settlement and
+still pays for its gas.
+
+Setting either `EEZ_L1_POSTBATCH_CROSS_CHAIN_*` variable gives these bundles
+their own percentile and ceiling. Every other bundle keeps the base settings,
+and the shared minimum applies to both. Selection follows the bundle's contents:
+- composition prices a nonempty held-pool drain, which is always cross-chain work,
+  at the cross-chain profile;
+- final pricing selects the profile again from the surviving users' semantic
+  transactions;
+- a postBatch with none of them, such as an anchor-only or ordinary L2 batch,
+  uses the base profile.
+
+Final validation is unchanged. The exact signed bundle is re-executed at the
+final fees, so an outcome that depends on the gas price is never dispatched
+with a stale expectation.
+
+A higher bid ranks the bundle above more of the block's transactions; it does
+not guarantee a position. Searchers often pay builders directly instead of
+through the tip, and builders choose their own ordering.
+
+Evidence from Ethereum mainnet, 2026-10-06:
+- 54 postBatches from deployment to L1 26133707. 25 carried cross-chain calls,
+  and 16 of those landed with the call skipped.
+- All 16 followed at least one swap on the Uniswap V3 USDC/WETH 0.01% pool in
+  the same block, which the call read. The 3 successful calls in those retry
+  bursts followed no such swap.
+- The base P50 bid was 0.06–0.56 gwei. The best-paying swap ahead of each
+  skipped post paid 0.10–40 gwei per gas, through the tip or by direct transfer
+  to the builder.
+- Recomputed with this estimator, P90 limited to cross-chain bundles would have
+  outbid that swap in 9 of the 16 cases at a 2 gwei ceiling, 11 at 3.5 gwei,
+  and 12 with no ceiling.
+- Over those 54 posts, total spend would have risen from 0.0062 ETH to at most
+  0.0176 ETH at 3.5 gwei. This upper bound assumes no retry was avoided.
+- The other bundles keep P50.
+
+The Ethereum example therefore uses:
+
+```dotenv
+EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE=90
+EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE=3500000000
+```
+
+Unset, both profiles are identical and behaviour is unchanged. Node images
+built before these variables existed ignore them and price every bundle with
+the base settings, so they can be added to `.env` before or after upgrading,
+and removing them is a complete rollback. They affect only local pricing, not
+wire formats, storage or the signer. A fixed
+`EEZ_L1_POSTBATCH_PRIORITY_FEE` prices every bundle exactly, so it cannot be
+combined with these variables. Applications that read volatile L1 state remain
+better served by values a same-block transaction cannot change, such as a TWAP
+that ends before the current block.
 
 The minimum is intentional on Chiado. A 2026-09-18 sample of 1,024 canonical
 blocks ended with 19 zero-reward blocks and one 1-gwei block in its latest
@@ -529,7 +610,8 @@ the signed tip. Missing, malformed or stale history preserves due work for
 retry. A fixed `EEZ_L1_POSTBATCH_PRIORITY_FEE` bypasses fee history and remains
 exact.
 
-One poster transaction among a 20-block window cannot raise the outer p90, so
+One poster transaction among a 20-block window cannot raise the outer
+percentile (for any P below 100), so
 an isolated post cannot feed its own price back into the next quote. On a chain
 where the poster occupies several recent blocks its paid tip can contribute to
 the market sample, but there is still no uplift and therefore no recursive
@@ -722,6 +804,55 @@ Rollback restores the older extrapolation; no queue, database or wire migration
 is required, and older collectors continue to accept the version string.
 The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.
+
+### PostBatch target
+
+By default the poster transaction calls `postAndVerifyBatch` on the registry.
+`EEZ_L1_POSTBATCH_TARGET` sends it to another contract instead. The intended
+use is a wrapper such as `EEZPostBatcher` (a fixture copy is in
+`contracts/src/EEZPostBatcher.sol`): it forwards the batch to the registry and
+then reverts with `LastImmediateRootMismatch` unless the registry's root
+equals the last immediate entry's `newRoot`.
+
+**Why use it.** Without the wrapper, a failed immediate entry is caught
+(`L2TxSkipped`), the postBatch still lands, and its gas is spent although the
+user stays unsettled. With the wrapper the poster transaction reverts instead.
+The poster is never in `revertingTxHashes`, so a builder cannot include the
+bundle in that position: the slot is observed as excluded, which spends no
+postBatch gas and uses the separate excluded-slot budget. The trade-off is
+that the whole batch, including other users and the rollup's root advance,
+waits for a slot in which every immediate entry completes.
+
+**Contract requirements.**
+- The target must expose `postAndVerifyBatch` with the registry's exact
+  selector and calldata. The Composer sends the registry ABI unchanged, and
+  derivation finds each post through the registry's `BatchPosted` log and
+  decodes the transaction input with that ABI, whatever its destination.
+  Calling a different entry point, such as `EEZPostBatcher.postBatch(batch,
+  bool)`, would make the post undecodable.
+- `eez()` must return `EEZ_REGISTRY_ADDRESS`. Boot treats a target without
+  code as not yet ready and retries; a target forwarding to another registry
+  is reported as a configuration error and readiness stays closed.
+- The registry sees the target as `msg.sender`. The supported proof profile
+  always sets `bindMsgSenderInPublicInput = false`, so proofs do not change.
+  If an immediate prefix ever contained meta-hook entries, the registry would
+  call the target's `executeMetaCrossChainTransactions()` rather than revert
+  for a codeless sender; the Composer does not produce such batches.
+
+**Unchanged.** Every registry read (state, proxies, events, gas projection)
+still uses `EEZ_REGISTRY_ADDRESS`. Final preflight executes the exact signed
+poster through the target and still requires the registry's calls, logs and
+final root, so a target that does not forward the batch is never dispatched.
+The wrapper's extra call and root read are included in the measured gas
+limit, but not in the static admission projection, which may under-reserve
+by those few thousand gas.
+
+**Compatibility.** Unset, the destination and behaviour are unchanged. Older
+node images ignore the variable and post to the registry. Followers at this
+revision derive posts made through a conforming target, because the L1 scan
+decodes the transaction input by selector, not by destination; verify that an
+older follower's scan does the same before mixing versions. Removing the
+variable is a complete rollback.
 
 ### Builder relay fan-out
 

@@ -1283,6 +1283,108 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
     follower.assert_no_divergence_failure_logs();
 }
 
+/// A backlog above the batch block cap settles through consecutive historical
+/// prefixes. Each landed prefix advances the canonical anchor, and the next
+/// prefix must size its range from that new anchor rather than stopping after
+/// the first one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn backlog_above_the_block_cap_settles_through_consecutive_historical_prefixes() {
+    use eez_testkit::{IValue, onchain_nonce, sign_and_send, wait_for};
+    const CAP: u64 = 10;
+    let env = policy_env(
+        vec![(eez_testkit::SIGNER_MAX_REQUEST_BLOCKS_ENV, CAP.to_string())],
+        "interval",
+    );
+    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    let follower = NodeHandle::start(
+        "policy-block-cap-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    // The window limit keeps a healthy chain below the cap. Exclude
+    // consecutive bundles so the backlog exceeds twice the cap: after the
+    // first historical prefix lands, the next one starts above a newer anchor.
+    let cursor = world.node.signal_cursor().unwrap();
+    world.drop_next_bundles(6).unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(cursor)?
+            .iter()
+            .any(|event| {
+                event.name == "eez.composer.emission.historical_chunk"
+                    && event.fields["backlog"].as_u64() > Some(2 * CAP)
+            })
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    // Slots without held cross-chain work evaluate policy first. A held user
+    // request selects the block-cap path directly, as on a busy network, and
+    // can only be included once that path drains the backlog below the cap.
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let request = sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_1,
+        l1.get_chain_id().await.unwrap(),
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    let succeeded = wait_for(TIMEOUT, || async {
+        eez_testkit::receipt_ok(&world.l1_rpc(), request).await
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "held cross-chain request was never settled: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    assert!(succeeded, "held cross-chain request reverted");
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], 8 * CAP, TIMEOUT)
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "historical prefixes stopped advancing: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+    let signals = world.node.signals_since(0).unwrap();
+    let prefix_cursors = signals
+        .iter()
+        .filter(|event| {
+            event.name == "eez.composer.emission.historical_chunk"
+                && event.fields["split_reasons"]
+                    .as_str()
+                    .is_some_and(|reasons| reasons.contains("block_limit"))
+        })
+        .filter_map(|event| event.fields["cursor"].as_u64())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        prefix_cursors.len() >= 2,
+        "expected block-cap prefixes above at least two anchors, saw {prefix_cursors:?}"
+    );
+    assert!(
+        !signals
+            .iter()
+            .any(|event| event.name == "eez.composer.emission.historical_failed"),
+        "a historical prefix failed after canonical advancement{}",
+        world.settlement_diagnostics()
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 async fn registration(
     world: &eez_testkit::CrossChainWorld,
 ) -> eez_l1::l1_reader::RegistrationAnchor {
@@ -1454,7 +1556,7 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
         signals
             .iter()
             .any(|signal| signal.name == "eez.composer.postbatch.fee_quote"
-                && signal.fields["priority_source"] == "fee_history_p90_of_p90"),
+                && signal.fields["priority_source"] == "fee_history"),
         "no implicit smoke-test tip"
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());

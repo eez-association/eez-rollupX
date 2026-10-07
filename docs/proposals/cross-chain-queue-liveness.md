@@ -132,6 +132,53 @@ This is not an unconditional reset of retries. Active duplicate submissions
 keep their current attempts and owner. An explicitly accepted new admission
 after a local terminal disposition follows the existing new-request policy.
 
+### Excluded target slots use a separate bound
+
+Status: implemented on branch `fix/excluded-slot-attempt-budget`; unit-tested
+only. Not yet observed on a live network.
+
+An `excluded` observation means the target block was built without the bundle:
+by the proposer without MEV-Boost, by a builder that never received it, or by a
+configured builder that left it out. No postBatch gas was spent. On Ethereum
+mainnet on 2026-10-06, roughly a fifth of slots were built by validators or
+builders outside the configured set.
+
+The same day, outbound user `0x38b6…` (nonce 28) was evicted with
+`AttemptsExhausted` after six charges on the shared counter:
+- Three landed postBatches (L1 26132475–26132477) skipped its entry with
+  `RollingHashMismatch`, plus `RootMismatch` for the dependent entries. The call
+  read `slot0()` of the Uniswap V3 USDC/WETH 0.01% pool, and in each block the
+  builder placed the bundle after at least one swap on that pool. In 26132600 no
+  swap preceded it and the resubmitted call succeeded.
+- Three excluded targets followed (26132478–26132480). They were built locally or
+  by a builder outside the configured set, so no configured builder could have
+  included the bundle.
+
+The nonce gap then removed `0x293f…` (nonce 29), whose nonce stayed unspent. With
+separate bounds the source would have stood at 3/6 settlement failures and 3/12
+excluded slots, and remained eligible.
+
+Reconciliation therefore distinguishes the charge. A landed postBatch that leaves
+the user incomplete charges `attempts`, bounded by six (automatic) or three
+(numeric), because each retry spends L1 gas. An excluded target charges
+`excluded_slots`, bounded by `MAX_EXCLUDED_SLOT_ATTEMPTS = 12`, in both modes.
+Either bound exhausts the user and creates the usual dependent nonce gap. The
+prover/relay rejection bound and the per-rollup admission streak and backoff are
+unchanged. Both counters stay in memory and are lost on restart.
+
+Alternatives not taken:
+- Raising the shared bound. A source that lands but can never complete would
+  pay for more postBatches before eviction.
+- Not charging exclusions at all. A bundle that every builder keeps rejecting
+  would then never be evicted.
+- Classifying the winning builder and charging only reachable misses. That is
+  more precise, but the classification is heuristic: `extraData`, fee
+  recipient and relay data are not authenticated. It is left for later.
+
+Acceptance: a unit test shows excluded slots beyond the settlement bound neither
+evict nor charge `attempts`, the twelfth excluded slot evicts, and a landed
+failure still evicts at the settlement bound without touching `excluded_slots`.
+
 ## 2. Defer source conditions without aborting independent work
 
 The existing `Unavailable(String)` combines source transaction conditions with
@@ -255,6 +302,16 @@ Older nodes return null once such records leave their pool; clients must treat
 null as unknown. Old clients may ignore the additional fields. Oldest local
 observations expire by count, and all are lost on restart. No migration,
 configuration change, contract change, or mixed-node execution change is needed.
+
+Finality pruning feeds the same cache. When the finality audit removes an
+attempt from the settlement ledger, each released terminal user (`Committed`,
+`AttemptsExhausted`, `NonceGap`, source outcomes) is recorded with its reason
+and, for canonical outcomes, `ownership.canonical`. Previously such a request
+answered null about one L1 finality period after its outcome, although it had
+settled or been evicted. Recording happens under the pool lock with the pruning,
+so a read never observes the gap. The entries share the same count bound and
+restart loss, and remain observations: they never authorize execution,
+admission or recovery.
 
 The observatory currently computes `healthy` from L1/L2 RPC health and head
 freshness in `eez-rollup-ui/network-observatory/app/server.py`. Add an explicit

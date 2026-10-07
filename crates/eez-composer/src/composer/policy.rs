@@ -164,9 +164,56 @@ where
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
+        self.validate_post_batch_target().await?;
         for (&rollup_id, rollup) in &self.inner.rollups {
             self.canonical_policy_anchor(rollup_id, rollup).await?;
         }
+        Ok(())
+    }
+
+    /// A postBatch target other than the registry must be a deployed contract
+    /// whose `eez()` is this registry, so posts cannot reach another registry
+    /// or an address that would accept and drop them. Missing code is retried
+    /// like any other unavailable boot input; a different registry is a
+    /// configuration error. This checks identity only: whether the wrapper
+    /// forwards the exact calldata is proved per attempt by final preflight,
+    /// which executes the signed poster and requires the registry's effects.
+    async fn validate_post_batch_target(&self) -> Result<(), PolicyError> {
+        alloy_sol_types::sol! {
+            #[sol(rpc)]
+            interface IPostBatchTarget {
+                function eez() external view returns (address);
+            }
+        }
+        let posting = &self.inner.posting;
+        let (target, registry) = (posting.post_batch_target, posting.registry);
+        if target == registry {
+            return Ok(());
+        }
+        let provider = &self.inner.cross_chain.exec_ctx.l1_provider;
+        let code = provider.get_code_at(target).await.map_err(|error| {
+            PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} code: {error}"))
+        })?;
+        if code.is_empty() {
+            return Err(PolicyError::Unavailable(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} has no code"
+            )));
+        }
+        let forwarded = IPostBatchTarget::new(target, provider)
+            .eez()
+            .call()
+            .await
+            .map_err(|error| {
+                PolicyError::Unavailable(format!("EEZ_L1_POSTBATCH_TARGET {target} eez(): {error}"))
+            })?;
+        if forwarded != registry {
+            return Err(PolicyError::Config(format!(
+                "EEZ_L1_POSTBATCH_TARGET {target} forwards to {forwarded}, not registry {registry}"
+            )));
+        }
+        event!(name: "eez.composer.postbatch.target_validated", Level::INFO,
+            event_name = "eez.composer.postbatch.target_validated", %target, %registry,
+            "postBatch transactions are sent through a wrapper that forwards to the registry");
         Ok(())
     }
 
@@ -329,11 +376,14 @@ where
             .ok_or("unknown policy rollup")?
             .lock()
             .unwrap();
-        if self.inner.rollups[&rollup_id]
+        // Prefix sums start at the index anchor, so both it and the policy
+        // anchor must still be the validated canonical endpoint.
+        let canonical = self.inner.rollups[&rollup_id]
             .l1_head
             .policy_anchor_snapshot()
-            .endpoint
-            != runtime.anchor.map(|anchor| anchor.endpoint)
+            .endpoint;
+        if canonical != runtime.anchor.map(|anchor| anchor.endpoint)
+            || canonical != runtime.activity.anchor()
         {
             return Err("canonical anchor changed before historical prefix sizing".into());
         }
@@ -578,6 +628,127 @@ where
         Ok((snapshot, anchor))
     }
 
+    /// Rebase the byte index on the validated anchor and extend it through
+    /// `parent`, caching each newly measured block encoding. Stale or orphaned
+    /// encodings are pruned, including when the update fails.
+    fn update_activity_index(
+        &self,
+        rollup: &RollupState<L2>,
+        runtime: &mut RollupPolicy,
+        endpoint: eez_l1::L2Endpoint,
+        parent: eez_l1::L2Endpoint,
+    ) -> Result<(), PolicyError> {
+        let RollupPolicy {
+            activity,
+            block_rlps,
+            ..
+        } = runtime;
+        let updated = activity.update(endpoint, parent, |hash| {
+            let block = rollup
+                .l2_provider
+                .find_block_by_hash(hash, BlockSource::Any)
+                .map_err(|error| {
+                    PolicyError::Unavailable(format!("pending block {hash}: {error}"))
+                })?
+                .ok_or_else(|| PolicyError::Unavailable(format!("pending block {hash} missing")))?;
+            let encoded = alloy_rlp::encode(&block);
+            // Failed cross-chain Sync blocks remain behind the existing
+            // recovery gate. Detect their system halves so they cannot be
+            // mislabeled as ordinary transaction activity.
+            let mut has_system = false;
+            let transactions = block.body().transactions();
+            for tx in transactions {
+                use alloy_eips::Decodable2718 as _;
+                use reth_primitives_traits::SignerRecoverable as _;
+                let bytes = tx.encoded_2718();
+                if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
+                    has_system = true;
+                    break;
+                }
+                let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
+                    .map_err(|error| {
+                        PolicyError::Unavailable(format!("pending transaction decoding: {error}"))
+                    })?;
+                if tx
+                    .recover_signer()
+                    .map_err(|error| PolicyError::Unavailable(format!("pending signer: {error}")))?
+                    == eez_primitives::SYSTEM_ADDRESS
+                {
+                    has_system = true;
+                    break;
+                }
+            }
+            let parent = rollup
+                .l2_provider
+                .sealed_header_by_hash(block.header().parent_hash())
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+                .ok_or_else(|| PolicyError::Unavailable("ordinary sizing parent missing".into()))?;
+            let ordinary = measure_ordinary(&self.inner.evm_config, &parent, &encoded)?;
+            block_rlps.insert(hash, (block.header().number(), encoded));
+            Ok(BlockActivity {
+                endpoint: eez_l1::L2Endpoint {
+                    number: block.header().number(),
+                    hash,
+                },
+                parent_hash: block.header().parent_hash(),
+                ordinary,
+                pure_transactions: if has_system {
+                    0
+                } else {
+                    u64::try_from(transactions.len())
+                        .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
+                },
+            })
+        });
+        // New blocks append without scanning the existing backlog. Reorgs,
+        // anchor changes and failed reads can leave stale/orphan encodings;
+        // prune those against the index before returning, including on error.
+        if !updated.as_ref().is_ok_and(|invalidated| !*invalidated) {
+            block_rlps.retain(|hash, (number, _)| {
+                activity
+                    .endpoint_at(*number)
+                    .is_some_and(|block| block.number > endpoint.number && block.hash == *hash)
+            });
+        }
+        updated.map(|_| ())
+    }
+
+    /// Historical prefixes are sized from the byte index, whose prefix sums
+    /// start at its anchor. Each landed prefix advances canonical settlement,
+    /// and the block-cap path does not run policy evaluation, so refresh both
+    /// the anchor and the index here before selecting the next prefix.
+    pub(super) async fn refresh_historical_index(
+        &self,
+        rollup_id: u64,
+        rollup: &RollupState<L2>,
+        parent: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
+    ) -> Result<(), String> {
+        let (snapshot, anchor) = self
+            .canonical_policy_anchor(rollup_id, rollup)
+            .await
+            .map_err(|error| error.to_string())?;
+        let runtime = self
+            .inner
+            .policy
+            .rollups
+            .get(&rollup_id)
+            .ok_or("unknown policy rollup")?;
+        self.update_activity_index(
+            rollup,
+            &mut runtime.lock().unwrap(),
+            anchor.endpoint,
+            eez_l1::L2Endpoint {
+                number: parent.number(),
+                hash: parent.hash(),
+            },
+        )
+        .map_err(|error| error.to_string())?;
+        if !rollup.l1_head.generation_is(snapshot.generation) {
+            return Err("canonical evidence changed while refreshing the historical index".into());
+        }
+        Ok(())
+    }
+
     pub(super) async fn evaluate_settlement_policy(
         &self,
         rollup_id: u64,
@@ -616,91 +787,15 @@ where
         .map_err(|_| PolicyError::Arithmetic("effective blob allowance"))?;
 
         let mut runtime = runtime.lock().unwrap();
-        let RollupPolicy {
-            activity,
-            block_rlps,
-            ..
-        } = &mut *runtime;
-        let updated = activity.update(
+        self.update_activity_index(
+            rollup,
+            &mut runtime,
             endpoint,
             eez_l1::L2Endpoint {
                 number: parent.number(),
                 hash: parent.hash(),
             },
-            |hash| {
-                let block = rollup
-                    .l2_provider
-                    .find_block_by_hash(hash, BlockSource::Any)
-                    .map_err(|error| {
-                        PolicyError::Unavailable(format!("pending block {hash}: {error}"))
-                    })?
-                    .ok_or_else(|| {
-                        PolicyError::Unavailable(format!("pending block {hash} missing"))
-                    })?;
-                let encoded = alloy_rlp::encode(&block);
-                // Failed cross-chain Sync blocks remain behind the existing
-                // recovery gate. Detect their system halves so they cannot be
-                // mislabeled as ordinary transaction activity.
-                let mut has_system = false;
-                let transactions = block.body().transactions();
-                for tx in transactions {
-                    use alloy_eips::Decodable2718 as _;
-                    use reth_primitives_traits::SignerRecoverable as _;
-                    let bytes = tx.encoded_2718();
-                    if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                        has_system = true;
-                        break;
-                    }
-                    let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
-                        .map_err(|error| {
-                            PolicyError::Unavailable(format!(
-                                "pending transaction decoding: {error}"
-                            ))
-                        })?;
-                    if tx.recover_signer().map_err(|error| {
-                        PolicyError::Unavailable(format!("pending signer: {error}"))
-                    })? == eez_primitives::SYSTEM_ADDRESS
-                    {
-                        has_system = true;
-                        break;
-                    }
-                }
-                let parent = rollup
-                    .l2_provider
-                    .sealed_header_by_hash(block.header().parent_hash())
-                    .map_err(|error| PolicyError::Unavailable(error.to_string()))?
-                    .ok_or_else(|| {
-                        PolicyError::Unavailable("ordinary sizing parent missing".into())
-                    })?;
-                let ordinary = measure_ordinary(&self.inner.evm_config, &parent, &encoded)?;
-                block_rlps.insert(hash, (block.header().number(), encoded));
-                Ok(BlockActivity {
-                    endpoint: eez_l1::L2Endpoint {
-                        number: block.header().number(),
-                        hash,
-                    },
-                    parent_hash: block.header().parent_hash(),
-                    ordinary,
-                    pure_transactions: if has_system {
-                        0
-                    } else {
-                        u64::try_from(transactions.len())
-                            .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
-                    },
-                })
-            },
-        );
-        // New blocks append without scanning the existing backlog. Reorgs,
-        // anchor changes and failed reads can leave stale/orphan encodings;
-        // prune those against the index before returning, including on error.
-        if !updated.as_ref().is_ok_and(|invalidated| !*invalidated) {
-            block_rlps.retain(|hash, (number, _)| {
-                activity
-                    .endpoint_at(*number)
-                    .is_some_and(|block| block.number > endpoint.number && block.hash == *hash)
-            });
-        }
-        updated?;
+        )?;
         // Resolve the captured hash against this exact pending branch. The
         // held pool includes fresh users that have not yet entered an attempt.
         if let Some(mut predecessor) = runtime.predecessor.take() {

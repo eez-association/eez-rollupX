@@ -1103,8 +1103,30 @@ async fn automatic_selection_backs_off_after_five_exclusions_and_retries_every_s
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn automatic_settlement_sixth_failure_exhausts_sources_and_releases_nonce_suffix() {
+async fn automatic_settlement_six_exclusions_keep_sources_eligible() {
+    // Six landed incomplete settlements would exhaust a source; six excluded
+    // target slots spend no postBatch gas and stay within their own budget.
     consecutive_exclusions(6).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn automatic_settlement_twelfth_exclusion_exhausts_sources_and_releases_nonce_suffix() {
+    consecutive_exclusions(EXCLUDED_SLOT_BUDGET).await;
+}
+
+/// `eez_composer::optimistic::MAX_EXCLUDED_SLOT_ATTEMPTS`.
+const EXCLUDED_SLOT_BUDGET: u32 = 12;
+
+/// Groups submitted in the `index`th consecutive failed attempt of a wave of
+/// four sources, and the selection limit that failure leaves for the next
+/// one: from the fifth failure, automatic admission halves the selection.
+fn backoff_shape(index: usize) -> (usize, Option<usize>) {
+    match index {
+        0..4 => (4, None),
+        4 => (4, Some(2)),
+        5 => (2, Some(1)),
+        _ => (1, Some(1)),
+    }
 }
 
 async fn consecutive_exclusions(failures: u32) {
@@ -1180,7 +1202,9 @@ async fn consecutive_exclusions(failures: u32) {
     for i in 1..=4 {
         hashes.push(send(&world, chain, nonce + i, i + 1).await);
     }
-    if failures == 6 {
+    if failures == EXCLUDED_SLOT_BUDGET {
+        // The first source is in every attempt, so its excluded-slot budget
+        // is exhausted first and its nonce gap releases the suffix.
         wait_for(TIMEOUT, || async {
             Ok(world
                 .node
@@ -1188,8 +1212,8 @@ async fn consecutive_exclusions(failures: u32) {
                 .iter()
                 .any(|e| {
                     e.name == "eez.composer.admission.submission_failure"
-                        && e.fields["consecutive_failures"] == 6
-                        && e.fields["submitted_groups"] == 2
+                        && e.fields["consecutive_failures"] == failures
+                        && e.fields["submitted_groups"] == 1
                 })
                 .then_some(()))
         })
@@ -1265,11 +1289,12 @@ async fn consecutive_exclusions(failures: u32) {
         onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap(),
         nonce + 5
     );
+    let last = failures as usize - 1;
     let dropped = world.dropped_bundle().unwrap().unwrap();
     assert_eq!(
         dropped["params"][0]["txs"].as_array().unwrap().len(),
-        5,
-        "the learned one-blob allowance must admit all four queued sources"
+        1 + backoff_shape(last).0,
+        "the poster and each submitted source of the last excluded attempt"
     );
     let events = world.node.signals_since(cursor).unwrap();
     let observed: Vec<_> = events
@@ -1284,27 +1309,27 @@ async fn consecutive_exclusions(failures: u32) {
         world.settlement_diagnostics()
     );
     for (index, (_, event)) in observed.iter().enumerate() {
-        assert_eq!(event.fields["submitted_groups"], 4);
+        let (submitted, next) = backoff_shape(index);
+        assert_eq!(event.fields["submitted_groups"], submitted);
         assert_eq!(event.fields["consecutive_failures"], index + 1);
         assert_eq!(event.fields["backoff_threshold"], 5);
-        if index < 4 {
-            assert!(
+        match next {
+            None => assert!(
                 event
                     .fields
                     .get("next_selection_max")
                     .is_none_or(serde_json::Value::is_null)
-            );
-        } else {
-            assert_eq!(event.fields["next_selection_max"], 2);
+            ),
+            Some(next) => assert_eq!(event.fields["next_selection_max"], next),
         }
     }
     let backoffs: Vec<_> = events
         .iter()
         .filter(|e| e.name == "eez.composer.admission.submission_backoff")
         .collect();
-    assert_eq!(backoffs.len(), usize::from(failures == 5));
+    assert_eq!(backoffs.len(), (failures as usize).saturating_sub(4));
     let backoff = observed.last().unwrap().0;
-    let expected = if failures == 5 { 2 } else { 4 };
+    let expected = backoff_shape(last).1.unwrap_or(4);
     let next = events[backoff + 1..]
         .iter()
         .find(|e| e.name == "eez.composer.sync_slot.drain")
@@ -1664,6 +1689,18 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() {
+    historical_prefix_replacement(None).await;
+}
+
+/// Sync blocks carry the configured coinbase. A deadline replacement must not
+/// rebuild an already empty historical boundary with a different header and
+/// unwind every descendant through a branch switch.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn historical_prefix_replacement_keeps_the_empty_boundary_with_a_configured_coinbase() {
+    historical_prefix_replacement(Some(alloy_primitives::Address::repeat_byte(0x3e))).await;
+}
+
+async fn historical_prefix_replacement(fee_recipient: Option<alloy_primitives::Address>) {
     let mut config = env();
     config.extend([
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
@@ -1673,6 +1710,9 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
         ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
     ]);
+    if let Some(fee_recipient) = fee_recipient {
+        config.push(("EEZ_L2_FEE_RECIPIENT", format!("{fee_recipient:#x}")));
+    }
     let mut world = setup_cross_chain_with_l1_reorg(&config).await.unwrap();
     let follower = NodeHandle::start(
         "historical-prefix-follower",
@@ -1732,20 +1772,31 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
     )
     .unwrap();
     let target_timestamp = target["minTimestamp"].as_u64().unwrap();
-    assert!(
-        world
-            .node
-            .signals_since(cursor)
-            .unwrap()
-            .iter()
-            .any(|event| {
-                event.name == "eez.composer.emission.historical_chunk"
-                    && event.fields["split_reasons"]
-                        .as_str()
-                        .is_some_and(|s| s.contains("blob_limit"))
-            }),
-        "fixture must reach the historical blob-prefix path"
-    );
+    let boundary = world
+        .node
+        .signals_since(cursor)
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|event| {
+            event.name == "eez.composer.emission.historical_chunk"
+                && event.fields["split_reasons"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("blob_limit"))
+        })
+        .and_then(|event| event.fields["boundary"].as_u64())
+        .expect("fixture must reach the historical blob-prefix path");
+    let boundary_block = l2
+        .get_block_by_number(boundary.into())
+        .await
+        .unwrap()
+        .expect("historical boundary block");
+    if let Some(fee_recipient) = fee_recipient {
+        assert_eq!(
+            boundary_block.header.beneficiary, fee_recipient,
+            "fixture must exercise a boundary carrying the configured coinbase"
+        );
+    }
     world
         .l1_reorg_control
         .as_mut()
@@ -1767,6 +1818,17 @@ async fn historical_blob_prefix_preserves_the_skipped_slot_replacement_target() 
             world.settlement_diagnostics()
         )
     });
+    // The replacement re-proves the unchanged prefix at the next slot. The
+    // boundary it ends at, and therefore every descendant, stays canonical.
+    assert_eq!(
+        l2.get_block_by_number(boundary.into())
+            .await
+            .unwrap()
+            .map(|block| block.header.hash),
+        Some(boundary_block.header.hash),
+        "deadline replacement rewrote the historical boundary{}",
+        world.settlement_diagnostics()
+    );
     let mut covered = 0;
     for hash in hashes {
         let receipt = wait_for(TIMEOUT, || async {

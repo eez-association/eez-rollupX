@@ -9,17 +9,17 @@ use eez_testkit::signals;
 use eez_testkit::{
     ANVIL_ATTESTER_KEY, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall, INBOUND_USER, INestedSetterInner,
     INestedSetterOuter, IReturnData, IReturnDataWrapper, IRevertBubbleWrapper, IRevertingTarget,
-    ISetterWrapper, IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, ProverMutation,
-    REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead, TARGET_DEPLOYER,
-    account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
-    count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
-    events_since, l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word,
-    receipt_ok, run_scenarios, safe_block_hash, setter_call, setup_cross_chain,
-    setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
-    setup_cross_chain_outbound_return_data, setup_cross_chain_proxied,
-    setup_cross_chain_return_data, setup_cross_chain_reverting, setup_cross_chain_with_env,
-    sign_and_send, signer_address, state_root, value_no_ret, value_read, wait_for,
-    wait_for_receipt_or_failure,
+    ISetterWrapper, IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, POST_BATCHER_ENV,
+    ProverMutation, REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead,
+    TARGET_DEPLOYER, account_code, assert_latest_batch_signature, batches_posted, call_read,
+    call_revert_data, count_events, cross_chain_source_proxy, deploy_nested_setter_inner,
+    deploy_nested_setter_outer, events_since, l2_balance, l2_value, last_proxy_result,
+    onchain_nonce, read_state_word, receipt_ok, run_scenarios, safe_block_hash, setter_call,
+    setup_cross_chain, setup_cross_chain_codeless, setup_cross_chain_empty_call,
+    setup_cross_chain_nested_setter, setup_cross_chain_outbound_return_data,
+    setup_cross_chain_proxied, setup_cross_chain_return_data, setup_cross_chain_reverting,
+    setup_cross_chain_with_env, sign_and_send, signer_address, state_root, value_no_ret,
+    value_read, wait_for, wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -334,6 +334,110 @@ async fn rejecting_builder_does_not_block_settlement() {
             .unwrap(),
         0,
         "a relay rejection must not evict a valid user",
+    );
+    w.node.assert_no_divergence_failure_logs();
+}
+
+/// `EEZ_L1_POSTBATCH_TARGET` sends every postBatch through the
+/// `EEZPostBatcher` wrapper. Both directions must settle, the node's own
+/// derivation must follow the wrapped posts to the settled root, and every
+/// registry `BatchPosted` must come from a transaction sent to the wrapper.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn post_batch_target_wrapper_settles_both_directions() {
+    let w = setup_cross_chain_with_env(&[(POST_BATCHER_ENV, "1".to_owned())])
+        .await
+        .unwrap();
+    assert_ne!(w.post_batch_target, w.cfg.eez_address);
+    let l1_rpc = w.l1_rpc();
+    let l2_rpc = w.l2_rpc();
+    let inbound = sign_and_send(
+        &w.l1_xchain(),
+        INBOUND_USER,
+        DEV_CHAIN_ID,
+        onchain_nonce(&l1_rpc, INBOUND_USER).await.unwrap(),
+        Some(w.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall {
+            v: U256::from(53u64),
+        }
+        .abi_encode(),
+        600_000,
+    )
+    .await
+    .expect("inbound transaction must be admitted");
+    let outbound = sign_and_send(
+        &w.l2_xchain(),
+        OUTBOUND_USER,
+        w.l2_chain_id,
+        onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap(),
+        Some(w.outbound_proxy),
+        U256::ZERO,
+        IValue::setValueCall {
+            v: U256::from(59u64),
+        }
+        .abi_encode(),
+        900_000,
+    )
+    .await
+    .expect("outbound transaction must be admitted");
+    let (inbound_hashes, outbound_hashes) = ([inbound], [outbound]);
+    tokio::join!(
+        assert_all_transactions_succeeded(&w, &l1_rpc, &inbound_hashes, "wrapped inbound"),
+        assert_all_transactions_succeeded(&w, &l2_rpc, &outbound_hashes, "wrapped outbound"),
+    );
+    let (eez, rollup_id) = (w.cfg.eez_address, w.cfg.rollup_id);
+    let converged = wait_for(SETTLE_TIMEOUT, || {
+        let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
+        async move {
+            let inbound_applied = l2_value(&l2_rpc, w.value_l2).await? == U256::from(53u64);
+            let outbound_applied = l2_value(&l1_rpc, w.outbound_value).await? == U256::from(59u64);
+            let l1_root = state_root(&l1_rpc, eez, rollup_id).await?;
+            let l2_root = safe_block_hash(&l2_rpc).await?;
+            Ok((inbound_applied && outbound_applied && l2_root == Some(l1_root)).then_some(()))
+        }
+    })
+    .await;
+    if let Err(err) = converged {
+        panic!(
+            "wrapped postBatch did not settle both directions: {err:#}{}",
+            w.settlement_diagnostics()
+        );
+    }
+
+    let l1 = ProviderBuilder::new().connect_http(l1_rpc.parse().unwrap());
+    let posted = l1
+        .get_logs(
+            &alloy_rpc_types_eth::Filter::new()
+                .address(eez)
+                .event_signature(eez_protocol::abi::BatchPosted::SIGNATURE_HASH)
+                .from_block(w.dep.deploy_block),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !posted.is_empty(),
+        "the wrapper must post at least one batch"
+    );
+    for log in posted {
+        let hash = log.transaction_hash.unwrap();
+        let tx = l1.get_transaction_by_hash(hash).await.unwrap().unwrap();
+        assert_eq!(
+            alloy_consensus::Transaction::to(&tx),
+            Some(w.post_batch_target),
+            "{hash}: every postBatch is sent to the wrapper"
+        );
+        assert!(
+            alloy_consensus::Transaction::input(&tx)
+                .starts_with(&eez_protocol::abi::postAndVerifyBatchCall::SELECTOR),
+            "{hash}: the wrapper call keeps the registry's calldata"
+        );
+    }
+    assert!(
+        w.node
+            .count_signals(&["eez.composer.postbatch.target_validated"])
+            .unwrap()
+            >= 1,
+        "the node must validate the wrapper before posting"
     );
     w.node.assert_no_divergence_failure_logs();
 }

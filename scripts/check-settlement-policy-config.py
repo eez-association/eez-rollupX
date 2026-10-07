@@ -24,12 +24,20 @@ def main():
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "200000000000",
         "EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE": "2",
         "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "100",
+        "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE": "50",
+        "EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE": "90",
+        "EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE": "150",
         "EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS": "15000",
         "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS": "5000",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS": "2500",
         "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
     }
-    for profile in ("chiado", "kurtosis"):
+    signer_l1_profile = {
+        "chiado": "chiado",
+        "kurtosis": "/l1-genesis/genesis.json",
+        "ethereum": "mainnet",
+    }
+    for profile in signer_l1_profile:
         with tempfile.TemporaryDirectory(prefix="eez-policy-compose-") as directory:
             root = Path(directory)
             (root / "deployments.env").write_text("")
@@ -69,8 +77,14 @@ def main():
             assert node.get("EEZ_MAX_BLOCKS_PER_BATCH") is None, profile
             assert node.get("EEZ_MAX_POSTBATCH_GAS") is None, profile
             assert node["EEZ_MAX_SPECULATIVE_DEPTH"] == "0", profile
-            expected = "chiado" if profile == "chiado" else "/l1-genesis/genesis.json"
+            expected = signer_l1_profile[profile]
             assert services["eez-proof-signer"]["environment"]["EEZ_L1_CHAIN_CONFIG"] == expected
+            if profile == "ethereum":
+                # One network value selects all three services consistently.
+                assert node["EEZ_L1_CHAIN"] == "mainnet", node["EEZ_L1_CHAIN"]
+                assert node["EEZ_L1_CHAIN_ID"] == node["EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS"] == "1"
+                assert node.get("EEZ_L1_CHAIN_PATH") is None
+                assert "--network=mainnet" in services["lighthouse"]["command"]
             print(f"{profile}: mandatory policy configuration PASS")
 
 

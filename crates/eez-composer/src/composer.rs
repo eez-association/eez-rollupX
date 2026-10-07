@@ -160,6 +160,14 @@ struct CompositionGas {
     l1_target: u64,
 }
 
+/// Whether a Sync block carries no transactions, and therefore no cross-chain
+/// group that a deadline replacement would need to remove.
+fn sync_block_is_empty(
+    header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
+) -> bool {
+    header.transactions_root() == alloy_consensus::constants::EMPTY_ROOT_HASH
+}
+
 /// Only L1 destination frames execute inside the outbound postBatch. Nested
 /// callbacks on L2 execute in the Sync block instead. The composition inspector
 /// returns intercepted calls' gas to their caller, so every recorded L1 frame
@@ -1426,16 +1434,20 @@ where
             gas_trace,
             emission,
             fee_recipient,
+            post_batch_target,
             ..
         } = settings;
         event!(name: "eez.composer.settlement.policy", Level::INFO,
             ?policy_config, "settlement policy settings apply until restart");
         let policy = policy::EnabledPolicy::new(policy_config, rollups.keys().copied(), blob_cap);
+        let registry = cross_chain.local.l1_entry.manager_address();
+        let post_batch_target = post_batch_target.unwrap_or(registry);
         let posting = Arc::new(posting::PostingRuntime {
             fees: posting_fees,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
-            registry: cross_chain.local.l1_entry.manager_address(),
+            registry,
+            post_batch_target,
             operator_gas_cap: emission.max_gas,
             operator_blob_cap: blob_cap,
             costs: std::sync::Mutex::default(),
@@ -1446,7 +1458,7 @@ where
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
             automatic_admission = max_user_txs_per_bundle.is_none(),
             k = timing.k(),
-            %fee_recipient,
+            %fee_recipient, %registry, %post_batch_target,
             "posting settings; policy resolves network gas limits per target");
 
         Ok(Self {
@@ -1596,7 +1608,7 @@ where
                             }
                             match submitter.canonical_block_hash(block.number).await {
                                 Ok(Some(hash)) if hash == block.hash => {
-                                    if let Err(error) = optimistic.forget_finalized(id, block) {
+                                    if let Err(error) = held_pool.forget_finalized(id, block) {
                                         event!(Level::ERROR, %error, "finality update failed; retaining records");
                                     } else {
                                         posting
@@ -1617,8 +1629,7 @@ where
                                         .invalidate_after_l1(block.number.saturating_sub(1))
                                     {
                                         event!(Level::ERROR, %error, "finality audit found a reorg; ownership invalidation failed");
-                                    } else if let Err(error) =
-                                        optimistic.forget_finalized(id, block)
+                                    } else if let Err(error) = held_pool.forget_finalized(id, block)
                                     {
                                         // Invalidation reopened every canonical outcome still
                                         // owned here. Only fully transferred history or local
@@ -1800,7 +1811,7 @@ where
                     rollup_id,
                     rollup,
                     cursor,
-                    sync_height,
+                    &parent_header,
                     bundle_target,
                     "block_limit",
                 )
@@ -2076,37 +2087,41 @@ where
         // transactions in descendants. The sequencer rebuilds those blocks on
         // this empty Sync before composing the new terminal cross-chain group.
         let head = self.inner.committer.last_header();
-        let own_hash = if head.number() == attempt.sync_height {
-            Some(head.hash())
+        let own = if head.number() == attempt.sync_height {
+            Some(head)
         } else {
             rollup
                 .l2_provider
                 .sealed_header(attempt.sync_height)
                 .map_err(|error| error.to_string())?
-                .map(|header| header.hash())
         };
-        if own_hash != Some(attempt.manifest.sync_hash) {
+        let Some(own) = own.filter(|header| header.hash() == attempt.manifest.sync_hash) else {
             return Ok(());
-        }
-        let built = build_sync_block(
-            rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
-            &attempt.parent,
-            attempt
-                .parent
-                .timestamp()
-                .checked_add(timing.l2_block_time().as_secs())
-                .ok_or("replacement timestamp overflow")?,
-            rollup
-                .l1_head
-                .next_block_context(&attempt.parent)
-                .map_err(|e| e.to_string())?
-                .1,
-            Address::ZERO,
-            &[],
-        )
-        .map_err(|error| error.to_string())?;
-        if built.header.hash() != attempt.manifest.sync_hash {
+        };
+        // Historical and anchor-only attempts end at an empty Sync, which
+        // holds no cross-chain group to remove. Never switch to a rebuild of
+        // it: an equivalent empty block can still differ by header fields
+        // such as the coinbase, and the branch switch would unwind every
+        // descendant, possibly far more than the speculative suffix.
+        if !sync_block_is_empty(&own) {
+            let built = build_sync_block(
+                rollup.l2_provider.as_ref(),
+                &self.inner.evm_config,
+                &attempt.parent,
+                attempt
+                    .parent
+                    .timestamp()
+                    .checked_add(timing.l2_block_time().as_secs())
+                    .ok_or("replacement timestamp overflow")?,
+                rollup
+                    .l1_head
+                    .next_block_context(&attempt.parent)
+                    .map_err(|e| e.to_string())?
+                    .1,
+                Address::ZERO,
+                &[],
+            )
+            .map_err(|error| error.to_string())?;
             self.inner
                 .committer
                 .commit_derived(built.payload, built.header, true)
@@ -2168,7 +2183,9 @@ where
         rollup: &RollupState<L2>,
         attempt: crate::optimistic::AttemptRecord,
     ) -> Result<RecoveryOutcome, String> {
-        use crate::optimistic::{SourceOutcome, SubmissionObservation, TerminalReason};
+        use crate::optimistic::{
+            AttemptCharge, SourceOutcome, SubmissionObservation, TerminalReason,
+        };
         let snapshot = rollup.l1_head.settlement_snapshot();
         let (Some(at), Some(endpoint)) = (snapshot.through, snapshot.endpoint) else {
             return Ok(RecoveryOutcome::HeadUnchanged);
@@ -2380,15 +2397,20 @@ where
         if !attempt.txs.is_empty() && endpoint.number < attempt.sync_height {
             let head = self.inner.committer.last_header();
             let own_block = match head.number().cmp(&attempt.sync_height) {
-                std::cmp::Ordering::Equal => Some(head.hash()),
+                std::cmp::Ordering::Equal => Some(head),
                 std::cmp::Ordering::Greater => rollup
                     .l2_provider
                     .sealed_header(attempt.sync_height)
-                    .map_err(|error| error.to_string())?
-                    .map(|header| header.hash()),
+                    .map_err(|error| error.to_string())?,
                 std::cmp::Ordering::Less => None,
             };
-            if own_block == Some(attempt.manifest.sync_hash) {
+            // A static-only inbound attempt may already have an empty Sync.
+            // Nothing on L2 needs replacing in that case; a rebuild can differ
+            // only by header fields such as the coinbase, and switching to it
+            // would unnecessarily discard descendants.
+            if own_block.is_some_and(|header| {
+                header.hash() == attempt.manifest.sync_hash && !sync_block_is_empty(&header)
+            }) {
                 let timestamp = attempt
                     .parent
                     .timestamp()
@@ -2415,27 +2437,30 @@ where
                 // A branch switch reports the complete old chain, including
                 // persisted blocks. The pool gate keeps our submitted sources
                 // out of ordinary sequencing while their ownership reconciles.
-                // A static-only inbound attempt may already have an empty
-                // Sync. Nothing on L2 needs replacing in that case; pointing
-                // at the same ancestor would unnecessarily discard descendants.
-                if built.header.hash() != attempt.manifest.sync_hash {
-                    self.inner
-                        .committer
-                        .commit_derived(built.payload, built.header, true)
-                        .await
-                        .map_err(|error| error.to_string())?;
-                    result = RecoveryOutcome::HeadMoved;
-                }
+                self.inner
+                    .committer
+                    .commit_derived(built.payload, built.header, true)
+                    .await
+                    .map_err(|error| error.to_string())?;
+                result = RecoveryOutcome::HeadMoved;
             }
         }
-        let charge = post.receipt.is_some()
-            || matches!(
-                attempt.observation,
-                SubmissionObservation::Excluded {
-                    charge_attempt: true,
-                    ..
-                }
-            );
+        // A landed postBatch that left users incomplete spent L1 gas and
+        // counts toward the settlement bound; an excluded slot spent nothing
+        // and counts only toward its own, larger bound.
+        let charge = if post.receipt.is_some() {
+            AttemptCharge::Settlement
+        } else if matches!(
+            attempt.observation,
+            SubmissionObservation::Excluded {
+                charge_attempt: true,
+                ..
+            }
+        ) {
+            AttemptCharge::ExcludedSlot
+        } else {
+            AttemptCharge::None
+        };
         rollup.held_pool.resolve_attempt(
             attempt.id,
             at,
@@ -2452,7 +2477,7 @@ where
             let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
             if !submission_backoff_required(&outcomes, false) {
                 automatic.submission_completed();
-            } else if charge {
+            } else if charge != AttemptCharge::None {
                 let next_selection_max = automatic.submission_failed(attempt.txs.len());
                 event!(name: "eez.composer.admission.submission_failure", Level::INFO,
                     event_name = "eez.composer.admission.submission_failure", rollup_id,
@@ -2481,7 +2506,8 @@ where
             rollup_id, attempt = ?attempt.id, at_l1 = at.number,
             post_batch_hash = %attempt.id.post_batch_hash,
             canonical_l2_number = endpoint.number, canonical_l2_hash = %endpoint.hash,
-            outcomes = ?outcomes, charge_attempt = charge,
+            outcomes = ?outcomes, charge_attempt = charge != AttemptCharge::None,
+            attempt_charge = ?charge,
             "canonical source dispositions recorded and ownership transferred");
         Ok(result)
     }
@@ -2677,10 +2703,20 @@ where
             prefix_hash_elapsed += started.elapsed();
             result
         };
+        // The drain is nonempty and the held pool holds only cross-chain
+        // work, so composition simulates at the price final pricing will use
+        // when any of it survives. The final quote is selected again from the
+        // surviving semantics, and final validation re-executes the exact
+        // signed bundle, so a price-dependent outcome cannot be dispatched
+        // with a stale expectation.
         let composition_quote = self
             .inner
             .posting
-            .quote(bundle_target, false)
+            .quote(
+                bundle_target,
+                false,
+                eez_l1::posting_fees::PriorityProfile::CrossChain,
+            )
             .await
             .map_err(|error| error.to_string())?;
         let slot_ctx = L1SlotState::open(&local.l1_entry)
@@ -5418,7 +5454,7 @@ where
                         rollup_id,
                         rollup,
                         cursor,
-                        sync_height,
+                        parent_header,
                         bundle_target,
                         match &err {
                             PreparePostBatchError::OverBudget { constraint, .. } => constraint,
@@ -5537,11 +5573,16 @@ where
         rollup_id: u64,
         rollup: &RollupState<L2>,
         cursor: u64,
-        sync_height: u64,
+        parent: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
         bundle_target: BundleTarget,
         split_reason: &'static str,
     ) -> Result<(), String> {
         let preparation_started_ms = crate::prover_retry::unix_time_millis();
+        let sync_height = parent.number() + 1;
+        // A previous prefix may have advanced canonical settlement since the
+        // last sizing; candidate sizes must start at the current anchor.
+        self.refresh_historical_index(rollup_id, rollup, parent)
+            .await?;
         let limits = self.inner.emission;
         let k = u64::from(limits.timing.k());
         // Under the cap the cap-bounded boundary is the sync height itself, which
@@ -7136,8 +7177,9 @@ where
             "postBatch commitments: current block hash at cursor, claimed final Sync block hash",
         );
 
-        // Reuse the deployment identity validated during startup.
-        let eez_address = self.inner.cross_chain.local.l1_entry.manager_address();
+        // The registry, or a wrapper validated at startup to forward this exact
+        // calldata to it. Registry reads elsewhere keep using the registry.
+        let post_batch_target = self.inner.posting.post_batch_target;
 
         let poster = ctx.l1_poster_signer.address();
         let poster_nonce = ctx
@@ -7174,7 +7216,11 @@ where
 
         let posting = &self.inner.posting;
         let quote = posting
-            .quote(bundle_target, false)
+            .quote(
+                bundle_target,
+                false,
+                posting::priority_profile(semantic_transactions),
+            )
             .await
             .map_err(|error| error.to_string())?;
         if quote.quote.sample
@@ -7197,7 +7243,7 @@ where
                 max_fee_per_gas: quote.quote.max_fee_per_gas,
                 max_priority_fee_per_gas: quote.quote.max_priority_fee_per_gas,
                 max_fee_per_blob_gas: quote.quote.max_fee_per_blob_gas,
-                to: eez_address,
+                to: post_batch_target,
                 value: U256::ZERO,
                 access_list: Default::default(),
                 input: calldata.into(),
@@ -8085,6 +8131,7 @@ mod tests {
             raw_tx: Bytes::from(vec![hash_byte; 4]),
             hash: TxHash::repeat_byte(hash_byte),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(hash_byte),
             priority_fee_per_gas: u128::from(hash_byte),
             sender,

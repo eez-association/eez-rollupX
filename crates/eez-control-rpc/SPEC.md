@@ -455,7 +455,8 @@ counter; transport retries within an episode do not each charge it. At
 same-direction nonce suffixes, including queued and in-flight reservations.
 Independent senders and the opposite direction remain eligible. Invalid actionable
 hints receive the same bounded opaque-rejection handling. Automatic submitted-attempt reconciliation has a separate six-failure bound
-described in §8; both paths use the same cumulative source counter. A potentially valid
+described in §8; both paths use the same cumulative source counter. Excluded target
+slots use a separate counter (§8). A potentially valid
 candidate may be evicted to restore progress and then requires resubmission.
 Construction failures, skipped slots, and source-condition waits (including
 insufficient escrow) do not charge this counter. Repeated funding checks cannot
@@ -648,10 +649,17 @@ one indivisible replay group.
 
 Eligible omitted users return to the held pool in FIFO order. A conclusive
 settlement failure charges each eligible user's bounded retry policy once.
-Automatic admission permits six cumulative charged failures at reconciliation,
+A landed postBatch that leaves the user incomplete is a settlement failure:
+automatic admission permits six cumulative such failures at reconciliation,
 so five consecutive confirmed incomplete settlements can trigger a smaller
 sixth attempt. Numeric admission retains three. Prover/immediate relay rejection
 keeps the §6.1 bound on the same source counter; no transition resets that counter.
+An excluded target slot (the target block was built without the bundle, so no
+postBatch gas was spent) charges a separate per-source counter bounded by
+`MAX_EXCLUDED_SLOT_ATTEMPTS = 12` in both admission modes. Such slots include
+proposer-built blocks and builders that never held the bundle, which the Composer
+cannot influence; counting them toward the small settlement bound evicted valid
+users after a few unreachable slots. Either bound exhausts the user.
 The per-rollup admission streak resets only after complete canonical settlement
 of a nonempty source batch, and skips uncertain or canonically skipped targets.
 Admission preparation, acknowledgement and progress elsewhere are not source
@@ -688,7 +696,11 @@ or storage migration and rollback restores the smaller scheduling allowance.
 The replacement uses a fresh proof, the next slot's exact timestamp and the same
 poster nonce. Replace the original nonempty Sync with an empty Sync and rebuild
 its speculative descendants before placing complete cross-chain groups in the
-new terminal Sync. Retain ordinary transactions through normal reorg recovery.
+new terminal Sync. An original Sync that is already empty, as for
+historical-prefix and anchor-only attempts, stays canonical with its
+descendants; only the proof and bundle are rebuilt. A rebuilt empty block can
+differ by header fields such as the coinbase, so switching to it would unwind
+retained history. Retain ordinary transactions through normal reorg recovery.
 Final bundle execution and target checks remain mandatory. If the original
 settles late, canonical replay replaces the active branch and source
 reconciliation determines which users remain pending. The scheduling deadline

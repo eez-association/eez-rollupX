@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 use super::{
     Direction, HeldPool, HeldTx, OptimisticallyIncluded, PoolState, TerminalReason, UserLocation,
 };
+use crate::optimistic::FinalizedUser;
 
 /// Bound diagnostic history independently of the live pool and settlement ledger.
 pub(super) const MAX_RECENT_REMOVALS: usize = 1024;
@@ -26,6 +27,8 @@ struct LocalRemoval {
     nonce: u64,
     reason: TerminalReason,
     replacement: Option<B256>,
+    /// Canonical L1 block of a finalized outcome; local pool removals have none.
+    canonical: Option<L1BlockRef>,
     observed_at_ms: u64,
 }
 
@@ -96,6 +99,24 @@ impl QueueTelemetry {
         reason: TerminalReason,
         replacement: Option<B256>,
     ) {
+        self.record_removal(hash, identity, reason, replacement, None);
+    }
+
+    /// Keep the outcome of a user whose ledger record finality pruned.
+    /// Without this, a settled or exhausted request becomes unknown once its
+    /// attempt is finalized, although its outcome is still the useful answer.
+    pub fn finalized(&mut self, user: FinalizedUser) {
+        self.record_removal(user.hash, user.identity, user.reason, None, user.canonical);
+    }
+
+    fn record_removal(
+        &mut self,
+        hash: B256,
+        identity: (Address, Direction, u64),
+        reason: TerminalReason,
+        replacement: Option<B256>,
+        canonical: Option<L1BlockRef>,
+    ) {
         self.recent_removals.retain(|removed| removed.hash != hash);
         if self.recent_removals.len() == MAX_RECENT_REMOVALS {
             self.recent_removals.pop_front();
@@ -107,6 +128,7 @@ impl QueueTelemetry {
             nonce: identity.2,
             reason,
             replacement,
+            canonical,
             observed_at_ms: now_ms(),
         });
     }
@@ -121,7 +143,8 @@ impl QueueTelemetry {
             "hash": hash, "sender": removed.sender, "direction": direction_name(removed.direction),
             "nonce": removed.nonce, "lifecycle": "terminal", "ownerGeneration": null,
             "ownership": {"state": "terminal", "reason": format!("{:?}", removed.reason),
-                "canonical": null, "observedAtMs": removed.observed_at_ms,
+                "canonical": removed.canonical.map(|block| json!({"number": block.number, "hash": block.hash})),
+                "observedAtMs": removed.observed_at_ms,
                 "replacementHash": removed.replacement},
             "blocking": null,
         }))
@@ -476,6 +499,7 @@ mod tests {
             direction,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         }
@@ -642,6 +666,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };
@@ -696,6 +721,7 @@ mod tests {
             direction: Direction::Inbound,
             nonce: 0,
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: 1,
             priority_fee_per_gas: 1,
         };

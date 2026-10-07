@@ -45,9 +45,16 @@ pub struct HeldTx {
     /// accepted it. Recovery increments this once per failed episode and
     /// evicts the tx at the applicable bound: three for prover/immediate relay
     /// rejection and numeric admission, six for automatic canonical settlement
-    /// failures (allowing a reduced retry after the fifth exclusion). Switching
+    /// failures (allowing a reduced retry after the fifth failure). Switching
     /// failure paths preserves this counter. Eviction requires resubmission.
+    /// Excluded target slots are counted separately in `excluded_slots`.
     pub attempts: u32,
+    /// Target slots whose block was built without this transaction's bundle
+    /// (no postBatch gas spent). Bounded by
+    /// [`crate::optimistic::MAX_EXCLUDED_SLOT_ATTEMPTS`], independently of
+    /// `attempts`, so slots the Composer cannot reach do not exhaust the
+    /// settlement bound.
+    pub excluded_slots: u32,
     /// Recovered L1 sender. Together with `nonce`, lets the pool and
     /// the eviction path keep each sender's nonce chain CONTIGUOUS:
     /// ingress rejects out-of-sequence submissions, and evicting a tx
@@ -418,7 +425,7 @@ impl HeldPool {
         id: crate::optimistic::AttemptId,
         as_of: eez_l1::L1BlockRef,
         outcomes: &[crate::optimistic::SourceOutcome],
-        charge_attempt: bool,
+        charge: crate::optimistic::AttemptCharge,
         attempt_limit: u32,
         is_canonical: impl FnOnce() -> bool,
     ) -> Result<(), String> {
@@ -428,10 +435,27 @@ impl HeldPool {
         }
         let gaps = state
             .ledger
-            .resolve(id, as_of, outcomes, charge_attempt, attempt_limit)?;
+            .resolve(id, as_of, outcomes, charge, attempt_limit)?;
         state.apply_resolution(&gaps);
         let ledger = Arc::clone(&state.ledger);
         state.telemetry.observe_completion(&ledger);
+        Ok(())
+    }
+
+    /// Prune one finality-audited attempt from the shared ledger and keep each
+    /// released user's terminal outcome in the bounded diagnostic history, so
+    /// `eez_getCrossChainTransaction` still reports why it ended. Both happen
+    /// under the pool lock, so a status read never sees the gap between them.
+    pub fn forget_finalized(
+        &self,
+        id: crate::optimistic::AttemptId,
+        audited: eez_l1::L1BlockRef,
+    ) -> Result<(), String> {
+        let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let released = state.ledger.forget_finalized(id, audited)?;
+        for user in released {
+            state.telemetry.finalized(user);
+        }
         Ok(())
     }
 
@@ -882,6 +906,7 @@ mod tests {
             raw_tx: Bytes::from(vec![byte; 32]),
             hash: TxHash::from(B256::repeat_byte(byte)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(byte),
             priority_fee_per_gas: u128::from(byte),
             sender: Address::repeat_byte(byte),
@@ -1268,6 +1293,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1309,6 +1335,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1357,6 +1384,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1393,6 +1421,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1432,6 +1461,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1460,6 +1490,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1605,6 +1636,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,
@@ -1654,6 +1686,7 @@ mod tests {
             raw_tx: Bytes::from(vec![h; 4]),
             hash: TxHash::from(B256::repeat_byte(h)),
             attempts: 0,
+            excluded_slots: 0,
             max_fee_per_gas: u128::from(h),
             priority_fee_per_gas: u128::from(h),
             sender,

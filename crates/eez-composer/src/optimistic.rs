@@ -36,6 +36,29 @@ pub enum SubmissionObservation {
     Uncertain,
 }
 
+/// Excluded target slots tolerated per user before eviction, independently of
+/// the settlement-attempt bound. An excluded slot is one whose block was built
+/// without the bundle — locally by the proposer, by a builder that never held
+/// it, or by one that left it out — so the postBatch spent no gas. Many such
+/// slots are outside the Composer's reach; charging them to the small
+/// settlement bound evicted valid requests after a few unlucky slots. Twelve
+/// slots (about 2.4 minutes on Ethereum) keeps a bundle that builders keep
+/// rejecting bounded, while a run of unreachable slots no longer evicts.
+pub const MAX_EXCLUDED_SLOT_ATTEMPTS: u32 = 12;
+
+/// What a reconciled attempt charges to its retryable users.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttemptCharge {
+    /// Nothing attributable to the users (skipped slot, uncertainty, deferral).
+    None,
+    /// The target block was built without the bundle. Counts only toward
+    /// [`MAX_EXCLUDED_SLOT_ATTEMPTS`].
+    ExcludedSlot,
+    /// The postBatch landed but the user did not complete. Counts toward the
+    /// caller's settlement-attempt bound, because each retry spends L1 gas.
+    Settlement,
+}
+
 /// Explicit terminal user outcomes. Local policy terminations have no L1
 /// dependency; canonical source outcomes must be reconsidered after a reorg.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +133,16 @@ pub enum SourceOutcome {
     Retryable {
         source_nonce: u64,
     },
+}
+
+/// Terminal user whose ownership record was pruned after finality. Diagnostic
+/// only: it never authorizes execution, admission or recovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FinalizedUser {
+    pub hash: B256,
+    pub identity: (Address, Direction, u64),
+    pub reason: TerminalReason,
+    pub canonical: Option<L1BlockRef>,
 }
 
 /// Nonce suffix that cannot progress after a retry budget is exhausted.
@@ -419,12 +452,16 @@ impl OptimisticallyIncluded {
 
     /// Apply the user partition once, retaining the original record for
     /// reorg/finality but transferring only eligible users back to the queue.
+    ///
+    /// A retryable user is exhausted when its settlement attempts reach
+    /// `attempt_limit` or its excluded slots reach
+    /// [`MAX_EXCLUDED_SLOT_ATTEMPTS`]; `charge` selects which counter grows.
     pub fn resolve(
         &self,
         id: AttemptId,
         as_of: L1BlockRef,
         outcomes: &[SourceOutcome],
-        charge_attempt: bool,
+        charge: AttemptCharge,
         attempt_limit: u32,
     ) -> Result<Vec<NonceGap>, String> {
         self.update(|state| {
@@ -460,10 +497,18 @@ impl OptimisticallyIncluded {
                         if *source_nonce > tx.nonce {
                             return Err("retry requested for a spent source nonce".into());
                         }
-                        if charge_attempt {
-                            user.tx.attempts = user.tx.attempts.saturating_add(1);
+                        match charge {
+                            AttemptCharge::None => {}
+                            AttemptCharge::ExcludedSlot => {
+                                user.tx.excluded_slots = user.tx.excluded_slots.saturating_add(1);
+                            }
+                            AttemptCharge::Settlement => {
+                                user.tx.attempts = user.tx.attempts.saturating_add(1);
+                            }
                         }
-                        if user.tx.attempts >= attempt_limit {
+                        if user.tx.attempts >= attempt_limit
+                            || user.tx.excluded_slots >= MAX_EXCLUDED_SLOT_ATTEMPTS
+                        {
                             gaps.push(NonceGap {
                                 sender: tx.sender,
                                 direction: tx.direction,
@@ -565,7 +610,15 @@ impl OptimisticallyIncluded {
 
     /// Called only after a conclusive canonical finality audit. Errors or a
     /// reorg retain the record. No held-pool reservation is released here.
-    pub fn forget_finalized(&self, id: AttemptId, audited: L1BlockRef) -> Result<(), String> {
+    ///
+    /// Returns the terminal users whose ownership records were pruned, so the
+    /// held pool can keep their outcome in its bounded diagnostic history.
+    /// An ineligible attempt prunes nothing and returns an empty list.
+    pub fn forget_finalized(
+        &self,
+        id: AttemptId,
+        audited: L1BlockRef,
+    ) -> Result<Vec<FinalizedUser>, String> {
         self.update(|state| {
             let eligible =
                 state.attempts.get(&id.generation).is_some_and(|attempt| {
@@ -574,11 +627,26 @@ impl OptimisticallyIncluded {
                     user.owner == id.generation
                         && !matches!(user.location, UserLocation::Terminal { .. })
                 });
-            if eligible {
-                state.attempts.remove(&id.generation);
-                state.users.retain(|_, user| user.owner != id.generation);
+            if !eligible {
+                return Ok(Vec::new());
             }
-            Ok(())
+            state.attempts.remove(&id.generation);
+            let mut released = Vec::new();
+            state.users.retain(|hash, user| {
+                if user.owner != id.generation {
+                    return true;
+                }
+                if let UserLocation::Terminal { reason, canonical } = user.location {
+                    released.push(FinalizedUser {
+                        hash: *hash,
+                        identity: (user.tx.sender, user.tx.direction, user.tx.nonce),
+                        reason,
+                        canonical,
+                    });
+                }
+                false
+            });
+            Ok(released)
         })
     }
 }
@@ -629,6 +697,7 @@ mod tests {
             raw_tx: Bytes::from(signed.encoded_2718()),
             hash: *signed.tx_hash(),
             attempts: 0,
+            excluded_slots: 0,
             sender: signed.recover_signer().unwrap(),
             nonce: signed.nonce(),
             direction: Direction::Inbound,
@@ -769,11 +838,11 @@ mod tests {
             SourceOutcome::Retryable { source_nonce: 0 },
         ];
         assert!(
-            pool.resolve_attempt(id, block(100), &outcomes, false, 3, || false)
+            pool.resolve_attempt(id, block(100), &outcomes, AttemptCharge::None, 3, || false)
                 .is_err()
         );
         assert_eq!(pool.candidates(), remaining_prefix);
-        pool.resolve_attempt(id, block(100), &outcomes, false, 3, || true)
+        pool.resolve_attempt(id, block(100), &outcomes, AttemptCharge::None, 3, || true)
             .unwrap();
         assert_eq!(
             pool.candidates(),
@@ -789,7 +858,7 @@ mod tests {
             id,
             block(101),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 2],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -818,7 +887,7 @@ mod tests {
                 SourceOutcome::Retryable { source_nonce: 0 },
                 SourceOutcome::Terminal(TerminalReason::Committed),
             ],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -845,7 +914,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed)],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -885,7 +954,7 @@ mod tests {
             original,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -907,7 +976,7 @@ mod tests {
             replacement,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -947,7 +1016,7 @@ mod tests {
                 previous,
                 block(100),
                 &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
-                true,
+                AttemptCharge::Settlement,
                 3,
                 || true,
             )
@@ -973,7 +1042,7 @@ mod tests {
                 SourceOutcome::Retryable { source_nonce: 0 },
                 SourceOutcome::Terminal(TerminalReason::Committed),
             ],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1010,7 +1079,7 @@ mod tests {
             original,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1126,13 +1195,13 @@ mod tests {
             assert_eq!(pool.queue_snapshot().last_completion_l1_block, None);
             let outcomes = vec![SourceOutcome::Terminal(TerminalReason::Committed); txs.len()];
             assert_eq!(ledger.attempt_user_counts(id), Some([3, 0]));
-            pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
+            pool.resolve_attempt(id, block(100), &outcomes, AttemptCharge::None, 5, || true)
                 .unwrap();
             assert_eq!(ledger.pending_observation(), None);
             assert!(pool.queue_snapshot().last_completion_at_ms.is_some());
             assert_eq!(pool.queue_snapshot().last_completion_l1_block, Some(100));
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
-            pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
+            pool.resolve_attempt(id, block(100), &outcomes, AttemptCharge::None, 5, || true)
                 .unwrap();
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
             pool.invalidate_after_l1(99).unwrap();
@@ -1140,7 +1209,7 @@ mod tests {
             assert_eq!(pool.queue_snapshot().last_completion_l1_block, None);
             assert!(ledger.pending_observation().is_some());
             assert_eq!(pool.queue_snapshot().completion_observations, [3, 0]);
-            pool.resolve_attempt(id, block(100), &outcomes, false, 5, || true)
+            pool.resolve_attempt(id, block(100), &outcomes, AttemptCharge::None, 5, || true)
                 .unwrap();
             assert_eq!(pool.queue_snapshot().completion_observations, [6, 0]);
         }
@@ -1151,8 +1220,15 @@ mod tests {
         let (ledger, pool, txs, id) = setup();
         assert!(txs.iter().all(|tx| pool.is_cross_chain_source(tx.hash)));
         let outcomes = vec![SourceOutcome::Terminal(TerminalReason::Committed); txs.len()];
-        pool.resolve_attempt(id, block(100), &outcomes, true, 5, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            5,
+            || true,
+        )
+        .unwrap();
         assert!(txs.iter().all(|tx| !pool.owns(tx.hash)));
         // Asynchronous Reth reinjection must still recognize these sources
         // after the canonical ownership transfer has released reservations.
@@ -1193,8 +1269,15 @@ mod tests {
             // Canonical classification of a partial prefix; a competing
             // confirmed height alone has never opened this gate.
             assert_eq!(ledger.blocking_height(), Some(10));
-            pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
-                .unwrap();
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &partial(),
+                AttemptCharge::Settlement,
+                3,
+                || true,
+            )
+            .unwrap();
             if !observer_first {
                 barrier.wait();
             }
@@ -1218,8 +1301,15 @@ mod tests {
         assert_eq!(pending.txs.len(), 3);
         assert!(pool.is_empty());
         assert_eq!(ledger.blocking_height(), Some(10));
-        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         assert_eq!(pool.pop_all()[0].hash, txs[2].hash);
     }
 
@@ -1251,12 +1341,26 @@ mod tests {
     #[test]
     fn duplicate_resolution_does_not_release_a_new_attempt_or_charge_again() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            old,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         let retry = pool.pop_all();
         let new = begin(&ledger, retry, 11);
-        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            old,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         assert!(
             !ledger
                 .observe(old, SubmissionObservation::Included { block: block(100) })
@@ -1277,7 +1381,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::SourceReverted); 3],
-            true,
+            AttemptCharge::Settlement,
             3,
             || true,
         )
@@ -1311,7 +1415,7 @@ mod tests {
                 SourceOutcome::Terminal(TerminalReason::SourceCompletedWithMissingEffects),
                 SourceOutcome::Terminal(TerminalReason::SourceCompleted),
             ],
-            true,
+            AttemptCharge::Settlement,
             3,
             || true,
         )
@@ -1346,15 +1450,22 @@ mod tests {
         };
         let before = snapshot();
         assert!(
-            pool.resolve_attempt(id, block(100), &partial()[..2], true, 3, || true)
-                .is_err()
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &partial()[..2],
+                AttemptCharge::Settlement,
+                3,
+                || true
+            )
+            .is_err()
         );
         assert!(
             pool.resolve_attempt(
                 id,
                 block(100),
                 &[SourceOutcome::Retryable { source_nonce: 1 }; 3],
-                true,
+                AttemptCharge::Settlement,
                 3,
                 || true
             )
@@ -1370,7 +1481,7 @@ mod tests {
                     SourceOutcome::Retryable { source_nonce: 0 },
                     SourceOutcome::Retryable { source_nonce: 1 },
                 ],
-                true,
+                AttemptCharge::Settlement,
                 3,
                 || true,
             )
@@ -1386,8 +1497,15 @@ mod tests {
     fn reorg_restores_reservations_and_rejects_a_stale_ownership_decision() {
         let (ledger, pool, txs, id) = setup();
         assert!(
-            pool.resolve_attempt(id, block(100), &partial(), true, 3, || false)
-                .is_err()
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &partial(),
+                AttemptCharge::Settlement,
+                3,
+                || false
+            )
+            .is_err()
         );
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
         assert!(pool.is_empty());
@@ -1396,7 +1514,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed); 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1411,7 +1529,7 @@ mod tests {
         pool.push_contiguous(txs[0].clone(), 0).unwrap(); // exact duplicate is idempotent
         assert!(pool.is_empty());
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
-        pool.resolve_attempt(id, block(101), &partial(), false, 3, || true)
+        pool.resolve_attempt(id, block(101), &partial(), AttemptCharge::None, 3, || true)
             .unwrap();
         assert_eq!(
             pool.pop_all().iter().map(|tx| tx.hash).collect::<Vec<_>>(),
@@ -1422,8 +1540,15 @@ mod tests {
     #[test]
     fn reorg_at_same_l2_height_reopens_only_canonical_owned_users() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            old,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         let new = begin(&ledger, pool.pop_all(), 11);
         pool.invalidate_after_l1(99).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, old);
@@ -1440,7 +1565,7 @@ mod tests {
             old,
             block(101),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1456,7 +1581,7 @@ mod tests {
             old,
             block(100),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
-            true,
+            AttemptCharge::Settlement,
             3,
             || true,
         )
@@ -1477,7 +1602,7 @@ mod tests {
 
         // A reorged canonical completion still owned by this attempt must
         // instead await a fresh source audit, even at the same L2 height.
-        pool.resolve_attempt(new, block(101), &partial(), false, 3, || true)
+        pool.resolve_attempt(new, block(101), &partial(), AttemptCharge::None, 3, || true)
             .unwrap();
         pool.invalidate_after_l1(100).unwrap();
         ledger.forget_finalized(new, block(101)).unwrap();
@@ -1487,8 +1612,15 @@ mod tests {
     #[test]
     fn finality_only_forgets_audited_history_without_touching_retry() {
         let (ledger, pool, _, old) = setup();
-        pool.resolve_attempt(old, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            old,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         assert!(ledger.finalization_candidates(100).is_empty()); // queued retry still owns its history
         let new = begin(&ledger, pool.pop_all(), 11);
         assert_eq!(ledger.finalization_candidates(100), [(old, block(100))]);
@@ -1506,7 +1638,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1522,8 +1654,15 @@ mod tests {
     #[test]
     fn stale_recomposition_preserves_canonical_reorg_recovery() {
         let (ledger, pool, _, id) = setup();
-        pool.resolve_attempt(id, block(100), &partial(), true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &partial(),
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         let drained = pool.pop_all();
         assert!(pool.recheck_stale_sources(&drained).unwrap());
         assert_eq!(ledger.blocking_height(), Some(10));
@@ -1531,7 +1670,7 @@ mod tests {
         assert!(pool.is_empty());
         let mut outcomes = partial();
         outcomes[2] = SourceOutcome::Terminal(TerminalReason::SourceNonceSpent);
-        pool.resolve_attempt(id, block(101), &outcomes, false, 3, || true)
+        pool.resolve_attempt(id, block(101), &outcomes, AttemptCharge::None, 3, || true)
             .unwrap();
         ledger.invalidate_after_l1(100).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, id);
@@ -1551,11 +1690,25 @@ mod tests {
         }
         let id = begin(&ledger, pool.pop_all(), 10);
         let outcomes = vec![SourceOutcome::Retryable { source_nonce: 0 }; 3];
-        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         // A duplicate callback cannot increment the independent retry again.
-        pool.resolve_attempt(id, block(100), &outcomes, true, 3, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
         let queued = pool.pop_all();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].hash, independent.hash);
@@ -1580,6 +1733,143 @@ mod tests {
     }
 
     #[test]
+    fn finalized_terminal_outcomes_remain_queryable_after_ledger_pruning() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut exhausted = tx(1, 0);
+        exhausted.attempts = u32::MAX;
+        let committed = tx(2, 0);
+        for user in [&exhausted, &committed] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let id = begin(&ledger, pool.pop_all(), 10);
+        let outcomes = [
+            SourceOutcome::Retryable { source_nonce: 0 },
+            SourceOutcome::Terminal(TerminalReason::Committed),
+        ];
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            3,
+            || true,
+        )
+        .unwrap();
+
+        // A finality audit for another block is not this attempt's
+        // reconciliation and must not prune it.
+        pool.forget_finalized(id, block(99)).unwrap();
+        ledger.read(|state| assert_eq!(state.users.len(), 2));
+
+        pool.forget_finalized(id, block(100)).unwrap();
+        ledger.read(|state| {
+            assert!(state.users.is_empty());
+            assert!(state.attempts.is_empty());
+        });
+
+        let status = pool.transaction_status(exhausted.hash).unwrap();
+        assert_eq!(status["lifecycle"], "terminal");
+        assert_eq!(status["ownership"]["reason"], "AttemptsExhausted");
+        assert!(status["ownership"]["canonical"].is_null());
+        assert_eq!(status["nonce"], 0);
+
+        let status = pool.transaction_status(committed.hash).unwrap();
+        assert_eq!(status["lifecycle"], "terminal");
+        assert_eq!(status["ownership"]["reason"], "Committed");
+        assert_eq!(status["ownership"]["canonical"]["number"], 100);
+        assert_eq!(
+            status["ownership"]["canonical"]["hash"],
+            serde_json::json!(block(100).hash)
+        );
+    }
+
+    #[test]
+    fn excluded_slots_and_landed_failures_use_independent_bounds() {
+        const SETTLEMENT_LIMIT: u32 = 6;
+        let location = |ledger: &OptimisticallyIncluded, hash: B256| {
+            ledger.read(|state| {
+                let user = &state.users[&hash];
+                (
+                    user.location.clone(),
+                    user.tx.attempts,
+                    user.tx.excluded_slots,
+                )
+            })
+        };
+        let exhausted = UserLocation::Terminal {
+            reason: TerminalReason::AttemptsExhausted,
+            canonical: None,
+        };
+
+        // Excluded slots beyond the settlement bound neither evict nor charge
+        // the settlement counter.
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut unlucky = tx(1, 0);
+        unlucky.excluded_slots = SETTLEMENT_LIMIT + 2;
+        pool.push_contiguous(unlucky.clone(), 0).unwrap();
+        let id = begin(&ledger, pool.pop_all(), 10);
+        let retry = [SourceOutcome::Retryable { source_nonce: 0 }];
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &retry,
+            AttemptCharge::ExcludedSlot,
+            SETTLEMENT_LIMIT,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            location(&ledger, unlucky.hash),
+            (UserLocation::Queued, 0, SETTLEMENT_LIMIT + 3)
+        );
+
+        // The excluded-slot bound still evicts a bundle that keeps missing.
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut missing = tx(2, 0);
+        missing.excluded_slots = MAX_EXCLUDED_SLOT_ATTEMPTS - 1;
+        pool.push_contiguous(missing.clone(), 0).unwrap();
+        let id = begin(&ledger, pool.pop_all(), 10);
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &retry,
+            AttemptCharge::ExcludedSlot,
+            SETTLEMENT_LIMIT,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            location(&ledger, missing.hash),
+            (exhausted.clone(), 0, MAX_EXCLUDED_SLOT_ATTEMPTS)
+        );
+
+        // Landed but incomplete settlements keep the settlement bound and do
+        // not touch the excluded-slot counter.
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let mut landed = tx(3, 0);
+        landed.attempts = SETTLEMENT_LIMIT - 1;
+        pool.push_contiguous(landed.clone(), 0).unwrap();
+        let id = begin(&ledger, pool.pop_all(), 10);
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &retry,
+            AttemptCharge::Settlement,
+            SETTLEMENT_LIMIT,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(
+            location(&ledger, landed.hash),
+            (exhausted, SETTLEMENT_LIMIT, 0)
+        );
+    }
+
+    #[test]
     fn recovery_across_generations_keeps_lower_nonce_first() {
         let ledger = Arc::new(OptimisticallyIncluded::new());
         let pool = HeldPool::new(Arc::clone(&ledger));
@@ -1596,7 +1886,7 @@ mod tests {
                 SourceOutcome::Retryable { source_nonce: 1 },
                 SourceOutcome::Retryable { source_nonce: 1 },
             ],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1616,7 +1906,7 @@ mod tests {
             first,
             block(101),
             &[SourceOutcome::Retryable { source_nonce: 0 }; 3],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1625,7 +1915,7 @@ mod tests {
             second,
             block(101),
             &[SourceOutcome::Retryable { source_nonce: 0 }],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1646,20 +1936,41 @@ mod tests {
         pool.push_contiguous(original.clone(), 0).unwrap();
         let first = begin(&ledger, pool.pop_all(), 10);
         let outcomes = [SourceOutcome::Retryable { source_nonce: 0 }];
-        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            1,
+            || true,
+        )
+        .unwrap();
         assert!(pool.is_empty());
         pool.push_contiguous(original.clone(), 0).unwrap();
         assert_eq!(pool.len(), 1, "explicit resubmission was accepted");
-        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            1,
+            || true,
+        )
+        .unwrap();
         assert!(
             pool.owns(original.hash),
             "old accounting must not erase a new accepted submission"
         );
         let second = begin(&ledger, pool.pop_all(), 11);
-        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            1,
+            || true,
+        )
+        .unwrap();
         ledger.forget_finalized(first, block(100)).unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, second);
         assert_eq!(
@@ -1693,8 +2004,15 @@ mod tests {
         pool.push_contiguous(original.clone(), 0).unwrap();
         let first = begin(&ledger, pool.pop_all(), 10);
         let outcomes = [SourceOutcome::Retryable { source_nonce: 0 }];
-        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            1,
+            || true,
+        )
+        .unwrap();
         let mut lower_fee = original.clone();
         // Only cached admission fields are exercised; this synthetic identity
         // is never executed or included in a manifest.
@@ -1704,8 +2022,15 @@ mod tests {
         pool.push_contiguous(lower_fee, 0).unwrap();
         pool.push_contiguous(original.clone(), 0).unwrap();
         assert_eq!(pool.len(), 1);
-        pool.resolve_attempt(first, block(100), &outcomes, true, 1, || true)
-            .unwrap();
+        pool.resolve_attempt(
+            first,
+            block(100),
+            &outcomes,
+            AttemptCharge::Settlement,
+            1,
+            || true,
+        )
+        .unwrap();
         assert!(
             pool.owns(original.hash),
             "explicit replacement must establish fresh ownership too"
@@ -1775,8 +2100,10 @@ mod tests {
             let outcomes = [SourceOutcome::Retryable {
                 source_nonce: 14_514,
             }; 3];
-            pool.resolve_attempt(first, block(100), &outcomes, false, 3, || true)
-                .unwrap();
+            pool.resolve_attempt(first, block(100), &outcomes, AttemptCharge::None, 3, || {
+                true
+            })
+            .unwrap();
             pool.push_contiguous(tx(1, 14_517), 14_514).unwrap();
             let original_drain = pool.pop_all();
             assert!(
@@ -1788,8 +2115,10 @@ mod tests {
             } else {
                 pool.push_front_batch(original_drain);
             }
-            pool.resolve_attempt(first, block(100), &outcomes, false, 3, || true)
-                .unwrap();
+            pool.resolve_attempt(first, block(100), &outcomes, AttemptCharge::None, 3, || {
+                true
+            })
+            .unwrap();
             let order = pool.pop_all().iter().map(|tx| tx.nonce).collect::<Vec<_>>();
             assert_eq!(
                 order,
@@ -1815,7 +2144,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed)],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
@@ -1830,7 +2159,7 @@ mod tests {
             id,
             block(100),
             &[SourceOutcome::Terminal(TerminalReason::Committed)],
-            false,
+            AttemptCharge::None,
             3,
             || true,
         )
