@@ -149,7 +149,8 @@ historical blocks and state overrides can be classified; `safe`, `finalized` and
 EIP-1898 selectors are unavailable in this first version. Ordinary `pending`
 classification observes local head state, not upstream mempool transactions.
 
-L1 estimation runs real registry preparation with one simulation-only proof
+L1 estimation runs real registry preparation (through the configured, recognized
+posting wrapper when present) with one simulation-only proof
 assumption; it does not generate or verify a proof. Actual submission still
 requires the signer and final native preflight. Both fronts share two estimate
 workers, a five-second execution deadline and at most three gas probes. Busy,

@@ -5,6 +5,7 @@
 | Design status | Wallet-focused scope accepted by user on 2026-10-07; implemented; validation recorded below |
 | Date | 2026-10-07 |
 | Source baseline | `eduadiez/rollupX`, `main`, `fa916b13254a36423cad130080dde367bb18a7d6` |
+| PR integration base | `ab6e44c4710c80a06687ff28f39c635c9419636b` (current fork main when prepared) |
 | Protocol baseline | `855fe0602484750861b4c31502a1a91355d33ed6` |
 | Working tree at inspection | Existing edits to `docker-compose.chiado-node.yml`, `docker-compose.chiado.yml`, and untracked `.claude/`; preserved |
 | Related contracts | [Settlement policy](../configurable-settlement-policy.md), [signer profile](../../crates/eez-proof-signer/SPEC.md), [RPC failure handling](../../crates/eez-control-rpc/SPEC.md#6-failure-handling), [queue ownership](../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission) |
@@ -357,7 +358,9 @@ Only Composer fronts gain cross-chain estimation; direct node/follower RPCs reta
 their existing behavior. No protocol pin, contract deployment, signer wire schema,
 database migration or historical follower decoding changes are proposed. Native
 execution still uses the configured network's rules and pinned runtime identities.
-L1 conditional setup rejects unrecognized registry, rollup and verifier bytecode.
+L1 conditional setup rejects unrecognized registry, rollup, verifier and optional
+posting-wrapper bytecode. The pinned `EEZPostBatcher` wrapper is executed when
+configured, with its immutable registry binding checked at the sampled parent.
 Code identity is not separately whitelisted for L2 native replay.
 
 Old fronts continue forwarding estimates. Upgrade the Composer as one binary;
@@ -376,9 +379,9 @@ Implementation must update the owning RPC/operator docs for selector meanings,
 supported shapes, errors and endpoint differences. No AGENTS.md invariant changes are needed:
 real proof validation, final execution validation and canonical ownership remain.
 
-Status: implemented on `feat/composer-wallet-gas-estimation`.
+Status: implemented on `codex/composer-wallet-gas-estimation`.
 
-### Implementation validation
+### Initial-baseline validation (before main integration)
 
 - Baseline fork `fa916b1`, protocol `855fe060`: the unsigned L1 wallet request
   failed with RPC code 3, protocol revert `0x9a499f3b…`. The first sandbox run
@@ -417,3 +420,15 @@ Status: implemented on `feat/composer-wallet-gas-estimation`.
   artifact suites remain unverified. No live deployment or performance comparison
   was performed. Existing production nested/static/caught-call regressions are
   separate from coverage of those shapes through the new wallet RPC.
+
+
+### Main integration validation
+
+The integration branch merges fork main `ab6e44c` without changing the protocol
+pin. It preserves the newer queue retry/status and priority-fee changes and
+executes the configured posting wrapper during conditional L1 setup. The original
+working tree and its local Compose settings remain untouched in
+`/home/edu/Development/rollupX`; integration used an isolated worktree.
+
+Validation results for this integrated revision are recorded below. Earlier
+baseline results above do not independently validate the merged revision.

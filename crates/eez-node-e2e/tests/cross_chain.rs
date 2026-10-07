@@ -1757,18 +1757,28 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
 /// Wallets obtain the source gas limit before they have a signed envelope.
 #[tokio::test]
 async fn wallet_gas_estimates_bidirectional() {
-    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::EthereumOsaka).await;
+    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::EthereumOsaka, false).await;
 }
 
 #[tokio::test]
 async fn wallet_gas_estimates_bidirectional_gnosis() {
-    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::GnosisPrague).await;
+    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::GnosisPrague, false).await;
 }
 
-async fn wallet_gas_estimates_profile(profile: eez_testkit::NativeL1Profile) {
+#[tokio::test]
+async fn wallet_gas_estimates_post_batch_wrapper() {
+    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::EthereumOsaka, true).await;
+}
+
+async fn wallet_gas_estimates_profile(profile: eez_testkit::NativeL1Profile, wrapper: bool) {
     use alloy_rpc_types_eth::BlockNumberOrTag;
     use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
-    let w = eez_testkit::setup_cross_chain_with_profile(profile, &[])
+    let extra = if wrapper {
+        vec![(POST_BATCHER_ENV, "1".to_owned())]
+    } else {
+        vec![]
+    };
+    let w = eez_testkit::setup_cross_chain_with_profile(profile, &extra)
         .await
         .unwrap();
     for (front, source, key, chain_id, target, destination, value_contract, value) in [

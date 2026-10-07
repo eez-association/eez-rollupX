@@ -71,7 +71,7 @@ pub(super) fn replay(
     };
     let setup = revm::context::TxEnv {
         caller: estimator.poster,
-        kind: alloy_primitives::TxKind::Call(estimator.l1.manager_address()),
+        kind: alloy_primitives::TxKind::Call(estimator.post_batch_target),
         data: eez_protocol::abi::postAndVerifyBatchCall {
             batch: batch.clone(),
         }

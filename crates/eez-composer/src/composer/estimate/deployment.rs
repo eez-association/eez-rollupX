@@ -1,4 +1,4 @@
-//! The assumed proof result is supported only for this fork's audited code.
+//! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Source: protocol 855fe060, contracts/foundry.toml (0.8.34, via IR, runs=1).
 use super::{
@@ -33,6 +33,12 @@ const VERIFIER: Code = Code {
     length: 392,
     immutables: &[176, 319],
     hash: b256!("440eebc16fc5e247953d790c578d9f99155c85263cd7ada2d1cbd66d94291a42"),
+};
+// contracts/src/EEZPostBatcher.sol at fork ab6e44c, same compiler profile.
+const POST_BATCHER: Code = Code {
+    length: 4828,
+    immutables: &[157, 222, 1031, 3141],
+    hash: b256!("b9ede5d6a14473b896fe72b193f500250998ab99c9d3e65ad2c7153df35b61d1"),
 };
 
 fn matches(code: &[u8], expected: &Code) -> bool {
@@ -104,6 +110,24 @@ pub(super) fn validate(
             .map_err(unavailable)?;
     proxy(state.as_ref(), e.l1.manager_address(), &REGISTRY)?;
     proxy(state.as_ref(), rollup, &ROLLUP)?;
+    if e.post_batch_target != e.l1.manager_address() {
+        check(state.as_ref(), e.post_batch_target, &POST_BATCHER)?;
+        let code = state
+            .account_code(&e.post_batch_target)
+            .map_err(unavailable)?
+            .ok_or_else(|| unsupported("posting wrapper code missing"))?;
+        let bytes = code.original_bytes();
+        let registry = e.l1.manager_address().into_word();
+        // The wrapper's constructor embeds its registry in each immutable
+        // reference. Check the binding at the same parent as setup execution.
+        if POST_BATCHER
+            .immutables
+            .iter()
+            .any(|start| bytes.get(*start..*start + 32) != Some(registry.as_slice()))
+        {
+            return Err(unsupported("posting wrapper registry differs"));
+        }
+    }
     check(state.as_ref(), e.verifier, &VERIFIER)
 }
 
