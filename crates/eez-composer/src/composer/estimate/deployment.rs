@@ -1,5 +1,6 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
+//! Native execution always uses the original deployed bytes, including metadata.
 //! Source: protocol 855fe060, contracts/foundry.toml (0.8.34, via IR, runs=1).
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
@@ -12,47 +13,43 @@ const IMPLEMENTATION_SLOT: B256 =
 struct Code {
     length: usize,
     immutables: &'static [usize],
-    hashes: &'static [B256],
+    metadata_hashes: &'static [usize],
+    hash: B256,
 }
 const PROXY: Code = Code {
     length: 699,
     immutables: &[7],
-    hashes: &[b256!(
-        "2711c709cbaba3ef6ca5c08eb27c4f009b3479c1489e1098e3928ec7b924c6a4"
-    )],
+    metadata_hashes: &[],
+    hash: b256!("2711c709cbaba3ef6ca5c08eb27c4f009b3479c1489e1098e3928ec7b924c6a4"),
 };
 const REGISTRY: Code = Code {
     length: 23804,
     immutables: &[2282, 3071, 10421],
-    // fa916b1 and ab6e44c builds differ only in the metadata of the embedded
-    // EEZProxy initcode. Keep both exact identities: stripping embedded metadata
-    // would hide CREATE2 address changes, unlike stripping the outer trailer.
-    hashes: &[
-        b256!("2e00d1d0ae0f677f991fd8ae9a4e06836471680f123920c785efe60b2d848568"),
-        b256!("d5f9df9a9ab289a685fc20f5ed5ce4f74871d918cde0354a4c3bd514ffc034c2"),
-    ],
+    // CrossChainProxy initcode embeds an IPFS metadata hash whose source paths
+    // vary by build directory. Mask only that 32-byte hash, not its CBOR framing
+    // or executable instructions. Real setup still uses the deployed initcode
+    // and its actual CREATE2 addresses; recognition never rewrites execution.
+    metadata_hashes: &[23665],
+    hash: b256!("fdb8830f9cb0cb5cada516b03add1e46a3eb0eda0ee710f5e102053aa09e8db5"),
 };
 const ROLLUP: Code = Code {
     length: 3295,
     immutables: &[1015, 1751, 2266],
-    hashes: &[b256!(
-        "9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"
-    )],
+    metadata_hashes: &[],
+    hash: b256!("9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"),
 };
 const VERIFIER: Code = Code {
     length: 392,
     immutables: &[176, 319],
-    hashes: &[b256!(
-        "440eebc16fc5e247953d790c578d9f99155c85263cd7ada2d1cbd66d94291a42"
-    )],
+    metadata_hashes: &[],
+    hash: b256!("440eebc16fc5e247953d790c578d9f99155c85263cd7ada2d1cbd66d94291a42"),
 };
 // contracts/src/EEZPostBatcher.sol at fork ab6e44c, same compiler profile.
 const POST_BATCHER: Code = Code {
     length: 4828,
     immutables: &[157, 222, 1031, 3141],
-    hashes: &[b256!(
-        "b9ede5d6a14473b896fe72b193f500250998ab99c9d3e65ad2c7153df35b61d1"
-    )],
+    metadata_hashes: &[],
+    hash: b256!("b9ede5d6a14473b896fe72b193f500250998ab99c9d3e65ad2c7153df35b61d1"),
 };
 
 fn matches(code: &[u8], expected: &Code) -> bool {
@@ -72,10 +69,10 @@ fn matches(code: &[u8], expected: &Code) -> bool {
         return false;
     }
     let mut normalized = code[..length].to_vec();
-    for start in expected.immutables {
+    for start in expected.immutables.iter().chain(expected.metadata_hashes) {
         normalized[*start..*start + 32].fill(0);
     }
-    expected.hashes.contains(&keccak256(normalized))
+    keccak256(normalized) == expected.hash
 }
 
 fn check(
@@ -148,6 +145,27 @@ pub(super) fn validate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fingerprint_metadata_mask_does_not_hide_adjacent_code_changes() {
+        let mut canonical = vec![0x5b; 40];
+        canonical[4..36].fill(0);
+        let expected = Code {
+            length: 40,
+            immutables: &[],
+            metadata_hashes: &[4],
+            hash: keccak256(&canonical),
+        };
+        canonical.extend([0, 0]); // Empty outer metadata trailer.
+        assert!(matches(&canonical, &expected));
+        canonical[4..36].fill(0xa5);
+        assert!(matches(&canonical, &expected));
+        for offset in [3, 36] {
+            let mut changed = canonical.clone();
+            changed[offset] ^= 1;
+            assert!(!matches(&changed, &expected));
+        }
+    }
+
     #[test]
     fn fingerprint_rejects_missing_malformed_and_unknown_code() {
         for bytes in [
