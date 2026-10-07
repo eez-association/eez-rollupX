@@ -1038,6 +1038,67 @@ contract PostBatchGasPinsTest is Test {
         _bytesWords(words, head + 6, entry.returnData);
     }
 
+    /// The wallet fixture omits DA and assumes one exact verifier result only
+    /// during setup. Compare the user's cold execution with genuine proof/DA
+    /// setup on the same deployment, entries, parent and initial state.
+    function testWalletConditionalSetupMatchesRealProofUserGas() external {
+        for (uint256 callbacks; callbacks <= 2; callbacks++) {
+            delete touched;
+            (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+            BoundedReturnTarget target = new BoundedReturnTarget(64);
+            touched.push(address(target));
+            address remote = address(0x9000);
+            address proxy = eez.createCrossChainProxy(remote, ROLLUP_ID);
+            touched.push(proxy);
+            ProofSystemBatchPerVerificationEntries memory batch =
+                _batch(eez, proofSystem, address(target), Rung(1, callbacks, true, true, 1));
+            batch.immediateEntryCount = 1;
+            ExecutionEntry memory entry = batch.entries[1];
+            bytes memory input = abi.encode(uint256(1));
+            bytes memory result = _nonzeroBytes(64);
+            entry.proxyEntryHash = eez.computeCrossChainCallHash(
+                false, address(probe), eez.MAINNET_ROLLUP_ID(), remote, ROLLUP_ID, 0, 0, input
+            );
+            entry.returnData = result;
+            bytes32 rolling = keccak256(abi.encodePacked(bytes32(0), ROLLUP_ID, entry.rollupUpdates[0].currentRoot));
+            rolling = keccak256(abi.encodePacked(rolling, entry.proxyEntryHash));
+            for (uint256 j; j < callbacks; j++) {
+                rolling = _callBegin(eez, rolling, entry.l2ToL1Calls[j]);
+                rolling = keccak256(abi.encodePacked(rolling, uint8(2), true, result));
+            }
+            entry.rollingHash = rolling;
+            uint256 snapshot = vm.snapshotState();
+            batch.proofs[0] = _proof(_publicInputsHash(batch));
+            eez.postAndVerifyBatch(batch);
+            for (uint256 j; j < touched.length; j++) {
+                vm.cool(touched[j]);
+            }
+            uint256 realGas = probe.measureOutcome(proxy, input, true, result);
+            (, bytes32 realRoot,) = eez.rollups(ROLLUP_ID);
+            uint256 realCursor = eez.entryQueueIndex(ROLLUP_ID);
+            assertTrue(vm.revertToState(snapshot));
+
+            batch.blobIndices = new uint256[](0);
+            batch.proofs[0] = hex"";
+            bytes32 conditionalDigest = _publicInputsHash(batch);
+            bytes memory assumedCall = abi.encodeCall(ECDSAProofSystem.verify, (hex"", conditionalDigest));
+            vm.mockCall(address(proofSystem), assumedCall, abi.encode(true));
+            eez.postAndVerifyBatch(batch);
+            vm.clearMockedCalls();
+            assertFalse(proofSystem.verify(hex"", conditionalDigest), "assumption must not survive setup");
+            for (uint256 j; j < touched.length; j++) {
+                vm.cool(touched[j]);
+            }
+            uint256 conditionalGas = probe.measureOutcome(proxy, input, true, result);
+            (, bytes32 conditionalRoot,) = eez.rollups(ROLLUP_ID);
+            assertEq(conditionalGas, realGas, "user execution gas differs");
+            assertEq(conditionalRoot, realRoot, "user root differs");
+            assertEq(eez.entryQueueIndex(ROLLUP_ID), realCursor, "user consumption differs");
+            assertEq(realCursor, 1, "oracle must consume its deferred entry");
+            assertEq(realRoot, entry.rollupUpdates[0].newRoot);
+        }
+    }
+
     function _deferredRung(
         uint256 entries,
         uint256 resultBytes,

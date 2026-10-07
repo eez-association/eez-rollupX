@@ -78,7 +78,8 @@ impl std::fmt::Debug for LocalExecutionSession {
 }
 
 impl LocalExecutionSession {
-    /// Create from a `ChainProvider`. Opens latest state.
+    /// Create from a `ChainProvider`. An explicit parent/environment pins lazy
+    /// re-entry to a wallet probe; ordinary composition retains latest state.
     ///
     /// When supplied, `inspector_factory` detects nested proxy calls and routes
     /// them through the composition builder. `None` executes without nested
@@ -99,24 +100,36 @@ impl LocalExecutionSession {
         inspector_factory: Option<SessionInspectorFactory>,
         cache: Option<CacheState>,
         overlay_channel: OverlayChannelHandle,
+        pinned: Option<(alloy_primitives::B256, reth_evm::EvmEnv)>,
     ) -> ExecutorResult<Self> {
-        let num = provider.headers.best_block_number().map_err(provider_err)?;
-        tracing::debug!(block = num, "target session: best block number");
+        let (state_prov, mut evm_env) = if let Some((hash, env)) = pinned {
+            (
+                provider
+                    .provider
+                    .state_by_block_hash(hash)
+                    .map_err(provider_err)?,
+                env,
+            )
+        } else {
+            let num = provider.headers.best_block_number().map_err(provider_err)?;
+            tracing::debug!(block = num, "target session: best block number");
 
-        let header = provider
-            .headers
-            .header_by_number(num)
-            .map_err(provider_err)?
-            .ok_or_else(|| ExecutorError::from(ExecutorErrorKind::Missing("target header")))?;
-        tracing::debug!(
-            block = num,
-            state_root = %header.state_root,
-            "target session: opened header"
-        );
+            let header = provider
+                .headers
+                .header_by_number(num)
+                .map_err(provider_err)?
+                .ok_or_else(|| ExecutorError::from(ExecutorErrorKind::Missing("target header")))?;
+            tracing::debug!(
+                block = num,
+                state_root = %header.state_root,
+                "target session: opened header"
+            );
 
-        let state_prov = provider.provider.latest().map_err(provider_err)?;
+            let state_prov = provider.provider.latest().map_err(provider_err)?;
 
-        let mut evm_env = provider.evm_config.evm_env(&header).map_err(evm_err)?;
+            let evm_env = provider.evm_config.evm_env(&header).map_err(evm_err)?;
+            (state_prov, evm_env)
+        };
         let chain_id = evm_env.cfg_env.chain_id;
         disable_checks(&mut evm_env);
 
@@ -128,7 +141,6 @@ impl LocalExecutionSession {
         let state = builder.build();
 
         tracing::debug!(
-            block = num,
             chain_id,
             %manager_address,
             "target session: ready"

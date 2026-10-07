@@ -62,6 +62,7 @@ use eez_protocol::settlement_manifest::{ManifestInput, ProposedUser, SettlementM
 mod admission;
 mod config;
 mod costs;
+pub mod estimate;
 mod gas;
 pub(crate) mod gas_trace;
 mod policy;

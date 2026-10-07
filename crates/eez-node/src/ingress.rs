@@ -2,7 +2,8 @@
 //!
 //! A cross-chain tx is signed and tracked against its source chain, so wallets
 //! need a real RPC for that chain. Each front is a transparent proxy: it
-//! forwards every `eth_*` to the source chain's node and classifies
+//! forwards ordinary `eth_*` requests to the source chain's node, prepares
+//! cross-chain `eth_estimateGas` locally, and classifies
 //! `eth_sendRawTransaction` with a read-only execution trace. Transactions that
 //! reach the chain's EEZ dispatcher are held in the per-rollup [`HeldPool`] with
 //! the front's fixed [`Direction`] (L1 front → `Inbound`, L2 front → `Outbound`);
@@ -37,6 +38,9 @@ use hyper_util::rt::TokioIo;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use tracing::{Level, event};
+
+mod estimate;
+pub(crate) use estimate::EstimationService;
 
 const MAX_BODY: usize = 10 * 1024 * 1024;
 
@@ -228,6 +232,7 @@ struct Ctx {
     dispatch_address: Address,
     /// Serialized `eez_composerInfo` result, shared by both fronts.
     composer_info: Arc<Value>,
+    estimator: Option<EstimationService>,
 }
 
 /// Verify that a configured cross-chain front points at its expected source chain.
@@ -256,6 +261,7 @@ pub async fn validate_cross_chain_front(
 ///
 /// # Errors
 /// Fails if the listener can't bind or the reqwest client can't be built.
+#[cfg(test)]
 pub async fn run_cross_chain_front(
     port: u16,
     upstream_rpc_url: String,
@@ -266,6 +272,33 @@ pub async fn run_cross_chain_front(
     dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
     composer_info: Arc<Value>,
+) -> eyre::Result<()> {
+    run_cross_chain_front_with_estimator(
+        port,
+        upstream_rpc_url,
+        direction,
+        held_pool,
+        validation_provider,
+        expected_source_chain_id,
+        dispatch_address,
+        ready,
+        composer_info,
+        None,
+    )
+    .await
+}
+
+pub(crate) async fn run_cross_chain_front_with_estimator(
+    port: u16,
+    upstream_rpc_url: String,
+    direction: Direction,
+    held_pool: Arc<HeldPool>,
+    validation_provider: RootProvider,
+    expected_source_chain_id: u64,
+    dispatch_address: Address,
+    ready: Arc<std::sync::atomic::AtomicBool>,
+    composer_info: Arc<Value>,
+    estimator: Option<EstimationService>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
@@ -292,6 +325,7 @@ pub async fn run_cross_chain_front(
         expected_source_chain_id,
         dispatch_address,
         composer_info,
+        estimator,
     };
     loop {
         let (stream, _peer) = match listener.accept().await {
@@ -498,28 +532,25 @@ async fn handle(
             "cross-chain front forwards only eth_* JSON-RPC methods",
         ));
     }
+    if estimate::contains_estimate(&json) {
+        return Ok(estimate::handle(&ctx, &json).await);
+    }
     Ok(forward(&ctx, body_bytes.to_vec()).await)
 }
 
-const EXECUTE_CROSS_CHAIN_CALL_SELECTOR: &str = "9af53259";
-const STATIC_CROSS_CHAIN_CALL_SELECTOR: &str = "31344ade";
-
 fn trace_contains_cross_chain_call(trace: &Value, dispatch_address: Address) -> bool {
-    let targets_dispatch = trace
+    let target = trace
         .get("to")
         .and_then(Value::as_str)
-        .is_some_and(|to| to.eq_ignore_ascii_case(&dispatch_address.to_string()));
-    let calls_cross_chain_entrypoint = trace
+        .and_then(|s| s.parse::<Address>().ok());
+    let input = trace
         .get("input")
         .and_then(Value::as_str)
-        .and_then(|input| input.strip_prefix("0x"))
-        .is_some_and(|input| {
-            input.get(..8).is_some_and(|selector| {
-                selector.eq_ignore_ascii_case(EXECUTE_CROSS_CHAIN_CALL_SELECTOR)
-                    || selector.eq_ignore_ascii_case(STATIC_CROSS_CHAIN_CALL_SELECTOR)
-            })
-        });
-    if targets_dispatch && calls_cross_chain_entrypoint {
+        .and_then(|s| s.parse::<Bytes>().ok());
+    let dispatch = target.zip(input).is_some_and(|(target, input)| {
+        eez_composer::composer::estimate::is_dispatch(target, &input, dispatch_address)
+    });
+    if dispatch {
         return true;
     }
     trace

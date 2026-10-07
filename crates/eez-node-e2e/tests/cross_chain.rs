@@ -1649,3 +1649,291 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
     follower.assert_no_divergence_failure_logs();
     w.node.assert_no_divergence_failure_logs();
 }
+
+/// Wallets obtain the source gas limit before they have a signed envelope.
+#[tokio::test]
+async fn wallet_gas_estimates_bidirectional() {
+    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::EthereumOsaka).await;
+}
+
+#[tokio::test]
+async fn wallet_gas_estimates_bidirectional_gnosis() {
+    wallet_gas_estimates_profile(eez_testkit::NativeL1Profile::GnosisPrague).await;
+}
+
+async fn wallet_gas_estimates_profile(profile: eez_testkit::NativeL1Profile) {
+    use alloy_rpc_types_eth::BlockNumberOrTag;
+    use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
+    let w = eez_testkit::setup_cross_chain_with_profile(profile, &[])
+        .await
+        .unwrap();
+    for (front, source, key, chain_id, target, destination, value_contract, value) in [
+        (
+            w.l1_xchain(),
+            w.l1_rpc(),
+            INBOUND_USER,
+            DEV_CHAIN_ID,
+            w.setter_proxy,
+            w.l2_rpc(),
+            w.value_l2,
+            141u64,
+        ),
+        (
+            w.l2_xchain(),
+            w.l2_rpc(),
+            OUTBOUND_USER,
+            w.l2_chain_id,
+            w.outbound_proxy,
+            w.l1_rpc(),
+            w.outbound_value,
+            143u64,
+        ),
+    ] {
+        let from = signer_address(key).unwrap();
+        let data = Bytes::from(
+            IValue::setValueCall {
+                v: U256::from(value),
+            }
+            .abi_encode(),
+        );
+        let provider = ProviderBuilder::new().connect_http(front.parse().unwrap());
+        let initial_nonce = onchain_nonce(&source, key).await.unwrap();
+        let ordinary = serde_json::json!([{"from":from,"to":Address::repeat_byte(0x99),"value":"0x1"}, "latest"]);
+        let upstream = ProviderBuilder::new().connect_http(source.parse().unwrap());
+        let expected: U256 = upstream
+            .client()
+            .request("eth_estimateGas", ordinary.clone())
+            .await
+            .unwrap();
+        let actual: U256 = provider
+            .client()
+            .request("eth_estimateGas", ordinary.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            actual, expected,
+            "ordinary estimates retain upstream results"
+        );
+        let mixed = wallet_estimate_rpc(&front, serde_json::json!([
+            {"jsonrpc":"2.0","id":"estimate","method":"eth_estimateGas","params":[{"from":from,"to":target,"data":data},"pending"]},
+            {"jsonrpc":"2.0","id":17,"method":"eth_chainId","params":[]},
+            {"jsonrpc":"2.0","method":"eth_estimateGas","params":ordinary}
+        ])).await;
+        let items = mixed.as_array().expect("mixed batch response");
+        assert_eq!(items.len(), 2, "notifications have no response");
+        assert!(
+            items
+                .iter()
+                .any(|i| i["id"] == "estimate" && i["result"].is_string()),
+            "cross-chain batch estimate: {mixed}"
+        );
+        assert!(
+            items
+                .iter()
+                .any(|i| i["id"] == 17 && i["result"] == format!("0x{chain_id:x}"))
+        );
+        let single = wallet_estimate_rpc(
+            &front,
+            serde_json::json!({
+                "jsonrpc":"2.0","id":"estimate","method":"eth_estimateGas",
+                "params":[{"from":from,"to":target,"data":data},"pending"]
+            }),
+        )
+        .await;
+        let gas: U256 = serde_json::from_value(single["result"].clone()).unwrap_or_else(|error| {
+            panic!(
+                "wallet estimate {single}: {error}{}",
+                w.settlement_diagnostics()
+            )
+        });
+        let gas = u64::try_from(gas).unwrap();
+        assert!(
+            (21_000..2_000_000).contains(&gas),
+            "useful source estimate: {gas}"
+        );
+        assert_eq!(
+            onchain_nonce(&source, key).await.unwrap(),
+            initial_nonce,
+            "estimation never spends or reserves the user's nonce"
+        );
+        for params in [
+            serde_json::json!([{"from":from,"to":target,"data":data,"gas":"0x5208"}, "pending"]),
+            serde_json::json!([{"from":from,"to":target,"data":data}, "pending", {}]),
+            serde_json::json!([{"to":target,"data":data}, "pending"]),
+        ] {
+            let rejected = wallet_estimate_rpc(&front, serde_json::json!({"jsonrpc":"2.0","id":"estimate","method":"eth_estimateGas","params":params})).await;
+            assert!(
+                rejected.get("error").is_some() && rejected.get("result").is_none(),
+                "unsupported/underfunded estimate must fail: {rejected}"
+            );
+        }
+        let hash = sign_and_send(
+            &front,
+            key,
+            chain_id,
+            onchain_nonce(&source, key).await.unwrap(),
+            Some(target),
+            U256::ZERO,
+            data.to_vec(),
+            gas,
+        )
+        .await
+        .unwrap();
+        assert_all_transactions_succeeded(&w, &source, &[hash], "wallet estimate").await;
+        let receipt = upstream
+            .get_transaction_receipt(hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            gas >= receipt.gas_used && gas <= receipt.gas_used * 2 + 21_000,
+            "simple wallet estimate {gas}, receipt {}",
+            receipt.gas_used
+        );
+        eprintln!(
+            "wallet {profile:?} source {chain_id}: estimate={gas}, receipt={}",
+            receipt.gas_used
+        );
+        wait_for(SETTLE_TIMEOUT, || {
+            let destination = destination.clone();
+            async move {
+                Ok(
+                    (l2_value(&destination, value_contract).await? == U256::from(value))
+                        .then_some(()),
+                )
+            }
+        })
+        .await
+        .unwrap();
+    }
+    // Value transfers exercise the protocol's escrow/funding preparation, not
+    // just a zero-value lookup. Each source uses its next canonical nonce.
+    let amount = U256::from(1_000_000_000_000u64);
+    let inbound_balance = l2_balance(&w.l2_rpc(), w.recipient).await.unwrap();
+    for (front, source, key, chain_id, proxy, destination, recipient) in [
+        (
+            w.l1_xchain(),
+            w.l1_rpc(),
+            INBOUND_USER,
+            DEV_CHAIN_ID,
+            w.deposit_proxy,
+            w.l2_rpc(),
+            w.recipient,
+        ),
+        (
+            w.l2_xchain(),
+            w.l2_rpc(),
+            OUTBOUND_USER,
+            w.l2_chain_id,
+            w.withdrawal_proxy,
+            w.l1_rpc(),
+            w.withdrawal_recipient,
+        ),
+    ] {
+        let from = signer_address(key).unwrap();
+        let before = l2_balance(&destination, recipient).await.unwrap();
+        let reply = wallet_estimate_rpc(
+            &front,
+            serde_json::json!({
+                "jsonrpc":"2.0","id":"estimate","method":"eth_estimateGas",
+                "params":[{"from":from,"to":proxy,"value":amount,"data":"0x"},"pending"]
+            }),
+        )
+        .await;
+        let gas: U256 = serde_json::from_value(reply["result"].clone())
+            .unwrap_or_else(|e| panic!("value estimate {reply}: {e}"));
+        let gas = u64::try_from(gas).unwrap();
+        assert!((21_000..2_000_000).contains(&gas));
+        let tx = sign_and_send(
+            &front,
+            key,
+            chain_id,
+            onchain_nonce(&source, key).await.unwrap(),
+            Some(proxy),
+            amount,
+            vec![],
+            gas,
+        )
+        .await
+        .unwrap();
+        assert_all_transactions_succeeded(&w, &source, &[tx], "wallet value estimate").await;
+        wait_for(SETTLE_TIMEOUT, || async {
+            Ok((l2_balance(&destination, recipient).await? == before + amount).then_some(()))
+        })
+        .await
+        .unwrap();
+    }
+    let target = wait_for(SETTLE_TIMEOUT, || async {
+        let safe = block_number_and_hash_at(&w.l2_rpc(), BlockNumberOrTag::Safe).await?;
+        let root = state_root(&w.l1_rpc(), w.cfg.eez_address, w.cfg.rollup_id).await?;
+        Ok(safe.filter(|(_, hash)| *hash == root))
+    })
+    .await
+    .unwrap();
+    let follower = NodeHandle::start(
+        "wallet-estimate-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&w.cfg.l2_genesis.0),
+        },
+        &w.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for(SETTLE_TIMEOUT, || async {
+        let actual =
+            block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Number(target.0))
+                .await?;
+        let safe = block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Safe).await?;
+        Ok((actual == Some(target) && safe.is_some_and(|head| head.0 >= target.0)).then_some(()))
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        l2_value(&follower.l2_rpc_url(), w.value_l2).await.unwrap(),
+        U256::from(141)
+    );
+    assert_eq!(
+        l2_balance(&follower.l2_rpc_url(), w.recipient)
+            .await
+            .unwrap(),
+        inbound_balance + amount
+    );
+    follower.assert_no_divergence_failure_logs();
+    w.node.assert_no_divergence_failure_logs();
+}
+
+// The fixture may still be settling deployments when readiness first opens.
+// Exercise documented context retries, but never retry an execution or setup error.
+async fn wallet_estimate_rpc(front: &str, request: serde_json::Value) -> serde_json::Value {
+    wait_for(SETTLE_TIMEOUT, || async {
+        let response: serde_json::Value = reqwest::Client::new()
+            .post(front)
+            .json(&request)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let estimate = if let Some(items) = response.as_array() {
+            items.iter().find(|item| item["id"] == "estimate").unwrap()
+        } else {
+            &response
+        };
+        let context_wait = estimate["error"]["code"] == -32000
+            && estimate["error"]["message"]
+                .as_str()
+                .is_some_and(|message| {
+                    message.contains("settlement reconciliation pending")
+                        || message.contains("chain context changed during estimation")
+                });
+        if context_wait {
+            eprintln!("wallet context retry: {}", estimate["error"]);
+            return Ok(None);
+        }
+        Ok(Some(response))
+    })
+    .await
+    .unwrap()
+}

@@ -128,13 +128,36 @@ The two **cross-chain ingress fronts** are transparent, wallet-compatible
 proxies. Each signed transaction is classified with a read-only call trace:
 transactions that enter the source chain's EEZ cross-chain dispatcher are held
 and composed into the next Sync block, while ordinary transactions are forwarded
-unchanged to the source-chain mempool. Every other `eth_*` method is forwarded as
-well, so a wallet can use one front URL per chain. Classification fails closed:
+unchanged to the source-chain mempool. The fronts also prepare cross-chain
+`eth_estimateGas` calls locally; other `eth_*` methods are forwarded, so a wallet
+can use one front URL per chain. Classification fails closed:
 if tracing is unavailable, the transaction is held rather than allowing a
 cross-chain call to bypass composition. The fronts use the compose env
 `EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`; both ports are required in composer
 mode. The `eez-follower` binary does not start them.
 Upstreams are `EEZ_L1_RPC_URL` / `EEZ_L2_RPC_URL` respectively.
+
+For wallet gas estimation, supply `from`, `to`, calldata and any intended value,
+nonce, fees and access list. Estimate and submit through the same source-chain
+front. A cross-chain estimate covers **only the user's source transaction**;
+separate system transactions, posting and blob fees are excluded. Omitted block,
+`latest` and `pending` use an isolated next Composer context, without queued
+predecessors or a slot reservation. Historical/state-override cross-chain calls
+are unsupported. Ordinary calls retain upstream estimation after local dispatch
+classification; unavailable local history/context returns an error. Numeric
+historical blocks and state overrides can be classified; `safe`, `finalized` and
+EIP-1898 selectors are unavailable in this first version. Ordinary `pending`
+classification observes local head state, not upstream mempool transactions.
+
+L1 estimation runs real registry preparation with one simulation-only proof
+assumption; it does not generate or verify a proof. Actual submission still
+requires the signer and final native preflight. Both fronts share two estimate
+workers, a five-second execution deadline and at most three gas probes. Busy,
+reconciling or changed contexts return an error: retry after the context becomes
+available. A supplied gas field is a ceiling. Estimates remain advisory when
+state, fee fields or bundle position change. See the
+[gas estimation design](docs/proposals/composer-gas-estimation.md) for supported
+execution, validation and upgrade boundaries.
 
 `EEZ_MAX_USER_TXS_PER_BUNDLE` caps how many held user cross-chain transactions,
 combined across both directions, the composer offers to one Sync block. The
