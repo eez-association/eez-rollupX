@@ -42,6 +42,7 @@ pub mod ingress;
 pub mod local;
 pub mod optimistic;
 mod prover_retry;
+pub mod rejection;
 pub mod rollup;
 pub mod settlement_policy;
 mod submission_metrics;

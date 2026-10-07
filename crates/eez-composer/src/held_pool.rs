@@ -659,18 +659,53 @@ impl HeldPool {
         direction: Direction,
         nonce: u64,
     ) -> Vec<HeldTx> {
+        self.evict_chain(sender, direction, nonce, None)
+    }
+
+    /// Evict like [`Self::evict_chain_at_or_above`] because composing the
+    /// root failed deterministically. The root (queued, in flight, or a
+    /// previously submitted ledger user being recomposed) becomes
+    /// `SimulationFailed` with `rejection` retained for the status RPC; its
+    /// higher nonces become `NonceGap` as usual.
+    #[must_use]
+    pub fn evict_rejected_chain(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+        rejection: crate::rejection::SourceRejection,
+    ) -> Vec<HeldTx> {
+        self.evict_chain(sender, direction, nonce, Some(rejection))
+    }
+
+    fn evict_chain(
+        &self,
+        sender: Address,
+        direction: Direction,
+        nonce: u64,
+        rejection: Option<crate::rejection::SourceRejection>,
+    ) -> Vec<HeldTx> {
+        let root_reason = if rejection.is_some() {
+            TerminalReason::SimulationFailed
+        } else {
+            TerminalReason::PoolDiscarded
+        };
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
+        let mut root_hash = None;
         let mut evicted = Vec::new();
         let queued = std::mem::take(&mut state.txs);
         let mut kept = VecDeque::with_capacity(queued.len());
         for tx in queued {
             if tx.sender == sender && tx.direction == direction && tx.nonce >= nonce {
                 state.by_hash.remove(&tx.hash);
+                if tx.nonce == nonce {
+                    root_hash = Some(tx.hash);
+                }
                 state.telemetry.removed(
                     tx.hash,
                     (tx.sender, tx.direction, tx.nonce),
                     if tx.nonce == nonce {
-                        TerminalReason::PoolDiscarded
+                        root_reason
                     } else {
                         TerminalReason::NonceGap
                     },
@@ -690,11 +725,14 @@ impl HeldPool {
         in_flight.retain(|hash, identity| {
             let remove = identity.0 == sender && identity.1 == direction && identity.2 >= nonce;
             if remove {
+                if identity.2 == nonce {
+                    root_hash = Some(*hash);
+                }
                 telemetry.removed(
                     *hash,
                     *identity,
                     if identity.2 == nonce {
-                        TerminalReason::PoolDiscarded
+                        root_reason
                     } else {
                         TerminalReason::NonceGap
                     },
@@ -704,6 +742,29 @@ impl HeldPool {
             !remove
         });
         state.update_recovery_ownership();
+        if let (Some(hash), Some(rejection)) = (root_hash, rejection) {
+            // A previously submitted root is a ledger user, which recovery
+            // ownership has just marked PoolDiscarded; name the actual cause.
+            state
+                .ledger
+                .update(|data| {
+                    if let Some(user) = data.users.get_mut(&hash)
+                        && user.location
+                            == (UserLocation::Terminal {
+                                reason: TerminalReason::PoolDiscarded,
+                                canonical: None,
+                            })
+                    {
+                        user.location = UserLocation::Terminal {
+                            reason: TerminalReason::SimulationFailed,
+                            canonical: None,
+                        };
+                    }
+                    Ok(())
+                })
+                .expect("cannot record a rejected transaction's ownership; held pool stopped");
+            state.telemetry.rejected(hash, rejection);
+        }
         evicted
     }
 

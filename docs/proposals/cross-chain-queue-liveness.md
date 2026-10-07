@@ -284,8 +284,10 @@ Do not log every unchanged blocked request on every slot.
 The PR139 follow-up extends the existing telemetry with the most recent 1,024
 local evictions/replacements per pool. Retain only hash, sender, direction,
 nonce, reason, observation time, and optional replacement hash; never retain
-the envelope. This is a bounded diagnostic cache, not an ownership journal,
-admission limit, or source of recovery decisions.
+the envelope. Simulation rejections add a separately bounded diagnostic
+([simulation rejection diagnostics](#simulation-rejection-diagnostics)). This
+is a bounded diagnostic cache, not an ownership journal, admission limit, or
+source of recovery decisions.
 
 Live pool and settlement-ledger records take precedence. Successful explicit
 readmission clears that hash's local terminal observation; rejected admission
@@ -312,6 +314,53 @@ settled or been evicted. Recording happens under the pool lock with the pruning,
 so a read never observes the gap. The entries share the same count bound and
 restart loss, and remain observations: they never authorize execution,
 admission or recovery.
+
+### Simulation rejection diagnostics
+
+A source whose composition fails deterministically is evicted before any
+settlement attempt, with its higher nonces (`NonceGap`). Two causes qualify:
+- the source transaction reverts in simulation (`source transaction does not
+  execute successfully`);
+- the composition error is itself deterministic (for example a source that
+  makes no cross-chain call, or an unsupported call shape).
+
+Such a root reports `ownership.reason: "SimulationFailed"` instead of
+`PoolDiscarded`. This holds whether it was still queued, in flight, or a
+previously submitted ledger user being recomposed. `PoolDiscarded` remains for
+replacement, the other composition cuts (shape, budget, validation) and
+recovery loss.
+
+`ownership.rejection` carries a bounded diagnostic:
+
+| Field | Content |
+| --- | --- |
+| `error` | Display form of the composition error that caused the eviction |
+| `source` | `{gasUsed, output, outputLength}` when the source simulation ran, else null; `output` is the revert data, truncated to 512 bytes |
+| `calls` | Up to 16 recorded cross-chain calls in preorder: `{depth, sourceRollupId, targetRollupId, caller, target, selector, static, success, gasUsed, returnData, returnLength}`. `target` is the original address the proxy represents, `returnData` is truncated to 512 bytes, and `success`/`gasUsed` are null for a call that had not returned |
+| `omittedCalls` | Recorded calls beyond the bound |
+
+With nested calls, the failing leg is the deepest call with `success: false`.
+Its `returnData` is the target's revert data, which an application may not
+propagate to the source output.
+
+The node keeps the 256 most recent rejections per pool, separately from the
+removal records, because a previously submitted user's status is answered from
+the settlement ledger. A successful readmission of the same hash clears its
+rejection, and a rejection is shown only with a `SimulationFailed` reason.
+The diagnostics are observations derived from local simulation of the user's
+own transaction. They contain no signed envelope and never authorize
+execution, admission or recovery. They are lost on restart.
+
+The Composer also logs each intercepted call's return or revert data
+(`return_len`, `return_data` truncated to 256 bytes) on its `cross-chain proxy
+call detected` line.
+
+Compatibility: both fields are additive. A client that matches `PoolDiscarded`
+to detect any pre-settlement eviction must also accept `SimulationFailed`; one
+that treats every reason other than `Committed`/`SourceCompleted` as a failure
+needs no change. Older nodes keep reporting `PoolDiscarded` without
+`rejection`. No storage, wire, configuration or contract change is involved,
+and a rollback only removes the new reason and field.
 
 The observatory currently computes `healthy` from L1/L2 RPC health and head
 freshness in `eez-rollup-ui/network-observatory/app/server.py`. Add an explicit

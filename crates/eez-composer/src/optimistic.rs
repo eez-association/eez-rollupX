@@ -70,7 +70,15 @@ pub enum TerminalReason {
     SourceNonceSpent,
     AttemptsExhausted,
     NonceGap,
+    /// Removed from the pool without a settlement attempt: replaced by a
+    /// higher-fee transaction with the same nonce, rejected by a composition
+    /// rule other than its own simulation, or lost during recovery.
     PoolDiscarded,
+    /// Evicted before any settlement attempt because composing it failed
+    /// deterministically: the source transaction reverted in simulation, or
+    /// its cross-chain calls cannot be composed. The status RPC carries the
+    /// bounded diagnostic recorded at eviction.
+    SimulationFailed,
 }
 
 /// Current ownership, independently of historical attempts.

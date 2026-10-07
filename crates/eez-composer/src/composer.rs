@@ -219,6 +219,9 @@ fn compose_crosschain(
     source_hash: B256,
     l1_anchor: B256,
     gas_trace: Option<&gas_trace::Config>,
+    // Set when the source simulation ran and failed, before the recorded
+    // call tree is dropped with the builder; the caller may evict with it.
+    rejection: &mut Option<crate::rejection::SourceRejection>,
 ) -> eez_protocol::ComposerResult<(eez_protocol::Composition, SlotSessions, CompositionGas)> {
     use eez_protocol::ChainClient as _;
     use eez_protocol::composition::Rollup;
@@ -277,7 +280,15 @@ fn compose_crosschain(
         )
         .map_err(eez_protocol::CompositionError::from)?;
     if !source.success {
-        return Err(eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into());
+        let error: eez_protocol::ComposerError =
+            eez_protocol::ProtocolErrorKind::SourceTransactionFailed.into();
+        *rejection = Some(crate::rejection::SourceRejection::from_simulation(
+            &error,
+            source.gas_used,
+            &source.output,
+            builder.recorded(),
+        ));
+        return Err(error);
     }
     let recorded_count = builder.recorded_count();
     // Reclaimed before `finalize` consumes the builder — the accepted effects
@@ -1173,6 +1184,19 @@ async fn read_rollup_escrow(
         .await
         .map(|rollup| rollup.etherBalance)
         .map_err(|error| format!("read rollup {rid} escrow: {error}"))
+}
+
+/// The diagnostic recorded for a simulation-poisoned root: the simulation's
+/// own detail when the source ran, otherwise the error alone. The text is the
+/// error the eviction decision actually saw.
+fn rejection_for(
+    simulated: Option<crate::rejection::SourceRejection>,
+    error: &eez_protocol::ComposerError,
+) -> crate::rejection::SourceRejection {
+    match simulated {
+        Some(rejection) => rejection.with_error(error),
+        None => crate::rejection::SourceRejection::from_error(error),
+    }
 }
 
 fn poison_gap_for(gaps: &[(Address, Direction, u64)], tx: &HeldTx) -> Option<u64> {
@@ -2814,6 +2838,9 @@ where
         let mut escrow_remaining: Option<U256> = None;
         let mut poison: Vec<HeldTx> = Vec::new();
         let mut poison_gaps: Vec<(Address, Direction, u64)> = Vec::new();
+        // Diagnostics for poison roots whose own simulation failed; other
+        // poison roots (shape, budget and validation cuts) carry none.
+        let mut rejections: HashMap<B256, crate::rejection::SourceRejection> = HashMap::new();
         // On a transient failure we abort the slot; this holds the error
         // string + the txs still needing re-queue (the failing tx + the
         // unprocessed remainder of both phases; survivors are added below).
@@ -3073,6 +3100,7 @@ where
             let (state, env) = l2_fork.state_and_env();
             let env = env.clone();
             simulation_count += 1;
+            let mut rejection = None;
             let sim = compose_crosschain(
                 cc,
                 eez_protocol::RollupId(rollup_id),
@@ -3084,6 +3112,7 @@ where
                 held.hash,
                 l1_state.anchor.hash(),
                 self.inner.gas_trace.as_ref(),
+                &mut rejection,
             );
             match sim {
                 Ok((composition, mut sessions, gas)) => {
@@ -3759,7 +3788,7 @@ where
                         "outbound tx fails simulation deterministically; evicting",
                     );
                     selection.block(idx);
-
+                    rejections.insert(held.hash, rejection_for(rejection, &e));
                     push_poison_root(&mut poison, &mut poison_gaps, held);
                 }
                 Err(e) => {
@@ -3883,6 +3912,7 @@ where
             };
             let sessions = seed_session(eez_protocol::RollupId(rollup_id), probe);
             simulation_count += 1;
+            let mut rejection = None;
             let sim = compose_crosschain(
                 cc,
                 cc.entry_rollup_id,
@@ -3894,6 +3924,7 @@ where
                 held.hash,
                 l1_state.anchor.hash(),
                 self.inner.gas_trace.as_ref(),
+                &mut rejection,
             );
             match sim {
                 Ok((composition, _sessions, gas)) => {
@@ -4326,7 +4357,7 @@ where
                         "held tx fails simulation deterministically (e.g. wrong proxy → EmptyCalls, or revert); evicting — it can never compose, resubmit required",
                     );
                     selection.block(idx);
-
+                    rejections.insert(held.hash, rejection_for(rejection, &e));
                     push_poison_root(&mut poison, &mut poison_gaps, held);
                 }
                 Err(e) => {
@@ -4519,7 +4550,12 @@ where
         // a sender's nonce N is evicted, N+1.. can never land.
         for tx in &poison {
             // Inclusive eviction releases the poison root's reservation too.
-            let evicted = pool.evict_chain_at_or_above(tx.sender, tx.direction, tx.nonce);
+            let evicted = match rejections.remove(&tx.hash) {
+                Some(rejection) => {
+                    pool.evict_rejected_chain(tx.sender, tx.direction, tx.nonce, rejection)
+                }
+                None => pool.evict_chain_at_or_above(tx.sender, tx.direction, tx.nonce),
+            };
             event!(
                 name: "eez.composer.cc_compose.poison_eviction_completed",
                 Level::WARN,
@@ -7809,6 +7845,7 @@ mod tests {
             TerminalReason::AttemptsExhausted,
             TerminalReason::NonceGap,
             TerminalReason::PoolDiscarded,
+            TerminalReason::SimulationFailed,
         ] {
             assert!(
                 !submission_backoff_required(&[retry, SourceOutcome::Terminal(reason)], true),

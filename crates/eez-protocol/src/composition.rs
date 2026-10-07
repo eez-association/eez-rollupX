@@ -501,6 +501,14 @@ impl CompositionBuilder {
         self.recorded.len()
     }
 
+    /// Calls recorded so far, in preorder. Outcomes of calls whose target
+    /// execution has not returned are still `Pending`. Diagnostics read this
+    /// when a source simulation fails, before the builder is dropped.
+    #[must_use]
+    pub fn recorded(&self) -> &[ExecutedAction] {
+        &self.recorded
+    }
+
     /// Gas the probed target calls used, as a guess at what they cost for real.
     /// An outbound one runs inline in `postAndVerifyBatch`, which must pay it.
     #[must_use]
