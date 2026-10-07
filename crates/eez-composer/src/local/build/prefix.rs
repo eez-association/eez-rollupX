@@ -122,7 +122,7 @@ impl<'a> SyncPrefixHashes<'a> {
         self.raw.clear();
     }
 
-    fn prefix(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
+    pub(crate) fn prefix(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
         if !transactions.starts_with(&self.raw) {
             self.clear();
         }

@@ -54,6 +54,7 @@ alloy-eips.workspace         = true
 alloy-primitives.workspace   = true
 alloy-rlp.workspace          = true
 alloy-rpc-types-debug.workspace = true
+alloy-rpc-types-eth.workspace = true
 alloy-provider.workspace     = true
 alloy-signer-local.workspace = true
 reqwest.workspace            = true
@@ -83,7 +84,6 @@ metrics.workspace = true
 reth-provider = { workspace = true, features = ["test-utils"] }
 alloy-genesis = { version = "2", default-features = false }
 alloy-network.workspace = true
-alloy-rpc-types-eth.workspace = true
 tempfile = "3"
 metrics-exporter-prometheus = { version = "0.18.3", default-features = false }
 metrics-util = { version = "0.20.4", default-features = false }

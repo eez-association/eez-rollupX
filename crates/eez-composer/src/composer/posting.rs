@@ -704,65 +704,79 @@ struct ObservedCall {
 /// Observe the actual manager path without intercepting execution, warming
 /// accounts, or replacing proven lookups with simulation results. Root checks
 /// alone miss a caught static lookup failure with no state change.
-struct EffectInspector {
+pub(super) struct EffectInspector {
     registry: Address,
     rollup_id: u64,
+    proxy_slot: u8,
     expected: Vec<ObservedCall>,
     frames: Vec<Option<usize>>,
     observed: Vec<Option<ObservedCall>>,
 }
 
 impl EffectInspector {
-    fn new(
+    pub(super) fn new(
         registry: Address,
         rollup_id: u64,
         semantics: &[SemanticTransaction],
     ) -> Result<Self, PostingError> {
-        let mut expected = Vec::new();
-        // Actual L1 order is immediate outbound work inside postBatch, then
-        // the unchanged inbound source transactions in their admitted order.
-        for outbound in [true, false] {
-            for transaction in semantics
+        let actions = [true, false].into_iter().flat_map(|outbound| {
+            semantics
                 .iter()
-                .filter(|tx| (tx.origin_chain.0 != 0) == outbound)
-            {
-                for action in transaction
-                    .actions
-                    .iter()
-                    .filter(|a| a.source_rollup_id.0 == 0 && a.target_rollup_id.0 == rollup_id)
-                {
-                    let ExecutionOutcome::Resolved {
-                        return_data,
-                        success,
-                        ..
-                    } = &action.outcome
-                    else {
-                        return Err(PostingError::Effects(
-                            "unresolved intended cross-chain outcome".into(),
-                        ));
-                    };
-                    expected.push(ObservedCall {
-                        source: action.source_address,
-                        target: action.target_address,
-                        data: action.data.clone(),
-                        value: action.value,
-                        mode: action.call_mode,
-                        success: *success,
-                        output: return_data.clone().into(),
-                    });
-                }
-            }
+                .filter(move |tx| (tx.origin_chain.0 != 0) == outbound)
+                .flat_map(|tx| &tx.actions)
+        });
+        Self::for_actions(
+            registry,
+            0,
+            rollup_id,
+            eez_protocol::EEZ_AUTHORIZED_PROXIES_SLOT,
+            actions,
+        )
+    }
+
+    pub(super) fn for_actions<'a>(
+        registry: Address,
+        source_rollup: u64,
+        rollup_id: u64,
+        proxy_slot: u8,
+        actions: impl IntoIterator<Item = &'a eez_protocol::ExecutedAction>,
+    ) -> Result<Self, PostingError> {
+        let mut expected = Vec::new();
+        for action in actions
+            .into_iter()
+            .filter(|a| a.source_rollup_id.0 == source_rollup && a.target_rollup_id.0 == rollup_id)
+        {
+            let ExecutionOutcome::Resolved {
+                return_data,
+                success,
+                ..
+            } = &action.outcome
+            else {
+                return Err(PostingError::Effects(
+                    "unresolved intended cross-chain outcome".into(),
+                ));
+            };
+            expected.push(ObservedCall {
+                source: action.source_address,
+                target: action.target_address,
+                data: action.data.clone(),
+                value: action.value,
+                mode: action.call_mode,
+                success: *success,
+                output: return_data.clone().into(),
+            });
         }
         Ok(Self {
             registry,
             rollup_id,
+            proxy_slot,
             expected,
             frames: Vec::new(),
             observed: Vec::new(),
         })
     }
 
-    fn verify(self) -> Result<(), PostingError> {
+    pub(super) fn verify(self) -> Result<(), PostingError> {
         let observed: Vec<_> = self.observed.into_iter().flatten().collect();
         if observed != self.expected {
             return Err(PostingError::Effects(format!(
@@ -801,10 +815,7 @@ impl<DB: Database, CTX: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<CTX
         };
         // The real manager has already read this slot. Inspect the journal
         // directly so observation cannot change cold/warm gas accounting.
-        let key = eez_protocol::proxy_mapping_key(
-            inputs.caller,
-            eez_protocol::EEZ_AUTHORIZED_PROXIES_SLOT,
-        );
+        let key = eez_protocol::proxy_mapping_key(inputs.caller, self.proxy_slot);
         let proxy = context
             .journal()
             .state

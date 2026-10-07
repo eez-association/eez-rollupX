@@ -1222,12 +1222,17 @@ async fn launch_composer(
         .iter()
         .map(|(spec, _, _, provider, _)| (spec.expected_source_chain_id, provider.clone()))
         .collect();
+    let gas_estimator = ingress::EstimationService::new(
+        composer.gas_estimator(rollup_config.rollup_id)?,
+        task_executor.clone(),
+    );
     for (spec, port, url, validation_provider, dispatch_address) in xchain_fronts {
+        let gas_estimator = gas_estimator.clone();
         let pool = Arc::clone(&held_pool);
         let ready = Arc::clone(&xchain_ready);
         let composer_info = Arc::clone(&composer_info);
         task_executor.spawn_critical_task(spec.task, async move {
-            ingress::run_cross_chain_front(
+            ingress::run_cross_chain_front_with_estimator(
                 port,
                 url,
                 spec.direction,
@@ -1237,6 +1242,7 @@ async fn launch_composer(
                 dispatch_address,
                 ready,
                 composer_info,
+                Some(gas_estimator),
             )
             .await
             .unwrap_or_else(|e| panic!("configured cross-chain front exited: {e:#}"));

@@ -1,0 +1,514 @@
+//! Wallet gas estimation. All execution state is request-local; estimates never
+//! reserve a nonce, enter the held pool, request a proof or authorize posting.
+use crate::local::build::{SyncBlockState, TxOutcome};
+use crate::{
+    Direction,
+    local::{InboundL2TargetSession, L1SlotState, L1TargetSession, LocalChainClient},
+};
+use alloy_consensus::Header;
+use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_rpc_types_eth::TransactionRequest;
+use eez_protocol::{Composition, CompositionBuilder, RollupId, composition::Rollup};
+use reth_evm::{ConfigureEvm, Evm, EvmEnv, NextBlockEnvAttributes, rpc::TryIntoTxEnv};
+use reth_primitives_traits::SealedHeader;
+use reth_storage_api::StateProvider;
+use revm::{
+    DatabaseCommit,
+    context::{Cfg as _, TxEnv},
+};
+use std::{collections::HashMap, sync::Arc, time::Instant};
+
+mod budget;
+mod classify;
+mod deployment;
+pub use classify::is_dispatch;
+mod l1;
+mod preparation;
+
+#[derive(Debug, thiserror::Error)]
+pub enum EstimateError {
+    #[error("invalid estimation request: {0}")]
+    Invalid(String),
+    #[error("cross-chain estimation unavailable: {0}")]
+    Unavailable(String),
+    #[error("unsupported cross-chain estimate: {0}")]
+    Unsupported(String),
+    #[error("execution reverted")]
+    Revert(Bytes),
+    #[error("cross-chain execution differs from composition: {0}")]
+    Effects(String),
+    #[error("gas estimation deadline exceeded")]
+    Timeout,
+}
+fn unavailable(e: impl std::fmt::Display) -> EstimateError {
+    EstimateError::Unavailable(e.to_string())
+}
+fn unsupported(e: impl std::fmt::Display) -> EstimateError {
+    EstimateError::Unsupported(e.to_string())
+}
+
+/// Immutable dependencies only. Each probe creates independent execution and
+/// overlay sessions; sharing this handle does not share speculative state.
+#[derive(Clone, Debug)]
+pub struct GasEstimator {
+    l1: Arc<LocalChainClient>,
+    l2: Arc<LocalChainClient>,
+    head: Arc<eez_l1::L1CanonicalHead>,
+    optimistic: Arc<crate::optimistic::OptimisticallyIncluded>,
+    rollup_id: u64,
+    poster: Address,
+    post_batch_target: Address,
+    verifier: Address,
+    l1_slot_seconds: u64,
+    recipient: Address,
+}
+
+struct Snapshot {
+    l1: L1SlotState,
+    l1_env: EvmEnv,
+    l1_attributes: NextBlockEnvAttributes,
+    l2_parent: SealedHeader<Header>,
+    l2_timestamp: u64,
+    l2_randao: B256,
+    settled_root: B256,
+    generation: u64,
+}
+#[derive(Debug)]
+struct Probe {
+    required: u64,
+    limit: u64,
+    source_gas: u64,
+    output: Bytes,
+    actions: Vec<eez_protocol::ExecutedAction>,
+}
+
+impl<L2> super::Composer<L2>
+where
+    L2: reth_storage_api::BlockReader<Header = Header> + Send + Sync + 'static,
+    <L2 as reth_storage_api::TransactionsProvider>::Transaction: alloy_eips::eip2718::Encodable2718,
+{
+    /// Build a read-only estimator without exposing signing or submission handles.
+    pub fn gas_estimator(&self, rollup_id: u64) -> Result<GasEstimator, EstimateError> {
+        let rollup = self
+            .inner
+            .rollups
+            .get(&rollup_id)
+            .ok_or_else(|| unsupported("unknown rollup"))?;
+        let cc = &self.inner.cross_chain;
+        Ok(GasEstimator {
+            l1: cc.local.l1_entry.clone(),
+            l2: cc.local.l2_entry.clone(),
+            head: rollup.l1_head.clone(),
+            optimistic: rollup.optimistic.clone(),
+            rollup_id,
+            poster: cc.exec_ctx.l1_poster_signer.address(),
+            post_batch_target: self.inner.posting.post_batch_target,
+            verifier: cc.exec_ctx.ecdsa_proof_system_address,
+            l1_slot_seconds: self.inner.emission.timing.l1_block_time().as_secs(),
+            recipient: self.inner.fee_recipient,
+        })
+    }
+}
+
+impl GasEstimator {
+    /// Blocking bounded-probe work. The RPC worker retains its concurrency permit
+    /// until this returns, even if the caller's response deadline has expired.
+    pub fn estimate(
+        &self,
+        direction: Direction,
+        request: TransactionRequest,
+        deadline: Instant,
+    ) -> Result<u64, EstimateError> {
+        if request.from.is_none() {
+            return Err(EstimateError::Invalid("from is required".into()));
+        }
+        if request.to.is_none_or(|to| to.is_create()) {
+            return Err(unsupported("contract creation"));
+        }
+        if request.minimal_tx_type() as u8 > 2
+            || request.transaction_type.is_some_and(|t| t > 2)
+            || request.authorization_list.is_some()
+            || request.blob_versioned_hashes.is_some()
+            || request.sidecar.is_some()
+        {
+            return Err(unsupported(
+                "only legacy, access-list and EIP-1559 source calls are supported",
+            ));
+        }
+        let snapshot = self.snapshot()?;
+        let source = if direction == Direction::Inbound {
+            &self.l1
+        } else {
+            &self.l2
+        };
+        let mut draft = self.l2_draft(&snapshot)?;
+        let mut fork = draft.fork().map_err(unavailable)?;
+        let mut env = if direction == Direction::Inbound {
+            snapshot.l1_env.clone()
+        } else {
+            fork.state_and_env().1.clone()
+        };
+        env.cfg_env.disable_base_fee = true;
+        if request
+            .chain_id
+            .is_some_and(|id| id != env.cfg_env.chain_id)
+        {
+            return Err(EstimateError::Invalid(
+                "chainId differs from the source chain".into(),
+            ));
+        }
+        let state_hash = if direction == Direction::Inbound {
+            snapshot.l1.anchor.hash()
+        } else {
+            snapshot.l2_parent.hash()
+        };
+        let state = source
+            .chain_provider()
+            .provider
+            .state_by_block_hash(state_hash)
+            .map_err(unavailable)?;
+        let caller = request
+            .from
+            .ok_or_else(|| EstimateError::Invalid("from is required".into()))?;
+        let nonce = state
+            .account_nonce(&caller)
+            .map_err(unavailable)?
+            .unwrap_or_default();
+        if request.nonce.is_some_and(|requested| requested != nonce) {
+            return Err(EstimateError::Invalid(format!(
+                "nonce must match isolated source state ({nonce}); queued predecessors are not simulated"
+            )));
+        }
+        let mut tx: TxEnv = request
+            .clone()
+            .try_into_tx_env(&env)
+            .map_err(|e| EstimateError::Invalid(format!("{e}")))?;
+        tx.nonce = nonce;
+        tx.tx_type = request.transaction_type.unwrap_or(tx.tx_type);
+        let cap = env.cfg_env.tx_gas_limit_cap().min(env.block_env.gas_limit);
+        tx.gas_limit = tx.gas_limit.min(cap);
+        let balance = state
+            .account_balance(&caller)
+            .map_err(unavailable)?
+            .unwrap_or_default();
+        let available = balance
+            .checked_sub(tx.value)
+            .ok_or_else(|| EstimateError::Invalid("insufficient funds for value".into()))?;
+        if tx.gas_price != 0 {
+            tx.gas_limit = tx
+                .gas_limit
+                .min((available / U256::from(tx.gas_price)).saturating_to());
+        }
+        let first = self.probe(direction, &snapshot, tx.clone(), deadline)?;
+        // Native setup consumes block capacity. Its measured remainder can
+        // tighten the high bound before the user's first execution.
+        let ceiling = first.limit;
+        // Five percent plus a small call-stipend allowance is a starting
+        // candidate, not a gas guarantee. Native replay must accept it.
+        let candidate = first
+            .required
+            .saturating_add(2_300)
+            .saturating_mul(105)
+            .div_ceil(100)
+            .min(ceiling);
+        let selected = if candidate == ceiling && tx.gas_limit == ceiling {
+            ceiling
+        } else {
+            tx.gas_limit = candidate;
+            match self.probe(direction, &snapshot, tx.clone(), deadline) {
+                Ok(ref lower)
+                    if lower.limit == candidate
+                        && same_actions(&first.actions, &lower.actions)
+                        && first.output == lower.output =>
+                {
+                    candidate
+                }
+                Ok(_) | Err(EstimateError::Revert(_) | EstimateError::Effects(_)) => {
+                    tx.gas_limit = ceiling;
+                    let repeated = self.probe(direction, &snapshot, tx, deadline)?;
+                    if repeated.limit != ceiling
+                        || !same_actions(&first.actions, &repeated.actions)
+                        || first.output != repeated.output
+                    {
+                        return Err(EstimateError::Effects(
+                            "high-gas replay changed its effects".into(),
+                        ));
+                    }
+                    tracing::debug!(
+                        ?direction,
+                        ceiling,
+                        candidate,
+                        "wallet gas estimate uses verified ceiling"
+                    );
+                    ceiling
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        if self.optimistic.pending_attempt().is_some()
+            || self.head.policy_anchor_snapshot().generation != snapshot.generation
+        {
+            return Err(unavailable("chain context changed during estimation"));
+        }
+        tracing::debug!(
+            ?direction,
+            gas = selected,
+            measured = first.source_gas,
+            proof_assumed = direction == Direction::Inbound,
+            "wallet gas estimate completed"
+        );
+        Ok(selected)
+    }
+
+    fn snapshot(&self) -> Result<Snapshot, EstimateError> {
+        if self.optimistic.pending_attempt().is_some() {
+            return Err(unavailable("settlement reconciliation pending"));
+        }
+        let anchor = self.head.policy_anchor_snapshot();
+        let through = anchor
+            .through
+            .ok_or_else(|| unavailable("canonical scan not ready"))?;
+        let endpoint = anchor
+            .endpoint
+            .ok_or_else(|| unavailable("canonical settlement endpoint missing"))?;
+        let l1_provider = self.l1.chain_provider();
+        let header = l1_provider
+            .headers
+            .header_by_number(through.number)
+            .map_err(unavailable)?
+            .ok_or_else(|| unavailable("L1 parent missing"))?;
+        let parent = SealedHeader::seal_slow(header);
+        if parent.hash() != through.hash {
+            return Err(unavailable("L1 scan parent changed"));
+        }
+        let timestamp = parent
+            .timestamp
+            .checked_add(self.l1_slot_seconds)
+            .ok_or_else(|| unavailable("L1 timestamp overflow"))?;
+        let attributes = NextBlockEnvAttributes {
+            timestamp,
+            suggested_fee_recipient: parent.beneficiary,
+            prev_randao: parent.mix_hash,
+            gas_limit: parent.gas_limit,
+            parent_beacon_block_root: Some(B256::ZERO),
+            withdrawals: Some(Default::default()),
+            extra_data: parent.extra_data.clone(),
+            slot_number: None,
+        };
+        let env = if let Some(config) = &l1_provider.gnosis_evm_config {
+            config.next_evm_env(&parent.header().clone().into(), &attributes)
+        } else {
+            reth_evm_ethereum::EthEvmConfig::new(l1_provider.evm_config.chain_spec().clone())
+                .next_evm_env(&parent, &attributes)
+        }
+        .map_err(unavailable)?;
+        let l2_provider = self.l2.chain_provider();
+        let number = l2_provider
+            .headers
+            .best_block_number()
+            .map_err(unavailable)?;
+        let l2_parent = SealedHeader::seal_slow(
+            l2_provider
+                .headers
+                .header_by_number(number)
+                .map_err(unavailable)?
+                .ok_or_else(|| unavailable("L2 parent missing"))?,
+        );
+        let settled_header = l2_provider
+            .headers
+            .header_by_number(endpoint.number)
+            .map_err(unavailable)?
+            .ok_or_else(|| unavailable("settled L2 parent missing"))?;
+        if SealedHeader::seal_slow(settled_header).hash() != endpoint.hash
+            || l2_parent.number < endpoint.number
+        {
+            return Err(unavailable(
+                "L2 branch differs from the reconciled endpoint",
+            ));
+        }
+        let (l2_timestamp, l2_randao) = self
+            .head
+            .next_block_context(&l2_parent)
+            .map_err(unavailable)?;
+        let l1 = L1SlotState {
+            anchor: parent,
+            cache: Default::default(),
+            posting: Some((env.clone(), self.poster, 0)),
+        };
+        Ok(Snapshot {
+            l1,
+            l1_env: env,
+            l1_attributes: attributes,
+            l2_parent,
+            l2_timestamp,
+            l2_randao,
+            settled_root: endpoint.hash,
+            generation: anchor.generation,
+        })
+    }
+
+    fn l2_draft(&self, s: &Snapshot) -> Result<SyncBlockState, EstimateError> {
+        let chain = self.l2.chain_provider();
+        SyncBlockState::open(
+            chain.provider.clone(),
+            &chain.evm_config,
+            &s.l2_parent,
+            s.l2_timestamp,
+            s.l2_randao,
+            self.recipient,
+            &[],
+        )
+        .map_err(unavailable)
+    }
+
+    fn probe(
+        &self,
+        direction: Direction,
+        s: &Snapshot,
+        tx: TxEnv,
+        deadline: Instant,
+    ) -> Result<Probe, EstimateError> {
+        if Instant::now() >= deadline {
+            return Err(EstimateError::Timeout);
+        }
+        let mut initial = self.l2_draft(s)?;
+        let mut initial_fork = initial.fork().map_err(unavailable)?;
+        let l2_env = initial_fork.state_and_env().1.clone();
+        let l1 = self.l1.isolated(s.l1.anchor.hash(), s.l1_env.clone());
+        let l2 = self.l2.isolated(s.l2_parent.hash(), l2_env);
+        let mut rollups = HashMap::new();
+        for (id, client, dialect) in [
+            (
+                RollupId::MAINNET,
+                l1.clone(),
+                eez_protocol::ChainDialect::EvmL1Style,
+            ),
+            (
+                RollupId(self.rollup_id),
+                l2.clone(),
+                eez_protocol::ChainDialect::EvmL2Style,
+            ),
+        ] {
+            rollups.insert(
+                id,
+                Rollup {
+                    client: Arc::new(budget::Client {
+                        inner: client.clone(),
+                        deadline,
+                    }),
+                    session: None,
+                    config: eez_protocol::TargetConfig {
+                        dialect,
+                        proxy_lookup: eez_protocol::ProxyLookupConfig {
+                            contract_address: client.manager_address(),
+                            authorized_proxies_slot: dialect.proxy_lookup_slot(),
+                        },
+                    },
+                },
+            );
+        }
+        let mut draft = self.l2_draft(s)?;
+        let (entry, mut builder, source) = if direction == Direction::Inbound {
+            let session =
+                InboundL2TargetSession::new(draft.fork().map_err(unavailable)?, l2.clone());
+            let mut builder =
+                CompositionBuilder::new(RollupId::MAINNET, rollups).with_sessions(HashMap::from([
+                    (
+                        RollupId(self.rollup_id),
+                        budget::wrap(Box::new(session), deadline),
+                    ),
+                ]));
+            let (mut state, _) = s.l1.fork_state(&l1).map_err(unavailable)?;
+            let mut source_env = s.l1_env.clone();
+            source_env.cfg_env.disable_base_fee = true;
+            let source = l1
+                .simulate_source_env_on(tx.clone(), &mut builder, &mut state, source_env, true)
+                .map_err(unavailable)?;
+            (RollupId::MAINNET, builder, source)
+        } else {
+            let session = L1TargetSession::new(&s.l1, l1).map_err(unavailable)?;
+            let mut builder =
+                CompositionBuilder::new(RollupId(self.rollup_id), rollups).with_sessions(
+                    HashMap::from([(RollupId::MAINNET, budget::wrap(Box::new(session), deadline))]),
+                );
+            let mut fork = draft.fork().map_err(unavailable)?;
+            let (state, env) = fork.state_and_env();
+            let mut source_env = env.clone();
+            source_env.cfg_env.disable_base_fee = true;
+            let source = l2
+                .simulate_source_env_on(tx.clone(), &mut builder, state, source_env, true)
+                .map_err(unavailable)?;
+            (RollupId(self.rollup_id), builder, source)
+        };
+        if !source.success {
+            return Err(EstimateError::Revert(source.output));
+        }
+        let _sessions = builder.take_sessions();
+        let composition = builder.finalize().map_err(unsupported)?;
+        if composition.actions.is_empty() {
+            return Err(unsupported("request did not produce a cross-chain action"));
+        }
+        if composition
+            .targets
+            .iter()
+            .any(|t| t.rollup_id != RollupId::MAINNET && t.rollup_id != RollupId(self.rollup_id))
+        {
+            return Err(unsupported("foreign rollup"));
+        }
+        if Instant::now() >= deadline {
+            return Err(EstimateError::Timeout);
+        }
+        let replay = if entry == RollupId::MAINNET {
+            let (batch, digest) = preparation::inbound(self, s, &composition)?;
+            l1::replay(self, s, &batch, &composition, tx, digest)
+        } else {
+            preparation::outbound(self, s, &composition, tx)
+        }?;
+        if replay.output != source.output {
+            return Err(EstimateError::Effects(
+                "native source output differs from composition".into(),
+            ));
+        }
+        if Instant::now() >= deadline {
+            return Err(EstimateError::Timeout);
+        }
+        Ok(replay)
+    }
+}
+
+fn execute_user<E: Evm<Tx = TxEnv>>(mut evm: E, tx: TxEnv) -> Result<TxOutcome, EstimateError>
+where
+    E::DB: DatabaseCommit,
+{
+    let result = evm.transact(tx).map_err(unavailable)?;
+    let gas = result.result.gas();
+    let output = TxOutcome {
+        success: result.result.is_success(),
+        gas_used: gas.tx_gas_used(),
+        gas_required: gas.total_gas_spent().max(gas.floor_gas()),
+        output: result.result.output().cloned().unwrap_or_default(),
+        logs: result.result.logs().to_vec(),
+    };
+    evm.db_mut().commit(result.state);
+    Ok(output)
+}
+
+fn same_actions(
+    left: &[eez_protocol::ExecutedAction],
+    right: &[eez_protocol::ExecutedAction],
+) -> bool {
+    left.len() == right.len()
+        && left.iter().zip(right).all(|(a, b)| {
+            a.parent_index == b.parent_index
+                && a.call_mode == b.call_mode
+                && a.target_address == b.target_address
+                && a.target_rollup_id == b.target_rollup_id
+                && a.source_address == b.source_address
+                && a.source_rollup_id == b.source_rollup_id
+                && a.data == b.data
+                && a.value == b.value
+                && a.revert_span == b.revert_span
+                && a.outcome.is_success() == b.outcome.is_success()
+                && a.outcome.return_data() == b.outcome.return_data()
+        })
+}

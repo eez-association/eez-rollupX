@@ -261,6 +261,8 @@ pub struct TxOutcome {
     pub success: bool,
     /// Gas charged to the tx (after refunds), as the receipt reports it.
     pub gas_used: u64,
+    /// Pre-refund gas, including the calldata floor, for limit sizing.
+    pub gas_required: u64,
     /// Return data if `success`, revert data otherwise; empty if the tx halted
     /// without output.
     pub output: Bytes,
@@ -273,6 +275,7 @@ fn exec_outcome<H>(result: &ExecutionResult<H>) -> TxOutcome {
     TxOutcome {
         success: result.is_success(),
         gas_used: result.tx_gas_used(),
+        gas_required: result.gas().total_gas_spent().max(result.gas().floor_gas()),
         output: result.output().cloned().unwrap_or_default(),
         logs: result.logs().to_vec(),
     }
@@ -614,6 +617,13 @@ impl std::fmt::Debug for SyncBlockFork {
 }
 
 impl SyncBlockFork {
+    pub(crate) fn remaining_gas(&self) -> u64 {
+        self.evm_env
+            .block_env
+            .gas_limit
+            .saturating_sub(self.gas_used)
+    }
+
     /// Chain id carried by the block environment backing this fork.
     #[must_use]
     pub fn chain_id(&self) -> u64 {
@@ -640,7 +650,18 @@ impl SyncBlockFork {
         self.execute_committed(raw)
     }
 
-    fn execute_committed(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
+    pub(crate) fn execute_committed(&mut self, raw: &Bytes) -> Result<TxOutcome, BuildError> {
+        self.execute_committed_inspected(raw, NoOpInspector)
+    }
+
+    pub(crate) fn execute_committed_inspected<I>(
+        &mut self,
+        raw: &Bytes,
+        inspector: I,
+    ) -> Result<TxOutcome, BuildError>
+    where
+        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+    {
         let outcome = execute_and_commit_inspected(
             &self.evm_config,
             &mut self.state,
@@ -648,8 +669,54 @@ impl SyncBlockFork {
             self.gas_used,
             raw,
             self.applied,
-            NoOpInspector,
+            inspector,
         )?;
+        self.applied += 1;
+        self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
+        Ok(outcome)
+    }
+
+    /// Execute an unsigned ordinary transaction on disposable native state.
+    /// Unlike a synthetic target call this advances nonce, fees, transaction
+    /// position and cumulative gas exactly as a signed user transaction does.
+    pub(crate) fn execute_unsigned<I>(
+        &mut self,
+        tx_env: TxEnv,
+        inspector: I,
+    ) -> Result<TxOutcome, BuildError>
+    where
+        I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
+    {
+        let available = self
+            .evm_env
+            .block_env
+            .gas_limit
+            .saturating_sub(self.gas_used);
+        if tx_env.gas_limit > available
+            || tx_env.gas_limit > self.evm_env.cfg_env.tx_gas_limit_cap()
+        {
+            return Err(BuildError::BlockCapacity {
+                idx: self.applied,
+                available,
+                reason: "unsigned user gas exceeds transaction or remaining block limit",
+            });
+        }
+        let mut env = self.evm_env.clone();
+        // eth_estimateGas permits omitted fee fields (gas price zero). Keep
+        // nonce, value, sender and balance checks, and normal fee accounting.
+        env.cfg_env.disable_base_fee = true;
+        let mut evm = self
+            .evm_config
+            .evm_with_env_and_inspector(&mut self.state, env, inspector);
+        let result = evm.transact(tx_env).map_err(|error| match error {
+            EVMError::Database(error) => BuildError::Provider(error.to_string()),
+            other => BuildError::ExecuteTx {
+                idx: self.applied,
+                msg: other.to_string(),
+            },
+        })?;
+        let outcome = exec_outcome(&result.result);
+        evm.db_mut().commit(result.state);
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
@@ -1163,6 +1230,37 @@ mod tests {
             "a spent nonce must be rejected — the restore above is what makes \
              the replay legal",
         );
+    }
+
+    #[test]
+    fn unsigned_user_matches_signed_execution_and_spends_nonce() {
+        use revm::Database as _;
+        let f = fixture();
+        for (index, raw) in f.txs.iter().enumerate() {
+            let mut signed_draft = f.open(&f.txs[..index]);
+            let mut unsigned_draft = f.open(&f.txs[..index]);
+            let mut signed = signed_draft.fork().unwrap();
+            let mut unsigned = unsigned_draft.fork().unwrap();
+            let decoded = TransactionSigned::decode_2718(&mut raw.as_ref()).unwrap();
+            let sender = decoded.recover_signer().unwrap();
+            let recovered = Recovered::new_unchecked(decoded, sender);
+            let tx = f.evm_config.tx_env(&recovered);
+            let expected = signed.execute_committed(raw).unwrap();
+            let actual = unsigned
+                .execute_unsigned(tx.clone(), NoOpInspector)
+                .unwrap();
+            assert_eq!(actual, expected, "source transaction {index}");
+            assert_eq!(unsigned.applied, signed.applied);
+            assert_eq!(unsigned.gas_used, signed.gas_used);
+            assert_eq!(
+                unsigned.state.basic(sender).unwrap(),
+                signed.state.basic(sender).unwrap()
+            );
+            assert!(
+                unsigned.execute_unsigned(tx, NoOpInspector).is_err(),
+                "spent nonce must remain spent, including after a revert"
+            );
+        }
     }
 
     #[test]
