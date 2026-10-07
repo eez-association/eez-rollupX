@@ -35,6 +35,9 @@ use crate::overlay::OverlayChannelHandle;
 use eez_protocol::{CallMode, CompositionBuilder, ExecutorError, ProxyLookupConfig, RollupId};
 use eez_protocol::{ProxyInfo, decode_proxy_value, proxy_mapping_key};
 
+/// Bytes of a cross-chain call's return or revert data kept in its log line.
+const LOGGED_RETURN_BYTES: usize = 256;
+
 /// Look up `authorizedProxies[addr]` from the live EVM state at the
 /// hook site.
 ///
@@ -394,6 +397,14 @@ where
         };
 
         let success = sim.is_success();
+        let return_data: Bytes = sim
+            .return_data()
+            .map(<[u8]>::to_vec)
+            .unwrap_or_default()
+            .into();
+        // A failed target's revert data is the only clue to why a source
+        // later fails; keep a bounded prefix so the line stays log-sized.
+        let logged = &return_data[..return_data.len().min(LOGGED_RETURN_BYTES)];
         tracing::info!(
             dest = %info.original_address,
             rollup_id = %info.original_rollup_id,
@@ -404,14 +415,10 @@ where
             value = %call_value,
             target_result = if success { "ok" } else { "REVERT" },
             target_gas = sim.gas_used().unwrap_or(0),
+            return_len = return_data.len(),
+            return_data = %alloy_primitives::hex::encode_prefixed(logged),
             "cross-chain proxy call detected"
         );
-
-        let return_data: Bytes = sim
-            .return_data()
-            .map(<[u8]>::to_vec)
-            .unwrap_or_default()
-            .into();
 
         // Surface a failed cross-chain sim as `Revert` to the surrounding
         // EVM — the outer Solidity frame should see the call as reverted

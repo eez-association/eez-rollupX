@@ -659,6 +659,38 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
         w.node.log_count_matching(&["evicting", "evicted"]).unwrap() > 0,
         "the poison tx must be evicted loudly",
     );
+    // The status RPC names the cause and carries the simulation diagnostic,
+    // so a client can debug the rejection without node logs.
+    let status: serde_json::Value = ProviderBuilder::new()
+        .connect_http(l2_rpc.parse().unwrap())
+        .client()
+        .request("eez_getCrossChainTransaction", (poison,))
+        .await
+        .unwrap();
+    assert_eq!(status["lifecycle"], "terminal", "{status}");
+    assert_eq!(
+        status["ownership"]["reason"], "SimulationFailed",
+        "{status}"
+    );
+    let rejection = &status["ownership"]["rejection"];
+    assert!(
+        rejection["error"]
+            .as_str()
+            .is_some_and(|error| !error.is_empty()),
+        "the rejection must name the composition error: {status}"
+    );
+    if let Some(source) = rejection["source"].as_object() {
+        // A source that ran must report its real outcome.
+        assert!(
+            source["gasUsed"].as_u64().is_some_and(|gas| gas > 0),
+            "{status}"
+        );
+        assert_eq!(
+            source["outputLength"].as_u64().unwrap() as usize,
+            (source["output"].as_str().unwrap().len() - 2) / 2,
+            "short output is returned whole: {status}"
+        );
+    }
 
     // The window is not frozen: a later slot still settles.
     open_collection_window(&w).await;
