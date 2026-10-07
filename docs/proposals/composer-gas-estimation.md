@@ -427,8 +427,79 @@ Status: implemented on `codex/composer-wallet-gas-estimation`.
 The integration branch merges fork main `ab6e44c` without changing the protocol
 pin. It preserves the newer queue retry/status and priority-fee changes and
 executes the configured posting wrapper during conditional L1 setup. The original
-working tree and its local Compose settings remain untouched in
-`/home/edu/Development/rollupX`; integration used an isolated worktree.
+working tree and its local Compose settings remain untouched; integration used
+an isolated worktree.
 
 Validation results for this integrated revision are recorded below. Earlier
 baseline results above do not independently validate the merged revision.
+
+
+- Final implementation revision: `f41f34788a1f762b5f73bcc5e5cae5900280ef0f`.
+  Subsequent changes to this record are documentation only. Rust formatting,
+  locked workspace Clippy (`--all-targets -- -D warnings`) and Composer unit tests
+  passed: **305 passed, 1 existing ignored manual profiling test**.
+- Node unit tests at integrated revision `6894f1d`: **65 passed**. The initial
+  sandbox attempt failed five HTTP-binding tests before socket access was allowed;
+  that attempt is retained separately, not counted as passing coverage.
+- Integration contracts: **86 passed**. Changed Solidity file formatting and
+  documentation links/diff checks pass. The full contract formatting check still
+  reports only the two unchanged pre-existing files named above.
+- Process regressions at `6894f1d`: **9 passed**: direct calls in both directions,
+  nested calls in each direction, caught destination reverts in each direction,
+  both mixed/static-read scenarios, Gnosis existing-proxy multicall admission,
+  and Ethereum actual companion-gas admission. These exercise existing production
+  paths, whose code was unchanged by the final fingerprint correction.
+- All three wallet process tests at the final implementation revision passed:
+  direct Ethereum, direct Gnosis and Ethereum through `EEZPostBatcher`, each in
+  both directions. Every test covers zero-value calls, value transfers, exact
+  returned-gas signing/submission, mixed batches, invalid requests and independent
+  follower replay. The setter gas figures match those recorded above.
+- The first merged wallet run rejected the registry's fingerprint. Comparing
+  artifacts from two checkout paths found that only an IPFS hash in embedded
+  `CrossChainProxy` metadata differed. Recognition now masks exactly that
+  non-executable 32-byte field; an additional unit regression rejects adjacent
+  executable-byte changes. Native replay still uses the original deployed bytes,
+  including actual CREATE2 addresses. The corrected wallet tests repeat the same
+  failing scenarios; the earlier failure remains recorded in `process.log`.
+- An earlier pre-integration regression run was stopped after a node/signer
+  revision-identity mismatch caused by committing while that run reused runtime
+  binaries. It is invalid validation evidence. The integrated runs above use a
+  fixed source revision throughout. A superseded two-fingerprint implementation
+  was also stopped during compilation, before its wallet tests ran.
+
+Local-only evidence lives under `artifacts/gas-estimation/` in the integration
+worktree: `clippy-portable.log`, `composer-portable.log`, `node-unit-ports.log`,
+`contracts.log`, `process.log`, `wallet-portable.log`, and the corresponding
+retained process logs/datadirs. These ignored artifacts are not available in a
+fresh checkout. No live deployment or full release/Kurtosis matrix was run.
+
+Final local development executable SHA-256 values (not release provenance):
+
+| Executable | SHA-256 |
+| --- | --- |
+| `eez-composer` | `2c80904a47ac325651bf869f21d6a69be2564430da197f137baf1c582ac388c5` |
+| `eez-follower` | `4f4ce64442da2f8e7337219bc9b6c0274e495f1b3a69bc53cce925b24eff83bc` |
+| `eez-proof-signer` | `1b7b3d252224752a79d522363c438bcc5020885fbc9595b29687fe6d4f8f5fb8` |
+
+Reproduce the focused checks from the repository root after the AGENTS.md
+prerequisites (including LLVM 22, initialized protocol and integration contracts):
+
+```bash
+cargo +1.95.0 fmt --all --check
+cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings
+cargo +1.95.0 test --locked -p eez-composer --lib
+cargo +1.95.0 test --locked -p eez-node --lib
+forge test --root contracts
+unset EEZ_TEST_PREBUILT EEZ_TEST_RUNTIME_BIN_DIR EEZ_TEST_PROOF_SIGNER_BIN
+EEZ_TEST_LOG_DIR="$PWD/artifacts/gas-estimation/process-logs" \
+EEZ_TEST_DATADIR_DIR="$PWD/artifacts/gas-estimation/process-datadirs" \
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+  cross_chain::wallet_gas_estimates \
+  cross_chain::inbound_nested_contract cross_chain::outbound_nested_contract \
+  cross_chain::inbound_reverting_destination cross_chain::outbound_reverting_destination \
+  cross_chain::outbound_mixed_static_reads cross_chain::outbound_changing_static_reads \
+  cross_chain::both_directions_zero_value \
+  dynamic_admission::existing_proxy_multicall_estimate \
+  settlement_policy_gas::ethereum_actual_companion_gas \
+  --test-threads=1 --nocapture
+```
