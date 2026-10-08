@@ -130,8 +130,10 @@ PK=$PK
 ENV
 
 # Upstream setup discovers the deployment through the L1 front's
-# eez_composerInfo and bridges the sender's L2 balance up to 0.05 ETH.
-bash "$PROTOCOL/script/e2e/run/network/setup.sh" 0.05 "$env_file"
+# eez_composerInfo and bridges the sender's L2 balance up to 0.05 ETH. It
+# prefers an ambient SOURCE_PK over the file's PK, so bind the same wallet the
+# balance check and the scenario runner use.
+SOURCE_PK="$PK" bash "$PROTOCOL/script/e2e/run/network/setup.sh" 0.05 "$env_file"
 
 # Independently enforce the balance required by the scenario deployments.
 min_l2_balance=10000000000000000
