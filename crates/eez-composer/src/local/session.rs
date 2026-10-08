@@ -410,19 +410,27 @@ impl LocalExecutionSession {
     }
 }
 
+/// Reject a cross-chain call whose destination is the executing chain's
+/// manager. Protocol managers refuse it (`EEZDestinationForbidden`), so every
+/// target session applies this check before simulating the call.
+pub(crate) fn reject_manager_destination(
+    req: &ExecutionRequest,
+    manager: Address,
+    chain_id: u64,
+) -> ExecutorResult<()> {
+    if req.target_address == manager {
+        return Err(ExecutorErrorKind::ManagerDestination { manager, chain_id }.into());
+    }
+    Ok(())
+}
+
 impl TargetExecutionSession for LocalExecutionSession {
     fn execute(
         &mut self,
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
-        if req.target_address == self.manager_address {
-            return Err(ExecutorErrorKind::ManagerDestination {
-                manager: self.manager_address,
-                chain_id: self.chain_id,
-            }
-            .into());
-        }
+        reject_manager_destination(&req, self.manager_address, self.chain_id)?;
         if req.call_mode == CallMode::Static {
             return self.execute_static(&req, dispatcher);
         }
