@@ -78,7 +78,7 @@ scenarios, which are in `all`. **Part A must merge before or with the pin bump.*
 | R5 | A callback whose source proxy is not deployed is rejected at admission with a clear error. | Unit or process test. |
 | R6 | The repository pins rc.2: genesis templates, validator revision, CI runner paths, specs and fixture provenance are updated. | `update-eezl2-genesis.sh --check`; protocol core tests; Anvil runner; full CI including Kurtosis. |
 | R7 | The composer rejects calls whose destination is the target chain's manager, before and after the upgrade. | Unit tests per direction and for static sub-calls. |
-| R8 | Wallet gas estimation recognises both the rc.1 and the rc.2 registry implementation. | Estimator unit test. |
+| R8 | Wallet gas estimation recognises the rc.2 registry implementation only. Until a network's L1 manager is upgraded, cross-chain wallet estimates on that network return "unrecognized estimation deployment"; settlement is unaffected. | Estimator unit test with the rc.2 fingerprint. |
 | R9 | Each network is upgraded in place, with preserved proxy addresses and recorded evidence. | The checklist in Part C; a record in `deployments/<network>/README.md`. |
 | R10 | Recorded genesis files never change. | Review and recorded SHA-256. |
 
@@ -134,7 +134,7 @@ fail closed on the new shapes.
   unit tests in `scripts/ci/tests` cover their contracts.
 - Composer guard for manager destinations (R7), decoding
   `EEZDestinationForbidden` for diagnostics.
-- Estimator registry fingerprints as a list containing rc.1 and rc.2 (R8).
+- Estimator registry fingerprint for rc.2 only (R8). Deploy the rc.2 images and upgrade that network's contracts in the same window to keep the estimation gap short.
 
 ### Part C: upgrade the deployed contracts
 
@@ -208,7 +208,7 @@ its signature (one excluded bundle, a replaced Sync block) before re-running.
   - the observation inspector;
   - blob round trip and reconstruction;
   - signer semantics and outbound;
-  - the estimator with both fingerprints;
+  - the estimator with the rc.2 fingerprint;
   - the manager-destination guard;
   - the CI runner tests in `scripts/ci/tests`.
 - **Process (`eez-node-e2e`, serial):**
