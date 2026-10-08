@@ -45,5 +45,12 @@ whitespace normalized):
 
 Each static entry carries one static callback. The collector must bind it in
 the posted or loaded table, in the semantic blob and, for the L1 read, in the
-traced lookup. No callback trace was captured: the enclave was removed, so the
-L1 test uses a modelled callTracer shape.
+traced lookup.
+
+`topLevelStaticReentrantCounter-trace.json` is the actual `callTracer` result
+of that scenario's user transaction, captured during review on fresh local
+Anvil fixture chains at protocol rc.2 (SHA-256
+`d7c6a16681b88ea984df5cd1b7950f5264f43718fa3a9f5bc5d655e3f8218dad`). Before
+the read, its reader queries the registry for the callback source proxy's
+address (`computeCrossChainProxyAddress`), so the trace has three registry
+frames. Addresses are local fixture identities, not operator credentials.

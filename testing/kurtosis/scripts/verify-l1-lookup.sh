@@ -52,7 +52,7 @@ esac
 for address in "$source" "$destination"; do
     [[ "$address" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid scenario address"
 done
-callback_rolling_hash=""
+callback_rolling_hash=""; proxy_query_input=""; proxy_query_output=""
 if [[ -n "$callback_target" ]]; then
     for address in "$callback_source" "$callback_target" "$callback_proxy"; do
         [[ "$address" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid callback address"
@@ -63,6 +63,11 @@ if [[ -n "$callback_target" ]]; then
     # The untagged static fold over the one successful callback result:
     # keccak256(bytes32(0) || 0x01 || returnData).
     callback_rolling_hash="$(cast keccak "0x$(printf '%064d' 0)01${result#0x}")"
+    # The reader checks the callback proxy exists by asking the registry for its
+    # address before the read; the trace must contain exactly this query.
+    proxy_query_input="$(cast calldata 'computeCrossChainProxyAddress(address,uint64)' \
+        "$callback_source" "$ROLLUP_ID")"
+    proxy_query_output="$(cast abi-encode 'f(address)' "$callback_proxy")"
 fi
 trigger_hash="$(sed -n -E 's/^User tx:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG")"
 post_hash="$(sed -n -E 's/^L1 postBatch:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG")"
@@ -149,6 +154,7 @@ trace_evidence="$(jq -ce --arg source "${source,,}" --arg registry "${ROLLUPS,,}
     --arg static_check_gas_input "$(cast sig 'STATIC_CHECK_GAS()')" \
     --arg callback_proxy "${callback_proxy,,}" --arg callback_target "${callback_target,,}" \
     --arg callback_input "$(cast sig "$call_sig")" --arg callback_output "${result,,}" \
+    --arg proxy_query_input "${proxy_query_input,,}" --arg proxy_query_output "${proxy_query_output,,}" \
     -f "$HERE/lookup-trace.jq" "$trace_file")" || die "actual registry lookup returned the wrong result/revert"
 
 [[ "$(cast call "$source" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 1 ]] \

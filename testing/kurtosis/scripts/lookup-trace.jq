@@ -15,12 +15,25 @@ def only_forwarded($input):
 | ($ARGS.named.callback_target // "") as $callback_target
 | ($ARGS.named.callback_input // "") as $callback_input
 | ($ARGS.named.callback_output // "") as $callback_output
+| ($ARGS.named.proxy_query_input // "") as $proxy_query_input
+| ($ARGS.named.proxy_query_output // "") as $proxy_query_output
 | select(.type == "CALL" and (.to | lower) == $source
        and (.input | lower) == $trigger_input and (.error // "") == "")
 # The pinned proxy first reads the registry's detector gas cap, then performs
 # the lookup. Account for both exact frames; arbitrary extra registry calls
-# must not make a missing or failed lookup appear valid.
-| select(([frames | select((.to // "" | lower) == $registry)] | length) == 2)
+# must not make a missing or failed lookup appear valid. The callback scenario's
+# reader additionally queries the callback source proxy's address first: admit
+# exactly that one read-only query, with its exact input and returned address.
+| select(([frames | select((.to // "" | lower) == $registry)] | length)
+    == (if $callback_proxy == "" then 2 else 3 end))
+| select($callback_proxy == ""
+    or ([.calls[]? | select((.to // "" | lower) == $registry)] as $queries
+        | ($queries | length) == 1
+        and ($queries[0] | .type == "STATICCALL" and (.from | lower) == $source
+             and (.value // "0x0") == "0x0" and (.error // "") == ""
+             and (.input | lower) == $proxy_query_input
+             and (.output | lower) == $proxy_query_output
+             and only_forwarded($proxy_query_input))))
 | [.calls[]? | select((.to // "" | lower) == $proxy and (.from | lower) == $source)]
 | if length != 1 then error("expected one direct call to the destination proxy") else .[0] end
 | [.calls[]? | select((.to // "" | lower) == $registry)]

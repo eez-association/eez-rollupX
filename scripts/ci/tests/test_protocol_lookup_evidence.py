@@ -26,6 +26,8 @@ ABI_RETURN = "0x" + f"{32:064x}{32:064x}{1:064x}"
 # through the registry's proxy for CALLBACK_L2.
 CALLBACK_SOURCE, CALLBACK_TARGET, CALLBACK_PROXY = ["0x" + char * 40 for char in "f95"]
 CALLBACK_FOLD = "0x" + "6" * 64  # The mocked `cast keccak` result.
+PROXY_QUERY = "0xeb20c0aa" + "0" * 24 + "f" * 40 + "0" * 63 + "1"
+PROXY_QUERY_RESULT = "0x" + "0" * 24 + "5" * 40
 STATIC_LOOKUPS = ("topLevelStaticCounter", "topLevelStaticReentrantCounter")
 
 
@@ -75,7 +77,10 @@ def fixture(scenario):
                                   "trigger_binding": "settlement_table",
                                   "semantics_bound_to_settlement": True},
         },
-        "trace": {"type":"CALL", "to":SOURCE, "input":user["input"], "calls":[
+        "trace": {"type":"CALL", "to":SOURCE, "input":user["input"], "calls":([
+            # StaticRoundTripReader asks the registry for the callback proxy first.
+            {"type":"STATICCALL", "from":SOURCE, "to":REGISTRY, "input":PROXY_QUERY,
+             "output":PROXY_QUERY_RESULT}] if callback else []) + [
             {"type":"STATICCALL" if static else "CALL", "from":SOURCE, "to":PROXY, "calls":[
                 {"type":"STATICCALL", "from":PROXY, "to":REGISTRY,
                  "input":"0xb7ab4572", "output":"0x" + f"{10000:064x}"},
@@ -126,11 +131,14 @@ elif command == "calldata":
     if args[1] == "Error(string)":
         assert args[1:] == ["Error(string)", "always reverts"], args
         value = "0x08c379a0"
+    elif args[1] == "computeCrossChainProxyAddress(address,uint64)":
+        value = "0xeb20c0aa" + "0" * 24 + args[2][2:] + f"{int(args[3]):064x}"
     else:
         assert args[1] in ("staticCrossChainCall(address,bytes)", "executeCrossChainCall(address,bytes)"), args
         value = "0xstaticlookup" if args[1].startswith("static") else "0xmutablelookup"
 elif command == "abi-encode":
     if args[1] == "f(bytes)": value = "0x" + f"{32:064x}{32:064x}{1:064x}"
+    elif args[1] == "f(address)": value = "0x" + "0" * 24 + args[2][2:]
     else: value = "0x" + "0"*63 + "1" if args[1] == "f(uint256)" else "0x00"
 elif command == "keccak":
     value = "0x" + "6"*64
@@ -428,6 +436,50 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertTrue(json.loads(result.stdout)["verified"])
 
+    def test_real_static_callback_trace_admits_only_the_readers_proxy_query(self):
+        """Captured callTracer output of the rc.2 L1-origin callback scenario."""
+        trace = json.loads((CAPTURED_LOGS / "topLevelStaticReentrantCounter-trace.json").read_text())
+        query, read_proxy = trace["calls"][0], trace["calls"][1]
+        lookup = read_proxy["calls"][2]
+        callback_proxy = lookup["calls"][0]
+        read = callback_proxy["calls"][0]
+        named = {
+            "source": trace["to"], "registry": query["to"], "proxy": read_proxy["to"],
+            "trigger_input": trace["input"], "lookup_input": lookup["input"],
+            "output": lookup["output"], "static_check_gas_input": "0xb7ab4572",
+            "callback_proxy": callback_proxy["to"], "callback_target": read["to"],
+            "callback_input": read["input"], "callback_output": read["output"],
+            "proxy_query_input": query["input"], "proxy_query_output": query["output"],
+        }
+
+        def accepted(candidate, arguments=named):
+            args = ["jq", "-ce", "--argjson", "static", "true"]
+            for key, value in arguments.items():
+                args += ["--arg", key, value.lower()]
+            run = subprocess.run([*args, "-f", str(SCRIPTS / "lookup-trace.jq")],
+                                 input=json.dumps(candidate), capture_output=True, text=True)
+            return run.returncode == 0
+
+        self.assertTrue(accepted(trace))
+        mutations = {
+            "wrong query arguments": lambda t: t["calls"][0].__setitem__(
+                "input", t["calls"][0]["input"][:-1] + "2"),
+            "wrong query result": lambda t: t["calls"][0].__setitem__("output", ZERO),
+            "failed query": lambda t: t["calls"][0].__setitem__("error", "execution reverted"),
+            "missing query": lambda t: t["calls"].pop(0),
+            "extra registry call": lambda t: t["calls"].insert(1, copy.deepcopy(t["calls"][0])),
+            "wrong callback result": lambda t: t["calls"][1]["calls"][2]["calls"][0]["calls"][0]
+                .__setitem__("output", ZERO),
+        }
+        for name, mutate in mutations.items():
+            with self.subTest(case=name):
+                candidate = copy.deepcopy(trace)
+                mutate(candidate)
+                self.assertFalse(accepted(candidate))
+        # Callback-free lookups stay strict: the extra query is not admitted.
+        strict = {**named, "callback_proxy": "", "proxy_query_input": "", "proxy_query_output": ""}
+        self.assertFalse(accepted(trace, strict))
+
     def test_lookup_trace_accepts_only_the_registry_proxy_forwarding_frame(self):
         def forward(f):
             read = f["trace"]["calls"][0]["calls"][0]
@@ -521,7 +573,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
             return data
 
         def frames(data):
-            return data["trace"]["calls"][0]["calls"][2]["calls"]
+            return data["trace"]["calls"][1]["calls"][2]["calls"]
 
         cases = {
             "callback source": lambda d: d["decoded"][0][2][0][2][0].__setitem__(3, "0x" + "1" * 40),
@@ -538,6 +590,11 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
             "blob callback result": lambda d: d["blob"]["payload"]["semantic_transactions"][0]
                 ["actions"][1].__setitem__("return_data", "0xdead"),
             "producer changed": lambda d: d.__setitem__("counter", "2"),
+            "proxy query missing": lambda d: d["trace"]["calls"].pop(0),
+            "proxy query address": lambda d: d["trace"]["calls"][0].__setitem__(
+                "output", "0x" + "0" * 24 + "1" * 40),
+            "extra registry call": lambda d: d["trace"]["calls"].insert(
+                0, copy.deepcopy(d["trace"]["calls"][0])),
         }
         for name, mutate in cases.items():
             with self.subTest(case=name):
