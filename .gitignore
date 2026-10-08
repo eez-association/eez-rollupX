@@ -15,6 +15,8 @@ datadir/
 
 data/
 chiado-*/
+# Committed records of deployed networks (see deployments/README.md).
+!/deployments/chiado-*/
 
 # CI diagnostics.
 artifacts/

@@ -24,6 +24,20 @@ The implementation's immutables are rollup ID 1, system address
 `0xeeee…0076`, `USE_GAS_LEFT = false` and recovery address
 `0xceaf908c05b277e92e89b51b281ec76305b9a141`. No account holds ETH at genesis.
 
+## Managers before the planned upgrade (read 2026-10-08)
+
+Both managers sit at the same address on their chains, behind the same
+`ProxyAdmin` address, with the same owner.
+
+| Chain | Manager (proxy) | Implementation | Implementation code hash | `ProxyAdmin` / owner |
+| --- | --- | --- | --- | --- |
+| L1 (chain 1) | `0x4b2760f84b83d6b3829e30a7573b0172b6d6402c` | `0x4c3d971b1079e58843d0e1af155a2e54b9e54dba` | `0x16c4c81a9b2259f9b1b082e7316b8d7b20d083404425d96bd17ff0a44e30cd91` | `0x57bf29a07746a25b87c613e01d5da49f6119e96c` / `0xceaf908c05b277e92e89b51b281ec76305b9a141` |
+| L2 (chain 696990) | `0x4b2760f84b83d6b3829e30a7573b0172b6d6402c` | `0x4c3d971b1079e58843d0e1af155a2e54b9e54dba` | `0x432e1c7af4d49fc907681f91e313965b17c3f35c857d8c58442cdbfca7925e4d` | `0x57bf29a07746a25b87c613e01d5da49f6119e96c` / `0xceaf908c05b277e92e89b51b281ec76305b9a141` |
+
+`PROXY_INIT_CODE_HASH()` is
+`0x26f77730044fbffb547593b1a676eb53cbbb9a57879c3f2cf090cee88a283a4a` on both.
+The rollup manager on L1 is `0xb3fb7a12f1cfaa51fa39246cf17205872ca156d0`.
+
 ## Provenance
 
 Copied from the mainnet node's `data/genesis.json` (supplied by the operator on
@@ -33,5 +47,5 @@ Copied from the mainnet node's `data/genesis.json` (supplied by the operator on
 
 ## Changes after genesis
 
-None recorded. An upgrade of EEZL2 to protocol `b75dddf` is planned; see
-[the upgrade plan](../../docs/proposals/protocol-b75dddf-upgrade.md).
+None recorded. An upgrade of both managers to protocol `v0.1.0-rc.2` is planned; see
+[the upgrade plan](../../docs/proposals/protocol-rc2-upgrade.md).
