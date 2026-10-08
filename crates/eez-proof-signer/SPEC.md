@@ -864,7 +864,10 @@ the callback's hash and the host rolling hash after the root's `CALL_BEGIN`
 (static rows do not advance it). That row MUST be successful, with no
 sub-calls and a zero reverted/static hash, and the untagged static fold of the
 rows' results MUST equal the source's `rollingHash`. L2 executes the callbacks
-and checks that fold, so the values L1 returns are the values L2 computes. In a
+and checks that fold, so the values L1 returns are the values L2 computes.
+Repeated identical callbacks share one position key, and L1 resolves each repeat
+to the first matching row without advancing its cursor, so their rows MUST carry
+the same result. In a
 group containing static sources, host rows are allowed only for these
 callbacks. Each `expectedEntryIndex` MUST equal the mutable
 cursor independently reconstructed at that root in the host's call order. The

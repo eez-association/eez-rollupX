@@ -2142,6 +2142,52 @@ mod tests {
         rejected(&host, &tampered, "did not consume the complete");
     }
 
+    /// Two identical callbacks in one L2 static read share a position key, and
+    /// L1 answers both from the first matching row. Equal results verify;
+    /// different results cannot both be returned and are rejected.
+    #[test]
+    fn repeated_static_callbacks_must_agree() {
+        let l2 = RollupId(1);
+        for (second_result, accepted) in [(vec![0x41], true), (vec![0x42], false)] {
+            let mut calls = static_round_trip(l2, RollupId::MAINNET);
+            let mut repeat = calls[1].clone();
+            repeat.outcome = crate::ExecutionOutcome::Resolved {
+                return_data: second_result,
+                gas_used: 21_000,
+                success: true,
+            };
+            calls.push(repeat);
+            let mut batches =
+                materialize_batches(&calls, l2).expect("materialize repeated callbacks");
+            let mut host = batches.remove(&RollupId::MAINNET).expect("L1 host");
+            let source = batches.remove(&l2).expect("L2 static source");
+            host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+                rollupId: l2.0,
+                currentRoot: B256::with_last_byte(0xd1),
+                newRoot: B256::with_last_byte(0xd2),
+                etherDelta: EtherDeltaSol::ZERO,
+            });
+            finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
+            let [row_a, row_b] = host.batch.entries[0].expectedL1ToL2Calls.as_slice() else {
+                panic!("expected one host row per callback");
+            };
+            assert_eq!(row_a.expectedL1toL2Hash, row_b.expectedL1toL2Hash);
+            let verified =
+                verify_l2_static_round_trip(&host.batch.entries[0], &source.l2_static_entries[0]);
+            if accepted {
+                verified.expect("equal repeated results verify");
+            } else {
+                let error = verified.expect_err("conflicting repeated results must be rejected");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("repeat a lookup key with different results"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn static_callbacks_outside_the_supported_shape_are_rejected() {
         let l2 = RollupId(1);
