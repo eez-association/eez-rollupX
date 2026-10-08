@@ -3382,6 +3382,7 @@ dependencies = [
  "reth-storage-api",
  "reth-tasks",
  "reth_gnosis",
+ "revm",
  "rustix",
  "serde",
  "serde_json",
