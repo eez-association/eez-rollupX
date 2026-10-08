@@ -928,8 +928,11 @@ retry attribution, queue ownership or scheduling.
 ### Protocol v0.1.0-rc.2 compatibility
 
 The rc.2 pin changes only the managers: a table-dispatched call may no longer
-target the executing chain's own manager (`EEZDestinationForbidden`), and the
-Composer rejects such calls at admission. Structs, hashes, events, storage
+target the executing chain's own manager (`EEZDestinationForbidden`). The
+Composer applies a narrower admission policy: it rejects every cross-chain call
+whose destination is the destination chain's manager, including a top-level
+static lookup that the managers would still resolve, because that lookup has no
+supported use. Structs, hashes, events, storage
 layout, proxies and the proof system are unchanged, so these binaries validate
 and settle against both rc.1 and rc.2 managers, and existing contracts upgrade
 in place. The validator revision names the pin, so the Composer and Signer

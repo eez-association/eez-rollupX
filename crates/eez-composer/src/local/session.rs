@@ -411,8 +411,11 @@ impl LocalExecutionSession {
 }
 
 /// Reject a cross-chain call whose destination is the executing chain's
-/// manager. Protocol managers refuse it (`EEZDestinationForbidden`), so every
-/// target session applies this check before simulating the call.
+/// manager. Protocol managers refuse it in every dispatched call array
+/// (`EEZDestinationForbidden`). The check also covers static calls, including a
+/// top-level static lookup the managers would resolve: this admission policy is
+/// deliberately narrower, since reading a manager cross-chain has no supported
+/// use. Every target session applies it before simulating the call.
 pub(crate) fn reject_manager_destination(
     req: &ExecutionRequest,
     manager: Address,
@@ -496,4 +499,38 @@ pub(super) fn provider_err(
 
 pub(super) fn evm_err(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> ExecutorError {
     ExecutorError::evm(e)
+}
+
+#[cfg(test)]
+mod manager_destination_tests {
+    use super::*;
+
+    fn request(call_mode: CallMode, target_address: Address) -> ExecutionRequest {
+        ExecutionRequest {
+            call_mode,
+            target_address,
+            data: Bytes::new(),
+            value: U256::ZERO,
+            source_address: Address::repeat_byte(0x11),
+            source_rollup_id: RollupId(0),
+        }
+    }
+
+    #[test]
+    fn manager_destination_is_rejected_for_mutable_and_static_calls() {
+        let manager = Address::repeat_byte(0x4b);
+        for call_mode in [CallMode::Mutable, CallMode::Static] {
+            let error = reject_manager_destination(&request(call_mode, manager), manager, 7)
+                .expect_err("a call to the destination manager is rejected");
+            assert!(
+                matches!(
+                    error.kind(),
+                    ExecutorErrorKind::ManagerDestination { manager: m, chain_id: 7 } if *m == manager
+                ),
+                "{error}"
+            );
+            reject_manager_destination(&request(call_mode, Address::repeat_byte(0x22)), manager, 7)
+                .expect("other destinations are allowed");
+        }
+    }
 }
