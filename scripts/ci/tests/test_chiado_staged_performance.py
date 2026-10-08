@@ -111,7 +111,7 @@ class StagedPerformanceConfigTest(unittest.TestCase):
             "flock": "touch " + shlex.quote(str(lock_file)),
         }.items():
             (self.tools / name).write_text("#!/bin/sh\n" + body + "\n")
-        runner = self.root / "eez-core-protocol/script/e2e/run/network-staged.sh"
+        runner = self.root / "eez-core-protocol/script/e2e/run/network/staged.sh"
         runner.parent.mkdir(parents=True)
         runner.write_text("#!/bin/bash\nset -eu\n"
                           + "test -f " + shlex.quote(str(lock_file)) + "\n"

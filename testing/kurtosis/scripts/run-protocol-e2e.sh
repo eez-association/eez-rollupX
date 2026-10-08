@@ -118,24 +118,6 @@ wait_for_protocol_ready() {
 
 wait_for_protocol_ready
 
-(
-    cd "$PROTOCOL"
-    bash script/e2e/run/prepare-network.sh \
-        --l1-rpc "$L1_RPC" \
-        --l1-front "$L1_FRONT" \
-        --l2-rpc "$L2_RPC" \
-        --pk "$PK" \
-        --rollups "$ROLLUPS"
-)
-
-# Independently enforce the balance required by the scenario deployments.
-min_l2_balance=10000000000000000
-l2_balance="$(cast balance "$SENDER" --rpc-url "$L2_RPC")"
-if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then
-    echo "L2 balance for $SENDER is $l2_balance wei, below the $min_l2_balance wei minimum" >&2
-    exit 1
-fi
-
 env_file="$deploy_dir/chain.env"
 cat >"$env_file" <<ENV
 L1_RPC=$L1_RPC
@@ -147,10 +129,22 @@ MANAGER_L2=$MANAGER_L2
 PK=$PK
 ENV
 
+# Upstream setup discovers the deployment through the L1 front's
+# eez_composerInfo and bridges the sender's L2 balance up to 0.05 ETH.
+bash "$PROTOCOL/script/e2e/run/network/setup.sh" 0.05 "$env_file"
+
+# Independently enforce the balance required by the scenario deployments.
+min_l2_balance=10000000000000000
+l2_balance="$(cast balance "$SENDER" --rpc-url "$L2_RPC")"
+if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then
+    echo "L2 balance for $SENDER is $l2_balance wei, below the $min_l2_balance wei minimum" >&2
+    exit 1
+fi
+
 # Discover the upstream suite from the pinned submodule. Scenario basenames are
 # the network runner's result keys, so require them to be globally unique.
 mapfile -t all_scenario_paths < <(
-    find "$PROTOCOL/script/e2e" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+    find "$PROTOCOL/script/e2e/scenarios" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
         | sed "s#^$PROTOCOL/##" \
         | sort
 )
@@ -188,9 +182,9 @@ for target in "${targets[@]}"; do
     matches=()
     if [[ "$target" == "all" ]]; then
         matches=("${eligible_scenario_paths[@]}")
-    elif [[ -d "$PROTOCOL/script/e2e/$target" ]]; then
+    elif [[ -d "$PROTOCOL/script/e2e/scenarios/$target" ]]; then
         mapfile -t matches < <(
-            find "$PROTOCOL/script/e2e/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+            find "$PROTOCOL/script/e2e/scenarios/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
                 | sed "s#^$PROTOCOL/##" \
                 | sort
         )

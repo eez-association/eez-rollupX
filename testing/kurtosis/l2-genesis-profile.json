@@ -8,8 +8,8 @@
   "eezL2Address": "0x4B2760F84B83d6b3829E30A7573B0172B6d6402C",
   "eezL2ImplementationAddress": "0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA",
   "eezL2ProxyAdminAddress": "0x57BF29A07746a25b87c613e01D5DA49f6119e96c",
-  "runtimeCodeHash": "0x5d869721a0bc72b268abbc897c01b3696689c1a3af5e5948add6ffe7a5a44142",
+  "runtimeCodeHash": "0x8c1b2de690b4e8a1c3a0c248e6e4fb887dd87ba2fcae20cc7d577c3e814f3f6d",
   "proxyRuntimeCodeHash": "0x88068de4c46d94b72f5d39f17b5407c958ec6920376ff1dd366995f65564372a",
-  "genesisStateRoot": "0x2948d812a5ab0e2f3c1f1c322f08f2c0612f616afed4d1f6839fc01c2454fa46",
+  "genesisStateRoot": "0xc9381d078aed5fff546f59f3476218005a410d0bf93bfef4a7b90ea6bd587739",
   "foundryVersion": "1.7.1"
 }

@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol source used by this profile is the `eez-core-protocol`
 submodule at commit
-`855fe0602484750861b4c31502a1a91355d33ed6`. Stateless execution uses the
+`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (`v0.1.0-rc.2`). Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
 pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
 [recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
@@ -921,6 +921,17 @@ binaries until a separately validated migration exists. Do not mix old and new
 signers/replaying nodes, or downgrade after new-format history. Pending requests
 remain in memory and restart may require resubmission. This port does not change
 retry attribution, queue ownership or scheduling.
+
+### Protocol v0.1.0-rc.2 compatibility
+
+The rc.2 pin changes only the managers: a table-dispatched call may no longer
+target the executing chain's own manager (`EEZDestinationForbidden`), and the
+Composer rejects such calls at admission. Structs, hashes, events, storage
+layout, proxies and the proof system are unchanged, so these binaries validate
+and settle against both rc.1 and rc.2 managers, and existing contracts upgrade
+in place. The validator revision names the pin, so the Composer and Signer
+upgrade together. Wallet gas estimation recognizes only the rc.2 registry
+implementation and is unavailable until the network's L1 manager is upgraded.
 
 ### Static-callback compatibility
 

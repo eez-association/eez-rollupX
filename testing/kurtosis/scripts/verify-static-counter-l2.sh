@@ -216,7 +216,7 @@ mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"
 jq -n \
     --argjson schema_version 2 --arg scenario staticCounterL2 \
-    --arg scenario_path script/e2e/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol \
+    --arg scenario_path script/e2e/scenarios/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol \
     --arg protocol_commit "$PROTOCOL_COMMIT" --arg result PASS \
     --arg verification_mode upstream-static-pool \
     --arg static_key "$computed_static_key" --arg cached_return "$expected_return" \

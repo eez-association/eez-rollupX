@@ -8,7 +8,7 @@ forge() (
     local -a args=("$@")
     local i input_file
     if [[ ${args[0]:-} == script &&
-          ${args[1]:-} == script/e2e/shared/Verify.s.sol:VerifyL1BatchCalldata ]]; then
+          ${args[1]:-} == script/e2e/scenarios/shared/Verify.s.sol:VerifyL1BatchCalldata ]]; then
         for ((i = 2; i + 2 < ${#args[@]}; i++)); do
             if [[ ${args[i]} == --sig &&
                   ${args[i+1]} == 'run(bytes,address,bytes,bytes,bytes,bool)' &&

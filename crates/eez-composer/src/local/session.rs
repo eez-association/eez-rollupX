@@ -416,6 +416,13 @@ impl TargetExecutionSession for LocalExecutionSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        if req.target_address == self.manager_address {
+            return Err(ExecutorErrorKind::ManagerDestination {
+                manager: self.manager_address,
+                chain_id: self.chain_id,
+            }
+            .into());
+        }
         if req.call_mode == CallMode::Static {
             return self.execute_static(&req, dispatcher);
         }

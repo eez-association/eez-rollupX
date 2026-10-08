@@ -2382,3 +2382,93 @@ async fn wallet_estimate_rpc(front: &str, request: serde_json::Value) -> serde_j
     .await
     .unwrap()
 }
+
+/// Protocol rc.2 managers reject a cross-chain call whose destination is the
+/// destination chain's own manager (`EEZDestinationForbidden`): it would
+/// re-enter the manager under an authorized proxy's identity. The Composer
+/// must reject it at admission and name the manager.
+async fn assert_manager_destination_is_rejected(inbound: bool) {
+    let w = setup_cross_chain().await.unwrap();
+    let (source_rpc, front, key, chain_id, proxy, manager) = if inbound {
+        let proxy = eez_testkit::create_cross_chain_proxy(
+            &w.l1_rpc(),
+            TARGET_DEPLOYER,
+            w.cfg.eez_address,
+            EEZL2_ADDRESS,
+            w.cfg.rollup_id,
+        )
+        .await
+        .unwrap();
+        (
+            w.l1_rpc(),
+            w.l1_xchain(),
+            INBOUND_USER,
+            DEV_CHAIN_ID,
+            proxy,
+            EEZL2_ADDRESS,
+        )
+    } else {
+        let proxy = eez_testkit::create_l2_cross_chain_proxy(
+            &w.l2_rpc(),
+            TARGET_DEPLOYER,
+            w.cfg.eez_address,
+            L1_ROLLUP_ID,
+        )
+        .await
+        .unwrap();
+        (
+            w.l2_rpc(),
+            w.l2_xchain(),
+            OUTBOUND_USER,
+            w.l2_chain_id,
+            proxy,
+            w.cfg.eez_address,
+        )
+    };
+    let nonce = onchain_nonce(&source_rpc, key).await.unwrap();
+    let hash = sign_and_send(
+        &front,
+        key,
+        chain_id,
+        nonce,
+        Some(proxy),
+        U256::ZERO,
+        Vec::new(),
+        1_000_000,
+    )
+    .await
+    .unwrap();
+    let outcome = wait_for_receipt_or_failure(&w.node, &source_rpc, hash, SETTLE_TIMEOUT).await;
+    assert!(
+        outcome.is_err(),
+        "a call to the destination manager must not be included: {outcome:?}"
+    );
+    let status: serde_json::Value = ProviderBuilder::new()
+        .connect_http(w.l2_rpc().parse().unwrap())
+        .client()
+        .request("eez_getCrossChainTransaction", (hash,))
+        .await
+        .unwrap();
+    assert_eq!(
+        status["ownership"]["reason"], "SimulationFailed",
+        "{status}"
+    );
+    let expected = format!("manager {manager}");
+    assert!(
+        status["ownership"]["rejection"]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains("cross-chain call targets the chain")
+                && error.contains(&expected)),
+        "{status}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_call_to_the_l2_manager_is_rejected() {
+    assert_manager_destination_is_rejected(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_call_to_the_l1_manager_is_rejected() {
+    assert_manager_destination_is_rejected(false).await;
+}

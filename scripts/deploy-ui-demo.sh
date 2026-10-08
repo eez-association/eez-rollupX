@@ -28,14 +28,14 @@ mkdir -p "$(dirname "$OUTPUT")"
 (
     cd "$PROTOCOL"
     # shellcheck disable=SC1091
-    source script/e2e/shared/E2EBase.sh
+    source script/e2e/lib/E2EBase.sh
 
     ensure_create2_factory "$L1_RPC" L1 "$DEMO_KEY"
     ensure_create2_factory "$L2_RPC" L2 "$DEMO_KEY"
 
     export ROLLUPS MANAGER_L2
     deploy_contracts \
-        script/e2e/nested/L1_to_L2/flash-loan/E2EFlashLoan.s.sol \
+        script/e2e/scenarios/nested/L1_to_L2/flash-loan/E2EFlashLoan.s.sol \
         "$L1_RPC" "$L2_RPC" "$DEMO_KEY"
 
     demo_account="$(cast wallet address --private-key "$DEMO_KEY")"

@@ -1,7 +1,9 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Native execution always uses the original deployed bytes, including metadata.
-//! Source: protocol 855fe060, contracts/foundry.toml (0.8.34, via IR, runs=1).
+//! Source: protocol v0.1.0-rc.2 (9a1f8153), contracts/foundry.toml (0.8.34, via IR, runs=1).
+//! A manager still on an older implementation is not recognized, so estimation
+//! is unavailable on a network until its contracts are upgraded.
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
 };
@@ -23,14 +25,14 @@ const PROXY: Code = Code {
     hash: b256!("2711c709cbaba3ef6ca5c08eb27c4f009b3479c1489e1098e3928ec7b924c6a4"),
 };
 const REGISTRY: Code = Code {
-    length: 23804,
+    length: 23889,
     immutables: &[2282, 3071, 10421],
     // CrossChainProxy initcode embeds an IPFS metadata hash whose source paths
     // vary by build directory. Mask only that 32-byte hash, not its CBOR framing
     // or executable instructions. Real setup still uses the deployed initcode
     // and its actual CREATE2 addresses; recognition never rewrites execution.
-    metadata_hashes: &[23665],
-    hash: b256!("fdb8830f9cb0cb5cada516b03add1e46a3eb0eda0ee710f5e102053aa09e8db5"),
+    metadata_hashes: &[23750],
+    hash: b256!("4002bf893eb71b85237faebb323218a4c9a1e33b77535639241e00feace3b650"),
 };
 const ROLLUP: Code = Code {
     length: 3295,

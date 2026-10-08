@@ -201,7 +201,7 @@ bash "$HERE/verify-lookup-root.sh" "$scratch/blob.json" "$(jq -er '.root' <<<"$e
 end="$(cast block-number --rpc-url "$L2_RPC")"
 (
     cd "$REPO/eez-core-protocol"
-    forge script script/e2e/shared/Verify.s.sol:VerifyL2Absent --rpc-url "$L2_RPC" \
+    forge script script/e2e/scenarios/shared/Verify.s.sol:VerifyL2Absent --rpc-url "$L2_RPC" \
         --sig 'run(uint256,uint256,address,bytes32[])' "$first" "$end" "$MANAGER_L2" "[$key]"
 ) >"$scratch/absence.log" 2>&1 || { cat "$scratch/absence.log" >&2; die "lookup appeared on L2"; }
 # Detect a reorg while collecting evidence; no retroactive eth_call of the
