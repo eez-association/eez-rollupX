@@ -211,6 +211,12 @@ fn validate_front_envelope(
             envelope.max_fee_per_gas()
         ));
     }
+    if envelope.gas_limit() > TX_GAS_LIMIT_CAP {
+        return Err(format!(
+            "gas limit {} exceeds the per-transaction cap {TX_GAS_LIMIT_CAP} (EIP-7825)",
+            envelope.gas_limit()
+        ));
+    }
     let intrinsic = intrinsic_gas(envelope);
     if envelope.gas_limit() < intrinsic {
         return Err(format!(
@@ -220,6 +226,10 @@ fn validate_front_envelope(
     }
     Ok(())
 }
+
+/// Osaka's per-transaction gas cap (EIP-7825). The L2 runs Osaka from genesis;
+/// both L1 fronts apply the same cap by policy.
+const TX_GAS_LIMIT_CAP: u64 = 1 << 24;
 
 /// Minimum gas any inclusion charges: the base cost, calldata and access list,
 /// or the EIP-7623 calldata floor when that is higher. Both source chains run
@@ -242,7 +252,8 @@ fn intrinsic_gas(envelope: &TxEnvelope) -> u64 {
     (gas.initial_regular_gas + gas.initial_state_gas).max(gas.floor_gas)
 }
 
-/// Reject a gas limit no block on the source chain can include.
+/// Reject a gas limit above the source chain's current block gas limit. The L2
+/// limit is fixed; an L1 limit can change, so this checks the latest block.
 async fn check_block_gas_limit(
     envelope: &TxEnvelope,
     validation_provider: &RootProvider,
@@ -1013,14 +1024,32 @@ mod tests {
         assert_eq!(pool.len(), 0);
     }
 
-    /// No block on the source chain can include more gas than its limit.
+    /// Osaka caps one transaction at 2^24 gas on either source chain, before
+    /// any chain lookup.
+    #[tokio::test]
+    async fn gas_limit_above_the_per_transaction_cap_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(16_777_217, 10, 1, Bytes::new());
+        for direction in [Direction::Inbound, Direction::Outbound] {
+            let pool = HeldPool::new(Default::default());
+            let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+            let msg =
+                rejection(gate_and_hold(&envelope, &raw, direction, &pool, 31337, &provider).await);
+            assert_eq!(
+                msg,
+                "gas limit 16777217 exceeds the per-transaction cap 16777216 (EIP-7825)"
+            );
+            assert_eq!(pool.len(), 0);
+        }
+    }
+
+    /// No block on the source chain can include more gas than its current limit.
     #[tokio::test]
     async fn gas_limit_above_source_block_gas_limit_is_rejected_at_submission() {
-        let (envelope, raw) = signed_eip1559_with(30_000_001, 10, 1, Bytes::new());
+        let (envelope, raw) = signed_eip1559_with(10_000_001, 10, 1, Bytes::new());
         let pool = HeldPool::new(Default::default());
         let asserter = Asserter::new();
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
-        push_latest_block(&asserter, SOURCE_BLOCK_GAS_LIMIT);
+        push_latest_block(&asserter, 10_000_000);
 
         let msg = rejection(
             gate_and_hold(
@@ -1036,12 +1065,13 @@ mod tests {
 
         assert_eq!(
             msg,
-            "gas limit 30000001 exceeds the source chain's block gas limit 30000000"
+            "gas limit 10000001 exceeds the source chain's block gas limit 10000000"
         );
         assert_eq!(pool.len(), 0);
     }
 
-    /// The boundaries themselves are valid, and a fee cap below the current
+    /// The boundaries themselves (intrinsic gas, the per-transaction cap and an
+    /// equal tip) are valid, and a fee cap below the current
     /// base fee is still held: it can become includable later.
     #[tokio::test]
     async fn boundary_gas_limits_and_equal_tip_are_accepted() {
@@ -1057,7 +1087,7 @@ mod tests {
 
         let pool = HeldPool::new(Default::default());
         push_admission_lookups(&asserter, u64::MAX, 0);
-        let (envelope, raw) = signed_eip1559_with(SOURCE_BLOCK_GAS_LIMIT, 1, 1, Bytes::new());
+        let (envelope, raw) = signed_eip1559_with(TX_GAS_LIMIT_CAP, 1, 1, Bytes::new());
         assert!(matches!(
             gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
             Admission::Held(_)
