@@ -394,6 +394,20 @@ impl CompositionBuilder {
         Ok(response)
     }
 
+    /// Whether the call being executed is a callback of a top-level static
+    /// read. The protocol runs such a callback from the read's static entry,
+    /// through a source proxy that must already exist.
+    #[must_use]
+    pub fn executing_static_read_callback(&self) -> bool {
+        self.active_calls
+            .last()
+            .and_then(|&call| self.recorded[call].parent_index)
+            .is_some_and(|parent| {
+                let read = &self.recorded[parent];
+                read.call_mode == crate::CallMode::Static && read.parent_index.is_none()
+            })
+    }
+
     /// Push a `Pending` placeholder for a new call and return its
     /// slot index. Called before the target session's `execute` so
     /// the index is stable across nested dispatches.

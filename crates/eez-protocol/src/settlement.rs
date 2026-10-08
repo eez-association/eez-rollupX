@@ -153,6 +153,27 @@ pub struct FifoObservationClaim {
     pub expected_success: bool,
     /// Exact return data on success or revert data on failure.
     pub expected_output: Bytes,
+    /// Static callbacks the target makes to the source chain, in call order.
+    /// Always empty for a mutable lookup.
+    pub callbacks: Vec<FifoObservationCallback>,
+}
+
+/// One static callback a static observation makes to its source chain.
+///
+/// This rollup's witness cannot prove the callback's result. Replay answers
+/// the callback with `output`, and the source chain enforces that answer:
+/// it executes the callback when resolving the static entry and checks its
+/// result against the entry's static rolling hash, which commits to `output`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FifoObservationCallback {
+    /// Caller on this rollup, which is the callback's source.
+    pub source_address: Address,
+    /// Callback target on the source chain.
+    pub target_address: Address,
+    /// Callback calldata.
+    pub data: Bytes,
+    /// Callback return data. Supported callbacks succeed.
+    pub output: Bytes,
 }
 
 /// Recover the top-level source actions that must execute in FIFO order.
@@ -262,10 +283,12 @@ pub struct FifoTransactionRootPlan {
 /// result.
 ///
 /// Applying mutable actions are omitted because their canonical system
-/// transaction is already re-executed by the signer. A lookup/static action
-/// with a semantic cross-chain descendant is rejected: proving such a child
-/// can require another chain's authenticated state, so accepting it from the
+/// transaction is already re-executed by the signer. A lookup action with a
+/// semantic cross-chain descendant is rejected: proving such a child can
+/// require another chain's authenticated state, so accepting it from the
 /// Composer would recreate the unchecked-oracle gap this capability closes.
+/// A static action's static callbacks are the exception: the source chain
+/// executes them and checks their results (see [`FifoObservationCallback`]).
 /// Local EVM subcalls do not appear as semantic descendants and are replayed
 /// normally.
 ///
@@ -319,15 +342,19 @@ pub fn fifo_observation_claims(
         // Strict preorder means an immediately following nested action belongs
         // to this root's subtree. Its target may be another chain, whose state
         // is not authenticated by this rollup's execution witness.
-        if composition
+        let callbacks = if action.call_mode == CallMode::Static {
+            static_observation_callbacks(&composition.actions, action_index)?
+        } else if composition
             .actions
             .get(action_index + 1)
             .is_some_and(|next| next.parent_index.is_some())
         {
             return Err(format!(
-                "lookup/static source action {action_index} has cross-chain descendants; multi-chain observation replay is unsupported"
+                "lookup source action {action_index} has cross-chain descendants; multi-chain observation replay is unsupported"
             ));
-        }
+        } else {
+            Vec::new()
+        };
 
         // More than one semantic call inside a reverted source frame can
         // observe transient writes from an earlier call even though every
@@ -365,9 +392,51 @@ pub fn fifo_observation_claims(
             value: action.value,
             expected_success: *success,
             expected_output: Bytes::copy_from_slice(return_data),
+            callbacks,
         });
     }
     Ok(claims)
+}
+
+/// The static callbacks of static root `root`, which must be its complete
+/// subtree: terminal, successful static calls back to the root's chain.
+fn static_observation_callbacks(
+    actions: &[ExecutedAction],
+    root: usize,
+) -> Result<Vec<FifoObservationCallback>, String> {
+    let source_rollup_id = actions[root].source_rollup_id;
+    let mut callbacks = Vec::new();
+    for (index, action) in actions.iter().enumerate().skip(root + 1) {
+        if action.parent_index.is_none() {
+            break;
+        }
+        let ExecutionOutcome::Resolved {
+            return_data,
+            success: true,
+            ..
+        } = &action.outcome
+        else {
+            return Err(format!(
+                "static source action {root} has an unsuccessful or unresolved callback {index}"
+            ));
+        };
+        if action.parent_index != Some(root)
+            || action.call_mode != CallMode::Static
+            || action.target_rollup_id != source_rollup_id
+            || action.value != U256::ZERO
+        {
+            return Err(format!(
+                "static source action {root} has descendant {index} outside the static-callback profile"
+            ));
+        }
+        callbacks.push(FifoObservationCallback {
+            source_address: action.source_address,
+            target_address: action.target_address,
+            data: action.data.clone(),
+            output: Bytes::copy_from_slice(return_data),
+        });
+    }
+    Ok(callbacks)
 }
 
 /// Build the canonical root schedule for one inbound source transaction.
@@ -896,20 +965,82 @@ mod tests {
 
     #[test]
     fn observation_claims_reject_cross_chain_descendants_without_multichain_witnesses() {
-        let root = action(None, CallMode::Static, true);
-        let mut child = action(Some(0), CallMode::Mutable, true);
-        child.source_rollup_id = RollupId(1);
-        child.target_rollup_id = RollupId(2);
-        let composition = composition(vec![root, child]);
         let plan = FifoTransactionRootPlan {
             mutable_new_roots: Vec::new(),
             static_roots: vec![B256::repeat_byte(0x51)],
             endpoint: B256::repeat_byte(0x51),
         };
+        let mut child = action(Some(0), CallMode::Mutable, true);
+        child.source_rollup_id = RollupId(1);
+        child.target_rollup_id = RollupId(2);
 
-        let error = fifo_observation_claims(&composition, &plan).unwrap_err();
+        let static_root = composition(vec![action(None, CallMode::Static, true), child.clone()]);
+        let error = fifo_observation_claims(&static_root, &plan).unwrap_err();
+        assert!(
+            error.contains("outside the static-callback profile"),
+            "{error}"
+        );
 
+        let lookup = composition(vec![action(None, CallMode::Mutable, false), child]);
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: vec![B256::repeat_byte(0x51)],
+            static_roots: Vec::new(),
+            endpoint: B256::repeat_byte(0x51),
+        };
+        let error = fifo_observation_claims(&lookup, &plan).unwrap_err();
         assert!(error.contains("multi-chain observation replay is unsupported"));
+    }
+
+    #[test]
+    fn observation_claims_carry_static_callbacks_to_the_source_chain() {
+        let root = action(None, CallMode::Static, true);
+        let mut callback = action(Some(0), CallMode::Static, true);
+        callback.source_rollup_id = RollupId(1);
+        callback.target_rollup_id = RollupId::MAINNET;
+        callback.source_address = Address::repeat_byte(0x61);
+        callback.target_address = Address::repeat_byte(0x62);
+        callback.data = Bytes::from_static(b"callback input");
+        callback.outcome = ExecutionOutcome::Resolved {
+            return_data: b"callback output".to_vec(),
+            gas_used: 0,
+            success: true,
+        };
+        let plan = FifoTransactionRootPlan {
+            mutable_new_roots: Vec::new(),
+            static_roots: vec![B256::repeat_byte(0x53)],
+            endpoint: B256::repeat_byte(0x53),
+        };
+
+        let claims =
+            fifo_observation_claims(&composition(vec![root, callback.clone()]), &plan).unwrap();
+        let [claim] = claims.as_slice() else {
+            panic!("expected one static claim");
+        };
+        assert_eq!(
+            claim.callbacks,
+            [super::FifoObservationCallback {
+                source_address: Address::repeat_byte(0x61),
+                target_address: Address::repeat_byte(0x62),
+                data: Bytes::from_static(b"callback input"),
+                output: Bytes::from_static(b"callback output"),
+            }]
+        );
+
+        // The source chain cannot enforce a failed callback's result.
+        callback.outcome = ExecutionOutcome::Resolved {
+            return_data: Vec::new(),
+            gas_used: 0,
+            success: false,
+        };
+        let error = fifo_observation_claims(
+            &composition(vec![action(None, CallMode::Static, true), callback]),
+            &plan,
+        )
+        .unwrap_err();
+        assert!(
+            error.contains("unsuccessful or unresolved callback"),
+            "{error}"
+        );
     }
 
     #[test]
