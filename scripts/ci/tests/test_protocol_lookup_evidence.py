@@ -22,13 +22,30 @@ PARENT = "0x" + "8" * 64
 RETURN = "0x" + "0" * 63 + "1"
 REVERT = "0x08c379a0"  # Fixture data; the real collector computes ABI Error(string).
 ABI_RETURN = "0x" + f"{32:064x}{32:064x}{1:064x}"
+# topLevelStaticReentrantCounter's callback: CALLBACK_L2 reads COUNTER_L1
+# through the registry's proxy for CALLBACK_L2.
+CALLBACK_SOURCE, CALLBACK_TARGET, CALLBACK_PROXY = ["0x" + char * 40 for char in "f95"]
+CALLBACK_FOLD = "0x" + "6" * 64  # The mocked `cast keccak` result.
+STATIC_LOOKUPS = ("topLevelStaticCounter", "topLevelStaticReentrantCounter")
 
 
 def fixture(scenario):
-    static = scenario == "topLevelStaticCounter"
+    static = scenario in STATIC_LOOKUPS
+    callback = scenario == "topLevelStaticReentrantCounter"
     result = RETURN if static else REVERT
     mutable = [[[1, 0, ROOT, ROOT]], KEY, [], [], "0x" + "6" * 64, 1, False, result]
-    static_entry = [[[1, ROOT]], KEY, [], ZERO, 1, True, result]
+    callbacks = [[0, True, 0, CALLBACK_SOURCE, 1, CALLBACK_TARGET, 0, "0x61bc221a"]] if callback else []
+    static_entry = [[[1, ROOT]], KEY, callbacks, CALLBACK_FOLD if callback else ZERO, 1, True, result]
+    callback_action = {
+        "parent_index": 0, "kind": "StaticCall", "source_chain": 1, "target_chain": 0,
+        "from_address": CALLBACK_SOURCE, "to_address": CALLBACK_TARGET, "value": "0",
+        "data": "0x61bc221a", "success": True, "return_data": result, "revert_span": None,
+    }
+    # callTracer shape: the registry STATICCALLs the callback's source proxy,
+    # which forwards one CALL (read-only under the STATICCALL) to the producer.
+    callback_frames = [{"type": "STATICCALL", "from": REGISTRY, "to": CALLBACK_PROXY, "calls": [
+        {"type": "CALL", "from": CALLBACK_PROXY, "to": CALLBACK_TARGET, "value": "0x0",
+         "input": "0x61bc221a", "output": result}]}] if callback else []
     post = dict(hash=POST, to=REGISTRY, input="0xpost", blockHash=L1_HASH,
                 blockNumber="0x10", transactionIndex="0x0")
     user = dict(hash=USER, to=SOURCE, input="0xd09de08a" if static else "0x11111111",
@@ -52,7 +69,7 @@ def fixture(scenario):
                     "source_chain": 0, "target_chain": 1, "from_address": SOURCE,
                     "to_address": DESTINATION, "value": "0", "data": "0x61bc221a" if static else "0xd09de08a",
                     "success": static, "return_data": result, "revert_span": None,
-                }]}],
+                }] + ([callback_action] if callback else [])}],
             },
             "semantic_evidence": {"raw_trigger_transactions": [{"raw_transaction": "0xraw"}],
                                   "trigger_binding": "settlement_table",
@@ -66,7 +83,7 @@ def fixture(scenario):
                  **({"error":"write protection"} if static else {})},
                 {"type":"STATICCALL" if static else "CALL", "from":PROXY, "to":REGISTRY,
                  "input":"0xstaticlookup" if static else "0xmutablelookup", "value":"0x0",
-                 "output":ABI_RETURN if static else REVERT,
+                 "output":ABI_RETURN if static else REVERT, "calls": callback_frames,
                  **({} if static else {"error":"execution reverted"})}]}]},
         "l2_hash": ROOT, "l2_head": 100,
     }
@@ -122,7 +139,7 @@ elif command == "call":
     if sig.startswith("computeCrossChainCallHash("):
         value = "0x" + "1"*64
     elif sig.startswith("computeCrossChainProxyAddress("):
-        value = "0x" + "e"*40
+        value = "0x" + "5"*40 if "0x" + "f"*40 in args else "0x" + "e"*40
     elif sig == "lastCallFailed()(bool)":
         value = f.get("last_failed", "true")
     elif sig == "targetCounter()(uint256)":
@@ -209,7 +226,9 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         # mocked RPCs, so invented PASS markers cannot hide collector drift.
         log = (CAPTURED_LOGS / f"{scenario}.txt").read_text()
         for field, replacement in (("READER_L1", SOURCE), ("COUNTER_L2", DESTINATION),
-                                   ("SAFE_CALLER", SOURCE), ("REV_COUNTER_L2", DESTINATION)):
+                                   ("SAFE_CALLER", SOURCE), ("REV_COUNTER_L2", DESTINATION),
+                                   ("CALLBACK_L2", CALLBACK_SOURCE), ("COUNTER_L1", CALLBACK_TARGET),
+                                   ("CALLBACK_PROXY", CALLBACK_PROXY)):
             if match := re.search(rf"^{field}=(0x[0-9a-fA-F]+)$", log, re.MULTILINE):
                 log = log.replace(match[1], replacement)
         for field, replacement in (("User tx", USER), ("L1 postBatch", POST)):
@@ -223,7 +242,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                               env=self.env, capture_output=True, text=True, timeout=15)
 
     def test_both_lookup_modes_accept_complete_canonical_evidence(self):
-        for scenario in ("topLevelStaticCounter", "revertCounter"):
+        for scenario in (*STATIC_LOOKUPS, "revertCounter"):
             with self.subTest(scenario=scenario):
                 result = self.run_fixture(scenario)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -485,6 +504,67 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertEqual(json.loads(self.output.read_text())["lookup_root"]["kind"], "execution_prefix")
 
+    def test_static_callback_is_bound_in_table_trace_blob_and_fold(self):
+        scenario = "topLevelStaticReentrantCounter"
+        result = self.run_fixture(scenario)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["lookup_entry"]["callbacks"][0][3], CALLBACK_SOURCE)
+        self.assertTrue(evidence["lookup_trace"]["callback_traced"])
+        # The fold preimage is bytes32(0) || 0x01 || returnData.
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertIn(["cast", "keccak", "0x" + "0" * 64 + "01" + RETURN[2:]], calls)
+
+        def wrong(mutate):
+            data = fixture(scenario)
+            mutate(data)
+            return data
+
+        def frames(data):
+            return data["trace"]["calls"][0]["calls"][2]["calls"]
+
+        cases = {
+            "callback source": lambda d: d["decoded"][0][2][0][2][0].__setitem__(3, "0x" + "1" * 40),
+            "callback target": lambda d: d["decoded"][0][2][0][2][0].__setitem__(5, "0x" + "1" * 40),
+            "callback data": lambda d: d["decoded"][0][2][0][2][0].__setitem__(7, "0xdeadbeef"),
+            "callback missing": lambda d: d["decoded"][0][2][0].__setitem__(2, []),
+            "extra callback": lambda d: d["decoded"][0][2][0][2].append(d["decoded"][0][2][0][2][0]),
+            "callback fold": lambda d: d["decoded"][0][2][0].__setitem__(3, ZERO),
+            "untraced callback": lambda d: frames(d).clear(),
+            "callback output": lambda d: frames(d)[0]["calls"][0].__setitem__("output", "0xdead"),
+            "callback reverted": lambda d: frames(d)[0].__setitem__("error", "execution reverted"),
+            "duplicate callback": lambda d: frames(d).append(copy.deepcopy(frames(d)[0])),
+            "blob callback": lambda d: d["blob"]["payload"]["semantic_transactions"][0]["actions"].pop(),
+            "blob callback result": lambda d: d["blob"]["payload"]["semantic_transactions"][0]
+                ["actions"][1].__setitem__("return_data", "0xdead"),
+            "producer changed": lambda d: d.__setitem__("counter", "2"),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                result = self.run_fixture(scenario, data=wrong(mutate))
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(self.output.exists())
+        with self.subTest(case="callback proxy"):
+            result = self.run_fixture(scenario, log_transform=lambda log: log.replace(
+                f"CALLBACK_PROXY={CALLBACK_PROXY}", f"CALLBACK_PROXY={PROXY}"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("CALLBACK_PROXY is not the registry's proxy", result.stderr)
+
+    def test_collector_dispatches_the_l1_callback_scenario_to_the_lookup_verifier(self):
+        scenario = "topLevelStaticReentrantCounter"
+        self.assertEqual(self.run_fixture(scenario).returncode, 0)  # Writes the log and data.
+        shutil.copy2(SCRIPTS / "collect-protocol-e2e-evidence.sh", self.scripts)
+        (self.root / "scenario.sol").write_text("contract ExecuteNetwork {}\n")
+        self.output.unlink()
+        result = subprocess.run(
+            ["bash", str(self.scripts / "collect-protocol-e2e-evidence.sh"), scenario,
+             str(self.root / "scenario.sol"), str(self.log), str(self.output)],
+            env=self.env, capture_output=True, text=True, timeout=15, cwd=self.root)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["verification_mode"], "upstream-lookup-only")
+        self.assertTrue(evidence["lookup_trace"]["callback_traced"])
+
     def test_static_l2_success_uses_the_table_not_old_failure_diagnostics(self):
         data = fixture("topLevelStaticCounter")
         data["block"]["transactions"] = [data["transactions"][POST]]
@@ -547,6 +627,76 @@ VERIFY_PASS reader.lastRead=1 reader.counter=1
                 else:
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertEqual(json.loads(self.output.read_text())["verification_mode"], "upstream-static-pool")
+
+    def test_static_l2_callback_scenario_binds_the_loaded_callback(self):
+        """topLevelStaticReentrantCounterL2 through the real collector dispatch."""
+        producer, callback = "0x" + "9" * 40, "0x" + "f" * 40
+        data = fixture("topLevelStaticCounter")
+        data["block"]["transactions"] = [data["transactions"][POST]]
+        data["transactions"][USER]["blockHash"] = ROOT
+        data["receipts"][USER]["blockHash"] = ROOT
+        data["transactions"][LOAD] = dict(hash=LOAD, to=MANAGER, input="0xabcdef01", blockHash=ROOT,
+                                        blockNumber="0x10", transactionIndex="0x0")
+        data["receipts"][LOAD] = dict(transactionHash=LOAD, blockHash=ROOT, blockNumber="0x10",
+                                    transactionIndex="0x0", status="0x1")
+        data["l2_block"] = dict(hash=ROOT, number="0x10",
+                                transactions=[data["transactions"][LOAD], data["transactions"][USER]])
+        incoming = [0, True, 0, callback, 0, producer, 0, "0x61bc221a"]
+        data["load_decoded"] = [[], [[0, KEY, [incoming], CALLBACK_FOLD, True, RETURN]]]
+        artifact = self.root / "eez-core-protocol/out/EEZL2.sol/EEZL2.json"
+        artifact.parent.mkdir(parents=True)
+        artifact.write_text(json.dumps({"methodIdentifiers": {"loadExecutionTable(bytes)": "abcdef01",
+                                                             "executeIncomingCrossChainCall(bytes)": "abcd0002"}}))
+        shutil.copy2(SCRIPTS / "collect-protocol-e2e-evidence.sh", self.scripts)
+        # Real upstream text; only identities the mocked RPCs answer are replaced.
+        log = (CAPTURED_LOGS / "topLevelStaticReentrantCounterL2.txt").read_text()
+        for field, replacement in (("READER_L2", SOURCE), ("COUNTER_L1", DESTINATION),
+                                   ("CALLBACK_L1", callback), ("PRODUCER_L2", producer)):
+            original = re.search(rf"^{field}=(0x[0-9a-fA-F]+)$", log, re.MULTILINE)[1]
+            log = log.replace(original, replacement)
+        for pattern, replacement in ((r"^tx: (0x[0-9a-fA-F]+)", USER),
+                                     (r"^Matched settlement tx (0x[0-9a-fA-F]+)", POST)):
+            log = log.replace(re.search(pattern, log, re.MULTILINE)[1], replacement)
+        log = re.sub(r"^block: 0x[0-9a-fA-F]+ ", "block: 0x10 ", log, flags=re.MULTILINE)
+        self.log.write_text(log)
+        command = ["bash", str(self.scripts / "collect-protocol-e2e-evidence.sh"),
+                   "topLevelStaticReentrantCounterL2", "scenario.sol", str(self.log), str(self.output)]
+        (self.root / "scenario.sol").write_text("contract ExecuteNetworkL2 {}\n")
+
+        def run(mutated):
+            self.data.write_text(json.dumps(mutated))
+            self.output.unlink(missing_ok=True)
+            return subprocess.run(command, env=self.env, capture_output=True, text=True,
+                                  timeout=15, cwd=self.root)
+
+        result = run(data)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        evidence = json.loads(self.output.read_text())
+        self.assertEqual(evidence["scenario"], "topLevelStaticReentrantCounterL2")
+        self.assertEqual(evidence["static_entry"]["incoming_calls"], 1)
+        self.assertEqual(evidence["static_entry"]["rolling_hash"], CALLBACK_FOLD)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertIn(["cast", "keccak", "0x" + "0" * 64 + "01" + RETURN[2:]], calls)
+
+        entry = lambda d: d["load_decoded"][1][0]
+        cases = {
+            "callback source": lambda d: entry(d)[2][0].__setitem__(3, "0x" + "1" * 40),
+            "callback target": lambda d: entry(d)[2][0].__setitem__(5, "0x" + "1" * 40),
+            "callback source chain": lambda d: entry(d)[2][0].__setitem__(4, 1),
+            "callback not static": lambda d: entry(d)[2][0].__setitem__(1, False),
+            "callback data": lambda d: entry(d)[2][0].__setitem__(7, "0xdeadbeef"),
+            "callback missing": lambda d: entry(d).__setitem__(2, []),
+            "extra callback": lambda d: entry(d)[2].append(list(incoming)),
+            "callback fold": lambda d: entry(d).__setitem__(3, ZERO),
+            "producer changed": lambda d: d.__setitem__("counter", "2"),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                mutated = copy.deepcopy(data)
+                mutate(mutated)
+                result = run(mutated)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(self.output.exists())
 
 
 if __name__ == "__main__":

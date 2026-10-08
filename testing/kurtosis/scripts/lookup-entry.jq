@@ -4,7 +4,22 @@
 def zero_hash: "0x" + ("0" * 64);
 def hash: type == "string" and test("^0x[0-9a-fA-F]{64}$");
 .[0] as $batch
-| if $scenario == "topLevelStaticCounter" then
+| if $scenario == "topLevelStaticReentrantCounter" then
+    # The same lookup, with exactly the one expected static callback to L1 and
+    # its untagged result fold.
+    [$batch[2][$batch[4]:][] | select((.[1] | ascii_downcase) == $key)]
+    | if length != 1 then error("expected one static lookup") else .[0] end
+    | select(length == 7 and (.[0] | length) == 1 and .[0][0][0] == $rollup
+             and (.[0][0][1] | hash) and (.[2] | length) == 1
+             and (.[2][0] | length == 8 and .[0] == 0 and .[1] == true and .[2] == 0
+                  and (.[3] | ascii_downcase) == $callback_source and .[4] == $rollup
+                  and (.[5] | ascii_downcase) == $callback_target and .[6] == 0
+                  and (.[7] | ascii_downcase) == $callback_data)
+             and (.[3] | ascii_downcase) == $callback_rolling_hash
+             and .[4] == $rollup and .[5] == true and (.[6] | ascii_downcase) == $result)
+    | {proxy_entry_hash: .[1], root: .[0][0][1], success: .[5], return_data: .[6],
+       callbacks: .[2], rolling_hash: .[3]}
+  elif $scenario == "topLevelStaticCounter" then
     # The user trigger resolves the persistent pool, not the meta-hook prefix.
     [$batch[2][$batch[4]:][] | select((.[1] | ascii_downcase) == $key)]
     | if length != 1 then error("expected one static lookup") else .[0] end

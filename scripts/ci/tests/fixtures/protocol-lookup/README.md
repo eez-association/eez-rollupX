@@ -30,3 +30,20 @@ The revert trigger is
 Both traces include the pinned proxy's `STATIC_CHECK_GAS()` registry read,
 self-probe, and actual registry lookup. The old one-registry-frame assertion
 rejects both. These are public transaction traces without operator credentials.
+
+## Static round-trip logs
+
+`topLevelStaticReentrantCounter.txt` and `topLevelStaticReentrantCounterL2.txt`
+are the upstream scenario logs from the Kurtosis run
+https://github.com/eduadiez/rollupX/actions/runs/37822814018 (trailing
+whitespace normalized):
+
+- PR 77 head: `434bfda07ed0bcc183bd8211bbb45cb2e747feb0`
+- Protocol revision: `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (v0.1.0-rc.2)
+- Artifact paths: `protocol-e2e/network.*/topLevelStaticReentrantCounter.log`
+  and `protocol-e2e/network.*/topLevelStaticReentrantCounterL2.log`
+
+Each static entry carries one static callback. The collector must bind it in
+the posted or loaded table, in the semantic blob and, for the L1 read, in the
+traced lookup. No callback trace was captured: the enclave was removed, so the
+L1 test uses a modelled callTracer shape.

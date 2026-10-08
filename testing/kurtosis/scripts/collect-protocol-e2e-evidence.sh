@@ -30,10 +30,10 @@ die() {
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker is absent"
 ! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream log contains an ERROR"
 case "$SCENARIO_NAME" in
-    staticCounterL2)
-        exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON"
+    staticCounterL2|topLevelStaticReentrantCounterL2)
+        exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON" "$SCENARIO_NAME"
         ;;
-    topLevelStaticCounter|revertCounter)
+    topLevelStaticCounter|topLevelStaticReentrantCounter|revertCounter)
         exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
             "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
         ;;
