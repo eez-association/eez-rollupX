@@ -40,11 +40,21 @@ const ROLLUP: Code = Code {
     metadata_hashes: &[],
     hash: b256!("9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"),
 };
+// contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {
     length: 392,
     immutables: &[176, 319],
     metadata_hashes: &[],
     hash: b256!("440eebc16fc5e247953d790c578d9f99155c85263cd7ada2d1cbd66d94291a42"),
+};
+// The protocol's src/proofSystems/ECDSAProofSystem.sol, deployed on Ethereum
+// mainnet by the upstream procedure. Estimation never runs either verifier: it
+// answers the registry's single `verify` call (see `l1::AssumedProof`).
+const PROTOCOL_VERIFIER: Code = Code {
+    length: 1056,
+    immutables: &[],
+    metadata_hashes: &[],
+    hash: b256!("1d1d49bdc9b5871658c0c181abdded35d730b14fb9fdd4b802e32ce792eb02e4"),
 };
 // contracts/src/EEZPostBatcher.sol at fork ab6e44c, same compiler profile.
 const POST_BATCHER: Code = Code {
@@ -82,11 +92,20 @@ fn check(
     address: Address,
     expected: &Code,
 ) -> Result<(), EstimateError> {
+    check_any(state, address, &[expected])
+}
+
+fn check_any(
+    state: &dyn StateProvider,
+    address: Address,
+    accepted: &[&Code],
+) -> Result<(), EstimateError> {
     let code = state
         .account_code(&address)
         .map_err(unavailable)?
         .ok_or_else(|| unsupported("deployment code missing"))?;
-    if !matches(&code.original_bytes(), expected) {
+    let code = code.original_bytes();
+    if !accepted.iter().any(|expected| matches(&code, expected)) {
         return Err(unsupported(format!(
             "unrecognized estimation deployment at {address}"
         )));
@@ -141,7 +160,7 @@ pub(super) fn validate(
             return Err(unsupported("posting wrapper registry differs"));
         }
     }
-    check(state.as_ref(), e.verifier, &VERIFIER)
+    check_any(state.as_ref(), e.verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
 }
 
 #[cfg(test)]
@@ -166,6 +185,17 @@ mod tests {
             changed[offset] ^= 1;
             assert!(!matches(&changed, &expected));
         }
+    }
+
+    /// The verifier deployed on Ethereum mainnet at 0x1Ac760d5…721E.
+    #[test]
+    fn fingerprint_recognizes_the_protocol_verifier_deployed_on_mainnet() {
+        let code = alloy_primitives::hex::decode(
+            include_str!("testdata/mainnet-protocol-ecdsa-proof-system.hex").trim(),
+        )
+        .unwrap();
+        assert!(matches(&code, &PROTOCOL_VERIFIER));
+        assert!(!matches(&code, &VERIFIER));
     }
 
     #[test]
