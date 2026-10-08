@@ -356,21 +356,27 @@ where
         };
         // Dispatch is synchronous, so this inspector can exchange cache
         // snapshots around the nested execution.
-        // Snapshot this rollup's in-flight cache before dispatch. If the
-        // downstream call re-enters this rollup, the new session preloads the
-        // snapshot and publishes its updated cache for this frame to apply.
+        // Open a frame with this rollup's in-flight cache. If the downstream
+        // call re-enters this rollup, the new session preloads the snapshot
+        // and publishes its updated cache into this frame.
         self.overlay_channel
-            .push_pre_snapshot(live_cache_snapshot(context));
+            .open_frame(live_cache_snapshot(context));
         let sim = self.dispatcher.dispatch_call(info.original_rollup_id, req);
-        // A downstream session that re-entered this rollup publishes its
-        // post-execution cache on the same channel. Apply that diff before
-        // this EVM frame continues. The popped pre-snapshot is the exact
-        // cache pushed above (same thread, LIFO, re-entered sessions only
-        // peek), so it serves as the diff baseline without a second clone.
-        let before_snapshot = self.overlay_channel.pop_pre_snapshot();
-        if let (Some(before), Some(after)) =
-            (before_snapshot, self.overlay_channel.pop_post_cache())
-            && let Err(e) = crate::overlay::apply_overlay_diff(context, &before, &after)
+        // Apply only a result published during this dispatch, before this EVM
+        // frame continues. A failed target call reverts every callback it
+        // made, so its result is discarded. The frame's snapshot is the exact
+        // cache recorded above (same thread; re-entered sessions only peek),
+        // so it serves as the diff baseline without a second clone.
+        let frame = self.overlay_channel.close_frame();
+        let succeeded = sim
+            .as_ref()
+            .is_ok_and(eez_protocol::ExecutionOutcome::is_success);
+        if let Some(crate::overlay::DispatchFrame {
+            pre_dispatch,
+            result: Some(result),
+        }) = frame
+            && succeeded
+            && let Err(e) = crate::overlay::apply_overlay_diff(context, &pre_dispatch, &result)
         {
             self.record_error(ExecutorError::evm(format!(
                 "overlay diff-apply failed: {e}"

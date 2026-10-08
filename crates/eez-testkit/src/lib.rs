@@ -3557,6 +3557,20 @@ sol! {
     interface INestedSetterOuter {
         function setViaInner(uint256 v) external;
     }
+    #[sol(rpc)]
+    interface IOverlayProbeL2 {
+        error ValueNotCleared(uint256 value);
+        function value() external view returns (uint256);
+        function completed() external view returns (uint256);
+        function startDeliverThenBurnAndPing(address driver, address probe, uint256 amount) external;
+        function startDeliverBurnThenPing(address driver, address probe, uint256 amount) external;
+        function startDeliverThenRevert(address driver, address probe, uint256 amount) external;
+    }
+    #[sol(rpc)]
+    interface IOverlayDriverL1 {
+        function pings() external view returns (uint256);
+        function deliverThenBurnAndPing(address probe, address driver, uint256 amount) external;
+    }
     /// Derives the source proxy used on the destination chain.
     #[sol(rpc)]
     interface IProxyDerivation {
@@ -4761,6 +4775,27 @@ impl std::ops::Deref for CrossChainCodelessWorld {
     }
 }
 
+/// Round-trip fixtures in which L1 calls back into a suspended L2 execution.
+pub struct CrossChainOverlayRoundTripWorld {
+    pub world: CrossChainWorld,
+    /// `OverlayProbeL2` on L2.
+    pub probe: Address,
+    /// L1's proxy for `probe`.
+    pub probe_on_l1: Address,
+    /// `OverlayDriverL1` on L1.
+    pub driver: Address,
+    /// L2's proxy for `driver`.
+    pub driver_on_l2: Address,
+}
+
+impl std::ops::Deref for CrossChainOverlayRoundTripWorld {
+    type Target = CrossChainWorld;
+
+    fn deref(&self) -> &Self::Target {
+        &self.world
+    }
+}
+
 impl CrossChainWorld {
     /// Durable witnesses for this fixture. Readers must use the same database
     /// path as the writer so MDBX's process locks remain shared.
@@ -5889,11 +5924,12 @@ impl Scenario {
             )
             .await
             .with_context(|| format!("{}: submit {direction:?} call", self.name))?;
-            let succeeded = wait_for(SETTLE_TIMEOUT, || async {
-                receipt_ok(receipt_rpc, hash).await
-            })
-            .await
-            .with_context(|| format!("{}: {direction:?} call was not mined", self.name))?;
+            // A terminal Composer rejection fails here with its reason instead
+            // of waiting out the receipt timeout.
+            let succeeded =
+                wait_for_receipt_or_failure(&world.node, receipt_rpc, hash, SETTLE_TIMEOUT)
+                    .await
+                    .with_context(|| format!("{}: {direction:?} call was not mined", self.name))?;
             if !succeeded {
                 bail!("{}: {direction:?} call reverted", self.name);
             }
@@ -6216,6 +6252,47 @@ pub async fn setup_cross_chain_codeless() -> Result<CrossChainCodelessWorld> {
         world,
         inbound_wrapper,
         outbound_wrapper,
+    })
+}
+
+pub async fn setup_cross_chain_overlay_round_trip() -> Result<CrossChainOverlayRoundTripWorld> {
+    let world = setup_cross_chain().await?;
+    let l1_rpc = world.l1_rpc();
+    let l2_rpc = world.l2_rpc();
+    let out = repo_root().join("contracts/out/OverlayRoundTrip.sol");
+    let probe = deploy_raw(
+        &l2_rpc,
+        TARGET_DEPLOYER,
+        world.l2_chain_id,
+        &out.join("OverlayProbeL2.json"),
+        Vec::new(),
+    )
+    .await?;
+    let driver = deploy_raw(
+        &l1_rpc,
+        TARGET_DEPLOYER,
+        DEV_CHAIN_ID,
+        &out.join("OverlayDriverL1.json"),
+        Vec::new(),
+    )
+    .await?;
+    let probe_on_l1 = create_cross_chain_proxy(
+        &l1_rpc,
+        TARGET_DEPLOYER,
+        world.cfg.eez_address,
+        probe,
+        world.cfg.rollup_id,
+    )
+    .await?;
+    let driver_on_l2 =
+        create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, driver, L1_ROLLUP_ID).await?;
+
+    Ok(CrossChainOverlayRoundTripWorld {
+        world,
+        probe,
+        probe_on_l1,
+        driver,
+        driver_on_l2,
     })
 }
 

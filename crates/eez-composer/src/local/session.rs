@@ -333,11 +333,12 @@ impl LocalExecutionSession {
     ) -> eez_protocol::ExecutionOutcome {
         self.state.commit(changes);
 
-        // Publish the cumulative post-execute cache. An inspector waiting on
-        // the same channel can pop and apply it after nested dispatch; the
-        // stack preserves LIFO order for recursive re-entry.
-        self.overlay_channel
-            .push_post_cache(self.state.cache.clone());
+        // Publish the cumulative post-execute cache into the suspended
+        // dispatch frame of this rollup. Its inspector applies the latest
+        // result after the dispatch returns.
+        if !self.overlay_channel.publish(self.state.cache.clone()) {
+            tracing::trace!("no suspended dispatch frame; overlay result dropped");
+        }
 
         tracing::debug!(
             success = success,

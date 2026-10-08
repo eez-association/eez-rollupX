@@ -7,16 +7,17 @@ use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
 use eez_protocol::EEZL2_ADDRESS;
 use eez_testkit::signals;
 use eez_testkit::{
-    ANVIL_ATTESTER_KEY, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall, INBOUND_USER, INestedSetterInner,
-    INestedSetterOuter, IReturnData, IReturnDataWrapper, IRevertBubbleWrapper, IRevertingTarget,
-    ISetterWrapper, IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, POST_BATCHER_ENV,
-    ProverMutation, REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead,
-    TARGET_DEPLOYER, account_code, assert_latest_batch_signature, batches_posted, call_read,
-    call_revert_data, count_events, cross_chain_source_proxy, deploy_nested_setter_inner,
-    deploy_nested_setter_outer, events_since, l2_balance, l2_value, last_proxy_result,
-    onchain_nonce, read_state_word, receipt_ok, run_scenarios, safe_block_hash, setter_call,
-    setup_cross_chain, setup_cross_chain_codeless, setup_cross_chain_empty_call,
-    setup_cross_chain_nested_setter, setup_cross_chain_outbound_return_data,
+    ANVIL_ATTESTER_KEY, CrossChainOverlayRoundTripWorld, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall,
+    INBOUND_USER, INestedSetterInner, INestedSetterOuter, IOverlayDriverL1, IOverlayProbeL2,
+    IReturnData, IReturnDataWrapper, IRevertBubbleWrapper, IRevertingTarget, ISetterWrapper,
+    IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, POST_BATCHER_ENV, ProverMutation,
+    REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead, TARGET_DEPLOYER,
+    account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
+    count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
+    events_since, l2_balance, l2_value, last_proxy_result, onchain_nonce, read_state_word,
+    receipt_ok, run_scenarios, safe_block_hash, setter_call, setup_cross_chain,
+    setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
+    setup_cross_chain_outbound_return_data, setup_cross_chain_overlay_round_trip,
     setup_cross_chain_proxied, setup_cross_chain_return_data, setup_cross_chain_reverting,
     setup_cross_chain_with_env, sign_and_send, signer_address, state_root, value_no_ret,
     value_read, wait_for, wait_for_receipt_or_failure,
@@ -1463,6 +1464,181 @@ async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribut
         "nested outbound proxy call",
     )
     .await;
+}
+
+// Round trips in which L1 calls back into a suspended L2 execution. The probe's
+// `value` stands in for a token balance; `completed` and `pings` show the
+// scenario actually ran, since `value` is already zero beforehand.
+const OVERLAY_AMOUNT: u64 = 800_000_000_000;
+const OVERLAY_GAS: u64 = 3_000_000;
+
+fn overlay_value(w: &CrossChainOverlayRoundTripWorld) -> StateRead {
+    call_read(
+        w.probe,
+        "value()",
+        IOverlayProbeL2::valueCall {}.abi_encode(),
+    )
+}
+
+fn overlay_completed(w: &CrossChainOverlayRoundTripWorld) -> StateRead {
+    call_read(
+        w.probe,
+        "completed()",
+        IOverlayProbeL2::completedCall {}.abi_encode(),
+    )
+}
+
+fn overlay_pings(w: &CrossChainOverlayRoundTripWorld) -> StateRead {
+    call_read(
+        w.driver,
+        "pings()",
+        IOverlayDriverL1::pingsCall {}.abi_encode(),
+    )
+}
+
+/// A delivery callback, then a burn callback whose own L1 call does not re-enter
+/// L2. The burn's state must survive that call; the earlier delivery's state
+/// must not be applied over it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_burn_survives_nested_call_without_reentry() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    Scenario::new("delivery, then burn with a non-reentrant L1 call")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startDeliverThenBurnAndPingCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                    amount: U256::from(OVERLAY_AMOUNT),
+                }
+                .abi_encode(),
+            )
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_value(&w), 0u64)
+        .expect_l2_state(overlay_completed(&w), 1u64)
+        .expect_l1_state(overlay_pings(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+}
+
+/// Two sibling callbacks into one suspended L2 call, then a second L1 call that
+/// does not re-enter L2. Only the latest callback state belongs to the first
+/// call; the second call must not apply the earlier one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_sibling_callback_state_is_not_reused_by_later_call() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    Scenario::new("delivery and burn callbacks, then a non-reentrant L1 call")
+        .outbound(
+            ScenarioCall::new(
+                w.probe,
+                IOverlayProbeL2::startDeliverBurnThenPingCall {
+                    driver: w.driver_on_l2,
+                    probe: w.probe_on_l1,
+                    amount: U256::from(OVERLAY_AMOUNT),
+                }
+                .abi_encode(),
+            )
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_value(&w), 0u64)
+        .expect_l2_state(overlay_completed(&w), 1u64)
+        .expect_l1_state(overlay_pings(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+}
+
+/// The same delivery and burn driven by an L1 source: the L2 callbacks run as
+/// inbound targets, and the burn's L1 call re-enters the suspended L1 source.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_inbound_round_trip_reenters_suspended_l1() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    Scenario::new("inbound delivery, then burn with a non-reentrant L1 call")
+        .inbound(
+            ScenarioCall::new(
+                w.driver,
+                IOverlayDriverL1::deliverThenBurnAndPingCall {
+                    probe: w.probe_on_l1,
+                    driver: w.driver_on_l2,
+                    amount: U256::from(OVERLAY_AMOUNT),
+                }
+                .abi_encode(),
+            )
+            .with_gas_limit(OVERLAY_GAS),
+        )
+        .expect_l2_state(overlay_value(&w), 0u64)
+        .expect_l1_state(overlay_pings(&w), 1u64)
+        .expect_settled_fully()
+        .run(&w)
+        .await
+        .unwrap();
+}
+
+/// An L1 call makes a delivery callback and then reverts. The failed call
+/// undoes the delivery, so the suspended L2 caller must not apply it, and its
+/// source simulation succeeds. Settling a failed call with descendants is not
+/// supported, so the Composer then rejects the transaction for that reason;
+/// applying the delivery instead fails the source with `ValueNotCleared`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn overlay_failed_l1_call_discards_its_callback_state() {
+    let w = setup_cross_chain_overlay_round_trip().await.unwrap();
+    let l2_rpc = w.l2_rpc();
+    let nonce = onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap();
+    let hash = sign_and_send(
+        &w.l2_xchain(),
+        OUTBOUND_USER,
+        w.l2_chain_id,
+        nonce,
+        Some(w.probe),
+        U256::ZERO,
+        IOverlayProbeL2::startDeliverThenRevertCall {
+            driver: w.driver_on_l2,
+            probe: w.probe_on_l1,
+            amount: U256::from(OVERLAY_AMOUNT),
+        }
+        .abi_encode(),
+        OVERLAY_GAS,
+    )
+    .await
+    .unwrap();
+    let outcome = wait_for_receipt_or_failure(&w.node, &l2_rpc, hash, SETTLE_TIMEOUT).await;
+    assert!(
+        outcome.is_err(),
+        "a failed call with descendants must not be included: {outcome:?}"
+    );
+
+    let status: serde_json::Value = ProviderBuilder::new()
+        .connect_http(l2_rpc.parse().unwrap())
+        .client()
+        .request("eez_getCrossChainTransaction", (hash,))
+        .await
+        .unwrap();
+    assert_eq!(
+        status["ownership"]["reason"], "SimulationFailed",
+        "{status}"
+    );
+    let rejection = &status["ownership"]["rejection"];
+    assert_eq!(
+        rejection["source"],
+        serde_json::Value::Null,
+        "the source must not fail once the failed call's callback is discarded: {status}"
+    );
+    assert!(
+        rejection["error"].as_str().is_some_and(|error| {
+            error.contains("unsuccessful cross-chain calls with descendants are not supported")
+        }),
+        "{status}"
+    );
+    assert_eq!(
+        read_state_word(&l2_rpc, &overlay_completed(&w))
+            .await
+            .unwrap(),
+        U256::ZERO
+    );
 }
 
 fn failures_read(wrapper: Address) -> StateRead {
