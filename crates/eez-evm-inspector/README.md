@@ -46,18 +46,23 @@ patterns). Its live `State` is mutably borrowed by the paused EVM, so the
 re-entered session cannot touch it directly. The overlay channel bridges that
 gap with cache snapshots:
 
-1. Before every dispatch the inspector publishes a journal-refreshed snapshot
-   of its rollup's cache.
-2. A session that re-enters the rollup opens preloaded with that snapshot, so
-   it sees the in-flight state.
-3. The re-entered session publishes its post-execution cache; after dispatch
-   returns, the inspector applies the per-account, per-slot difference onto
-   the live state as journal entries — so an outer revert unwinds the applied
-   changes together with the source's own writes.
+1. Before every dispatch the inspector opens a frame holding a
+   journal-refreshed snapshot of its rollup's cache.
+2. A session that re-enters the rollup opens preloaded with the innermost
+   frame's snapshot, so it sees the in-flight state.
+3. The re-entered session publishes its post-execution cache into that frame;
+   a later sibling callback replaces it with its own cumulative cache.
+4. When the dispatch returns, the inspector closes its frame. If the dispatched
+   call succeeded and the frame has a result, the inspector applies the
+   per-account, per-slot difference onto the live state as journal entries —
+   so an outer revert unwinds the applied changes together with the source's
+   own writes. A dispatch that did not re-enter the rollup has no result, and
+   a failed one discards its result.
 
-Snapshots are stacked, keeping recursive re-entry paired with its call frames.
-Mutations the diff cannot represent (SELFDESTRUCT) fail loudly instead of
-miscomposing.
+Frames are nested, so recursive re-entry stays paired with its dispatch and a
+result is never applied by another dispatch. Mutations the diff cannot
+represent (SELFDESTRUCT) fail loudly instead of miscomposing; code installation
+and nonce changes are not propagated.
 
 ## Exports
 

@@ -43,25 +43,46 @@ use revm::primitives::Address;
 ///
 /// During nested dispatch, the caller's revm state remains mutably borrowed.
 /// A re-entered session therefore cannot borrow that state directly. This
-/// channel transfers cache snapshots across the dispatch boundary using two
-/// LIFO stacks:
+/// channel transfers cache snapshots across the dispatch boundary in one frame
+/// per dispatch:
 ///
-/// - `source_cache` stores this rollup's live cache before dispatch. A session
-///   that re-enters the rollup peeks at the latest snapshot when it opens.
+/// - [`open_frame`](Self::open_frame) records this rollup's live cache before a
+///   dispatch. A session that re-enters the rollup preloads the innermost
+///   frame's snapshot when it opens.
 ///
-/// - `overlay_cache` stores the cache produced by a re-entered session. The
-///   suspended inspector pops it after dispatch and applies the diff through
-///   [`apply_overlay_diff`].
+/// - [`publish`](Self::publish) records a re-entered session's cumulative cache
+///   as the innermost frame's result. Sibling callbacks reuse one session, so a
+///   later result replaces an earlier one.
 ///
-/// Stacks keep recursive re-entry snapshots paired with their call frames.
+/// - [`close_frame`](Self::close_frame) returns the snapshot together with the
+///   result published while the frame was open, if any. The suspended inspector
+///   applies the difference through [`apply_overlay_diff`].
+///
+/// A result belongs to the frame that was innermost when it was published. A
+/// dispatch that does not re-enter this rollup therefore closes without a
+/// result; it must not see a result left by an earlier callback, which may
+/// predate state the suspended execution has since changed. Two independent
+/// push/pop stacks cannot provide this: publishes happen per re-entry and pops
+/// per dispatch, so a dispatch with no re-entry, or with several, unbalances
+/// them.
+///
 /// All access is same-thread; a poisoned lock means a dispatch panicked
 /// mid-exchange, so methods panic rather than silently dropping state.
 #[derive(Debug, Default)]
 pub struct OverlayChannel {
-    /// Stack of pre-dispatch cache snapshots.
-    source_cache: Mutex<Vec<CacheState>>,
-    /// Stack of post-execute cache snapshots.
-    overlay_cache: Mutex<Vec<CacheState>>,
+    /// Open dispatch frames, innermost last.
+    frames: Mutex<Vec<DispatchFrame>>,
+}
+
+/// One dispatch from a suspended rollup, as returned by
+/// [`OverlayChannel::close_frame`].
+#[derive(Debug)]
+pub struct DispatchFrame {
+    /// The rollup's live cache when the dispatch began.
+    pub pre_dispatch: CacheState,
+    /// The latest cumulative cache a re-entered session published during the
+    /// dispatch, or `None` when the dispatch did not re-enter the rollup.
+    pub result: Option<CacheState>,
 }
 
 /// A poisoned lock means a panic escaped mid-exchange; continuing would
@@ -69,36 +90,46 @@ pub struct OverlayChannel {
 const POISONED: &str = "overlay channel mutex poisoned by a panicked dispatch";
 
 impl OverlayChannel {
-    /// Clear all snapshots at a transaction-composition boundary.
+    /// Clear all frames at a transaction-composition boundary.
     pub fn reset(&self) {
-        self.source_cache.lock().expect(POISONED).clear();
-        self.overlay_cache.lock().expect(POISONED).clear();
+        self.frames.lock().expect(POISONED).clear();
     }
 
-    /// Push a pre-dispatch cache snapshot for this rollup.
-    pub fn push_pre_snapshot(&self, cache: CacheState) {
-        self.source_cache.lock().expect(POISONED).push(cache);
+    /// Open a frame for a dispatch from this rollup.
+    pub fn open_frame(&self, pre_dispatch: CacheState) {
+        self.frames.lock().expect(POISONED).push(DispatchFrame {
+            pre_dispatch,
+            result: None,
+        });
     }
 
-    /// Pop the matching pre-dispatch snapshot at the end of the
-    /// inspector frame.
-    pub fn pop_pre_snapshot(&self) -> Option<CacheState> {
-        self.source_cache.lock().expect(POISONED).pop()
-    }
-
-    /// Clone the latest pre-dispatch snapshot for a re-entered session.
+    /// Clone the innermost open frame's snapshot for a re-entered session.
     pub fn peek_pre_snapshot(&self) -> Option<CacheState> {
-        self.source_cache.lock().expect(POISONED).last().cloned()
+        self.frames
+            .lock()
+            .expect(POISONED)
+            .last()
+            .map(|frame| frame.pre_dispatch.clone())
     }
 
-    /// Push the cache produced by a re-entered session.
-    pub fn push_post_cache(&self, cache: CacheState) {
-        self.overlay_cache.lock().expect(POISONED).push(cache);
+    /// Record a re-entered session's cumulative cache as the innermost open
+    /// frame's result, replacing any earlier result of that frame.
+    ///
+    /// Returns `false` and drops the cache when no frame is open: no suspended
+    /// execution of this rollup exists to apply it.
+    pub fn publish(&self, cache: CacheState) -> bool {
+        match self.frames.lock().expect(POISONED).last_mut() {
+            Some(frame) => {
+                frame.result = Some(cache);
+                true
+            }
+            None => false,
+        }
     }
 
-    /// Pop the cache produced by the latest re-entered session.
-    pub fn pop_post_cache(&self) -> Option<CacheState> {
-        self.overlay_cache.lock().expect(POISONED).pop()
+    /// Close the innermost frame at the end of its dispatch.
+    pub fn close_frame(&self) -> Option<DispatchFrame> {
+        self.frames.lock().expect(POISONED).pop()
     }
 }
 
@@ -187,11 +218,11 @@ fn has_unsupported_destruction(
 /// # When this is called
 ///
 /// The inspector hook fires for a cross-chain CALL, snapshots the
-/// source cache as `before`, publishes it on the overlay channel, and
-/// drives the dispatch. A nested dispatch back into this rollup opens
-/// its session preloaded with `before` and publishes its post-execute
-/// cache; after the outer dispatch returns, the inspector pops that
-/// cache as `after` and calls this function on the source EVM context.
+/// source cache as `before` in a new overlay-channel frame, and drives
+/// the dispatch. A nested dispatch back into this rollup opens its
+/// session preloaded with `before` and publishes its post-execute cache
+/// into that frame. After a successful dispatch, the inspector closes
+/// the frame and calls this function with its result as `after`.
 ///
 /// # Mutation classes
 ///
@@ -227,9 +258,10 @@ fn has_unsupported_destruction(
 ///
 /// # Idempotency
 ///
-/// The inspector pops both channel stacks around this call. Calling it
-/// twice on the same `(before, after)` is well-defined but emits
-/// redundant journal entries; callers should not do this.
+/// The inspector closes the frame before this call, so each result is
+/// applied at most once. Calling it twice on the same `(before, after)` is
+/// well-defined but emits redundant journal entries; callers should not do
+/// this.
 ///
 /// # Errors
 ///
@@ -334,38 +366,97 @@ mod tests {
     use super::*;
     use revm::database::{EmptyDB, State};
 
-    #[test]
-    fn overlay_cache_snapshots_are_lifo() {
-        let marker = Address::with_last_byte(0x22);
-        let channel = OverlayChannel::default();
-        let first = CacheState::default();
-        let mut second = CacheState::default();
-        second.insert_not_existing(marker);
-
-        channel.push_pre_snapshot(first.clone());
-        channel.push_pre_snapshot(second.clone());
-        assert_eq!(channel.peek_pre_snapshot(), Some(second.clone()));
-        assert_eq!(channel.pop_pre_snapshot(), Some(second.clone()));
-        assert_eq!(channel.pop_pre_snapshot(), Some(first.clone()));
-        assert_eq!(channel.pop_pre_snapshot(), None);
-
-        channel.push_post_cache(first.clone());
-        channel.push_post_cache(second.clone());
-        assert_eq!(channel.pop_post_cache(), Some(second));
-        assert_eq!(channel.pop_post_cache(), Some(first));
-        assert_eq!(channel.pop_post_cache(), None);
+    /// A cache distinguishable from others by one marker account.
+    fn marked(byte: u8) -> CacheState {
+        let mut cache = CacheState::default();
+        cache.insert_not_existing(Address::with_last_byte(byte));
+        cache
     }
 
     #[test]
-    fn reset_clears_both_overlay_stacks() {
+    fn frames_preload_and_close_innermost_first() {
         let channel = OverlayChannel::default();
-        channel.push_pre_snapshot(CacheState::default());
-        channel.push_post_cache(CacheState::default());
+        channel.open_frame(marked(1));
+        channel.open_frame(marked(2));
+        assert_eq!(channel.peek_pre_snapshot(), Some(marked(2)));
+
+        let inner = channel.close_frame().expect("inner frame");
+        assert_eq!(inner.pre_dispatch, marked(2));
+        assert_eq!(channel.peek_pre_snapshot(), Some(marked(1)));
+        let outer = channel.close_frame().expect("outer frame");
+        assert_eq!(outer.pre_dispatch, marked(1));
+        assert!(channel.close_frame().is_none());
+        assert_eq!(channel.peek_pre_snapshot(), None);
+    }
+
+    /// The reported failure: an earlier callback's result is pending for an
+    /// outer frame when an inner dispatch returns without re-entry. The inner
+    /// frame must close empty and leave the outer frame's result in place.
+    #[test]
+    fn dispatch_without_reentry_does_not_take_an_outer_result() {
+        let channel = OverlayChannel::default();
+        channel.open_frame(marked(1));
+        assert!(channel.publish(marked(10)));
+        channel.open_frame(marked(2));
+
+        let inner = channel.close_frame().expect("inner frame");
+        assert_eq!(inner.result, None);
+        let outer = channel.close_frame().expect("outer frame");
+        assert_eq!(outer.result, Some(marked(10)));
+    }
+
+    /// Sibling callbacks publish cumulative caches of one reused session; only
+    /// the latest belongs to the frame, and none is left for a later dispatch.
+    #[test]
+    fn later_result_replaces_earlier_result_of_the_same_frame() {
+        let channel = OverlayChannel::default();
+        channel.open_frame(marked(1));
+        assert!(channel.publish(marked(10)));
+        assert!(channel.publish(marked(11)));
+        assert_eq!(
+            channel.close_frame().expect("frame").result,
+            Some(marked(11))
+        );
+
+        channel.open_frame(marked(2));
+        assert_eq!(channel.close_frame().expect("later frame").result, None);
+    }
+
+    #[test]
+    fn recursive_results_stay_with_their_frames() {
+        let channel = OverlayChannel::default();
+        channel.open_frame(marked(1));
+        channel.open_frame(marked(2));
+        assert!(channel.publish(marked(20)));
+        assert_eq!(
+            channel.close_frame().expect("inner frame").result,
+            Some(marked(20))
+        );
+        assert!(channel.publish(marked(10)));
+        assert_eq!(
+            channel.close_frame().expect("outer frame").result,
+            Some(marked(10))
+        );
+    }
+
+    #[test]
+    fn publish_without_an_open_frame_is_dropped() {
+        let channel = OverlayChannel::default();
+        assert!(!channel.publish(marked(10)));
+        channel.open_frame(marked(1));
+        assert_eq!(channel.close_frame().expect("frame").result, None);
+    }
+
+    #[test]
+    fn reset_clears_open_frames() {
+        let channel = OverlayChannel::default();
+        channel.open_frame(marked(1));
+        assert!(channel.publish(marked(10)));
 
         channel.reset();
 
-        assert_eq!(channel.pop_pre_snapshot(), None);
-        assert_eq!(channel.pop_post_cache(), None);
+        assert!(channel.close_frame().is_none());
+        assert_eq!(channel.peek_pre_snapshot(), None);
     }
 
     /// Field-by-field clone of revm [`State<DB>`], constructed literally so a
