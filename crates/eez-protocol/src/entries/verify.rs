@@ -548,12 +548,18 @@ fn verify_outbound_tables(
 /// `incomingCalls` and requires their results to fold to the source's
 /// `rollingHash`. Matching that fold to the rows' results makes the values L1
 /// returned the ones L2 computes.
+///
+/// Repeated identical callbacks share one position key, because static rows
+/// leave the host rolling hash unchanged. L1 does not advance its cursor for a
+/// static read and resolves every repeat to the first matching row, so the
+/// repeats must carry the same result.
 fn resolve_static_callbacks(
     l1: &mut ChainState<'_>,
     source: &L2StaticExecutionEntrySol,
     l2_rollup_id: RollupId,
 ) -> ProtocolResult<()> {
     let mut results = StaticCallRollingHash::new();
+    let mut resolved = std::collections::HashMap::new();
     for callback in &source.incomingCalls {
         let callback = crate::system_tx::lift_call_from_l2(callback);
         let callback_hash = source_call_hash(&callback, RollupId::MAINNET, l2_rollup_id)?;
@@ -570,6 +576,15 @@ fn resolve_static_callbacks(
         {
             return Err(ProtocolErrorKind::InvalidEncoding(
                 "outbound static callback does not match its L1 host row".into(),
+            )
+            .into());
+        }
+        if resolved
+            .insert(row.expectedL1toL2Hash, row.returnData.clone())
+            .is_some_and(|first| first != row.returnData)
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "outbound static callbacks repeat a lookup key with different results".into(),
             )
             .into());
         }
