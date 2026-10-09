@@ -51,6 +51,7 @@ reth_gnosis.workspace                     = true
 # alloy
 alloy-consensus.workspace    = true
 alloy-eips.workspace         = true
+revm.workspace               = true
 alloy-primitives.workspace   = true
 alloy-rlp.workspace          = true
 alloy-rpc-types-debug.workspace = true

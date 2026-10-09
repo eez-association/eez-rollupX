@@ -29,7 +29,7 @@ class ProtocolAnvilRunnerTest(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(prefix="eez-anvil-runner.")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        scenario = self.root / "script/e2e/run/local.sh"
+        scenario = self.root / "script/e2e/lib/local-scenario.sh"
         scenario.parent.mkdir(parents=True)
         scenario.write_text(SCENARIO)
         self.pid_file = self.root / "child-pid"
@@ -38,7 +38,7 @@ class ProtocolAnvilRunnerTest(unittest.TestCase):
             self.env.pop(variable, None)
 
     def add_scenario(self, name, category="nested"):
-        sol = self.root / "script/e2e" / category / "L2_to_L1" / name / "E2EFixture.s.sol"
+        sol = self.root / "script/e2e/scenarios" / category / "L2_to_L1" / name / "E2EFixture.s.sol"
         sol.parent.mkdir(parents=True)
         sol.touch()
 

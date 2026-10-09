@@ -1,0 +1,67 @@
+====== Deploy ======
+--- Deploy (L1) ---
+COUNTER_L1=0x0A133119Df2C32776feddF66a230A7707D0570db
+PREDICTED_STATIC_RESULT=0x0000000000000000000000000000000000000000000000000000000000000001
+--- DeployL2 (L2) ---
+CALLBACK_L2=0x2847438Ffe9C9Ea76599e9E477341653874Dfa01
+COUNTER_L2=0x95f4a804D13A242ebACF3472f38d5d2e3e3Eec95
+COUNTER_L1_PROXY_L2=0xaA4995363Fe5fcB3226e2277be7b2F5111F62a75
+--- Deploy2 (L1) ---
+CALLBACK_PROXY=0xc68c52fb8526B58874f86c4d16966Dda4fda24bF
+COUNTER_PROXY=0x4721244DC8Bf9A902A6D91E717EF5A413e005fC5
+READER_L1=0x115232BE75aB9c0115b9ad71CE8C9B7583FD0404
+--- DeployPredictionL2 (L2) ---
+PREDICTED_STATIC_RESULT=0x0000000000000000000000000000000000000000000000000000000000000001
+
+====== Create Signed Transaction ======
+target: 0x115232BE75aB9c0115b9ad71CE8C9B7583FD0404
+calldata: 0xd09de08a
+value: 0
+gas limit: 1000000
+nonce: 5 (rpc=5 front=5)
+
+====== Compute Expected Entries ======
+L1 expected calls: []
+L1 expected entries: []
+L2 table expected: []
+L2 calls expected: []
+L1 expected static table: 864 bytes (posted static entries matched from calldata)
+NOTE: no EXPECTED_L1_TABLE printed - L1 field-level checks OFF (hash-only)
+NOTE: no EXPECTED_L2_TABLE printed - L2 field-level checks OFF (hash-only)
+L2 absent keys (must leave NO trace on L2 - lookup): [0x51a344dd740d9fea6987d8c154d83fbebc996e7724a374b7c8297a4123facc3b]
+
+====== Execute L1 (user tx) ======
+submitted tx: 0x82c17cb2a3730ed5fbdbf9c97db6496e7c51b880db12949432ee2ab3871f4875
+Waiting for receipt: 0x82c17cb2a3730ed5fbdbf9c97db6496e7c51b880db12949432ee2ab3871f4875 (420s remaining)
+Waiting for receipt: 0x82c17cb2a3730ed5fbdbf9c97db6496e7c51b880db12949432ee2ab3871f4875 (405s remaining)
+tx: 0x82c17cb2a3730ed5fbdbf9c97db6496e7c51b880db12949432ee2ab3871f4875
+block: 0x98 (status: 0x1)
+settlement correlation RPC: available on http://127.0.0.1:32796
+
+====== Verify L1 Batch (block 152) ======
+  PASS: 1 settlement tx(s) with BatchPosted in range
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+Matched settlement tx 0xe49867812ef0e3157850e16be2c51d79ce48b8455f8952d173783bbe0b524631
+  Posted batch decoded from calldata: 3 entries, 1 static entries
+  PASS: posted batch static entries match expected static table (1 entries, root pins neutralized)
+
+====== Verify L2 Table ======
+No L2 entry events expected (lookup, terminal revert, or an eventless static pool)
+settlement tx 0xe49867812ef0e3157850e16be2c51d79ce48b8455f8952d173783bbe0b524631 proved L2 blocks up to 912 - a delivery would have landed there
+
+====== Verify L2 Absent (keys must not appear in blocks 905..942) ======
+  PASS: none of 1 absent key(s) appears on L2 in blocks 905..942
+
+====== Verify L2 Calls ======
+SKIP: no L2 calls expected
+
+====== Scenario Self-Verification (VerifyNetwork, L1) ======
+  VERIFY_PASS reader.lastRead=1 reader.counter=1 (predicted 1)
+
+====== Summary ======
+
+User tx:        0x82c17cb2a3730ed5fbdbf9c97db6496e7c51b880db12949432ee2ab3871f4875  (block 152)
+L1 postBatch:   0xe49867812ef0e3157850e16be2c51d79ce48b8455f8952d173783bbe0b524631  (block 152)
+
+====== Done ======

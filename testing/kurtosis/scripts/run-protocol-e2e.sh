@@ -118,24 +118,6 @@ wait_for_protocol_ready() {
 
 wait_for_protocol_ready
 
-(
-    cd "$PROTOCOL"
-    bash script/e2e/run/prepare-network.sh \
-        --l1-rpc "$L1_RPC" \
-        --l1-front "$L1_FRONT" \
-        --l2-rpc "$L2_RPC" \
-        --pk "$PK" \
-        --rollups "$ROLLUPS"
-)
-
-# Independently enforce the balance required by the scenario deployments.
-min_l2_balance=10000000000000000
-l2_balance="$(cast balance "$SENDER" --rpc-url "$L2_RPC")"
-if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then
-    echo "L2 balance for $SENDER is $l2_balance wei, below the $min_l2_balance wei minimum" >&2
-    exit 1
-fi
-
 env_file="$deploy_dir/chain.env"
 cat >"$env_file" <<ENV
 L1_RPC=$L1_RPC
@@ -147,10 +129,24 @@ MANAGER_L2=$MANAGER_L2
 PK=$PK
 ENV
 
+# Upstream setup discovers the deployment through the L1 front's
+# eez_composerInfo and bridges the sender's L2 balance up to 0.05 ETH. It
+# prefers an ambient SOURCE_PK over the file's PK, so bind the same wallet the
+# balance check and the scenario runner use.
+SOURCE_PK="$PK" bash "$PROTOCOL/script/e2e/run/network/setup.sh" 0.05 "$env_file"
+
+# Independently enforce the balance required by the scenario deployments.
+min_l2_balance=10000000000000000
+l2_balance="$(cast balance "$SENDER" --rpc-url "$L2_RPC")"
+if (( $(echo "$l2_balance < $min_l2_balance" | bc) )); then
+    echo "L2 balance for $SENDER is $l2_balance wei, below the $min_l2_balance wei minimum" >&2
+    exit 1
+fi
+
 # Discover the upstream suite from the pinned submodule. Scenario basenames are
 # the network runner's result keys, so require them to be globally unique.
 mapfile -t all_scenario_paths < <(
-    find "$PROTOCOL/script/e2e" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+    find "$PROTOCOL/script/e2e/scenarios" -mindepth 3 -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
         | sed "s#^$PROTOCOL/##" \
         | sort
 )
@@ -188,9 +184,9 @@ for target in "${targets[@]}"; do
     matches=()
     if [[ "$target" == "all" ]]; then
         matches=("${eligible_scenario_paths[@]}")
-    elif [[ -d "$PROTOCOL/script/e2e/$target" ]]; then
+    elif [[ -d "$PROTOCOL/script/e2e/scenarios/$target" ]]; then
         mapfile -t matches < <(
-            find "$PROTOCOL/script/e2e/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
+            find "$PROTOCOL/script/e2e/scenarios/$target" -name 'E2E*.s.sol' -not -path '*/shared/*' -print \
                 | sed "s#^$PROTOCOL/##" \
                 | sort
         )
@@ -258,7 +254,11 @@ jq -n --arg protocol_commit "$actual_protocol" --argjson scenarios "$manifest_js
 network_dir="$(mktemp -d "$RESULT_DIR/network.XXXXXXXX")"
 run_log="$network_dir/runner.log"
 status=0
-SOURCE_PK="$PK" python3 "$REPO/scripts/ci/run-protocol-network.py" \
+# Upstream funds each worker 0.001 ETH per chain by default. Scenario triggers
+# sign a 1,000,000 gas limit at the L1 node's suggested fee; with a 1 gwei
+# suggested tip, deployments plus that upfront cost exceed the default and the
+# fronts correctly refuse the trigger for insufficient balance.
+SOURCE_PK="$PK" FUND_ETH="${EEZ_PROTOCOL_FUND_ETH:-0.005}" python3 "$REPO/scripts/ci/run-protocol-network.py" \
     --protocol-dir "$PROTOCOL" --env-file "$env_file" --log-dir "$network_dir" \
     --max-parallel "${EEZ_PROTOCOL_MAX_PARALLEL:-all}" \
     --suite-timeout "${EEZ_PROTOCOL_SUITE_TIMEOUT:-2400}" \

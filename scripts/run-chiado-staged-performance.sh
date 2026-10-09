@@ -23,7 +23,7 @@ DEVNET_ENV defaults to eez-core-protocol/chain.env. The profile must contain
 the deployed RPCs, ingress URLs, registry, manager and a funded SOURCE_PK.
 
 Defaults: PREPARE_PARALLEL=200, FUND_ETH=0.005, FLOOR_ETH=0.005,
-SEND_WORKERS=28, POLL_INTERVAL=1, EEZ_STAGED_L2_CHAIN_ID=696990.
+SEND_WORKERS=28, EEZ_STAGED_L2_CHAIN_ID=696990.
 EEZ_STAGED_SCALE multiplies every target count (default 1; 4 gives 3,080 jobs
 and 3,480 source transactions).
 Environment overrides are passed through the existing profile and runner.
@@ -45,7 +45,7 @@ export DEVNET_ENV="${DEVNET_ENV:-$PROTOCOL/chain.env}"
 DEVNET_ENV="$(realpath "$DEVNET_ENV")"
 export PREPARE_PARALLEL="${PREPARE_PARALLEL:-200}"
 export FUND_ETH="${FUND_ETH:-0.005}" FLOOR_ETH="${FLOOR_ETH:-0.005}"
-export SEND_WORKERS="${SEND_WORKERS:-28}" POLL_INTERVAL="${POLL_INTERVAL:-1}"
+export SEND_WORKERS="${SEND_WORKERS:-28}"
 export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}" TOKIO_WORKER_THREADS="${TOKIO_WORKER_THREADS:-2}"
 export EEZ_STAGED_L2_CHAIN_ID="${EEZ_STAGED_L2_CHAIN_ID:-696990}"
 export EEZ_STAGED_SCALE="${EEZ_STAGED_SCALE:-1}"
@@ -141,7 +141,8 @@ def check():
             args = process.read_bytes().split(b'\0')
         except (FileNotFoundError, PermissionError, ProcessLookupError):
             continue
-        require(not any(Path(os.fsdecode(arg)).name in ['network-staged.sh', 'network-parallel.sh']
+        require(not any(Path(os.fsdecode(arg)).as_posix().endswith(
+                            ('run/network/staged.sh', 'run/network/parallel.sh'))
                         for arg in args if arg),
                 'An upstream network runner is already active; wait for it to exit')
     amount, floor = Decimal(os.environ['FUND_ETH']), Decimal(os.environ['FLOOR_ETH'])
@@ -227,7 +228,7 @@ source "$ROOT/scripts/chiado-forge.sh"
 echo "Starting upstream staged runner; its run directory contains timings.csv and job-timings.csv."
 verify_args=(--no-verify)
 $VERIFY && verify_args=()
-exec bash script/e2e/run/network-staged.sh "${verify_args[@]}" \
+exec bash script/e2e/run/network/staged.sh "${verify_args[@]}" \
     "counter:$((100 * EEZ_STAGED_SCALE))" "counterL2:$((100 * EEZ_STAGED_SCALE))" \
     "nestedCounter:$((50 * EEZ_STAGED_SCALE))" "nestedCounterL2:$((50 * EEZ_STAGED_SCALE))" \
     "multi-call-nested:$((50 * EEZ_STAGED_SCALE))" "multi-call-nestedL2:$((50 * EEZ_STAGED_SCALE))" \

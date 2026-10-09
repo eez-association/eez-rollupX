@@ -1,7 +1,9 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Native execution always uses the original deployed bytes, including metadata.
-//! Source: protocol 855fe060, contracts/foundry.toml (0.8.34, via IR, runs=1).
+//! Source: protocol v0.1.0-rc.2 (9a1f8153), contracts/foundry.toml (0.8.34, via IR, runs=1).
+//! A manager still on an older implementation is not recognized, so estimation
+//! is unavailable on a network until its contracts are upgraded.
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
 };
@@ -23,14 +25,14 @@ const PROXY: Code = Code {
     hash: b256!("2711c709cbaba3ef6ca5c08eb27c4f009b3479c1489e1098e3928ec7b924c6a4"),
 };
 const REGISTRY: Code = Code {
-    length: 23804,
+    length: 23889,
     immutables: &[2282, 3071, 10421],
     // CrossChainProxy initcode embeds an IPFS metadata hash whose source paths
     // vary by build directory. Mask only that 32-byte hash, not its CBOR framing
     // or executable instructions. Real setup still uses the deployed initcode
     // and its actual CREATE2 addresses; recognition never rewrites execution.
-    metadata_hashes: &[23665],
-    hash: b256!("fdb8830f9cb0cb5cada516b03add1e46a3eb0eda0ee710f5e102053aa09e8db5"),
+    metadata_hashes: &[23750],
+    hash: b256!("4002bf893eb71b85237faebb323218a4c9a1e33b77535639241e00feace3b650"),
 };
 const ROLLUP: Code = Code {
     length: 3295,
@@ -38,11 +40,21 @@ const ROLLUP: Code = Code {
     metadata_hashes: &[],
     hash: b256!("9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"),
 };
+// contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {
     length: 392,
     immutables: &[176, 319],
     metadata_hashes: &[],
     hash: b256!("440eebc16fc5e247953d790c578d9f99155c85263cd7ada2d1cbd66d94291a42"),
+};
+// The protocol's src/proofSystems/ECDSAProofSystem.sol, deployed on Ethereum
+// mainnet by the upstream procedure. Estimation never runs either verifier: it
+// answers the registry's single `verify` call (see `l1::AssumedProof`).
+const PROTOCOL_VERIFIER: Code = Code {
+    length: 1056,
+    immutables: &[],
+    metadata_hashes: &[],
+    hash: b256!("1d1d49bdc9b5871658c0c181abdded35d730b14fb9fdd4b802e32ce792eb02e4"),
 };
 // contracts/src/EEZPostBatcher.sol at fork ab6e44c, same compiler profile.
 const POST_BATCHER: Code = Code {
@@ -80,11 +92,20 @@ fn check(
     address: Address,
     expected: &Code,
 ) -> Result<(), EstimateError> {
+    check_any(state, address, &[expected])
+}
+
+fn check_any(
+    state: &dyn StateProvider,
+    address: Address,
+    accepted: &[&Code],
+) -> Result<(), EstimateError> {
     let code = state
         .account_code(&address)
         .map_err(unavailable)?
         .ok_or_else(|| unsupported("deployment code missing"))?;
-    if !matches(&code.original_bytes(), expected) {
+    let code = code.original_bytes();
+    if !accepted.iter().any(|expected| matches(&code, expected)) {
         return Err(unsupported(format!(
             "unrecognized estimation deployment at {address}"
         )));
@@ -139,7 +160,7 @@ pub(super) fn validate(
             return Err(unsupported("posting wrapper registry differs"));
         }
     }
-    check(state.as_ref(), e.verifier, &VERIFIER)
+    check_any(state.as_ref(), e.verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
 }
 
 #[cfg(test)]
@@ -164,6 +185,17 @@ mod tests {
             changed[offset] ^= 1;
             assert!(!matches(&changed, &expected));
         }
+    }
+
+    /// The verifier deployed on Ethereum mainnet at 0x1Ac760d5…721E.
+    #[test]
+    fn fingerprint_recognizes_the_protocol_verifier_deployed_on_mainnet() {
+        let code = alloy_primitives::hex::decode(
+            include_str!("testdata/mainnet-protocol-ecdsa-proof-system.hex").trim(),
+        )
+        .unwrap();
+        assert!(matches(&code, &PROTOCOL_VERIFIER));
+        assert!(!matches(&code, &VERIFIER));
     }
 
     #[test]

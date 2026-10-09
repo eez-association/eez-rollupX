@@ -385,6 +385,7 @@ impl TargetExecutionSession for L1TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        super::session::reject_manager_destination(&req, self.manager, self.chain_id)?;
         // An unfunded manager frame fails before composition can materialize
         // the rollup's exact ether delta. Treat missing physical backing as a
         // source wait; the caller still checks the per-rollup escrow before
@@ -639,6 +640,11 @@ impl TargetExecutionSession for InboundL2TargetSession {
         req: ExecutionRequest,
         dispatcher: &mut CompositionBuilder,
     ) -> ExecutorResult<ExecutionOutcome> {
+        super::session::reject_manager_destination(
+            &req,
+            self.client.manager_address(),
+            self.fork.chain_id(),
+        )?;
         let proxy = self.proxy_address(&req)?;
         let tx_env = revm::context::TxEnv {
             caller: proxy,

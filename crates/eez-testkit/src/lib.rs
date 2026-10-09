@@ -993,9 +993,16 @@ impl ProverMutation {
                         _ => None,
                     })
                     .ok_or_else(|| Status::internal("missing block witness"))?;
-                if let Some(byte) = witness.state.iter_mut().find_map(|node| node.first_mut()) {
+                // Witnesses may carry surplus nodes that validation never needs,
+                // and node order varies between attempts. Corrupting only one
+                // node can hit a surplus one, which the signer correctly
+                // ignores. Corrupt every node so a needed one is always hit.
+                let mut corrupted = false;
+                for byte in witness.state.iter_mut().filter_map(|node| node.first_mut()) {
                     *byte ^= 1;
-                } else {
+                    corrupted = true;
+                }
+                if !corrupted {
                     witness.state.push(vec![0xff]);
                 }
             }

@@ -158,6 +158,16 @@ pub enum ExecutorErrorKind {
         /// Requested target rollup.
         target: crate::rollup_id::RollupId,
     },
+    /// A cross-chain call targets the destination chain's manager. The
+    /// managers reject such a call with `EEZDestinationForbidden`, because it
+    /// would re-enter the manager under an authorized proxy's identity.
+    #[error("cross-chain call targets the chain {chain_id} manager {manager}")]
+    ManagerDestination {
+        /// The destination manager.
+        manager: alloy_primitives::Address,
+        /// The destination chain.
+        chain_id: u64,
+    },
     /// A static read's callback would run through a source proxy that is not
     /// deployed on the reading chain. The protocol cannot create the proxy
     /// inside the read's static frame, so on chain the read would revert with

@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
-# Independent evidence for a successful upstream staticCounterL2 run. Static
-# pool reads have no mutable-entry events; verify their real table calldata,
-# trigger state, paired L1 host entry and authenticated semantic blob instead.
+# Independent evidence for a successful upstream L2 static-pool read:
+# staticCounterL2, or topLevelStaticReentrantCounterL2, whose static entry also
+# carries one static callback to L2. Static pool reads have no mutable-entry
+# events; verify their real table calldata, trigger state, paired L1 host entry
+# and authenticated semantic blob instead.
 set -euo pipefail
 
-SCENARIO_LOG="${1:?usage: verify-static-counter-l2.sh <upstream-log> <output-json>}"
+SCENARIO_LOG="${1:?usage: verify-static-counter-l2.sh <upstream-log> <output-json> [scenario]}"
 OUTPUT_JSON="${2:?missing evidence output path}"
+SCENARIO="${3:-staticCounterL2}"
+case "$SCENARIO" in
+    staticCounterL2)
+        SCENARIO_PATH=script/e2e/scenarios/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol ;;
+    topLevelStaticReentrantCounterL2)
+        SCENARIO_PATH=script/e2e/scenarios/static/L2_to_L1/topLevelStaticReentrantCounterL2/E2ETopLevelStaticReentrantCounterL2.s.sol ;;
+    *) echo "unsupported L2 static scenario: $SCENARIO" >&2; exit 1 ;;
+esac
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 for var in L1_RPC L2_RPC ROLLUPS MANAGER_L2 PROTOCOL_COMMIT CAUSAL_VERIFIER \
@@ -18,7 +28,7 @@ done
 [[ -f "$SCENARIO_LOG" ]] || { echo "scenario log not found: $SCENARIO_LOG" >&2; exit 1; }
 [[ -x "$CAUSAL_VERIFIER" ]] || { echo "causal verifier not executable: $CAUSAL_VERIFIER" >&2; exit 1; }
 
-die() { echo "staticCounterL2 evidence error: $*" >&2; exit 1; }
+die() { echo "$SCENARIO evidence error: $*" >&2; exit 1; }
 
 grep -Fq '====== Done ======' "$SCENARIO_LOG" || die "upstream completion marker is absent"
 ! grep -q '^ERROR:' "$SCENARIO_LOG" || die "upstream recorded an error"
@@ -37,6 +47,14 @@ reader_l2="$(field READER_L2)"
 counter_l1="$(field COUNTER_L1)"
 [[ "$reader_l2" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid READER_L2"
 [[ "$counter_l1" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid COUNTER_L1"
+# In the callback scenario COUNTER_L1 is a forwarder whose helper CALLBACK_L1
+# reads PRODUCER_L2 back on L2; the producer's value is the read result.
+callback_l1=""; producer_l2=""
+if [[ "$SCENARIO" == topLevelStaticReentrantCounterL2 ]]; then
+    callback_l1="$(field CALLBACK_L1)"; producer_l2="$(field PRODUCER_L2)"
+    [[ "$callback_l1" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid CALLBACK_L1"
+    [[ "$producer_l2" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid PRODUCER_L2"
+fi
 
 tx_hash="$(sed -n -E 's/^tx:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG" | tail -1)"
 block_hex="$(sed -n -E 's/^block:[[:space:]]*(0x[[:xdigit:]]+)[[:space:]]+\(status: 0x1\).*/\1/p' "$SCENARIO_LOG" | tail -1)"
@@ -50,6 +68,13 @@ expected_return="$(cast abi-encode 'f(uint256)' 1)"
 [[ "$expected_return" =~ ^0x[[:xdigit:]]+$ ]] || die "invalid expected return data"
 block_number="$(cast to-dec "$block_hex")"
 predicted_value="$(cast to-dec "$expected_return")"
+zero_hash="0x$(printf '%064d' 0)"
+expected_rolling_hash="$zero_hash"
+if [[ -n "$callback_l1" ]]; then
+    # Untagged static fold over the one successful callback result:
+    # keccak256(bytes32(0) || 0x01 || returnData).
+    expected_rolling_hash="$(cast keccak "${zero_hash}01${expected_return#0x}")"
+fi
 
 trigger_receipt="$(cast rpc eth_getTransactionReceipt "$tx_hash" --rpc-url "$L2_RPC")"
 trigger_tx="$(cast rpc eth_getTransactionByHash "$tx_hash" --rpc-url "$L2_RPC")"
@@ -92,12 +117,21 @@ while IFS=$'\t' read -r candidate_hash candidate_index_hex candidate_input; do
         '[.[1][] | select((.[0] | tostring) == "0" and (.[1] | ascii_downcase) == $key)] | length' <<<"$decoded")"
     (( key_count <= 1 )) || die "matching static key occurs more than once in a table"
     match_count="$(jq \
-        --arg key "${computed_static_key,,}" --arg result "${expected_return,,}" '
+        --arg key "${computed_static_key,,}" --arg result "${expected_return,,}" \
+        --arg rolling "${expected_rolling_hash,,}" --arg callback "${callback_l1,,}" \
+        --arg producer "${producer_l2,,}" --arg data "${counter_selector,,}" '
+          # The callback: [revertNextNCalls, isStatic, gas, source, sourceRollupId,
+          # target, value, data], from CALLBACK_L1 on L1 to PRODUCER_L2.
+          def callback_call: length == 8 and (.[0] | tostring) == "0" and .[1] == true
+            and (.[2] | tostring) == "0" and (.[3] | ascii_downcase) == $callback
+            and (.[4] | tostring) == "0" and (.[5] | ascii_downcase) == $producer
+            and (.[6] | tostring) == "0" and (.[7] | ascii_downcase) == $data;
           [.[1][] | select(
             ((.[0] | tostring) == "0") and
             ((.[1] | ascii_downcase) == $key) and
-            ((.[2] | length) == 0) and
-            ((.[3] | ascii_downcase) == "0x0000000000000000000000000000000000000000000000000000000000000000") and
+            (if $callback == "" then (.[2] | length) == 0
+             else (.[2] | length) == 1 and (.[2][0] | callback_call) end) and
+            ((.[3] | ascii_downcase) == $rolling) and
             (.[4] == true) and
             ((.[5] | ascii_downcase) == $result)
           )] | length' <<<"$decoded")"
@@ -131,10 +165,16 @@ jq -en --argjson block "$block_json" --argjson receipt "$load_receipt" --arg has
 
 last_read="$(cast call "$reader_l2" 'lastRead()(uint256)' --block "$block_number" --rpc-url "$L2_RPC")"
 reader_counter="$(cast call "$reader_l2" 'counter()(uint256)' --block "$block_number" --rpc-url "$L2_RPC")"
-l1_counter="$(cast call "$counter_l1" 'counter()(uint256)' --rpc-url "$L1_RPC")"
 [[ "$last_read" == "$predicted_value" ]] || die "reader.lastRead differs from cached return"
 [[ "$reader_counter" == "1" ]] || die "reader counter did not advance exactly once"
-[[ "$l1_counter" == "$predicted_value" ]] || die "L1 producer differs from the real read result"
+if [[ -n "$producer_l2" ]]; then
+    # The L1 forwarder cannot be called directly: its callback needs L2.
+    producer_counter="$(cast call "$producer_l2" 'counter()(uint256)' --block "$block_number" --rpc-url "$L2_RPC")"
+    [[ "$producer_counter" == "$predicted_value" ]] || die "L2 producer differs from the real read result"
+else
+    l1_counter="$(cast call "$counter_l1" 'counter()(uint256)' --rpc-url "$L1_RPC")"
+    [[ "$l1_counter" == "$predicted_value" ]] || die "L1 producer differs from the real read result"
+fi
 
 settlement_receipt="$(cast rpc eth_getTransactionReceipt "$settlement_hash" --rpc-url "$L1_RPC")"
 [[ "$(jq -r '.status' <<<"$settlement_receipt")" == "0x1" ]] || die "L1 settlement reverted"
@@ -215,8 +255,10 @@ blob_da="$(jq -c . "$blob_evidence_file")"
 mkdir -p "$(dirname "$OUTPUT_JSON")"
 tmp_output="${OUTPUT_JSON}.tmp"
 jq -n \
-    --argjson schema_version 2 --arg scenario staticCounterL2 \
-    --arg scenario_path script/e2e/static/L2_to_L1/staticCounterL2/E2EStaticCounterL2.s.sol \
+    --argjson schema_version 2 --arg scenario "$SCENARIO" \
+    --arg scenario_path "$SCENARIO_PATH" \
+    --argjson incoming_calls "$([[ -n "$callback_l1" ]] && echo 1 || echo 0)" \
+    --arg rolling_hash "$expected_rolling_hash" \
     --arg protocol_commit "$PROTOCOL_COMMIT" --arg result PASS \
     --arg verification_mode upstream-static-pool \
     --arg static_key "$computed_static_key" --arg cached_return "$expected_return" \
@@ -230,9 +272,8 @@ jq -n \
       protocol_commit: $protocol_commit, result: $result, verification_mode: $verification_mode,
       trigger_chain: "L2", trigger_transactions: [$trigger],
       settlement_transactions: [$settlement], system_transactions: [$load],
-      static_entry: {proxy_entry_hash: $static_key, incoming_calls: 0,
-                     rolling_hash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-                     success: true, return_data: $cached_return},
+      static_entry: {proxy_entry_hash: $static_key, incoming_calls: $incoming_calls,
+                     rolling_hash: $rolling_hash, success: true, return_data: $cached_return},
       causal_graph: $causal_graph,
       blob_da: $blob_da,
       observations: {predicted_value: $predicted_value, reader_last_read: $predicted_value,

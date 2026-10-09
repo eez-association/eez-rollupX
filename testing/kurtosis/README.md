@@ -668,8 +668,8 @@ export EEZ_CI_RESULT_DIR="$PWD/artifacts"
 bash testing/kurtosis/scripts/run-protocol-e2e.sh
 ```
 
-The suite uses the pinned upstream `network-parallel.sh`, with a fresh funded
-wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
+The suite uses the pinned upstream `script/e2e/run/network/parallel.sh`, with a
+fresh funded wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
 and ARC runners) starts one worker per eligible scenario, including
 `revertCounter` and `staticCounterL2`. Foundry artifacts are warmed before workers
 start. Set a positive integer to bound concurrency, or `1` to run serially with
@@ -680,9 +680,17 @@ wallets. A failed deposit skips the dependent release and fails the suite;
 unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
 escrow, as specified by the pinned protocol's scenario.
 
+Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `0.005`),
+which the wrapper passes to upstream as `FUND_ETH` and which therefore overrides
+an ambient `FUND_ETH`. Upstream's own default of 0.001 ETH does not cover a
+scenario's deployments plus its trigger's upfront cost (a 1,000,000 gas limit at
+the L1 node's suggested fee) when that fee includes a 1 gwei tip. The fronts
+then refuse the trigger for insufficient balance.
+
 The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
-expanding the default `all` target. The current pin marks four static reads
-around local writes as not ready for live network runs. The summary lists all
+expanding the default `all` target. The current pin marks six scenarios as not
+ready for live network runs: four static reads around local writes and the two
+missing-callback-proxy static round trips. The summary lists all
 discovered scenarios, the live eligible count, and the excluded names;
 `suite.complete` means every eligible scenario was selected. Explicit names
 can still run excluded scenarios during development, but those runs do not

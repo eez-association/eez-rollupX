@@ -98,7 +98,7 @@ def run_network(protocol, logs, names, env, deadline, phase="parallel"):
         record["error"] = "suite deadline exceeded before phase start"
         return record
     old_dirs = {path.name for path in (protocol / "tmp/e2e-parallel-net").glob("*")}
-    command = ["bash", "script/e2e/run/network-parallel.sh", "--fresh", *names]
+    command = ["bash", "script/e2e/run/network/parallel.sh", "--fresh", *names]
     raw_log = logs / f"{phase}.log"
     print(f"==> protocol {phase}: {len(names)} scenarios (MAX_PARALLEL={env['MAX_PARALLEL']})", flush=True)
     with raw_log.open("x") as log:

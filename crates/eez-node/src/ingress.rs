@@ -85,6 +85,9 @@ pub async fn gate_and_hold(
             "creations are not cross-chain: a contract creation has no target; submit deploys to the chain's own RPC".into(),
         );
     };
+    if let Err(msg) = check_block_gas_limit(envelope, validation_provider).await {
+        return Admission::Rejected(msg);
+    }
     // No code at `to` means no manager frame can ever run, so holding this tx
     // would only end in an evict.
     match validation_provider.get_code_at(to).await {
@@ -195,6 +198,76 @@ fn validate_front_envelope(
     if chain_id != expected_source_chain_id {
         return Err(format!(
             "wrong source-chain id {chain_id} for {direction:?} front: expected {expected_source_chain_id}"
+        ));
+    }
+    // The checks below reject transactions no block can ever include, which
+    // would otherwise be held and then evicted without a client-visible reason.
+    // A fee cap below the base fee is not among them: it can become valid later.
+    if let Some(priority_fee) = envelope.max_priority_fee_per_gas()
+        && priority_fee > envelope.max_fee_per_gas()
+    {
+        return Err(format!(
+            "max_priority_fee_per_gas {priority_fee} exceeds max_fee_per_gas {}",
+            envelope.max_fee_per_gas()
+        ));
+    }
+    if envelope.gas_limit() > TX_GAS_LIMIT_CAP {
+        return Err(format!(
+            "gas limit {} exceeds the per-transaction cap {TX_GAS_LIMIT_CAP} (EIP-7825)",
+            envelope.gas_limit()
+        ));
+    }
+    let intrinsic = intrinsic_gas(envelope);
+    if envelope.gas_limit() < intrinsic {
+        return Err(format!(
+            "gas limit {} is below the transaction's intrinsic gas {intrinsic}",
+            envelope.gas_limit()
+        ));
+    }
+    Ok(())
+}
+
+/// Osaka's per-transaction gas cap (EIP-7825). The L2 runs Osaka from genesis;
+/// both L1 fronts apply the same cap by policy.
+const TX_GAS_LIMIT_CAP: u64 = 1 << 24;
+
+/// Minimum gas any inclusion charges: the base cost, calldata and access list,
+/// or the EIP-7623 calldata floor when that is higher. Both source chains run
+/// at least Prague rules.
+fn intrinsic_gas(envelope: &TxEnvelope) -> u64 {
+    let (accounts, slots) = envelope.access_list().map_or((0, 0), |list| {
+        list.iter().fold((0u64, 0u64), |(accounts, slots), item| {
+            (accounts + 1, slots + item.storage_keys.len() as u64)
+        })
+    });
+    let gas = revm::context_interface::cfg::gas::calculate_initial_tx_gas(
+        revm::primitives::hardfork::SpecId::PRAGUE,
+        envelope.input(),
+        envelope.is_create(),
+        accounts,
+        slots,
+        0,
+        None,
+    );
+    (gas.initial_regular_gas + gas.initial_state_gas).max(gas.floor_gas)
+}
+
+/// Reject a gas limit above the source chain's current block gas limit. The L2
+/// limit is fixed; an L1 limit can change, so this checks the latest block.
+async fn check_block_gas_limit(
+    envelope: &TxEnvelope,
+    validation_provider: &RootProvider,
+) -> Result<(), String> {
+    let block = validation_provider
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .map_err(|e| format!("source-chain block lookup failed: {e}"))?
+        .ok_or_else(|| "source-chain block lookup returned no block".to_string())?;
+    let block_gas_limit = block.header.gas_limit;
+    if envelope.gas_limit() > block_gas_limit {
+        return Err(format!(
+            "gas limit {} exceeds the source chain's block gas limit {block_gas_limit}",
+            envelope.gas_limit()
         ));
     }
     Ok(())
@@ -812,9 +885,27 @@ mod tests {
         }
     }
 
-    /// One admitted tx makes three lookups: code, balance, nonce. The mock
-    /// answers in push order, not by method, so the order matters.
+    const SOURCE_BLOCK_GAS_LIMIT: u64 = 30_000_000;
+
+    /// The source chain's latest block, as `eth_getBlockByNumber` returns it.
+    fn push_latest_block(asserter: &Asserter, gas_limit: u64) {
+        let block = alloy_rpc_types_eth::Block::<alloy_rpc_types_eth::Transaction> {
+            header: alloy_rpc_types_eth::Header {
+                inner: alloy_consensus::Header {
+                    gas_limit,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        asserter.push_success(&block);
+    }
+
+    /// One admitted tx makes four lookups: latest block, code, balance, nonce.
+    /// The mock answers in push order, not by method, so the order matters.
     fn push_admission_lookups(asserter: &Asserter, balance: u64, nonce: u64) {
+        push_latest_block(asserter, SOURCE_BLOCK_GAS_LIMIT);
         asserter.push_success(&Bytes::from_static(&[0x60, 0x00]));
         asserter.push_success(&U256::from(balance));
         asserter.push_success(&nonce);
@@ -861,6 +952,146 @@ mod tests {
 
         assert!(msg.contains("missing source-chain id"));
         assert_eq!(pool.len(), 0, "rejected tx from {signer:?} mutated pool");
+    }
+
+    fn signed_eip1559_with(
+        gas_limit: u64,
+        max_fee_per_gas: u128,
+        max_priority_fee_per_gas: u128,
+        input: Bytes,
+    ) -> (TxEnvelope, Bytes) {
+        let signer = test_signer();
+        let mut tx = TxEip1559 {
+            chain_id: 31337,
+            nonce: 0,
+            gas_limit,
+            max_fee_per_gas,
+            max_priority_fee_per_gas,
+            to: TxKind::Call(Address::ZERO),
+            value: U256::ZERO,
+            access_list: alloy_eips::eip2930::AccessList::default(),
+            input,
+        };
+        let sig = signer.sign_transaction_sync(&mut tx).expect("tx signs");
+        let envelope = TxEnvelope::from(tx.into_signed(sig));
+        let raw = Bytes::from(envelope.encoded_2718());
+        (envelope, raw)
+    }
+
+    /// No base fee can make a tip above the fee cap valid (EIP-1559).
+    #[tokio::test]
+    async fn priority_fee_above_fee_cap_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(21_000, 10, 11, Bytes::new());
+        let pool = HeldPool::new(Default::default());
+        let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+
+        assert_eq!(
+            msg,
+            "max_priority_fee_per_gas 11 exceeds max_fee_per_gas 10"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// A gas limit below intrinsic gas can never execute. Calldata raises the
+    /// intrinsic cost, including the EIP-7623 floor.
+    #[tokio::test]
+    async fn gas_limit_below_intrinsic_gas_is_rejected_at_submission() {
+        let pool = HeldPool::new(Default::default());
+        let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+
+        let (envelope, raw) = signed_eip1559_with(20_999, 10, 1, Bytes::new());
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+        assert_eq!(
+            msg,
+            "gas limit 20999 is below the transaction's intrinsic gas 21000"
+        );
+
+        // 100 nonzero bytes: 21000 + 100 * 16 = 22600, floor 21000 + 400 * 10 = 25000.
+        let (envelope, raw) = signed_eip1559_with(22_600, 10, 1, Bytes::from(vec![1u8; 100]));
+        let msg = rejection(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+        );
+        assert_eq!(
+            msg,
+            "gas limit 22600 is below the transaction's intrinsic gas 25000"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// Osaka caps one transaction at 2^24 gas on either source chain, before
+    /// any chain lookup.
+    #[tokio::test]
+    async fn gas_limit_above_the_per_transaction_cap_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(16_777_217, 10, 1, Bytes::new());
+        for direction in [Direction::Inbound, Direction::Outbound] {
+            let pool = HeldPool::new(Default::default());
+            let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
+            let msg =
+                rejection(gate_and_hold(&envelope, &raw, direction, &pool, 31337, &provider).await);
+            assert_eq!(
+                msg,
+                "gas limit 16777217 exceeds the per-transaction cap 16777216 (EIP-7825)"
+            );
+            assert_eq!(pool.len(), 0);
+        }
+    }
+
+    /// No block on the source chain can include more gas than its current limit.
+    #[tokio::test]
+    async fn gas_limit_above_source_block_gas_limit_is_rejected_at_submission() {
+        let (envelope, raw) = signed_eip1559_with(10_000_001, 10, 1, Bytes::new());
+        let pool = HeldPool::new(Default::default());
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
+        push_latest_block(&asserter, 10_000_000);
+
+        let msg = rejection(
+            gate_and_hold(
+                &envelope,
+                &raw,
+                Direction::Outbound,
+                &pool,
+                31337,
+                &provider,
+            )
+            .await,
+        );
+
+        assert_eq!(
+            msg,
+            "gas limit 10000001 exceeds the source chain's block gas limit 10000000"
+        );
+        assert_eq!(pool.len(), 0);
+    }
+
+    /// The boundaries themselves (intrinsic gas, the per-transaction cap and an
+    /// equal tip) are valid, and a fee cap below the current
+    /// base fee is still held: it can become includable later.
+    #[tokio::test]
+    async fn boundary_gas_limits_and_equal_tip_are_accepted() {
+        let pool = HeldPool::new(Default::default());
+        let asserter = Asserter::new();
+        let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
+        push_admission_lookups(&asserter, 1_000_000_000, 0);
+        let (envelope, raw) = signed_eip1559_with(21_000, 10, 10, Bytes::new());
+        assert!(matches!(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+            Admission::Held(_)
+        ));
+
+        let pool = HeldPool::new(Default::default());
+        push_admission_lookups(&asserter, u64::MAX, 0);
+        let (envelope, raw) = signed_eip1559_with(TX_GAS_LIMIT_CAP, 1, 1, Bytes::new());
+        assert!(matches!(
+            gate_and_hold(&envelope, &raw, Direction::Inbound, &pool, 31337, &provider).await,
+            Admission::Held(_)
+        ));
     }
 
     #[tokio::test]
@@ -961,7 +1192,7 @@ mod tests {
 
     #[tokio::test]
     async fn upfront_cost_overflow_is_rejected() {
-        let (signer, envelope, raw) = signed_eip1559(31337, U256::MAX, 1, 1);
+        let (signer, envelope, raw) = signed_eip1559(31337, U256::MAX, 21_000, 1);
         let pool = HeldPool::new(Default::default());
         let provider = ProviderBuilder::default().connect_mocked_client(Asserter::new());
 
@@ -1562,6 +1793,7 @@ mod tests {
         let provider = ProviderBuilder::default().connect_mocked_client(asserter.clone());
         // Empty code, then a good balance and nonce, so only the code check can
         // be what rejects this tx.
+        push_latest_block(&asserter, SOURCE_BLOCK_GAS_LIMIT);
         asserter.push_success(&Bytes::new());
         asserter.push_success(&U256::from(1_000_000u64));
         asserter.push_success(&0_u64);

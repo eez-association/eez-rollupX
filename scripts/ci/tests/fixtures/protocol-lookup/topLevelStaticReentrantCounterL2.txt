@@ -1,0 +1,64 @@
+====== Deploy ======
+--- DeployProducerL2 (L2) ---
+PRODUCER_L2=0xEFbC68d0a6dCa76E471B8d5F6B700F0e60164F84
+--- Deploy (L1) ---
+CALLBACK_L1=0x39b210BEc0e21B06A9b5399F02cE275472070f08
+COUNTER_L1=0x073D01464f7004db5a522ca99B3F9C1513326CaC
+--- DeployL2 (L2) ---
+CALLBACK_PROXY=0xb9B73199C13248466f6e23c6b806A5284555f8d0
+COUNTER_PROXY_L2=0xbA21261dC71CE1C32204Afd11412bD4C6983360B
+READER_L2=0xe924C8B66dDeAdF1196bd50b5e4598D45f0abe1d
+
+====== Create Signed Transaction ======
+target: 0xe924C8B66dDeAdF1196bd50b5e4598D45f0abe1d
+calldata: 0xd09de08a
+value: 0
+gas limit: 1000000
+nonce: 5 (rpc=5 front=5)
+
+====== Compute Expected Entries ======
+L1 expected calls:
+L1 expected entries: [0x7939c65b4b2a15ac877283d5a9db86b82f7de14d65333a7202e0fb5b962fde47]
+L2 table expected: []
+L2 calls expected: []
+L1 expected table: 1248 bytes (field-level checks ON)
+NOTE: no EXPECTED_L2_TABLE printed - L2 field-level checks OFF (hash-only)
+
+====== Execute L2 (user tx) ======
+submitted tx: 0xc68e7a1e4219aefeaf21cd79549b89c69d83bae45276fabc0928a420b954d176
+Waiting for receipt: 0xc68e7a1e4219aefeaf21cd79549b89c69d83bae45276fabc0928a420b954d176 (420s remaining)
+tx: 0xc68e7a1e4219aefeaf21cd79549b89c69d83bae45276fabc0928a420b954d176
+block: 0x38a (status: 0x1)
+settlement correlation RPC: available on http://127.0.0.1:32796
+
+====== Verify L1 Batch (VerifyL1SettlementTxsInRange, range 149.., deadline 120s) ======
+settlement lookup: eez_getSettlementByL2Block(906)
+L2 block 906 settled by L1 tx 0x2e7b8581af2ffacd18ac37e300dc3d051c0a5ce4df5ac212ad97e6d3b1e08bd1 (L1 block 151)
+  PASS: 1 settlement tx(s) with BatchPosted in range
+Batch found at L1 block 151
+
+====== Verify L1 Posted Batch Calldata (1 candidate tx, address prefilter on) ======
+Matched settlement tx 0x2e7b8581af2ffacd18ac37e300dc3d051c0a5ce4df5ac212ad97e6d3b1e08bd1
+  Posted batch decoded from calldata: 26 entries, 7 static entries
+  PASS: L1 field checks on 1 entries (EntryExecuted, rollupId, rollupUpdates)
+  NOTE: rollup 1 live root diverges from our entries' cursor (batch carries foreign entries)
+  PASS: posted batch calldata matches expected table (1 of 1 entries, field-by-field)
+  PASS: posted rolling hashes reproduced from posted roots (1 entries)
+L2 blocks (from receipt): [906]
+
+====== Verify L2 Table ======
+No L2 entry events expected (lookup, terminal revert, or an eventless static pool)
+SKIP: no absent keys to verify
+
+====== Verify L2 Calls ======
+SKIP: no L2 calls expected
+
+====== Scenario Self-Verification (VerifyNetworkL2, L2) ======
+  VERIFY_PASS reader.lastRead=1 reader.counter=1
+
+====== Summary ======
+
+User tx:        0xc68e7a1e4219aefeaf21cd79549b89c69d83bae45276fabc0928a420b954d176  (block 906)
+L1 postBatch:   0x2e7b8581af2ffacd18ac37e300dc3d051c0a5ce4df5ac212ad97e6d3b1e08bd1  (block 151)
+
+====== Done ======
