@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft. Not accepted; nothing implemented or deployed. |
+| Design status | Draft plan. Part A is merged ([#76](https://github.com/eduadiez/rollupX/pull/76)); Part B is in review ([#77](https://github.com/eduadiez/rollupX/pull/77)); the contract upgrades (Part C) are pending, and nothing is deployed. |
 | Date | 2026-10-08 |
 | Source baseline | `eduadiez/rollupX` `main` at `17ff5fc` |
 | Protocol baseline | Current pin `v0.1.0-rc.1` = `855fe0602484750861b4c31502a1a91355d33ed6`; target `v0.1.0-rc.2` = `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (tag object `2866c79`, a descendant of the pin) |
@@ -176,9 +176,19 @@ same preflight values read from each network:
 If upstream accepts it, propose parameterising `upgrade-mainnet.sh` by chain ID
 and expected hashes, so all three networks use one reviewed path.
 
-**Rollback:** the storage layout is unchanged, so each `ProxyAdmin` can point
-back to the previous implementation. Binaries roll back to the previous image,
-node and signer together.
+**Rollback.** Contracts and binaries roll back independently, under different
+limits:
+
+- *Contracts:* the storage layout is unchanged, so each `ProxyAdmin` can point
+  back to the previous implementation. The rc.2 binaries also run against rc.1
+  managers, so a contract rollback needs no binary change.
+- *Binaries:* node and signer roll back together, but not across validator
+  revision v8 once history depends on it. A pre-v8 composer, signer or follower
+  rejects a settled static read with callbacks (Part A). After the first such read
+  settles, older followers cannot replay that history, so downgrading below v8 is
+  not supported. Upgrade followers no later than the composer and signer. See
+  the [static-callback compatibility](../../crates/eez-proof-signer/SPEC.md#static-callback-compatibility)
+  rules.
 
 ### Part D: replaced-Sync-block harness flake
 
@@ -224,14 +234,19 @@ its signature (one excluded bundle, a replaced Sync block) before re-running.
 
 ## Implementation and follow-up
 
-Status: draft, not implemented.
+Status:
 
-1. **PR 1, Part A**, at the current pin, with its regressions.
-2. **PR 2, Part B** (pin rc.2), merged after PR 1. CI, including Kurtosis, must
-   pass with the new scenarios.
+1. **Part A: merged** in [#76](https://github.com/eduadiez/rollupX/pull/76)
+   (`0adafc4`), at the rc.1 pin. It covers static callbacks, the
+   repeated-callback consistency check from review, and validator revision v8.
+2. **Part B: in review** in [#77](https://github.com/eduadiez/rollupX/pull/77).
+   It covers the rc.2 pin, CI runner migration, the composer's
+   manager-destination policy, and the rc.2-only estimator fingerprint. It
+   merges once its exact-head CI, including Kurtosis with the new scenarios, is
+   green.
 3. **Upstream:** the Part D harness fix; optionally a chain-parameterised upgrade
    runner.
-4. **Operations:**
+4. **Operations (pending; no contract has been upgraded):**
    - the mainnet runner in simulation mode;
    - upgrade `eez.asuscomm.com`;
    - archive `eez.dev`'s genesis and upgrade it;
