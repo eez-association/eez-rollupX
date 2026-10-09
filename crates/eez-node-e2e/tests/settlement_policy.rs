@@ -2116,7 +2116,7 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
             .iter()
             .any(|signal| signal.name == "eez.composer.slot.plan"
                 && signal.fields["prepare"] == false),
-        "test must observe actual policy evaluation, not a broken posting path"
+        "test must observe a successful not-due planning decision"
     );
     assert!(
         !signals

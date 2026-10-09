@@ -241,6 +241,7 @@ pub struct EezPoolBuilder {
     system_address: Address,
     cross_chain: Option<CrossChainFilter>,
     data_guard: Option<Arc<crate::SequencingDataGuard>>,
+    recover_displaced_as_local: bool,
 }
 
 impl fmt::Debug for EezPoolBuilder {
@@ -248,6 +249,10 @@ impl fmt::Debug for EezPoolBuilder {
         f.debug_struct("EezPoolBuilder")
             .field("system_address", &self.system_address)
             .field("cross_chain_filter", &self.cross_chain.is_some())
+            .field(
+                "recover_displaced_as_local",
+                &self.recover_displaced_as_local,
+            )
             .finish()
     }
 }
@@ -258,7 +263,18 @@ impl EezPoolBuilder {
             system_address,
             cross_chain: None,
             data_guard: None,
+            recover_displaced_as_local: false,
         }
+    }
+
+    /// Preserve displaced ordinary suffixes under local pool policy on a
+    /// Composer. Followers should retain upstream external reinsertion policy.
+    /// This also selects local fee-cap, eviction, propagation and backup rules;
+    /// it does not retain the transaction's original admission origin.
+    #[must_use]
+    pub const fn with_displaced_transaction_recovery(mut self) -> Self {
+        self.recover_displaced_as_local = true;
+        self
     }
 
     /// Consult the composer's existing source records during pool validation,
@@ -327,11 +343,19 @@ where
                 .build(blob_store, pool_config.clone());
             // Only Reth's maintenance task receives the recovery view. Public
             // ingress retains the original pool and its external sender limits.
-            reth_node_builder::components::spawn_maintenance_tasks(
-                ctx,
-                recovery::RecoveryPool(transaction_pool.clone()),
-                &pool_config,
-            )?;
+            if self.recover_displaced_as_local {
+                reth_node_builder::components::spawn_maintenance_tasks(
+                    ctx,
+                    recovery::RecoveryPool(transaction_pool.clone()),
+                    &pool_config,
+                )?;
+            } else {
+                reth_node_builder::components::spawn_maintenance_tasks(
+                    ctx,
+                    transaction_pool.clone(),
+                    &pool_config,
+                )?;
+            }
 
             event!(
                 name: "eez.node.pool.ready",
@@ -382,10 +406,14 @@ mod tests {
     }
 
     fn pooled_tx(sender: Address, nonce: u64) -> EezPooledTransaction {
+        pooled_tx_with_fee(sender, nonce, 1_000_000_000)
+    }
+
+    fn pooled_tx_with_fee(sender: Address, nonce: u64, gas_price: u128) -> EezPooledTransaction {
         let tx = Transaction::Legacy(TxLegacy {
             chain_id: Some(1),
             nonce,
-            gas_price: 1_000_000_000,
+            gas_price,
             gas_limit: 21_000,
             to: TxKind::Call(Address::ZERO),
             value: U256::ZERO,
@@ -398,6 +426,44 @@ mod tests {
         );
         EezPooledTransaction::try_from_consensus(Recovered::new_unchecked(signed.into(), sender))
             .unwrap()
+    }
+
+    #[test]
+    fn displaced_recovery_requires_composer_opt_in() {
+        assert!(!EezPoolBuilder::new(SYSTEM).recover_displaced_as_local);
+        assert!(
+            EezPoolBuilder::new(SYSTEM)
+                .with_displaced_transaction_recovery()
+                .recover_displaced_as_local
+        );
+    }
+
+    #[tokio::test]
+    async fn recovery_does_not_overwrite_a_higher_fee_replacement() {
+        use reth_transaction_pool::{PoolConfig, TransactionPool};
+        let pool = Pool::new(
+            SystemAddressGate::new(AcceptAll, SYSTEM),
+            CoinbaseTipOrdering::default(),
+            NoopBlobStore::default(),
+            PoolConfig::default(),
+        );
+        let replacement = pooled_tx_with_fee(USER, 0, 2_000_000_000);
+        let replacement_hash = *replacement.hash();
+        pool.add_transaction(TransactionOrigin::Local, replacement)
+            .await
+            .unwrap();
+        let displaced = pooled_tx(USER, 0);
+        let displaced_hash = *displaced.hash();
+        let results = recovery::RecoveryPool(pool.clone())
+            .add_external_transactions(vec![displaced])
+            .await;
+        assert!(matches!(
+            results[0].as_ref().unwrap_err().kind,
+            reth_transaction_pool::error::PoolErrorKind::ReplacementUnderpriced
+        ));
+        assert!(pool.contains(&replacement_hash));
+        assert!(!pool.contains(&displaced_hash));
+        assert_eq!(pool.pool_size().total, 1);
     }
 
     #[tokio::test]

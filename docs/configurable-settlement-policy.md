@@ -733,7 +733,7 @@ clients may need to resubmit. Never run two Composers on shared state.
 Live settlement can change the authenticated execution seed of already-produced
 unsafe descendants. Reconciliation replaces the first stale child with an
 executed empty sibling, letting Reth requeue ordinary transactions from the
-removed suffix. The L2 pool's maintenance-only adapter revalidates these
+removed suffix. The Composer pool's maintenance-only adapter revalidates these
 displaced transactions with local origin: Reth's default external reinsertion
 would otherwise apply its 16-transaction sender cap to an already accepted
 suffix. RPC/network ingress keeps the unwrapped pool and its existing limits.
@@ -741,9 +741,18 @@ System envelopes and Composer-owned cross-chain sources remain excluded by
 the same validator. Reinsertion failures are logged, not counted as successful
 recovery. Explicit `--txpool.nolocals` settings still disable local
 exemptions; this repair does not override operator admission policy.
+Reth does not retain the original origin in block data. Recovery therefore
+selects **all** local policies: the RPC fee cap, local propagation setting,
+eviction exemptions, and ordinary Reth local-transaction backup when enabled.
+An externally received transaction above the local fee cap can be rejected on
+recovery. Minimum-tip, execution, DA and replacement checks still apply. A
+validation error, including temporarily unavailable DA limits, is logged without
+an automatic retry; clients must reconcile and resubmit if necessary. This is
+not a durable guarantee for every accepted transaction. Reth's pool backup does
+not persist Composer request ownership or its retry counters.
 Those transactions must execute again under the new context;
 their earlier receipts are not final. The replacement does not advance safe or
-finalized state. This recovery repair is unconditional, needs no
+finalized state. This recovery repair is enabled for every Composer, needs no
 wire/storage migration, and remains compatible with existing followers. Rolling
 back the binary restores the old ancestor-only rewind and its transaction-loss
 risk; it does not recover transactions already lost from an in-memory pool.
@@ -753,8 +762,9 @@ and minimal settlement blocks. Historical replacement preserves the existing
 header rather than substituting the current setting. This changes newly built
 checkpoint hashes for a nonzero recipient, not the block/DA format: existing
 history remains replayable using its recorded environment. No protocol,
-database, or signer migration is needed. The recovery adapter also applies to
-followers' pool maintenance; it adds no worker, queue, or durable recovery state.
+database, or signer migration is needed. Followers retain upstream external
+reinsertion policy; they do not sequence displaced ordinary work. The adapter
+adds no worker, queue, or durable recovery state.
 
 See the [proposal and acceptance gates](proposals/conditional-slot-production.md)
 and [implementation evidence](audits/2026-10-09-conditional-slot-production/README.md).

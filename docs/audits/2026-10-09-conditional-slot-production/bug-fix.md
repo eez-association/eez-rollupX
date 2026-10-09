@@ -115,3 +115,70 @@ Retained local log SHA-256 values:
 | `fix-process-rust195.log` | `80203394a87ca5353461cf83769ef4e7e8322c306036a18a199f1fe257fd8fdb` |
 | `fix-units-valid-fees.log` | `f238c339a1e9404be2c1e19477caf0c402c898c0a9486a89f844b25b786e62e5` |
 | `fix-clippy-final.log` | `75bc9569417c36c37bcf06d2545bc217a59b5401abca0c4c42a8659f2f9d36d8` |
+
+## Follow-up review: narrow recovery ownership
+
+The preceding results describe `cb17ef2e9ccc4eaf307bc7f2e3ba7ceb7050fd9c`.
+A scoped Claude review of tracked source/design raised three questions:
+beneficiary compatibility, origin promotion beyond sender capacity, and possible
+duplicate maintenance tasks. Its local-only response is retained as
+`claude-recovery-review.txt` in the evidence directory above. No operator
+configuration, keys, or raw logs were sent. A follow-up request including pinned
+dependency source was blocked by the security reviewer pending separate sharing
+approval; the dependency checks below were performed locally.
+
+Pinned Reth `3d592ece6de8c4559987416a544fc215fd6d6921` establishes:
+
+- `TxPoolBuilder::build` only constructs the pool. The explicit
+  `spawn_maintenance_tasks` call starts the existing backup and maintenance tasks
+  once, replacing the former combined helper. The reorg path calls the plural
+  `add_external_transactions` after applying its canonical state update.
+- Local origin also selects the RPC fee cap, propagation policy, queued-lifetime
+  exemptions and local backup. Minimum-tip and ordinary execution validation
+  remain enforced. Original admission origin is not available from block data.
+  An externally received high-fee transaction may fail the local fee cap during
+  recovery. These effects and transient-validation loss are now explicit in the
+  owning settlement contract; recovery does not promise durable delivery.
+- Beneficiary already travels in each payload block's environment, and the
+  deriver constructs the historical environment from `plan.beneficiary`.
+  Fixing a newly built checkpoint to respect the configured coinbase does not
+  change historical decoding. The process regression reconstructs the published
+  environment; it does not substitute the follower's current coinbase.
+
+The follow-up narrows the adapter to an explicit Composer builder opt-in.
+Followers retain upstream reinsertion policy, avoiding an unrelated change to
+their pool retention and backup behavior. This supersedes the earlier scope
+statement that applied the adapter to both roles. It introduces no operator
+setting or second scheduler. Added regressions cover the default-off builder
+choice and rejection of a displaced lower-fee transaction when a higher-fee
+replacement already owns the nonce. Recovery warnings now identify the hash.
+
+Validation of this follow-up and the full CI/live gates remain pending; the
+earlier passing counts must not be read as validation of this later source.
+
+A second Claude iteration used only the approved repository source/design;
+dependency source remained local. It found no blocking bug in the core diff
+and accepted the narrower ownership and documented origin-policy effects,
+conditional on the local dependency checks. Its remaining questions were
+checked against the existing regressions and production caller:
+
+- `slot.plan` emits a real boolean `prepare` only after successful authenticated
+  policy planning, not on timeout/error. It is intentionally a cutoff barrier,
+  not equivalent to final admission. Idle paths skip the former final-policy
+  event. The one remaining assertion message now names planning precisely.
+- The 20-transaction fixture disables canonical `eth_getLogs` before submitting
+  the batch and keeps it disabled until **all** pre-reconciliation receipts are
+  captured. It also asserts safe height remains below the accepted endpoint.
+  Sequential receipt collection cannot release this controlled fault.
+- The baseline reproduction above is the requested negative control; the
+  16/17/20 capacity unit regression and nonzero-coinbase replay regression
+  already exist. Follower wiring has no recovery opt-in.
+
+The final local node-common suite passed **15 tests**, none ignored or filtered,
+including both follow-up regressions. Its native dependency rebuild completed
+normally. The response and test log are retained locally as
+`claude-recovery-review-2-repository-only.txt` and
+`composer-only-recovery-units.log`. Full workspace Clippy with all targets and
+`-D warnings` passed in 5.91 seconds (`composer-only-recovery-clippy.log`);
+formatting and whitespace checks passed. Final CI and live results remain
+outstanding at this update.

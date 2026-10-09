@@ -3,8 +3,11 @@
 //! Pinned Reth reinjects an orphaned block's transactions through
 //! `add_external_transactions`, losing their original admission origin. That
 //! applies the external sender cap to already executed local transactions and
-//! can strand a nonce suffix. Only that maintenance call gets local treatment;
-//! validation, replacement rules, and explicit operator exemptions still apply.
+//! can strand a nonce suffix. Composer opts into local treatment for that call;
+//! followers retain upstream behavior. Origin cannot be recovered from a block,
+//! so this selects all local policies, including the RPC fee cap, backup and
+//! eviction/propagation rules, not just a sender-cap exemption. Validation,
+//! replacement rules, and explicit no-local exemptions still apply.
 
 use std::sync::Arc;
 
@@ -30,6 +33,7 @@ pub(super) struct RecoveryPool<P>(pub(super) P);
 
 // Keep the adapter limited to one overridden operation. All reads, canonical
 // updates, backups, and other insertions retain the underlying pool's behavior.
+// Re-audit trait defaults and reinsertion entry points when updating pinned Reth.
 macro_rules! forward {
     ($(fn $name:ident(&self $(, $arg:ident: $ty:ty)*) $(-> $ret:ty)?;)*) => {
         $(fn $name(&self $(, $arg: $ty)*) $(-> $ret)? { self.0.$name($($arg),*) })*
@@ -53,6 +57,7 @@ impl<P: TransactionPool> TransactionPool for RecoveryPool<P> {
         for error in results.iter().filter_map(|result| result.as_ref().err()) {
             tracing::warn!(name: "eez.node.pool.recovery_rejected",
                 event_name = "eez.node.pool.recovery_rejected",
+                tx_hash = %error.hash,
                 error = %error, "displaced transaction could not reenter the pool");
         }
         results
