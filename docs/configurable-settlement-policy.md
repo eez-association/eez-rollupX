@@ -725,7 +725,10 @@ together with the Composer upgrade: remove the preparation setting, explicitly
 choose P and initially use zero delay. There is no runtime legacy-mode switch.
 For rollback, use a verified compatible prior binary with its matching timing
 configuration; remove the delay for versions that do not support it. Candidate A
-at `9ca75ba` supports P and retains the recovery fix, but has no delay setting.
+at `9ca75ba` supports P but has no delay setting and still has the displaced-batch
+sender-cap bug demonstrated by the
+[failed load test](audits/2026-10-09-conditional-slot-production/stress-failure.md).
+It is not a known-good rollback for that workload.
 Preserve original state and establish storage compatibility before a downgrade.
 Normal restart may discard speculative history and in-memory pending requests;
 clients may need to resubmit. Never run two Composers on shared state.
@@ -749,7 +752,10 @@ recovery. Minimum-tip, execution, DA and replacement checks still apply. A
 validation error, including temporarily unavailable DA limits, is logged without
 an automatic retry; clients must reconcile and resubmit if necessary. This is
 not a durable guarantee for every accepted transaction. Reth's pool backup does
-not persist Composer request ownership or its retry counters.
+not persist Composer request ownership or its retry counters. Startup backup
+reinsertion is also best-effort and can run before DA admission is ready; it is
+not a durable ordinary-transaction journal. Reconcile actual canonical receipts
+and pending hashes, not the upstream backup log's attempted-insertion count.
 Those transactions must execute again under the new context;
 their earlier receipts are not final. The replacement does not advance safe or
 finalized state. This recovery repair is enabled for every Composer, needs no

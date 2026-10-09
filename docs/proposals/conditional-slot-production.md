@@ -282,7 +282,11 @@ There is no protocol-pin or database migration in scope.
 
 The first dual-scheduler candidate is frozen at `9ca75baed975d4fd9aef560ea359ac6a800dd3af`
 (candidate A). Its [CI run](https://github.com/eduadiez/rollupX/actions/runs/37964363878)
-passed. The single-scheduler candidate B needs its own CI and live validation.
+passed. A subsequently failed the heavier ordinary-transaction workload with a
+nonce gap; see the [retained failure](../audits/2026-10-09-conditional-slot-production/stress-failure.md).
+It is not a known-good rollback for that workload. The single-scheduler candidate
+and its recovery repair need their own CI and live validation, recorded in the
+[merge-readiness audit](../audits/2026-10-09-conditional-slot-production/final-validation.md).
 Compare A with explicit P against B at the same P and zero delay before measuring
 a nonzero delay separately. Keep policy, workload and hardware comparable; do not
 run competing builds during timing measurements. A's success does not validate B.
@@ -294,8 +298,9 @@ unchanged. New follower binaries share this parser and also require P, even thou
 P/delay do not alter historical replay. Existing followers need no wire migration.
 There is no configuration switch back to the legacy scheduler in B.
 Rollback requires a verified compatible prior binary and its matching configuration;
-A retains the transaction-recovery fix and is preferable to pre-fix binaries.
-Remove the delay for A, which does not implement it. Do not downgrade onto state
+A contains an earlier recovery fix, but not the displaced-batch sender-cap repair;
+do not recommend it as a production fallback for this failure. A also does not
+implement the delay setting. Do not downgrade onto state
 whose storage compatibility has not been established. Canonical recovery still
 runs; restarting can discard speculative blocks and loses in-memory queued
 requests/retry counters. Clients may need to resubmit. A database backup does not

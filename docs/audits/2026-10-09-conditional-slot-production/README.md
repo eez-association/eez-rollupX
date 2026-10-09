@@ -8,7 +8,8 @@ are tracked in the [single-scheduler record](single-scheduler.md).
 The [live canary](live-canary.md) was followed by a
 [failed continuous-load test](stress-failure.md). See the
 [bug review](bug-review.md) and [repair validation](bug-fix.md) for the current
-recovery/CI findings. Earlier passing checks do not establish release readiness.
+recovery/CI findings and the [final validation](final-validation.md) for current
+CI/canary evidence. Earlier passing checks do not establish release readiness.
 
 | Field | Value |
 | --- | --- |

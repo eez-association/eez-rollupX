@@ -574,8 +574,11 @@ Composer/configuration change, not new contracts or a genesis/database migration
 When upgrading standalone followers, migrate their timing environment too: the
 shared parser requires P even though followers do not run the scheduler.
 Rollback needs a compatible prior binary and its matching configuration, not a
-mode toggle. Prefer the prior candidate with the transaction-recovery repair;
-pre-fix binaries restore the transaction-loss risk. Normal restart/resubmission
+mode toggle. Verify which recovery repair a prior binary contains: the initial
+dual-scheduler candidate still lost displaced transactions above the per-sender
+external pool cap and is not a known-good fallback for that workload. See the
+[failure and repair evidence](../audits/2026-10-09-conditional-slot-production/bug-fix.md).
+Pre-fix binaries restore that transaction-loss risk. Normal restart/resubmission
 and storage-compatibility limits still apply; no live upgrade is validated here.
 
 The [wallet discovery / Composer-only namespace change](../proposals/composer-wallet-discovery.md)
