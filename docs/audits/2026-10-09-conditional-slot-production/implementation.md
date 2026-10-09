@@ -249,6 +249,46 @@ native rebuild and blocking the process suite's signer build. That owned check
 was interrupted, not counted as passing; the follow-up includes Composer in the
 unit selection. No dependency versions or feature declarations were changed.
 
+The first fixed process selection **passed all four tests**, none ignored,
+131 filtered, in 389.89 seconds including signer build/build-lock waiting.
+That run used the initial controlled regression (re-inclusion and balance),
+before its follower-replay extension; all runtime changes are identical to the
+committed repair `43fe13eca8e7cd55d48569e35e6be2f3ea93d51c`.
+Its test executable SHA-256 was
+`78c55bb39d24a2723a64d1c2b7898b0c128fa12d8d26ad7c510f646c934e6ba0`.
+Local-only diagnostics are in `artifacts/ci-37934352557-fixed/`; the controlled
+recovery node log `eez-node-node-1386417-12.log` has SHA-256
+`b3e27e6fa89760476e2b7644ded76d1490c359a0918a81c663e53e51c363d216`.
+This is a failing-baseline/passing-repair comparison of the same transaction-loss
+assertion, not a passing retry of unchanged code. It is not a performance result.
+
+The final strengthened regression at `43fe13e` also **passed**, one selected,
+134 filtered, none ignored, in 115.47 seconds including signer build/setup.
+It requires canonical acceptance, re-inclusion without resubmission, a second
+settlement, and independent follower replay of the repaired history with the
+same transaction block hash, successful receipt and exact recipient balance.
+Executable SHA-256:
+`fbc3fcfe4f3bbbbf471e2ac78522fe8eaeeeebda004a94440bf09146d28ecce2`.
+Local-only logs under `artifacts/ci-seed-replay-fixed/logs/`:
+
+- Node `eez-node-node-1421368-2.log`, SHA-256
+  `0765e5fd94b6e3d58ca640d4b9a0d6a72956c7b3a6fd8acb09d6d1fee2af282b`.
+- Follower `eez-node-stale-seed-follower-1421368-3.log`, SHA-256
+  `9f2b850ca2c73d441c4744d348081ced1b47c0cff6a1ac66bb519b044f2a9891`.
+
+Final `cargo +1.95.0 test --locked -p eez-composer -p eez-deriver -p eez-driver
+--lib -j 4` passed: **317 Composer + 44 deriver + 71 driver = 432 tests**,
+with only the existing manual component timing profile ignored. No tests were
+filtered from this unit selection.
+
+Final workspace `cargo +1.95.0 clippy --locked --workspace --all-targets -j 4
+-- -D warnings`, `cargo +1.95.0 fmt --all --check`, `git diff --check` and syntax
+checking of the added shell examples all passed. The protocol checkout remains
+clean at the recorded pin. The full native partial-consumption/reorg/admission
+matrix, production-feature artifact checks and Kurtosis were not repeated
+locally for this repair; the fresh CI run must validate those lanes. Earlier CI
+successes do not validate this edited revision. No deployment was performed.
+
 ## Remaining release gates
 
 The full [G1–G5 acceptance list](../../proposals/conditional-slot-production.md#validation-and-release-gates)
