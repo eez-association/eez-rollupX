@@ -113,6 +113,53 @@ not-due hint (not an error fallback) and explicitly requires the corresponding
 Ordinary invocation before independent replay. This corrects test observation,
 not scheduler behavior; its first failure is retained rather than counted as coverage.
 
+That observer failure selected exactly one test and timed out waiting for the
+filtered signal after 180 seconds (320.13 seconds including cold signer setup).
+Local-only retained evidence (not available from another checkout):
+
+- Node log `artifacts/conditional-slot/logs/eez-node-node-892796-2.log`, SHA-256
+  `ef292232d07414f95dd10420fd269594b3192d5de6da3e2a42963b3a9df0786a`.
+- Signer log `artifacts/conditional-slot/logs/eez-proof-signer-892796-0.log`, SHA-256
+  `8dbe514ddfe132e57c45ba92d74a0db4eeccfa394574665509538f2ec0e1fe11`.
+- Failing test executable SHA-256
+  `024d4065a6963723fcc311acd4e85beca720931deebf22d8a3c7cd947433525a`;
+  signer SHA-256 `566f843767f8becc774339f5cec20ad24d72b163793afb9ea2c6c3ea784eeaaa`.
+
+The corrected process regression is rebuilt at `e1a3e0a` (all runtime and test
+source committed before starting this run). Later evidence-only commits do not
+change those executable inputs.
+
+**Corrected source-based process regression: PASS**, one intended test selected,
+133 filtered out, none ignored; execution including signer build/setup took
+116.26 seconds. Command (with the toolchain/target cache described above):
+
+```bash
+unset EEZ_TEST_PREBUILT EEZ_TEST_RUNTIME_BIN_DIR EEZ_TEST_PROOF_SIGNER_BIN
+EEZ_TEST_LOG_DIR="$PWD/artifacts/conditional-slot/logs" \
+EEZ_TEST_DATADIR_DIR="$PWD/artifacts/conditional-slot/datadirs" \
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+  settlement_policy::conditional_position_paces_late_pool_transactions_and_replays \
+  --test-threads=1
+```
+
+This is a corrected-test pass, not a flaky unchanged retry. The test reaches a
+successful real Composer not-due hint, submits an ordinary transfer after P,
+asserts inclusion before K in the paced suffix, asserts an empty K and the
+non-posting Ordinary invocation, then requires canonical safe-prefix convergence
+with an independent follower and matching transaction block hash/receipt status.
+It does not validate cross-chain semantics, reorg/restart or sustained latency.
+The fixture uses disposable local EthereumOsaka/Anvil, a real signer and a local
+builder stub; it is not production PBS/topology or live-mainnet evidence.
+
+Passing executable SHA-256:
+`bae93c98531714edbe106e35e5ffadd4b16346f541e7d240e39f5faee2c4c152`;
+the signer digest is unchanged from the failed observer run. Passing local-only
+node log `eez-node-node-924294-2.log` under the log directory above has SHA-256
+`4ec439a8e0381dcd1124f80b55fc2b19425a49ce1326fea338f1a7dbad924009`;
+follower log `eez-node-conditional-position-follower-924294-3.log` has SHA-256
+`f835eed7c1014481db3a0662f984f4b8e19120eb28aae007c4ceb49e36a9880b`.
+Final formatting, whitespace and added shell-example syntax checks passed.
+
 The original empty-suffix behavior was traced in source at both design and PR
 baselines; no matched baseline/candidate runtime or performance comparison has
 yet been executed. Unit/mocked checks do not establish throughput, durable queue
