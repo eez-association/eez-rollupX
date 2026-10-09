@@ -662,7 +662,7 @@ async fn poison_mid_bundle_leaves_survivors_correct() {
     // The status RPC names the cause and carries the simulation diagnostic,
     // so a client can debug the rejection without node logs.
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(l2_rpc.parse().unwrap())
+        .connect_http(w.l2_xchain().parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (poison,))
         .await

@@ -167,7 +167,10 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "supportedNetworks": {"eezL1": DEV_CHAIN_ID, "eezL2": w.l2_chain_id},
         "version": env!("CARGO_PKG_VERSION"),
     });
-    for front in [w.l1_xchain(), w.l2_xchain()] {
+    for (front, source_chain_id) in [
+        (w.l1_xchain(), DEV_CHAIN_ID),
+        (w.l2_xchain(), w.l2_chain_id),
+    ] {
         let info: serde_json::Value = ProviderBuilder::new()
             .connect_http(front.parse().unwrap())
             .client()
@@ -175,19 +178,53 @@ async fn minimal_bidirectional_cross_chain_smoke() {
             .await
             .unwrap_or_else(|error| panic!("composer discovery on {front}: {error}"));
         assert_eq!(info, expected_info, "{front}");
+        let nonce = alloy_primitives::B256::repeat_byte(0xa5);
+        let data = alloy_primitives::Bytes::from(
+            eez_protocol::discovery::composerInfoCall { nonce }.abi_encode(),
+        );
+        let response: alloy_primitives::Bytes = ProviderBuilder::new()
+            .connect_http(front.parse().unwrap())
+            .client()
+            .request(
+                "eth_call",
+                serde_json::json!([{
+                "to":eez_protocol::discovery::ADDRESS, "data":data
+            }, "latest"]),
+            )
+            .await
+            .unwrap();
+        let response =
+            eez_protocol::discovery::composerInfoCall::abi_decode_returns_validate(&response)
+                .unwrap();
+        assert_eq!(response.marker, eez_protocol::discovery::MARKER);
+        assert_eq!(response.schemaVersion, U256::from(1));
+        assert_eq!(response.echoedNonce, nonce);
+        assert_eq!(response.sourceChainId, U256::from(source_chain_id));
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&response.info).unwrap(),
+            info
+        );
+        // Moved methods are handled locally by either front, not forwarded to
+        // the source chain's RPC (which has no eez namespace).
+        for (method, params) in [
+            ("eez_getCrossChainQueueStatus", serde_json::json!([])),
+            ("eez_getCrossChainTransaction", serde_json::json!([nonce])),
+            ("eez_getSettlementByL2Block", serde_json::json!([nonce])),
+            (
+                "eez_getSettledL2RangesByL1Block",
+                serde_json::json!([nonce]),
+            ),
+        ] {
+            let _: serde_json::Value = ProviderBuilder::new()
+                .connect_http(front.parse().unwrap())
+                .client()
+                .request(method, params)
+                .await
+                .unwrap();
+        }
     }
-    let node_rpc: Result<serde_json::Value, _> = ProviderBuilder::new()
-        .connect_http(l2_rpc.parse().unwrap())
-        .client()
-        .request("eez_composerInfo", ())
-        .await;
-    assert!(
-        node_rpc
-            .unwrap_err()
-            .as_error_resp()
-            .is_some_and(|error| error.code == -32601),
-        "the L2 node RPC must not serve eez_composerInfo"
-    );
+    assert_no_composer_methods(&l1_rpc).await;
+    assert_no_composer_methods(&l2_rpc).await;
 
     let inbound = sign_and_send(
         &w.l1_xchain(),
@@ -268,6 +305,44 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+}
+
+async fn assert_no_composer_methods(rpc: &str) {
+    let provider = ProviderBuilder::new().connect_http(rpc.parse().unwrap());
+    for method in [
+        "eez_composerInfo",
+        "eez_getCrossChainQueueStatus",
+        "eez_getCrossChainTransaction",
+        "eez_getSettlementByL2Block",
+        "eez_getSettledL2RangesByL1Block",
+        "eez_executionWitnessByBlockHash",
+    ] {
+        let result: Result<serde_json::Value, _> = provider.client().request(method, ()).await;
+        assert!(
+            result
+                .unwrap_err()
+                .as_error_resp()
+                .is_some_and(|error| error.code == -32601),
+            "{rpc} must not expose {method}"
+        );
+    }
+    let result: alloy_primitives::Bytes = provider
+        .client()
+        .request(
+            "eth_call",
+            serde_json::json!([{
+        "to":eez_protocol::discovery::ADDRESS,
+        "data":alloy_primitives::Bytes::from(eez_protocol::discovery::composerInfoCall {
+            nonce:alloy_primitives::B256::ZERO
+        }.abi_encode())
+    }, "latest"]),
+        )
+        .await
+        .unwrap();
+    assert!(
+        result.is_empty(),
+        "ordinary RPC must not synthesize runtime discovery"
+    );
 }
 
 /// Two configured relays: the first rejects every bundle and the second
@@ -1613,7 +1688,7 @@ async fn overlay_failed_l1_call_discards_its_callback_state() {
     );
 
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(l2_rpc.parse().unwrap())
+        .connect_http(w.l2_xchain().parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await
@@ -1919,6 +1994,7 @@ async fn assert_follower_replays(
     )
     .await
     .unwrap();
+    assert_no_composer_methods(&follower.l2_rpc_url()).await;
     let replayed = wait_for(SETTLE_TIMEOUT, || async {
         let actual =
             block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Number(target.0))
@@ -2049,7 +2125,7 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
     );
 
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_rpc().parse().unwrap())
+        .connect_http(w.l2_xchain().parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await

@@ -41,6 +41,7 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let composer = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
     let amount = U256::from(100_000_000_000_000_000u64);
     let recipient_before = l2_balance(&world.l1_rpc(), world.withdrawal_recipient)
         .await
@@ -65,7 +66,7 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count
     }
     let withdrawal = withdrawals[0];
     wait_for(TIMEOUT, || async {
-        let queue: serde_json::Value = l2
+        let queue: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainQueueStatus", ())
             .await?;
@@ -112,7 +113,7 @@ async fn escrow_recovery(profile: NativeL1Profile, limit: &str, withdrawal_count
         TIMEOUT,
         || world.node.progress_failure(),
         || async {
-            let status: serde_json::Value = l2
+            let status: serde_json::Value = composer
                 .client()
                 .request("eez_getCrossChainTransaction", (withdrawal,))
                 .await?;

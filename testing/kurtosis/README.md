@@ -766,10 +766,15 @@ A successful L1 posting alone does not establish that every deferred effect
 settled.
 
 These CI-only checks require L1 `debug_traceTransaction` and L2
-`debug_getRawBlock`, `debug_getRawReceipts`, `eez_executionWitnessByBlockHash`
-and `debug_chainConfig` (available in the test topology). The node installs
-`eez_executionWitnessByBlockHash` only on transports with the `debug`
-namespace enabled. It returns the proving feed's witness: Reth's minimal
+`debug_getRawBlock`, `debug_getRawReceipts` and `debug_chainConfig` on regular
+node RPCs (available in the test topology). The augmented
+`eez_executionWitnessByBlockHash` method is served only on Composer fronts,
+when the Composer's HTTP `debug` namespace is enabled. Set `L2_FRONT` as well
+as `L2_RPC` for standalone evidence collection; the suite wrapper supplies both.
+All other `eez_*` observations, including settlement correlation, also use the
+front. The pinned protocol network runner reads L2 through that front so its
+correlation fast path remains available; independent debug evidence uses the
+regular node RPC. The augmented method returns the proving feed's witness: Reth's minimal
 `debug_executionWitnessByBlockHash` can omit sibling trie nodes that an
 intermediate prefix root needs after a deletion, which makes the replay fail
 even though the block is valid. The helper runs
@@ -778,7 +783,7 @@ reconstructs prefix headers from replayed roots. The empty prefix includes
 pre-execution state updates; the parent block's state root cannot replace it.
 Chain configuration and canonicality still come from the test-node RPCs, so
 this is integration evidence and does not authorize a production proof.
-Do not expose debug APIs publicly for this purpose. Raw trace, witness/prefix
+Do not expose debug APIs or debug-enabled Composer fronts publicly for this purpose. Raw trace, witness/prefix
 input and selected-root evidence are retained for diagnosis. The helper's
 regressions run from the producer's release test archive.
 

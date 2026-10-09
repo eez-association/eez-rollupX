@@ -752,18 +752,27 @@ async fn launch_composer(
     // Shared L1-confirmed L2 head. The Deriver is the sole writer; the
     // Sequencer and correlation RPC read it.
     let l1_head = Arc::new(L1CanonicalHead::default());
-    let rpc_correlations = Arc::clone(&correlations);
-    let rpc_l1_head = Arc::clone(&l1_head);
     // The L2 pool and ingress/composer consult the same source ownership.
     // Reorged cross-chain users require a Sync block, not ordinary sequencing.
     let optimistic = Arc::new(eez_composer::OptimisticallyIncluded::new());
     let held_pool = Arc::new(HeldPool::new(Arc::clone(&optimistic)));
     let reserved_sources = Arc::clone(&held_pool);
-    let rpc_held_pool = Arc::clone(&held_pool);
     // Every composer needs durable-witness backpressure.
     let data_guard = Some(Arc::new(eez_node_common::SequencingDataGuard::new(
         rollup_config.rollup_id,
     )));
+    // Fronts are HTTP-only. Enabling debug on IPC/WS must not expose expensive
+    // witness execution on the HTTP fronts as a side effect.
+    let debug = "debug"
+        .parse()
+        .map_err(|e| eyre::eyre!("debug RPC namespace: {e}"))?;
+    let front_witness_enabled = builder.config().rpc.http
+        && builder
+            .config()
+            .rpc
+            .http_api
+            .as_ref()
+            .is_some_and(|api| api.contains(&debug));
     let handle = builder
         .with_types::<eez_node_common::EezNode>()
         .with_components(
@@ -787,25 +796,6 @@ async fn launch_composer(
                 Arc::clone(&correlations),
             ),
         ))
-        .extend_rpc_modules(move |ctx| {
-            ctx.modules
-                .merge_configured(queue_rpc::module(Arc::clone(&rpc_held_pool))?)?;
-            // Parsed rather than imported: `RethRpcModule` is not re-exported by
-            // this crate's Reth dependencies, and the parameter type fixes it.
-            use reth_node_api::FullNodeComponents as _;
-            let debug = "debug"
-                .parse()
-                .map_err(|e| eyre::eyre!("debug RPC namespace: {e}"))?;
-            ctx.modules.merge_if_module_configured(
-                debug,
-                witness_rpc::module(
-                    ctx.provider().clone(),
-                    ctx.node().evm_config().clone(),
-                    ctx.node().task_executor.clone(),
-                )?,
-            )?;
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
-        })
         .launch_with_debug_capabilities()
         .await?;
 
@@ -815,6 +805,22 @@ async fn launch_composer(
     let payload_builder_handle = handle.node.payload_builder_handle.clone();
     let beacon_engine_handle = handle.node.add_ons_handle.beacon_engine_handle.clone();
     let task_executor = handle.node.task_executor.clone();
+
+    // One shared module (and witness permit budget) for both fronts. None of
+    // these methods is registered on Reth's HTTP, WS, IPC or auth transports.
+    let mut composer_methods = jsonrpsee::RpcModule::new(());
+    composer_methods.merge(queue_rpc::module(Arc::clone(&held_pool))?)?;
+    composer_methods.merge(correlation_rpc::module(
+        Arc::clone(&correlations),
+        Arc::clone(&l1_head),
+    )?)?;
+    if front_witness_enabled {
+        composer_methods.merge(witness_rpc::module(
+            provider.clone(),
+            handle.node.evm_config.clone(),
+            task_executor.clone(),
+        )?)?;
+    }
 
     // Live blocks share the Composer's Sync-block coinbase.
     let attributes = EthAttributesBuilder::new(chain_spec.clone())
@@ -1231,6 +1237,7 @@ async fn launch_composer(
         let pool = Arc::clone(&held_pool);
         let ready = Arc::clone(&xchain_ready);
         let composer_info = Arc::clone(&composer_info);
+        let composer_methods = composer_methods.clone();
         task_executor.spawn_critical_task(spec.task, async move {
             ingress::run_cross_chain_front_with_estimator(
                 port,
@@ -1242,6 +1249,7 @@ async fn launch_composer(
                 dispatch_address,
                 ready,
                 composer_info,
+                composer_methods,
                 Some(gas_estimator),
             )
             .await

@@ -119,10 +119,12 @@ wait_for_protocol_ready() {
 wait_for_protocol_ready
 
 env_file="$deploy_dir/chain.env"
+# The pinned network runner uses one L2 URL for Ethereum reads and correlation
+# queries. Both work on the L2 front; debug evidence below still uses L2_RPC.
 cat >"$env_file" <<ENV
 L1_RPC=$L1_RPC
 L1_FRONT=$L1_FRONT
-L2_RPC=$L2_RPC
+L2_RPC=$L2_FRONT
 L2_FRONT=$L2_FRONT
 ROLLUPS=$ROLLUPS
 MANAGER_L2=$MANAGER_L2
@@ -348,7 +350,7 @@ for name in "${selected_names[@]}"; do
     fi
 done
 if (( ${#verify_names[@]} > 0 )); then
-    L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
+    L1_RPC="$L1_RPC" L2_RPC="$L2_RPC" L2_FRONT="$L2_FRONT" ROLLUPS="$ROLLUPS" MANAGER_L2="$MANAGER_L2" \
         ROLLUP_ID="$ROLLUP_ID" PROTOCOL_COMMIT="$actual_protocol" CAUSAL_VERIFIER="$CAUSAL_VERIFIER" \
         BEACON_URL="$BEACON_URL" BLOB_VERIFIER="$BLOB_VERIFIER" \
         python3 "$REPO/scripts/ci/collect-protocol-evidence.py" \

@@ -1,4 +1,4 @@
-//! Debug-namespace RPC serving the prover's augmented execution witness.
+//! Composer-front RPC serving the prover's augmented execution witness.
 //!
 //! Reth's `debug_executionWitnessByBlockHash` returns the minimal witness for
 //! the parent->final state transition. EEZ lookup pins name intermediate
@@ -11,8 +11,8 @@
 //! still computes every root itself and rejects unrelated or corrupted nodes.
 //!
 //! Re-executing a block is as expensive as Reth's own witness methods, so the
-//! method is installed only on transports where the operator enabled the
-//! `debug` namespace, and concurrent requests are bounded. A request whose
+//! method is available on the fronts only when the operator enabled the
+//! HTTP `debug` namespace, and concurrent requests are bounded. A request whose
 //! client disconnects keeps its permit until the blocking re-execution exits.
 
 use std::sync::Arc;
@@ -33,7 +33,7 @@ use reth_tasks::TaskExecutor;
 use tokio::sync::Semaphore;
 
 /// Method name. The `eez_` prefix keeps it distinct from Reth's debug methods;
-/// installation still follows the operator's `debug` namespace selection.
+/// front availability still follows the operator's HTTP `debug` selection.
 pub(crate) const METHOD: &str = "eez_executionWitnessByBlockHash";
 
 /// Concurrent re-executions admitted by this method. CI verifiers use a small

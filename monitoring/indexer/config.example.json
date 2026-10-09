@@ -7,7 +7,7 @@
   "rollup_id": 1,
   "start_block": 1,
   "details": {
-    "l2_http_url": "http://127.0.0.1:18688",
+    "l2_http_url": "http://127.0.0.1:18998",
     "l2_chain_id": 696990,
     "l2_genesis_hash": "REPLACE_WITH_L2_GENESIS_BLOCK_HASH",
     "beacon_url": "http://127.0.0.1:6152"

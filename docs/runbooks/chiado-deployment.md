@@ -66,7 +66,7 @@ The fixed containers are `eez-node-chiado`, `eez-proof-signer-chiado`, and
 | --- | --- |
 | 18645 / 18646 | Embedded Chiado L1 HTTP / WebSocket RPC |
 | 18688 / 18689 | L2 HTTP / WebSocket RPC |
-| 18999 / 18998 | L1-to-L2 / L2-to-L1 transaction fronts; ordinary RPC calls proxy to the source chain |
+| 18999 / 18998 | Composer L1 / L2 fronts; all `eez_*` methods and wallet discovery; ordinary Ethereum RPC calls proxy to the source chain |
 | 18551 / 18684 | L1 / L2 engine APIs; shared JWT protects the L1 engine connection |
 | 50061 / 6152 | Proof signer gRPC / Beacon HTTP; loopback |
 | 30544 TCP/UDP, 30554 UDP | Embedded L1 P2P/discv4 and discv5 (`EEZ_L1_P2P_PORT + 10`) |
@@ -501,7 +501,7 @@ source .env
 source deployments.env
 commitment="$(cast call "$EEZ_REGISTRY_ADDRESS" 'rollups(uint64)(address,bytes32,uint256)' \
   "$EEZ_ROLLUP_ID" --rpc-url http://127.0.0.1:18645 | sed -n '2p' | tr -d '[:space:]')"
-cast rpc eez_getSettlementByL2Block "$commitment" --rpc-url http://127.0.0.1:18688 | jq .
+cast rpc eez_getSettlementByL2Block "$commitment" --rpc-url http://127.0.0.1:18998 | jq .
 ```
 
 After settlement, expect `canonicalL2=true`, an `l1TransactionHash`, and an
@@ -559,6 +559,16 @@ empty and cannot diagnose an older settlement. Startup checks every committed
 blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
+
+The [wallet discovery / Composer-only namespace change](../proposals/composer-wallet-discovery.md)
+needs a Composer restart and client URL updates, not contract deployment or a
+genesis/database migration. Point all `eez_*` clients at port 18998 (L2 front)
+or 18999 (L1 front); regular node and follower RPCs no longer serve them.
+Keep standard `debug_*` clients on the node RPC. If HTTP debug is enabled,
+the augmented witness method is available on both fronts: restrict those ports
+as well. Rollback restores the previous method placement and requires reverting
+client URLs. Preserve bindings, datadirs and operator configuration, and account
+for the existing loss of in-memory unsettled work on restart.
 
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer

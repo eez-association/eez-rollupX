@@ -37,6 +37,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let composer = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap();
     let mut sources = Vec::new();
     let send = |offset: u64| {
@@ -62,7 +63,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     };
     sources.push(send(0).await.unwrap());
     let original = wait_for(TIMEOUT, || async {
-        let status: serde_json::Value = l2
+        let status: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainTransaction", (sources[0],))
             .await?;
@@ -90,7 +91,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     .unwrap();
     // Exact-target retries can use a different post hash from the initial
     // dispatch. The reconciled owner identifies the actual canonical L1 block.
-    let owner: serde_json::Value = l2
+    let owner: serde_json::Value = composer
         .client()
         .request("eez_getCrossChainTransaction", (sources[0],))
         .await
@@ -154,7 +155,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
             let safe = l2
                 .get_block_by_number(alloy_rpc_types_eth::BlockNumberOrTag::Safe)
                 .await?;
-            let owner: serde_json::Value = l2
+            let owner: serde_json::Value = composer
                 .client()
                 .request("eez_getCrossChainTransaction", (*hash,))
                 .await?;
@@ -199,7 +200,7 @@ async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in
     );
     for hash in sources {
         wait_for(TIMEOUT, || async {
-            let status: serde_json::Value = l2
+            let status: serde_json::Value = composer
                 .client()
                 .request("eez_getCrossChainTransaction", (hash,))
                 .await?;

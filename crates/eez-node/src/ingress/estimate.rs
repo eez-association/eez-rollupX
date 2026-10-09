@@ -139,7 +139,7 @@ async fn estimate(ctx: &Ctx, request: &Value) -> Result<Option<u64>, EstimateErr
     result.map(Some)
 }
 
-async fn item(ctx: &Ctx, request: &Value) -> Option<Value> {
+pub(super) async fn item(ctx: &Ctx, request: &Value) -> Option<Value> {
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let local = if contains_estimate(request) {
         match estimate(ctx, request).await {

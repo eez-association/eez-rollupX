@@ -1,4 +1,4 @@
-//! Read-only held-pool observations over the node's configured transports.
+//! Read-only held-pool observations served only by Composer fronts.
 
 use std::sync::Arc;
 

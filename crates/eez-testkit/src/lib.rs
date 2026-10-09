@@ -2026,6 +2026,7 @@ pub struct NodeHandle {
     /// Owned node database. CI retains it only if this test unwinds in failure.
     owned_datadir: Option<FailureDatadir>,
     pub http_port: u16,
+    l2_composer_url: String,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -2289,6 +2290,14 @@ impl NodeHandle {
             _keep_alive: log_tempdir.into_iter().collect(),
             owned_datadir: None,
             http_port,
+            l2_composer_url: format!(
+                "http://127.0.0.1:{}",
+                env.iter()
+                    .rev()
+                    .find(|(name, _)| *name == "EEZ_L2_XCHAIN_PORT")
+                    .map(|(_, port)| port.clone())
+                    .unwrap_or_else(|| l2_xchain_port.to_string())
+            ),
         })
     }
 
@@ -2319,6 +2328,11 @@ impl NodeHandle {
 
     pub fn l2_rpc_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.http_port)
+    }
+
+    /// Composer-only observations belong on the front, not the node RPC.
+    pub fn composer_rpc_url(&self) -> &str {
+        &self.l2_composer_url
     }
 
     /// Waits for RPC readiness while surfacing early process exits and logs.
@@ -4368,7 +4382,7 @@ pub async fn wait_for_receipt_or_failure(
 ) -> Result<bool> {
     const RPC_POLL_TIMEOUT: Duration = Duration::from_secs(1);
     let source = ProviderBuilder::new().connect_http(rpc_url.parse()?);
-    let composer = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse()?);
+    let composer = ProviderBuilder::new().connect_http(node.composer_rpc_url().parse()?);
     wait_for_with_failure(
         timeout,
         || node.progress_failure(),
@@ -6910,6 +6924,7 @@ mod framework_tests {
             _keep_alive: vec![directory],
             owned_datadir: None,
             http_port: 0,
+            l2_composer_url: "http://127.0.0.1:0".into(),
         }
     }
 
@@ -6943,8 +6958,32 @@ mod framework_tests {
     async fn pre_pr_terminal_status_is_observed_when_receipt_rpc_hangs() {
         use http_body_util::BodyExt as _;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let receipts = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let mut node = controlled_child();
-        node.http_port = listener.local_addr().unwrap().port();
+        node.http_port = receipts.local_addr().unwrap().port();
+        node.l2_composer_url = format!("http://{}", listener.local_addr().unwrap());
+        let receipt_server = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                let (stream, _) = receipts.accept().await.unwrap();
+                connections.spawn(async move {
+                    let service = hyper::service::service_fn(|request: HttpRequest<Incoming>| async {
+                        let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                        let request: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                        if request["method"] == "eth_getTransactionReceipt" {
+                            return std::future::pending::<Result<_, Infallible>>().await;
+                        }
+                        Ok::<_, Infallible>(beacon_json_response(StatusCode::OK, serde_json::json!({
+                            "jsonrpc":"2.0", "id":request["id"],
+                            "error":{"code":-32601, "message":"no Composer methods on regular RPC"}
+                        })))
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service).await;
+                });
+            }
+        });
+        node.background_tasks.lock().unwrap().push(receipt_server);
         let server = tokio::spawn(async move {
             let mut connections = tokio::task::JoinSet::new();
             loop {
@@ -6953,9 +6992,6 @@ mod framework_tests {
                     let service = hyper::service::service_fn(|request: HttpRequest<Incoming>| async {
                         let bytes = request.into_body().collect().await.unwrap().to_bytes();
                         let request: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-                        if request["method"] == "eth_getTransactionReceipt" {
-                            return std::future::pending::<Result<_, Infallible>>().await;
-                        }
                         assert_eq!(request["method"], "eez_getCrossChainTransaction");
                         Ok::<_, Infallible>(beacon_json_response(StatusCode::OK, serde_json::json!({
                             "jsonrpc": "2.0", "id": request["id"],
