@@ -165,6 +165,90 @@ baselines; no matched baseline/candidate runtime or performance comparison has
 yet been executed. Unit/mocked checks do not establish throughput, durable queue
 recovery, independent process replay, or production readiness.
 
+## CI failure investigation and repair
+
+The first implementation CI run
+([37934352557](https://github.com/eduadiez/rollupX/actions/runs/37934352557))
+tested head `32279e83b3f6759d9e6d944e9727ecb6a2974722` against the base and
+protocol pin above. Build, lint, debug units and Kurtosis passed. Three native
+E2E shards failed; the aggregate gate correctly failed without promotion.
+
+- Both manager-destination rejection tests queried
+  `eez_getCrossChainTransaction` on the regular L2 RPC and received `-32601`.
+  Their shared helper is unchanged from the PR base; it missed the earlier
+  Composer-front-only migration. Use the L2 Composer front, retaining the exact
+  `SimulationFailed` and manager-address assertions.
+- The conditional position test timed out waiting for a setup transaction
+  receipt, before its own assertions. The retained node log shows five ordinary
+  transactions before reconciliation of endpoint 25, but four included in that
+  settlement and no remaining activity afterward. A live acceptance changed
+  the descendants' authenticated seed. `discard_stale_seed_suffix` used an
+  ancestor-only `reorg_to`, which could lose ordinary transactions from the
+  removed suffix instead of returning them to Reth's pool.
+
+The repair executes an empty sibling of the first stale child using the exact
+retained parent and newly authenticated seed, then commits that sibling directly.
+Reth sees the removed suffix in its normal reorg notification and revalidates
+its ordinary transactions. No transaction is blindly replayed under a changed
+execution context. The empty replacement is unsafe; accepted endpoint, safe and
+finalized advancement remain governed by canonical settlement. This uses the
+same direct-fork-switch principle as existing Composer replacement recovery.
+No protocol, dependency, wire, schema or queue-durability change is introduced.
+Receipt-wait errors now identify the setup action and transaction hash.
+
+Baseline local selection of all three CI failures reproduced both RPC failures;
+the conditional test passed unchanged (one pass, two failures, 131 filtered).
+That pass is a timing-dependent retry, not evidence that the CI failure was fixed.
+Logs/datadirs remain local-only under `artifacts/ci-37934352557-baseline/`.
+The CI node log `eez-node-node-1513-2.log` has SHA-256
+`84f2a299602f3cf75524951acfffbdfcbf382f03119943557006f1b269f60633`;
+it was downloaded from `embedded-e2e-2-37934352557-1` (three-day retention).
+
+A new controlled process regression holds a real cross-chain bundle only long
+enough to fault the canonical log reader, releases it into its target block,
+and includes an ordinary transfer beyond the still-unobserved endpoint. It then
+restores the reader and requires the same signed transaction to obtain a new
+successful receipt and the recipient's exact balance increase, without client
+resubmission. The delay targets reconciliation, not proving or L1 mining.
+The final regression additionally triggers another settlement and requires an
+independent follower to replay the repaired history, with a matching receipt
+block hash and exact recipient balance. The original conditional test retains
+its separate idle-suffix inclusion and independent replay assertions.
+
+The controlled regression **failed on unchanged runtime code** at the intended
+assertion: `stale-seed transaction was lost: timed out after 180s`. One test was
+selected, 134 filtered; total elapsed time including signer build/setup was
+285.66 seconds. Local-only diagnostics are in
+`artifacts/ci-seed-regression-baseline/`; node log `eez-node-node-1362712-2.log`
+has SHA-256 `cea6754de6bd1e17d2f526412966358be5a62574c1c1c89e9a572728b2fc13c6`.
+This run used the new test with runtime sources from `32279e8`; candidate edits
+were made only after its test executable had been compiled.
+
+Focused reproduction/validation uses the source-based process procedure above,
+with separate diagnostic directories and these test filters:
+
+```bash
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+  conditional_settlement_requeues_ordinary_stale_seed_descendants --test-threads=1
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+  conditional_ call_to_the_l1_manager_is_rejected \
+  call_to_the_l2_manager_is_rejected --test-threads=1
+```
+
+Claude's scoped, read-only review (`claude-opus-5-5`, no permission denials)
+found no runtime/test blockers. It checked the exact-parent construction,
+reconciliation lock, safe/finalized ordering and witness delivery, and requested
+the final validation record. Its suggested independent replay coverage was added
+to the controlled regression. Existing profile validation bounds `extra_data`
+without assigning it Sync/action meaning; copying that metadata does not copy
+transactions or authorize cross-chain effects.
+
+The initial narrower `eez-deriver`/`eez-driver` unit selection selected a different
+RocksDB feature set (without the normal Composer `jemalloc` feature), starting a
+native rebuild and blocking the process suite's signer build. That owned check
+was interrupted, not counted as passing; the follow-up includes Composer in the
+unit selection. No dependency versions or feature declarations were changed.
+
 ## Remaining release gates
 
 The full [G1–G5 acceptance list](../../proposals/conditional-slot-production.md#validation-and-release-gates)

@@ -15,6 +15,152 @@ use eez_testkit::{
 const TIMEOUT: Duration = Duration::from_mins(3);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
+    use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
+
+    let mut env = policy_env(Vec::new(), "interval");
+    env.push(("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()));
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        NativeL1Profile::EthereumOsaka,
+        &env,
+    )
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+
+    // Hold submission only long enough to close the canonical log reader.
+    // The real batch must still land in its exact target slot; delaying its
+    // observation then lets ordinary transactions enter stale-seed descendants.
+    world.hold_next_bundle().unwrap();
+    sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_1,
+        eez_testkit::DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    let held = wait_for(TIMEOUT, || async { world.held_bundle() })
+        .await
+        .unwrap();
+    let raw: alloy_primitives::Bytes = held["params"][0]["txs"][0]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let post = eez_blob_codec::pooled_blob_transaction_hash(&raw).unwrap();
+    world.fail_rpc_methods(&["eth_getLogs"]).unwrap();
+    world.release_bundle(&held).unwrap();
+    let posted = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(post).await?)
+    })
+    .await
+    .unwrap();
+    assert!(posted.status());
+    let posting_block = l1
+        .get_block_by_number(posted.block_number.unwrap().into())
+        .await
+        .unwrap()
+        .unwrap();
+    let endpoint = posting_block.header.timestamp - world.cfg.genesis_time;
+    // K=5, L2=1s: a live acceptance changes the seed strictly after this endpoint.
+    let initial_balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
+    let hash = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(9),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let before = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+    assert!(before.status());
+    assert!(before.block_number.unwrap() > endpoint);
+    let safe = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        safe.header.number < endpoint,
+        "log-reader fault must delay acceptance"
+    );
+
+    // No client resubmission: Reth's reorg notification must return the signed
+    // ordinary transaction to its pool when the accepted seed replaces its block.
+    world.fail_rpc_methods(&[]).unwrap();
+    let after = wait_for(TIMEOUT, || async {
+        Ok(l2
+            .get_transaction_receipt(hash)
+            .await?
+            .filter(|receipt| receipt.block_hash != before.block_hash))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "stale-seed transaction was lost: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    assert!(after.status());
+    wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        initial_balance + U256::from(9)
+    );
+
+    // A second cross-chain opportunity settles the repaired ordinary history.
+    // An independent follower must reconstruct the empty sibling and transfer.
+    sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_1,
+        eez_testkit::DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(88) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    let follower = NodeHandle::start(
+        "stale-seed-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        after.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    let replay_receipt = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
+    assert!(replay_receipt.status());
+    assert_eq!(replay_receipt.block_hash, after.block_hash);
+    assert_eq!(
+        replay.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        initial_balance + U256::from(9)
+    );
+    world.node.assert_no_process_death();
+    follower.assert_no_process_death();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn conditional_position_paces_late_pool_transactions_and_replays() {
     // The native fixture has K=5 and one-second L2 blocks. P=2 leaves
     // ordinary positions 3/4 available to a transaction arriving after cutoff.

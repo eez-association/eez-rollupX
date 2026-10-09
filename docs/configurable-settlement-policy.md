@@ -711,6 +711,16 @@ configuration before starting an older binary, which does not implement this
 setting. Normal restart may discard speculative history and in-memory pending
 requests; clients may need to resubmit. Never run two Composers on shared state.
 
+Live settlement can change the authenticated execution seed of already-produced
+unsafe descendants. Reconciliation replaces the first stale child with an
+executed empty sibling, letting Reth requeue ordinary transactions from the
+removed suffix. Those transactions must execute again under the new context;
+their earlier receipts are not final. The replacement does not advance safe or
+finalized state. This recovery repair also applies with legacy timing, needs no
+wire/storage migration, and remains compatible with existing followers. Rolling
+back the binary restores the old ancestor-only rewind and its transaction-loss
+risk; it does not recover transactions already lost from an in-memory pool.
+
 See the [proposal and acceptance gates](proposals/conditional-slot-production.md)
 and [implementation evidence](audits/2026-10-09-conditional-slot-production/README.md).
 

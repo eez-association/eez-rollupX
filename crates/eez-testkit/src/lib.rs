@@ -3755,7 +3755,8 @@ async fn wait_for_successful_receipt(
         let provider = provider.clone();
         async move { Ok(provider.get_transaction_receipt(hash).await?) }
     })
-    .await?;
+    .await
+    .with_context(|| format!("{action}: waiting for receipt {hash}"))?;
     if !receipt.status() {
         bail!("{action} reverted");
     }
