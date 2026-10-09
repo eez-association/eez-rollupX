@@ -2520,7 +2520,7 @@ async fn assert_manager_destination_is_rejected(inbound: bool) {
         "a call to the destination manager must not be included: {outcome:?}"
     );
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_rpc().parse().unwrap())
+        .connect_http(w.l2_xchain().parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await
