@@ -33,13 +33,10 @@ async fn conditional_position_paces_late_pool_transactions_and_replays() {
             .into_iter()
             .rev()
             .find_map(|signal| {
-                if signal.name != "eez.sequencer.slot.decision"
-                    || signal.fields["prepare"] != false
-                    || signal.fields["skip_post"] != true
-                {
+                if signal.name != "eez.composer.slot.plan" || signal.fields["prepare"] != false {
                     return None;
                 }
-                signal.fields["target"]
+                signal.fields["target_height"]
                     .as_u64()
                     .filter(|target| head + 3 == *target)
             }))

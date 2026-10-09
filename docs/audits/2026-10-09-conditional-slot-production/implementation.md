@@ -104,6 +104,15 @@ Final focused package rerun after the corrections: **317 Composer + 71 driver
 tests passed**, with the same one manual component-profile exclusion. All three
 configuration/tooling selections and Compose propagation passed again.
 
+Workspace `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings`
+passed after both lint corrections. The process rerun reached a live disposable
+node and signer, but the original observer waited for a driver INFO event excluded
+by the harness's stdout filter. Retained logs show successful Composer hints and
+Ordinary checkpoints. The regression now selects the Composer's successful
+not-due hint (not an error fallback) and explicitly requires the corresponding
+Ordinary invocation before independent replay. This corrects test observation,
+not scheduler behavior; its first failure is retained rather than counted as coverage.
+
 The original empty-suffix behavior was traced in source at both design and PR
 baselines; no matched baseline/candidate runtime or performance comparison has
 yet been executed. Unit/mocked checks do not establish throughput, durable queue
