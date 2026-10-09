@@ -30,6 +30,8 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
         "EEZ_L2_BLOCK_TIME_MS",
         "EEZ_PROOF_TIME_MS",
         "EEZ_SUBMISSION_SLACK_MS",
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK",
+        "EEZ_SETTLEMENT_START_DELAY_MS",
     ];
     let env: Vec<_> = names
         .into_iter()

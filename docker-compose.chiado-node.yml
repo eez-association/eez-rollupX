@@ -129,11 +129,12 @@ services:
       # Deterministic L1-anchored timings (must match any follower).
       EEZ_L1_BLOCK_TIME_MS: "5000"
       EEZ_L2_BLOCK_TIME_MS: "1000"
-      # Without explicit preparation, runtime retains the rounded trigger.
       EEZ_PROOF_TIME_MS: "${EEZ_PROOF_TIME_MS-750}"
       EEZ_SUBMISSION_SLACK_MS: "${EEZ_SUBMISSION_SLACK_MS:-700}"
+      # Forward obsolete values so startup rejects unmigrated configurations.
       EEZ_PREPARATION_TIME_MS:
       EEZ_SETTLEMENT_START_AFTER_BLOCK:
+      EEZ_SETTLEMENT_START_DELAY_MS:
       EEZ_BUNDLE_SUBMISSION_LEAD_MS: "${EEZ_BUNDLE_SUBMISSION_LEAD_MS:-7500}"
       # Don't freeze the sequencer when chiado bundles are slow to land.
       EEZ_MAX_SPECULATIVE_DEPTH: "${EEZ_MAX_SPECULATIVE_DEPTH:-0}"

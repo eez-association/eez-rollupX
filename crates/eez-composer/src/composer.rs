@@ -1698,13 +1698,6 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    fn has_cross_chain_work(&self, rollup_id: u64) -> bool {
-        self.inner
-            .rollups
-            .get(&rollup_id)
-            .is_some_and(|rollup| !rollup.held_pool.is_empty())
-    }
-
     async fn should_prepare(
         &self,
         rollup_id: u64,
@@ -8805,7 +8798,7 @@ mod tests {
     #[test]
     fn oversized_backlog_requests_a_bounded_historical_prefix() {
         let limits = EmissionLimits {
-            timing: RollupTiming::new(5_000, 1_000, 1_000, 100),
+            timing: RollupTiming::new(5_000, 1_000, 1_000, 100, 3),
             max_blocks: 65_536,
             max_gas: 30_000_000,
         };

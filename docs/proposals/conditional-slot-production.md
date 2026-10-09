@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation draft in PR #79, authorized separately by the user. First-release scope implemented behind an opt-in setting; validation is in progress. Not accepted for production rollout. |
+| Design status | Implementation draft in PR #79. The user authorized replacing the temporary dual scheduler with one position-based scheduler and an optional sub-block delay. Validation is in progress; not accepted for production rollout. |
 | Date | 2026-10-09 |
 | Source baseline | `eduadiez/rollupX`, branch `feat/composer-wallet-gas-estimation`, `6b1e281a418f845605744c09a6bc9e8782eb6b61`. Existing unrelated Compose edits and operator artifacts are excluded. |
 | Protocol baseline | `855fe0602484750861b4c31502a1a91355d33ed6`; initialized, without protocol edits. |
@@ -40,9 +40,9 @@ These are proposed requirements, not a replacement for accepted specifications.
 | ID | Required behavior | Acceptance check |
 | --- | --- | --- |
 | R1 | A slot with no preparation reason runs at the genesis-defined cadence, without reserving a Future suffix. | With future settlement thresholds and an empty cross-chain queue, inject a transaction after each ordinary block; verify the last two ordinary positions also include transactions submitted before their build starts. Record receipt times, not just header timestamps. |
-| R2 | One explicit position selects the preparation cutoff. | With `K=6`, `P=3`, commit the third ordinary block at nominal `+6s`, decide once, then build positions 4 and 5 and compose position 6 if preparation is selected. Timestamps remain `+8s`, `+10s`, `+12s`. |
+| R2 | One explicit position plus an optional delay selects the preparation cutoff. | With `K=6`, `P=3`, commit the third ordinary block at nominal `+6s`; with delay 250 ms decide at or after `+6.25s`, then build positions 4 and 5 and compose position 6 if preparation is selected. Timestamps remain `+8s`, `+10s`, `+12s`. |
 | R3 | Empty queue is not synonymous with no settlement. | Independently exercise pure-L2 mode/interval, general threshold, fullness, finite drain, window limit, and cross-chain opportunity. |
-| R4 | Late arrivals cannot change an already ordinary slot into an unbounded late preparation attempt. | Requests arriving after the cutoff remain owned for the next eligible opportunity; no eviction or retry charge for waiting. |
+| R4 | Late arrivals cannot reopen an ordinary decision while its authenticated context remains valid. | Requests arriving after the cutoff remain owned for the next eligible opportunity; no eviction or retry charge for waiting. Canonical generation/branch changes invalidate the decision and permit fresh bounded recovery/policy evaluation. |
 | R5 | Preparation is an opportunity, not permission to post. | Final Composer policy, admission, exact L1 parent/target, gas, blob, fee, proof, and exclusive deadline checks still control dispatch. |
 | R6 | A non-posting or failed boundary remains an empty usable endpoint. | Policy deferral, failed preparation, expired target, and catch-up never fall back to a pool-filled terminal; historical splitting still works. |
 | R7 | Recovery remains active in ordinary mode. | Failed attempts, reorgs, same-parent missing slots, four-replacement exhaustion and late-original inclusion preserve single ownership, canonical reconciliation and seed derivation. |
@@ -59,10 +59,15 @@ Let `K` be the immutable number of L2 blocks per L1 interval. Number positions
 The illustrative block numbers 100..106 in the user diagram are relative labels,
 not a change to the chain's genesis-aligned modulo rule.
 
-Add `EEZ_SETTLEMENT_START_AFTER_BLOCK=P`, an integer `1 <= P < K`. For Ethereum's
-12-second/2-second schedule, `P=3` means after the block at `+6s`. Resolve ticks
-against the genesis timestamp grid, not process startup time or L1 notification
-arrival time. A delayed cutoff cannot reset the original submission deadline.
+Require `EEZ_SETTLEMENT_START_AFTER_BLOCK=P`, an integer `1 <= P < K`.
+`EEZ_SETTLEMENT_START_DELAY_MS` defaults to zero and must be a nonnegative integer
+strictly below one L2 interval. For Ethereum's 12-second/2-second schedule, P=3
+and delay=250 means decide at nominal `+6.25s`, after the block at `+6s` commits.
+Resolve ticks and the delayed trigger against the genesis timestamp grid, not
+process startup, notification arrival or the actual completion time of a late
+block. A late cutoff does not add another full delay or reset the submission
+deadline. Block P still builds at its normal time. The delay allows reactive
+submissions before planning, but does not promise admission or inclusion.
 
 The sequencer owns one in-memory decision keyed by exact target (including its
 L1 parent hash), reconciled generation and the cutoff block's hash. It does not
@@ -136,7 +141,7 @@ may justify one bounded admission opportunity; it is not evidence of executable
 cross-chain urgency. Do not duplicate cross-chain simulation in the planner.
 
 The cutoff is the actual serialized decision following position `P`, normally
-at its scheduled time; the planner observes queue occupancy then. The existing
+at its scheduled time plus the configured delay; the planner observes queue occupancy then. The existing
 finite admission snapshot is still taken by Composer after a preparation burst.
 Work observed after the decision cannot change a successful ordinary decision for the interval. This
 also specifies the late-head case without requiring durable arrival history.
@@ -164,27 +169,33 @@ estimates, and proof-request cancellation/ownership rules. The block-count knob
 cannot guarantee that a heavily loaded signer finishes in time.
 
 For the first release, `EEZ_PROOF_TIME_MS` remains a proof-estimator seed, not a
-second trigger knob in explicit-position mode. Keep `EEZ_SUBMISSION_SLACK_MS`.
+second trigger knob. Keep `EEZ_SUBMISSION_SLACK_MS`.
 Do not simultaneously redesign the estimator or invent a new universal seed.
-An explicit position conflicts with `EEZ_PREPARATION_TIME_MS`; fail startup with
-an actionable error. With the new setting absent, retain the legacy timing and
-production path for a migration release. Empty/invalid settings never silently
-select legacy mode. Log resolved mode, position, deadline margin and proof seed.
+Reject any `EEZ_PREPARATION_TIME_MS`, including an empty value, with an actionable
+migration error. Missing or invalid P fails startup; no legacy scheduler or
+implicit conversion of the old timing budget remains. An absent delay means
+zero; an empty delay is invalid. Log position, delay, deadline margin and proof seed.
 
-Bound the preparation-hint wait by the smaller of one L2 interval and remaining
-deadline headroom. This bounds ordinary production delay without a new timer knob;
-a timed-out blocking worker still retains its single permit until it exits.
+Bound the preparation-hint wait by the earlier of the next future ordinary grid
+tick and remaining deadline headroom. At an on-time delayed trigger this leaves
+at most `L2 - delay` for planning, so a slow query cannot consume the next ordinary
+block's interval merely because delay is nonzero. If already late, use the next
+future tick rather than adding a full interval or rejecting planning solely for
+a missed tick. This does not undo existing lateness or guarantee commit latency.
+A late query immediately before a tick can receive only a few milliseconds and
+fall back safely; already-overdue blocks may wait up to one more L2 interval.
+A timed-out blocking worker still retains its single permit until it exits.
 
 Audit every consumer of `proof_window_open`, `future_count`, late-entry gates and
 replacement cutoffs: they must use the resolved schedule consistently. Selecting
 a later position must not leave an old proof-start check that rejects every
-attempt before Composer can use its shared deadline. In explicit-position mode,
+attempt before Composer can use its shared deadline. For scheduled targets,
 replace the sequencer's `now + proof_seed > deadline` pre-gate with the exclusive
-deadline gate and existing shared pipeline admission. Do not change the legacy
-gate or non-exact-target compatibility paths in this release.
+deadline gate and existing shared pipeline admission. Preserve the independent
+constraints of non-exact-target internal composition paths.
 
 At startup, conservatively require `proof_seed + submission_slack + initial
-post-proof reserve < (K - P) * L2_interval`, leaving positive preparation time.
+post-proof reserve + delay < (K - P) * L2_interval`, leaving positive preparation time.
 The existing initial post-proof reserve is 150 ms and already includes the
 delivery allowance; do not add the 25 ms delivery reserve again. Validate this
 in Composer configuration/node wiring, where those budgets belong, rather than
@@ -192,7 +203,7 @@ making the role-neutral driver depend on Composer. Use the same existing reserve
 constant, not a duplicated literal. This is a configuration sanity check, not
 a completion guarantee or a new stage timeout.
 
-Derive the trigger offset and replacement timing from `P * L2_interval`, and the
+Derive the trigger offset and replacement timing from `P * L2_interval + delay`, and the
 burst layout from `future_count = K - P - 1`. `preparation_time()` and its nominal
 telemetry remain the derived remaining planning allocation, not the offset
 itself. Preparation, proving and submission keep the shared absolute deadline.
@@ -269,29 +280,38 @@ Mixed-version signer/follower compatibility is expected from the unchanged
 contract but must be demonstrated by process replay, not inferred from compilation.
 There is no protocol-pin or database migration in scope.
 
-Ship the candidate with the new setting absent first; enable it with a controlled
-Composer restart after validation. Preserve operator files. In explicit mode,
-remove the old preparation-time input from all effective sources, including
-Compose defaults, while retaining the estimator seed and submission margin.
-Keep launcher/env/config-file precedence unchanged and test the resulting runtime
-values rather than parsing alone.
+The first dual-scheduler candidate is frozen at `9ca75baed975d4fd9aef560ea359ac6a800dd3af`
+(candidate A). Its [CI run](https://github.com/eduadiez/rollupX/actions/runs/37964363878)
+passed. The single-scheduler candidate B needs its own CI and live validation.
+Compare A with explicit P against B at the same P and zero delay before measuring
+a nonzero delay separately. Keep policy, workload and hardware comparable; do not
+run competing builds during timing measurements. A's success does not validate B.
 
-Rollback to legacy behavior first removes the new setting and restores the
-previous timing inputs. An older binary must not silently be assumed to understand
-the new setting. Canonical recovery still runs; restarting can discard speculative
-blocks and loses in-memory queued requests/retry counters. Clients may need to
-resubmit. Neither this plan nor a database backup promises durable queue recovery.
+Before starting B, preserve operator files, remove the old preparation setting
+from all effective sources and explicitly select P. Retain the proof seed and
+submission margin; start with delay zero. Keep launcher/env/config-file precedence
+unchanged. New follower binaries share this parser and also require P, even though
+P/delay do not alter historical replay. Existing followers need no wire migration.
+There is no configuration switch back to the legacy scheduler in B.
+Rollback requires a verified compatible prior binary and its matching configuration;
+A retains the transaction-recovery fix and is preferable to pre-fix binaries.
+Remove the delay for A, which does not implement it. Do not downgrade onto state
+whose storage compatibility has not been established. Canonical recovery still
+runs; restarting can discard speculative blocks and loses in-memory queued
+requests/retry counters. Clients may need to resubmit. A database backup does not
+provide durable queue recovery.
 
 ## Validation and release gates
 
-Release gates are G1 (configuration/timing parity), G2 (sequencer ordering and
+Release gates are G1 (configuration migration and timing), G2 (sequencer ordering and
 fallbacks), G3 (policy/late-work semantics), G4 (process recovery and replay), and
 G5 (matched load and the remaining empty-boundary gap). All five need recorded
 evidence for the candidate; agreement on this design does not satisfy them.
 
 - **Driver unit tests:** `K=2`, Ethereum `K=6`, Gnosis `K=5`; all valid `P` values;
-  invalid/overflow/conflicting inputs; genesis offsets; clock/tick/cutoff ordering;
-  delayed head notifications; no duplicate decision or early ordinary commit.
+  required/missing/invalid/overflow/obsolete inputs; zero and sub-block delay,
+  exact interval rejection and headroom exhaustion; genesis offsets; clock/tick/cutoff
+  ordering; delayed heads; no duplicate decision, early queue read or ordinary commit.
 - **Composer unit tests:** every due reason and late-threshold case; planner has
   no drain/ownership side effects; conservative queue hints still use validated
   admission; no policy-disabled behavior is invented (policy is mandatory here).
@@ -305,8 +325,9 @@ evidence for the candidate; agreement on this design does not satisfy them.
   network profiles. Compare mixed-version components where supported.
 - **Configuration/quality:** affected Rust package tests, locked workspace Clippy,
   formatting, Chiado configuration tests and settlement-config checker, with
-  Kurtosis transport checks. The absent opt-in must remain absent, not become an
-  empty string through Compose interpolation. Trace `RollupTiming::from_env`,
+  Kurtosis transport checks. Missing P must fail; absent delay must remain distinct
+  from an empty string through Compose interpolation. Obsolete inputs must not be
+  silently dropped. Trace `RollupTiming::from_env`,
   `ComposerSettings`, node wiring, both Chiado Compose files, the Kurtosis node
   Compose file and `testing/kurtosis/main.star`; preserve existing operator edits.
   Use the repository's Rust/Foundry versions and CI artifact rules. Require

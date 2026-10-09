@@ -174,12 +174,6 @@ pub enum SyncSlotMode {
 /// `eez-composer`, to avoid a dependency cycle.
 #[async_trait]
 pub trait SyncSlotComposer: Send + Sync + 'static {
-    /// Cross-chain admission owns its combined preparation/proof deadline.
-    /// Ordinary-only settlement retains the configured proof-start gate.
-    fn has_cross_chain_work(&self, _rollup_id: u64) -> bool {
-        false
-    }
-
     /// Initial finalization/delivery reserve, owned by the settlement pipeline.
     fn post_proof_reserve(&self) -> Duration {
         Duration::ZERO
@@ -341,26 +335,18 @@ pub fn spawn_l1_anchored(
 ) -> mpsc::Receiver<SlotEvent> {
     let (tx, rx) = mpsc::channel(8);
     tokio::spawn(async move {
-        let position_mode = timing.start_after_block().is_some();
         event!(name: "eez.slot.configuration", Level::INFO,
             event_name = "eez.slot.configuration",
-            mode = if position_mode { "conditional_position" } else { "legacy" },
-            start_after_block = ?timing.start_after_block(),
+            mode = "conditional_position",
+            start_after_block = timing.start_after_block(),
+            start_delay_ms = timing.start_delay().as_millis() as u64,
             proof_seed_ms = timing.proof_time().as_millis() as u64,
             submission_slack_ms = timing.submission_slack().as_millis() as u64,
             trigger_offset_ms = timing.proof_window_open().as_millis() as u64,
             "resolved slot production settings");
-        let first_tick = if position_mode {
-            next_grid_tick_delay(now_unix_millis(), l2_genesis_timestamp, timing)
-        } else {
-            timing.l2_block_time()
-        };
+        let first_tick = next_grid_tick_delay(now_unix_millis(), l2_genesis_timestamp, timing);
         let mut ticker = interval_at(Instant::now() + first_tick, timing.l2_block_time());
-        ticker.set_missed_tick_behavior(if position_mode {
-            MissedTickBehavior::Skip
-        } else {
-            MissedTickBehavior::Delay
-        });
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         // Latest anchor-computed sync-slot height. None until the
         // first L1 head; LiveTicks are suppressed until then.
@@ -454,16 +440,14 @@ pub fn spawn_l1_anchored(
                     }
                 }
                 _ = ticker.tick() => {
-                    if position_mode {
-                        // Publish only an already armed, bounded replacement.
-                        // Waiting for its cutoff would lose its ordinary prefix.
-                        if let Some(next) = pending
-                            && now_unix_millis() >= next.timestamp.saturating_sub(timing.l1_block_time().as_secs()).saturating_mul(1000)
-                        {
-                            latest_slot = Some(next);
-                        }
-                        ticker.reset_at(Instant::now() + next_grid_tick_delay(now_unix_millis(), l2_genesis_timestamp, timing));
+                    // Publish only an already armed, bounded replacement.
+                    // Waiting for its cutoff would lose its ordinary prefix.
+                    if let Some(next) = pending
+                        && now_unix_millis() >= next.timestamp.saturating_sub(timing.l1_block_time().as_secs()).saturating_mul(1000)
+                    {
+                        latest_slot = Some(next);
                     }
+                    ticker.reset_at(Instant::now() + next_grid_tick_delay(now_unix_millis(), l2_genesis_timestamp, timing));
                     let Some(slot) = latest_slot else {
                         continue; // No anchor yet; ticks must not outrun it.
                     };
@@ -498,7 +482,11 @@ pub fn spawn_l1_anchored(
 
 /// First grid instant strictly after now. Subsequent missed ticks skip rather
 /// than shifting the phase; the sequencer also checks the block's wall time.
-fn next_grid_tick_delay(now_ms: u64, genesis_seconds: u64, timing: RollupTiming) -> Duration {
+pub(crate) fn next_grid_tick_delay(
+    now_ms: u64,
+    genesis_seconds: u64,
+    timing: RollupTiming,
+) -> Duration {
     let genesis_ms = genesis_seconds.saturating_mul(1000);
     let step = timing.l2_block_time().as_millis() as u64;
     let elapsed = now_ms.saturating_sub(genesis_ms);
@@ -521,7 +509,7 @@ pub(crate) fn now_unix_millis() -> u64 {
 mod tests {
     #[test]
     fn position_ticks_follow_genesis_phase_not_process_start() {
-        let timing = super::RollupTiming::new(12000, 2000, 100, 100).with_start_after_block(3);
+        let timing = super::RollupTiming::new(12000, 2000, 100, 100, 3);
         for (now, expected) in [
             (1000, 2000),
             (1500, 1500),
@@ -556,7 +544,7 @@ mod tests {
 
     #[test]
     fn missing_slot_replacements_are_bounded_and_do_not_invent_an_l1_block() {
-        let timing = RollupTiming::new(5000, 1000, 1000, 700).with_preparation_time_ms(500);
+        let timing = RollupTiming::new(5000, 1000, 1000, 700, 2).with_start_delay_ms(800);
         let first = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
                 block_number: 7,
@@ -604,7 +592,7 @@ mod tests {
 
     #[test]
     fn missing_slot_replacement_rejects_overflow_without_wrapping() {
-        let timing = RollupTiming::new(5000, 1000, 1000, 700);
+        let timing = RollupTiming::new(5000, 1000, 1000, 700, 3);
         let first = PendingSyncSlot::new(
             eez_l1::L1HeadInfo {
                 block_number: 7,
@@ -639,8 +627,8 @@ mod tests {
             block_hash: [1; 32],
             timestamp: 100,
         };
-        let base = RollupTiming::new(5000, 1000, 500, 700);
-        let pending = PendingSyncSlot::new(head, base.with_preparation_time_ms(500), 1);
+        let base = RollupTiming::new(5000, 1000, 500, 700, 3);
+        let pending = PendingSyncSlot::new(head, base.with_start_delay_ms(300), 1);
         let old = PendingSyncSlot::new(head, base, 1);
         assert_eq!(
             (pending.block_height, pending.timestamp, pending.l1_head),

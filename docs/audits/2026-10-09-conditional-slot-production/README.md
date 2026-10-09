@@ -3,6 +3,8 @@
 This section preserves the original planning-only review. The subsequently
 authorized implementation and its validation are recorded in
 [implementation evidence](implementation.md); they use the newer PR base/pin.
+The subsequent removal of legacy scheduling and addition of a delayed cutoff
+are tracked in the [single-scheduler record](single-scheduler.md).
 
 | Field | Value |
 | --- | --- |

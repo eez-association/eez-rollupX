@@ -838,13 +838,16 @@ time and available gas/blob capacity, without a fixed transaction-count cap.
 Configure admission through this existing top-level `eez` option;
 `settlement_env` carries the required policy and posting fee options.
 
-The opt-in conditional scheduler is configured with
+The single conditional scheduler requires
 `settlement_env.EEZ_SETTLEMENT_START_AFTER_BLOCK: "3"`, not a new top-level
-selector. It preserves absence and forwards explicit strings to node validation.
+selector. Missing P fails configuration. Set optional
+`settlement_env.EEZ_SETTLEMENT_START_DELAY_MS: "250"` for a sub-block delay;
+omission means zero and an empty value is invalid. Remove the obsolete
+`EEZ_PREPARATION_TIME_MS` input entirely. Explicit strings reach node validation.
 Also adjust `proof_time_ms` and `submission_slack_ms`: the packaged 5000/2500 ms
 defaults do **not** fit the six seconds remaining after P=3 on the 12s/2s grid.
 See [conditional slot production](../../docs/configurable-settlement-policy.md#conditional-slot-production)
-for budget validation and the outstanding release gates; this is opt-in draft behavior.
+for budget validation and the outstanding release gates; this remains draft behavior.
 
 The dedicated `crosschain-limit-args.yaml` profile deliberately sets the cap to
 `3` to make spillover observable under a small workload. It is a disposable

@@ -28,6 +28,9 @@ def settlement_environment(values):
         "EEZ_SETTLEMENT_PURE_L2_MODE", "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_SETTLEMENT_START_AFTER_BLOCK",
+        "EEZ_SETTLEMENT_START_DELAY_MS",
+        # Preserve obsolete values for the node's actionable migration error.
+        "EEZ_PREPARATION_TIME_MS",
         "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "EEZ_MAX_BLOBS_PER_BATCH",
         "EEZ_MAX_POSTBATCH_GAS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
         "EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE",
@@ -44,6 +47,7 @@ def settlement_environment(values):
             fail("settlement_env requires a recognized environment name and a quoted string: " + name)
         result[name] = value
     for name in [
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK",
         "EEZ_SETTLEMENT_PURE_L2_MODE",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",

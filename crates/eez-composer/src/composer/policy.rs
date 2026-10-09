@@ -285,6 +285,9 @@ where
             }
             event!(name: "eez.composer.slot.plan", Level::INFO,
                 event_name = "eez.composer.slot.plan", rollup_id, target_height,
+                planned_at_ms = u64::try_from(std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis())
+                    .unwrap_or(u64::MAX),
                 target_timestamp, prepare, ?reasons, queue_hint,
                 "preparation hint; final admission and canonical settlement remain authoritative");
             Ok(prepare)
