@@ -254,7 +254,11 @@ jq -n --arg protocol_commit "$actual_protocol" --argjson scenarios "$manifest_js
 network_dir="$(mktemp -d "$RESULT_DIR/network.XXXXXXXX")"
 run_log="$network_dir/runner.log"
 status=0
-SOURCE_PK="$PK" python3 "$REPO/scripts/ci/run-protocol-network.py" \
+# Upstream funds each worker 0.001 ETH per chain by default. Scenario triggers
+# sign a 1,000,000 gas limit at the L1 node's suggested fee; with a 1 gwei
+# suggested tip, deployments plus that upfront cost exceed the default and the
+# fronts correctly refuse the trigger for insufficient balance.
+SOURCE_PK="$PK" FUND_ETH="${EEZ_PROTOCOL_FUND_ETH:-0.005}" python3 "$REPO/scripts/ci/run-protocol-network.py" \
     --protocol-dir "$PROTOCOL" --env-file "$env_file" --log-dir "$network_dir" \
     --max-parallel "${EEZ_PROTOCOL_MAX_PARALLEL:-all}" \
     --suite-timeout "${EEZ_PROTOCOL_SUITE_TIMEOUT:-2400}" \

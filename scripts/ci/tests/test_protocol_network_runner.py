@@ -60,6 +60,7 @@ FUNDING = '''
 # Offline boundary: retain the real expand_jobs, replace only chain funding.
 fund_workers() {
     [[ "$FRESH" == true && "$SOURCE_PK" == source-key ]] || exit 31
+    [[ -z "${FUND_TRACE:-}" ]] || printf %s "$FUND_ETH" > "$FUND_TRACE"
     WALLET_PKS=()
     for ((i=0; i<NJOBS; i++)); do WALLET_PKS+=("worker-${RUN_DIR##*/}-$i"); done
     echo 'DO-NOT-UPLOAD-WALLET-KEYS' > "$RUN_DIR/wallets.csv"
@@ -465,6 +466,22 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 result = self.run_outer(wrapper)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual((self.root / "prepared").read_text(), wallet)
+
+    def test_wrapper_funds_workers_for_the_suggested_l1_fee(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        trace = self.root / "fund-eth"
+        self.env["FUND_TRACE"] = str(trace)
+        for index, (override, expected) in enumerate(((None, "0.005"), ("0.02", "0.02"))):
+            with self.subTest(override=override):
+                if override is None:
+                    self.env.pop("EEZ_PROTOCOL_FUND_ETH", None)
+                else:
+                    self.env["EEZ_PROTOCOL_FUND_ETH"] = override
+                self.tool("date", f"#!/bin/sh\necho 20000101-00003{index}\n")
+                result = self.run_outer(wrapper)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(trace.read_text(), expected)
 
     def test_default_suite_respects_upstream_network_exclusions(self):
         self.add_scenarios("one", "two", "staticLocalWrite")
