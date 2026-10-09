@@ -443,7 +443,7 @@ async fn single_sync_wave(
                 .node
                 .signals_since(idle)?
                 .iter()
-                .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+                .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
                 .then_some(()))
         })
         .await
@@ -1193,7 +1193,7 @@ async fn consecutive_exclusions(failures: u32) {
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -1443,7 +1443,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await

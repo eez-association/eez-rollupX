@@ -5,6 +5,10 @@ authorized implementation and its validation are recorded in
 [implementation evidence](implementation.md); they use the newer PR base/pin.
 The subsequent removal of legacy scheduling and addition of a delayed cutoff
 are tracked in the [single-scheduler record](single-scheduler.md).
+The [live canary](live-canary.md) was followed by a
+[failed continuous-load test](stress-failure.md). See the
+[bug review](bug-review.md) and [repair validation](bug-fix.md) for the current
+recovery/CI findings. Earlier passing checks do not establish release readiness.
 
 | Field | Value |
 | --- | --- |

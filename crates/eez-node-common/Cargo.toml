@@ -37,6 +37,8 @@ reth-payload-primitives.workspace         = true
 reth-storage-api.workspace                = true
 reth-primitives-traits.workspace          = true
 reth-transaction-pool.workspace           = true
+reth-eth-wire-types.workspace             = true
+reth-execution-types.workspace            = true
 
 clap.workspace     = true
 dotenvy.workspace  = true

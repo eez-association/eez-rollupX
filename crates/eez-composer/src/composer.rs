@@ -5599,7 +5599,7 @@ where
             parent_header,
             timestamp,
             prev_randao,
-            Address::ZERO,
+            self.inner.fee_recipient,
             &[],
         ) {
             Ok(built) => Some(SyncSlotBlock {

@@ -200,18 +200,37 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
     let endpoint = posting_block.header.timestamp - world.cfg.genesis_time;
     // K=5, L2=1s: a live acceptance changes the seed strictly after this endpoint.
     let initial_balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
-    let hash = send_l2_value_transfer_confirmed(
-        &world.l2_rpc(),
-        ANVIL_KEY_1,
-        ANVIL_ADDR_3,
-        U256::from(9),
-        TIMEOUT,
-    )
-    .await
-    .unwrap();
-    let before = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
-    assert!(before.status());
-    assert!(before.block_number.unwrap() > endpoint);
+    // Exceed Reth's external per-sender capacity (16). A single recovered
+    // transaction cannot detect a local-to-external origin downgrade.
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
+    let mut hashes = Vec::new();
+    for offset in 0..20 {
+        hashes.push(
+            sign_and_send(
+                &world.l2_rpc(),
+                ANVIL_KEY_1,
+                world.l2_chain_id,
+                nonce + offset,
+                Some(ANVIL_ADDR_3),
+                U256::from(9),
+                Vec::new(),
+                21_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let mut before = Vec::new();
+    for hash in &hashes {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(*hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        assert!(receipt.block_number.unwrap() > endpoint);
+        before.push(receipt);
+    }
     let safe = l2
         .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
         .await
@@ -225,26 +244,30 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
     // No client resubmission: Reth's reorg notification must return the signed
     // ordinary transaction to its pool when the accepted seed replaces its block.
     world.fail_rpc_methods(&[]).unwrap();
-    let after = wait_for(TIMEOUT, || async {
-        Ok(l2
-            .get_transaction_receipt(hash)
-            .await?
-            .filter(|receipt| receipt.block_hash != before.block_hash))
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "stale-seed transaction was lost: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
-    assert!(after.status());
+    let mut after = Vec::new();
+    for (hash, before) in hashes.iter().zip(&before) {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2
+                .get_transaction_receipt(*hash)
+                .await?
+                .filter(|receipt| receipt.block_hash != before.block_hash))
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "stale-seed transaction {hash} was lost: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        after.push(receipt);
+    }
     wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
         .await
         .unwrap();
     assert_eq!(
         l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
-        initial_balance + U256::from(9)
+        initial_balance + U256::from(9 * 20)
     );
 
     // A second cross-chain opportunity settles the repaired ordinary history.
@@ -273,18 +296,28 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
     .unwrap();
     wait_for_safe_prefix_convergence(
         &[&world.node, &follower],
-        after.block_number.unwrap(),
+        after
+            .iter()
+            .map(|receipt| receipt.block_number.unwrap())
+            .max()
+            .unwrap(),
         TIMEOUT,
     )
     .await
     .unwrap();
     let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
-    let replay_receipt = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
-    assert!(replay_receipt.status());
-    assert_eq!(replay_receipt.block_hash, after.block_hash);
+    for (hash, after) in hashes.iter().zip(&after) {
+        let replay_receipt = replay
+            .get_transaction_receipt(*hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(replay_receipt.status());
+        assert_eq!(replay_receipt.block_hash, after.block_hash);
+    }
     assert_eq!(
         replay.get_balance(ANVIL_ADDR_3).await.unwrap(),
-        initial_balance + U256::from(9)
+        initial_balance + U256::from(9 * 20)
     );
     world.node.assert_no_process_death();
     follower.assert_no_process_death();
@@ -814,9 +847,7 @@ async fn assert_source_deferral_recovery(
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -2083,8 +2114,8 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     assert!(
         signals
             .iter()
-            .any(|signal| signal.name == "eez.composer.settlement.decision"
-                && signal.fields["due"] == false),
+            .any(|signal| signal.name == "eez.composer.slot.plan"
+                && signal.fields["prepare"] == false),
         "test must observe actual policy evaluation, not a broken posting path"
     );
     assert!(
@@ -2358,7 +2389,7 @@ async fn cross_chain_overrides_interval_and_validates_two_ordered_companions() {
             .signals_since(cursor)?
             .into_iter()
             .any(|signal| {
-                signal.name == "eez.composer.settlement.decision" && signal.fields["due"] == false
+                signal.name == "eez.composer.slot.plan" && signal.fields["prepare"] == false
             })
             .then_some(()))
     })
@@ -3354,7 +3385,7 @@ async fn assert_fee_waits_do_not_consume_selection(profile: eez_testkit::NativeL
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await

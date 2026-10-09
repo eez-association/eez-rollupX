@@ -87,15 +87,15 @@ async fn deploy_fixture_code(world: &CrossChainWorld, runtime: Vec<u8>) -> Addre
 }
 
 async fn quiet_sync(world: &CrossChainWorld) {
+    // Observe the finite not-due cutoff, not final preparation (which is skipped
+    // on idle intervals). The following wave has until the next cutoff to queue.
     let cursor = world.node.signal_cursor().unwrap();
     wait_for(TIMEOUT, || async {
         Ok(world
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await
