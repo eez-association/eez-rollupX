@@ -281,6 +281,9 @@ impl LocalExecutionSession {
             &req.source_address,
             req.source_rollup_id,
         );
+        if dispatcher.executing_static_read_callback() {
+            self.require_deployed_callback_proxy(tx_env.caller)?;
+        }
         let (return_data, gas_used, success, inspector_error) =
             if let Some(factory) = self.inspector_factory.clone() {
                 let mut inspector = factory.build_static(dispatcher);
@@ -320,6 +323,23 @@ impl LocalExecutionSession {
             gas_used,
             success,
         })
+    }
+
+    /// Reject a static-read callback whose source proxy has no code here.
+    /// Simulation executes the callback with the proxy's address as caller
+    /// whether or not it exists, but the protocol cannot deploy it inside the
+    /// read's static frame and reverts the read instead.
+    fn require_deployed_callback_proxy(&mut self, proxy: Address) -> ExecutorResult<()> {
+        let account = revm::Database::basic(&mut self.state, proxy)
+            .map_err(|error| ExecutorErrorKind::Provider(Box::new(error)))?;
+        if account.is_some_and(|account| !account.is_empty_code_hash()) {
+            return Ok(());
+        }
+        Err(ExecutorErrorKind::StaticCallbackProxyMissing {
+            proxy,
+            chain_id: self.chain_id,
+        }
+        .into())
     }
 
     /// Commit the revm bundle, publish the overlay cache, and return the

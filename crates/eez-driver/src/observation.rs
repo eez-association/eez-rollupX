@@ -13,15 +13,18 @@ use alloy_sol_types::SolCall as _;
 use eez_evm::EezEvmConfig;
 use eez_primitives::Block;
 use eez_protocol::abi::computeCrossChainProxyAddressCall;
-use eez_protocol::settlement::FifoObservationClaim;
+use eez_protocol::settlement::{FifoObservationCallback, FifoObservationClaim};
 use eez_protocol::{
-    CallMode, EEZL2_AUTHORIZED_PROXIES_SLOT, decode_proxy_value, proxy_mapping_key,
+    CallMode, EEZL2_AUTHORIZED_PROXIES_SLOT, ProxyInfo, RollupId, decode_proxy_value,
+    proxy_mapping_key,
 };
 use reth_evm::{ConfigureEvm, Evm as _, EvmEnvFor, block::BlockExecutor};
 use reth_primitives_traits::RecoveredBlock;
 use revm::context_interface::{ContextTr, Host, JournalTr};
 use revm::database::State;
-use revm::interpreter::{CallInputs, CallScheme, Interpreter};
+use revm::interpreter::{
+    CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, Interpreter, InterpreterResult,
+};
 use revm::{Database, Inspector};
 
 /// Gas cap shared with live Composer target simulation.
@@ -62,13 +65,23 @@ impl<CTX> Inspector<CTX> for ForceStaticInspector {
 /// Besides enforcing static execution when requested, it independently checks
 /// every nested call against the chain-local `authorizedProxies` mapping. A
 /// registered proxy denotes another cross-chain dispatch, whose result cannot
-/// be authenticated from this rollup's witness alone. Such observations are
-/// therefore rejected after execution. Mapping reads happen through the live
-/// journal and become part of the generated/verified witness.
-#[derive(Clone, Copy, Debug)]
-struct ObservationInspector {
+/// be authenticated from this rollup's witness alone. Mapping reads happen
+/// through the live journal and become part of the generated/verified witness.
+///
+/// The only dispatches accepted are a static observation's claimed callbacks
+/// to the source chain, in order and with identical caller, target and
+/// calldata. Each is answered with its claimed output, without charging gas,
+/// as live Composer simulation answers it; the source chain enforces that
+/// output (see [`FifoObservationCallback`]). Any other dispatch, or a claimed
+/// callback that is never made, rejects the observation after execution.
+#[derive(Debug)]
+struct ObservationInspector<'a> {
     manager_address: Address,
     force_static: bool,
+    /// The chain that receives the callbacks.
+    source_rollup_id: RollupId,
+    callbacks: &'a [FifoObservationCallback],
+    answered: usize,
     failure: Option<ObservationInspectionFailure>,
 }
 
@@ -78,43 +91,75 @@ enum ObservationInspectionFailure {
     CrossChainCall(Address),
 }
 
-impl ObservationInspector {
-    const fn new(manager_address: Address, force_static: bool) -> Self {
+impl<'a> ObservationInspector<'a> {
+    fn new(manager_address: Address, claim: &'a FifoObservationClaim) -> Self {
         Self {
             manager_address,
-            force_static,
+            force_static: claim.call_mode == CallMode::Static,
+            source_rollup_id: claim.source_rollup_id,
+            callbacks: &claim.callbacks,
+            answered: 0,
             failure: None,
         }
     }
 
-    fn result(self) -> eyre::Result<()> {
+    fn result(&self) -> eyre::Result<()> {
         match self.failure {
-            None => Ok(()),
+            None => {}
             Some(ObservationInspectionFailure::ProxyLookup) => {
-                Err(eyre::eyre!("authorized-proxy observation lookup failed"))
+                eyre::bail!("authorized-proxy observation lookup failed")
             }
-            Some(ObservationInspectionFailure::CrossChainCall(proxy)) => Err(eyre::eyre!(
+            Some(ObservationInspectionFailure::CrossChainCall(proxy)) => eyre::bail!(
                 "observation attempted unsupported nested cross-chain call through proxy {proxy}"
-            )),
+            ),
         }
+        eyre::ensure!(
+            self.answered == self.callbacks.len(),
+            "observation made {} of {} claimed static callbacks",
+            self.answered,
+            self.callbacks.len(),
+        );
+        Ok(())
+    }
+
+    /// The next claimed callback, if this proxy dispatch is exactly it.
+    fn expected_callback<CTX: ContextTr>(
+        &self,
+        context: &mut CTX,
+        inputs: &CallInputs,
+        proxy: &ProxyInfo,
+    ) -> Option<&'a FifoObservationCallback> {
+        let callback = self.callbacks.get(self.answered)?;
+        (inputs.is_static
+            && inputs.value.get().is_zero()
+            && inputs.caller == callback.source_address
+            && proxy.original_address == callback.target_address
+            && proxy.original_rollup_id == self.source_rollup_id
+            && inputs.input.bytes(context) == callback.data)
+            .then_some(callback)
     }
 }
 
-fn is_authorized_proxy<CTX>(
+/// The proxy registered at `candidate`, or `None` for an ordinary account.
+fn authorized_proxy<CTX>(
     context: &mut CTX,
     manager_address: Address,
     candidate: Address,
-) -> Option<bool>
+) -> Result<Option<ProxyInfo>, ObservationInspectionFailure>
 where
     CTX: ContextTr + Host,
 {
-    context.journal_mut().load_account(manager_address).ok()?;
+    let failed = ObservationInspectionFailure::ProxyLookup;
+    context
+        .journal_mut()
+        .load_account(manager_address)
+        .map_err(|_| failed)?;
     let key = proxy_mapping_key(candidate, EEZL2_AUTHORIZED_PROXIES_SLOT);
-    let load = context.sload(manager_address, key.into())?;
-    Some(decode_proxy_value(load.data).is_some())
+    let load = context.sload(manager_address, key.into()).ok_or(failed)?;
+    Ok(decode_proxy_value(load.data))
 }
 
-impl<CTX> Inspector<CTX> for ObservationInspector
+impl<CTX> Inspector<CTX> for ObservationInspector<'_>
 where
     CTX: ContextTr + Host,
 {
@@ -124,11 +169,7 @@ where
         }
     }
 
-    fn call(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut CallInputs,
-    ) -> Option<revm::interpreter::CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if self.failure.is_some() {
             return None;
         }
@@ -137,18 +178,28 @@ where
         if !matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall) {
             return None;
         }
-        let Some(authorized) =
-            is_authorized_proxy(context, self.manager_address, inputs.target_address)
-        else {
-            self.failure = Some(ObservationInspectionFailure::ProxyLookup);
-            return None;
+        let proxy = match authorized_proxy(context, self.manager_address, inputs.target_address) {
+            Ok(proxy) => proxy?,
+            Err(failure) => {
+                self.failure = Some(failure);
+                return None;
+            }
         };
-        if authorized {
+        let Some(callback) = self.expected_callback(context, inputs, &proxy) else {
             self.failure = Some(ObservationInspectionFailure::CrossChainCall(
                 inputs.target_address,
             ));
-        }
-        None
+            return None;
+        };
+        self.answered += 1;
+        Some(CallOutcome::new(
+            InterpreterResult::new(
+                InstructionResult::Return,
+                callback.output.clone(),
+                Gas::new(inputs.gas_limit),
+            ),
+            inputs.return_memory_offset.clone(),
+        ))
     }
 }
 
@@ -220,10 +271,7 @@ where
     let mut evm = evm_config.evm_with_env_and_inspector(
         &mut *state,
         simulation_env(evm_env),
-        ObservationInspector::new(
-            observation.manager_address,
-            claim.call_mode == CallMode::Static,
-        ),
+        ObservationInspector::new(observation.manager_address, claim),
     );
     let result = evm
         .transact(target_tx)

@@ -133,6 +133,7 @@ fn observation_claim(
         value: U256::ZERO,
         expected_success: false,
         expected_output: Bytes::new(),
+        callbacks: Vec::new(),
     }
 }
 

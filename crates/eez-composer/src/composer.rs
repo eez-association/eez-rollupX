@@ -8637,6 +8637,7 @@ mod tests {
                 value: U256::ZERO,
                 expected_success,
                 expected_output,
+                callbacks: Vec::new(),
             },
         };
         let schedule = vec![

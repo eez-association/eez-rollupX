@@ -114,7 +114,9 @@ committed reverted rolling hash and no descendants. Canonical, non-overlapping
 `revertNextNCalls` windows may roll back one or more consecutive calls.
 Terminal top-level L1-origin calls may fail with committed revert data as
 lookup-only entries. Terminal static calls are pinned at their exact FIFO
-positions. Failed or static calls with descendants, explicit call gas,
+positions; a top-level static read may carry terminal static callbacks to its
+own chain. Failed calls with descendants, other static calls with descendants,
+explicit call gas,
 malformed rollback windows, outbound-after-inbound ordering, other L2 targets,
 and ambiguous evidence reject before signing. Refer to `SPEC.md` for the exact
 shapes and equations.

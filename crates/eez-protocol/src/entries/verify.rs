@@ -9,7 +9,7 @@ use alloy_primitives::{B256, I256, U256, keccak256};
 
 use crate::abi::{ExecutionEntrySol, L2StaticExecutionEntrySol, L2ToL1CallSol};
 use crate::action::{CallHashInput, CallMode, common_cross_chain_call_hash, l2_outbound_call_hash};
-use crate::rolling_hash::EntryRollingHash;
+use crate::rolling_hash::{EntryRollingHash, StaticCallRollingHash};
 use crate::{ProtocolErrorKind, ProtocolResult, RollupId};
 
 const MAX_NESTING_DEPTH: usize = 1024;
@@ -260,9 +260,10 @@ fn finish_facts(
 /// because EEZL2 resolves that key using its first matching cached entry.
 ///
 /// Mutable-only sources retain nested/revert verification. Groups containing
-/// static sources support successful flat mutable roots and no root revert
-/// spans. The caller must bind the complete load and receipt evidence before
-/// treating the returned facts as authorization.
+/// static sources (with or without static callbacks to L2) support successful
+/// flat mutable roots and no root revert spans. The caller must bind the
+/// complete load and receipt evidence before treating the returned facts as
+/// authorization.
 ///
 /// # Errors
 ///
@@ -329,9 +330,10 @@ fn verify_outbound_tables(
             .into());
         }
     }
+    // Host rows are allowed only for static callbacks: flat mutable sources
+    // make no call that could consume a row, and `finish` rejects unused rows.
     if !static_entries.is_empty()
         && (!l1_entry.success
-            || !l1_entry.expectedL1ToL2Calls.is_empty()
             || l2_entries.iter().any(|entry| {
                 !entry.l2ToL1Calls.is_empty() || !entry.expectedL1ToL2Calls.is_empty()
             }))
@@ -463,6 +465,7 @@ fn verify_outbound_tables(
                     l2_rollup_id,
                     RollupId::MAINNET,
                 )?);
+                resolve_static_callbacks(&mut l1, source, l2_rollup_id)?;
                 l1.rolling.call_end(source.success, &source.returnData);
                 static_cursor += 1;
                 continue;
@@ -535,6 +538,66 @@ fn verify_outbound_tables(
     }
     l1.finish()?;
     finish_facts(facts, vec![0; source_count])
+}
+
+/// Bind an L2 static source's callbacks to the L1 host rows that answer them.
+///
+/// While L1 executes the static root, each callback to L2 resolves the host's
+/// next static row, keyed by the callback hash and the live host rolling hash
+/// (which a static row does not advance). L2 executes the same callbacks from
+/// `incomingCalls` and requires their results to fold to the source's
+/// `rollingHash`. Matching that fold to the rows' results makes the values L1
+/// returned the ones L2 computes.
+///
+/// Repeated identical callbacks share one position key, because static rows
+/// leave the host rolling hash unchanged. L1 does not advance its cursor for a
+/// static read and resolves every repeat to the first matching row, so the
+/// repeats must carry the same result.
+fn resolve_static_callbacks(
+    l1: &mut ChainState<'_>,
+    source: &L2StaticExecutionEntrySol,
+    l2_rollup_id: RollupId,
+) -> ProtocolResult<()> {
+    let mut results = StaticCallRollingHash::new();
+    let mut resolved = std::collections::HashMap::new();
+    for callback in &source.incomingCalls {
+        let callback = crate::system_tx::lift_call_from_l2(callback);
+        let callback_hash = source_call_hash(&callback, RollupId::MAINNET, l2_rollup_id)?;
+        let row = l1.next_row().cloned().ok_or_else(|| {
+            crate::ProtocolError::from(ProtocolErrorKind::InvalidEncoding(
+                "outbound static callback has no L1 host row".into(),
+            ))
+        })?;
+        if !callback.isStatic
+            || row.expectedL1toL2Hash != position_key(callback_hash, l1.rolling.current())
+            || !row.success
+            || !row.l2ToL1Calls.is_empty()
+            || row.revertedOrStaticRollingHash != B256::ZERO
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "outbound static callback does not match its L1 host row".into(),
+            )
+            .into());
+        }
+        if resolved
+            .insert(row.expectedL1toL2Hash, row.returnData.clone())
+            .is_some_and(|first| first != row.returnData)
+        {
+            return Err(ProtocolErrorKind::InvalidEncoding(
+                "outbound static callbacks repeat a lookup key with different results".into(),
+            )
+            .into());
+        }
+        l1.mark_static_row();
+        results.append(row.success, &row.returnData);
+    }
+    if results.current() != source.rollingHash {
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "outbound static callback results differ from the L2 static rolling hash".into(),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn execute_call(

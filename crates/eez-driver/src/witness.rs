@@ -492,8 +492,9 @@ mod tests {
         assert_eq!(target[2], Bytes::from_static(b"c"));
     }
 
-    #[test]
-    fn observation_witness_includes_accounts_and_code_read_only_by_the_observation() {
+    /// An empty block 2 over a mock provider, whose parent is the pin for
+    /// observations scheduled before its first transaction.
+    fn observation_fixture() -> (MockEthProvider, EezEvmConfig, RecoveredBlock<Block>, B256) {
         let mut genesis: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
         genesis["timestamp"] = serde_json::json!("0x3dc");
@@ -507,23 +508,6 @@ mod tests {
         );
         let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec));
         let provider: MockEthProvider = MockEthProvider::new();
-
-        let proxy = Address::repeat_byte(0x55);
-        let mut manager_code = vec![0x73]; // PUSH20 proxy
-        manager_code.extend_from_slice(proxy.as_slice());
-        manager_code.extend_from_slice(&[0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3]);
-        let manager_code = Bytes::from(manager_code);
-        let target_code =
-            Bytes::from_static(&[0x60, 0x2a, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3]);
-        provider.add_account(
-            MANAGER,
-            ExtendedAccount::new(0, U256::ZERO).with_bytecode(manager_code.clone()),
-        );
-        provider.add_account(
-            TARGET,
-            ExtendedAccount::new(0, U256::ZERO).with_bytecode(target_code.clone()),
-        );
-
         let parent = Header {
             number: 1,
             timestamp: 1_000,
@@ -560,6 +544,33 @@ mod tests {
             ),
             Vec::new(),
         );
+        (provider, evm_config, block, parent_hash)
+    }
+
+    /// Manager code that answers every call with `proxy`, standing in for
+    /// `computeCrossChainProxyAddress`.
+    fn manager_code_returning(proxy: Address) -> Bytes {
+        let mut code = vec![0x73]; // PUSH20 proxy
+        code.extend_from_slice(proxy.as_slice());
+        code.extend_from_slice(&[0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3]);
+        Bytes::from(code)
+    }
+
+    #[test]
+    fn observation_witness_includes_accounts_and_code_read_only_by_the_observation() {
+        let (provider, evm_config, block, parent_hash) = observation_fixture();
+        let manager_code = manager_code_returning(Address::repeat_byte(0x55));
+        let target_code =
+            Bytes::from_static(&[0x60, 0x2a, 0x60, 0x00, 0x52, 0x60, 0x20, 0x60, 0x00, 0xf3]);
+        provider.add_account(
+            MANAGER,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(manager_code.clone()),
+        );
+        provider.add_account(
+            TARGET,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(target_code.clone()),
+        );
+
         let observation = BlockObservation {
             after_transactions: 0,
             manager_address: MANAGER,
@@ -573,6 +584,7 @@ mod tests {
                 value: U256::ZERO,
                 expected_success: true,
                 expected_output: U256::from(42).to_be_bytes_vec().into(),
+                callbacks: Vec::new(),
             },
         };
 
@@ -598,6 +610,97 @@ mod tests {
                 success: true,
                 output: U256::from(42).to_be_bytes_vec().into(),
             }]
+        );
+    }
+
+    /// Replay answers a static observation's claimed callback through an
+    /// authorized proxy, and rejects every other dispatch.
+    #[test]
+    fn static_observation_answers_only_its_claimed_callbacks() {
+        use eez_protocol::settlement::FifoObservationCallback;
+        use eez_protocol::{EEZL2_AUTHORIZED_PROXIES_SLOT, proxy_mapping_key};
+
+        let (provider, evm_config, block, parent_hash) = observation_fixture();
+        // L2's proxy for `COUNTER` on L1.
+        const PROXY: Address = address!("0000000000000000000000000000000000005555");
+        const COUNTER: Address = address!("00000000000000000000000000000000000c0c0c");
+        let mut registration = [0u8; 32];
+        registration[11..31].copy_from_slice(COUNTER.as_slice());
+        registration[31] = 1; // isProxy; original rollup 0 is L1.
+        provider.add_account(
+            MANAGER,
+            ExtendedAccount::new(0, U256::ZERO)
+                .with_bytecode(manager_code_returning(Address::repeat_byte(0x55)))
+                .extend_storage([(
+                    proxy_mapping_key(PROXY, EEZL2_AUTHORIZED_PROXIES_SLOT),
+                    U256::from_be_bytes(registration),
+                )]),
+        );
+        // STATICCALL(gas, PROXY, 0, 0, 0, 32), then return its 32-byte result.
+        let mut target_code = vec![0x60, 0x20, 0x60, 0x00, 0x60, 0x00, 0x60, 0x00, 0x73];
+        target_code.extend_from_slice(PROXY.as_slice());
+        target_code.extend_from_slice(&[0x5a, 0xfa, 0x50, 0x60, 0x20, 0x60, 0x00, 0xf3]);
+        provider.add_account(
+            TARGET,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(Bytes::from(target_code)),
+        );
+
+        let answer = Bytes::from(U256::from(7).to_be_bytes_vec());
+        let callback = FifoObservationCallback {
+            source_address: TARGET,
+            target_address: COUNTER,
+            data: Bytes::new(),
+            output: answer.clone(),
+        };
+        let replay = |callbacks: Vec<FifoObservationCallback>| {
+            block_execution_witness_with_observations(
+                &provider,
+                &evm_config,
+                &block,
+                ExecutionWitnessMode::Legacy,
+                &[BlockObservation {
+                    after_transactions: 0,
+                    manager_address: MANAGER,
+                    claim: FifoObservationClaim {
+                        pinned_block_hash: parent_hash,
+                        call_mode: CallMode::Static,
+                        target_address: TARGET,
+                        source_address: Address::repeat_byte(0x44),
+                        source_rollup_id: RollupId::MAINNET,
+                        data: Bytes::new(),
+                        value: U256::ZERO,
+                        expected_success: true,
+                        expected_output: answer.clone(),
+                        callbacks,
+                    },
+                }],
+            )
+            .map(|(_, outcomes)| outcomes)
+        };
+
+        let outcomes = replay(vec![callback.clone()]).expect("claimed callback is answered");
+        assert_eq!(
+            outcomes,
+            vec![crate::observation::ObservedOutcome {
+                success: true,
+                output: answer.clone(),
+            }]
+        );
+
+        let rejected = |callbacks: Vec<FifoObservationCallback>, reason: &str| {
+            let error = replay(callbacks).expect_err("observation must be rejected");
+            assert!(format!("{error:#}").contains(reason), "{reason}: {error:#}");
+        };
+        rejected(Vec::new(), "unsupported nested cross-chain call");
+        let mut other_caller = callback.clone();
+        other_caller.source_address = Address::repeat_byte(0x66);
+        rejected(vec![other_caller], "unsupported nested cross-chain call");
+        let mut other_data = callback.clone();
+        other_data.data = Bytes::from_static(b"other");
+        rejected(vec![other_data], "unsupported nested cross-chain call");
+        rejected(
+            vec![callback.clone(), callback],
+            "observation made 1 of 2 claimed static callbacks",
         );
     }
 }

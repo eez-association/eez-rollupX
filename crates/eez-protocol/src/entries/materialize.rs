@@ -14,7 +14,8 @@ use crate::abi::{
     ExecutionEntrySol, ExpectedL1ToL2CallSol, L2StaticExecutionEntrySol, StaticExecutionEntrySol,
 };
 use crate::action::{CallHashInput, common_cross_chain_call_hash, l2_outbound_call_hash};
-use crate::rolling_hash::EntryRollingHash;
+use crate::rolling_hash::{EntryRollingHash, StaticCallRollingHash};
+use crate::system_tx::lower_call_to_l2;
 use crate::{CallMode, EvmBatch, ExecutedAction, ProtocolErrorKind, ProtocolResult, RollupId};
 
 use super::l1_call_from_action;
@@ -76,10 +77,11 @@ pub(crate) struct MaterializedBatch {
 /// materialized. The executing source chain restores its own rolling-hash
 /// branch for nested regions, while every other chain preserves its execution
 /// folds and rolls back state through the protocol marker.
-/// Terminal static roots and nested reads are materialized without mutating
-/// the source entry's tagged rolling hash. Static calls with descendants,
-/// explicit call gas, and failed nested rows with descendants remain
-/// fail-closed at the recording boundary.
+/// Static roots and terminal nested reads are materialized without mutating
+/// the source entry's tagged rolling hash. A static root's static callbacks to
+/// its own chain run from its static entry under the untagged result fold.
+/// Other static calls with descendants, explicit call gas, and failed nested
+/// rows with descendants remain fail-closed at the recording boundary.
 pub(crate) fn materialize_batches(
     recorded: &[ExecutedAction],
     entry_rollup_id: RollupId,
@@ -106,7 +108,7 @@ pub(crate) fn materialize_batches(
             .count();
         for root in forest.roots {
             if recorded[root].call_mode == CallMode::Static {
-                materializer.push_static_entry(entry_rollup_id, &recorded[root]);
+                materializer.push_static_entry(entry_rollup_id, root);
                 continue;
             }
             let call = recorded[root].clone();
@@ -146,7 +148,7 @@ pub(crate) fn materialize_batches(
             if assignment.source_slot.is_none() {
                 materializer.push_l2_static_entry(
                     entry_rollup_id,
-                    &recorded[assignment.root],
+                    assignment.root,
                     assignment.entry_cursor,
                 );
             }
@@ -816,7 +818,9 @@ impl<'a> Materializer<'a> {
         entry_index
     }
 
-    fn push_l2_static_entry(&mut self, chain: RollupId, call: &ExecutedAction, cursor: usize) {
+    fn push_l2_static_entry(&mut self, chain: RollupId, root: usize, cursor: usize) {
+        let call = &self.recorded[root];
+        let (callbacks, rolling_hash) = self.static_callbacks(root);
         self.outputs
             .entry(chain)
             .or_default()
@@ -824,8 +828,8 @@ impl<'a> Materializer<'a> {
             .push(L2StaticExecutionEntrySol {
                 expectedEntryIndex: U256::from(cursor),
                 proxyEntryHash: source_call_hash(call),
-                incomingCalls: Vec::new(),
-                rollingHash: B256::ZERO,
+                incomingCalls: callbacks.iter().map(lower_call_to_l2).collect(),
+                rollingHash: rolling_hash,
                 success: call.outcome.is_success(),
                 returnData: Bytes::copy_from_slice(
                     call.outcome
@@ -835,7 +839,9 @@ impl<'a> Materializer<'a> {
             });
     }
 
-    fn push_static_entry(&mut self, chain: RollupId, call: &ExecutedAction) {
+    fn push_static_entry(&mut self, chain: RollupId, root: usize) {
+        let call = &self.recorded[root];
+        let (callbacks, rolling_hash) = self.static_callbacks(root);
         self.outputs
             .entry(chain)
             .or_default()
@@ -843,8 +849,8 @@ impl<'a> Materializer<'a> {
             .push(StaticExecutionEntrySol {
                 expectedRoots: Vec::new(),
                 proxyEntryHash: source_call_hash(call),
-                l2ToL1Calls: Vec::new(),
-                rollingHash: B256::ZERO,
+                l2ToL1Calls: callbacks,
+                rollingHash: rolling_hash,
                 destinationRollupId: call.target_rollup_id.0,
                 success: call.outcome.is_success(),
                 returnData: Bytes::copy_from_slice(
@@ -853,6 +859,28 @@ impl<'a> Materializer<'a> {
                         .expect("materializable outcome is resolved"),
                 ),
             });
+    }
+
+    /// The callbacks a static root makes to its own chain, in call order, and
+    /// their untagged result fold. The recording guard admits only terminal,
+    /// successful static callbacks.
+    fn static_callbacks(&self, root: usize) -> (Vec<crate::abi::L2ToL1CallSol>, B256) {
+        let mut rolling_hash = StaticCallRollingHash::new();
+        let callbacks = self.children[root]
+            .iter()
+            .map(|&child| {
+                let callback = &self.recorded[child];
+                rolling_hash.append(
+                    callback.outcome.is_success(),
+                    callback
+                        .outcome
+                        .return_data()
+                        .expect("materializable outcome is resolved"),
+                );
+                l1_call_from_action(callback)
+            })
+            .collect();
+        (callbacks, rolling_hash.current())
     }
 
     fn install_context(&mut self, chain: RollupId, entry_index: usize) {
@@ -972,7 +1000,15 @@ impl<'a> Materializer<'a> {
             .frame_rows
             .push(row_index);
 
-        self.execute_call(node_index)?;
+        // A static root's callback runs on its destination from the root's
+        // static entry, which `push_l2_static_entry` builds. Here it only pins
+        // the host's static row, and it must not open a delivery.
+        let static_root_callback = call
+            .parent_index
+            .is_some_and(|parent| self.recorded[parent].call_mode == CallMode::Static);
+        if !static_root_callback {
+            self.execute_call(node_index)?;
+        }
 
         let popped = self
             .active
@@ -1925,6 +1961,271 @@ mod tests {
         )
         .expect("verify naturally failed outbound callback");
         assert!(verified.l2_outbound_hashes.is_empty());
+    }
+
+    /// A static read (index 0) whose target makes one static callback to the
+    /// reading chain (index 1), as in the protocol's
+    /// `topLevelStaticReentrantCounter` scenarios.
+    fn static_round_trip(source: RollupId, remote: RollupId) -> Vec<ExecutedAction> {
+        let mut read = action(0, None, source, remote);
+        read.call_mode = CallMode::Static;
+        read.value = U256::ZERO;
+        let mut callback = action(1, Some(0), remote, source);
+        callback.call_mode = CallMode::Static;
+        callback.value = U256::ZERO;
+        vec![read, callback]
+    }
+
+    /// The protocol's untagged static fold over one result, written out from
+    /// its definition: `keccak256(prev ‖ success ‖ returnData)` from zero.
+    fn one_static_result_hash(success: bool, return_data: &[u8]) -> B256 {
+        let mut preimage = vec![0u8; 32];
+        preimage.push(u8::from(success));
+        preimage.extend_from_slice(return_data);
+        keccak256(preimage)
+    }
+
+    #[test]
+    fn l1_static_root_carries_its_static_callback() {
+        let l2 = RollupId(1);
+        let calls = static_round_trip(RollupId::MAINNET, l2);
+        let mut batches =
+            materialize_batches(&calls, RollupId::MAINNET).expect("materialize static round trip");
+        let l1 = batches.remove(&RollupId::MAINNET).expect("L1 source");
+        assert!(batches.is_empty(), "a static read delivers nothing to L2");
+        assert!(l1.batch.entries.is_empty());
+
+        let [entry] = l1.batch.staticEntries.as_slice() else {
+            panic!("expected one static entry");
+        };
+        assert_eq!(entry.proxyEntryHash, source_call_hash(&calls[0]));
+        assert_eq!(entry.returnData.as_ref(), [0x40]);
+        let [callback] = entry.l2ToL1Calls.as_slice() else {
+            panic!("expected one callback");
+        };
+        assert!(callback.isStatic);
+        assert_eq!(callback.gas, 0);
+        assert_eq!(callback.revertNextNCalls, 0);
+        assert_eq!(callback.sourceRollupId, l2.0);
+        assert_eq!(callback.sourceAddress, calls[1].source_address);
+        assert_eq!(callback.targetAddress, calls[1].target_address);
+        assert_eq!(callback.data, calls[1].data);
+        assert_eq!(entry.rollingHash, one_static_result_hash(true, &[0x41]));
+        crate::system_tx::check_static_entry_shape(entry, "test").expect("valid static entry");
+    }
+
+    /// Materialize an L2 static round trip, finalize its L1 host and return
+    /// both sides for verification.
+    fn l2_static_round_trip_tables() -> (crate::abi::ExecutionEntrySol, L2StaticExecutionEntrySol) {
+        let l2 = RollupId(1);
+        let calls = static_round_trip(l2, RollupId::MAINNET);
+        let mut batches = materialize_batches(&calls, l2).expect("materialize static round trip");
+        let mut host = batches.remove(&RollupId::MAINNET).expect("L1 host");
+        let source = batches.remove(&l2).expect("L2 static source");
+        assert!(batches.is_empty());
+        assert!(
+            source.batch.entries.is_empty(),
+            "the callback runs from the static entry, not a delivery entry"
+        );
+        host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+            rollupId: l2.0,
+            currentRoot: B256::with_last_byte(0xd1),
+            newRoot: B256::with_last_byte(0xd2),
+            etherDelta: EtherDeltaSol::ZERO,
+        });
+        finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
+        let [static_entry] =
+            <[_; 1]>::try_from(source.l2_static_entries).expect("one static entry");
+        (host.batch.entries.remove(0), static_entry)
+    }
+
+    fn verify_l2_static_round_trip(
+        host: &crate::abi::ExecutionEntrySol,
+        source: &L2StaticExecutionEntrySol,
+    ) -> ProtocolResult<crate::entries::NestedPairVerification> {
+        crate::entries::verify_outbound_source_group(
+            host,
+            &[crate::system_tx::OutboundSourceEntry::Static(
+                source.clone(),
+            )],
+            RollupId(1),
+        )
+    }
+
+    #[test]
+    fn l2_static_root_callback_is_bound_to_its_l1_host_row() {
+        let (host, source) = l2_static_round_trip_tables();
+        let calls = static_round_trip(RollupId(1), RollupId::MAINNET);
+
+        let [callback] = source.incomingCalls.as_slice() else {
+            panic!("expected one callback");
+        };
+        assert!(callback.isStatic);
+        assert_eq!(callback.sourceRollupId, RollupId::MAINNET.0);
+        assert_eq!(callback.sourceAddress, calls[1].source_address);
+        assert_eq!(callback.targetAddress, calls[1].target_address);
+        assert_eq!(source.rollingHash, one_static_result_hash(true, &[0x41]));
+        assert_eq!(source.returnData.as_ref(), [0x40]);
+        crate::system_tx::check_l2_static_entry_shape(&source, "test")
+            .expect("valid L2 static entry");
+
+        // L1 runs the read in the host, and the callback resolves the host's
+        // static row, keyed right after the read's CALL_BEGIN.
+        let [read] = host.l2ToL1Calls.as_slice() else {
+            panic!("expected the read as the host's only flat call");
+        };
+        assert!(read.isStatic);
+        let [row] = host.expectedL1ToL2Calls.as_slice() else {
+            panic!("expected one static row");
+        };
+        let mut rolling = EntryRollingHash::seed_for_l1(
+            host.rootUpdates
+                .iter()
+                .map(|update| (update.rollupId, update.currentRoot)),
+            B256::ZERO,
+        );
+        rolling.call_begin(destination_call_hash(&calls[0]));
+        assert_eq!(
+            row.expectedL1toL2Hash,
+            nested_position_key(source_call_hash(&calls[1]), rolling.current())
+        );
+        assert!(row.success);
+        assert_eq!(row.returnData.as_ref(), [0x41]);
+        assert!(row.l2ToL1Calls.is_empty());
+        assert_eq!(row.revertedOrStaticRollingHash, B256::ZERO);
+        // The static row does not fold into the host hash.
+        rolling.call_end(true, &[0x40]);
+        assert_eq!(host.rollingHash, rolling.current());
+
+        let verified = verify_l2_static_round_trip(&host, &source).expect("verify round trip");
+        assert!(verified.l2_outbound_hashes.is_empty());
+        assert_eq!(verified.ether_delta, I256::ZERO);
+    }
+
+    #[test]
+    fn l2_static_root_callback_rejects_unbound_results() {
+        let (host, source) = l2_static_round_trip_tables();
+        let rejected = |host: &crate::abi::ExecutionEntrySol,
+                        source: &L2StaticExecutionEntrySol,
+                        reason: &str| {
+            let error = verify_l2_static_round_trip(host, source)
+                .expect_err("tampered static round trip must be rejected");
+            assert!(error.to_string().contains(reason), "{reason}: {error}");
+        };
+        const RESULTS: &str = "callback results differ from the L2 static rolling hash";
+        const ROW: &str = "callback does not match its L1 host row";
+
+        let mut tampered = host.clone();
+        // L1 would return a value that L2 does not compute.
+        tampered.expectedL1ToL2Calls[0].returnData = Bytes::from_static(&[0xff]);
+        rejected(&tampered, &source, RESULTS);
+        let mut tampered = host.clone();
+        tampered.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::with_last_byte(1);
+        rejected(&tampered, &source, ROW);
+        let mut tampered = host.clone();
+        tampered.expectedL1ToL2Calls.clear();
+        rejected(&tampered, &source, "callback has no L1 host row");
+        let mut tampered = host.clone();
+        let extra = tampered.expectedL1ToL2Calls[0].clone();
+        tampered.expectedL1ToL2Calls.push(extra);
+        rejected(&tampered, &source, "did not consume the complete");
+
+        let mut tampered = source.clone();
+        tampered.rollingHash = B256::with_last_byte(1);
+        rejected(&host, &tampered, RESULTS);
+        let mut tampered = source.clone();
+        tampered.incomingCalls[0].data = Bytes::from_static(&[0xff]);
+        rejected(&host, &tampered, ROW);
+        let mut tampered = source.clone();
+        tampered.incomingCalls.clear();
+        tampered.rollingHash = B256::ZERO;
+        rejected(&host, &tampered, "did not consume the complete");
+    }
+
+    /// Two identical callbacks in one L2 static read share a position key, and
+    /// L1 answers both from the first matching row. Equal results verify;
+    /// different results cannot both be returned and are rejected.
+    #[test]
+    fn repeated_static_callbacks_must_agree() {
+        let l2 = RollupId(1);
+        for (second_result, accepted) in [(vec![0x41], true), (vec![0x42], false)] {
+            let mut calls = static_round_trip(l2, RollupId::MAINNET);
+            let mut repeat = calls[1].clone();
+            repeat.outcome = crate::ExecutionOutcome::Resolved {
+                return_data: second_result,
+                gas_used: 21_000,
+                success: true,
+            };
+            calls.push(repeat);
+            let mut batches =
+                materialize_batches(&calls, l2).expect("materialize repeated callbacks");
+            let mut host = batches.remove(&RollupId::MAINNET).expect("L1 host");
+            let source = batches.remove(&l2).expect("L2 static source");
+            host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+                rollupId: l2.0,
+                currentRoot: B256::with_last_byte(0xd1),
+                newRoot: B256::with_last_byte(0xd2),
+                etherDelta: EtherDeltaSol::ZERO,
+            });
+            finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).expect("finalize host");
+            let [row_a, row_b] = host.batch.entries[0].expectedL1ToL2Calls.as_slice() else {
+                panic!("expected one host row per callback");
+            };
+            assert_eq!(row_a.expectedL1toL2Hash, row_b.expectedL1toL2Hash);
+            let verified =
+                verify_l2_static_round_trip(&host.batch.entries[0], &source.l2_static_entries[0]);
+            if accepted {
+                verified.expect("equal repeated results verify");
+            } else {
+                let error = verified.expect_err("conflicting repeated results must be rejected");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("repeat a lookup key with different results"),
+                    "{error}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn static_callbacks_outside_the_supported_shape_are_rejected() {
+        let l2 = RollupId(1);
+        let unsupported = |calls: &[ExecutedAction], reason: &str| {
+            let error = materialize_batches(calls, RollupId::MAINNET)
+                .expect_err("unsupported static callback shape");
+            assert!(error.to_string().contains(reason), "{error}");
+        };
+
+        let mut mutable_callback = static_round_trip(RollupId::MAINNET, l2);
+        mutable_callback[1].call_mode = CallMode::Mutable;
+        unsupported(&mutable_callback, "cannot make mutable callbacks");
+
+        let mut failed_callback = static_round_trip(RollupId::MAINNET, l2);
+        failed_callback[1].outcome = crate::ExecutionOutcome::Resolved {
+            return_data: vec![0x41],
+            gas_used: 21_000,
+            success: false,
+        };
+        unsupported(&failed_callback, "failed static cross-chain callbacks");
+
+        let mut deep = static_round_trip(RollupId::MAINNET, l2);
+        let mut grandchild = action(2, Some(1), RollupId::MAINNET, l2);
+        grandchild.call_mode = CallMode::Static;
+        grandchild.value = U256::ZERO;
+        deep.push(grandchild);
+        unsupported(&deep, "callbacks with descendants");
+
+        // A static read nested in a mutable call stays terminal.
+        let mut nested = vec![action(0, None, RollupId::MAINNET, l2)];
+        let mut nested_read = action(1, Some(0), l2, RollupId::MAINNET);
+        nested_read.call_mode = CallMode::Static;
+        nested_read.value = U256::ZERO;
+        let mut nested_callback = action(2, Some(1), RollupId::MAINNET, l2);
+        nested_callback.call_mode = CallMode::Static;
+        nested_callback.value = U256::ZERO;
+        nested.extend([nested_read, nested_callback]);
+        unsupported(&nested, "nested static cross-chain calls with descendants");
     }
 
     #[test]

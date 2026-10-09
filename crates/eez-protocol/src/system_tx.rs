@@ -447,8 +447,29 @@ pub fn check_static_entry_shape(
     if entry.proxyEntryHash == alloy_primitives::B256::ZERO {
         return Err(format!("{label} static entry has a zero proxy hash"));
     }
-    for (index, call) in entry.l2ToL1Calls.iter().enumerate() {
-        if !call.isStatic {
+    check_static_callbacks_shape(
+        entry.l2ToL1Calls.iter().map(StaticCallbackFields::from),
+        entry.rollingHash,
+        label,
+    )
+}
+
+/// Static callbacks run with STATICCALL under an untagged result fold that
+/// covers neither value nor revert spans, so a call outside that profile would
+/// silently change meaning. Zero gas keeps the identity gas-independent.
+/// Without callbacks the fold is zero.
+fn check_static_callbacks_shape<'a>(
+    calls: impl ExactSizeIterator<Item = StaticCallbackFields<'a>>,
+    rolling_hash: alloy_primitives::B256,
+    label: &str,
+) -> Result<(), String> {
+    if calls.len() == 0 && rolling_hash != alloy_primitives::B256::ZERO {
+        return Err(format!(
+            "{label} static entry without callbacks has a nonzero rolling hash"
+        ));
+    }
+    for (index, call) in calls.enumerate() {
+        if !call.is_static {
             return Err(format!(
                 "{label} static sub-call {index} is not marked static"
             ));
@@ -458,18 +479,55 @@ pub fn check_static_entry_shape(
                 "{label} static sub-call {index} carries non-zero value"
             ));
         }
-        if call.revertNextNCalls != 0 {
+        if call.revert_next_n_calls != 0 {
             return Err(format!(
                 "{label} static sub-call {index} carries a revert span"
+            ));
+        }
+        if call.gas != 0 {
+            return Err(format!(
+                "{label} static sub-call {index} uses explicit-gas semantics"
             ));
         }
     }
     Ok(())
 }
 
-/// Check the supported terminal L2 static-source shape, retaining its position.
-/// Position authorization requires the complete ordered host in
-/// `verify_outbound_source_group`; decoding and this shape check are insufficient.
+/// The static-callback fields shared by the L1 and L2 call ABIs.
+struct StaticCallbackFields<'a> {
+    is_static: bool,
+    value: &'a U256,
+    revert_next_n_calls: u16,
+    gas: u64,
+}
+
+impl<'a> From<&'a L2ToL1CallSol> for StaticCallbackFields<'a> {
+    fn from(call: &'a L2ToL1CallSol) -> Self {
+        Self {
+            is_static: call.isStatic,
+            value: &call.value,
+            revert_next_n_calls: call.revertNextNCalls,
+            gas: call.gas,
+        }
+    }
+}
+
+impl<'a> From<&'a CrossChainCallSol> for StaticCallbackFields<'a> {
+    fn from(call: &'a CrossChainCallSol) -> Self {
+        Self {
+            is_static: call.isStatic,
+            value: &call.value,
+            revert_next_n_calls: call.revertNextNCalls,
+            gas: call.gas,
+        }
+    }
+}
+
+/// Check the supported L2 static-source shape, retaining its position: an L1
+/// lookup, optionally with static callbacks to this L2.
+/// Position authorization and the callback results require the complete
+/// ordered host in `verify_outbound_source_group`; decoding and this shape
+/// check are insufficient.
 pub fn check_l2_static_entry_shape(
     entry: &L2StaticExecutionEntrySol,
     label: &str,
@@ -477,12 +535,11 @@ pub fn check_l2_static_entry_shape(
     if entry.proxyEntryHash == alloy_primitives::B256::ZERO {
         return Err(format!("{label} static entry has a zero proxy hash"));
     }
-    if !entry.incomingCalls.is_empty() || entry.rollingHash != alloy_primitives::B256::ZERO {
-        return Err(format!(
-            "{label} static source must be a terminal L1 lookup"
-        ));
-    }
-    Ok(())
+    check_static_callbacks_shape(
+        entry.incomingCalls.iter().map(StaticCallbackFields::from),
+        entry.rollingHash,
+        label,
+    )
 }
 
 /// Lower the L1-shaped sidecar transport into the field-identical L2 ABI.
@@ -492,16 +549,7 @@ pub fn check_l2_static_entry_shape(
 /// flat call and every unified nested row is retained exactly.
 #[must_use]
 pub fn lower_entry_to_l2(entry: &ExecutionEntrySol) -> L2ExecutionEntrySol {
-    let lower_call = |call: &crate::abi::L2ToL1CallSol| CrossChainCallSol {
-        revertNextNCalls: call.revertNextNCalls,
-        isStatic: call.isStatic,
-        gas: call.gas,
-        sourceAddress: call.sourceAddress,
-        sourceRollupId: call.sourceRollupId,
-        targetAddress: call.targetAddress,
-        value: call.value,
-        data: call.data.clone(),
-    };
+    let lower_call = lower_call_to_l2;
     L2ExecutionEntrySol {
         proxyEntryHash: entry.proxyEntryHash,
         incomingCalls: entry.l2ToL1Calls.iter().map(lower_call).collect(),
@@ -522,6 +570,36 @@ pub fn lower_entry_to_l2(entry: &ExecutionEntrySol) -> L2ExecutionEntrySol {
     }
 }
 
+/// Lower one L1-shaped call to the field-identical L2 ABI.
+#[must_use]
+pub(crate) fn lower_call_to_l2(call: &L2ToL1CallSol) -> CrossChainCallSol {
+    CrossChainCallSol {
+        revertNextNCalls: call.revertNextNCalls,
+        isStatic: call.isStatic,
+        gas: call.gas,
+        sourceAddress: call.sourceAddress,
+        sourceRollupId: call.sourceRollupId,
+        targetAddress: call.targetAddress,
+        value: call.value,
+        data: call.data.clone(),
+    }
+}
+
+/// Lift one L2 call to the field-identical L1-shaped ABI.
+#[must_use]
+pub(crate) fn lift_call_from_l2(call: &CrossChainCallSol) -> L2ToL1CallSol {
+    L2ToL1CallSol {
+        revertNextNCalls: call.revertNextNCalls,
+        isStatic: call.isStatic,
+        gas: call.gas,
+        sourceAddress: call.sourceAddress,
+        sourceRollupId: call.sourceRollupId,
+        targetAddress: call.targetAddress,
+        value: call.value,
+        data: call.data.clone(),
+    }
+}
+
 /// Lift the field-identical L2 ABI into the shared sidecar transport shape.
 ///
 /// `destination_rollup_id` supplies the transport-only routing metadata: it
@@ -532,16 +610,7 @@ pub fn lift_entry_from_l2(
     entry: &L2ExecutionEntrySol,
     destination_rollup_id: RollupId,
 ) -> ExecutionEntrySol {
-    let lift_call = |call: &CrossChainCallSol| L2ToL1CallSol {
-        revertNextNCalls: call.revertNextNCalls,
-        isStatic: call.isStatic,
-        gas: call.gas,
-        sourceAddress: call.sourceAddress,
-        sourceRollupId: call.sourceRollupId,
-        targetAddress: call.targetAddress,
-        value: call.value,
-        data: call.data.clone(),
-    };
+    let lift_call = lift_call_from_l2;
     ExecutionEntrySol {
         rootUpdates: Vec::new(),
         proxyEntryHash: entry.proxyEntryHash,
@@ -575,20 +644,7 @@ pub fn lower_static_entry_to_l2(
     L2StaticExecutionEntrySol {
         expectedEntryIndex: expected_entry_index,
         proxyEntryHash: entry.proxyEntryHash,
-        incomingCalls: entry
-            .l2ToL1Calls
-            .iter()
-            .map(|call| CrossChainCallSol {
-                revertNextNCalls: call.revertNextNCalls,
-                isStatic: call.isStatic,
-                gas: call.gas,
-                sourceAddress: call.sourceAddress,
-                sourceRollupId: call.sourceRollupId,
-                targetAddress: call.targetAddress,
-                value: call.value,
-                data: call.data.clone(),
-            })
-            .collect(),
+        incomingCalls: entry.l2ToL1Calls.iter().map(lower_call_to_l2).collect(),
         rollingHash: entry.rollingHash,
         success: entry.success,
         returnData: entry.returnData.clone(),
