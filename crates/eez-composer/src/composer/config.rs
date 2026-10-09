@@ -63,6 +63,18 @@ impl ComposerSettings {
         timing
             .validate()
             .map_err(|error| PolicyError::Config(error.to_string()))?;
+        if timing.start_after_block().is_some()
+            && timing.proof_time()
+                + timing.submission_slack()
+                + crate::prover_retry::POST_PROOF_RESERVE
+                >= timing
+                    .l1_block_time()
+                    .saturating_sub(timing.proof_window_open())
+        {
+            return Err(PolicyError::Config(
+                "EEZ_SETTLEMENT_START_AFTER_BLOCK leaves no preparation time after the proof seed, submission slack and post-proof reserve".into(),
+            ));
+        }
         let mut snapshot: HashMap<String, Option<String>> = HashMap::new();
         let mut get = |name: &str| {
             if let Some(value) = snapshot.get(name) {
@@ -185,6 +197,28 @@ impl ComposerSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn position_requires_positive_preparation_after_the_shared_post_reserve() {
+        for proof in [749, 750, 751] {
+            // K=5/P=4: 1000ms left, 100ms slack, 150ms inclusive post reserve.
+            let timing = RollupTiming::new(5000, 1000, proof, 100).with_start_after_block(4);
+            let mut reached_policy = false;
+            let result = ComposerSettings::parse(timing, |_| {
+                reached_policy = true;
+                Ok(None)
+            });
+            assert_eq!(reached_policy, proof < 750);
+            if proof >= 750 {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("leaves no preparation time")
+                );
+            }
+        }
+    }
 
     fn timing() -> RollupTiming {
         RollupTiming::new(12_000, 1_000, 2_000, 100)

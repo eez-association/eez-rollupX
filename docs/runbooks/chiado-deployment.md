@@ -560,6 +560,15 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+The opt-in [conditional slot scheduler](../configurable-settlement-policy.md#conditional-slot-production)
+is an implementation draft; leave it disabled until its release gates pass.
+It needs a compatible Composer binary and a deliberate timing configuration
+change, not new contracts or a genesis/database migration. Preserve the old
+configuration, remove `EEZ_PREPARATION_TIME_MS` entirely before setting
+`EEZ_SETTLEMENT_START_AFTER_BLOCK`, and follow the linked budget/compatibility
+rules. Rollback removes the new setting and restores the previous timing values.
+Normal restart/resubmission limits still apply; no live upgrade is validated here.
+
 The [wallet discovery / Composer-only namespace change](../proposals/composer-wallet-discovery.md)
 needs a Composer restart and client URL updates, not contract deployment or a
 genesis/database migration. Point all `eez_*` clients at port 18998 (L2 front)

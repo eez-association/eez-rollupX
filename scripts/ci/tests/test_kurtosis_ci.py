@@ -196,6 +196,10 @@ class SettlementEnvironmentTest(unittest.TestCase):
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000"}
         self.assertEqual(configure(values), values)
+        for position in ("3", "", "0", "invalid"):
+            explicit = dict(values, EEZ_SETTLEMENT_START_AFTER_BLOCK=position)
+            self.assertEqual(configure(explicit), explicit)
+        self.assertNotIn("EEZ_SETTLEMENT_START_AFTER_BLOCK", configure(values))
         for margin in ("", "500", "2000", "bad"):
             explicit = dict(values, EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=margin)
             self.assertEqual(configure(explicit), explicit)

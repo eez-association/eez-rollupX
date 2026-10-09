@@ -11,6 +11,9 @@
 //!   region (see [`RollupTiming::future_count`]). Default 100 ms.
 //! - `preparation_time_ms` — optional separate preparation allowance. Unset
 //!   preserves the rounded trigger; supplied uses millisecond precision.
+//! - `start_after_block` — optional conditional-production cutoff position;
+//!   mutually exclusive with the preparation allowance. Composer additionally
+//!   validates proof/slack and its post-proof reserve against the remaining window.
 //!
 //! Derived helpers ([`RollupTiming::k`], [`RollupTiming::future_count`],
 //! [`RollupTiming::live_count`], [`RollupTiming::per_trigger_composition`])
@@ -52,6 +55,7 @@ const ENV_L2_BLOCK_TIME_MS: &str = "EEZ_L2_BLOCK_TIME_MS";
 const ENV_PROOF_TIME_MS: &str = "EEZ_PROOF_TIME_MS";
 const ENV_SUBMISSION_SLACK_MS: &str = "EEZ_SUBMISSION_SLACK_MS";
 const ENV_PREPARATION_TIME_MS: &str = "EEZ_PREPARATION_TIME_MS";
+const ENV_START_AFTER_BLOCK: &str = "EEZ_SETTLEMENT_START_AFTER_BLOCK";
 
 const DEFAULT_SUBMISSION_SLACK_MS: u32 = 100;
 
@@ -71,6 +75,7 @@ pub struct RollupTiming {
     proof_time_ms: u32,
     submission_slack_ms: u32,
     preparation_time_ms: Option<u32>,
+    start_after_block: Option<u32>,
 }
 
 impl RollupTiming {
@@ -104,6 +109,7 @@ impl RollupTiming {
             proof_time_ms,
             submission_slack_ms,
             preparation_time_ms: None,
+            start_after_block: None,
         }
     }
 
@@ -116,9 +122,24 @@ impl RollupTiming {
         self
     }
 
+    /// Opt into conditional slot production after this one-based ordinary
+    /// position. The immutable boundary remains position K and stays empty
+    /// unless the existing cross-chain composer supplies its native actions.
+    #[must_use]
+    pub const fn with_start_after_block(mut self, position: u32) -> Self {
+        self.start_after_block = Some(position);
+        self
+    }
+
+    #[must_use]
+    pub const fn start_after_block(self) -> Option<u32> {
+        self.start_after_block
+    }
+
     /// Read fields from `EEZ_L1_BLOCK_TIME_MS`, `EEZ_L2_BLOCK_TIME_MS`,
     /// `EEZ_PROOF_TIME_MS`, `EEZ_SUBMISSION_SLACK_MS` (the slack
-    /// defaults to 100 ms if unset), and optional `EEZ_PREPARATION_TIME_MS`.
+    /// defaults to 100 ms if unset), and the mutually exclusive optional
+    /// `EEZ_PREPARATION_TIME_MS` / `EEZ_SETTLEMENT_START_AFTER_BLOCK`.
     /// Runs [`Self::validate`] on the result.
     ///
     /// # Errors
@@ -134,6 +155,9 @@ impl RollupTiming {
         );
         if let Some(value) = parse_optional_env(ENV_PREPARATION_TIME_MS)? {
             t = t.with_preparation_time_ms(value);
+        }
+        if let Some(value) = parse_optional_env(ENV_START_AFTER_BLOCK)? {
+            t = t.with_start_after_block(value);
         }
         t.validate()?;
         Ok(t)
@@ -189,6 +213,18 @@ impl RollupTiming {
             return Err(DriverError::timing_config(
                 "EEZ_PREPARATION_TIME_MS must be positive when supplied",
             ));
+        }
+        if let Some(position) = self.start_after_block {
+            if position == 0 || position >= k {
+                return Err(DriverError::timing_config(
+                    "EEZ_SETTLEMENT_START_AFTER_BLOCK must be in 1..K (excluding K)",
+                ));
+            }
+            if self.preparation_time_ms.is_some() {
+                return Err(DriverError::timing_config(
+                    "EEZ_SETTLEMENT_START_AFTER_BLOCK conflicts with EEZ_PREPARATION_TIME_MS; remove the preparation-time setting",
+                ));
+            }
         }
         let budget = self
             .proof_time_ms
@@ -261,12 +297,16 @@ impl RollupTiming {
         self.l1_block_time_ms / self.l2_block_time_ms
     }
 
-    /// Future blocks per slot: `ceil((preparation + proof + slack) / l2) − 1`,
+    /// Potential early suffix: `K - P - 1` in conditional position mode.
+    /// Otherwise: `ceil((preparation + proof + slack) / l2) − 1`,
     /// where preparation contributes zero when not explicitly configured.
     /// Sized so the proven bundle reaches the relay `submission_slack` before
     /// the next L1 slot, letting the postBatch target the immediate next block.
     #[must_use]
     pub const fn future_count(self) -> u32 {
+        if let Some(position) = self.start_after_block {
+            return self.k().saturating_sub(position).saturating_sub(1);
+        }
         let budget_ms = self
             .proof_time_ms
             .saturating_add(self.submission_slack_ms)
@@ -290,11 +330,15 @@ impl RollupTiming {
     }
 
     /// Wall-clock offset after the anchor L1 block at which the trigger
-    /// fires. An explicit preparation allowance reserves exactly preparation +
+    /// fires. Conditional position mode fires at `P * L2`. Otherwise an
+    /// explicit preparation allowance reserves exactly preparation +
     /// proof + slack, with millisecond precision. Otherwise the rounded trigger
     /// remains at the end of the Live region, `l1 − (future + 1)·l2`.
     #[must_use]
     pub const fn proof_window_open(self) -> Duration {
+        if let Some(position) = self.start_after_block {
+            return Duration::from_millis(position as u64 * self.l2_block_time_ms as u64);
+        }
         if let Some(preparation) = self.preparation_time_ms {
             let reserved_ms = preparation
                 .saturating_add(self.proof_time_ms)
@@ -434,6 +478,97 @@ fn parse_optional_env(name: &str) -> DriverResult<Option<u32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn position_trigger_and_layout_cover_every_supported_position() {
+        for (l1, l2) in [(4000, 2000), (5000, 1000), (12000, 2000)] {
+            let base = RollupTiming::new(l1, l2, 100, 100);
+            for p in 1..base.k() {
+                let timing = base.with_start_after_block(p);
+                timing.validate().unwrap();
+                assert_eq!(
+                    timing.proof_window_open(),
+                    Duration::from_millis(u64::from(p * l2))
+                );
+                assert_eq!(timing.live_count(), p);
+                assert_eq!(timing.future_count(), base.k() - p - 1);
+                assert_eq!(
+                    timing.per_trigger_composition(u64::from(p), u64::from(base.k()), 300),
+                    SlotComposition::Slot {
+                        live: 0,
+                        future: u64::from(base.k() - p - 1)
+                    }
+                );
+                assert_eq!(
+                    timing.preparation_time()
+                        + timing.proof_time()
+                        + timing.submission_slack()
+                        + timing.proof_window_open(),
+                    timing.l1_block_time()
+                );
+            }
+            for p in [0, base.k(), base.k() + 1, u32::MAX] {
+                assert!(base.with_start_after_block(p).validate().is_err());
+            }
+            assert!(
+                base.with_start_after_block(1)
+                    .with_preparation_time_ms(1)
+                    .validate()
+                    .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn position_environment_preserves_absence_and_rejects_conflicts() {
+        const CHILD: &str = "EEZ_POSITION_TEST_EXPECTED";
+        if let Ok(expected) = env::var(CHILD) {
+            let parsed = RollupTiming::from_env();
+            match expected.as_str() {
+                "legacy" => assert_eq!(parsed.unwrap().start_after_block(), None),
+                "position" => assert_eq!(parsed.unwrap().start_after_block(), Some(3)),
+                _ => assert!(parsed.is_err()),
+            }
+            return;
+        }
+        for (position, preparation, expected) in [
+            (None, None, "legacy"),
+            (Some("3"), None, "position"),
+            (Some(""), None, "invalid"),
+            (Some("0"), None, "invalid"),
+            (Some("5"), None, "invalid"),
+            (Some("-1"), None, "invalid"),
+            (Some("1.5"), None, "invalid"),
+            (Some("4294967296"), None, "invalid"),
+            (Some("3"), Some("100"), "invalid"),
+        ] {
+            let mut command = std::process::Command::new(env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "timing::tests::position_environment_preserves_absence_and_rejects_conflicts",
+                ])
+                .env(ENV_L1_BLOCK_TIME_MS, "5000")
+                .env(ENV_L2_BLOCK_TIME_MS, "1000")
+                .env(ENV_PROOF_TIME_MS, "500")
+                .env(ENV_SUBMISSION_SLACK_MS, "100")
+                .env(CHILD, expected)
+                .env_remove(ENV_START_AFTER_BLOCK)
+                .env_remove(ENV_PREPARATION_TIME_MS);
+            if let Some(value) = position {
+                command.env(ENV_START_AFTER_BLOCK, value);
+            }
+            if let Some(value) = preparation {
+                command.env(ENV_PREPARATION_TIME_MS, value);
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{position:?}/{preparation:?}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+        }
+    }
 
     #[test]
     fn runtime_cadence_must_match_genesis_but_local_proving_budgets_may_differ() {
@@ -700,6 +835,7 @@ mod tests {
                 .env(ENV_L2_BLOCK_TIME_MS, "1000")
                 .env(ENV_PROOF_TIME_MS, "500")
                 .env(ENV_SUBMISSION_SLACK_MS, "700")
+                .env_remove(ENV_START_AFTER_BLOCK)
                 .env(CHILD, match value { None => "default", Some("400") => "configured", _ => "invalid" });
             if let Some(value) = value {
                 command.env(ENV_PREPARATION_TIME_MS, value);

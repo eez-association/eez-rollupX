@@ -1,5 +1,9 @@
 # Conditional slot production: design review
 
+This section preserves the original planning-only review. The subsequently
+authorized implementation and its validation are recorded in
+[implementation evidence](implementation.md); they use the newer PR base/pin.
+
 | Field | Value |
 | --- | --- |
 | Date and status | 2026-10-09 UTC; design review completed after three successful Claude rounds. No remaining design blockers identified; implementation and runtime validation are outstanding. |

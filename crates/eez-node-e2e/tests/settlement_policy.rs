@@ -14,6 +14,100 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn conditional_position_paces_late_pool_transactions_and_replays() {
+    // The native fixture has K=5 and one-second L2 blocks. P=2 leaves
+    // ordinary positions 3/4 available to a transaction arriving after cutoff.
+    let mut env = policy_env(Vec::new(), "interval");
+    env.extend([
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "25".into()),
+    ]);
+    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let target = eez_testkit::wait_for(TIMEOUT, || async {
+        let head = l2.get_block_number().await?;
+        Ok(world
+            .node
+            .signals_since(0)?
+            .into_iter()
+            .rev()
+            .find_map(|signal| {
+                if signal.name != "eez.sequencer.slot.decision" || signal.fields["prepare"] != false
+                {
+                    return None;
+                }
+                signal.fields["target"]
+                    .as_u64()
+                    .filter(|target| head + 3 == *target)
+            }))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "no ordinary cutoff: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    let hash = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(9),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let receipt = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+    assert!(receipt.status());
+    let included = receipt.block_number.unwrap();
+    assert!(
+        included > target - 3 && included < target,
+        "late transaction must land in the paced suffix, got {included} for target {target}{}",
+        world.settlement_diagnostics()
+    );
+    wait_for_latest_height(&world.node, target, TIMEOUT)
+        .await
+        .unwrap();
+    let boundary = l2
+        .get_block_by_number(target.into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        boundary.transactions.is_empty(),
+        "skipped checkpoint stays empty"
+    );
+    let follower = NodeHandle::start(
+        "conditional-position-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], target, TIMEOUT)
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "conditional history did not settle/replay: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+    let replay = ProviderBuilder::new()
+        .connect_http(follower.l2_rpc_url().parse().unwrap())
+        .get_transaction_receipt(hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.block_hash, replay.block_hash);
+    assert_eq!(receipt.status(), replay.status());
+    world.node.assert_no_process_death();
+    follower.assert_no_process_death();
+}
+
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
     use alloy_eips::Encodable2718;
     use eez_payload_codec::v0::{self, BlockRun};

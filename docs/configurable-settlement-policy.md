@@ -33,6 +33,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_POSTBATCH_GAS` | No operator cap | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. |
 | `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` for adaptive resource/time admission. Compose retains a numeric interpolation fallback of 12, but startup still requires the mandatory policy settings. Parsed once; restart to change. |
 | `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Planning allocation used with proof and slack for the exact millisecond trigger; cross-chain preparation and proving share the final submission deadline. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
+| `EEZ_SETTLEMENT_START_AFTER_BLOCK` | Unset | Opt-in conditional production after position P, `1 <= P < K`. Conflicts with any `EEZ_PREPARATION_TIME_MS`. Proof seed + slack + the shared 150 ms post-proof reserve must be strictly less than `(K-P) * L2`. See [conditional slot production](#conditional-slot-production). |
 | `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
@@ -643,6 +644,75 @@ no contract redeployment is needed. The same rules apply to Ethereum and Chiado
 in their respective native fee units.
 
 ## Network profiles and execution
+
+### Conditional slot production
+
+**Implementation draft; opt-in, not yet approved for production rollout.** Set
+`EEZ_SETTLEMENT_START_AFTER_BLOCK=P` to choose the ordinary block after which
+settlement preparation may begin. Positions count from the preceding immutable
+sync boundary, so K=6, L2=2 seconds, P=3 means the block at +6 seconds. Ordinary
+ticks use the genesis time grid. Remove `EEZ_PREPARATION_TIME_MS` entirely first;
+empty is invalid, not absence. P must be an integer in `1..K` (excluding K).
+Startup requires positive preparation time after reserving the configured proof
+seed, submission slack and the existing 150 ms post-proof reserve. The latter
+already includes delivery and is counted once. Proof and submission controls
+remain enforced; P replaces only the preparation trigger.
+
+After recovery/ownership maintenance and the committed cutoff prefix, Composer
+returns a read-only preparation hint using the canonical settlement anchor,
+projected boundary height/time, known activity/fullness, window pressure, retained
+drain/predecessor work and held cross-chain queue occupancy. Occupancy is not proof
+that a request is eligible. Final policy, fees, admission, proofs and submission
+still decide whether to post. No fake future block hash is supplied to policy.
+Planning does not create/extend a drain or consume queued requests. The queue hint
+is suppressed while an optimistic owner blocks new admission; final selection
+still takes its finite request snapshot after the burst. Its database
+work runs on a blocking worker with a single shared permit retained until exit,
+including after the waiting cutoff times out. The wait is capped at one L2
+interval or remaining deadline headroom, whichever is smaller.
+
+If preparation is due, the existing pipeline rapidly builds the remaining
+ordinary blocks using the pool, then composes the sync block. Otherwise it keeps
+ordinary blocks paced through the end of the interval. **Every sync boundary
+still uses the existing empty checkpoint path** unless cross-chain composition
+supplies its authorized native actions. This release does not put pool
+transactions in skipped sync blocks. A later ordinary tick may finish a missing
+empty boundary after `EndTick`, subject to recovery and normal commit checks.
+
+Only a successful not-due hint selects the non-posting `Ordinary` checkpoint
+mode. Planner errors/timeouts keep paced production but retain the existing
+`Empty` policy/recovery opportunity at the boundary, so unavailable planning
+cannot deadlock settlement at the speculative-depth cap. Incomplete or stale
+canonical context is retried from ticks; it is never treated as not-due evidence.
+
+The cutoff decision belongs to one exact known L1 parent, target, reconciled
+generation and local branch. Late requests or newly crossed policy thresholds do
+not reopen an ordinary decision; they wait for the next eligible cutoff. Stale or
+unavailable evidence does not authorize a burst or bypass empty-block validation.
+The existing bounded catch-up, speculative-depth limits and maximum four skipped
+slot replacements still apply; there is no L1-independent sequencing mode.
+Armed bounded replacements supply the next paced prefix after its preceding
+boundary time, even while the next L1 head is delayed; an unfinished valid prior
+decision retains its boundary semantics. Ticks catch up only already-due blocks
+within the existing work bound. `eez.slot.configuration`, `eez.composer.slot.plan`
+and `eez.sequencer.slot.decision` record configuration, hints and choices.
+
+Unset P preserves legacy scheduling and existing profile defaults. Compose
+transports absent, empty and explicit values without silently choosing precedence;
+shell values override `.env`. Kurtosis carries P through `settlement_env`.
+Only Composer/node configuration changes: no protocol pin, wire, ABI, database,
+signer or follower migration. Existing follower replay and mixed-version
+signer/follower compatibility use unchanged block formats and empty checkpoints;
+the process/replay release gate still must verify this. Upgrade the Composer
+binary before opting in. On rollback remove P and restore the previous timing
+configuration before starting an older binary, which does not implement this
+setting. Normal restart may discard speculative history and in-memory pending
+requests; clients may need to resubmit. Never run two Composers on shared state.
+
+See the [proposal and acceptance gates](proposals/conditional-slot-production.md)
+and [implementation evidence](audits/2026-10-09-conditional-slot-production/README.md).
+
+### Legacy preparation and shared target handling
 
 Ethereum and Chiado retain their existing slot and submission-window settings.
 

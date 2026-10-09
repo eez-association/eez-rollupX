@@ -1,5 +1,110 @@
 use super::*;
 
+fn scheduling(input: PolicySnapshot) -> SchedulingSnapshot {
+    SchedulingSnapshot {
+        anchor: input.anchor,
+        target_l2_number: input.candidate.number,
+        target_l1_timestamp: input.target_l1_timestamp,
+        latest_pure_block: input.latest_pure_block,
+        estimated_stream_bytes: input.estimated_stream_bytes,
+        window_limit_due: input.window_limit_due,
+        effective_blobs: input.effective_blobs,
+        usable_bytes_per_blob: input.usable_bytes_per_blob,
+    }
+}
+
+#[test]
+fn scheduling_shares_final_triggers_without_creating_or_extending_drain() {
+    for (cfg, input, reason) in [
+        (config(None, 6, None), snapshot(6), DueReasons::GENERAL),
+        (
+            config(None, 100, None),
+            PolicySnapshot {
+                latest_pure_block: Some(endpoint(3)),
+                ..snapshot(6)
+            },
+            DueReasons::PURE_ALWAYS,
+        ),
+        (
+            config(Some(12000), 100, None),
+            PolicySnapshot {
+                latest_pure_block: Some(endpoint(3)),
+                ..snapshot(6)
+            },
+            DueReasons::PURE_INTERVAL,
+        ),
+        (
+            config(None, 100, Some(5000)),
+            PolicySnapshot {
+                estimated_stream_bytes: Some(500),
+                effective_blobs: 1,
+                usable_bytes_per_blob: 1000,
+                ..snapshot(6)
+            },
+            DueReasons::FULLNESS,
+        ),
+        (
+            config(None, 100, None),
+            PolicySnapshot {
+                window_limit_due: true,
+                estimated_stream_bytes: None,
+                ..snapshot(6)
+            },
+            DueReasons::WINDOW_LIMIT,
+        ),
+    ] {
+        let mut state = PolicyState::default();
+        let before = state.clone();
+        let planned = state.preparation_reasons(&cfg, scheduling(input)).unwrap();
+        assert!(planned.contains(reason), "{planned:?}");
+        assert_eq!(state, before);
+        assert_eq!(planned, state.evaluate(&cfg, input).unwrap().reasons);
+        let with_drain = state.clone();
+        let later = PolicySnapshot {
+            candidate: endpoint(12),
+            latest_pure_block: None,
+            ..input
+        };
+        assert!(
+            state
+                .preparation_reasons(&config(Some(999_000), 999, None), scheduling(later))
+                .unwrap()
+                .contains(DueReasons::DRAIN)
+        );
+        assert_eq!(state, with_drain);
+    }
+}
+
+#[test]
+fn first_late_activity_can_change_final_due_without_mutating_the_earlier_hint() {
+    let mut state = PolicyState::default();
+    let cfg = config(None, 100, None);
+    assert!(
+        state
+            .preparation_reasons(&cfg, scheduling(snapshot(6)))
+            .unwrap()
+            .is_empty()
+    );
+    let late = PolicySnapshot {
+        latest_pure_block: Some(endpoint(5)),
+        ..snapshot(6)
+    };
+    assert!(
+        state
+            .evaluate(&cfg, late)
+            .unwrap()
+            .reasons
+            .contains(DueReasons::PURE_ALWAYS)
+    );
+    let before = state.clone();
+    let invalid = SchedulingSnapshot {
+        effective_blobs: 0,
+        ..scheduling(late)
+    };
+    assert!(state.preparation_reasons(&cfg, invalid).is_err());
+    assert_eq!(state, before);
+}
+
 fn byte_summary(size: usize) -> eez_payload_codec::v0::PayloadSizer {
     eez_payload_codec::v0::PayloadSizer::run(&eez_payload_codec::v0::BlockRun {
         blocks: 1,

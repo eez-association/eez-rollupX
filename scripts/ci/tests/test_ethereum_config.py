@@ -49,6 +49,21 @@ class EthereumConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)["services"]
 
+    def test_position_mode_reaches_node_without_masking_conflicts(self):
+        key = "EEZ_SETTLEMENT_START_AFTER_BLOCK"
+        for value in (None, "3", "", "0", "invalid"):
+            with self.subTest(value=value):
+                services = self.services({} if value is None else {key: value})
+                self.assertEqual(services["eez-node"]["environment"].get(key), value)
+                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+                self.assertEqual(services["eez-node"]["environment"]["EEZ_PREPARATION_TIME_MS"], "1000")
+        env_file = self.repo / ".env"
+        env_file.write_text(env_file.read_text().replace("EEZ_PREPARATION_TIME_MS=1000\n", "")
+                            + "\nEEZ_SETTLEMENT_START_AFTER_BLOCK=2\n")
+        node = self.services({key: "3"})["eez-node"]["environment"]
+        self.assertEqual(node[key], "3")
+        self.assertIsNone(node.get("EEZ_PREPARATION_TIME_MS"))
+
     def test_example_selects_mainnet_for_every_service(self):
         services = self.services()
         node = services["eez-node"]["environment"]

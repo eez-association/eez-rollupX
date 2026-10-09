@@ -2,11 +2,11 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Draft, ready for implementation review after three Claude review rounds; no remaining design blockers identified. Implementation, validation and rollout remain unperformed and are not authorized by this document. |
+| Design status | Implementation draft in PR #79, authorized separately by the user. First-release scope implemented behind an opt-in setting; validation is in progress. Not accepted for production rollout. |
 | Date | 2026-10-09 |
 | Source baseline | `eduadiez/rollupX`, branch `feat/composer-wallet-gas-estimation`, `6b1e281a418f845605744c09a6bc9e8782eb6b61`. Existing unrelated Compose edits and operator artifacts are excluded. |
 | Protocol baseline | `855fe0602484750861b4c31502a1a91355d33ed6`; initialized, without protocol edits. |
-| Draft PR base | `main` at `4c4fec08d8a713497e1c8fc23bc0cf6fe0273e0f`, protocol gitlink `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. The review above predates this base; revalidate affected source and protocol contracts before implementation. |
+| Implementation base | `main` at `4c4fec08d8a713497e1c8fc23bc0cf6fe0273e0f`, protocol gitlink `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. Pinned checkout initialized and affected contracts rechecked; no protocol edits. The three original design reviews predate this base. |
 | Related work | [Settlement contract](../configurable-settlement-policy.md), [RPC contract](../../crates/eez-control-rpc/SPEC.md), [skipped-slot recovery](skipped-slot-speculative-retry.md), [review record](../audits/2026-10-09-conditional-slot-production/README.md). |
 
 ## Problem and recommendation
@@ -66,13 +66,17 @@ arrival time. A delayed cutoff cannot reset the original submission deadline.
 
 The sequencer owns one in-memory decision keyed by exact target (including its
 L1 parent hash), reconciled generation and the cutoff block's hash. It does not
-create a second scheduler, durable reservations, or a new worker. The order is:
+create a second scheduler or durable reservations. Blocking policy reads use one
+bounded worker permit, retained until worker exit even if its caller times out. The order is:
 `recover_failed`, `prepare_next_slot` maintenance, authenticate the resulting
 parent/context, commit through the cutoff block when due, then decide through
 the sequencer's serialized path. A performed timed-out replacement requires a
 fresh preparation opportunity, still subject to final admission and deadline.
-Use a common helper from the tick and cutoff paths so event ordering cannot
-omit or duplicate the cutoff decision. A new canonical generation or local
+The cutoff event and ordinary ticks use the same decision helper after the
+committed P prefix. Ticks retry a cutoff that lacked reconciled evidence. A
+planner error or timeout selects paced fallback with existing Empty settlement
+maintenance; only a successful not-due result suppresses posting at K. Either
+ordering commits P once and obtains one valid decision. A new canonical generation or local
 branch replacement invalidates the old decision; all prepared blocks still pass
 the existing locked commit checks. Normal appends descending from the cutoff
 hash do not invalidate it. Catch-up remains bounded and uses the existing
@@ -95,7 +99,9 @@ bounded structural catch-up and defer cross-chain work to an eligible interval.
    Advance ordinary ticks through `K` only while a known target or one of the
    bounded (at most four) replacement targets exists; with no target, hold as
    today. Test this explicitly in G2; do not add a free-running L1-independent
-   production path.
+   production path. Publish an already armed replacement to ticks once its
+   preceding boundary time arrives, without waiting for its cutoff. Finish an
+   existing valid ordinary decision's boundary before using the next target.
 2. **Preparation selected:** promptly build any remaining ordinary positions,
    using the pool and existing DA admission, then invoke the existing Composer
    settlement path for position `K`. Do not wait for fresh pool arrivals between
@@ -119,8 +125,9 @@ receipt nor relay acceptance establishes canonical progress.
 Expose a side-effect-free Composer planning query over reconciled policy facts.
 Factor shared trigger arithmetic out of the existing policy module; do not call
 its state-mutating evaluator with a fabricated future block hash. The planner
-returns a bounded reason set and target/generation context, not a settlement
-attempt or drain owner. The real built candidate remains authoritative.
+records a bounded reason set and returns a preparation hint, not a settlement
+attempt or drain owner. The caller binds the result to target/generation context;
+the real built candidate remains authoritative.
 
 At the cutoff, consider included ordinary activity, thresholds at the target
 timestamp/height, finite uncovered drain work, fullness, effective signer window,
@@ -129,8 +136,9 @@ may justify one bounded admission opportunity; it is not evidence of executable
 cross-chain urgency. Do not duplicate cross-chain simulation in the planner.
 
 The cutoff is the actual serialized decision following position `P`, normally
-at its scheduled time; its finite queue snapshot is taken then. Work observed
-after that decision cannot change an ordinary decision for the interval. This
+at its scheduled time; the planner observes queue occupancy then. The existing
+finite admission snapshot is still taken by Composer after a preparation burst.
+Work observed after the decision cannot change a successful ordinary decision for the interval. This
 also specifies the late-head case without requiring durable arrival history.
 
 Conservative false positives are acceptable: a slot may burst and end empty
@@ -162,6 +170,10 @@ An explicit position conflicts with `EEZ_PREPARATION_TIME_MS`; fail startup with
 an actionable error. With the new setting absent, retain the legacy timing and
 production path for a migration release. Empty/invalid settings never silently
 select legacy mode. Log resolved mode, position, deadline margin and proof seed.
+
+Bound the preparation-hint wait by the smaller of one L2 interval and remaining
+deadline headroom. This bounds ordinary production delay without a new timer knob;
+a timed-out blocking worker still retains its single permit until it exits.
 
 Audit every consumer of `proof_window_open`, `future_count`, late-entry gates and
 replacement cutoffs: they must use the resolved schedule consistently. Selecting

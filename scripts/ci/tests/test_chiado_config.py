@@ -322,6 +322,26 @@ esac
                 self.assertEqual(actual["EEZ_PROOF_TIME_MS"], "750")
                 self.assertEqual(actual["EEZ_SUBMISSION_SLACK_MS"], "700")
 
+    def test_optional_position_preserves_absence_invalid_and_conflicting_inputs(self):
+        key = "EEZ_SETTLEMENT_START_AFTER_BLOCK"
+        for value in (None, "3", "", "0", "invalid"):
+            with self.subTest(value=value):
+                result = self.render({} if value is None else {key: value})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["eez-node"]["environment"].get(key), value)
+                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+                # Conflicts reach runtime validation; Compose must not choose a mode.
+                self.assertEqual(services["eez-node"]["environment"]["EEZ_PREPARATION_TIME_MS"], "500")
+        env_file = self.repo / ".env"
+        env_file.write_text(env_file.read_text().replace("EEZ_PREPARATION_TIME_MS=500\n", "")
+                            + "\nEEZ_SETTLEMENT_START_AFTER_BLOCK=2\n")
+        result = self.render({key: "3"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        self.assertEqual(node[key], "3")
+        self.assertIsNone(node.get("EEZ_PREPARATION_TIME_MS"))
+
     def test_proof_budget_profile_and_shell_override_reach_node(self):
         for value in ("750", "1000", "1500", "", "invalid"):
             with self.subTest(value=value):

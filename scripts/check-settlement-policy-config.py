@@ -18,6 +18,7 @@ def main():
         "EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
         "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "900000",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK": "2",
         "EEZ_SETTLEMENT_BLOB_FULLNESS_BPS": "1000",
         "EEZ_MAX_BLOBS_PER_BATCH": "2",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
@@ -43,6 +44,8 @@ def main():
             (root / "deployments.env").write_text("")
             example = repo / f".env.{profile}.example"
             fixture = example.read_text()
+            fixture = "\n".join(line for line in fixture.splitlines()
+                                if not line.startswith("EEZ_PREPARATION_TIME_MS="))
             fixture += "\n" + "\n".join(f"{key}={value}" for key, value in policy.items())
             # Required operator choice; the examples leave it empty on purpose.
             fixture += "\nEEZ_L2_FEE_RECIPIENT=0x0000000000000000000000000000000000000f00\n"
@@ -74,6 +77,7 @@ def main():
                 if node.get(key) != value
             }
             assert not mismatches, (profile, mismatches)
+            assert "EEZ_SETTLEMENT_START_AFTER_BLOCK" not in services["eez-proof-signer"]["environment"]
             assert node.get("EEZ_MAX_BLOCKS_PER_BATCH") is None, profile
             assert node.get("EEZ_MAX_POSTBATCH_GAS") is None, profile
             assert node["EEZ_MAX_SPECULATIVE_DEPTH"] == "0", profile

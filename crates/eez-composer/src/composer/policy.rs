@@ -122,6 +122,9 @@ pub(super) struct EnabledPolicy {
     pub config: PolicyConfig,
     pub max_blobs_per_batch: Option<u64>,
     rollups: HashMap<u64, Mutex<RollupPolicy>>,
+    /// A cancelled planning RPC must not accumulate detached ancestry workers.
+    /// Its owned permit stays with the blocking job until that job exits.
+    planning: Arc<tokio::sync::Semaphore>,
 }
 
 impl EnabledPolicy {
@@ -148,6 +151,7 @@ impl EnabledPolicy {
             config,
             max_blobs_per_batch,
             rollups: rollups.map(|id| (id, Mutex::default())).collect(),
+            planning: Arc::new(tokio::sync::Semaphore::new(1)),
         }
     }
 }
@@ -161,6 +165,127 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
+    pub(super) async fn plan_preparation(
+        &self,
+        rollup_id: u64,
+        parent: reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
+        target_height: u64,
+        target_timestamp: u64,
+        l1_parent: eez_l1::L1BlockRef,
+    ) -> Result<bool, PolicyError> {
+        let permit = Arc::clone(&self.inner.policy.planning)
+            .try_acquire_owned()
+            .map_err(|_| {
+                PolicyError::Unavailable("previous preparation planner still running".into())
+            })?;
+        let rollup = self
+            .inner
+            .rollups
+            .get(&rollup_id)
+            .ok_or_else(|| PolicyError::Unavailable("unknown planning rollup".into()))?;
+        let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
+        if snapshot.through != Some(l1_parent) {
+            return Err(PolicyError::Unavailable(
+                "preparation target parent is not reconciled".into(),
+            ));
+        }
+        let composer = Self {
+            inner: Arc::clone(&self.inner),
+        };
+        // Database reads and ordinary encoding stay off the async executor.
+        // The sequencer owns the wait; timeout leaves at most this one worker.
+        tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            let rollup = composer
+                .inner
+                .rollups
+                .get(&rollup_id)
+                .ok_or_else(|| PolicyError::Unavailable("unknown planning rollup".into()))?;
+            let policy = &composer.inner.policy;
+            let runtime = policy
+                .rollups
+                .get(&rollup_id)
+                .ok_or_else(|| PolicyError::Unavailable("unknown policy rollup".into()))?;
+            let blocks = target_height
+                .checked_sub(anchor.endpoint.number)
+                .ok_or(PolicyError::Arithmetic("planning target below anchor"))?;
+            if target_height <= parent.number() {
+                return Err(PolicyError::Unavailable(
+                    "planning terminal already built".into(),
+                ));
+            }
+            let window_limit_due = blocks
+                .checked_add(u64::from(composer.inner.emission.timing.k()))
+                .is_none_or(|n| n > composer.inner.emission.max_blocks);
+            let target = BundleTarget::Exact {
+                block: l1_parent
+                    .number
+                    .checked_add(1)
+                    .ok_or(PolicyError::Arithmetic("planning L1 target"))?,
+                timestamp: target_timestamp,
+            };
+            let effective_blobs = composer
+                .posting_blob_allowance(target, 0)
+                .map_err(PolicyError::Unavailable)? as u64;
+            let mut runtime = runtime.lock().unwrap();
+            let (latest_pure_block, estimated_stream_bytes) =
+                if blocks <= composer.inner.emission.max_blocks {
+                    composer.update_activity_index(
+                        rollup,
+                        &mut runtime,
+                        anchor.endpoint,
+                        eez_l1::L2Endpoint {
+                            number: parent.number(),
+                            hash: parent.hash(),
+                        },
+                    )?;
+                    (
+                        runtime.activity.latest_pure(),
+                        Some(runtime.activity.estimated_stream_bytes_with_overhead(
+                            &eez_payload_codec::v0::PayloadSizer::default(),
+                            DaOverhead::default(),
+                        )?),
+                    )
+                } else {
+                    // The exact window trigger already requires preparation. Do
+                    // not scan an unbounded outage backlog just to make that hint.
+                    (None, None)
+                };
+            let reasons = runtime.state.preparation_reasons(
+                &policy.config,
+                crate::settlement_policy::SchedulingSnapshot {
+                    anchor,
+                    target_l2_number: target_height,
+                    target_l1_timestamp: target_timestamp,
+                    latest_pure_block,
+                    estimated_stream_bytes,
+                    window_limit_due,
+                    effective_blobs,
+                    usable_bytes_per_blob: eez_blob_codec::DATA_BYTES_PER_BLOB as u64,
+                },
+            )?;
+            // Occupancy is only a bounded admission opportunity, never a
+            // declaration that a group is executable or canonically consumed.
+            let queue_hint =
+                !rollup.held_pool.is_empty() && rollup.optimistic.blocking_height().is_none();
+            let prepare = !reasons.is_empty() || queue_hint || runtime.predecessor.is_some();
+            if !rollup.l1_head.generation_is(snapshot.generation)
+                || composer.inner.committer.last_header().hash() != parent.hash()
+            {
+                return Err(PolicyError::Unavailable(
+                    "preparation context changed during planning".into(),
+                ));
+            }
+            event!(name: "eez.composer.slot.plan", Level::INFO,
+                event_name = "eez.composer.slot.plan", rollup_id, target_height,
+                target_timestamp, prepare, ?reasons, queue_hint,
+                "preparation hint; final admission and canonical settlement remain authoritative");
+            Ok(prepare)
+        })
+        .await
+        .map_err(|e| PolicyError::Unavailable(format!("preparation planner worker: {e}")))?
+    }
+
     /// Missing canonical registration/commitment evidence leaves readiness
     /// closed. The node retries through its existing boot reconciliation loop.
     pub async fn validate_settlement_policy_bootstrap(&self) -> Result<(), PolicyError> {
