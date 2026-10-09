@@ -183,6 +183,13 @@ where
             .rollups
             .get(&rollup_id)
             .ok_or_else(|| PolicyError::Unavailable("unknown planning rollup".into()))?;
+        if rollup.optimistic.blocking_height().is_some() {
+            // Preserve the existing Empty reconciliation/settlement opportunity,
+            // without bursting merely because blocked users remain queued.
+            return Err(PolicyError::Unavailable(
+                "settlement owner still blocks preparation".into(),
+            ));
+        }
         let (snapshot, anchor) = self.canonical_policy_anchor(rollup_id, rollup).await?;
         if snapshot.through != Some(l1_parent) {
             return Err(PolicyError::Unavailable(

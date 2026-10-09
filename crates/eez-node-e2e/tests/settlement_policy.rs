@@ -33,7 +33,9 @@ async fn conditional_position_paces_late_pool_transactions_and_replays() {
             .into_iter()
             .rev()
             .find_map(|signal| {
-                if signal.name != "eez.sequencer.slot.decision" || signal.fields["prepare"] != false
+                if signal.name != "eez.sequencer.slot.decision"
+                    || signal.fields["prepare"] != false
+                    || signal.fields["skip_post"] != true
                 {
                     return None;
                 }
@@ -77,6 +79,14 @@ async fn conditional_position_paces_late_pool_transactions_and_replays() {
     assert!(
         boundary.transactions.is_empty(),
         "skipped checkpoint stays empty"
+    );
+    assert!(
+        world.node.signals_since(0).unwrap().iter().any(|signal| {
+            signal.name == "eez.composer.sync_slot.invoked"
+                && signal.fields["mode"] == "Ordinary"
+                && signal.fields["timestamp"] == boundary.header.timestamp
+        }),
+        "the successful ordinary decision must reach the non-posting Composer path"
     );
     let follower = NodeHandle::start(
         "conditional-position-follower",

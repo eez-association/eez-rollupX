@@ -553,6 +553,65 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn replacement_trigger_preserves_an_unfinished_ordinary_checkpoint() {
+        let now = crate::slot::now_unix_millis() / 1000;
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            number: 2,
+            timestamp: now - 10,
+            ..Default::default()
+        });
+        let l1_head = test_seed_head(&parent);
+        let l1_parent = eez_l1::L1BlockRef {
+            number: 7,
+            hash: B256::repeat_byte(7),
+        };
+        l1_head.mark_scanned(
+            l1_parent,
+            eez_l1::L2Endpoint {
+                number: 0,
+                hash: B256::ZERO,
+            },
+        );
+        let decision = SlotDecision {
+            target: 5,
+            l1_parent,
+            tip: parent.hash(),
+            generation: l1_head.policy_anchor_snapshot().generation,
+            skip_post: true,
+        };
+        let (committer, _) = crate::block_committer::test_committer(parent);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let (_, receiver) = mpsc::channel(1);
+        let mut sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100).with_start_after_block(2),
+            1,
+            Arc::new(PolicyComposer {
+                result: "empty",
+                calls: calls.clone(),
+                ..Default::default()
+            }),
+            0,
+            l1_head,
+        );
+        // An authenticated earlier decision survived while ordinary ticks were delayed.
+        sequencer.slot_decision = Some(decision);
+        sequencer
+            .advance_position_slot(10, now - 2, l1_parent)
+            .await
+            .unwrap();
+        assert_eq!(committer.last_header().number(), 7);
+        assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Ordinary]);
+        assert_eq!(sequencer.slot_decision.unwrap().target, 10);
+        assert!(
+            !sequencer.slot_decision.unwrap().skip_post,
+            "expired replacement retains recovery posting"
+        );
+    }
+
     fn test_seed_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
         use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
         let timestamp = parent.timestamp.checked_sub(parent.number).unwrap();
@@ -1147,7 +1206,16 @@ where
         {
             return Ok(());
         }
-        self.slot_decision = None;
+        // A replacement trigger can arrive before ticks finish the previous
+        // interval. Retain its authenticated non-posting checkpoint through
+        // catch-up; normal appends advance its tip until that boundary commits.
+        if !self.slot_decision.is_some_and(|decision| {
+            decision.target < target
+                && parent.number() < decision.target
+                && decision.matches(decision.target, parent.hash(), snapshot)
+        }) {
+            self.slot_decision = None;
+        }
         let cutoff = target.saturating_sub(u64::from(self.timing.future_count()) + 1);
         for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {
             let parent = self.committer.last_header();

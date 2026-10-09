@@ -31,7 +31,7 @@ were never upgraded to bypass failures.
 | Check | Result |
 | --- | --- |
 | `cargo +1.95.0 check --locked -p eez-driver -p eez-composer -j 4` | Passed initial implementation build. |
-| `cargo +1.95.0 test --locked -p eez-driver -p eez-composer --lib -j 4` | Initial run: 317 Composer + 69 driver tests passed, none ignored. |
+| `cargo +1.95.0 test --locked -p eez-driver -p eez-composer --lib -j 4` | Initial run: 316 Composer + 69 driver tests passed; the manual `held_pool::tests::profile_blocked_backlog_discovery` timing profile was ignored. First review-correction rerun: 316 Composer + 70 driver passed, same exclusion. |
 | `python3 -m unittest discover -s scripts/ci/tests -p 'test_chiado_config.py' -v` | 17 passed after correcting the newly added test fixture; see first failures below. |
 | Corresponding `test_ethereum_config.py` suite | 9 passed. |
 | Corresponding `test_kurtosis_ci.py` suite | 17 passed, 1 explicitly skipped real-Kurtosis probe (not enabled). |
@@ -47,6 +47,15 @@ These were deterministic test-fixture errors, not runtime passes on retry.
 The first workspace Clippy run rejected an unchecked Duration subtraction in
 the new startup check. It was changed to saturating subtraction, without an
 allow-list exception; timing validation still rejects invalid positions first.
+The next lint pass identified a large by-value test-helper argument; it now
+borrows the policy snapshot instead.
+
+The first focused process-test attempt built the node test binary but failed
+before starting any chain: the sandbox denied binding its HTTP reservation
+(`crates/eez-testkit/src/ports.rs:79`, `Operation not permitted`). This is not
+runtime evidence for or against the scheduler. The rerun requests isolated
+local socket access and retains test logs/datadirs under
+`artifacts/conditional-slot/` (local-only, not published evidence).
 
 ## Implementation review iteration
 
@@ -69,6 +78,31 @@ on absence of a blocking owner, revalidate decision context before Steady
 composition, refresh tick phase from wall time, and document admission snapshot
 timing. Regressions now assert recovery from scan lag/generation changes instead
 of accepting a frozen interval. Follow-up review and rerun results follow below.
+
+The second implementation review confirmed the main fixes and identified a
+newer SyncSlot clearing an unfinished older ordinary decision. The trigger now
+preserves that decision through catch-up; a dedicated regression covers it.
+A remaining optimistic blocking owner explicitly selects paced recovery rather
+than the non-posting Ordinary path. A same-branch canonical scan generation
+change intentionally invalidates the hint and permits fresh recovery policy
+evaluation; strict no-post suppression is guaranteed only in the decision's
+unchanged context.
+
+The suggested additional `max_blocks <= max_speculative_depth` restriction is
+not adopted: existing policy configuration already requires depth zero or
+`D >= N + K - 1`, while GENERAL fires at the first boundary at/after N regardless
+of the signer window M. That boundary is at most N+K-1 blocks from the settled
+anchor and therefore reachable. A regression covers N, offset residues and
+M=D/D+1/D+K-1. A final focused review checks this reasoning and the corrections.
+
+The third focused implementation review completed successfully with the same
+read-only Claude model. It confirmed the GENERAL/depth argument and the
+blocked-owner recovery behavior; process and load scenarios remain release gates.
+All three implementation reviews reported no permission denials and made no edits.
+
+Final focused package rerun after the corrections: **317 Composer + 71 driver
+tests passed**, with the same one manual component-profile exclusion. All three
+configuration/tooling selections and Compose propagation passed again.
 
 The original empty-suffix behavior was traced in source at both design and PR
 baselines; no matched baseline/candidate runtime or performance comparison has

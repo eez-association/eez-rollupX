@@ -664,8 +664,8 @@ projected boundary height/time, known activity/fullness, window pressure, retain
 drain/predecessor work and held cross-chain queue occupancy. Occupancy is not proof
 that a request is eligible. Final policy, fees, admission, proofs and submission
 still decide whether to post. No fake future block hash is supplied to policy.
-Planning does not create/extend a drain or consume queued requests. The queue hint
-is suppressed while an optimistic owner blocks new admission; final selection
+Planning does not create/extend a drain or consume queued requests. A blocking
+optimistic owner selects paced recovery/Empty maintenance instead; final selection
 still takes its finite request snapshot after the burst. Its database
 work runs on a blocking worker with a single shared permit retained until exit,
 including after the waiting cutoff times out. The wait is capped at one L2
@@ -689,6 +689,8 @@ The cutoff decision belongs to one exact known L1 parent, target, reconciled
 generation and local branch. Late requests or newly crossed policy thresholds do
 not reopen an ordinary decision; they wait for the next eligible cutoff. Stale or
 unavailable evidence does not authorize a burst or bypass empty-block validation.
+A new canonical scan generation invalidates the hint even on a same-branch L1
+extension; fresh recovery may reevaluate settlement at the missing boundary.
 The existing bounded catch-up, speculative-depth limits and maximum four skipped
 slot replacements still apply; there is no L1-independent sequencing mode.
 Armed bounded replacements supply the next paced prefix after its preceding

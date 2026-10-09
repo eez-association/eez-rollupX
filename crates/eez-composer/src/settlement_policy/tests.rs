@@ -1,6 +1,6 @@
 use super::*;
 
-fn scheduling(input: PolicySnapshot) -> SchedulingSnapshot {
+fn scheduling(input: &PolicySnapshot) -> SchedulingSnapshot {
     SchedulingSnapshot {
         anchor: input.anchor,
         target_l2_number: input.candidate.number,
@@ -55,7 +55,7 @@ fn scheduling_shares_final_triggers_without_creating_or_extending_drain() {
     ] {
         let mut state = PolicyState::default();
         let before = state.clone();
-        let planned = state.preparation_reasons(&cfg, scheduling(input)).unwrap();
+        let planned = state.preparation_reasons(&cfg, scheduling(&input)).unwrap();
         assert!(planned.contains(reason), "{planned:?}");
         assert_eq!(state, before);
         assert_eq!(planned, state.evaluate(&cfg, input).unwrap().reasons);
@@ -67,7 +67,7 @@ fn scheduling_shares_final_triggers_without_creating_or_extending_drain() {
         };
         assert!(
             state
-                .preparation_reasons(&config(Some(999_000), 999, None), scheduling(later))
+                .preparation_reasons(&config(Some(999_000), 999, None), scheduling(&later))
                 .unwrap()
                 .contains(DueReasons::DRAIN)
         );
@@ -81,7 +81,7 @@ fn first_late_activity_can_change_final_due_without_mutating_the_earlier_hint() 
     let cfg = config(None, 100, None);
     assert!(
         state
-            .preparation_reasons(&cfg, scheduling(snapshot(6)))
+            .preparation_reasons(&cfg, scheduling(&snapshot(6)))
             .unwrap()
             .is_empty()
     );
@@ -99,10 +99,42 @@ fn first_late_activity_can_change_final_due_without_mutating_the_earlier_hint() 
     let before = state.clone();
     let invalid = SchedulingSnapshot {
         effective_blobs: 0,
-        ..scheduling(late)
+        ..scheduling(&late)
     };
     assert!(state.preparation_reasons(&cfg, invalid).is_err());
     assert_eq!(state, before);
+}
+
+#[test]
+fn general_trigger_precedes_the_depth_cap_even_when_signer_window_is_larger() {
+    for k in [2_u64, 5, 6] {
+        for n in 1..=3 * k {
+            let depth = n + k - 1; // Existing mandatory configuration lower bound.
+            let mut cfg = config(Some(999_000), n, None);
+            cfg.max_speculative_depth = depth;
+            for residue in 0..k {
+                let anchor = endpoint(residue);
+                let target = residue + n.div_ceil(k) * k;
+                assert!(target - anchor.number <= depth);
+                for maximum in [depth, depth + 1, depth + k - 1] {
+                    let mut input = snapshot(target);
+                    input.anchor.endpoint = anchor;
+                    input.window_limit_due = target - anchor.number + k > maximum;
+                    let mut state = PolicyState::default();
+                    let reasons = state.preparation_reasons(&cfg, scheduling(&input)).unwrap();
+                    assert!(reasons.contains(DueReasons::GENERAL));
+                    assert!(state.drain().is_none());
+                    assert!(
+                        state
+                            .evaluate(&cfg, input)
+                            .unwrap()
+                            .reasons
+                            .contains(DueReasons::GENERAL)
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn byte_summary(size: usize) -> eez_payload_codec::v0::PayloadSizer {
