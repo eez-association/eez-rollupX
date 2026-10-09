@@ -63,13 +63,14 @@ are pinned at their exact FIFO positions relative to mutable entries.
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
 reentrant calls alternating between L1 and that L2, flat multi-root outbound
-transactions, terminal failed top-level calls, terminal static calls with no
-descendants, and terminal failed nested rows with no descendants. Calls
-rolled back inside a recovered source-chain frame are represented by canonical,
-non-overlapping `revertNextNCalls` windows. It does not support failed or static
-calls with descendants, explicit call gas, overlapping or out-of-bounds
-rollback windows, L1 block
-binding, sender binding, other L2 targets, or multiple proof systems.
+transactions, terminal failed top-level calls, terminal static calls,
+successful top-level static reads whose only descendants are terminal,
+successful static callbacks to the reading chain, and terminal failed nested
+rows with no descendants. Calls rolled back inside a recovered source-chain
+frame are represented by canonical, non-overlapping `revertNextNCalls` windows.
+It does not support failed calls with descendants, any other static call with
+descendants, explicit call gas, overlapping or out-of-bounds rollback windows,
+L1 block binding, sender binding, other L2 targets, or multiple proof systems.
 
 No failed stage may produce a signature. A successful signature authorizes the
 locally recomputed public-input hash only under all rules in this document.
@@ -88,6 +89,10 @@ The signature does **not** establish:
 - future canonicality, finality, or sequencer authorization;
 - future on-chain applicability of a root update;
 - successful future execution of an L1 target call;
+- the results of an L1-origin static read's callbacks to L1. Replay answers
+  them with their claimed results (section 11); L1 executes them when it
+  resolves the static entry and rejects results that differ from the entry's
+  static rolling hash;
 - proof-system registration, threshold configuration, or verification-key
   equality in the deployed rollup manager;
 - code identity at the fixed EEZL2 address;
@@ -717,8 +722,9 @@ successful. A lookup MAY report failure only as a terminal top-level call
 without nested rows. A nested row MAY fail only when its call sub-array is empty and its
 `revertedOrStaticRollingHash` is nonzero; successful rows MUST have a zero
 reverted hash. Every flat call, including calls in row sub-arrays, MUST have
-`gas == 0`. A static call MUST carry zero value and no revert span, and its
-complementary semantic call MUST have no descendants. A mutable call MAY start
+`gas == 0`. A static call MUST carry zero value and no revert span. A static
+call nested in a mutable call MUST have no semantic descendants; a top-level
+static read MAY have the static callbacks described in sections 10 and 11. A mutable call MAY start
 a rollback window by setting `revertNextNCalls` to the number of consecutive
 calls in that window, including itself. The window MUST fit in its current call
 array and no later call inside it may start another window.
@@ -849,8 +855,21 @@ The load serializes mutable sources first, then static sources. Verification
 MUST traverse the host's original call order, advancing the mutable cursor only
 for mutable roots and matching static roots against their static source order.
 Every source row MUST be accounted for exactly. Static sources use the native
-L2 ABI (without L1 routing or root-pin fields) and MUST have zero rolling hash and
-no descendants. Each `expectedEntryIndex` MUST equal the mutable
+L2 ABI (without L1 routing or root-pin fields). A static source MAY carry
+`incomingCalls`: the callbacks to L2 made by the L1 target of the read. Each
+MUST be static, with zero value, zero gas and no revert span, and a source
+without callbacks MUST have a zero rolling hash. While verifying the static
+root, each callback MUST resolve the host's next row, whose position key is
+the callback's hash and the host rolling hash after the root's `CALL_BEGIN`
+(static rows do not advance it). That row MUST be successful, with no
+sub-calls and a zero reverted/static hash, and the untagged static fold of the
+rows' results MUST equal the source's `rollingHash`. L2 executes the callbacks
+and checks that fold, so the values L1 returns are the values L2 computes.
+Repeated identical callbacks share one position key, and L1 resolves each repeat
+to the first matching row without advancing its cursor, so their rows MUST carry
+the same result. In a
+group containing static sources, host rows are allowed only for these
+callbacks. Each `expectedEntryIndex` MUST equal the mutable
 cursor independently reconstructed at that root in the host's call order. The
 complete `(expectedEntryIndex, proxyEntryHash)` lookup key MUST have identical
 success and return bytes wherever repeated. Different positions MAY carry
@@ -905,6 +924,18 @@ binaries until a separately validated migration exists. Do not mix old and new
 signers/replaying nodes, or downgrade after new-format history. Pending requests
 remain in memory and restart may require resubmission. This port does not change
 retry attribution, queue ownership or scheduling.
+
+### Static-callback compatibility
+
+Validator revision v8 accepts top-level static reads with static callbacks
+(sections 10 and 11). It changes no contract, wire field, DA encoding or
+storage, and historical blobs decode and replay unchanged. Peers before v8
+reject these reads: an older Composer refuses them at admission, and an older
+Signer or follower rejects a batch or blob that contains one. The revision bump
+makes a v7/v8 Composer–Signer pair fail the identity check at startup instead.
+Upgrade followers no later than the Composer and Signer, which upgrade
+together. Downgrading after a static callback has settled leaves the older
+followers unable to replay that history.
 
 Upstream prose in `STATIC_ENTRY.md` and parts of the core specification still
 describes hash-only matching; pinned `IEEZL2.sol`, `EEZL2.sol` and
@@ -1009,7 +1040,15 @@ sidecars MUST likewise reproduce every authorized inbound delivery, with no
 extra or foreign-chain target. Top-level L1 static transactions have no mutable
 L2 delivery; their materialized L1 static-pool entries receive only the
 independently validated FIFO-position root pins and MUST byte-for-byte reproduce
-`postBatch.staticEntries`.
+`postBatch.staticEntries`, including the `l2ToL1Calls` and untagged rolling hash
+of any static callbacks to L1. Replay of such a read executes its L2 target at
+the pinned prefix and answers each authorized-proxy dispatch only if it is the
+next semantic callback, with the same caller, target and calldata, in a static
+frame, with zero value. It returns the callback's claimed output without
+charging gas, as live simulation does. Any other dispatch, or a callback that is
+never made, rejects the request. The callback results themselves are enforced
+on L1 (section 1.1). A lookup-only mutable action with a semantic descendant
+remains unsupported.
 
 For each L1-origin semantic transaction, top-level source actions are projected
 in their original order. A successful mutable action advances the live root to

@@ -7,10 +7,11 @@ use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
 use eez_protocol::EEZL2_ADDRESS;
 use eez_testkit::signals;
 use eez_testkit::{
-    ANVIL_ATTESTER_KEY, CrossChainOverlayRoundTripWorld, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall,
-    INBOUND_USER, INestedSetterInner, INestedSetterOuter, IOverlayDriverL1, IOverlayProbeL2,
-    IReturnData, IReturnDataWrapper, IRevertBubbleWrapper, IRevertingTarget, ISetterWrapper,
-    IValue, IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, POST_BATCHER_ENV, ProverMutation,
+    ANVIL_ATTESTER_KEY, CrossChainOverlayRoundTripWorld, CrossChainStaticRoundTripWorld,
+    CrossChainWorld, DEV_CHAIN_ID, IEEZL2Direct, IEmptyCall, INBOUND_USER, INestedSetterInner,
+    INestedSetterOuter, IOverlayDriverL1, IOverlayProbeL2, IReturnData, IReturnDataWrapper,
+    IRevertBubbleWrapper, IRevertingTarget, ISetterWrapper, IStaticRoundTripReader, IValue,
+    IValueNoRet, L1_ROLLUP_ID, OUTBOUND_USER, POST_BATCHER_ENV, ProverMutation,
     REJECTING_BUILDER_ENV, SETTLE_TIMEOUT, Scenario, ScenarioCall, StateRead, TARGET_DEPLOYER,
     account_code, assert_latest_batch_signature, batches_posted, call_read, call_revert_data,
     count_events, cross_chain_source_proxy, deploy_nested_setter_inner, deploy_nested_setter_outer,
@@ -19,8 +20,8 @@ use eez_testkit::{
     setup_cross_chain_codeless, setup_cross_chain_empty_call, setup_cross_chain_nested_setter,
     setup_cross_chain_outbound_return_data, setup_cross_chain_overlay_round_trip,
     setup_cross_chain_proxied, setup_cross_chain_return_data, setup_cross_chain_reverting,
-    setup_cross_chain_with_env, sign_and_send, signer_address, state_root, value_no_ret,
-    value_read, wait_for, wait_for_receipt_or_failure,
+    setup_cross_chain_static_round_trip, setup_cross_chain_with_env, sign_and_send, signer_address,
+    state_root, value_no_ret, value_read, wait_for, wait_for_receipt_or_failure,
 };
 
 const WAVE_SETTERS: &[u64] = &[7, 11, 17];
@@ -1843,9 +1844,6 @@ async fn outbound_changing_static_reads_and_write_settle_and_replay() {
 }
 
 async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
-    use alloy_rpc_types_eth::BlockNumberOrTag;
-    use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
-
     let w = setup_cross_chain().await.unwrap();
     let expected_sum = if changing { 168u64 } else { 66u64 };
     Scenario::new("two static reads, mutable write, two static reads")
@@ -1882,13 +1880,37 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
         .run(&w)
         .await
         .unwrap();
-    // Reconstruct from canonical L1/blob data with no Composer proposal state.
+    assert_follower_replays(
+        &w,
+        "mixed-outbound-follower",
+        &call_read(
+            w.outbound_wrapper,
+            "mixedReadSum()",
+            ISetterWrapper::mixedReadSumCall {}.abi_encode(),
+        ),
+        U256::from(expected_sum),
+    )
+    .await;
+}
+
+/// Start a follower from canonical L1/blob data, with no Composer proposal
+/// state, and require it to reach the node's safe head and derive `expected`
+/// for the L2 `read`.
+async fn assert_follower_replays(
+    w: &CrossChainWorld,
+    name: &str,
+    read: &StateRead,
+    expected: U256,
+) {
+    use alloy_rpc_types_eth::BlockNumberOrTag;
+    use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, block_number_and_hash_at};
+
     let target = block_number_and_hash_at(&w.l2_rpc(), BlockNumberOrTag::Safe)
         .await
         .unwrap()
         .unwrap();
     let follower = NodeHandle::start(
-        "mixed-outbound-follower",
+        name,
         &NodeConfig {
             binary: NodeBinary::Follower,
             genesis_path: Some(&w.cfg.l2_genesis.0),
@@ -1897,7 +1919,7 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
     )
     .await
     .unwrap();
-    let replayed_sum = wait_for(SETTLE_TIMEOUT, || async {
+    let replayed = wait_for(SETTLE_TIMEOUT, || async {
         let actual =
             block_number_and_hash_at(&follower.l2_rpc_url(), BlockNumberOrTag::Number(target.0))
                 .await?;
@@ -1907,27 +1929,160 @@ async fn assert_mixed_static_reads_and_write_settle(changing: bool) {
         }
         // Replayed blocks can be visible before startup finishes validating L1
         // history. Pending eth_call remains gated until that validation completes.
-        read_state_word(
-            &follower.l2_rpc_url(),
-            &call_read(
-                w.outbound_wrapper,
-                "mixedReadSum()",
-                ISetterWrapper::mixedReadSumCall {}.abi_encode(),
-            ),
-        )
-        .await
-        .map(Some)
+        read_state_word(&follower.l2_rpc_url(), read)
+            .await
+            .map(Some)
     })
     .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "mixed-group follower failed: {error:#}\n{}",
-            follower.log_tail(60)
-        )
-    });
-    assert_eq!(replayed_sum, U256::from(expected_sum));
+    .unwrap_or_else(|error| panic!("{name} failed: {error:#}\n{}", follower.log_tail(60)));
+    assert_eq!(replayed, expected);
     follower.assert_no_divergence_failure_logs();
     w.node.assert_no_divergence_failure_logs();
+}
+
+const STATIC_ROUND_TRIP_GAS: u64 = 1_000_000;
+
+fn static_reader_state(w: &CrossChainStaticRoundTripWorld) -> (StateRead, StateRead) {
+    (
+        call_read(
+            w.reader,
+            "lastRead()",
+            IStaticRoundTripReader::lastReadCall {}.abi_encode(),
+        ),
+        call_read(
+            w.reader,
+            "reads()",
+            IStaticRoundTripReader::readsCall {}.abi_encode(),
+        ),
+    )
+}
+
+/// A top-level static read whose remote target makes one static callback to
+/// the reader's chain settles as one static entry carrying that callback. The
+/// reader's own write records the round-trip result, and a follower replays
+/// the settled chain.
+async fn assert_static_round_trip_settles(inbound: bool) {
+    let w = setup_cross_chain_static_round_trip(inbound, true)
+        .await
+        .unwrap();
+    let (last_read, reads) = static_reader_state(&w);
+    let call = ScenarioCall::new(w.reader, IStaticRoundTripReader::readCall {}.abi_encode())
+        .with_gas_limit(STATIC_ROUND_TRIP_GAS);
+    let scenario = if inbound {
+        Scenario::new("L1 static read with a static L1 callback")
+            .inbound(call)
+            .expect_l1_state(last_read, 1u64)
+            .expect_l1_state(reads, 1u64)
+    } else {
+        Scenario::new("L2 static read with a static L2 callback")
+            .outbound(call)
+            .expect_l2_state(last_read, 1u64)
+            .expect_l2_state(reads, 1u64)
+    };
+    scenario.expect_settled_fully().run(&w).await.unwrap();
+
+    // An L1 read is a lookup that changes no L2 state, so the follower reads
+    // an immutable of the L2 forwarder. An L2 read is replayed by its result.
+    let (replay_read, expected) = if inbound {
+        (
+            call_read(
+                w.forwarder,
+                "callback()",
+                keccak256("callback()")[..4].to_vec(),
+            ),
+            U256::from_be_slice(w.callback.as_slice()),
+        )
+    } else {
+        (static_reader_state(&w).0, U256::from(1))
+    };
+    assert_follower_replays(&w, "static-round-trip-follower", &replay_read, expected).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_static_read_with_static_callback_settles() {
+    assert_static_round_trip_settles(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_static_read_with_static_callback_settles_and_replays() {
+    assert_static_round_trip_settles(false).await;
+}
+
+/// A static read whose callback source proxy is not deployed on the reading
+/// chain would revert on chain: the protocol cannot create the proxy inside
+/// the read's static frame. Simulation alone would answer the callback, so the
+/// Composer must reject the transaction at admission and name the proxy.
+async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bool) {
+    let w = setup_cross_chain_static_round_trip(inbound, false)
+        .await
+        .unwrap();
+    let source_rpc = if inbound { w.l1_rpc() } else { w.l2_rpc() };
+    assert!(
+        account_code(&source_rpc, w.callback_source_proxy)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the fixture must leave the callback source proxy undeployed"
+    );
+    let (front, key, chain_id) = if inbound {
+        (w.l1_xchain(), INBOUND_USER, DEV_CHAIN_ID)
+    } else {
+        (w.l2_xchain(), OUTBOUND_USER, w.l2_chain_id)
+    };
+    let nonce = onchain_nonce(&source_rpc, key).await.unwrap();
+    let hash = sign_and_send(
+        &front,
+        key,
+        chain_id,
+        nonce,
+        Some(w.reader),
+        U256::ZERO,
+        IStaticRoundTripReader::readCall {}.abi_encode(),
+        STATIC_ROUND_TRIP_GAS,
+    )
+    .await
+    .unwrap();
+    let outcome = wait_for_receipt_or_failure(&w.node, &source_rpc, hash, SETTLE_TIMEOUT).await;
+    assert!(
+        outcome.is_err(),
+        "a read whose callback proxy is missing must not be included: {outcome:?}"
+    );
+
+    let status: serde_json::Value = ProviderBuilder::new()
+        .connect_http(w.l2_rpc().parse().unwrap())
+        .client()
+        .request("eez_getCrossChainTransaction", (hash,))
+        .await
+        .unwrap();
+    assert_eq!(
+        status["ownership"]["reason"], "SimulationFailed",
+        "{status}"
+    );
+    let expected = format!(
+        "static callback source proxy {} is not deployed",
+        w.callback_source_proxy
+    );
+    assert!(
+        status["ownership"]["rejection"]["error"]
+            .as_str()
+            .is_some_and(|error| error.contains(&expected)),
+        "{status}"
+    );
+    let (_, reads) = static_reader_state(&w);
+    assert_eq!(
+        read_state_word(&source_rpc, &reads).await.unwrap(),
+        U256::ZERO
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inbound_static_read_without_callback_proxy_is_rejected() {
+    assert_static_round_trip_without_callback_proxy_is_rejected(true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn outbound_static_read_without_callback_proxy_is_rejected() {
+    assert_static_round_trip_without_callback_proxy_is_rejected(false).await;
 }
 
 /// Wallets obtain the source gas limit before they have a signed envelope.

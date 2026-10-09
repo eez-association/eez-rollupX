@@ -158,6 +158,19 @@ pub enum ExecutorErrorKind {
         /// Requested target rollup.
         target: crate::rollup_id::RollupId,
     },
+    /// A static read's callback would run through a source proxy that is not
+    /// deployed on the reading chain. The protocol cannot create the proxy
+    /// inside the read's static frame, so on chain the read would revert with
+    /// `StaticCallProxyNotDeployed`, while simulation would answer it.
+    #[error(
+        "static callback source proxy {proxy} is not deployed on chain {chain_id}; it must exist before the read"
+    )]
+    StaticCallbackProxyMissing {
+        /// The undeployed source proxy.
+        proxy: alloy_primitives::Address,
+        /// The chain that would dispatch the callback.
+        chain_id: u64,
+    },
 }
 
 /// Conditions that can change without changing a signed source transaction.

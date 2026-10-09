@@ -4,8 +4,9 @@
 //! calls. Source-chain rollback regions are retained and lowered to canonical
 //! `revertNextNCalls` windows, and a terminal failed nested row is represented
 //! by its reverted rolling hash. Read-only roots and terminal read-only nested
-//! calls are represented by the protocol's static-entry pool / unified rows.
-//! Explicit call gas, static calls with descendants, and failed mutable calls
+//! calls are represented by the protocol's static-entry pool / unified rows; a
+//! read-only root may carry terminal static callbacks to its own chain.
+//! Explicit call gas, other static calls with descendants, and failed calls
 //! with descendants remain fail-closed.
 
 mod inbound;
@@ -70,15 +71,7 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
                 )
                 .into());
             }
-            if calls
-                .iter()
-                .any(|candidate| candidate.parent_index == Some(index))
-            {
-                return Err(crate::ProtocolErrorKind::Unsupported(
-                    "static cross-chain calls with descendants are not supported",
-                )
-                .into());
-            }
+            check_static_callbacks(calls, index)?;
         }
         if !call.outcome.is_success()
             && calls
@@ -87,6 +80,63 @@ pub(crate) fn ensure_materializable_calls(calls: &[ExecutedAction]) -> ProtocolR
         {
             return Err(crate::ProtocolErrorKind::Unsupported(
                 "unsuccessful cross-chain calls with descendants are not supported",
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Accept the descendants of static call `index` only in the shape both
+/// managers can resolve: a successful top-level static read whose children are
+/// terminal, successful static callbacks to the read's source chain.
+///
+/// The callbacks run from the read's static entry (`l2ToL1Calls` on L1,
+/// `incomingCalls` on L2) under one untagged result fold. The protocol keeps
+/// no rows inside a static frame, so a callback cannot itself call out, and a
+/// failed callback would need a failed static row, which this profile does not
+/// emit.
+fn check_static_callbacks(calls: &[ExecutedAction], index: usize) -> ProtocolResult<()> {
+    let read = &calls[index];
+    let mut callbacks = calls
+        .iter()
+        .enumerate()
+        .filter(|(_, candidate)| candidate.parent_index == Some(index))
+        .peekable();
+    if callbacks.peek().is_none() {
+        return Ok(());
+    }
+    if read.parent_index.is_some() {
+        return Err(crate::ProtocolErrorKind::Unsupported(
+            "nested static cross-chain calls with descendants are not supported",
+        )
+        .into());
+    }
+    for (callback_index, callback) in callbacks {
+        if callback.call_mode != CallMode::Static {
+            return Err(crate::ProtocolErrorKind::Unsupported(
+                "static cross-chain reads cannot make mutable callbacks",
+            )
+            .into());
+        }
+        if callback.target_rollup_id != read.source_rollup_id {
+            return Err(crate::ProtocolErrorKind::Unsupported(
+                "static cross-chain callbacks must return to the reading chain",
+            )
+            .into());
+        }
+        if !callback.outcome.is_success() {
+            return Err(crate::ProtocolErrorKind::Unsupported(
+                "failed static cross-chain callbacks are not supported",
+            )
+            .into());
+        }
+        if calls
+            .iter()
+            .any(|candidate| candidate.parent_index == Some(callback_index))
+        {
+            return Err(crate::ProtocolErrorKind::Unsupported(
+                "static cross-chain callbacks with descendants are not supported",
             )
             .into());
         }

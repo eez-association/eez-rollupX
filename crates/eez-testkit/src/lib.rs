@@ -3571,6 +3571,12 @@ sol! {
         function pings() external view returns (uint256);
         function deliverThenBurnAndPing(address probe, address driver, uint256 amount) external;
     }
+    #[sol(rpc)]
+    interface IStaticRoundTripReader {
+        function read() external returns (uint256);
+        function lastRead() external view returns (uint256);
+        function reads() external view returns (uint256);
+    }
     /// Derives the source proxy used on the destination chain.
     #[sol(rpc)]
     interface IProxyDerivation {
@@ -4789,6 +4795,36 @@ pub struct CrossChainOverlayRoundTripWorld {
 }
 
 impl std::ops::Deref for CrossChainOverlayRoundTripWorld {
+    type Target = CrossChainWorld;
+
+    fn deref(&self) -> &Self::Target {
+        &self.world
+    }
+}
+
+/// A top-level static read whose remote target makes one static callback to
+/// the reader's chain (the protocol's `topLevelStaticReentrantCounter` shape).
+///
+/// The reader and `Counter` live on the source chain; the forwarder and the
+/// callback helper live on the remote chain. `Counter` has been incremented
+/// once, so a correct round trip reads 1.
+pub struct CrossChainStaticRoundTripWorld {
+    pub world: CrossChainWorld,
+    /// `true` for an L1 reader (L1 → L2 → L1), `false` for an L2 reader.
+    pub inbound: bool,
+    /// `StaticRoundTripReader` on the source chain.
+    pub reader: Address,
+    /// `Counter` on the source chain.
+    pub counter: Address,
+    /// `StaticCountForwarder` on the remote chain.
+    pub forwarder: Address,
+    /// `StaticCountCallback` on the remote chain.
+    pub callback: Address,
+    /// The source chain's proxy for `callback`, which dispatches the callback.
+    pub callback_source_proxy: Address,
+}
+
+impl std::ops::Deref for CrossChainStaticRoundTripWorld {
     type Target = CrossChainWorld;
 
     fn deref(&self) -> &Self::Target {
@@ -6293,6 +6329,122 @@ pub async fn setup_cross_chain_overlay_round_trip() -> Result<CrossChainOverlayR
         probe_on_l1,
         driver,
         driver_on_l2,
+    })
+}
+
+/// Deploy the static round-trip fixture for an L1 (`inbound`) or L2 reader.
+///
+/// With `deploy_callback_source_proxy == false`, the source chain's proxy for
+/// the callback helper is left undeployed. The protocol cannot create it
+/// inside a static frame, so the read must be rejected at admission.
+pub async fn setup_cross_chain_static_round_trip(
+    inbound: bool,
+    deploy_callback_source_proxy: bool,
+) -> Result<CrossChainStaticRoundTripWorld> {
+    let world = setup_cross_chain().await?;
+    let l1_rpc = world.l1_rpc();
+    let l2_rpc = world.l2_rpc();
+    let eez = world.cfg.eez_address;
+    let l2_id = world.cfg.rollup_id;
+    let out = repo_root().join("contracts/out/StaticRoundTrip.sol");
+    let (source_rpc, source_chain_id, remote_rpc, remote_chain_id) = if inbound {
+        (
+            l1_rpc.clone(),
+            DEV_CHAIN_ID,
+            l2_rpc.clone(),
+            world.l2_chain_id,
+        )
+    } else {
+        (
+            l2_rpc.clone(),
+            world.l2_chain_id,
+            l1_rpc.clone(),
+            DEV_CHAIN_ID,
+        )
+    };
+    // A proxy on the source chain for an address on the remote chain, and
+    // the reverse.
+    let source_proxy_for = |remote: Address| {
+        let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
+        async move {
+            if inbound {
+                create_cross_chain_proxy(&l1_rpc, TARGET_DEPLOYER, eez, remote, l2_id).await
+            } else {
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, remote, L1_ROLLUP_ID).await
+            }
+        }
+    };
+    let remote_proxy_for = |source: Address| {
+        let (l1_rpc, l2_rpc) = (l1_rpc.clone(), l2_rpc.clone());
+        async move {
+            if inbound {
+                create_l2_cross_chain_proxy(&l2_rpc, TARGET_DEPLOYER, source, L1_ROLLUP_ID).await
+            } else {
+                create_cross_chain_proxy(&l1_rpc, TARGET_DEPLOYER, eez, source, l2_id).await
+            }
+        }
+    };
+
+    let counter = deploy_counter(&source_rpc, TARGET_DEPLOYER, source_chain_id).await?;
+    let nonce = onchain_nonce(&source_rpc, TARGET_DEPLOYER).await?;
+    let hash = sign_and_send(
+        &source_rpc,
+        TARGET_DEPLOYER,
+        source_chain_id,
+        nonce,
+        Some(counter),
+        U256::ZERO,
+        ICounter::incrementCall {}.abi_encode(),
+        200_000,
+    )
+    .await?;
+    wait_for_successful_receipt(&source_rpc, hash, "static round-trip counter increment").await?;
+
+    let counter_proxy = remote_proxy_for(counter).await?;
+    let callback = deploy_raw(
+        &remote_rpc,
+        TARGET_DEPLOYER,
+        remote_chain_id,
+        &out.join("StaticCountCallback.json"),
+        counter_proxy.abi_encode(),
+    )
+    .await?;
+    let forwarder = deploy_raw(
+        &remote_rpc,
+        TARGET_DEPLOYER,
+        remote_chain_id,
+        &out.join("StaticCountForwarder.json"),
+        callback.abi_encode(),
+    )
+    .await?;
+    let forwarder_proxy = source_proxy_for(forwarder).await?;
+    let callback_source_proxy = if deploy_callback_source_proxy {
+        source_proxy_for(callback).await?
+    } else {
+        let manager = if inbound { eez } else { EEZL2_ADDRESS };
+        let provider = ProviderBuilder::new().connect_http(source_rpc.parse()?);
+        IProxyDerivation::new(manager, &provider)
+            .computeCrossChainProxyAddress(callback, if inbound { l2_id } else { L1_ROLLUP_ID })
+            .call()
+            .await?
+    };
+    let reader = deploy_raw(
+        &source_rpc,
+        TARGET_DEPLOYER,
+        source_chain_id,
+        &out.join("StaticRoundTripReader.json"),
+        forwarder_proxy.abi_encode(),
+    )
+    .await?;
+
+    Ok(CrossChainStaticRoundTripWorld {
+        world,
+        inbound,
+        reader,
+        counter,
+        forwarder,
+        callback,
+        callback_source_proxy,
     })
 }
 
