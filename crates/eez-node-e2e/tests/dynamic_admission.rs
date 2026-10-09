@@ -1219,8 +1219,8 @@ async fn consecutive_exclusions(failures: u32) {
         })
         .await
         .unwrap();
-        let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-        let queue: serde_json::Value = l2
+        let composer = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
+        let queue: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainQueueStatus", ())
             .await
@@ -1414,8 +1414,9 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
         }
     };
     let warm = send(0).await;
+    let composer = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
     let warm_receipt = wait_for(TIMEOUT, || async {
-        let owner: serde_json::Value = l2
+        let owner: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainTransaction", (warm,))
             .await?;
@@ -1570,7 +1571,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     let mut settled_block = None;
     for hash in &hashes {
         let receipt = wait_for(TIMEOUT, || async {
-            let owner: serde_json::Value = l2
+            let owner: serde_json::Value = composer
                 .client()
                 .request("eez_getCrossChainTransaction", (*hash,))
                 .await?;
@@ -1598,7 +1599,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
                 );
             }
         }
-        let owner: serde_json::Value = l2
+        let owner: serde_json::Value = composer
             .client()
             .request("eez_getCrossChainTransaction", (*hash,))
             .await
@@ -1616,7 +1617,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             owner["ownership"]["canonical"]["hash"],
             serde_json::json!(anchor.header.hash)
         );
-        let settlement: serde_json::Value = l2
+        let settlement: serde_json::Value = composer
             .client()
             .request("eez_getSettlementByL2Block", (receipt.block_hash.unwrap(),))
             .await

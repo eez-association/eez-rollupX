@@ -8,11 +8,7 @@ use eez_deriver::{BatchCorrelation, CorrelationStore};
 use eez_l1::L1CanonicalHead;
 use jsonrpsee::core::server::RpcModule;
 use jsonrpsee::types::{ErrorObject, ErrorObjectOwned};
-use reth_node_api::FullNodeComponents;
-use reth_node_builder::rpc::RpcContext;
-use reth_rpc_eth_api::FullEthApiServer;
 use serde_json::{Value, json};
-use tracing::{Level, event};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BlockSelector {
@@ -22,27 +18,12 @@ enum BlockSelector {
 
 type RpcState = (Arc<CorrelationStore>, Arc<L1CanonicalHead>);
 
-/// Install both correlation directions on every configured L2 transport.
-pub fn install<Node, EthApi>(
-    ctx: RpcContext<'_, Node, EthApi>,
-    correlations: Arc<CorrelationStore>,
-    l1_head: Arc<L1CanonicalHead>,
-) -> eyre::Result<()>
-where
-    Node: FullNodeComponents,
-    EthApi: FullEthApiServer + Clone + Send + Sync + 'static,
-{
-    let module = module(correlations, l1_head)?;
-    ctx.modules.merge_configured(module)?;
-    event!(
-        name: "eez.node.correlation_rpc.installed",
-        Level::INFO,
-        "installed L1/L2 settlement correlation RPC methods",
-    );
-    Ok(())
-}
-
-fn module(
+/// Build both correlation directions for local dispatch on Composer fronts.
+/// Do not install this module on regular node or follower transports.
+///
+/// # Errors
+/// Returns an error if registering the RPC methods fails.
+pub fn module(
     correlations: Arc<CorrelationStore>,
     l1_head: Arc<L1CanonicalHead>,
 ) -> eyre::Result<RpcModule<RpcState>> {

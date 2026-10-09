@@ -11,7 +11,7 @@ use eez_driver::{BlockCommitterHandle, RollupTiming};
 use eez_l1::{L1CanonicalHead, L1Reader, L1ReaderConfig, L1Watcher, L1WatcherConfig};
 use eez_node_common::EezNode;
 use eez_node_common::{
-    EezPayloadBuilder, EezPoolBuilder, L2NodeBuilder, correlation_rpc, correlation_store,
+    EezPayloadBuilder, EezPoolBuilder, L2NodeBuilder, correlation_store,
     node_cli_with_chain_document, read_checkpoint_dir, validate_system_address, wait_for_l1_ready,
     warn_on_deprecated_env,
 };
@@ -98,8 +98,6 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
     let l2_data_dir = read_checkpoint_dir();
     let correlations = correlation_store(l2_data_dir.as_deref())?;
     let l1_head = Arc::new(L1CanonicalHead::default());
-    let rpc_correlations = Arc::clone(&correlations);
-    let rpc_l1_head = Arc::clone(&l1_head);
 
     let handle = builder
         .with_types::<EezNode>()
@@ -116,9 +114,6 @@ async fn launch(builder: L2NodeBuilder, ext: FollowerArgs) -> eyre::Result<()> {
                 Arc::clone(&correlations),
             ),
         ))
-        .extend_rpc_modules(move |ctx| {
-            correlation_rpc::install(ctx, Arc::clone(&rpc_correlations), Arc::clone(&rpc_l1_head))
-        })
         .launch_with_debug_capabilities()
         .await?;
 

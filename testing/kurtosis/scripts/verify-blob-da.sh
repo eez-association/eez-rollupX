@@ -28,6 +28,7 @@ export KURTOSIS_ENCLAVE="$ENCLAVE"
 source "$KURTOSIS_DIR/ports.sh" >/dev/null
 L1_RPC="${L1_RPC:-$EEZ_DEVNET_L1_RPC}"
 L2_RPC="${L2_RPC:-$EEZ_DEVNET_L2_RPC}"
+L2_FRONT="${L2_FRONT:-$EEZ_DEVNET_L2_FRONT}"
 
 http_url() {
     case "$1" in
@@ -276,7 +277,7 @@ for l2_tx in "${expected_hashes[@]}"; do
     l2_to_l1_response="$(
         jq -cn --arg selector "$l2_selector" \
           '{jsonrpc:"2.0",id:1,method:"eez_getSettlementByL2Block",params:[$selector]}' |
-          curl -fsS "$L2_RPC" -H 'content-type: application/json' --data-binary @-
+          curl -fsS "$L2_FRONT" -H 'content-type: application/json' --data-binary @-
     )"
     [[ "$(jq -r '.error // empty' <<<"$l2_to_l1_response")" == "" ]] || {
         echo "L2->L1 correlation RPC failed: $l2_to_l1_response" >&2
@@ -303,7 +304,7 @@ for l2_tx in "${expected_hashes[@]}"; do
     l1_to_l2_response="$(
         jq -cn --arg selector "$l1_selector" \
           '{jsonrpc:"2.0",id:2,method:"eez_getSettledL2RangesByL1Block",params:[$selector]}' |
-          curl -fsS "$L2_RPC" -H 'content-type: application/json' --data-binary @-
+          curl -fsS "$L2_FRONT" -H 'content-type: application/json' --data-binary @-
     )"
     [[ "$(jq -r '.error // empty' <<<"$l1_to_l2_response")" == "" ]] || {
         echo "L1->L2 correlation RPC failed: $l1_to_l2_response" >&2

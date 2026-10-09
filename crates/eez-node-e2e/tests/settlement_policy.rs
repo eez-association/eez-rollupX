@@ -338,7 +338,7 @@ async fn assert_source_deferral_recovery(
         world.l1_xchain()
     };
     let source = ProviderBuilder::new().connect_http(source_rpc.parse().unwrap());
-    let queue_rpc = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let queue_rpc = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
     let front = ProviderBuilder::new().connect_http(source_front.parse().unwrap());
     let source_chain_id = source.get_chain_id().await.unwrap();
     let target = if outbound {
@@ -3039,7 +3039,7 @@ async fn assert_fee_waits_do_not_consume_selection(profile: eez_testkit::NativeL
     wait_for_safe_prefix_convergence(&[&world.node, &follower], settled_block.unwrap(), TIMEOUT)
         .await
         .unwrap();
-    let queue: serde_json::Value = l2
+    let queue: serde_json::Value = front
         .client()
         .request("eez_getCrossChainQueueStatus", ())
         .await

@@ -10,6 +10,8 @@
 //! ordinary transactions are forwarded to the source-chain mempool unchanged.
 //! The receipt resolves when the held tx lands — an outbound in the L2 Sync
 //! block, an inbound in the L1 postBatch bundle.
+//! Composer-only `eez_*` observations and the virtual discovery `eth_call`
+//! are answered locally; discovery does not assert submission readiness.
 //!
 //! Classification fails closed: if tracing is temporarily unavailable, the tx
 //! is held rather than risking a cross-chain transaction bypassing composition.
@@ -233,6 +235,8 @@ struct Ctx {
     dispatch_address: Address,
     /// Serialized `eez_composerInfo` result, shared by both fronts.
     composer_info: Arc<Value>,
+    /// Local Composer-only methods. Never installed on an upstream node RPC.
+    composer_methods: jsonrpsee::RpcModule<()>,
     estimator: Option<EstimationService>,
 }
 
@@ -274,6 +278,8 @@ pub async fn run_cross_chain_front(
     ready: Arc<std::sync::atomic::AtomicBool>,
     composer_info: Arc<Value>,
 ) -> eyre::Result<()> {
+    let mut composer_methods = jsonrpsee::RpcModule::new(());
+    composer_methods.merge(crate::queue_rpc::module(Arc::clone(&held_pool))?)?;
     run_cross_chain_front_with_estimator(
         port,
         upstream_rpc_url,
@@ -284,6 +290,7 @@ pub async fn run_cross_chain_front(
         dispatch_address,
         ready,
         composer_info,
+        composer_methods,
         None,
     )
     .await
@@ -299,6 +306,7 @@ pub(crate) async fn run_cross_chain_front_with_estimator(
     dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
     composer_info: Arc<Value>,
+    composer_methods: jsonrpsee::RpcModule<()>,
     estimator: Option<EstimationService>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -326,6 +334,7 @@ pub(crate) async fn run_cross_chain_front_with_estimator(
         expected_source_chain_id,
         dispatch_address,
         composer_info,
+        composer_methods,
         estimator,
     };
     loop {
@@ -441,6 +450,95 @@ fn all_forwarded_methods_are_eth(json: &Value) -> bool {
     }
 }
 
+fn contains_composer_method(request: &Value) -> bool {
+    match request {
+        Value::Array(items) => items.iter().any(contains_composer_method),
+        _ => {
+            request
+                .get("method")
+                .and_then(Value::as_str)
+                .is_some_and(|method| method.starts_with("eez_"))
+                || crate::composer_rpc::is_discovery_call(request)
+        }
+    }
+}
+
+async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
+    let error = |id: Value, code: i64, message: &str| serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":code,"message":message}});
+    // Invalid batch members are errors, not notifications. Explicit null IDs
+    // are calls; only an absent ID on a valid envelope suppresses the response.
+    if request.get("jsonrpc").and_then(Value::as_str) != Some("2.0")
+        || request.get("method").and_then(Value::as_str).is_none()
+        || request
+            .get("id")
+            .is_some_and(|id| !id.is_null() && !id.is_string() && !id.is_number())
+    {
+        return Some(error(Value::Null, -32600, "invalid request"));
+    }
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    let method = request["method"].as_str().unwrap_or_default();
+    let response = if method == crate::composer_rpc::METHOD {
+        crate::composer_rpc::respond(request, &ctx.composer_info)
+    } else if crate::composer_rpc::is_discovery_call(request) {
+        crate::composer_rpc::respond_eth_call(
+            request,
+            &ctx.composer_info,
+            ctx.expected_source_chain_id,
+        )
+    } else if method.starts_with("eez_") {
+        let mut call = request.clone();
+        // RpcModule's numeric IDs are u64-only. Use a private ID for dispatch
+        // and restore the client's JSON ID, including negative numbers/null.
+        // Suppress notifications only after executing the handler.
+        call["id"] = Value::from(0);
+        match ctx
+            .composer_methods
+            .raw_json_request(&call.to_string(), 1)
+            .await
+        {
+            Ok((raw, _)) => match serde_json::from_str::<Value>(raw.get()) {
+                Ok(mut response) => {
+                    response["id"] = id;
+                    response
+                }
+                Err(_) => error(id, -32603, "invalid local RPC response"),
+            },
+            Err(_) => error(id, -32602, "invalid Composer RPC parameters"),
+        }
+    } else if method.starts_with("eth_") {
+        return estimate::item(ctx, request).await;
+    } else {
+        error(
+            id,
+            -32601,
+            "cross-chain front serves only eth_* and Composer eez_* methods",
+        )
+    };
+    request.get("id").map(|_| response)
+}
+
+async fn handle_composer_methods(ctx: &Ctx, request: &Value) -> Response<Full<HyperBytes>> {
+    let response = if let Value::Array(items) = request {
+        let mut responses = Vec::new();
+        for item in items {
+            if let Some(response) = composer_item(ctx, item).await {
+                responses.push(response);
+            }
+        }
+        (!responses.is_empty()).then_some(Value::Array(responses))
+    } else {
+        composer_item(ctx, request).await
+    };
+    match response {
+        Some(response) => json_response(response.to_string()),
+        None => Response::builder()
+            .status(StatusCode::NO_CONTENT)
+            .header("Access-Control-Allow-Origin", "*")
+            .body(Full::new(HyperBytes::new()))
+            .expect("valid response"),
+    }
+}
+
 async fn handle(
     req: Request<hyper::body::Incoming>,
     ctx: Ctx,
@@ -494,13 +592,10 @@ async fn handle(
 
     let method = json.get("method").and_then(Value::as_str).unwrap_or("");
 
-    // Discovery is answered locally (never forwarded) and does not depend on
-    // readiness: the advertised configuration is static for the process.
-    // Batches remain limited to forwarded `eth_*` methods below.
-    if method == crate::composer_rpc::METHOD {
-        return Ok(json_response(
-            crate::composer_rpc::respond(&json, &ctx.composer_info).to_string(),
-        ));
+    // Split only requests containing front-local work. Pure Ethereum requests
+    // keep their existing transparent forwarding and estimation behavior.
+    if contains_composer_method(&json) {
+        return Ok(handle_composer_methods(&ctx, &json).await);
     }
 
     // An unrouted variant would be forwarded to the source chain, skipping the
@@ -1086,7 +1181,7 @@ mod tests {
     }
 
     /// Discovery is answered by the front itself: before readiness, without
-    /// contacting the (here unreachable) upstream, and only for single requests.
+    /// contacting the (here unreachable) upstream, singly and in batches.
     #[tokio::test]
     async fn front_answers_composer_info_locally() {
         let port = free_port();
@@ -1119,14 +1214,199 @@ mod tests {
         )
         .await;
         assert_eq!(response["error"]["code"], -32602);
-        // Batches stay limited to forwarded eth_* methods.
         let response = post(
             port,
             &serde_json::json!([{"jsonrpc": "2.0", "method": "eez_composerInfo", "id": 9}]),
         )
         .await;
-        assert_eq!(response["error"]["code"], -32601);
+        assert_eq!(
+            response,
+            serde_json::json!([{"jsonrpc":"2.0", "id":9, "result":info}])
+        );
         task.abort();
+    }
+
+    fn discovery_request(id: Value) -> Value {
+        serde_json::json!({"jsonrpc":"2.0", "id":id, "method":"eth_call", "params":[{
+            "to":eez_protocol::discovery::ADDRESS,
+            "input":format!("0x98da5085{}", "a5".repeat(32)),
+            "from":Address::repeat_byte(0x99), "gas":"0x0", "value":"0x0"
+        }, "latest"]})
+    }
+
+    #[tokio::test]
+    async fn front_discovery_works_before_readiness_on_both_chains_and_suppresses_notifications() {
+        for (direction, chain) in [(Direction::Inbound, 1), (Direction::Outbound, 10201)] {
+            let port = free_port();
+            let info = serde_json::json!({"version":"test", "supportedNetworks":{"eezL1":1,"eezL2":10201}});
+            let task = tokio::spawn(run_cross_chain_front(
+                port,
+                "http://127.0.0.1:1".into(),
+                direction,
+                Arc::new(HeldPool::new(Default::default())),
+                ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+                chain,
+                Address::ZERO,
+                Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                Arc::new(info.clone()),
+            ));
+            wait_for_front(port).await;
+            for id in [
+                serde_json::json!("wallet"),
+                serde_json::json!(7),
+                Value::Null,
+            ] {
+                let response = post(port, &discovery_request(id.clone())).await;
+                assert_eq!(response["id"], id);
+                assert_eq!(
+                    response["result"],
+                    serde_json::json!(Bytes::from(eez_protocol::discovery::encode_response(
+                        B256::repeat_byte(0xa5),
+                        chain,
+                        info.to_string().as_bytes()
+                    )))
+                );
+            }
+            let mut notification = discovery_request(Value::Null);
+            notification.as_object_mut().unwrap().remove("id");
+            let mut invalid_notification = notification.clone();
+            invalid_notification["params"][1] = serde_json::json!("pending");
+            for body in [
+                notification.clone(),
+                serde_json::json!([
+                    notification, invalid_notification,
+                    {"jsonrpc":"2.0", "method":"eez_composerInfo"},
+                    {"jsonrpc":"2.0", "method":"eez_unknown"}
+                ]),
+            ] {
+                let response = reqwest::Client::new()
+                    .post(format!("http://127.0.0.1:{port}"))
+                    .json(&body)
+                    .send()
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::NO_CONTENT);
+                assert!(response.bytes().await.unwrap().is_empty());
+            }
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn front_discovery_mixed_batches_keep_routing_ids_and_submission_guard() {
+        let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", upstream.local_addr().unwrap());
+        let forwarded = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+        let observed = Arc::clone(&forwarded);
+        let server = tokio::spawn(async move {
+            let mut connections = tokio::task::JoinSet::new();
+            loop {
+                let (stream, _) = upstream.accept().await.unwrap();
+                let observed = Arc::clone(&observed);
+                connections.spawn(async move {
+                    let service = service_fn(move |req: Request<hyper::body::Incoming>| {
+                        let observed = Arc::clone(&observed);
+                        async move {
+                            let bytes = req.into_body().collect().await.unwrap().to_bytes();
+                            let request: Value = serde_json::from_slice(&bytes).unwrap();
+                            observed.lock().unwrap().push(request.clone());
+                            let result = if request["method"] == "eth_estimateGas" {
+                                "0x5208"
+                            } else {
+                                "0xdeadbeef"
+                            };
+                            Ok::<_, std::convert::Infallible>(json_response(
+                                serde_json::json!({
+                                    "jsonrpc":"2.0", "id":request["id"], "result":result
+                                })
+                                .to_string(),
+                            ))
+                        }
+                    });
+                    let _ = http1::Builder::new()
+                        .serve_connection(TokioIo::new(stream), service)
+                        .await;
+                });
+            }
+        });
+        let port = free_port();
+        let info = serde_json::json!({"version":"test"});
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            url,
+            Direction::Outbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            10201,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            Arc::new(info.clone()),
+        ));
+        wait_for_front(port).await;
+        let mut ordinary = discovery_request(serde_json::json!("ordinary"));
+        ordinary["params"][0]["to"] = serde_json::json!(Address::repeat_byte(0x12));
+        let mut other_selector = discovery_request(serde_json::json!("selector"));
+        other_selector["params"][0]["input"] = serde_json::json!("0x12345678");
+        let mut estimate = ordinary.clone();
+        estimate["method"] = serde_json::json!("eth_estimateGas");
+        estimate["id"] = serde_json::json!("estimate");
+        let mut notification = ordinary.clone();
+        notification.as_object_mut().unwrap().remove("id");
+        let batch = serde_json::json!([
+            discovery_request(serde_json::json!(1)), ordinary, other_selector, estimate, notification,
+            {"jsonrpc":"2.0", "id":null, "method":"eez_composerInfo"},
+            {"jsonrpc":"2.0", "id":-2, "method":"eez_getCrossChainQueueStatus"},
+            {"jsonrpc":"2.0", "id":3, "method":"eez_getCrossChainTransaction", "params":[B256::ZERO]},
+            {"jsonrpc":"2.0", "id":4, "method":"eez_unknown"},
+            {"jsonrpc":"2.0", "id":5, "method":"debug_traceCall"},
+            false,
+            {"jsonrpc":"2.0", "id":[], "method":"eez_composerInfo"}
+        ]);
+        let response = post(port, &batch).await;
+        let items = response.as_array().unwrap();
+        assert_eq!(items.len(), 11);
+        assert_eq!(items[1]["id"], "ordinary");
+        assert_eq!(items[1]["result"], "0xdeadbeef");
+        assert_eq!(items[2]["id"], "selector");
+        assert_eq!(items[2]["result"], "0xdeadbeef");
+        assert_eq!(items[3]["id"], "estimate");
+        assert_eq!(items[3]["result"], "0x5208");
+        assert!(items[4]["id"].is_null());
+        assert_eq!(items[4]["result"], info);
+        assert_eq!(items[5]["result"]["queued"], 0);
+        assert_eq!(items[5]["id"], -2);
+        assert!(items[6]["result"].is_null());
+        assert_eq!(items[7]["error"]["code"], -32601);
+        assert_eq!(items[8]["error"]["code"], -32601);
+        assert_eq!(items[9]["error"]["code"], -32600);
+        assert_eq!(items[10]["error"]["code"], -32600);
+        assert_eq!(
+            *forwarded.lock().unwrap(),
+            vec![ordinary, other_selector, estimate, notification]
+        );
+        for method in [
+            "eth_sendRawTransaction",
+            "eth_sendRawTransactionConditional",
+        ] {
+            let response = post(
+                port,
+                &serde_json::json!([
+                    discovery_request(serde_json::json!(1)),
+                    {"jsonrpc":"2.0", "id":2, "method":method, "params":["0x01"]}
+                ]),
+            )
+            .await;
+            assert_eq!(response["error"]["code"], -32600);
+            assert!(
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("singly")
+            );
+            assert_eq!(forwarded.lock().unwrap().len(), 4);
+        }
+        task.abort();
+        server.abort();
     }
 
     async fn send_raw(port: u16, raw: &Bytes, id: u64) -> Value {

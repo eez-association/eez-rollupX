@@ -254,17 +254,17 @@ caching. Details are in
 
 ### L1/L2 settlement correlation RPC
 
-Composer and follower L2 RPCs expose the exact canonical mapping derived from
+Both Composer fronts expose the exact canonical mapping derived from
 accepted `postAndVerifyBatch` transactions:
 
 ```bash
 # L2 number or 32-byte hash -> its L1 posting block/transaction and exact range.
-curl -s http://localhost:18688 \
+curl -s http://localhost:18998 \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":1,"method":"eez_getSettlementByL2Block","params":["0xcc"]}'
 
 # L1 number or 32-byte hash -> zero or more settled L2 ranges.
-curl -s http://localhost:18688 \
+curl -s http://localhost:18998 \
   -H 'content-type: application/json' \
   --data '{"jsonrpc":"2.0","id":2,"method":"eez_getSettledL2RangesByL1Block","params":["0x23"]}'
 ```
@@ -293,8 +293,8 @@ cross-chain fronts**, the L1 and L2 endpoints clients submit through
 (`EEZ_L1_XCHAIN_PORT` / `EEZ_L2_XCHAIN_PORT`, 18999 / 18998 in the Chiado
 profile), so clients can discover the deployment instead of hardcoding it. The
 front answers it locally, also before L1 catch-up completes; it is not served by
-the L2 node RPC, and batches containing it are rejected like other non-`eth_*`
-methods. It takes no
+the regular node RPC. Single requests and read-only JSON-RPC batches are supported.
+It takes no
 parameters (absent, `[]` or `{}`; any argument is rejected with `-32602`) and
 returns the configured contracts, the L1/L2 chain IDs and the Composer version:
 
@@ -322,6 +322,61 @@ manager and the bridge fields (`EEZ_L1_BRIDGE_SENDER`, `EEZ_L2_BRIDGE_RECEIVER`)
 are omitted when unset or empty; a malformed or zero value fails startup.
 `eezL1` is the embedded L1's chain ID and `eezL2` the L2 chain specification's.
 The response is fixed at startup.
+
+Wallets that disallow custom JSON-RPC methods can use `eth_call` through their
+selected injected provider. Composer intercepts only calls to
+`0x7Ae2c80116976915a0Ee9b7994e7Bb12026087f8` with selector `0x98da5085`
+(`composerInfo(bytes32)`). No on-chain contract is needed. For example:
+
+```javascript
+const nonce = Array.from(crypto.getRandomValues(new Uint8Array(32)),
+  byte => byte.toString(16).padStart(2, "0")).join("");
+const encoded = await selectedWalletProvider.request({
+  method: "eth_call",
+  params: [{
+    to: "0x7Ae2c80116976915a0Ee9b7994e7Bb12026087f8",
+    data: "0x98da5085" + nonce,
+  }, "latest"],
+});
+```
+
+ABI-decode `encoded` as `(bytes32 marker, uint256 schemaVersion, bytes32
+echoedNonce, uint256 sourceChainId, bytes info)`. Require marker
+`0xf331ada39582afc2fae4082b2baeb82639a90399d9d6688eda56cc24dd03e734`,
+schema version `1`, your exact nonce, and the wallet's selected source chain ID.
+`info` is UTF-8 JSON containing exactly the existing discovery result above.
+The schema version is independent of the package version in that JSON.
+
+Use `latest` (also the default when omitted); historical/pending tags and
+state/block overrides are rejected. `input` is an alias for `data`; conflicting
+aliases, malformed calldata and nonzero value return `-32602`. A valid optional
+`from` and gas/fee fields are accepted without querying balance or executing the
+EVM. Notifications receive no response, including in mixed batches. Batches
+containing `eth_sendRawTransaction*` remain rejected as a whole.
+
+Detection proves neither submission readiness, provider authenticity nor gas
+estimator compatibility. Empty/malformed replies and provider errors mean the
+client has not established discovery. Address derivation, the ABI and complete
+compatibility policy are in the
+[discovery contract](docs/proposals/composer-wallet-discovery.md).
+
+### Composer-only namespace and client upgrades
+
+**All `eez_*` methods are front-only**, including
+`eez_getCrossChainTransaction`, `eez_getCrossChainQueueStatus`, both correlation
+methods above and `eez_executionWitnessByBlockHash`. Both fronts observe the
+same Composer/L2 state. Ordinary Composer node RPCs and follower RPCs expose no
+`eez_*` methods; ordinary `eth_call` is not a discovery endpoint.
+
+Move queue/correlation clients (including indexer `details.l2_http_url`) to the
+Composer front when upgrading the binary. Keep standard `debug_*` clients on
+the regular node RPC. The augmented witness method requires the Composer's
+HTTP `debug` namespace to be explicitly enabled; restrict access to **both
+fronts** when enabling it. WS/IPC debug settings do not enable front witnesses.
+No storage, genesis, protocol pin or follower replay migration is needed.
+Older fronts do not support these moved methods or virtual discovery; a binary
+rollback requires restoring the old client URLs too. Restart still does not
+preserve in-memory unsettled work.
 
 ## Build, test, teardown
 

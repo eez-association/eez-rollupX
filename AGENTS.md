@@ -143,6 +143,10 @@ its Solidity implementation/tests and the applicable fork contract:
 - Pending requests and retry counters are **in memory**. Restart reconciles
   canonical state and may discard speculative blocks; clients may need to
   resubmit unsettled work. Database persistence does not provide durable queue recovery.
+- All `eez_*` JSON-RPC methods and virtual `eth_call` discovery are served only
+  on Composer fronts, never regular node/follower transports. Use front URLs
+  for queue/correlation/witness observations; keep standard `debug_*` calls on
+  the node RPC. See the [discovery contract](docs/proposals/composer-wallet-discovery.md).
 
 ### Generated files
 

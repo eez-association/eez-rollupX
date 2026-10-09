@@ -164,7 +164,7 @@ def check():
     # The extra source reserve is an estimate, not a cost cap. Worker balances
     # are read per chain under the shared lock, as in the pinned runner.
     reserve = 10**16
-    queue = rpc(os.environ['L2_RPC'], 'eez_getCrossChainQueueStatus')
+    queue = rpc(os.environ['L2_FRONT'], 'eez_getCrossChainQueueStatus')
     require(all(queue.get(k) == 0 for k in ['queued', 'inFlight', 'blocked', 'unknown']),
             'Cross-chain queue is not empty; let current work settle first')
     ready = True

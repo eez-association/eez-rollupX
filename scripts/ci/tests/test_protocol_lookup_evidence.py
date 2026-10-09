@@ -196,7 +196,8 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.genesis.write_text(json.dumps({"config": {}, "timestamp": "0x1234"}))
         self.env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                     "LOOKUP_FIXTURE": str(self.data), "LOOKUP_CALLS": str(self.calls),
-                    "L1_RPC": "http://l1.invalid", "L2_RPC": "http://l2.invalid", "ROLLUPS": REGISTRY,
+                    "L1_RPC": "http://l1.invalid", "L2_RPC": "http://l2.invalid",
+                    "L2_FRONT": "http://composer.invalid", "ROLLUPS": REGISTRY,
                     "MANAGER_L2": MANAGER, "ROLLUP_ID": "1", "PROTOCOL_COMMIT": "fixture-pin",
                     "CAUSAL_VERIFIER": str(tools / "causal"),
                     "BEACON_URL": "http://beacon.invalid", "BLOB_VERIFIER": str(tools / "blob"),
@@ -484,6 +485,14 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                     else:
                         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                         self.assertEqual(json.loads(self.output.read_text())["lookup_root"]["kind"], "execution_prefix")
+                        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+                        witnesses = [call for call in calls if "eez_executionWitnessByBlockHash" in call]
+                        self.assertTrue(witnesses)
+                        for call in witnesses:
+                            self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L2_FRONT"])
+                        for call in calls:
+                            if any(method in call for method in ("debug_getRawBlock", "debug_getRawReceipts", "debug_chainConfig")):
+                                self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L2_RPC"])
 
     def test_static_l2_success_uses_the_table_not_old_failure_diagnostics(self):
         data = fixture("topLevelStaticCounter")

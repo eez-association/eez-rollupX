@@ -249,7 +249,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     // Independent oracle: inspect actual accepted commitments and their L1
     // headers, retaining every same-height occurrence in transaction order.
     for l1_number in 0..=l1.get_block_number().await? {
-        let accepted = rpc(&primary_rpc, "eez_getSettledL2RangesByL1Block", json!([format!("{l1_number:#x}")])).await?;
+        let accepted = rpc(&world.l2_xchain(), "eez_getSettledL2RangesByL1Block", json!([format!("{l1_number:#x}")])).await?;
         for record in accepted.as_array().ok_or_else(|| anyhow::anyhow!("missing accepted ranges"))? {
             let height = quantity(&record["l2Range"]["lastBlockNumber"])?;
             if height > final_height { continue; }

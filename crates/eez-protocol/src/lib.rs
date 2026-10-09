@@ -42,6 +42,7 @@ pub mod authorized_proxies;
 pub mod blob_semantics;
 pub mod composition;
 pub mod dialect;
+pub mod discovery;
 pub mod entries;
 pub mod error;
 pub mod executor;

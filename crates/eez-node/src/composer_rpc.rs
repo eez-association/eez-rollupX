@@ -1,9 +1,10 @@
-//! Composer discovery JSON-RPC (`eez_composerInfo`).
+//! Composer discovery JSON-RPC (`eez_composerInfo` and virtual `eth_call`).
 //!
 //! Served only by the Composer's two cross-chain fronts (the L1 and the L2
 //! entry points clients submit through), not by the L2 node RPC: clients
 //! discover the deployment from the endpoint they will use. Followers have no
-//! fronts, so the method's presence also acts as a cheap capability probe.
+//! fronts. Detection does not imply submission readiness or gas-estimator
+//! compatibility, and is not authentication of an untrusted provider.
 //! Method and field names match upstream `eez-association/eez-rollup0` PR #164
 //! so clients can share one discovery parser.
 //!
@@ -14,13 +15,118 @@
 use std::env;
 use std::str::FromStr as _;
 
-use alloy_primitives::Address;
+use alloy_primitives::{Address, B256, Bytes, U256};
+use eez_protocol::discovery;
 use serde::Serialize;
 use serde_json::{Value, json};
 
 /// JSON-RPC method name, shared with upstream clients.
 pub(crate) const METHOD: &str = "eez_composerInfo";
 const INVALID_PARAMS: i64 = -32602;
+
+/// Match either calldata alias before validating it: a valid selector in one
+/// alias must not let a conflicting/malformed second alias escape upstream.
+pub(crate) fn is_discovery_call(request: &Value) -> bool {
+    if request.get("method").and_then(Value::as_str) != Some("eth_call") {
+        return false;
+    }
+    let Some(tx) = request.get("params").and_then(|params| params.get(0)) else {
+        return false;
+    };
+    if tx
+        .get("to")
+        .and_then(Value::as_str)
+        .and_then(|to| to.parse::<Address>().ok())
+        != Some(discovery::ADDRESS)
+    {
+        return false;
+    }
+    ["data", "input"].iter().any(|field| {
+        tx.get(field).and_then(Value::as_str).is_some_and(|data| {
+            data.strip_prefix("0x")
+                .and_then(|hex| hex.get(..8))
+                .is_some_and(|selector| {
+                    alloy_primitives::hex::decode(selector)
+                        .is_ok_and(|bytes| bytes == discovery::SELECTOR)
+                })
+        })
+    })
+}
+
+fn discovery_nonce(request: &Value) -> Result<B256, &'static str> {
+    let params = request["params"]
+        .as_array()
+        .ok_or("expected positional eth_call params")?;
+    if params.len() > 2 {
+        return Err("Composer discovery does not support state or block overrides");
+    }
+    if params
+        .get(1)
+        .is_some_and(|block| block.as_str() != Some("latest"))
+    {
+        return Err("Composer discovery supports only the latest block tag");
+    }
+    let tx = params
+        .first()
+        .and_then(Value::as_object)
+        .ok_or("expected call object")?;
+    let decode = |value: &Value| -> Result<Bytes, &'static str> {
+        let raw = value
+            .as_str()
+            .ok_or("discovery calldata must be a hex string")?;
+        if !raw.starts_with("0x") || raw.len() != 74 {
+            return Err("discovery calldata must contain the selector and exactly 32 nonce bytes");
+        }
+        raw.parse::<Bytes>()
+            .map_err(|_| "invalid discovery calldata hex")
+    };
+    let data = tx.get("data").map(decode).transpose()?;
+    let input = tx.get("input").map(decode).transpose()?;
+    if let (Some(data), Some(input)) = (&data, &input)
+        && data != input
+    {
+        return Err("conflicting data and input calldata");
+    }
+    let calldata = data.or(input).ok_or("missing discovery calldata")?;
+    if calldata[..4] != discovery::SELECTOR {
+        return Err("invalid discovery selector");
+    }
+    if let Some(from) = tx.get("from") {
+        serde_json::from_value::<Address>(from.clone()).map_err(|_| "invalid from address")?;
+    }
+    for field in [
+        "value",
+        "gas",
+        "gasPrice",
+        "maxFeePerGas",
+        "maxPriorityFeePerGas",
+    ] {
+        if let Some(raw) = tx.get(field) {
+            let value = serde_json::from_value::<U256>(raw.clone())
+                .map_err(|_| "invalid call value or gas quantity")?;
+            if field == "value" && !value.is_zero() {
+                return Err("Composer discovery does not accept nonzero value");
+            }
+        }
+    }
+    Ok(B256::from_slice(&calldata[4..]))
+}
+
+/// Answer an already matched virtual call without touching the upstream or
+/// submission readiness. Serialize the very same JSON value as the custom RPC.
+pub(crate) fn respond_eth_call(request: &Value, info: &Value, source_chain_id: u64) -> Value {
+    let id = request.get("id").cloned().unwrap_or(Value::Null);
+    match discovery_nonce(request) {
+        Ok(nonce) => json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": Bytes::from(discovery::encode_response(nonce, source_chain_id, info.to_string().as_bytes())),
+        }),
+        Err(message) => json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": { "code": INVALID_PARAMS, "message": message },
+        }),
+    }
+}
 
 /// Optional deployment bindings advertised when configured. Absent or empty
 /// values are omitted from the response.
@@ -127,7 +233,8 @@ fn parse_optional_address(name: &str, value: &str) -> eyre::Result<Option<Addres
     Ok(Some(address))
 }
 
-/// Answer one single (non-batch) `eez_composerInfo` JSON-RPC request.
+/// Answer one `eez_composerInfo` request or batch member. Ingress owns
+/// notification suppression.
 ///
 /// `info` is the serialized [`ComposerInfo`]. The standard zero-argument forms
 /// (absent, `null`, `[]`, `{}`) are accepted; actual arguments are rejected with
@@ -254,5 +361,149 @@ mod tests {
             assert_eq!(response["error"]["data"], params);
             assert!(response.get("result").is_none());
         }
+    }
+
+    fn probe() -> Value {
+        json!({"jsonrpc":"2.0", "id":"wallet", "method":"eth_call", "params":[{
+            "to": discovery::ADDRESS, "data": format!("0x98da5085{}", "a5".repeat(32))
+        }, "latest"]})
+    }
+
+    #[test]
+    fn discovery_aliases_wallet_fields_and_response_match_custom_rpc() {
+        let info = serde_json::to_value(info(true)).unwrap();
+        for chain_id in [1, 10_201] {
+            for alias in ["data", "input", "both"] {
+                let mut request = probe();
+                if alias != "data" {
+                    request["params"][0]["input"] = request["params"][0]["data"].clone();
+                }
+                if alias == "input" {
+                    request["params"][0].as_object_mut().unwrap().remove("data");
+                }
+                request["params"][0]["from"] = json!(Address::repeat_byte(0x99));
+                for field in [
+                    "value",
+                    "gas",
+                    "gasPrice",
+                    "maxFeePerGas",
+                    "maxPriorityFeePerGas",
+                ] {
+                    request["params"][0][field] = json!("0x0");
+                }
+                assert!(is_discovery_call(&request));
+                let response = respond_eth_call(&request, &info, chain_id);
+                assert_eq!(response["id"], "wallet");
+                let bytes: Bytes = serde_json::from_value(response["result"].clone()).unwrap();
+                assert_eq!(&bytes[..32], discovery::MARKER.as_slice());
+                assert_eq!(U256::from_be_slice(&bytes[32..64]), U256::from(1));
+                assert_eq!(&bytes[64..96], &[0xa5; 32]);
+                assert_eq!(U256::from_be_slice(&bytes[96..128]), U256::from(chain_id));
+                assert_eq!(U256::from_be_slice(&bytes[128..160]), U256::from(160));
+                let len = U256::from_be_slice(&bytes[160..192]).to::<usize>();
+                let decoded: Value = serde_json::from_slice(&bytes[192..192 + len]).unwrap();
+                assert_eq!(decoded, respond(&json!({"id":1}), &info)["result"]);
+            }
+        }
+        let mut omitted_block = probe();
+        omitted_block["params"].as_array_mut().unwrap().pop();
+        assert_eq!(
+            discovery_nonce(&omitted_block).unwrap(),
+            B256::repeat_byte(0xa5)
+        );
+        let mut case = probe();
+        case["params"][0]["input"] = json!(format!("0x98DA5085{}", "A5".repeat(32)));
+        assert!(discovery_nonce(&case).is_ok());
+    }
+
+    #[test]
+    fn discovery_rejects_malformed_or_conflicting_calldata() {
+        for data in [
+            json!("0x98da5085"),
+            json!(format!("0x98da5085{}", "a5".repeat(31))),
+            json!(format!("0x98da5085{}0", "a5".repeat(32))),
+            json!(format!("0x98da5085{}", "zz".repeat(32))),
+            json!(format!("0x98da5085{}", "a5".repeat(33))),
+            json!(format!("0x98da5085{}", "b6".repeat(32))),
+            json!(false),
+            json!(null),
+            json!([0]),
+        ] {
+            for alias in ["data", "input"] {
+                let mut request = probe();
+                request["params"][0]["input"] = request["params"][0]["data"].clone();
+                request["params"][0][alias] = data.clone();
+                assert!(is_discovery_call(&request), "{request}");
+                let response = respond_eth_call(&request, &json!({}), 1);
+                assert_eq!(response["error"]["code"], -32602, "{request}");
+                assert_eq!(response["id"], "wallet");
+            }
+        }
+    }
+
+    #[test]
+    fn discovery_rejects_history_overrides_value_and_invalid_wallet_fields() {
+        let mut invalid = Vec::new();
+        for tag in [
+            json!("pending"),
+            json!("earliest"),
+            json!("safe"),
+            json!("finalized"),
+            json!("0x1"),
+            json!(null),
+            json!({"blockHash": B256::ZERO}),
+            json!({"blockNumber":"latest"}),
+        ] {
+            let mut request = probe();
+            request["params"][1] = tag;
+            invalid.push(request);
+        }
+        for overrides in [json!(null), json!({}), json!({"ignored":"override"})] {
+            let mut request = probe();
+            request["params"].as_array_mut().unwrap().push(overrides);
+            invalid.push(request);
+        }
+        for (field, value) in [
+            ("value", "0x1"),
+            ("value", "garbage"),
+            ("from", "0x01"),
+            ("gas", "bad"),
+            ("gasPrice", "-1"),
+            ("maxFeePerGas", "bad"),
+            ("maxPriorityFeePerGas", "bad"),
+        ] {
+            let mut request = probe();
+            request["params"][0][field] = json!(value);
+            invalid.push(request);
+        }
+        for request in invalid {
+            assert!(is_discovery_call(&request));
+            assert_eq!(
+                respond_eth_call(&request, &json!({}), 1)["error"]["code"],
+                -32602,
+                "{request}"
+            );
+        }
+    }
+
+    #[test]
+    fn discovery_does_not_match_other_methods_addresses_or_selectors() {
+        let mut request = probe();
+        request["method"] = json!("eth_estimateGas");
+        assert!(!is_discovery_call(&request));
+        request = probe();
+        request["params"][0]["to"] = json!(Address::ZERO);
+        assert!(!is_discovery_call(&request));
+        request = probe();
+        request["params"][0]["data"] = json!("0x12345678");
+        assert!(!is_discovery_call(&request));
+        request["params"][0]["data"] = json!("0x");
+        assert!(!is_discovery_call(&request));
+    }
+
+    #[test]
+    fn discovery_address_is_not_a_pinned_evm_precompile() {
+        // The pinned Ethereum and Gnosis EVMs use this REVM registry.
+        assert!(!reth_evm::revm::precompile::Precompiles::latest().contains(&discovery::ADDRESS));
     }
 }

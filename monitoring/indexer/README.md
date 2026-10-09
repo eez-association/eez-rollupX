@@ -86,7 +86,9 @@ through either upgrade or rollback.
 The optional `details` object configures `l2_http_url`, `l2_chain_id`,
 `l2_genesis_hash` and `beacon_url`. Use `eth_chainId` and genesis block zero from
 the intended L2. The database binds enrichment to that L2 identity; URLs may
-change, but silently switching L2 networks is rejected. The L2 endpoint needs
+change, but silently switching L2 networks is rejected. Set `l2_http_url` to
+the **Composer L2 front** (Chiado default `http://127.0.0.1:18998`), not the
+regular node/follower RPC. The front provides
 `eez_getSettledL2RangesByL1Block`, block headers and `eth_getBlockReceipts` for the
 indexed L2 history. Remove the entire object for L1-only operation;
 existing configs without it still work and the extra panels show pending data.
