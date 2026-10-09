@@ -1,5 +1,142 @@
 use super::*;
 
+fn scheduling(input: &PolicySnapshot) -> SchedulingSnapshot {
+    SchedulingSnapshot {
+        anchor: input.anchor,
+        target_l2_number: input.candidate.number,
+        target_l1_timestamp: input.target_l1_timestamp,
+        latest_pure_block: input.latest_pure_block,
+        estimated_stream_bytes: input.estimated_stream_bytes,
+        window_limit_due: input.window_limit_due,
+        effective_blobs: input.effective_blobs,
+        usable_bytes_per_blob: input.usable_bytes_per_blob,
+    }
+}
+
+#[test]
+fn scheduling_shares_final_triggers_without_creating_or_extending_drain() {
+    for (cfg, input, reason) in [
+        (config(None, 6, None), snapshot(6), DueReasons::GENERAL),
+        (
+            config(None, 100, None),
+            PolicySnapshot {
+                latest_pure_block: Some(endpoint(3)),
+                ..snapshot(6)
+            },
+            DueReasons::PURE_ALWAYS,
+        ),
+        (
+            config(Some(12000), 100, None),
+            PolicySnapshot {
+                latest_pure_block: Some(endpoint(3)),
+                ..snapshot(6)
+            },
+            DueReasons::PURE_INTERVAL,
+        ),
+        (
+            config(None, 100, Some(5000)),
+            PolicySnapshot {
+                estimated_stream_bytes: Some(500),
+                effective_blobs: 1,
+                usable_bytes_per_blob: 1000,
+                ..snapshot(6)
+            },
+            DueReasons::FULLNESS,
+        ),
+        (
+            config(None, 100, None),
+            PolicySnapshot {
+                window_limit_due: true,
+                estimated_stream_bytes: None,
+                ..snapshot(6)
+            },
+            DueReasons::WINDOW_LIMIT,
+        ),
+    ] {
+        let mut state = PolicyState::default();
+        let before = state.clone();
+        let planned = state.preparation_reasons(&cfg, scheduling(&input)).unwrap();
+        assert!(planned.contains(reason), "{planned:?}");
+        assert_eq!(state, before);
+        assert_eq!(planned, state.evaluate(&cfg, input).unwrap().reasons);
+        let with_drain = state.clone();
+        let later = PolicySnapshot {
+            candidate: endpoint(12),
+            latest_pure_block: None,
+            ..input
+        };
+        assert!(
+            state
+                .preparation_reasons(&config(Some(999_000), 999, None), scheduling(&later))
+                .unwrap()
+                .contains(DueReasons::DRAIN)
+        );
+        assert_eq!(state, with_drain);
+    }
+}
+
+#[test]
+fn first_late_activity_can_change_final_due_without_mutating_the_earlier_hint() {
+    let mut state = PolicyState::default();
+    let cfg = config(None, 100, None);
+    assert!(
+        state
+            .preparation_reasons(&cfg, scheduling(&snapshot(6)))
+            .unwrap()
+            .is_empty()
+    );
+    let late = PolicySnapshot {
+        latest_pure_block: Some(endpoint(5)),
+        ..snapshot(6)
+    };
+    assert!(
+        state
+            .evaluate(&cfg, late)
+            .unwrap()
+            .reasons
+            .contains(DueReasons::PURE_ALWAYS)
+    );
+    let before = state.clone();
+    let invalid = SchedulingSnapshot {
+        effective_blobs: 0,
+        ..scheduling(&late)
+    };
+    assert!(state.preparation_reasons(&cfg, invalid).is_err());
+    assert_eq!(state, before);
+}
+
+#[test]
+fn general_trigger_precedes_the_depth_cap_even_when_signer_window_is_larger() {
+    for k in [2_u64, 5, 6] {
+        for n in 1..=3 * k {
+            let depth = n + k - 1; // Existing mandatory configuration lower bound.
+            let mut cfg = config(Some(999_000), n, None);
+            cfg.max_speculative_depth = depth;
+            for residue in 0..k {
+                let anchor = endpoint(residue);
+                let target = residue + n.div_ceil(k) * k;
+                assert!(target - anchor.number <= depth);
+                for maximum in [depth, depth + 1, depth + k - 1] {
+                    let mut input = snapshot(target);
+                    input.anchor.endpoint = anchor;
+                    input.window_limit_due = target - anchor.number + k > maximum;
+                    let mut state = PolicyState::default();
+                    let reasons = state.preparation_reasons(&cfg, scheduling(&input)).unwrap();
+                    assert!(reasons.contains(DueReasons::GENERAL));
+                    assert!(state.drain().is_none());
+                    assert!(
+                        state
+                            .evaluate(&cfg, input)
+                            .unwrap()
+                            .reasons
+                            .contains(DueReasons::GENERAL)
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn byte_summary(size: usize) -> eez_payload_codec::v0::PayloadSizer {
     eez_payload_codec::v0::PayloadSizer::run(&eez_payload_codec::v0::BlockRun {
         blocks: 1,

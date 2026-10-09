@@ -119,6 +119,93 @@ pub struct PolicySnapshot {
     pub drain_coverage: DrainCoverage,
 }
 
+/// Facts available before a terminal is built. The target is a height, not a
+/// fabricated block commitment. This evaluation cannot create drain ownership.
+#[derive(Debug, Clone, Copy)]
+pub struct SchedulingSnapshot {
+    pub anchor: SettlementAnchor,
+    pub target_l2_number: u64,
+    pub target_l1_timestamp: u64,
+    pub latest_pure_block: Option<L2Endpoint>,
+    pub estimated_stream_bytes: Option<u64>,
+    pub window_limit_due: bool,
+    pub effective_blobs: u64,
+    pub usable_bytes_per_blob: u64,
+}
+
+impl SchedulingSnapshot {
+    fn evaluate(self, config: &PolicyConfig) -> Result<(DueReasons, u64, u64), PolicyError> {
+        let unsettled_blocks = self
+            .target_l2_number
+            .checked_sub(self.anchor.endpoint.number)
+            .ok_or_else(|| {
+                PolicyError::Unavailable("candidate precedes settled endpoint".into())
+            })?;
+        let target_ms = self
+            .target_l1_timestamp
+            .checked_mul(1000)
+            .ok_or(PolicyError::Arithmetic("target timestamp in milliseconds"))?;
+        let anchor_ms = self
+            .anchor
+            .l1_timestamp
+            .checked_mul(1000)
+            .ok_or(PolicyError::Arithmetic("anchor timestamp in milliseconds"))?;
+        let settlement_age_ms = target_ms.checked_sub(anchor_ms).ok_or_else(|| {
+            PolicyError::Unavailable("target precedes canonical anchor timestamp".into())
+        })?;
+        if self.effective_blobs == 0 || self.usable_bytes_per_blob == 0 {
+            return Err(PolicyError::Unavailable(
+                "effective blob capacity is zero or unknown".into(),
+            ));
+        }
+        if let Some(pure) = self.latest_pure_block
+            && (pure.number <= self.anchor.endpoint.number || pure.number > self.target_l2_number)
+        {
+            return Err(PolicyError::Unavailable(
+                "pure activity lies outside the pending range".into(),
+            ));
+        }
+        if self.estimated_stream_bytes.is_none() && !self.window_limit_due {
+            return Err(PolicyError::Unavailable(
+                "missing candidate size without window limit".into(),
+            ));
+        }
+        let mut reasons = DueReasons::default();
+        if self.window_limit_due && unsettled_blocks > 0 {
+            reasons.insert(DueReasons::WINDOW_LIMIT);
+        }
+        if unsettled_blocks >= config.max_unsettled_l2_blocks.get() {
+            reasons.insert(DueReasons::GENERAL);
+        }
+        if self.latest_pure_block.is_some() {
+            match config.pure_l2 {
+                PureL2Mode::Always => reasons.insert(DueReasons::PURE_ALWAYS),
+                PureL2Mode::Interval { milliseconds } => {
+                    let deadline = anchor_ms
+                        .checked_add(milliseconds.get())
+                        .ok_or(PolicyError::Arithmetic("settlement interval deadline"))?;
+                    if target_ms >= deadline {
+                        reasons.insert(DueReasons::PURE_INTERVAL);
+                    }
+                }
+            }
+        }
+        if let Some(fullness) = config.blob_fullness_bps
+            && unsettled_blocks > 0
+            && let Some(bytes) = self.estimated_stream_bytes
+        {
+            let threshold = u128::from(self.effective_blobs)
+                .checked_mul(u128::from(self.usable_bytes_per_blob))
+                .and_then(|value| value.checked_mul(u128::from(fullness.get())))
+                .ok_or(PolicyError::Arithmetic("aggregate blob fullness capacity"))?;
+            if u128::from(bytes) * 10_000 >= threshold {
+                reasons.insert(DueReasons::FULLNESS);
+            }
+        }
+        Ok((reasons, unsettled_blocks, settlement_age_ms))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DrainIntent {
     pub endpoint: L2Endpoint,
@@ -155,6 +242,21 @@ impl PolicyState {
         self.drain
     }
 
+    /// Conservative scheduling hint using the same pure triggers as final
+    /// evaluation. A retained drain may cause one unnecessary preparation;
+    /// only evaluation of a real candidate reconciles or creates that intent.
+    pub fn preparation_reasons(
+        &self,
+        config: &PolicyConfig,
+        snapshot: SchedulingSnapshot,
+    ) -> Result<DueReasons, PolicyError> {
+        let (mut reasons, _, _) = snapshot.evaluate(config)?;
+        if self.drain.is_some() {
+            reasons.insert(DueReasons::DRAIN);
+        }
+        Ok(reasons)
+    }
+
     /// Evaluate one consistent canonical snapshot. No state changes on error.
     ///
     /// # Errors
@@ -177,59 +279,17 @@ impl PolicyState {
             usable_bytes_per_blob,
             drain_coverage,
         } = snapshot;
-        let unsettled_blocks = candidate
-            .number
-            .checked_sub(anchor.endpoint.number)
-            .ok_or_else(|| {
-                PolicyError::Unavailable("candidate precedes settled endpoint".into())
-            })?;
-        let target_ms = target_l1_timestamp
-            .checked_mul(1000)
-            .ok_or(PolicyError::Arithmetic("target timestamp in milliseconds"))?;
-        let anchor_ms = anchor
-            .l1_timestamp
-            .checked_mul(1000)
-            .ok_or(PolicyError::Arithmetic("anchor timestamp in milliseconds"))?;
-        let settlement_age_ms = target_ms.checked_sub(anchor_ms).ok_or_else(|| {
-            PolicyError::Unavailable("target precedes canonical anchor timestamp".into())
-        })?;
-        if effective_blobs == 0 || usable_bytes_per_blob == 0 {
-            return Err(PolicyError::Unavailable(
-                "effective blob capacity is zero or unknown".into(),
-            ));
+        let (mut reasons, unsettled_blocks, settlement_age_ms) = SchedulingSnapshot {
+            anchor,
+            target_l2_number: candidate.number,
+            target_l1_timestamp,
+            latest_pure_block,
+            estimated_stream_bytes,
+            window_limit_due,
+            effective_blobs,
+            usable_bytes_per_blob,
         }
-        if let Some(pure) = latest_pure_block
-            && (pure.number <= anchor.endpoint.number || pure.number > candidate.number)
-        {
-            return Err(PolicyError::Unavailable(
-                "pure activity lies outside the pending range".into(),
-            ));
-        }
-        if estimated_stream_bytes.is_none() && !window_limit_due {
-            return Err(PolicyError::Unavailable(
-                "missing candidate size without window limit".into(),
-            ));
-        }
-        let mut reasons = DueReasons::default();
-        if window_limit_due && unsettled_blocks > 0 {
-            reasons.insert(DueReasons::WINDOW_LIMIT);
-        }
-        if unsettled_blocks >= config.max_unsettled_l2_blocks.get() {
-            reasons.insert(DueReasons::GENERAL);
-        }
-        if latest_pure_block.is_some() {
-            match config.pure_l2 {
-                PureL2Mode::Always => reasons.insert(DueReasons::PURE_ALWAYS),
-                PureL2Mode::Interval { milliseconds } => {
-                    let deadline = anchor_ms
-                        .checked_add(milliseconds.get())
-                        .ok_or(PolicyError::Arithmetic("settlement interval deadline"))?;
-                    if target_ms >= deadline {
-                        reasons.insert(DueReasons::PURE_INTERVAL);
-                    }
-                }
-            }
-        }
+        .evaluate(config)?;
         let cross_chain_endpoint = match cross_chain {
             CrossChainWork::None => None,
             CrossChainWork::Executable => Some(candidate),
@@ -244,19 +304,6 @@ impl PolicyState {
         };
         if cross_chain_endpoint.is_some() {
             reasons.insert(DueReasons::CROSS_CHAIN);
-        }
-        if let Some(fullness) = config.blob_fullness_bps
-            && unsettled_blocks > 0
-            && let Some(estimated_stream_bytes) = estimated_stream_bytes
-        {
-            let occupied = u128::from(estimated_stream_bytes) * 10_000;
-            let threshold = u128::from(effective_blobs)
-                .checked_mul(u128::from(usable_bytes_per_blob))
-                .and_then(|value| value.checked_mul(u128::from(fullness.get())))
-                .ok_or(PolicyError::Arithmetic("aggregate blob fullness capacity"))?;
-            if occupied >= threshold {
-                reasons.insert(DueReasons::FULLNESS);
-            }
         }
         let mut drain = match drain_coverage {
             DrainCoverage::Pending => self.drain,

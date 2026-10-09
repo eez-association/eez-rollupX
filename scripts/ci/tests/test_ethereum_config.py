@@ -49,6 +49,31 @@ class EthereumConfigTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)["services"]
 
+    def test_scheduler_preserves_absence_empty_invalid_and_shell_precedence(self):
+        env_file = self.repo / ".env"
+        fixture = env_file.read_text()
+        env_file.write_text(fixture.replace("EEZ_SETTLEMENT_START_AFTER_BLOCK=3\n", ""))
+        for key in ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "EEZ_SETTLEMENT_START_DELAY_MS"):
+            for value in (None, "3", "250", "", "0", "-1", "invalid"):
+                with self.subTest(key=key, value=value):
+                    services = self.services({} if value is None else {key: value})
+                    self.assertEqual(services["eez-node"]["environment"].get(key), value)
+                    self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+        env_file.write_text(fixture + "\nEEZ_SETTLEMENT_START_DELAY_MS=100\n")
+        node = self.services({"EEZ_SETTLEMENT_START_AFTER_BLOCK": "2",
+                              "EEZ_SETTLEMENT_START_DELAY_MS": "250"})["eez-node"]["environment"]
+        self.assertEqual(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "2")
+        self.assertEqual(node["EEZ_SETTLEMENT_START_DELAY_MS"], "250")
+        self.assertIsNone(node.get("EEZ_PREPARATION_TIME_MS"))
+
+    def test_obsolete_preparation_reaches_runtime_for_rejection(self):
+        for value in (None, "1000", "", "invalid"):
+            with self.subTest(value=value):
+                overrides = {} if value is None else {"EEZ_PREPARATION_TIME_MS": value}
+                node = self.services(overrides)["eez-node"]["environment"]
+                self.assertEqual(node.get("EEZ_PREPARATION_TIME_MS"), value)
+                self.assertEqual(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"], "3")
+
     def test_example_selects_mainnet_for_every_service(self):
         services = self.services()
         node = services["eez-node"]["environment"]
@@ -114,8 +139,10 @@ class EthereumConfigTest(unittest.TestCase):
         self.assertGreaterEqual(int(signer["EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS"]),
                                 int(node["EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS"]))
         budget = sum(int(node[name]) for name in (
-            "EEZ_PREPARATION_TIME_MS", "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS"))
-        self.assertLessEqual(budget, (6 - 1) * 2000)
+            "EEZ_PROOF_TIME_MS", "EEZ_SUBMISSION_SLACK_MS")) + 150
+        position = int(node["EEZ_SETTLEMENT_START_AFTER_BLOCK"])
+        delay = int(node.get("EEZ_SETTLEMENT_START_DELAY_MS") or "0")
+        self.assertLess(budget, (6 - position) * 2000 - delay)
 
     def test_priority_percentile_is_absent_unless_configured(self):
         configured = (self.repo / ".env").read_text()

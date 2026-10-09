@@ -265,6 +265,7 @@ pub async fn spawn_follower(world: &CrossChainWorld, name: &str) -> Result<NodeH
         ),
         ("EEZ_PROOF_TIME_MS", "1000".to_string()),
         ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "3".to_string()),
     ];
     NodeHandle::start(
         name,

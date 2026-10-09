@@ -781,6 +781,7 @@ async fn launch_composer(
                 // reinjection path into an ordinary Live block.
                 .pool(
                     EezPoolBuilder::new(system_address)
+                        .with_displaced_transaction_recovery()
                         .with_data_guard(data_guard.clone())
                         .with_cross_chain_filter(move |hash| {
                             reserved_sources.is_cross_chain_source(hash)

@@ -147,14 +147,16 @@ values; update them deliberately rather than replacing keys, bindings, or paths.
 | --- | --- |
 | Settlement | Enabled; pure L2 `always`; general trigger at 300 unsettled L2 blocks; fullness trigger `off` |
 | Admission | `EEZ_MAX_USER_TXS_PER_BUNDLE=auto` |
-| Preparation / proof / submission slack | 500 / 750 / 700 ms |
+| Preparation position / delay | P=2 / 0 ms (required position; no legacy preparation setting) |
+| Proof seed / submission slack | 750 / 700 ms |
 | Execution / blob fee ceiling | 500,000,000,000 / 10,000,000,000 native base units per gas |
 | Priority fee | Network estimate plus 2000 bps, with a 1,000,000,000 minimum |
 | Signer request capacity | 2048 blocks |
 | L2 HTTP APIs | `eth,net,web3,debug,trace` |
 
-These operational values were compared with the running Chiado containers on
-2026-09-16. Runtime images remain the published references described below;
+The non-scheduling operational values were compared with the running Chiado containers on
+2026-09-16. The position/delay migration is a draft and requires the validation
+below; it is not evidence of a live upgrade. Runtime images remain the published references described below;
 the live host's binary mounts, private paths, keys, and deployment identity are
 not copied into the template. Restrict the HTTP RPC, including debug/trace,
 to intended clients. For legacy policy-disabled mode, follow the
@@ -559,6 +561,22 @@ empty and cannot diagnose an older settlement. Startup checks every committed
 blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
+
+The [conditional slot scheduler](../configurable-settlement-policy.md#conditional-slot-production)
+is an implementation draft; do not upgrade a live deployment until its release
+gates pass or it is explicitly selected for a controlled canary. The new binary
+has one scheduler and requires `EEZ_SETTLEMENT_START_AFTER_BLOCK`; it cannot be
+disabled by omitting the setting. Preserve the previous binary, configuration and
+consistent state. Remove `EEZ_PREPARATION_TIME_MS` entirely, explicitly select P,
+and initially leave `EEZ_SETTLEMENT_START_DELAY_MS` absent (zero). Test nonzero
+delay separately under the same workload and linked headroom limits. This is a
+Composer/configuration change, not new contracts or a genesis/database migration.
+When upgrading standalone followers, migrate their timing environment too: the
+shared parser requires P even though followers do not run the scheduler.
+Rollback needs a compatible prior binary and its matching configuration, not a
+mode toggle. Prefer the prior candidate with the transaction-recovery repair;
+pre-fix binaries restore the transaction-loss risk. Normal restart/resubmission
+and storage-compatibility limits still apply; no live upgrade is validated here.
 
 The [wallet discovery / Composer-only namespace change](../proposals/composer-wallet-discovery.md)
 needs a Composer restart and client URL updates, not contract deployment or a

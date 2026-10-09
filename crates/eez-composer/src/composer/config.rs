@@ -63,6 +63,15 @@ impl ComposerSettings {
         timing
             .validate()
             .map_err(|error| PolicyError::Config(error.to_string()))?;
+        if timing.proof_time() + timing.submission_slack() + crate::prover_retry::POST_PROOF_RESERVE
+            >= timing
+                .l1_block_time()
+                .saturating_sub(timing.proof_window_open())
+        {
+            return Err(PolicyError::Config(
+                "EEZ_SETTLEMENT_START_AFTER_BLOCK plus EEZ_SETTLEMENT_START_DELAY_MS leaves no preparation time after the proof seed, submission slack and post-proof reserve".into(),
+            ));
+        }
         let mut snapshot: HashMap<String, Option<String>> = HashMap::new();
         let mut get = |name: &str| {
             if let Some(value) = snapshot.get(name) {
@@ -186,8 +195,37 @@ impl ComposerSettings {
 mod tests {
     use super::*;
 
+    #[test]
+    fn position_requires_positive_preparation_after_the_shared_post_reserve() {
+        for (proof, delay) in [
+            (749, 0),
+            (750, 0),
+            (751, 0),
+            (449, 300),
+            (450, 300),
+            (451, 300),
+        ] {
+            // K=5/P=4: 1000ms left, 100ms slack, 150ms inclusive post reserve.
+            let timing = RollupTiming::new(5000, 1000, proof, 100, 4).with_start_delay_ms(delay);
+            let mut reached_policy = false;
+            let result = ComposerSettings::parse(timing, |_| {
+                reached_policy = true;
+                Ok(None)
+            });
+            assert_eq!(reached_policy, proof + delay < 750);
+            if proof + delay >= 750 {
+                assert!(
+                    result
+                        .unwrap_err()
+                        .to_string()
+                        .contains("leaves no preparation time")
+                );
+            }
+        }
+    }
+
     fn timing() -> RollupTiming {
-        RollupTiming::new(12_000, 1_000, 2_000, 100)
+        RollupTiming::new(12_000, 1_000, 2_000, 100, 9)
     }
 
     fn settings(extra: &[(&str, &str)]) -> Result<ComposerSettings, PolicyError> {
@@ -265,7 +303,7 @@ mod tests {
     #[test]
     fn invalid_timing_fails_before_configuration_can_reach_runtime() {
         assert!(
-            ComposerSettings::parse(RollupTiming::new(0, 1_000, 2_000, 100), |_| panic!(
+            ComposerSettings::parse(RollupTiming::new(0, 1_000, 2_000, 100, 1), |_| panic!(
                 "invalid timing must be rejected before reading settings"
             ))
             .is_err()

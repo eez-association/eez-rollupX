@@ -1606,6 +1606,7 @@ impl Harness {
                 (L1_BLOCK_TIME_SECS * 1000).to_string(),
             ),
             ("EEZ_L2_BLOCK_TIME_MS", "2000".to_string()),
+            ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "1".to_string()),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
             ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
@@ -3755,7 +3756,8 @@ async fn wait_for_successful_receipt(
         let provider = provider.clone();
         async move { Ok(provider.get_transaction_receipt(hash).await?) }
     })
-    .await?;
+    .await
+    .with_context(|| format!("{action}: waiting for receipt {hash}"))?;
     if !receipt.status() {
         bail!("{action} reverted");
     }
@@ -4603,6 +4605,7 @@ impl CrossChainConfig {
                 "EEZ_L2_BLOCK_TIME_MS",
                 CROSS_CHAIN_L2_BLOCK_TIME_MS.to_string(),
             ),
+            ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "3".to_string()),
             ("EEZ_PROOF_TIME_MS", "1000".to_string()),
             ("EEZ_SUBMISSION_SLACK_MS", "100".to_string()),
             ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".to_string()),
