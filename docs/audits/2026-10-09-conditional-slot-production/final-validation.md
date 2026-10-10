@@ -474,3 +474,15 @@ The real cold/warm Solidity handoff was still running at this point; a full
 optimized Kurtosis run remains required before claiming a speedup. Validation
 will use a separate branch/manual CI invocation so the ongoing PR run
 `38034871837` is not automatically cancelled by a new PR head.
+
+The real handoff then completed successfully using Foundry 1.7.1 / Solc 0.8.34
+at the unchanged protocol pin, with its `out/` and `cache/` initially absent.
+Under the existing suite lock, `forge build --threads 1` took **347.42 seconds**;
+the following unchanged `forge build` took **0.20 seconds** and reported
+`No files changed, compilation skipped`. Tracked protocol state stayed clean.
+This proves the incremental handoff, not an end-to-end speedup or absence of
+resource contention. The optimization code is `4cf09c069d263af8f1b2ec630175864f9fe52741`;
+its manual validation is [CI run 38036192141](https://github.com/eduadiez/rollupX/actions/runs/38036192141),
+on `perf/kurtosis-preparation-overlap-20261010`, using the existing homelab runner
+selection. It was queued when this update was written; the PR's original head
+and running CI were intentionally left unchanged. No additional PR was opened.
