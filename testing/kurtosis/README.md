@@ -680,6 +680,23 @@ wallets. A failed deposit skips the dependent release and fails the suite;
 unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
 escrow, as specified by the pinned protocol's scenario.
 
+The full CI entry point, `run-ci.sh`, overlaps one bounded protocol fixture build
+with network startup, readiness, and the sequential wave/state-chaining checks.
+It requires Bash 5.1 or newer (`wait -n -p`). The build uses one Forge thread and
+a 20-minute timeout, retaining the pinned compiler/optimizer/metadata settings.
+Both branches must succeed before protocol scenarios begin. Failure or
+cancellation stops the owned preparation process groups; a busy protocol-suite
+lock or mismatched pin is rejected before network startup/teardown. The existing
+upstream `forge build` still runs afterwards and checks the warmed artifacts;
+there is no new persistent artifact cache or runtime-binary rebuild.
+
+`protocol-build.log` retains compiler output. `timings.jsonl` records completed
+phases with elapsed seconds and exit codes, including individual wave modes and
+state chaining; a forcibly cancelled phase may have no completion record.
+Nested and overlapping phase durations must not be added together as wall time.
+The protocol wrapper streams phase boundaries and 30-second progress messages
+while retaining the raw logs. Scenario output/accounting remains unchanged.
+
 Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `0.005`),
 which the wrapper passes to upstream as `FUND_ETH` and which therefore overrides
 an ambient `FUND_ETH`. Upstream's own default of 0.001 ETH does not cover a
@@ -837,6 +854,17 @@ Setting `max_user_txs_per_bundle: "auto"` selects using measured preparation
 time and available gas/blob capacity, without a fixed transaction-count cap.
 Configure admission through this existing top-level `eez` option;
 `settlement_env` carries the required policy and posting fee options.
+
+The single conditional scheduler requires
+`settlement_env.EEZ_SETTLEMENT_START_AFTER_BLOCK: "3"`, not a new top-level
+selector. Missing P fails configuration. Set optional
+`settlement_env.EEZ_SETTLEMENT_START_DELAY_MS: "250"` for a sub-block delay;
+omission means zero and an empty value is invalid. Remove the obsolete
+`EEZ_PREPARATION_TIME_MS` input entirely. Explicit strings reach node validation.
+Also adjust `proof_time_ms` and `submission_slack_ms`: the packaged 5000/2500 ms
+defaults do **not** fit the six seconds remaining after P=3 on the 12s/2s grid.
+See [conditional slot production](../../docs/configurable-settlement-policy.md#conditional-slot-production)
+for budget validation and the outstanding release gates; this remains draft behavior.
 
 The dedicated `crosschain-limit-args.yaml` profile deliberately sets the cap to
 `3` to make spillover observable under a small workload. It is a disposable

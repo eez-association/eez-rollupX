@@ -1,0 +1,226 @@
+{
+  "schema": 1,
+  "source": "76b210bcd9cc22e429865d483fa2d948c9793780",
+  "implementation_head": "6f8620ecfe872b27214b9fa1063012ee8bca1036",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "zero_delay": {
+    "summary": {
+      "result": "pass",
+      "accepted": 4500,
+      "canonicalSuccessfulReceipts": 4500,
+      "durationSeconds": 900.0000890770461,
+      "skippedTicks": 0,
+      "positions": {
+        "1": 1860,
+        "2": 960,
+        "3": 840,
+        "4": 840
+      },
+      "ordinaryBlocks": 717,
+      "ordinaryWithMultipleTestTransactions": 690,
+      "emptyOrdinaryBlocks": 27,
+      "oneTestTransactionOrdinaryBlocks": 0,
+      "syncBlocks": 179,
+      "syncWithTestTransactions": 0,
+      "settlements": 7,
+      "fullBlobsRetrieved": 7,
+      "exactNonceAdvance": true,
+      "gasCostWei": 945004630500000,
+      "balanceMatchesGas": true,
+      "firstInclusionObservationSeconds": {
+        "samples": 4490,
+        "p50": 0.7829387187957764,
+        "p95": 1.9835631847381592,
+        "max": 4.98400354385376
+      },
+      "queue": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      },
+      "independentFollowerReplay": true,
+      "independentKzgVerification": true,
+      "kzgVerificationMethod": "independent-follower-blob-reconstruction",
+      "loadError": null
+    },
+    "replay": {
+      "checkedReceipts": 4500,
+      "checkedBlocks": 700,
+      "safeL2Block": "0x2eea0",
+      "safeL2Hash": "0x943a00b20cb45becd726e88becd5ff977433520dd88d98cc904083c9aec98427",
+      "followerSource": "c3061cb1883eee253890d8310e5393deeb7b4335",
+      "followerImage": "ghcr.io/eduadiez/rollupx-node@sha256:0eeb551755a060d7cd845c0cd4dbe871eb33dec1c55eba924d0e58e21da9a85c",
+      "kzgVerification": "independent-follower-blob-reconstruction"
+    },
+    "settlements": [
+      {
+        "transactionHash": "0x1717644073d0dcc9e422bc28e84afc08ffc060b26a516027576d4ba6fdda559b",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x3f33bfd13515ea401ef0af6e0fe8c83f786b2dddf4fe4cfc251772dd3e57841f",
+          "firstBlockNumber": "0x2ea87",
+          "lastBlockHash": "0x03db1eb0f2e1e07261d9ca60820f66fb3d4d8de318c1ec519f2a3e166240403e",
+          "lastBlockNumber": "0x2eb1c"
+        }
+      },
+      {
+        "transactionHash": "0x5f9e8e47a616dfd2986320217de9a3d25b3e1617445921849b542f0f94e6be27",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0xf25ccb479de7df571890900a0aa2f3fb4f360b18dec9e34ece48d20a2eb62434",
+          "firstBlockNumber": "0x2eb1d",
+          "lastBlockHash": "0x5f092802d3dfa6575d055bcdcfd94ff0877d8d32659b8bdbb30f111784c9e3c0",
+          "lastBlockNumber": "0x2ebb2"
+        }
+      },
+      {
+        "transactionHash": "0xd97f970d288f14570de9d9cdcc475e0701a1ea672a9d4a2d078cda08bfed0473",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x06f62c03d8da25d34038454026cc0601b08ca9331afe077a5d83ca7f041d9681",
+          "firstBlockNumber": "0x2ebb3",
+          "lastBlockHash": "0x66c399a810598a20ba98e5f46f14f5aab1009fd6cbae5673034477d6e915a5d6",
+          "lastBlockNumber": "0x2ec48"
+        }
+      },
+      {
+        "transactionHash": "0x56d32493d1f1bb67656bc5b25c7533c91a6b6707cbff343a18c5248be44327c7",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x31bc9ecdd5243ddb9cb1120c3375433f9c41221eec663ea37b249110c42b9189",
+          "firstBlockNumber": "0x2ec49",
+          "lastBlockHash": "0x3726e7c7a7d784b0c0fac79693c671441a8c6b7d3eed03fd4bb51e6de85e0e0b",
+          "lastBlockNumber": "0x2ecde"
+        }
+      },
+      {
+        "transactionHash": "0x339a109518b5638c1b204b15d055ceaa8b302adb84c7406764fced8d915f800a",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x431d7b522e4eeb2625423a13386b62e38820c5ac6550cc9ee73ac43e2e9a302c",
+          "firstBlockNumber": "0x2ecdf",
+          "lastBlockHash": "0x1cc994273b71c0033fc5aa341d745038bc0fe64e02f7d0a7bf544e9c92e6eb92",
+          "lastBlockNumber": "0x2ed74"
+        }
+      },
+      {
+        "transactionHash": "0x1895c75a3b581f6ed321cae801ab0ffb2f5f866ac74cd2b55c61f8ef2966437c",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x6c900440215ee1e852ed4d87afea98f176b1f179de8d3972dd10c4750fc6632a",
+          "firstBlockNumber": "0x2ed75",
+          "lastBlockHash": "0xc6f3182d6cd0d2d6741ecdf8aa1f0f1952a94cbd2013b507fda2b5d7f2f286fa",
+          "lastBlockNumber": "0x2ee0a"
+        }
+      },
+      {
+        "transactionHash": "0x2584448c37279760fe9d4da51237cb9fbd4d0e8a87cee9c8672ef78a8b07f1b0",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x3b9510607272c25326dffcea0add9aedbd2ffe231d32366bf0bd24fd43abd89f",
+          "firstBlockNumber": "0x2ee0b",
+          "lastBlockHash": "0x943a00b20cb45becd726e88becd5ff977433520dd88d98cc904083c9aec98427",
+          "lastBlockNumber": "0x2eea0"
+        }
+      }
+    ]
+  },
+  "delay_250ms": {
+    "summary": {
+      "result": "pass",
+      "accepted": 900,
+      "canonicalSuccessfulReceipts": 900,
+      "durationSeconds": 180.00009991205297,
+      "skippedTicks": 0,
+      "positions": {
+        "1": 378,
+        "2": 180,
+        "3": 172,
+        "4": 170
+      },
+      "ordinaryBlocks": 140,
+      "ordinaryWithMultipleTestTransactions": 136,
+      "emptyOrdinaryBlocks": 2,
+      "oneTestTransactionOrdinaryBlocks": 2,
+      "syncBlocks": 36,
+      "syncWithTestTransactions": 0,
+      "settlements": 2,
+      "fullBlobsRetrieved": 2,
+      "exactNonceAdvance": true,
+      "gasCostWei": 189000926100000,
+      "balanceMatchesGas": true,
+      "firstInclusionObservationSeconds": {
+        "samples": 893,
+        "p50": 1.1825454235076904,
+        "p95": 2.3836355209350586,
+        "max": 4.18722677230835
+      },
+      "queue": {
+        "queued": 0,
+        "inFlight": 0,
+        "blocked": 0,
+        "unknown": 0
+      },
+      "independentFollowerReplay": true,
+      "independentKzgVerification": true,
+      "kzgVerificationMethod": "independent-follower-blob-reconstruction",
+      "loadError": null
+    },
+    "replay": {
+      "checkedReceipts": 900,
+      "checkedBlocks": 145,
+      "safeL2Block": "0x2f062",
+      "safeL2Hash": "0x22c94b4f57d1f1555791d200c7cb566bc6660141a6fb92ddcd4d998331c0a2ce",
+      "followerSource": "c3061cb1883eee253890d8310e5393deeb7b4335",
+      "followerImage": "ghcr.io/eduadiez/rollupx-node@sha256:0eeb551755a060d7cd845c0cd4dbe871eb33dec1c55eba924d0e58e21da9a85c",
+      "kzgVerification": "independent-follower-blob-reconstruction"
+    },
+    "settlements": [
+      {
+        "transactionHash": "0x57fae56dc67a85542ce92514b7de88aa4b769a96607598501d3e5c20a59bbdcf",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x053b3c29a8bb16c922ccb039202b691babb0954936206c84f648552a6af8d55e",
+          "firstBlockNumber": "0x2ef37",
+          "lastBlockHash": "0xcd66fd8b0b22aa3f906782ec2c6001f73a9e4e16b97ed5c44061149dd2e9cb34",
+          "lastBlockNumber": "0x2efcc"
+        }
+      },
+      {
+        "transactionHash": "0xc4e0b5b75244de143031767978d557d9ca2cbd751ed22eece0df02a41d59e191",
+        "blobCount": 1,
+        "l2Range": {
+          "blockCount": "0x96",
+          "firstBlockHash": "0x824a6e3adb9f8b124e423fbba4f7abbed2f073515a3d4168c9882747de145e86",
+          "firstBlockNumber": "0x2efcd",
+          "lastBlockHash": "0x22c94b4f57d1f1555791d200c7cb566bc6660141a6fb92ddcd4d998331c0a2ce",
+          "lastBlockNumber": "0x2f062"
+        }
+      }
+    ],
+    "verification_note": "Initial verifier failed on a null independent L1 receipt; retained load revalidated read-only with bounded availability polling, no resubmission."
+  },
+  "finalized": {
+    "observedAt": 1791586442.0823903,
+    "result": "pass",
+    "workloadFinalizedOnBoth": true,
+    "terminal": {
+      "number": "0x2f062",
+      "hash": "0x22c94b4f57d1f1555791d200c7cb566bc6660141a6fb92ddcd4d998331c0a2ce",
+      "stateRoot": "0x0e0a3ad698029aa9cba38d4ec525c6287a4f5ba865b99aadbc9ae9c9133b32fd",
+      "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+      "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421"
+    },
+    "nonce": "0x17fc",
+    "balance": "0xaa1bcaba7f5102"
+  }
+}

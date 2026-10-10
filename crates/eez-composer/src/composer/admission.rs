@@ -792,7 +792,7 @@ mod tests {
         assert_eq!(state.limit(0, Duration::from_secs(1)), 0);
         let unknown_target = state.begin(
             1000,
-            RollupTiming::new(5000, 1000, 1000, 100),
+            RollupTiming::new(5000, 1000, 1000, 100, 3),
             BundleTarget::NextBlock,
         );
         assert_eq!(
@@ -929,7 +929,7 @@ mod tests {
         a.available = Duration::from_millis(1490);
         a.proof_estimate = Duration::from_secs(1);
         a.deadline = PipelineDeadline::new(
-            RollupTiming::new(5000, 1000, 1000, 1500),
+            RollupTiming::new(5000, 1000, 1000, 1500, 2),
             BundleTarget::Exact {
                 block: 1,
                 timestamp: unix_time_millis() / 1000 + 5,

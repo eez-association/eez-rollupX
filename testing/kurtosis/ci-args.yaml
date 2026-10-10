@@ -64,9 +64,8 @@ eez:
   proof_signer_key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
   l1_block_time_ms: 12000
   l2_block_time_ms: 2000
-  # The trigger opens at T-6000 after rounding to the L2 grid. Plan 4s for
-  # proving and 1500ms for composition/witness/blob preparation; both share
-  # the actual T-500 submission deadline, with two Future blocks.
+  # P=3 opens at T-6000. Plan 4s for proving, 1350ms for preparation and
+  # 150ms for post-proof work; all share the actual T-500 submission deadline.
   proof_time_ms: 4000
   submission_slack_ms: 500
   bundle_submission_lead_ms: 7500
@@ -80,6 +79,8 @@ eez:
   # interval is short enough to establish canonical readiness even before a
   # workload, while accepted cross-chain work remains immediately eligible.
   settlement_env:
+    # K=6: P=3 leaves 6s for preparation, proof, slack and the 150ms reserve.
+    EEZ_SETTLEMENT_START_AFTER_BLOCK: "3"
     EEZ_SETTLEMENT_PURE_L2_MODE: "interval"
     EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS: "60000"
     EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS: "150"

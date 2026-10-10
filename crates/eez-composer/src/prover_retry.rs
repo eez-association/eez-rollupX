@@ -883,7 +883,7 @@ mod tests {
     }
 
     fn test_timing() -> RollupTiming {
-        RollupTiming::new(2_000, 1_000, 500, 100)
+        RollupTiming::new(2_000, 1_000, 500, 100, 1)
     }
 
     const TEST_NOW_MS: u64 = 1_700_000_000_000;
@@ -1366,7 +1366,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn next_block_retry_attempt_uses_only_the_remaining_budget() {
-        let timing = RollupTiming::new(3_000, 1_000, 1_000, 100);
+        let timing = RollupTiming::new(3_000, 1_000, 1_000, 100, 1);
         let prover = DelayedFailureThenStallProver::default();
         let started = Instant::now();
 
@@ -1390,7 +1390,7 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn next_block_retries_until_its_total_wait_budget_is_exhausted() {
-        let timing = RollupTiming::new(5_000, 1_000, 2_000, 100);
+        let timing = RollupTiming::new(5_000, 1_000, 2_000, 100, 2);
         let prover = AlwaysRetryableProver::default();
         let started = Instant::now();
 
@@ -1444,7 +1444,7 @@ mod tests {
 
     #[test]
     fn proof_cutoff_reserves_proof_time_and_submission_slack() {
-        let timing = RollupTiming::new(12_000, 2_000, 4_000, 1_500);
+        let timing = RollupTiming::new(12_000, 2_000, 4_000, 1_500, 3);
         assert_eq!(
             proof_start_cutoff_ms(
                 timing,

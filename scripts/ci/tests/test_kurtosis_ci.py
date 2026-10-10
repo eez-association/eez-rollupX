@@ -119,14 +119,14 @@ class CiTimingTest(unittest.TestCase):
         self.assertEqual(args["ethereum_package"]["network_params"]["slot_duration_ms"], l1)
         self.assertEqual(timing["bundle_submission_lead_ms"], 7500)
 
-        # RollupTiming::future_count rounds the proof reservation up to an L2
-        # block. prove_with_retry must start by T - proof - slack. The gap is
-        # the time available for composition, witnesses and blob preparation.
-        future = (proof + slack + l2 - 1) // l2 - 1
-        trigger_lead = (future + 1) * l2
-        self.assertEqual((future, trigger_lead), (2, 6000))
+        # The explicit position leaves the same target/deadline while reserving
+        # preparation time independently of the configured proof estimate.
+        position = int(timing["settlement_env"]["EEZ_SETTLEMENT_START_AFTER_BLOCK"])
+        delay = int(timing["settlement_env"].get("EEZ_SETTLEMENT_START_DELAY_MS", "0"))
+        trigger_lead = l1 - position * l2 - delay
+        self.assertEqual((position, trigger_lead), (3, 6000))
         self.assertGreaterEqual(proof, 4000)
-        self.assertGreaterEqual(trigger_lead - proof - slack, 1500)
+        self.assertGreaterEqual(trigger_lead - proof - slack - 150, 1350)
 
 
 class RelayResourcesTest(unittest.TestCase):
@@ -174,6 +174,7 @@ class RelayResourcesTest(unittest.TestCase):
 
 class SettlementEnvironmentTest(unittest.TestCase):
     REQUIRED = {
+        "EEZ_SETTLEMENT_START_AFTER_BLOCK",
         "EEZ_SETTLEMENT_PURE_L2_MODE",
         "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS",
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS",
@@ -190,12 +191,27 @@ class SettlementEnvironmentTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             configure({})
         values = {"EEZ_SETTLEMENT_PURE_L2_MODE": "interval",
+                  "EEZ_SETTLEMENT_START_AFTER_BLOCK": "3",
                   "EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS": "60000",
                   "EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS": "150",
                   "EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE": "2000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS": "100000000000",
                   "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS": "100000000000"}
         self.assertEqual(configure(values), values)
+        for position in ("3", "", "0", "invalid"):
+            explicit = dict(values, EEZ_SETTLEMENT_START_AFTER_BLOCK=position)
+            self.assertEqual(configure(explicit), explicit)
+        without_position = dict(values)
+        without_position.pop("EEZ_SETTLEMENT_START_AFTER_BLOCK")
+        with self.assertRaisesRegex(ValueError, "requires EEZ_SETTLEMENT_START_AFTER_BLOCK"):
+            configure(without_position)
+        self.assertNotIn("EEZ_SETTLEMENT_START_DELAY_MS", configure(values))
+        for name in ("EEZ_SETTLEMENT_START_DELAY_MS", "EEZ_PREPARATION_TIME_MS"):
+            for value in ("0", "250", "", "-1", "invalid"):
+                with self.subTest(name=name, value=value):
+                    # Preserve explicit empty/obsolete/conflicting values for runtime rejection.
+                    explicit = dict(values, **{name: value})
+                    self.assertEqual(configure(explicit), explicit)
         for margin in ("", "500", "2000", "bad"):
             explicit = dict(values, EEZ_L1_POSTBATCH_GAS_MARGIN_BPS=margin)
             self.assertEqual(configure(explicit), explicit)
@@ -235,6 +251,17 @@ class SettlementEnvironmentTest(unittest.TestCase):
                 self.assertEqual(values["EEZ_L1_POSTBATCH_GAS_MARGIN_BPS"], "500")
                 self.assertTrue(self.REQUIRED.issubset(values))
                 self.assertTrue(all(isinstance(value, str) for value in values.values()))
+                l1_ms = args["ethereum_package"]["network_params"]["seconds_per_slot"] * 1000
+                l2_ms = args["eez"]["l2_block_time_ms"]
+                position = int(values["EEZ_SETTLEMENT_START_AFTER_BLOCK"])
+                delay = int(values.get("EEZ_SETTLEMENT_START_DELAY_MS", "0"))
+                reserved = args["eez"]["proof_time_ms"] + args["eez"]["submission_slack_ms"] + 150
+                self.assertGreaterEqual(position, 1)
+                self.assertLess(position, l1_ms // l2_ms)
+                self.assertGreaterEqual(delay, 0)
+                self.assertLess(delay, l2_ms)
+                self.assertLess(reserved, l1_ms - position * l2_ms - delay)
+                self.assertNotIn("EEZ_PREPARATION_TIME_MS", values)
 
     def test_signer_block_limit_is_optional_and_passed_to_the_signer(self):
         source = (REPO / "testing/kurtosis/main.star").read_text()
@@ -272,6 +299,8 @@ class SettlementReadinessTest(unittest.TestCase):
         end = script.index(last, start)
         setup = r'''
 deadline=$((SECONDS + 60))
+readiness_started=$SECONDS
+RESULT_DIR=$(dirname "$READINESS_LOG")
 KURTOSIS_ENCLAVE=fixture-ci
 KURTOSIS_BUILDER_SERVICE=fixture-builder
 kurtosis() {
@@ -363,7 +392,7 @@ class FailureArtifactsTest(unittest.TestCase):
             # exercise the real EXIT trap, artifact capture and result writer.
             (package / "start.sh").write_text('touch "$START_MARKER"\nexit 17\n')
             (package / "stop.sh").write_text("exit 0\n")
-            (tools / "git").write_text("#!/bin/sh\nprintf '%040d\\n' 1\n")
+            (tools / "git").write_text("#!/bin/sh\ncase \"$*\" in *ls-files*) printf '160000 ';; esac\nprintf '%040d\\n' 1\n")
             (tools / "kurtosis").write_text('''#!/usr/bin/env python3
 import sys
 args = sys.argv[1:]
@@ -388,6 +417,9 @@ else:
             evidence = json.loads((root / "results/result.json").read_text())
             self.assertEqual((evidence["result"], evidence["exit_code"]), ("fail", 17))
             for service in ("eez-node", "eez-proof-signer", "el-2-reth-builder-lighthouse",
+                            "el-1-reth-lighthouse", "cl-1-lighthouse-reth",
+                            "cl-2-lighthouse-reth-builder", "vc-1-reth-lighthouse",
+                            "mev-boost-1-lighthouse-reth",
                             "mev-relay-api", "mev-relay-housekeeper"):
                 lines = (root / "results" / f"{service}.log").read_text().splitlines()
                 self.assertEqual(len(lines), 250, lines)

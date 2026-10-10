@@ -32,7 +32,9 @@ from an empty string. Restart is required to change settings.
 | `EEZ_MAX_BLOBS_PER_BATCH` | No operator cap | Optional positive integer, additionally bounded by active network transaction/block and transport limits. Applies only to outgoing posts. |
 | `EEZ_MAX_POSTBATCH_GAS` | No operator cap | Optional positive integer; actual budget also respects the target fork's transaction rule and validated block budget. |
 | `EEZ_MAX_USER_TXS_PER_BUNDLE` | 50; Chiado env preset `auto` | Positive integer for the existing count limit, or `auto` for adaptive resource/time admission. Compose retains a numeric interpolation fallback of 12, but startup still requires the mandatory policy settings. Parsed once; restart to change. |
-| `EEZ_PREPARATION_TIME_MS` | Unset | Optional positive integer milliseconds. Planning allocation used with proof and slack for the exact millisecond trigger; cross-chain preparation and proving share the final submission deadline. The combined budget must fit `(K - 1)` L2 blocks. Unset retains the rounded trigger. |
+| `EEZ_PREPARATION_TIME_MS` | Removed | Must be absent, including from inherited environment and Compose inputs. Even an empty value fails startup. Choose P explicitly; no automatic migration of the old millisecond budget. |
+| `EEZ_SETTLEMENT_START_AFTER_BLOCK` | Required | Conditional production after position P, `1 <= P < K`. Proof seed + slack + delay + the shared 150 ms post-proof reserve must be strictly less than `(K-P) * L2`. See [conditional slot production](#conditional-slot-production). |
+| `EEZ_SETTLEMENT_START_DELAY_MS` | 0 | Optional nonnegative integer milliseconds, strictly less than one L2 interval. Delays the preparation decision from P's scheduled time, not its actual completion time. Empty is invalid. |
 | `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
@@ -109,8 +111,9 @@ This fallback applies only when the normal estimate refuses that first group;
 it does not cap cold batches that already fit the complete estimate.
 
 For all exact-target candidates, the exclusive deadline is target time
-minus submission slack. `EEZ_PREPARATION_TIME_MS` and `EEZ_PROOF_TIME_MS` control
-scheduling estimates; they are not separate hard stage limits. Preparation can
+minus submission slack. P plus delay controls the preparation trigger and
+`EEZ_PROOF_TIME_MS` seeds the proof estimate; neither creates a separate hard
+stage limit. Preparation can
 run beyond its allocation and continue proving the same accepted candidate.
 Proving uses the remaining deadline less finalization/delivery reserve; retries,
 streaming and cache repair cannot reset that window. A fast preparation can
@@ -644,17 +647,145 @@ in their respective native fee units.
 
 ## Network profiles and execution
 
+### Conditional slot production
+
+**Implementation draft; not yet approved for production rollout.** Set
+`EEZ_SETTLEMENT_START_AFTER_BLOCK=P` to choose the ordinary block after which
+settlement preparation may begin. Positions count from the preceding immutable
+sync boundary, so K=6, L2=2 seconds, P=3 means the block at +6 seconds. Ordinary
+ticks use the genesis time grid. Remove `EEZ_PREPARATION_TIME_MS` entirely first;
+empty is invalid, not absence. P is required and must be an integer in `1..K` (excluding K).
+`EEZ_SETTLEMENT_START_DELAY_MS` is optional, defaults to zero, and must be less
+than one L2 interval. With P=3 and delay=250 on the 12s/2s grid, P commits at
+nominal +6s and planning starts at or after +6.25s. Ordinary ticks still produce
+P on time; the queue is observed after the delayed trigger. If P commits late,
+do not wait another 250 ms. The original target deadline and block timestamps
+remain unchanged. More arrival time does not guarantee admission or inclusion.
+Startup requires positive preparation time after subtracting the delay and reserving the configured proof
+seed, submission slack and the existing 150 ms post-proof reserve. The latter
+already includes delivery and is counted once. Proof and submission controls
+remain enforced; P plus delay replaces only the preparation trigger.
+
+After recovery/ownership maintenance and the committed cutoff prefix, Composer
+returns a read-only preparation hint using the canonical settlement anchor,
+projected boundary height/time, known activity/fullness, window pressure, retained
+drain/predecessor work and held cross-chain queue occupancy. Occupancy is not proof
+that a request is eligible. Final policy, fees, admission, proofs and submission
+still decide whether to post. No fake future block hash is supplied to policy.
+Planning does not create/extend a drain or consume queued requests. A blocking
+optimistic owner selects paced recovery/Empty maintenance instead; final selection
+still takes its finite request snapshot after the burst. Its database
+work runs on a blocking worker with a single shared permit retained until exit,
+including after the waiting cutoff times out. The wait is capped at the next
+future ordinary grid tick or remaining deadline headroom, whichever is earlier.
+An on-time P-plus-delay decision therefore waits at most `L2 - delay`; a late
+entry uses the next future tick and never resets the settlement deadline.
+
+If preparation is due, the existing pipeline rapidly builds the remaining
+ordinary blocks using the pool, then composes the sync block. Otherwise it keeps
+ordinary blocks paced through the end of the interval. **Every sync boundary
+still uses the existing empty checkpoint path** unless cross-chain composition
+supplies its authorized native actions. This release does not put pool
+transactions in skipped sync blocks. A later ordinary tick may finish a missing
+empty boundary after `EndTick`, subject to recovery and normal commit checks.
+
+Only a successful not-due hint selects the non-posting `Ordinary` checkpoint
+mode. Planner errors/timeouts keep paced production but retain the existing
+`Empty` policy/recovery opportunity at the boundary, so unavailable planning
+cannot deadlock settlement at the speculative-depth cap. Incomplete or stale
+canonical context is retried from ticks; it is never treated as not-due evidence.
+
+The cutoff decision belongs to one exact known L1 parent, target, reconciled
+generation and local branch. Late requests or newly crossed policy thresholds do
+not reopen an ordinary decision; they wait for the next eligible cutoff. Stale or
+unavailable evidence does not authorize a burst or bypass empty-block validation.
+A new canonical scan generation invalidates the hint even on a same-branch L1
+extension; fresh recovery may reevaluate settlement at the missing boundary.
+The existing bounded catch-up, speculative-depth limits and maximum four skipped
+slot replacements still apply; there is no L1-independent sequencing mode.
+Armed bounded replacements supply the next paced prefix after its preceding
+boundary time, even while the next L1 head is delayed; an unfinished valid prior
+decision retains its boundary semantics. Ticks catch up only already-due blocks
+within the existing work bound. `eez.slot.configuration`, `eez.composer.slot.plan`
+and `eez.sequencer.slot.decision` record configuration, hints and choices.
+
+There is one scheduler: unset P fails startup rather than selecting legacy timing.
+Compose transports absent, empty and explicit values without silently choosing
+precedence; shell values override `.env`. Kurtosis carries P and delay through
+`settlement_env`. The removed preparation input remains visible to validation so
+an obsolete operator setting cannot silently disappear.
+Composer and new follower binaries share the timing parser: both require explicit
+P and reject the removed preparation setting. Followers do not schedule or use
+the delay to reinterpret history, but their launch environment must migrate too.
+There is no protocol pin, wire, ABI, database or signer configuration migration.
+Existing follower replay and mixed-version
+signer/follower compatibility use unchanged block formats and empty checkpoints;
+the process/replay release gate still must verify this. Migrate configuration
+together with the Composer upgrade: remove the preparation setting, explicitly
+choose P and initially use zero delay. There is no runtime legacy-mode switch.
+For rollback, use a verified compatible prior binary with its matching timing
+configuration; remove the delay for versions that do not support it. Candidate A
+at `9ca75ba` supports P but has no delay setting and still has the displaced-batch
+sender-cap bug demonstrated by the
+[failed load test](audits/2026-10-09-conditional-slot-production/stress-failure.md).
+It is not a known-good rollback for that workload.
+Preserve original state and establish storage compatibility before a downgrade.
+Normal restart may discard speculative history and in-memory pending requests;
+clients may need to resubmit. Never run two Composers on shared state.
+
+Live settlement can change the authenticated execution seed of already-produced
+unsafe descendants. Reconciliation replaces the first stale child with an
+executed empty sibling, letting Reth requeue ordinary transactions from the
+removed suffix. The Composer pool's maintenance-only adapter revalidates these
+displaced transactions with local origin: Reth's default external reinsertion
+would otherwise apply its 16-transaction sender cap to an already accepted
+suffix. RPC/network ingress keeps the unwrapped pool and its existing limits.
+System envelopes and Composer-owned cross-chain sources remain excluded by
+the same validator. Reinsertion failures are logged, not counted as successful
+recovery. Explicit `--txpool.nolocals` settings still disable local
+exemptions; this repair does not override operator admission policy.
+Reth does not retain the original origin in block data. Recovery therefore
+selects **all** local policies: the RPC fee cap, local propagation setting,
+eviction exemptions, and ordinary Reth local-transaction backup when enabled.
+An externally received transaction above the local fee cap can be rejected on
+recovery. Minimum-tip, execution, DA and replacement checks still apply. A
+validation error, including temporarily unavailable DA limits, is logged without
+an automatic retry; clients must reconcile and resubmit if necessary. This is
+not a durable guarantee for every accepted transaction. Reth's pool backup does
+not persist Composer request ownership or its retry counters. Startup backup
+reinsertion is also best-effort and can run before DA admission is ready; it is
+not a durable ordinary-transaction journal. Reconcile actual canonical receipts
+and pending hashes, not the upstream backup log's attempted-insertion count.
+Those transactions must execute again under the new context;
+their earlier receipts are not final. The replacement does not advance safe or
+finalized state. This recovery repair is enabled for every Composer, needs no
+wire/storage migration, and remains compatible with existing followers. Rolling
+back the binary restores the old ancestor-only rewind and its transaction-loss
+risk; it does not recover transactions already lost from an in-memory pool.
+
+Empty local checkpoints use `EEZ_L2_FEE_RECIPIENT`, just like ordinary production
+and minimal settlement blocks. Historical replacement preserves the existing
+header rather than substituting the current setting. This changes newly built
+checkpoint hashes for a nonzero recipient, not the block/DA format: existing
+history remains replayable using its recorded environment. No protocol,
+database, or signer migration is needed. Followers retain upstream external
+reinsertion policy; they do not sequence displaced ordinary work. The adapter
+adds no worker, queue, or durable recovery state.
+
+See the [proposal and acceptance gates](proposals/conditional-slot-production.md)
+and [implementation evidence](audits/2026-10-09-conditional-slot-production/README.md).
+
+### Shared target handling
+
 Ethereum and Chiado retain their existing slot and submission-window settings.
 
-An optional `EEZ_PREPARATION_TIME_MS` replaces the implicit rounding remainder
-with a measured preparation allowance. The trigger occurs at the next L1 slot
-minus preparation, proof and submission slack. Block timestamps and the Sync
-grid remain unchanged; the Future suffix covers the combined budget. For
-example, a 5-second/1-second profile with preparation 500 ms, proof 750 ms and
-slack 700 ms triggers at 3.05 seconds after its anchor. This is the packaged
-Chiado preset, not a latency guarantee. Size proof and preparation for large
-historical batches as well as small bridges. The setting requires a node restart;
-the applicable proof policy and absolute submission deadline remain enforced.
+The trigger occurs at the preceding boundary plus P L2 intervals and the optional
+delay. Block timestamps and the Sync grid remain unchanged; the potential Future
+suffix contains `K-P-1` ordinary blocks. The Chiado preset P=2, delay=0 triggers
+at +2 seconds on its 5-second/1-second grid, leaving 3 seconds before the target,
+including proof seed, submission slack and post-proof reserve. This is not a
+latency guarantee. Budget for large historical batches as well as small bridges.
+Changing timing requires a node restart; the shared absolute deadline remains enforced.
 If the expected L1 block is still absent at the following preparation deadline,
 the scheduler permits up to four replacement opportunities on the same parent.
 Each retains the target execution height and advances its timestamp one slot.
@@ -667,8 +798,8 @@ per observed L1 head, including the original. Exhaustion logs
 retain one replacement; this extension needs only a Composer upgrade and has no
 wire, signer, follower or storage migration. See
 [settlement ownership](../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
-On the 5-second/1-second Chiado grid, this preset reserves two Future blocks
-per interval rather than one with the former 500 ms proof budget.
+On the 5-second/1-second Chiado grid, this preset permits two Future blocks
+when preparation is selected; otherwise those positions remain paced.
 
 After catch-up, the sequencer rechecks the terminal. Only a terminal exactly at
 the requested future height and timestamp, with deadline headroom and no

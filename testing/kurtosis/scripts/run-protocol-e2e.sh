@@ -260,12 +260,11 @@ status=0
 # sign a 1,000,000 gas limit at the L1 node's suggested fee; with a 1 gwei
 # suggested tip, deployments plus that upfront cost exceed the default and the
 # fronts correctly refuse the trigger for insufficient balance.
-SOURCE_PK="$PK" FUND_ETH="${EEZ_PROTOCOL_FUND_ETH:-0.005}" python3 "$REPO/scripts/ci/run-protocol-network.py" \
+SOURCE_PK="$PK" FUND_ETH="${EEZ_PROTOCOL_FUND_ETH:-0.005}" python3 -u "$REPO/scripts/ci/run-protocol-network.py" \
     --protocol-dir "$PROTOCOL" --env-file "$env_file" --log-dir "$network_dir" \
     --max-parallel "${EEZ_PROTOCOL_MAX_PARALLEL:-all}" \
     --suite-timeout "${EEZ_PROTOCOL_SUITE_TIMEOUT:-2400}" \
-    "${selected_names[@]}" >"$run_log" 2>&1 || status=$?
-cat "$run_log"
+    "${selected_names[@]}" 2>&1 | tee "$run_log" || status=$?
 
 # Parse the raw upstream result stream once. Independent verification can
 # reject a PASS, but must never turn an upstream failure into a success.

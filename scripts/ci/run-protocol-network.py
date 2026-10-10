@@ -105,7 +105,16 @@ def run_network(protocol, logs, names, env, deadline, phase="parallel"):
         process = subprocess.Popen(command, cwd=protocol, env=env, stdout=log,
                                    stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            record["exit_code"] = process.wait(timeout=max(0, deadline - time.monotonic()))
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(command, 0)
+                try:
+                    record["exit_code"] = process.wait(timeout=min(30, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    print(f"==> protocol {phase}: still running "
+                          f"({time.monotonic() - started:.0f}s elapsed; log: {raw_log})", flush=True)
         except subprocess.TimeoutExpired:
             record["error"] = "suite deadline exceeded; stopped this runner's process group"
         except SystemExit as error:

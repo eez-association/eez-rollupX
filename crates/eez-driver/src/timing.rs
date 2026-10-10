@@ -3,14 +3,16 @@
 //! [`RollupTiming`] is a `Copy` value type carrying these input fields:
 //!
 //! - `l1_block_time_ms` — L1 cadence (12 000 mainnet, 5 000 chiado).
-//! - `l2_block_time_ms` — L2 cadence (2 000 mainnet target, 2 500
-//!   chiado-slow, 1 000 chiado-fast).
-//! - `proof_time_ms` — worst-case prover wall-clock budget.
+//! - `l2_block_time_ms` — whole-second L2 cadence (2 000 mainnet target,
+//!   1 000 chiado-fast).
+//! - `proof_time_ms` — initial prover planning estimate, not a stage deadline.
 //! - `submission_slack_ms` — how early the proven bundle must reach the
-//!   relay before the next L1 slot. With `proof_time`, sizes the Future
-//!   region (see [`RollupTiming::future_count`]). Default 100 ms.
-//! - `preparation_time_ms` — optional separate preparation allowance. Unset
-//!   preserves the rounded trigger; supplied uses millisecond precision.
+//!   relay before the next L1 slot. Default 100 ms.
+//! - `start_after_block` — required conditional-production cutoff position P.
+//! - `start_delay_ms` — optional offset after P's scheduled timestamp, less
+//!   than one L2 interval. Late execution does not extend this absolute trigger.
+//! Composer additionally validates proof/slack and its post-proof reserve
+//! against the remaining window.
 //!
 //! Derived helpers ([`RollupTiming::k`], [`RollupTiming::future_count`],
 //! [`RollupTiming::live_count`], [`RollupTiming::per_trigger_composition`])
@@ -18,8 +20,8 @@
 //! fields. No I/O, no allocation; the Sequencer calls them once per trigger.
 //!
 //! Validation ([`RollupTiming::validate`]) refuses any of: non-integer K, K < 2,
-//! `proof_time + slack ≥ l1_block_time`, `proof_time > (K-1) * l2_block_time`,
-//! or any zero field. Hard error at startup per `invariant 7` — the
+//! invalid P/delay, insufficient proof/slack headroom, or zero cadence/proof.
+//! Hard error at startup per `invariant 7` — the
 //! Sequencer refuses to start on misconfig rather than producing surprising
 //! block patterns.
 //!
@@ -29,13 +31,13 @@
 //!
 //! # Worked examples
 //!
-//! `future = ceil((proof + slack) / L2) − 1`, `live = K − future − 1`,
-//! `trigger = L1 − (future + 1)·L2`:
+//! `future = K − P − 1`, `live = P`, `trigger = P·L2 + delay`.
+//! Examples below use zero delay:
 //!
 //! | Deployment  | L1 (ms) | L2 (ms) | proof | slack | K | future | live | trigger (ms) |
 //! |---|---|---|---|---|---|---|---|---|
 //! | mainnet     | 12 000  | 2 000   | 4 000 | 1 500 | 6 | 2      | 3    | 6 000        |
-//! | chiado      | 5 000   | 1 000   | 200   | 1 700 | 5 | 1      | 3    | 3 000        |
+//! | chiado      | 5 000   | 1 000   | 750   | 700   | 5 | 2      | 2    | 2 000        |
 //! | chiado-slow | 4 000   | 2 000   | 1 500 | 100   | 2 | 0      | 1    | 2 000        |
 
 use std::env;
@@ -52,6 +54,8 @@ const ENV_L2_BLOCK_TIME_MS: &str = "EEZ_L2_BLOCK_TIME_MS";
 const ENV_PROOF_TIME_MS: &str = "EEZ_PROOF_TIME_MS";
 const ENV_SUBMISSION_SLACK_MS: &str = "EEZ_SUBMISSION_SLACK_MS";
 const ENV_PREPARATION_TIME_MS: &str = "EEZ_PREPARATION_TIME_MS";
+const ENV_START_AFTER_BLOCK: &str = "EEZ_SETTLEMENT_START_AFTER_BLOCK";
+const ENV_START_DELAY_MS: &str = "EEZ_SETTLEMENT_START_DELAY_MS";
 
 const DEFAULT_SUBMISSION_SLACK_MS: u32 = 100;
 
@@ -70,7 +74,8 @@ pub struct RollupTiming {
     l2_block_time_ms: u32,
     proof_time_ms: u32,
     submission_slack_ms: u32,
-    preparation_time_ms: Option<u32>,
+    start_after_block: u32,
+    start_delay_ms: u32,
 }
 
 impl RollupTiming {
@@ -97,28 +102,50 @@ impl RollupTiming {
         l2_block_time_ms: u32,
         proof_time_ms: u32,
         submission_slack_ms: u32,
+        start_after_block: u32,
     ) -> Self {
         Self {
             l1_block_time_ms,
             l2_block_time_ms,
             proof_time_ms,
             submission_slack_ms,
-            preparation_time_ms: None,
+            start_after_block,
+            start_delay_ms: 0,
         }
     }
 
-    /// Reserve preparation separately from proving and relay submission. The
-    /// trigger then uses millisecond precision; without this explicit setting,
-    /// existing profiles retain their whole-L2-block preparation window.
+    /// Delay planning after P's scheduled timestamp, not after its actual commit.
+    /// Validation requires this offset to be less than one L2 interval.
     #[must_use]
-    pub const fn with_preparation_time_ms(mut self, milliseconds: u32) -> Self {
-        self.preparation_time_ms = Some(milliseconds);
+    pub const fn with_start_delay_ms(mut self, milliseconds: u32) -> Self {
+        self.start_delay_ms = milliseconds;
         self
+    }
+
+    /// Choose conditional slot production after this one-based ordinary
+    /// position. The immutable boundary remains position K and stays empty
+    /// unless the existing cross-chain composer supplies its native actions.
+    #[must_use]
+    pub const fn with_start_after_block(mut self, position: u32) -> Self {
+        self.start_after_block = position;
+        self
+    }
+
+    #[must_use]
+    pub const fn start_after_block(self) -> u32 {
+        self.start_after_block
+    }
+
+    #[must_use]
+    pub const fn start_delay(self) -> Duration {
+        Duration::from_millis(self.start_delay_ms as u64)
     }
 
     /// Read fields from `EEZ_L1_BLOCK_TIME_MS`, `EEZ_L2_BLOCK_TIME_MS`,
     /// `EEZ_PROOF_TIME_MS`, `EEZ_SUBMISSION_SLACK_MS` (the slack
-    /// defaults to 100 ms if unset), and optional `EEZ_PREPARATION_TIME_MS`.
+    /// defaults to 100 ms if unset), required `EEZ_SETTLEMENT_START_AFTER_BLOCK`,
+    /// and optional `EEZ_SETTLEMENT_START_DELAY_MS` (default zero).
+    /// Any presence of the removed `EEZ_PREPARATION_TIME_MS` is an error.
     /// Runs [`Self::validate`] on the result.
     ///
     /// # Errors
@@ -126,15 +153,19 @@ impl RollupTiming {
     /// Returns [`DriverError`] for any missing required variable, malformed
     /// value, or validation failure.
     pub fn from_env() -> DriverResult<Self> {
-        let mut t = Self::new(
+        if env::var_os(ENV_PREPARATION_TIME_MS).is_some() {
+            return Err(DriverError::timing_config(
+                "EEZ_PREPARATION_TIME_MS has been removed; remove it entirely and set EEZ_SETTLEMENT_START_AFTER_BLOCK explicitly (optional EEZ_SETTLEMENT_START_DELAY_MS)",
+            ));
+        }
+        let t = Self::new(
             parse_env(ENV_L1_BLOCK_TIME_MS)?,
             parse_env(ENV_L2_BLOCK_TIME_MS)?,
             parse_env(ENV_PROOF_TIME_MS)?,
             parse_env_or(ENV_SUBMISSION_SLACK_MS, DEFAULT_SUBMISSION_SLACK_MS)?,
-        );
-        if let Some(value) = parse_optional_env(ENV_PREPARATION_TIME_MS)? {
-            t = t.with_preparation_time_ms(value);
-        }
+            parse_env(ENV_START_AFTER_BLOCK)?,
+        )
+        .with_start_delay_ms(parse_env_or(ENV_START_DELAY_MS, 0)?);
         t.validate()?;
         Ok(t)
     }
@@ -146,7 +177,7 @@ impl RollupTiming {
     /// # Errors
     ///
     /// Returns [`DriverError`] for any of:
-    /// - any zero field
+    /// - zero cadence, proof seed or position (zero slack and delay are valid)
     /// - `L2_block_time % 1000 != 0` — L2 block time must be whole
     ///   seconds. Block timestamps are unix integer-seconds and the
     ///   Scheduler computes `block_height = (sync_slot_ts - genesis_ts)
@@ -157,8 +188,8 @@ impl RollupTiming {
     /// - `proof_time + submission_slack >= L1_block_time`
     /// - `proof_time > (K - 1) * L2_block_time` (no room for Future
     ///   blocks before Sync)
-    /// - preparation is supplied as zero, or the combined preparation, proof
-    ///   and slack budget exceeds `(K - 1) * L2_block_time`
+    /// - P is outside `1..K`, delay is at least one L2 interval, or proof and
+    ///   slack leave no preparation time after the absolute P-plus-delay trigger
     pub fn validate(&self) -> DriverResult<()> {
         if self.l1_block_time_ms == 0 || self.l2_block_time_ms == 0 || self.proof_time_ms == 0 {
             return Err(DriverError::timing_config(
@@ -185,15 +216,19 @@ impl RollupTiming {
                 "K must be >= 2 (got {k}); Sync slot must be distinct from surrounding Live blocks"
             )));
         }
-        if self.preparation_time_ms == Some(0) {
+        if self.start_after_block == 0 || self.start_after_block >= k {
             return Err(DriverError::timing_config(
-                "EEZ_PREPARATION_TIME_MS must be positive when supplied",
+                "EEZ_SETTLEMENT_START_AFTER_BLOCK must be in 1..K (excluding K)",
+            ));
+        }
+        if self.start_delay_ms >= self.l2_block_time_ms {
+            return Err(DriverError::timing_config(
+                "EEZ_SETTLEMENT_START_DELAY_MS must be less than one L2 block interval",
             ));
         }
         let budget = self
             .proof_time_ms
             .checked_add(self.submission_slack_ms)
-            .and_then(|n| n.checked_add(self.preparation_time_ms.unwrap_or(0)))
             .ok_or_else(|| DriverError::timing_config("combined timing budget overflow"))?;
         if self.proof_time_ms.saturating_add(self.submission_slack_ms) >= self.l1_block_time_ms {
             return Err(DriverError::timing_config(format!(
@@ -212,11 +247,14 @@ impl RollupTiming {
                 max_budget,
             )));
         }
-        if budget > max_budget {
-            return Err(DriverError::timing_config(format!(
-                "preparation + proof + submission slack ({budget} ms) must fit the \
-                 Future region ({max_budget} ms), leaving at least one Live block"
-            )));
+        if Duration::from_millis(u64::from(budget))
+            >= self
+                .l1_block_time()
+                .saturating_sub(self.proof_window_open())
+        {
+            return Err(DriverError::timing_config(
+                "settlement position and delay leave no preparation time after proof and submission slack",
+            ));
         }
         Ok(())
     }
@@ -261,25 +299,12 @@ impl RollupTiming {
         self.l1_block_time_ms / self.l2_block_time_ms
     }
 
-    /// Future blocks per slot: `ceil((preparation + proof + slack) / l2) − 1`,
-    /// where preparation contributes zero when not explicitly configured.
-    /// Sized so the proven bundle reaches the relay `submission_slack` before
-    /// the next L1 slot, letting the postBatch target the immediate next block.
+    /// Potential early suffix: `K - P - 1`. Delay does not change block layout.
     #[must_use]
     pub const fn future_count(self) -> u32 {
-        let budget_ms = self
-            .proof_time_ms
-            .saturating_add(self.submission_slack_ms)
-            .saturating_add(match self.preparation_time_ms {
-                Some(value) => value,
-                None => 0,
-            });
-        // Manual ceil — div_ceil isn't const on the pinned toolchain.
-        let blocks = budget_ms
-            .saturating_add(self.l2_block_time_ms)
+        self.k()
+            .saturating_sub(self.start_after_block)
             .saturating_sub(1)
-            / self.l2_block_time_ms;
-        blocks.saturating_sub(1)
     }
 
     /// Live blocks per slot — the L2 blocks already produced on
@@ -290,19 +315,13 @@ impl RollupTiming {
     }
 
     /// Wall-clock offset after the anchor L1 block at which the trigger
-    /// fires. An explicit preparation allowance reserves exactly preparation +
-    /// proof + slack, with millisecond precision. Otherwise the rounded trigger
-    /// remains at the end of the Live region, `l1 − (future + 1)·l2`.
+    /// fires: `P * L2 + delay`. It never depends on the actual commit time of P.
     #[must_use]
     pub const fn proof_window_open(self) -> Duration {
-        if let Some(preparation) = self.preparation_time_ms {
-            let reserved_ms = preparation
-                .saturating_add(self.proof_time_ms)
-                .saturating_add(self.submission_slack_ms);
-            return Duration::from_millis(self.l1_block_time_ms.saturating_sub(reserved_ms) as u64);
-        }
-        let reserved_ms = (self.future_count() + 1).saturating_mul(self.l2_block_time_ms);
-        Duration::from_millis(self.l1_block_time_ms.saturating_sub(reserved_ms) as u64)
+        Duration::from_millis(
+            self.start_after_block as u64 * self.l2_block_time_ms as u64
+                + self.start_delay_ms as u64,
+        )
     }
 
     /// Wall-clock offset from "L1 block N landed" by which the
@@ -408,10 +427,8 @@ pub enum SlotComposition {
 }
 
 fn parse_env(name: &str) -> DriverResult<u32> {
-    let raw =
-        env::var(name).map_err(|_| DriverError::timing_config(format!("{name} is required")))?;
-    raw.parse::<u32>()
-        .map_err(|e: ParseIntError| DriverError::timing_config(format!("{name}: {e}")))
+    parse_optional_env(name)?
+        .ok_or_else(|| DriverError::timing_config(format!("{name} is required")))
 }
 
 fn parse_env_or(name: &str, default: u32) -> DriverResult<u32> {
@@ -436,6 +453,153 @@ mod tests {
     use super::*;
 
     #[test]
+    fn position_trigger_and_layout_cover_every_supported_position() {
+        for (l1, l2) in [(4000, 2000), (5000, 1000), (12000, 2000)] {
+            let base = RollupTiming::new(l1, l2, 100, 100, 1);
+            for p in 1..base.k() {
+                let timing = base.with_start_after_block(p);
+                timing.validate().unwrap();
+                assert_eq!(
+                    timing.proof_window_open(),
+                    Duration::from_millis(u64::from(p * l2))
+                );
+                assert_eq!(timing.live_count(), p);
+                assert_eq!(timing.future_count(), base.k() - p - 1);
+                assert_eq!(
+                    timing.per_trigger_composition(u64::from(p), u64::from(base.k()), 300),
+                    SlotComposition::Slot {
+                        live: 0,
+                        future: u64::from(base.k() - p - 1)
+                    }
+                );
+                assert_eq!(
+                    timing.preparation_time()
+                        + timing.proof_time()
+                        + timing.submission_slack()
+                        + timing.proof_window_open(),
+                    timing.l1_block_time()
+                );
+            }
+            for p in [0, base.k(), base.k() + 1, u32::MAX] {
+                assert!(base.with_start_after_block(p).validate().is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn position_environment_requires_migration_and_validates_delay() {
+        const CHILD: &str = "EEZ_POSITION_TEST_EXPECTED";
+        if let Ok(expected) = env::var(CHILD) {
+            let parsed = RollupTiming::from_env();
+            match expected.as_str() {
+                "position" => {
+                    let timing = parsed.unwrap();
+                    assert_eq!(timing.start_after_block(), 3);
+                    assert_eq!(timing.start_delay(), Duration::ZERO);
+                }
+                "delay" => assert_eq!(
+                    parsed.unwrap().proof_window_open(),
+                    Duration::from_millis(3300)
+                ),
+                "removed" => assert!(parsed.unwrap_err().to_string().contains("has been removed")),
+                _ => assert!(parsed.is_err()),
+            }
+            return;
+        }
+        // Child processes exercise the actual parser without racing global env.
+        for (position, delay, preparation, expected) in [
+            (None, None, None, "invalid"),
+            (Some("3"), None, None, "position"),
+            (Some("3"), Some("0"), None, "position"),
+            (Some("3"), Some("300"), None, "delay"),
+            (Some(""), None, None, "invalid"),
+            (Some("0"), None, None, "invalid"),
+            (Some("5"), None, None, "invalid"),
+            (Some("-1"), None, None, "invalid"),
+            (Some("1.5"), None, None, "invalid"),
+            (Some("4294967296"), None, None, "invalid"),
+            (Some("3"), Some(""), None, "invalid"),
+            (Some("3"), Some("-1"), None, "invalid"),
+            (Some("3"), Some("1.5"), None, "invalid"),
+            (Some("3"), Some("1000"), None, "invalid"),
+            (Some("3"), Some("4294967296"), None, "invalid"),
+            (None, None, Some("100"), "removed"),
+            (Some("3"), None, Some("100"), "removed"),
+            (Some("3"), None, Some(""), "removed"),
+            (Some("3"), None, Some("invalid"), "removed"),
+        ] {
+            let mut command = std::process::Command::new(env::current_exe().unwrap());
+            command
+                .args([
+                    "--exact",
+                    "timing::tests::position_environment_requires_migration_and_validates_delay",
+                ])
+                .env(ENV_L1_BLOCK_TIME_MS, "5000")
+                .env(ENV_L2_BLOCK_TIME_MS, "1000")
+                .env(ENV_PROOF_TIME_MS, "500")
+                .env(ENV_SUBMISSION_SLACK_MS, "100")
+                .env(CHILD, expected)
+                .env_remove(ENV_START_AFTER_BLOCK)
+                .env_remove(ENV_START_DELAY_MS)
+                .env_remove(ENV_PREPARATION_TIME_MS);
+            for (name, value) in [
+                (ENV_START_AFTER_BLOCK, position),
+                (ENV_START_DELAY_MS, delay),
+                (ENV_PREPARATION_TIME_MS, preparation),
+            ] {
+                if let Some(value) = value {
+                    command.env(name, value);
+                }
+            }
+            let output = command.output().unwrap();
+            assert!(
+                output.status.success(),
+                "{position:?}/{delay:?}/{preparation:?}: {} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn required_position_reports_non_unicode_instead_of_missing() {
+        use std::os::unix::ffi::OsStringExt;
+        const CHILD: &str = "EEZ_POSITION_NON_UNICODE_TEST";
+        if env::var_os(CHILD).is_some() {
+            let error = RollupTiming::from_env().unwrap_err().to_string();
+            assert!(error.contains(ENV_START_AFTER_BLOCK));
+            assert!(error.contains("non-UTF-8"));
+            assert!(!error.contains("is required"));
+            return;
+        }
+        let output = std::process::Command::new(env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "timing::tests::required_position_reports_non_unicode_instead_of_missing",
+            ])
+            .env(CHILD, "1")
+            .env(ENV_L1_BLOCK_TIME_MS, "5000")
+            .env(ENV_L2_BLOCK_TIME_MS, "1000")
+            .env(ENV_PROOF_TIME_MS, "500")
+            .env(ENV_SUBMISSION_SLACK_MS, "100")
+            .env(
+                ENV_START_AFTER_BLOCK,
+                std::ffi::OsString::from_vec(vec![0xff]),
+            )
+            .env_remove(ENV_START_DELAY_MS)
+            .env_remove(ENV_PREPARATION_TIME_MS)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[test]
     fn runtime_cadence_must_match_genesis_but_local_proving_budgets_may_differ() {
         use alloy_primitives::B256;
         use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
@@ -458,17 +622,17 @@ mod tests {
             let l1_ms = u32::try_from(schedule.l1_slot_seconds() * 1000).unwrap();
             let l2_ms = u32::try_from(step * 1000).unwrap();
             for proof_ms in [100, 400] {
-                RollupTiming::new(l1_ms, l2_ms, proof_ms, 100)
+                RollupTiming::new(l1_ms, l2_ms, proof_ms, 100, 1)
                     .validate_schedule(&schedule)
                     .unwrap();
             }
             assert!(
-                RollupTiming::new(l1_ms * 2, l2_ms, 100, 100)
+                RollupTiming::new(l1_ms * 2, l2_ms, 100, 100, 1)
                     .validate_schedule(&schedule)
                     .is_err()
             );
             assert!(
-                RollupTiming::new(l1_ms * 2, l2_ms * 2, 100, 100)
+                RollupTiming::new(l1_ms * 2, l2_ms * 2, 100, 100, 1)
                     .validate_schedule(&schedule)
                     .is_err()
             );
@@ -476,21 +640,20 @@ mod tests {
     }
 
     fn mainnet() -> RollupTiming {
-        // proof+slack = 5500 → future = 2, live = 3, trigger = +6s.
-        RollupTiming::new(12_000, 2_000, 4_000, 1_500)
+        // P=3 → future = 2, live = 3, trigger = +6s.
+        RollupTiming::new(12_000, 2_000, 4_000, 1_500, 3)
     }
 
     // K=2 devnet timing. Whole-second L2 only — sub-second cadence
     // trips `.as_secs()` truncation in the Scheduler (see `validate`).
     fn chiado_slow() -> RollupTiming {
-        // proof+slack = 1600 → future = 0, live = 1.
-        RollupTiming::new(4_000, 2_000, 1_500, 100)
+        // P=1 → future = 0, live = 1.
+        RollupTiming::new(4_000, 2_000, 1_500, 100, 1)
     }
 
-    // Real chiado deployment: proof+slack = 1900 → future = 1, live = 3,
-    // trigger = +3s, so the postBatch targets the immediate next L1 block.
+    // K=5 timing fixture: P=3 → future = 1, live = 3, trigger = +3s.
     fn chiado_fast() -> RollupTiming {
-        RollupTiming::new(5_000, 1_000, 200, 1_700)
+        RollupTiming::new(5_000, 1_000, 200, 1_700, 3)
     }
 
     /// After an off-grid settlement the cursor sits one below the grid. The next
@@ -626,99 +789,28 @@ mod tests {
     }
 
     #[test]
-    fn explicit_preparation_reserves_all_stages_without_rounding_the_trigger() {
-        for (l1, l2, proof, slack, prep) in
-            [(5000, 1000, 500, 700, 400), (12000, 2000, 4000, 1500, 750)]
-        {
-            let timing = RollupTiming::new(l1, l2, proof, slack).with_preparation_time_ms(prep);
+    fn delay_changes_only_the_absolute_trigger_and_remaining_headroom() {
+        let base = RollupTiming::new(5000, 1000, 500, 700, 1).with_start_after_block(3);
+        for delay in [0, 1, 799] {
+            let timing = base.with_start_delay_ms(delay);
             timing.validate().unwrap();
-            let open = timing.proof_window_open().as_millis();
-            assert_eq!(open + u128::from(prep + proof + slack), u128::from(l1));
-            assert_eq!(timing.k(), l1 / l2);
-            assert!(
-                u128::from((timing.future_count() + 1) * l2) >= u128::from(prep + proof + slack)
+            assert_eq!(
+                timing.proof_window_open(),
+                Duration::from_millis(3000 + u64::from(delay))
             );
-            assert_eq!(timing.live_count() + timing.future_count() + 1, timing.k());
+            assert_eq!(timing.future_count(), base.future_count());
+            assert_eq!(timing.live_count(), 3);
+            assert_eq!(timing.submission_deadline(), base.submission_deadline());
         }
-        assert_eq!(
-            RollupTiming::new(5000, 1000, 500, 700)
-                .with_preparation_time_ms(400)
-                .proof_window_open(),
-            Duration::from_millis(3400),
-        );
-        assert_eq!(
-            RollupTiming::new(5000, 1000, 500, 700).proof_window_open(),
-            Duration::from_secs(3)
-        );
-    }
-
-    #[test]
-    fn invalid_preparation_budgets_fail_before_scheduling() {
-        for prep in [0, 3000, u32::MAX] {
-            assert!(
-                RollupTiming::new(5000, 1000, 500, 700)
-                    .with_preparation_time_ms(prep)
-                    .validate()
-                    .is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn preparation_environment_preserves_defaults_and_rejects_invalid_values() {
-        const CHILD: &str = "EEZ_TIMING_TEST_CASE";
-        if let Ok(case) = env::var(CHILD) {
-            let timing = RollupTiming::from_env();
-            match case.as_str() {
-                "default" => {
-                    assert_eq!(timing.unwrap().proof_window_open(), Duration::from_secs(3))
-                }
-                "configured" => assert_eq!(
-                    timing.unwrap().proof_window_open(),
-                    Duration::from_millis(3400)
-                ),
-                "invalid" => assert!(timing.is_err()),
-                _ => panic!("unexpected child test case"),
-            }
-            return;
-        }
-        // Separate processes exercise the real environment parser without
-        // mutating process-wide environment while other Rust tests run.
-        for value in [
-            None,
-            Some("400"),
-            Some(""),
-            Some("0"),
-            Some("-1"),
-            Some("400.5"),
-            Some("3000"),
-            Some("4294967296"),
-        ] {
-            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
-            command.args(["--exact", "timing::tests::preparation_environment_preserves_defaults_and_rejects_invalid_values"])
-                .env(ENV_L1_BLOCK_TIME_MS, "5000")
-                .env(ENV_L2_BLOCK_TIME_MS, "1000")
-                .env(ENV_PROOF_TIME_MS, "500")
-                .env(ENV_SUBMISSION_SLACK_MS, "700")
-                .env(CHILD, match value { None => "default", Some("400") => "configured", _ => "invalid" });
-            if let Some(value) = value {
-                command.env(ENV_PREPARATION_TIME_MS, value);
-            } else {
-                command.env_remove(ENV_PREPARATION_TIME_MS);
-            }
-            let output = command.output().unwrap();
-            assert!(
-                output.status.success(),
-                "{value:?}: {}",
-                String::from_utf8_lossy(&output.stdout)
-            );
+        for delay in [800, 999, 1000, u32::MAX] {
+            assert!(base.with_start_delay_ms(delay).validate().is_err());
         }
     }
 
     #[test]
     fn non_integer_k_rejected() {
         // L1=12s, L2=5s → K = 12/5 = 2.4 (non-integer).
-        let err = RollupTiming::new(12_000, 5_000, 2_000, 100)
+        let err = RollupTiming::new(12_000, 5_000, 2_000, 100, 1)
             .validate()
             .expect_err("non-integer K should be refused");
         assert!(format!("{err}").contains("integer multiple"));
@@ -728,7 +820,7 @@ mod tests {
     fn sub_second_l2_rejected() {
         // L1=5s, L2=2.5s — K is integer but the L1-anchored Scheduler
         // truncates `.as_secs()` and lands perpetually in Catchup.
-        let err = RollupTiming::new(5_000, 2_500, 2_000, 100)
+        let err = RollupTiming::new(5_000, 2_500, 2_000, 100, 1)
             .validate()
             .expect_err("sub-second L2 cadence should be refused");
         assert!(format!("{err}").contains("whole number of seconds"));
@@ -737,7 +829,7 @@ mod tests {
     #[test]
     fn k_less_than_2_rejected() {
         // L1=2s, L2=2s → K=1.
-        let err = RollupTiming::new(2_000, 2_000, 500, 100)
+        let err = RollupTiming::new(2_000, 2_000, 500, 100, 1)
             .validate()
             .expect_err("K=1 should be refused");
         assert!(format!("{err}").contains("K must be >= 2"));
@@ -745,7 +837,7 @@ mod tests {
 
     #[test]
     fn proof_plus_slack_must_fit_l1_block_time() {
-        let err = RollupTiming::new(12_000, 2_000, 10_000, 3_000)
+        let err = RollupTiming::new(12_000, 2_000, 10_000, 3_000, 1)
             .validate()
             .expect_err("proof+slack >= L1 should be refused");
         assert!(format!("{err}").contains("must be <"));
@@ -756,7 +848,7 @@ mod tests {
         // L1=4s, L2=2s, proof=3s, slack=100. K=2, (K-1)*L2 = 2s.
         // Passes the proof+slack < L1 check (3100 < 4000) but trips
         // proof+slack > (K-1)*L2 (3100 > 2000) → no room for Future blocks.
-        let err = RollupTiming::new(4_000, 2_000, 3_000, 100)
+        let err = RollupTiming::new(4_000, 2_000, 3_000, 100, 1)
             .validate()
             .expect_err("proof > (K-1)*L2 should be refused");
         assert!(format!("{err}").contains("Future blocks"));
@@ -764,13 +856,13 @@ mod tests {
 
     #[test]
     fn zero_fields_rejected() {
-        RollupTiming::new(0, 2_000, 4_000, 100)
+        RollupTiming::new(0, 2_000, 4_000, 100, 1)
             .validate()
             .expect_err("zero L1 refused");
-        RollupTiming::new(12_000, 0, 4_000, 100)
+        RollupTiming::new(12_000, 0, 4_000, 100, 1)
             .validate()
             .expect_err("zero L2 refused");
-        RollupTiming::new(12_000, 2_000, 0, 100)
+        RollupTiming::new(12_000, 2_000, 0, 100, 1)
             .validate()
             .expect_err("zero proof refused");
     }

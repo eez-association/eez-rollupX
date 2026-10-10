@@ -14,6 +14,440 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
+    use eez_testkit::{IValue, l2_value, onchain_nonce, sign_and_send, wait_for};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now_ms = || {
+        u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    let mut env = policy_env(Vec::new(), "interval");
+    env.extend([
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_SETTLEMENT_START_DELAY_MS", "750".into()),
+    ]);
+    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
+    let cursor = world.node.signal_cursor().unwrap();
+
+    // Observe a freshly committed P at wall-clock cadence, not a startup/backfill
+    // header bearing an old timestamp. Poll faster than the 750-ms arrival window.
+    let position = tokio::time::timeout(TIMEOUT, async {
+        loop {
+            let anchor = l1
+                .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+                .await
+                .unwrap()
+                .unwrap();
+            let block = l2
+                .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+                .await
+                .unwrap()
+                .unwrap();
+            let observed_at = now_ms();
+            if block.header.timestamp == anchor.header.timestamp + 2
+                && observed_at >= block.header.timestamp * 1000
+                && observed_at - block.header.timestamp * 1000 < 200
+            {
+                break block.header;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let target = position.number + 3;
+    let trigger_ms = position.timestamp * 1000 + 750;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(
+        !world
+            .node
+            .signals_since(cursor)
+            .unwrap()
+            .iter()
+            .any(|signal| {
+                signal.name == "eez.composer.slot.plan" && signal.fields["target_height"] == target
+            }),
+        "the queue must not be sampled before the configured delay"
+    );
+    let hash = sign_and_send(
+        &world.l2_xchain(),
+        ANVIL_KEY_1,
+        world.l2_chain_id,
+        nonce,
+        Some(world.outbound_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(91) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    assert!(now_ms() < trigger_ms, "fixture missed the arrival window");
+    let decision = wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(cursor)?
+            .into_iter()
+            .find(|signal| {
+                signal.name == "eez.composer.slot.plan" && signal.fields["target_height"] == target
+            }))
+    })
+    .await
+    .unwrap();
+    assert!(decision.u64("planned_at_ms").unwrap() >= trigger_ms);
+    assert_eq!(decision.fields["queue_hint"], true);
+    assert_eq!(decision.fields["prepare"], true);
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(hash).await?)
+    })
+    .await
+    .unwrap();
+    assert!(receipt.status());
+    assert_eq!(receipt.block_number, Some(target));
+    let follower = NodeHandle::start(
+        "delayed-start-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], target, TIMEOUT)
+        .await
+        .unwrap();
+    let replay = ProviderBuilder::new()
+        .connect_http(follower.l2_rpc_url().parse().unwrap())
+        .get_transaction_receipt(hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.block_hash, replay.block_hash);
+    assert!(replay.status());
+    assert_eq!(
+        l2_value(&world.l1_rpc(), world.outbound_value)
+            .await
+            .unwrap(),
+        U256::from(91)
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
+    use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
+
+    let mut env = policy_env(Vec::new(), "interval");
+    env.push(("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()));
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        NativeL1Profile::EthereumOsaka,
+        &env,
+    )
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+
+    // Hold submission only long enough to close the canonical log reader.
+    // The real batch must still land in its exact target slot; delaying its
+    // observation then lets ordinary transactions enter stale-seed descendants.
+    world.hold_next_bundle().unwrap();
+    sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_1,
+        eez_testkit::DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(77) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    let held = wait_for(TIMEOUT, || async { world.held_bundle() })
+        .await
+        .unwrap();
+    let raw: alloy_primitives::Bytes = held["params"][0]["txs"][0]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let post = eez_blob_codec::pooled_blob_transaction_hash(&raw).unwrap();
+    world.fail_rpc_methods(&["eth_getLogs"]).unwrap();
+    world.release_bundle(&held).unwrap();
+    let posted = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(post).await?)
+    })
+    .await
+    .unwrap();
+    assert!(posted.status());
+    let posting_block = l1
+        .get_block_by_number(posted.block_number.unwrap().into())
+        .await
+        .unwrap()
+        .unwrap();
+    let endpoint = posting_block.header.timestamp - world.cfg.genesis_time;
+    // K=5, L2=1s: a live acceptance changes the seed strictly after this endpoint.
+    let initial_balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
+    // Exceed Reth's external per-sender capacity (16). A single recovered
+    // transaction cannot detect a local-to-external origin downgrade.
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
+    let mut hashes = Vec::new();
+    for offset in 0..20 {
+        hashes.push(
+            sign_and_send(
+                &world.l2_rpc(),
+                ANVIL_KEY_1,
+                world.l2_chain_id,
+                nonce + offset,
+                Some(ANVIL_ADDR_3),
+                U256::from(9),
+                Vec::new(),
+                21_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let mut before = Vec::new();
+    for hash in &hashes {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(*hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        assert!(receipt.block_number.unwrap() > endpoint);
+        before.push(receipt);
+    }
+    let safe = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Safe)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        safe.header.number < endpoint,
+        "log-reader fault must delay acceptance"
+    );
+
+    // No client resubmission: Reth's reorg notification must return the signed
+    // ordinary transaction to its pool when the accepted seed replaces its block.
+    world.fail_rpc_methods(&[]).unwrap();
+    let mut after = Vec::new();
+    for (hash, before) in hashes.iter().zip(&before) {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2
+                .get_transaction_receipt(*hash)
+                .await?
+                .filter(|receipt| receipt.block_hash != before.block_hash))
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "stale-seed transaction {hash} was lost: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+        assert!(receipt.status());
+        after.push(receipt);
+    }
+    wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        initial_balance + U256::from(9 * 20)
+    );
+
+    // A second cross-chain opportunity settles the repaired ordinary history.
+    // An independent follower must reconstruct the empty sibling and transfer.
+    sign_and_send(
+        &world.l1_xchain(),
+        ANVIL_KEY_1,
+        eez_testkit::DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), ANVIL_KEY_1).await.unwrap(),
+        Some(world.setter_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(88) }.abi_encode(),
+        600_000,
+    )
+    .await
+    .unwrap();
+    let follower = NodeHandle::start(
+        "stale-seed-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        after
+            .iter()
+            .map(|receipt| receipt.block_number.unwrap())
+            .max()
+            .unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for (hash, after) in hashes.iter().zip(&after) {
+        let replay_receipt = replay
+            .get_transaction_receipt(*hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(replay_receipt.status());
+        assert_eq!(replay_receipt.block_hash, after.block_hash);
+    }
+    assert_eq!(
+        replay.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        initial_balance + U256::from(9 * 20)
+    );
+    world.node.assert_no_process_death();
+    follower.assert_no_process_death();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn conditional_position_paces_late_pool_transactions_and_replays() {
+    // The native fixture has K=5 and one-second L2 blocks. P=2 leaves
+    // ordinary positions 3/4 available to a transaction arriving after cutoff.
+    let mut env = policy_env(Vec::new(), "interval");
+    env.extend([
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_SETTLEMENT_START_DELAY_MS", "250".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "25".into()),
+    ]);
+    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let target = eez_testkit::wait_for(TIMEOUT, || async {
+        let head = l2.get_block_number().await?;
+        Ok(world
+            .node
+            .signals_since(0)?
+            .into_iter()
+            .rev()
+            .find_map(|signal| {
+                if signal.name != "eez.composer.slot.plan" || signal.fields["prepare"] != false {
+                    return None;
+                }
+                signal.fields["target_height"]
+                    .as_u64()
+                    .filter(|target| head + 3 == *target)
+            }))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "no ordinary cutoff: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    let position = l2
+        .get_block_by_number((target - 3).into())
+        .await
+        .unwrap()
+        .unwrap();
+    let decision = world
+        .node
+        .signals_since(0)
+        .unwrap()
+        .into_iter()
+        .find(|signal| {
+            signal.name == "eez.composer.slot.plan" && signal.fields["target_height"] == target
+        })
+        .unwrap();
+    assert!(decision.u64("planned_at_ms").unwrap() >= position.header.timestamp * 1000 + 250);
+    let hash = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(9),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let receipt = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+    assert!(receipt.status());
+    let included = receipt.block_number.unwrap();
+    assert!(
+        included > target - 3 && included < target,
+        "late transaction must land in the paced suffix, got {included} for target {target}{}",
+        world.settlement_diagnostics()
+    );
+    wait_for_latest_height(&world.node, target, TIMEOUT)
+        .await
+        .unwrap();
+    let boundary = l2
+        .get_block_by_number(target.into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            >= u128::from(boundary.header.timestamp) * 1000,
+        "a no-settlement decision must not publish the checkpoint ahead of wall time"
+    );
+    assert!(
+        boundary.transactions.is_empty(),
+        "skipped checkpoint stays empty"
+    );
+    assert!(
+        world.node.signals_since(0).unwrap().iter().any(|signal| {
+            signal.name == "eez.composer.sync_slot.invoked"
+                && signal.fields["mode"] == "Ordinary"
+                && signal.fields["timestamp"] == boundary.header.timestamp
+        }),
+        "the successful ordinary decision must reach the non-posting Composer path"
+    );
+    let follower = NodeHandle::start(
+        "conditional-position-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], target, TIMEOUT)
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "conditional history did not settle/replay: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+    let replay = ProviderBuilder::new()
+        .connect_http(follower.l2_rpc_url().parse().unwrap())
+        .get_transaction_receipt(hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.block_hash, replay.block_hash);
+    assert_eq!(receipt.status(), replay.status());
+    world.node.assert_no_process_death();
+    follower.assert_no_process_death();
+}
+
 fn full_history_payload_len(blocks: &[Vec<u8>]) -> usize {
     use alloy_eips::Encodable2718;
     use eez_payload_codec::v0::{self, BlockRun};
@@ -143,6 +577,7 @@ async fn late_sync_settles_due_history_within_the_original_target_window() {
     let mut env = policy_env(Vec::new(), "interval");
     env.extend([
         ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "5".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
         ("EEZ_PROOF_TIME_MS", "1500".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "700".into()),
     ]);
@@ -178,7 +613,8 @@ async fn late_sync_settles_due_history_within_the_original_target_window() {
         let mut late_slot = None;
         for event in world.node.signals_since(cursor)? {
             if event.name == "eez.composer.sync_slot.invoked" {
-                late_slot = (event.fields["mode"] == "Empty")
+                late_slot = (event.fields["mode"] == "Steady"
+                    && event.fields["timestamp"] == base + 5)
                     .then(|| event.fields["timestamp"].as_u64().unwrap());
             }
             if let Some(timestamp) = late_slot
@@ -195,10 +631,24 @@ async fn late_sync_settles_due_history_within_the_original_target_window() {
     .await
     .unwrap_or_else(|error| {
         panic!(
-            "late Sync must reach submission despite Empty mode: {error:#}{}",
+            "late Sync must submit in its original usable target window: {error:#}{}",
             world.settlement_diagnostics()
         )
     });
+    assert!(
+        world
+            .node
+            .signals_since(cursor)
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event.name == "eez.composer.slot.plan"
+                    && event.fields["target_timestamp"] == base + 5
+                    && event.fields["planned_at_ms"]
+                        .as_u64()
+                        .is_some_and(|planned_at| planned_at >= base * 1000 + 3500)
+            })
+    );
     assert!(endpoint < 300);
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let header = l2
@@ -397,9 +847,7 @@ async fn assert_source_deferral_recovery(
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -1666,9 +2114,9 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     assert!(
         signals
             .iter()
-            .any(|signal| signal.name == "eez.composer.settlement.decision"
-                && signal.fields["due"] == false),
-        "test must observe actual policy evaluation, not a broken posting path"
+            .any(|signal| signal.name == "eez.composer.slot.plan"
+                && signal.fields["prepare"] == false),
+        "test must observe a successful not-due planning decision"
     );
     assert!(
         !signals
@@ -1941,7 +2389,7 @@ async fn cross_chain_overrides_interval_and_validates_two_ordered_companions() {
             .signals_since(cursor)?
             .into_iter()
             .any(|signal| {
-                signal.name == "eez.composer.settlement.decision" && signal.fields["due"] == false
+                signal.name == "eez.composer.slot.plan" && signal.fields["prepare"] == false
             })
             .then_some(()))
     })
@@ -2455,7 +2903,8 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     // Six-blob KZG preparation plus final preflight exceeds the default
     // two-second window on CI. Start earlier in the same L1 slot; the proof
     // still binds its known parent and submission keeps the original cutoff.
-    env.push(("EEZ_PREPARATION_TIME_MS", "2500".into()));
+    env.push(("EEZ_SETTLEMENT_START_AFTER_BLOCK", "1".into()));
+    env.push(("EEZ_SETTLEMENT_START_DELAY_MS", "400".into()));
     // The native relay inserts the ordered bundle into a fee-sorted dev pool.
     // Keep the post ahead of its 1-gwei companion, as in the other bundle tests.
     env.push(("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000001".into()));
@@ -2936,7 +3385,7 @@ async fn assert_fee_waits_do_not_consume_selection(profile: eez_testkit::NativeL
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await

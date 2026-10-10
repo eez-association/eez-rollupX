@@ -87,15 +87,15 @@ async fn deploy_fixture_code(world: &CrossChainWorld, runtime: Vec<u8>) -> Addre
 }
 
 async fn quiet_sync(world: &CrossChainWorld) {
+    // Observe the finite not-due cutoff, not final preparation (which is skipped
+    // on idle intervals). The following wave has until the next cutoff to queue.
     let cursor = world.node.signal_cursor().unwrap();
     wait_for(TIMEOUT, || async {
         Ok(world
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -290,7 +290,8 @@ async fn older_inbound_before_capacity_filling_outbound(profile: NativeL1Profile
         // The outbound fits alone but leaves less than one inbound entry's
         // admission reserve. Both sources are individually executable.
         ("EEZ_MAX_POSTBATCH_GAS", "3000000".into()),
-        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "1".into()),
+        ("EEZ_SETTLEMENT_START_DELAY_MS", "400".into()),
         ("EEZ_PROOF_TIME_MS", "2000".into()),
     ]);
     let world = setup_cross_chain_with_profile(profile, &settings)
@@ -427,10 +428,11 @@ async fn gnosis_gas_cut_preserves_fifo_even_for_cheaper_independent_work() {
     let mut settings = env();
     settings.push(("EEZ_MAX_USER_TXS_PER_BUNDLE", "auto".into()));
     // Isolate gas packing from the first cold proof of deployment history.
-    // The 3,600 ms total including slack fits this fixture's 4,000 ms Future
-    // region. Deadline behavior has separate regressions in dynamic_admission.
+    // P=1 + 400 ms leaves 3,600 ms to the target, preserving the original
+    // preparation window. Deadline behavior has separate dynamic_admission tests.
     settings.extend([
-        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "1".into()),
+        ("EEZ_SETTLEMENT_START_DELAY_MS", "400".into()),
         ("EEZ_PROOF_TIME_MS", "2000".into()),
     ]);
     let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &settings)

@@ -32,6 +32,9 @@ and its pinned protocol revision; upstream `main` is not a substitute.
   checkout, so separate worktrees must still coordinate use of shared wallets.
   Its default `--no-verify` workload measures execution/throughput, not semantic
   correctness. Use its `--verify` flag when semantic assertions are required.
+  For sustained mixed-load canary checks, follow the
+  [Chiado validation procedure](docs/runbooks/chiado-mixed-validation.md);
+  its driver holds both known checkout locks and requires explicit test funding.
 - Keep private keys, authenticated URLs, private hostnames, and bulk logs/databases
   out of committed records. Do not treat public fixture/workload keys as private
   operator credentials. The repository and published images are public; do not

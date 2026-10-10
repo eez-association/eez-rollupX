@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 REPO = Path(__file__).resolve().parents[3]
@@ -69,6 +69,23 @@ fund_workers() {
 
 
 class ProtocolNetworkRunnerTest(unittest.TestCase):
+    def test_progress_wait_does_not_change_exit_status_or_deadline(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            process = Mock()
+            process.wait.side_effect = [subprocess.TimeoutExpired('fixture', 30), 17]
+            with patch.object(MODULE.subprocess, 'Popen', return_value=process), \
+                    patch.object(MODULE, 'stop_process_group') as stop, \
+                    patch.object(MODULE, 'collect_logs'), \
+                    patch.object(MODULE.time, 'monotonic', side_effect=[0, 0, 30, 30, 35]), \
+                    patch('builtins.print') as output:
+                result = MODULE.run_network(root, root, [], {'MAX_PARALLEL': '1'}, 40)
+            self.assertEqual(result['exit_code'], 17)
+            self.assertEqual(result['seconds'], 35)
+            self.assertEqual([call.kwargs['timeout'] for call in process.wait.call_args_list], [30, 10])
+            stop.assert_called_once_with(process)
+            self.assertTrue(any('still running' in str(call) for call in output.call_args_list))
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="eez-network-runner.")
         self.addCleanup(temporary.cleanup)

@@ -381,8 +381,11 @@ where
     }
 
     /// A live acceptance changes descendants even when their transaction lists
-    /// are empty. Rewind the first stale-seed child and its suffix before another
-    /// candidate may capture its parent. Caller holds the reconciliation lock.
+    /// are empty. Replace the first stale-seed child with an executed empty
+    /// sibling before another candidate may capture its parent. A direct fork
+    /// switch lets Reth return ordinary transactions from the removed suffix to
+    /// its pool; an ancestor-only rewind can lose them. Caller holds the
+    /// reconciliation lock. The replacement remains unsafe, not settled.
     async fn discard_stale_seed_suffix(
         &self,
         mut retained: SealedHeader<alloy_consensus::Header>,
@@ -407,7 +410,20 @@ where
                 || next.timestamp != timestamp
                 || next.mix_hash != seed
             {
-                self.inner.committer.reorg_to(retained).await?;
+                let environment = eez_driver::derivation::Environment {
+                    fee_recipient: next.beneficiary,
+                    prev_randao: seed,
+                    extra_data: next.extra_data.clone(),
+                };
+                let (payload, header) = self.execute_block_on_parent(
+                    &retained,
+                    &[],
+                    ExecutionInputs::Derived(&environment),
+                )?;
+                self.inner
+                    .committer
+                    .commit_derived(payload, header, true)
+                    .await?;
                 break;
             }
             retained = next;
@@ -1184,6 +1200,18 @@ where
                 ))
             })?;
 
+        self.execute_block_on_parent(&parent_header, raw_txs, inputs)
+    }
+
+    /// Execute against the exact retained header during suffix repair, without
+    /// resolving its number again through a possibly lagging canonical index.
+    fn execute_block_on_parent(
+        &self,
+        parent_header: &SealedHeader<alloy_consensus::Header>,
+        raw_txs: &[Bytes],
+        inputs: ExecutionInputs<'_>,
+    ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
+        let parent_block_number = parent_header.number;
         let parent_hash = parent_header.hash();
         let state_provider = self
             .inner
@@ -1198,7 +1226,6 @@ where
                     Level::ERROR,
                     parent_block_number,
                     parent_hash = %parent_hash,
-                    local_best,
                     parent_timestamp = parent_header.timestamp(),
                     error = %e,
                     "state_by_block_hash() failed for a header that sealed_header() returned successfully — likely reth state retention timing under reorg churn",
@@ -1211,12 +1238,12 @@ where
             .with_bundle_update()
             .build();
 
-        let attributes = inputs.attributes(&self.inner.evm_config, &parent_header)?;
+        let attributes = inputs.attributes(&self.inner.evm_config, parent_header)?;
 
         let mut builder = self
             .inner
             .evm_config
-            .builder_for_next_block(&mut db, &parent_header, attributes)
+            .builder_for_next_block(&mut db, parent_header, attributes)
             .map_err(|e| {
                 DeriverError::l2_provider(format!("builder_for_next_block failed: {e}"))
             })?;

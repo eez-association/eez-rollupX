@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Kurtosis end-to-end pull-request lane.
 set -euo pipefail
+(( BASH_VERSINFO[0] > 5 || (BASH_VERSINFO[0] == 5 && BASH_VERSINFO[1] >= 1) )) || {
+    echo "run-ci.sh requires Bash 5.1 or newer" >&2; exit 1;
+}
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
@@ -11,6 +14,18 @@ export KURTOSIS_PRIVILEGED=0
 # Keep optional UI/demo services out of this lane so it has no undeclared
 # dependency on a sibling eez-rollup-ui checkout or a host-local image.
 export EEZ_SKIP_UI_BUILD=1
+
+ROOT_COMMIT="$(git -C "$REPO" rev-parse HEAD)"
+PROTOCOL_COMMIT="$(git -C "$REPO/eez-core-protocol" rev-parse HEAD)"
+expected_protocol="$(git -C "$REPO" ls-files -s eez-core-protocol | awk '{print $2}')"
+[[ "$PROTOCOL_COMMIT" == "$expected_protocol" ]] || {
+    echo "eez-core-protocol is not at the pinned revision" >&2; exit 1;
+}
+# Acquire the suite's existing lock before touching diagnostics or starting
+# compilation. A competing invocation must not erase the active run's evidence.
+mkdir -p "$REPO/eez-core-protocol/tmp"
+exec {preparation_lock}>"$REPO/eez-core-protocol/tmp/.eez-network-e2e.lock"
+flock -n "$preparation_lock" || { echo "protocol network suite already running" >&2; exit 1; }
 
 RESULT_DIR="${EEZ_CI_RESULT_DIR:-$REPO/artifacts/kurtosis-e2e}"
 mkdir -p "$RESULT_DIR"
@@ -25,11 +40,20 @@ ARGS_TEMPLATE="${KURTOSIS_ARGS_FILE:-$HERE/ci-args.yaml}"
 export EEZ_NODE_IMAGE="${EEZ_NODE_IMAGE:-eez-node:ci-${GITHUB_SHA:-local}}"
 export EEZ_PROOF_SIGNER_IMAGE="${EEZ_PROOF_SIGNER_IMAGE:-eez-proof-signer:ci-${GITHUB_SHA:-local}}"
 export EEZ_DEPLOY_IMAGE="${EEZ_DEPLOY_IMAGE:-eez-deploy:ci-${GITHUB_SHA:-local}}"
-ROOT_COMMIT=unknown
-PROTOCOL_COMMIT=unknown
 signed_window_count=0
 remote_attestation_count=0
+preparation_pids=()
 export KURTOSIS_ARGS_FILE="$RESULT_DIR/ci-args.yaml"
+
+timed_phase() (
+    name="$1"; shift
+    started=$SECONDS
+    echo "==> phase $name started ($(date -u +%FT%TZ))"
+    trap 'status=$?; elapsed=$((SECONDS - started));
+        printf "{\"phase\":\"%s\",\"seconds\":%s,\"exit_code\":%s}\n" "$name" "$elapsed" "$status" >> "$RESULT_DIR/timings.jsonl";
+        echo "==> phase $name finished: exit=$status elapsed=${elapsed}s"' EXIT
+    "$@"
+)
 
 SIGNED_WINDOW_EVENT='eez.proof_signer.window_signed'
 REMOTE_ATTESTATION_EVENT='eez.prover_client.attested'
@@ -127,6 +151,13 @@ verify_real_proof_path() {
 cleanup() {
     local status=$?
     trap - EXIT
+    # Job control gives each owned preparation job its own process group.
+    # Stop descendants too (not only Forge's shell) before releasing the lock
+    # or tearing down the enclave. Compiler cache outputs are disposable.
+    for pid in "${preparation_pids[@]}"; do
+        kill -KILL -- "-$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+    done
     # Successful proof-path assertions already consumed the two required logs.
     # Fetch the full diagnostic set only on failure, before removing the enclave.
     if (( status == 0 )) && [[ ! -f "$RESULT_DIR/result.json" ]]; then
@@ -135,7 +166,12 @@ cleanup() {
     fi
     if (( status != 0 )); then
         kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >"$RESULT_DIR/enclave.txt" 2>&1 || true
+        # A valid relay bid need not reach the proposer. Retain both beacon
+        # clients, the validator and MEV-Boost to distinguish proposer fallback
+        # or missing header requests from Composer/builder submission failures.
         for service in eez-node eez-proof-signer "$KURTOSIS_BUILDER_SERVICE" \
+            el-1-reth-lighthouse cl-1-lighthouse-reth cl-2-lighthouse-reth-builder \
+            vc-1-reth-lighthouse mev-boost-1-lighthouse-reth \
             mev-relay-api mev-relay-housekeeper; do
             capture_service_log "$service" || true
         done
@@ -150,9 +186,9 @@ cleanup() {
     exit "$status"
 }
 trap cleanup EXIT
-
-ROOT_COMMIT="$(git -C "$REPO" rev-parse HEAD)"
-PROTOCOL_COMMIT="$(git -C "$REPO/eez-core-protocol" rev-parse HEAD)"
+trap 'exit 130' INT
+trap 'exit 143' TERM
+: > "$RESULT_DIR/timings.jsonl"
 sed \
     -e "s|^[[:space:]]*eez_node_image:.*|  eez_node_image: $EEZ_NODE_IMAGE|" \
     -e "s|^[[:space:]]*proof_signer_image:.*|  proof_signer_image: $EEZ_PROOF_SIGNER_IMAGE|" \
@@ -162,7 +198,9 @@ sed \
     -e "s|^[[:space:]]*enable_demo_apps:.*|  enable_demo_apps: false|" \
     "$ARGS_TEMPLATE" >"$KURTOSIS_ARGS_FILE"
 
-bash "$HERE/start.sh" "$KURTOSIS_ARGS_FILE"
+prepare_network() {
+timed_phase network-start bash "$HERE/start.sh" "$KURTOSIS_ARGS_FILE"
+readiness_started=$SECONDS
 
 # Wait until the canonical L1 and candidate L2 RPCs answer.
 # shellcheck disable=SC1091
@@ -237,12 +275,43 @@ done
     exit 1
 }
 echo "==> network ready: canonical settlement observed"
+printf '{"phase":"settlement-readiness","seconds":%s,"exit_code":0}\n' \
+    "$((SECONDS - readiness_started))" >> "$RESULT_DIR/timings.jsonl"
 
 echo "==> running native cross-chain wave suite"
-bash "$HERE/scripts/verify-cross-chain-waves.sh"
+timed_phase waves-and-state-chaining bash "$HERE/scripts/verify-cross-chain-waves.sh"
+}
+
+# Only fixture compilation overlaps chain activity. The two jobs must both
+# succeed before protocol scenarios, and either failure cancels its sibling.
+# One Forge thread bounds contention with the live PBS fixture; compiler,
+# optimizer and metadata settings remain the pinned Foundry configuration.
+set -m
+timed_phase protocol-build timeout --foreground --kill-after=5s 1200s \
+    forge build --root "$REPO/eez-core-protocol" --threads 1 \
+    >"$RESULT_DIR/protocol-build.log" 2>&1 &
+preparation_pids+=("$!")
+build_pid=$!
+timed_phase network-checks prepare_network &
+preparation_pids+=("$!")
+set +m
+echo "==> protocol fixture build overlaps network checks; log: $RESULT_DIR/protocol-build.log"
+while (( ${#preparation_pids[@]} )); do
+    status=0
+    wait -n -p completed "${preparation_pids[@]}" || status=$?
+    (( status == 0 )) || { tail -n 80 "$RESULT_DIR/protocol-build.log" >&2; exit "$status"; }
+    [[ "$completed" != "$build_pid" ]] || tail -n 1 "$RESULT_DIR/protocol-build.log"
+    remaining=()
+    for pid in "${preparation_pids[@]}"; do
+        [[ "$pid" == "$completed" ]] || remaining+=("$pid")
+    done
+    preparation_pids=("${remaining[@]}")
+done
+flock -u "$preparation_lock"
+exec {preparation_lock}>&-
 
 echo "==> running eez-core-protocol network scenario suite"
-bash "$HERE/scripts/run-protocol-e2e.sh"
+timed_phase protocol-suite bash "$HERE/scripts/run-protocol-e2e.sh"
 
 capture_service_log eez-proof-signer
 capture_service_log eez-node

@@ -115,8 +115,8 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
     world
         .omit_next_bundle_user(omitted, restart_before_retry)
         .unwrap();
-    // Start the wave only after a completed empty drain, leaving the full
-    // next slot for all three users. The relay additionally requires exactly
+    // Start the wave after a not-due cutoff. Its finite decision cannot reopen,
+    // leaving until the next cutoff for all three users. The relay requires exactly
     // three proved users, so an accidental split cannot satisfy this test.
     let cursor = world.node.signal_cursor().unwrap();
     wait_for(TIMEOUT, || async {
@@ -124,9 +124,7 @@ async fn partial_after_proving(omitted: usize, restart_before_retry: bool) {
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -574,18 +572,15 @@ async fn valid_same_block_resume() {
     let setter_nonce = onchain_nonce(&world.l1_rpc(), TARGET_DEPLOYER)
         .await
         .unwrap();
-    // Wait until the current empty bundle has passed the relay before arming
-    // capture. The composer dispatch event precedes its HTTP request, so it
-    // could capture that empty bundle instead of the following three-user slot.
+    // A not-due cutoff dispatches no bundle and cannot reopen for late arrivals.
+    // Arm capture then, so the next opportunity observes the complete wave.
     let cursor = world.node.signal_cursor().unwrap();
     wait_for(TIMEOUT, || async {
         Ok(world
             .node
             .signals_since(cursor)?
             .iter()
-            .any(|event| {
-                event.name == "eez.composer.settlement.decision" && event.fields["due"] == false
-            })
+            .any(|event| event.name == "eez.composer.slot.plan" && event.fields["prepare"] == false)
             .then_some(()))
     })
     .await

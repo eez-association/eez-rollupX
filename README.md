@@ -205,7 +205,14 @@ cargo run -p eez-node -- node \
 
 Select the non-default follower role explicitly. `EEZ_L1_CHAIN_ID` must match
 the numeric chain ID served by `EEZ_L1_RPC_URL`. A follower also requires the
-fixed native system address and L2 execution identity to reconstruct Sync blocks:
+fixed native system address and L2 execution identity to reconstruct Sync blocks.
+
+Both roles validate the timing configuration at startup. Export the deployment's
+L1/L2 cadence, proof/slack values and required `EEZ_SETTLEMENT_START_AFTER_BLOCK`
+before running either command. `EEZ_SETTLEMENT_START_DELAY_MS` defaults to zero;
+remove obsolete `EEZ_PREPARATION_TIME_MS` entirely. Followers validate these local
+scheduler fields but do not use them to sequence blocks. See the
+[timing and migration contract](docs/configurable-settlement-policy.md#conditional-slot-production).
 
 ```bash
 # L1-derived follower; optionally add `--sequencer-rpc <URL>` after `node`.

@@ -1698,11 +1698,27 @@ where
         + 'static,
     <L2 as TransactionsProvider>::Transaction: Encodable2718,
 {
-    fn has_cross_chain_work(&self, rollup_id: u64) -> bool {
-        self.inner
-            .rollups
-            .get(&rollup_id)
-            .is_some_and(|rollup| !rollup.held_pool.is_empty())
+    async fn should_prepare(
+        &self,
+        rollup_id: u64,
+        parent: ParentContext,
+        target_height: u64,
+        target_timestamp: u64,
+        l1_parent: eez_l1::L1BlockRef,
+    ) -> Result<bool, String> {
+        self.plan_preparation(
+            rollup_id,
+            parent.header,
+            target_height,
+            target_timestamp,
+            l1_parent,
+        )
+        .await
+        .map_err(|error| error.to_string())
+    }
+
+    fn post_proof_reserve(&self) -> std::time::Duration {
+        crate::prover_retry::POST_PROOF_RESERVE
     }
 
     fn set_sequencing_target(&self, rollup_id: u64, sync_height: u64) {
@@ -1805,6 +1821,9 @@ where
         let blocked = rollup.optimistic.blocking_height().is_some();
         let sync_height = parent_number + 1;
         self.log_settlement_backlog(rollup_id, cursor, sync_height, blocked);
+        if mode == SyncSlotMode::Ordinary {
+            return self.build_empty_slot_block(rollup, &parent_header, timestamp);
+        }
         if blocked || mode != SyncSlotMode::Steady || pool.is_empty() {
             return match self
                 .dispatch_minimal_postbatch(
@@ -5580,7 +5599,7 @@ where
             parent_header,
             timestamp,
             prev_randao,
-            Address::ZERO,
+            self.inner.fee_recipient,
             &[],
         ) {
             Ok(built) => Some(SyncSlotBlock {
@@ -8779,7 +8798,7 @@ mod tests {
     #[test]
     fn oversized_backlog_requests_a_bounded_historical_prefix() {
         let limits = EmissionLimits {
-            timing: RollupTiming::new(5_000, 1_000, 1_000, 100),
+            timing: RollupTiming::new(5_000, 1_000, 1_000, 100, 3),
             max_blocks: 65_536,
             max_gas: 30_000_000,
         };

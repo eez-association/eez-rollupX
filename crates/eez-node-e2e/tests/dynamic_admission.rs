@@ -136,11 +136,12 @@ fn env() -> Vec<(&'static str, String)> {
     .collect()
 }
 
-async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
+async fn mixed_wave(profile: NativeL1Profile, delayed_start: bool) {
     let mut config = env();
-    if explicit_preparation {
+    if delayed_start {
         config.extend([
-            ("EEZ_PREPARATION_TIME_MS", "500".into()),
+            ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "3".into()),
+            ("EEZ_SETTLEMENT_START_DELAY_MS", "300".into()),
             ("EEZ_PROOF_TIME_MS", "500".into()),
             ("EEZ_SUBMISSION_SLACK_MS", "700".into()),
         ]);
@@ -161,7 +162,7 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let chain_id = l1.get_chain_id().await.unwrap();
-    if explicit_preparation {
+    if delayed_start {
         // Learn from one small post before a busy wave. A sparse sample must
         // not impose a one-user/doubling ramp on a later finite queue.
         let warmup = sign_and_send(
@@ -272,7 +273,7 @@ async fn mixed_wave(profile: NativeL1Profile, explicit_preparation: bool) {
         outbound_nonce + 64
     );
     let events = world.node.signals_since(cursor).unwrap();
-    if explicit_preparation {
+    if delayed_start {
         assert!(events.iter().any(|e| {
             e.name == "eez.composer.admission.prepared"
                 && e.fields["blob_preparation_ms"]
@@ -326,12 +327,12 @@ async fn gnosis_automatic_mixed_wave_exceeds_twelve_and_replays() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn ethereum_explicit_preparation_mixed_wave_after_small_post_replays() {
+async fn ethereum_delayed_start_mixed_wave_after_small_post_replays() {
     mixed_wave(NativeL1Profile::EthereumOsaka, true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn gnosis_explicit_preparation_mixed_wave_after_small_post_replays() {
+async fn gnosis_delayed_start_mixed_wave_after_small_post_replays() {
     mixed_wave(NativeL1Profile::GnosisPrague, true).await;
 }
 
@@ -351,7 +352,8 @@ async fn single_sync_wave(
     // CI CPU. Keep the slot cadence unchanged but start preparation earlier.
     // mixed_wave(..., true) still exercises admission with the tight budget.
     config.extend([
-        ("EEZ_PREPARATION_TIME_MS", "1500".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
+        ("EEZ_SETTLEMENT_START_DELAY_MS", "300".into()),
         ("EEZ_PROOF_TIME_MS", "500".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "700".into()),
     ]);
@@ -441,7 +443,7 @@ async fn single_sync_wave(
                 .node
                 .signals_since(idle)?
                 .iter()
-                .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+                .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
                 .then_some(()))
         })
         .await
@@ -1191,7 +1193,7 @@ async fn consecutive_exclusions(failures: u32) {
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -1373,7 +1375,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // before the targeted slot. The controller rejects requests for past slots.
     let mut config = env();
     config.extend([
-        ("EEZ_PREPARATION_TIME_MS", "500".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
         ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
     ]);
@@ -1441,7 +1443,7 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             .node
             .signals_since(idle)?
             .iter()
-            .any(|e| e.name == "eez.composer.settlement.decision" && e.fields["due"] == false)
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
             .then_some(()))
     })
     .await
@@ -1707,7 +1709,7 @@ async fn historical_prefix_replacement(fee_recipient: Option<alloy_primitives::A
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "60000".into()),
         ("EEZ_MAX_BLOBS_PER_BATCH", "1".into()),
-        ("EEZ_PREPARATION_TIME_MS", "500".into()),
+        ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
         ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
     ]);
