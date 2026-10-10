@@ -351,6 +351,12 @@ values when correcting its Compose bindings, and verify again after recreation.
 
 ### Optional workloads
 
+For an explicitly authorized delayed-cutoff canary with continuous ordinary
+traffic and bidirectional waves, use the
+[mixed-load validation procedure](chiado-mixed-validation.md). It includes
+canonical, semantic, blob and independent follower checks without restarting
+the node or signer.
+
 Run funded traffic only when the operation includes it. Inspect the
 [matrix driver](../../scripts/xchain-test.sh) before use: its funder must hold funds
 on **both chains**, and it assumes public development accounts. The
