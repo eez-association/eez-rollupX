@@ -135,7 +135,12 @@ cleanup() {
     fi
     if (( status != 0 )); then
         kurtosis enclave inspect "$KURTOSIS_ENCLAVE" >"$RESULT_DIR/enclave.txt" 2>&1 || true
+        # A valid relay bid need not reach the proposer. Retain both beacon
+        # clients, the validator and MEV-Boost to distinguish proposer fallback
+        # or missing header requests from Composer/builder submission failures.
         for service in eez-node eez-proof-signer "$KURTOSIS_BUILDER_SERVICE" \
+            el-1-reth-lighthouse cl-1-lighthouse-reth cl-2-lighthouse-reth-builder \
+            vc-1-reth-lighthouse mev-boost-1-lighthouse-reth \
             mev-relay-api mev-relay-housekeeper; do
             capture_service_log "$service" || true
         done

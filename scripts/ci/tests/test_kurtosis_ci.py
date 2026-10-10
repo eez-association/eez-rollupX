@@ -415,6 +415,9 @@ else:
             evidence = json.loads((root / "results/result.json").read_text())
             self.assertEqual((evidence["result"], evidence["exit_code"]), ("fail", 17))
             for service in ("eez-node", "eez-proof-signer", "el-2-reth-builder-lighthouse",
+                            "el-1-reth-lighthouse", "cl-1-lighthouse-reth",
+                            "cl-2-lighthouse-reth-builder", "vc-1-reth-lighthouse",
+                            "mev-boost-1-lighthouse-reth",
                             "mev-relay-api", "mev-relay-housekeeper"):
                 lines = (root / "results" / f"{service}.log").read_text().splitlines()
                 self.assertEqual(len(lines), 250, lines)
