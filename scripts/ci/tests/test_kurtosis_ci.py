@@ -299,6 +299,8 @@ class SettlementReadinessTest(unittest.TestCase):
         end = script.index(last, start)
         setup = r'''
 deadline=$((SECONDS + 60))
+readiness_started=$SECONDS
+RESULT_DIR=$(dirname "$READINESS_LOG")
 KURTOSIS_ENCLAVE=fixture-ci
 KURTOSIS_BUILDER_SERVICE=fixture-builder
 kurtosis() {
@@ -390,7 +392,7 @@ class FailureArtifactsTest(unittest.TestCase):
             # exercise the real EXIT trap, artifact capture and result writer.
             (package / "start.sh").write_text('touch "$START_MARKER"\nexit 17\n')
             (package / "stop.sh").write_text("exit 0\n")
-            (tools / "git").write_text("#!/bin/sh\nprintf '%040d\\n' 1\n")
+            (tools / "git").write_text("#!/bin/sh\ncase \"$*\" in *ls-files*) printf '160000 ';; esac\nprintf '%040d\\n' 1\n")
             (tools / "kurtosis").write_text('''#!/usr/bin/env python3
 import sys
 args = sys.argv[1:]

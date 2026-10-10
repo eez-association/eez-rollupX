@@ -5,11 +5,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RESULT_DIR="${EEZ_CI_RESULT_DIR:?set EEZ_CI_RESULT_DIR}"
 mkdir -p "$RESULT_DIR/checks"
 
-run_check() {
+run_check() (
     local name="$1"
     shift
+    started=$SECONDS
+    echo "==> check $name started ($(date -u +%FT%TZ))"
+    trap 'status=$?; elapsed=$((SECONDS - started));
+        printf "{\"phase\":\"%s\",\"seconds\":%s,\"exit_code\":%s}\n" "$name" "$elapsed" "$status" >> "$RESULT_DIR/timings.jsonl";
+        echo "==> check $name finished: exit=$status elapsed=${elapsed}s"' EXIT
     "$@" 2>&1 | tee "$RESULT_DIR/checks/$name.log"
-}
+)
 
 for mode in inbound outbound mixed; do
     run_check "cross-chain-wave-$mode" \

@@ -426,3 +426,51 @@ fixtures. They are not counted as coverage. All state-chaining cases also
 completed successfully, including poison recovery, mixed-direction ordering and
 repeated identical calls. At 07:31 UTC the complete protocol runner selected all
 34 eligible scenarios (six pre-existing pinned exclusions) and began preparation.
+
+### Local completion and CI preparation optimization
+
+The complete local protocol invocation subsequently passed **34/34**, with
+zero failures/skips among the eligible scenarios. Accounting, independent causal
+coverage, and authenticated semantic-blob coverage were all complete. The
+persistent continuation exited zero. The bridge prerequisite (including cold
+compilation/setup) took 404.48 seconds, the other 33 scenarios took 99.67 seconds,
+and independent verification took 28.032 seconds. This does not erase the
+original CI failure or explain its missing proposer request. The earlier chat
+interruption and supplemental reverting mixed-pure cases also prevent describing
+the entire local session as an uninterrupted, exact CI-lane replay.
+
+The operator then authorized a first, limited speed improvement: overlap fixture
+compilation with startup/readiness and the existing sequential workload checks,
+and expose elapsed phases. Protocol source/pin, compiler settings, runtime
+artifacts, slot timing, scenario selection, and semantic assertions stay unchanged.
+The existing protocol-suite lock excludes competing builds/runners. Both branches
+must succeed before scenarios begin; the one-thread build is bounded to 20 minutes.
+The pinned upstream build still validates its warmed outputs afterwards.
+
+The original CI test section took approximately 35m44s: startup/readiness 7m09s,
+four wave modes 7m50s, state chaining 5m13s, and protocol suite 15m32s. The latter
+included 669.70 seconds for build/funding/bridge, 227.30 seconds for the remaining
+scenarios, and 31.027 seconds of independent verification. Build-only time was
+not logged separately, so the entire bridge prerequisite is not attributed to
+compilation. These are baseline observations, not measured optimization gains.
+
+The process fixtures initially caught a descendant surviving cancellation because
+GNU timeout created a new process group. Keeping timeout in the owned group fixed
+the regression. Eight focused lifecycle/timing tests then passed, including
+controlled overlap/join, early completion, either branch failing, timeout, SIGTERM
+with an uncooperative descendant, unrelated-process preservation, lock/pin refusal,
+and propagation of a wave failure without running later checks. The protocol
+wrapper suite passed 26 tests, including unchanged result/coverage gates and a
+progress/deadline regression. These are offline process/mocked checks, not a live
+speed comparison. Local-only logs: `/tmp/pr79-protocol-runner-speed-tests.log`,
+`/tmp/pr79-kurtosis-speed-tooling-tests.log`, and `/tmp/pr79-fixture-build-check.log`.
+The full tooling suite passed in 216.219 seconds: **332 passed, five skipped**
+(337 reported). The same five opt-in infrastructure exclusions listed above
+remain. After the final lock-before-diagnostics adjustment and additional wave
+timing regression, the focused Kurtosis files ran 26 tests: 25 passed and the
+opt-in resource probe skipped. Shell syntax and whitespace checks passed.
+Rust/process-runtime suites were not repeated for this tooling-only change.
+The real cold/warm Solidity handoff was still running at this point; a full
+optimized Kurtosis run remains required before claiming a speedup. Validation
+will use a separate branch/manual CI invocation so the ongoing PR run
+`38034871837` is not automatically cancelled by a new PR head.
