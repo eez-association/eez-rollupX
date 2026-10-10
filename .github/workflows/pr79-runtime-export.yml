@@ -1,0 +1,50 @@
+name: PR79 exact runtime diagnostic export
+
+on:
+  push:
+    branches: [debug/pr79-runtime-export-20261010]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: 76b210bcd9cc22e429865d483fa2d948c9793780
+          submodules: recursive
+          persist-credentials: false
+      - name: Prepare isolated output and credentials
+        run: |
+          echo "EEZ_RUNTIME_ARTIFACT_DIR=$(mktemp -d "$RUNNER_TEMP/pr79-runtime.XXXXXXXX")" >> "$GITHUB_ENV"
+          echo "DOCKER_CONFIG=$(mktemp -d "$RUNNER_TEMP/pr79-docker.XXXXXXXX")" >> "$GITHUB_ENV"
+      - name: Authenticate payload read
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Fetch existing payload and verify exact candidate
+        env:
+          EEZ_EXPECT_PUBLISHED: "true"
+        run: |
+          export GITHUB_SHA=76b210bcd9cc22e429865d483fa2d948c9793780
+          bash scripts/ci/ci-payload.sh fetch runtime \
+            ghcr.io/eduadiez/rollupx-ci-runtime@sha256:f1b97a6b67fff1ab5f1e7869153700dff645dd5e9b04e25db998ad312e755678 \
+            "$EEZ_RUNTIME_ARTIFACT_DIR"
+          bash scripts/ci/prepare-runtime-artifacts.sh "$EEZ_RUNTIME_ARTIFACT_DIR"
+      - name: Export only verified manifest and executable archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pr79-exact-runtime-37994970816
+          path: |
+            ${{ env.EEZ_RUNTIME_ARTIFACT_DIR }}/manifest.json
+            ${{ env.EEZ_RUNTIME_ARTIFACT_DIR }}/runtime-binaries.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+      - name: Remove temporary registry login
+        if: always()
+        run: docker logout ghcr.io
