@@ -486,3 +486,92 @@ its manual validation is [CI run 38036192141](https://github.com/eduadiez/rollup
 on `perf/kurtosis-preparation-overlap-20261010`, using the existing homelab runner
 selection. It was queued when this update was written; the PR's original head
 and running CI were intentionally left unchanged. No additional PR was opened.
+
+### Monitored CI result: repeated stale-receipt failure
+
+The requested ten-minute monitoring caught completion of
+[run 38034871837](https://github.com/eduadiez/rollupX/actions/runs/38034871837)
+at the 08:41 UTC check on October 10. Lint, debug units, runtime artifacts and
+all eight native E2E shards passed. Kurtosis failed: **32/34** protocol scenarios
+passed, with no eligible skips. `revertFromOtherChainL2` again inspected an old
+optimistic receipt height; `staticCounterL2` passed upstream but failed independent
+receipt identity verification. The strict gates correctly kept CI red.
+
+PR head was `7aeb860d0af5c34ecd6d027a731492e159288ee5`; the artifact records the
+tested merge checkout `0ad38362e52a0b8971dc684437e0a9138aaec198` and unchanged
+protocol `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. Node image:
+`ghcr.io/eduadiez/rollupx-node@sha256:18f02e442bbe5f05f26392c13985fdf8866aaddb99c2fbcda744a0c9fa6ff986`.
+Diagnostics are artifact **11663929112**, `kurtosis-e2e-38034871837-1`, retained
+for three days. The uploaded ZIP digest reported by Actions is
+`38c1980b7defacda54e1c40d23a8b3d1acff604a92bba7c60b7e64cc56c5c47b`.
+Local-only copies, including the job log obtained through the jobs/logs API,
+are under `/tmp/pr79-ci-38034871837.BSGeVXWw/`.
+
+This run separates two causes of recomposition:
+
+- Target 183 / L2 1098: proof received at 08:28:41.259, with a
+  08:28:42.500 pipeline deadline. Finalization failed with `pipeline_deadline`;
+  no bundle dispatch occurred. The early receipt already exposed L2 1098.
+- Target 184: rbuilder cancelled its job at 08:28:44.104 because its last-block
+  observation was **182**, although the intended parent was 183. Repeated
+  payload notifications at 08:28:47.002 and 08:28:54.501 were discarded as
+  already sent. Composer dispatched at 08:28:52.447; the relay had no bid when
+  queried at 08:28:55.415. Lighthouse fell back to its local execution payload.
+- Target 185: the same cancellation happened at 08:28:55.744, observing parent
+  height **183** for target 185. Composer dispatched at 08:29:06.071; the relay
+  again returned no bid. Target 186 subsequently included the recomposed batch,
+  and canonical reconciliation advanced to L2 **1116** with committed sources.
+
+The new builder/beacon/MEV-Boost evidence establishes the missing-bid path in
+this run. It does **not** explain the original run's slot 151, where the relay
+already had a bid but no proposer request was retained. The local builder image
+labels identify source `flashbots/rbuilder@6037fa728b13bf1806e16fff2586414216f6b8fa`;
+its `run_check_if_parent_block_is_last_block` cancels on any height mismatch,
+including a lagging read, and its payload generator suppresses duplicate events.
+That source matches the observed log behavior, but the failed CI artifact does
+not independently pin the mutable builder image to that source revision.
+
+No protocol source/pin, assertion, scenario selection, or runtime behavior was
+changed in response. The separate optimization run remained in progress; neither
+merge readiness nor an end-to-end speedup is established by these results.
+
+### Optimization CI completed successfully
+
+The 09:11 UTC monitoring check observed
+[run 38036192141](https://github.com/eduadiez/rollupX/actions/runs/38036192141)
+complete successfully at source `4cf09c069d263af8f1b2ec630175864f9fe52741`:
+lint, debug unit tests, runtime build, all eight native E2E shards, Kurtosis and
+the final CI gate passed. Kurtosis ran all four wave modes, state chaining and
+**34/34** eligible protocol scenarios (the same six pinned exclusions).
+Suite accounting, independent causal evidence and authenticated semantic-blob
+coverage all reported complete. No diagnostic retry or assertion change was
+used. The exact-runtime verifier ran without compilation; node image was
+`ghcr.io/eduadiez/rollupx-node@sha256:182b017fba13d8254ec60f33a1352f8f59f4efbde72fe58e8d1cbe6753466760`.
+The successful job log is retained by Actions and locally as
+`optimization-job.log` in the evidence directory above. The workflow uploads
+the full diagnostic artifact only on failure, so this successful run does not
+provide a downloadable full evidence directory.
+
+Both comparison jobs used the `homelab-rust` runner class and the same workload
+and concurrency configuration. The failed merge checkout's tree equals PR
+head `7aeb860` (tree `3688640b48fe66bee843f9b1e644806f6f0c4797`); only the
+documented tooling/docs differ in the optimization source. Observed timings:
+
+| Phase | Baseline run 38034871837 | Optimization run 38036192141 |
+| --- | ---: | ---: |
+| Run Enclave step, including its cleanup | 44m03s | 24m16s |
+| Complete Kurtosis job | 46m32s | 26m09s |
+| Fixture build | Not separately measured | 575s, fully overlapped |
+| Bridge prerequisite, including any remaining compilation/setup | 1000.22s | 61.17s |
+| Other 33 protocol scenarios | 238.88s | 146.41s |
+
+The optimization's build completed at 08:48:12, before network checks ended at
+08:58:23; the protocol suite then took 251 seconds, including 39.22 seconds of
+independent verification. This establishes real overlap and an observed
+19m47s shorter test step, **not** a repeatable 45% speedup attributable solely
+to the change. The baseline failed and incurred additional diagnostic work;
+cold compilation and scenario timings also varied, and separate runners can
+have different contention. One successful run does not resolve the previously
+observed receipt-stability assumption or builder cancellation path. PR #79
+therefore remains draft while the validated tooling and these records are
+prepared for final PR-head CI.
