@@ -858,6 +858,18 @@ anchors and pending activity are rebuilt under the new configuration. Restart
 time never becomes a settlement timestamp. Existing nonce and source-outcome
 reconciliation remain authoritative.
 
+L1 startup preflight checks chain identity, deployment height, and finality of
+the immutable genesis reference. It does not require deployment-era receipts on
+every restart. Before L1-active tasks start, the deriver authenticates that
+reference and validates the persistent correlation tail against canonical L1
+and local L2 hashes. Recovery scans the selected checkpoint's containing L1
+block **inclusively**; without a valid checkpoint it falls back toward deployment.
+Required logs, transaction bodies, headers and native blob data must still be
+available for the selected recovery range. Missing history fails recovery; it
+does not authorize skipping blocks or declaring settlement complete.
+
+See the [recovery and rollback requirements](runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
+
 Recovery can retain validated ordinary L2 history present in the reopened chain
 database. A completed graceful shutdown lets the engine flush its recent blocks
 and state; a crash or forced kill can lose an unflushed suffix. An execution

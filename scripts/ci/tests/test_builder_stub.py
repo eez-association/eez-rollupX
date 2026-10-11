@@ -146,6 +146,31 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
+    def test_receipt_pruning_preserves_headers_and_inclusive_boundary(self):
+        control = self.directory / "pruned-before.json"
+        control.write_text("10")
+        for start in ("earliest", "0x0", "0x9"):
+            request = {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+                       "params": [{"fromBlock": start, "toBlock": "0x20"}]}
+            self.assertEqual(self.send(request)["error"]["code"], 4444)
+        self.assertEqual(self.forwarded, [])
+        for method, params in (("eth_getLogs", [{"fromBlock": "0xa"}]),
+                               ("eth_getBlockByNumber", ["0x0", False])):
+            request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+            self.send(request)
+            self.assertEqual(self.forwarded[-1], request)
+        control.write_text("0")
+        request = {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
+                   "params": [{"fromBlock": "0x0"}]}
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
+        # With pruning disabled, even malformed params belong to the upstream
+        # RPC's validation; the fault control must not intercept them.
+        request["params"] = []
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
     def test_controlled_consensus_forwards_one_post_after_capturing_its_blob(self):
         (self.directory / "single-transaction.json").write_text("{}")
         captures = self.directory / "captures"

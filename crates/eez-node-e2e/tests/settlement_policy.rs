@@ -2176,6 +2176,184 @@ async fn interval_posts_accumulated_activity_using_the_registration_l1_timestamp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint() {
+    let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
+        .await
+        .unwrap();
+    let follower_config = NodeConfig {
+        binary: NodeBinary::Follower,
+        genesis_path: Some(&world.cfg.l2_genesis.0),
+    };
+    let follower = NodeHandle::start(
+        "pruned-restart-replay",
+        &follower_config,
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let first = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let first_receipt = l2.get_transaction_receipt(first).await.unwrap().unwrap();
+    let safe = wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        first_receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let post = latest_post(&world).await;
+    let anchor = post.block_number.unwrap();
+    world
+        .wait_for_persisted_l1_block(
+            alloy_eips::BlockNumHash::new(anchor, post.block_hash.unwrap()),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+    world.prune_rpc_logs_before(anchor).unwrap();
+    let fault_url = world.fault_rpc_url().to_owned();
+
+    // Without a checkpoint, the same source must still reject full replay.
+    // A live RPC alone is not readiness; assert the error in the actual deriver.
+    let mut fresh_env = world.partial_follower_env();
+    fresh_env.push(("EEZ_L1_RPC_URL", fault_url.clone()));
+    let fresh = NodeHandle::start("pruned-fresh-rejected", &follower_config, &fresh_env)
+        .await
+        .unwrap();
+    assert_pruned_boot_waits(&fresh).await;
+    drop(fresh);
+
+    world
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url.clone())])
+        .await
+        .unwrap();
+    // The fixture allocates a new public L2 RPC port on every reopen.
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .unwrap();
+    assert_recovery_starts_at(&world.node, anchor);
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], safe.number, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(safe.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        safe.hash
+    );
+    let second = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(2),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let receipt = l2.get_transaction_receipt(second).await.unwrap().unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    // A saved checkpoint is not permission to skip its containing L1 block.
+    let post = latest_post(&world).await;
+    let anchor = post.block_number.unwrap();
+    world
+        .wait_for_persisted_l1_block(
+            alloy_eips::BlockNumHash::new(anchor, post.block_hash.unwrap()),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+    world.prune_rpc_logs_before(anchor + 1).unwrap();
+    world
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
+        .await
+        .unwrap();
+    assert_pruned_boot_waits(&world.node).await;
+    assert_recovery_starts_at(&world.node, anchor);
+    world.prune_rpc_logs_before(anchor).unwrap();
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
+fn assert_recovery_starts_at(node: &NodeHandle, anchor: u64) {
+    let logs = std::fs::read_to_string(&node.log_path).unwrap();
+    let scan = logs
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| {
+            line["fields"]["message"]
+                == "starting batch scan to populate L1CanonicalHead and reconcile L2 chain"
+        })
+        .expect("boot must report its recovery scan");
+    assert_eq!(scan["fields"]["from_l1_block"], anchor);
+}
+
+async fn assert_pruned_boot_waits(node: &NodeHandle) {
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((node
+            .log_count_matching(&["boot-time catch_up could not read all L1 source data yet"])?
+            > 0
+            && node.log_count_matching(&["pruned history unavailable"])? > 0)
+            .then_some(()))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "pruned recovery was not rejected: {error:#}\n{}",
+            node.log_tail(60)
+        )
+    });
+    assert_eq!(
+        node.log_count_matching(&["spawning eez deriver"]).unwrap(),
+        0
+    );
+    assert_eq!(
+        node.count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn restart_reevaluates_current_interval_without_resetting_the_l1_timer() {
     let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "interval"))
         .await

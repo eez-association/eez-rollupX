@@ -181,6 +181,7 @@ separate Compose project is operated outside CI and does not bootstrap the Compo
 
 | Symptom | First action |
 | --- | --- |
+| `L1 preflight never became ready` | Check the configured chain ID, head height and genesis-reference finality. History is checked afterwards at the [validated recovery anchor](ethereum-node.md#recovery-with-a-pruned-l1). |
 | `L1 never became able to serve block` or `boot_catch_up.source_incomplete` naming an execution block/transaction | Check embedded L1 sync and the named history, using `http://127.0.0.1:18645`. A higher head does not prove old bodies/logs exist. Recover/backfill the L1 database; changing the external `.env` RPC alone will not repair it. |
 | Missing blobs or an HTTP error naming a historical slot | Use the [blob diagnostic](chiado-deployment.md#blob-diagnostic--read-only) for that settlement. Obtain full-blob coverage at `EEZ_L1_BEACON_URL`; waiting at the current head cannot restore expired data. |
 | `correlation.tail_rejected`, or replay starts at deployment despite a backup | Check that genesis, chain data, and `eez-correlations` came from the same consistent backup. A reorg can also invalidate the tail and extend the required replay range. Preserve files before recovery. |

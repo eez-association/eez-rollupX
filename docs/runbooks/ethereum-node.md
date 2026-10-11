@@ -37,7 +37,8 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 2. **L1 execution datadir.** Either:
    - a **reth** datadir already synced for the network. Stop the reth that uses
      it first: the Composer becomes its only writer. Confirm reth v2.7 can open
-     it, and that its pruning keeps history from `EEZ_REGISTRY_DEPLOY_BLOCK`; or
+     it, and that it retains the history required for
+     [recovery](#recovery-with-a-pruned-l1); or
    - an empty directory. A mainnet sync takes days, and the default (archive)
      storage needs several TB.
 
@@ -99,3 +100,43 @@ land before relying on a builder set.
 `docker compose down` keeps every datadir. Pending requests and retry counters
 are in memory: a restart reconciles canonical state, and clients may need to
 resubmit unsettled work.
+
+## Recovery with a pruned L1
+
+Preserve the L2 datadir, including its persistent L1/L2 correlation index. With
+a valid saved checkpoint, startup scans from its containing L1 block, not from
+`EEZ_REGISTRY_DEPLOY_BLOCK`. The checkpoint block is included: retain its receipts,
+logs and transaction bodies, subsequent history, and required native blobs.
+Older canonical headers are still needed to authenticate the genesis reference
+and restore indexed settlement history. Allow additional retention for downtime
+and reorg recovery to an earlier checkpoint; the latest L1 head is not a safe
+pruning boundary.
+
+A fresh node, missing index, or rejected checkpoint can require history back to
+deployment. This fix does not recover already-pruned data. Increasing retention
+does not restore it either. If the selected recovery range is unavailable, use
+a history-serving source or a consistent supported backup; do not advance the
+deployment block, delete the index, or reset L2 to bypass validation. Execution
+RPC history does not replace missing Beacon blob data.
+
+Unavailable history now fails during catch-up rather than the deployment-block
+preflight. Readiness stays closed while catch-up retries; persistent RPC errors
+(including the receipt-pruning error) exhaust the existing 32-failure budget and
+exit. Repeated restarts cannot restore missing history.
+
+Check startup in order:
+
+1. `L1 chain and finality ready` means preflight only, not successful recovery.
+2. `boot seeded from the persistent L1/L2 correlation index` reports the anchor
+   in `l1_block`; `starting batch scan` reports the inclusive `from_l1_block`.
+   Without a usable checkpoint, expect a scan starting at deployment.
+3. Require `spawning eez composer umbrella` (or `spawning eez deriver` for a
+   follower) after catch-up. Check advancing L2 blocks, a subsequent canonical
+   settlement and independent replay; container/RPC health alone is insufficient.
+
+Before returning to local RPC, verify address-filtered `eth_getLogs` at the
+checkpoint and availability of the full recovery range, current state and blobs.
+Preserve datadirs and the working configuration for rollback. Composer and
+follower can upgrade independently for this fix; no environment variable or
+database migration is needed. Older binaries still require deployment-era logs
+at preflight, so downgrading may require the external RPC again.

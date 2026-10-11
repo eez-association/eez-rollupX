@@ -106,16 +106,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
         errors = (os.path.join(self.test_control_dir, "rpc-errors.json")
                   if self.test_control_dir else None)
         failed_methods = []
+        pruned_before = 0
         if errors:
             try:
                 with open(errors) as source:
                     failed_methods = json.load(source)
             except FileNotFoundError:
                 pass
+            try:
+                with open(os.path.join(self.test_control_dir, "pruned-before.json")) as source:
+                    pruned_before = int(json.load(source))
+            except FileNotFoundError:
+                pass
+        # Test-only receipt pruning: keep headers available, but fail even an
+        # empty address-filtered log query if its range includes pruned blocks.
+        pruned_logs = False
+        if pruned_before and body.get("method") == "eth_getLogs":
+            start = body["params"][0].get("fromBlock", "latest")
+            pruned_logs = start == "earliest" or (
+                start.startswith("0x") and int(start, 16) < pruned_before)
         if body.get("method") in failed_methods:
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),
                 "error": {"code": -32000, "message": "injected temporary RPC failure"},
+            }).encode()
+        elif pruned_logs:
+            resp = json.dumps({
+                "jsonrpc": "2.0", "id": body.get("id"),
+                "error": {"code": 4444, "message": "pruned history unavailable"},
             }).encode()
         elif body.get("method") == "eth_sendBundle":
             params = body["params"][0]

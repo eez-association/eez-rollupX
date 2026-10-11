@@ -1394,7 +1394,7 @@ async fn launch_composer(
     });
 
     // Start polling last: every consumer is subscribed and catch-up
-    // covered [deploy_block, seed], so the watcher owns all blocks
+    // covered [recovery anchor, seed], so the watcher owns all blocks
     // strictly after its seed — no startup scan gap.
     task_executor.spawn_critical_task(
         "eez-l1-watcher",
