@@ -114,6 +114,20 @@ jobs:
         uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1
         with:
           version: v1.7.1
+      - name: Install pinned Docker Compose for configuration checks
+        run: |
+          # Hosted Compose 2.38.2 still reads env_file with --no-env-resolution.
+          # Keep static checks independent of operator deployment bindings.
+          compose_config="$(mktemp -d "$RUNNER_TEMP/eez-compose.XXXXXXXX")"
+          mkdir -p "$compose_config/cli-plugins"
+          curl --fail --silent --show-error --location --max-time 90 \
+            https://github.com/docker/compose/releases/download/v5.5.1/docker-compose-linux-x86_64 \
+            -o "$compose_config/cli-plugins/docker-compose"
+          printf '%s  %s\n' db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576 \
+            "$compose_config/cli-plugins/docker-compose" | sha256sum --check --status
+          chmod 755 "$compose_config/cli-plugins/docker-compose"
+          test "$(DOCKER_CONFIG="$compose_config" docker compose version --short)" = 5.5.1
+          echo "DOCKER_CONFIG=$compose_config" >> "$GITHUB_ENV"
       - name: Test CI scripts
         run: python3 -m unittest discover -s scripts/ci/tests -v
       - name: Validate settlement policy configuration propagation

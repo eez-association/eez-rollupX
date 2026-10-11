@@ -35,6 +35,9 @@ Standard hosted Ubuntu has different capacity for private and public repositorie
 Both protocol execution paths cap concurrent scenarios at two without reducing
 the discovered inventory. Lint and debug unit jobs allow 120 minutes for cold
 source builds, while their existing validation steps remain required.
+Lint installs checksum-verified Docker Compose 5.5.1 in a job-private plugin
+directory. The hosted image's 2.38.2 resolves service `env_file` contents even
+under `config --no-env-resolution`, failing the existing static-render regression.
 The initial run must establish whether the existing build and test timeouts fit;
 do not reduce test selection, change dependency pins, or alter release features
 to make a smaller runner pass. A failure requiring different resources must be

@@ -279,3 +279,45 @@ The PR retains this sanitized summary. Transfer, visibility, rulesets, private
 reporting, runner deregistration and organization package publication remain
 unexecuted administrative steps. Existing image defaults remain usable until
 verified organization packages exist.
+
+## Hosted Compose regression and correction, 2026-10-11
+
+At PR head `0dbb123489d161bcb11ce425074477a24ccca6d4`, the hosted
+[lint job](https://github.com/eduadiez/rollupX/actions/runs/38154147332/job/114513522899)
+failed `test_existing_bindings_are_not_read_by_static_render`. The
+[runner image inventory](https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md)
+lists Compose 2.38.2. That CLI still reads and interpolates `deployments.env`
+under `config --no-env-resolution`, so the test's deliberately invalid binding
+causes an error. The same focused test fails with 2.38.2 at both the PR head and
+the original base; the earlier successful local tooling run used Compose 5.5.1.
+This is a tool-version dependency exposed by the runner change.
+
+The correction installs [Compose 5.5.1](https://github.com/docker/compose/releases/tag/v5.5.1)
+in a job-private plugin directory before the tooling checks. It verifies the
+official Linux x86_64 asset SHA-256
+`db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576`, checks the
+selected CLI version, and exports that directory through `GITHUB_ENV`.
+The existing test and its assertion are unchanged. No daemon or deployment is
+needed for these configuration checks; the protocol pin remains unchanged.
+
+The exact installer shell body was extracted from the edited workflow and
+executed with task-owned temporary paths. Its exported `DOCKER_CONFIG` was then
+used for the after-check and configuration propagation checks:
+
+| Check | Result |
+| --- | --- |
+| Same focused regression with Compose 2.38.2 | One test selected, failed with the hosted error, exit 1 |
+| Same focused regression with workflow-installed Compose 5.5.1 | One test selected, passed, exit 0 |
+| `check-settlement-policy-config.py` with the exported plugin directory | Chiado, Kurtosis and Ethereum passed |
+| Full tooling suite with the exported plugin directory and Gitleaks on `PATH` | 361 tests selected, 356 passed, the same five opt-in integration checks skipped, exit 0 |
+| Workflow/documentation checks | Actionlint 1.7.12, installer `bash -n`, 55 local path links, and `git diff --check` passed |
+
+The focused command was `PYTHONPATH=scripts/ci/tests python3 -m unittest test_chiado_config.ChiadoConfigTest.test_existing_bindings_are_not_read_by_static_render -v`.
+Before/after logs are local-only at `/tmp/rollupx-pr84-compose-fix-before.log`
+(SHA-256 `ed3c5adba76f9f1642b83408c96b4412a05653dccc2d5b72f2398eb0f41be6c8`)
+and `/tmp/rollupx-pr84-compose-fix-after.log`
+(`25a9844b372346305423b3160f3cea2576d5946d86d05021cdadfe6f9921591e`).
+The full suite log is `/tmp/rollupx-pr84-compose-fix-tooling.log`
+(`488164743379381be3829e335ee0d009827524a79cd29a4f264278e65a205c66`).
+The updated hosted run remains required; these local checks do not establish
+full Rust, E2E, protocol replay or fork-path capacity on the new runner.

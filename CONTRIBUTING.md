@@ -14,6 +14,8 @@ git submodule update --init --recursive eez-core-protocol
 
 Use Rust 1.95.0, Foundry 1.7.1, and the native dependencies documented in
 [AGENTS.md](AGENTS.md#build-and-validate). Keep Cargo dependencies locked.
+The Python configuration tests use Docker Compose 5.5.1, also pinned in CI;
+they render configuration without a Docker daemon.
 Run focused checks while iterating and the applicable checks from that guide
 before submitting a PR. Signer changes also follow the
 [signer contributor guide](crates/eez-proof-signer/CONTRIBUTING.md).

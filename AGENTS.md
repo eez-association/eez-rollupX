@@ -211,9 +211,12 @@ task authorization.
 | Cargo features | Build affected shipping targets with the production feature selection in [Dockerfile.runtime](Dockerfile.runtime). Test/`--all-features` builds alone do not establish that configuration works. |
 | Documentation | `git diff --check`; resolve edited links/paths at the protocol pin; run `bash -n` on edited shell examples. Syntax checking does not execute the procedure. |
 
-Python configuration checks require Docker Compose's CLI, not a daemon or live
-deployment. The full tooling suite also needs the initialized protocol, `jq`, and
-PyYAML; inspect skipped tests rather than treating a successful exit as full coverage.
+Python configuration checks use Docker Compose **5.5.1**, pinned and verified in
+CI, without a daemon or live deployment. Older Compose versions can still read
+service `env_file` contents despite `config --no-env-resolution`; 2.38.2 fails the
+static-render regression. The full tooling suite also needs the initialized
+protocol, `jq`, and PyYAML; inspect skipped tests rather than treating a successful
+exit as full coverage.
 
 ### Source-based process tests
 
