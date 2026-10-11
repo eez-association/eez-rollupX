@@ -238,3 +238,44 @@ Remaining acceptance work is the five-step sequence above, especially review of
 GitHub-hosted content, organization permission verification, and actual public
 fork/anonymous onboarding checks. No ownership, visibility, package, service,
 wallet, remote configuration, or existing source file was changed.
+
+## Preparation PR follow-up, 2026-10-11
+
+The maintainer subsequently requested a preparation PR and retirement of homelab
+CI. Implementation commit `a31dcd7e9d083a55409555d3fb7520fe650a3db0` is based on
+the reviewed `e15bb412420b36bfa40a0e2a73233ac4f213441d`; the protocol remains
+`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. Work was performed in an isolated
+clone on `codex/public-release-preparation`, preserving the original operator
+checkout. See the [proposal](../../proposals/github-hosted-ci.md) and
+[release runbook](../../runbooks/public-release.md) for scope and pending cutover.
+
+| Check | Result |
+| --- | --- |
+| Baseline hosted-only regressions | Two tests selected against the original workflows; 12 failing assertions expose runner overrides and enabled retained Cargo state |
+| Full tooling suite, `python3 -m unittest discover -s scripts/ci/tests -v` | 361 tests selected, 356 passed, five skipped, exit 0; includes hosted-only contract, organization payload/runtime handoff, old-owner rejection, and actual Gitleaks fixture-adjacent secret detection |
+| Skipped opt-in checks | Real Docker CI payload, real Kurtosis relay resources, native archive relocation, and two real Docker runtime fixture tests; dedicated execution/build environments not prepared |
+| Workflow validation | Actionlint 1.7.12 passed all three workflows; official release archive verified against published checksums |
+| Configuration propagation | `python3 scripts/check-settlement-policy-config.py`: Chiado, Kurtosis and Ethereum passed |
+| Secret scan of implementation commit and fetched history | Gitleaks 8.30.1, `git . --config .gitleaks.toml --log-opts='--all -m' --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null`; 800 commits reported, 102.06 MB scanned, no unsuppressed findings, exit 0 |
+| Documentation and syntax | 97 local path links resolved; `bash -n` passed 59 workflow shell steps with Actions expressions replaced by placeholders, plus added documentation examples; `git diff --check` passed |
+| Hosted builds and E2E | Pending the PR Actions run; local results are static/mocked tooling evidence, not runtime semantic, replay, capacity or deployment validation |
+
+The clone's fetched history excludes PR-only refs present in the earlier mirror;
+the two scan inventories are distinct. Scanner exceptions are exact reviewed
+public values, with path constraints for historical/default fixtures and image
+tags. New secrets in fixture files still fail. The initial exception check left
+six already-classified findings: the archived deterministic CI identity needed
+its exact audit path, and the image rule captures only the tag. Correcting those
+exceptions produced the passing scan above; no newly discovered operator key
+was suppressed. An initial focused test command misspelled the runtime test class;
+the corrected command executed and passed both intended namespace cases.
+
+Logs remain local-only with no retention guarantee. The full tooling log is
+`/tmp/rollupx-public-pr-tooling.log` (SHA-256
+`88e9fc907cc6f9fbb1e4ce4e11b5c9cc72d6abc5510baacf02df83b8f92ff8fe`), and
+the baseline regression log is `/tmp/rollupx-public-pr-baseline.log` (SHA-256
+`62d017f228b8b1d028540e6141b65eb3bc031110c409616b509bad13db6b7dc0`).
+The PR retains this sanitized summary. Transfer, visibility, rulesets, private
+reporting, runner deregistration and organization package publication remain
+unexecuted administrative steps. Existing image defaults remain usable until
+verified organization packages exist.
