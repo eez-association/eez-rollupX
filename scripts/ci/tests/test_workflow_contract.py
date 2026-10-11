@@ -224,10 +224,10 @@ elif args[0] != "logout":
     def test_kurtosis_consumer_requires_publication_and_unconditional_login(self):
         caller = self.jobs["kurtosis-e2e"]
         self.assertEqual(caller["if"], "${{ needs.build-runtime.outputs.published == 'true' }}")
-        self.assertEqual(set(caller["with"]), {"runner", "runtime-ref"})
+        self.assertEqual(set(caller["with"]), {"runtime-ref"})
         workflow = yaml.safe_load((REPO / ".github/workflows/kurtosis-e2e.yml").read_text())
         trigger = workflow.get("on", workflow.get(True))  # PyYAML's YAML 1.1 parses 'on' as true.
-        self.assertEqual(set(trigger["workflow_call"]["inputs"]), {"runner", "runtime-ref"})
+        self.assertEqual(set(trigger["workflow_call"]["inputs"]), {"runtime-ref"})
         steps = workflow["jobs"]["kurtosis-e2e"]["steps"]
         self.assertFalse(any("init-cargo-target.sh" in s.get("run", "") for s in steps))
         diagnostics = next(s for s in steps if s.get("run") == "bash scripts/ci/cargo-failure-diagnostics.sh")
@@ -238,33 +238,22 @@ elif args[0] != "logout":
         self.assertEqual(prepare["env"]["EEZ_EXPECT_PUBLISHED"], "true")
         self.assertLess(steps.index(login), steps.index(prepare))
 
-    def test_optional_auxiliary_pool_never_overrides_a_manual_runner_choice(self):
-        for name, job in self.jobs.items():
-            if name == "ci-result":
-                continue
-            expression = job["with"]["runner"] if "uses" in job else job["runs-on"]
-            # Assert the exact supported grammar before evaluating its fallbacks.
-            fields = expression.removeprefix("${{ ").removesuffix(" }}").split(" || ")
-            expected = ["inputs.runner"]
-            if name == "lint":
-                expected.append("vars.CI_AUX_RUNNER")
-            expected += ["vars.CI_RUNNER", "'homelab-rust'"]
-            self.assertEqual(fields, expected)
-
-            def selected(manual="", primary="", auxiliary=""):
-                values = {"inputs.runner": manual, "vars.CI_RUNNER": primary, "vars.CI_AUX_RUNNER": auxiliary,
-                          "'homelab-rust'": "homelab-rust"}
-                return next(values[field] for field in fields if values[field])
-
-            with self.subTest(job=name):
-                self.assertEqual(selected(manual="ubuntu-24.04", primary="homelab-rust", auxiliary="homelab-rust"),
-                                 "ubuntu-24.04")
-                self.assertEqual(selected(manual="homelab-rust", auxiliary="ubuntu-24.04"), "homelab-rust")
-                self.assertEqual(selected(primary="ubuntu-24.04"), "ubuntu-24.04")
-                self.assertEqual(selected(primary="homelab-rust", auxiliary="ubuntu-24.04"),
-                                 "ubuntu-24.04" if name == "lint" else "homelab-rust")
-                self.assertEqual(selected(primary="homelab-rust", auxiliary="homelab-small"),
-                                 "homelab-small" if name == "lint" else "homelab-rust")
+    def test_every_job_uses_hosted_runners_without_selection_overrides(self):
+        # A default is insufficient: stale repo variables or reusable-workflow
+        # inputs must not route public PR code back onto a private runner.
+        for path in (REPO / ".github/workflows").glob("*.yml"):
+            workflow = yaml.safe_load(path.read_text())
+            trigger = workflow.get("on", workflow.get(True))
+            for event in ("workflow_dispatch", "workflow_call"):
+                inputs = (trigger.get(event) or {}).get("inputs", {})
+                with self.subTest(path=path.name, event=event):
+                    self.assertFalse({"runner", "cargo-state-cache"} & set(inputs))
+            for name, job in workflow["jobs"].items():
+                with self.subTest(path=path.name, job=name):
+                    if "uses" in job:
+                        self.assertFalse({"runner", "cargo-state-cache"} & set(job.get("with", {})))
+                    else:
+                        self.assertEqual(job["runs-on"], "ubuntu-24.04")
 
     def test_success_never_uploads_diagnostics_and_quota_never_hides_test_failure(self):
         for path in (REPO / ".github/workflows").glob("*.yml"):
@@ -282,8 +271,15 @@ elif args[0] != "logout":
         self.assertIn("steps.local-runtime.outcome == 'success'", by_id["local-kurtosis"]["if"])
         self.assertIn("prepare-runtime-artifacts.sh", by_id["local-runtime"]["run"])
         self.assertEqual(by_id["local-runtime"]["env"]["EEZ_EXPECT_PUBLISHED"], "false")
-        self.assertTrue(all(not s.get("continue-on-error", False) for s in steps
-                            if "run" in s and s.get("id") != "cargo-export"))
+        self.assertTrue(all(not s.get("continue-on-error", False) for s in steps if "run" in s))
+
+    def test_hosted_protocol_concurrency_is_bounded_in_both_publication_paths(self):
+        workflow = yaml.safe_load((REPO / ".github/workflows/kurtosis-e2e.yml").read_text())
+        self.assertEqual(workflow["jobs"]["kurtosis-e2e"]["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "2")
+        producer = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
+        local = next(s for s in producer["jobs"]["build"]["steps"]
+                     if s.get("run") == "bash testing/kurtosis/run-ci.sh")
+        self.assertEqual(local["env"]["EEZ_PROTOCOL_MAX_PARALLEL"], "2")
 
     def test_compile_cap_is_not_repository_configuration(self):
         # The producer sizes the cap from its Docker daemon. Overrides belong to
@@ -296,33 +292,17 @@ elif args[0] != "logout":
                 for name in ("CI_BUILD_CPUS", "CI_BUILD_MEMORY"):
                     self.assertNotIn(name, text)
 
-    def test_docker_cargo_state_is_optional_and_saves_only_after_producer_tests_on_main(self):
+    def test_hosted_build_cannot_enable_or_restore_homelab_cargo_state(self):
         workflow = yaml.safe_load((REPO / ".github/workflows/build-runtime.yml").read_text())
         job = workflow["jobs"]["build"]
         steps = job["steps"]
         by_id = {s["id"]: s for s in steps if "id" in s}
-        enable = job["env"]["EEZ_CARGO_STATE_CACHE"]
-        self.assertIn("inputs.cargo-state-cache", enable)
-        self.assertIn("inputs.runner == 'homelab-rust'", enable)
-        self.assertIn("vars.CI_CARGO_STATE_CACHE == 'true'", enable)
-        restore, export = by_id["cargo-restore"], by_id["cargo-export"]
-        save = next(s for s in steps if s.get("uses", "").startswith("actions/cache/save@"))
-        for step in (restore, export, save):
-            self.assertTrue(step["continue-on-error"])
-            self.assertEqual(step["timeout-minutes"], 10)
-        self.assertEqual(restore["with"]["path"], ".ci-cargo-state/transport")
-        self.assertEqual(save["with"]["path"], restore["with"]["path"])
-        self.assertIn("github.event_name == 'push'", export["if"])
-        self.assertIn("github.event.repository.default_branch", export["if"])
-        self.assertIn("steps.cargo-restore.outputs.cache-hit != 'true'", export["if"])
-        self.assertIn("steps.cargo-export.outcome == 'success'", save["if"])
-        self.assertIn("steps.cargo-export.outputs.upload == 'true'", save["if"])
+        self.assertEqual(job["env"]["EEZ_CARGO_STATE_CACHE"], "false")
+        self.assertFalse({"cargo-state", "cargo-restore", "cargo-export"} & set(by_id))
+        self.assertFalse(any(s.get("uses", "").startswith("actions/cache/") for s in steps))
         unit = next(s for s in steps if '--suite producer' in s.get("run", ""))
         build = next(s for s in steps if s.get("run") == 'bash scripts/ci/build-runtime-artifacts.sh')
-        self.assertLess(steps.index(restore), steps.index(build))
         self.assertLess(steps.index(build), steps.index(unit))
-        self.assertLess(steps.index(unit), steps.index(export))
-        self.assertLess(steps.index(export), steps.index(save))
         self.assertNotIn("continue-on-error", unit)
         self.assertNotIn("continue-on-error", build)
 

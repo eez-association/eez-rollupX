@@ -1,0 +1,43 @@
+title = "rollupX secret scanning"
+
+[extend]
+useDefault = true
+
+# Exact public fixture values, reviewed in the 2026-10-11 readiness audit.
+# Do not exempt whole fixture paths: a new credential in those files must fail.
+[[allowlists]]
+description = "Anvil/Hardhat public accounts 0, 1 and 2"
+regexTarget = "secret"
+regexes = [
+  '''^(0x)?ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80$''',
+  '''^(0x)?59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d$''',
+  '''^(0x)?5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a$''',
+]
+
+[[allowlists]]
+description = "Historical deterministic CI identity, never an operator key"
+condition = "AND"
+paths = ['''^testing/kurtosis/''', '''^docs/audits/2026-09-26-reth-v2\.6-validation/kurtosis-args\.yaml$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?6f7d72ecb79c8bf1bd8e7c49a1c4a22741ab708f06bb19e5b5d44a6f0934a7c1$''']
+
+[[allowlists]]
+description = "Public upstream Gnosis EIP-1559 vector signing key"
+condition = "AND"
+paths = ['''^vendor/reth-gnosis/scripts/generate_eip1559_vectors\.sh$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?000038e28d32db8e509354d6b359eb58646e84bc942e3c79f470b08ebc976e1c$''']
+
+[[allowlists]]
+description = "Local Kurtosis Blockscout session-secret fixture"
+condition = "AND"
+paths = ['''^testing/kurtosis/blockscout\.star$''']
+regexTarget = "secret"
+regexes = ['''^56NtB48ear7\+wMSf0IQuWDAAazhpb31qyc7GiyspBP2vh7t5zlCsF5QDv76chXeN$''']
+
+[[allowlists]]
+description = "Blobscan API image tags mistaken for API credentials"
+condition = "AND"
+paths = ['''^testing/(kurtosis/blob-args\.yaml|explorers/compose\.yaml)$''']
+regexTarget = "secret"
+regexes = ['''^1\.40\.3-(chain7332|chiado)$''']

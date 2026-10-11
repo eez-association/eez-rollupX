@@ -1,4 +1,8 @@
-# eez-rollup0
+# rollupX
+
+An EEZ rollup implementation derived from
+[eez-association/eez-rollup0](https://github.com/eez-association/eez-rollup0).
+The core contracts are pinned in the `eez-core-protocol` submodule.
 
 An L2 rollup where L1 and L2 can call into each other as part of the same
 flow. Four components do the work: a **sequencer** produces L2 blocks (it
@@ -35,6 +39,11 @@ unbound mock signature.
 The [Composer-to-prover gRPC specification](crates/eez-control-rpc/SPEC.md)
 defines request construction, response validation, and settlement recovery for
 the current native-blob profile.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development and validation,
+[SECURITY.md](SECURITY.md) for private vulnerability reporting, and
+[LICENSE](LICENSE) for this repository's MIT license. Third-party code and
+dependencies retain their own licenses and notices.
 
 ## Run the local protocol network
 

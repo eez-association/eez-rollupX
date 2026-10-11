@@ -5,6 +5,7 @@ reconstructing a process from scripts, old logs, or an earlier conversation.
 
 | Task | Procedure | Verification status |
 | --- | --- | --- |
+| Retire homelab CI, transfer ownership, and publish source/packages | [Public release](public-release.md) | Preparation PR; hosted execution and administrative cutover require verification |
 | New Chiado rollup: minimal command sequence | [Chiado quick start](chiado-quickstart.md) | Published-image procedure; fresh-host rehearsal pending |
 | Sync and run a Composer for an existing Chiado L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Source reviewed; live replay/restore rehearsal pending |
 | Deploy, start, check, and stop a Chiado rollup | [Chiado deployment](chiado-deployment.md) | Source reviewed; static checks; full deployment rehearsal pending |

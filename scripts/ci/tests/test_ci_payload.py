@@ -66,7 +66,7 @@ class PayloadTest(unittest.TestCase):
                               env=dict(self.env, KIND=kind), text=True, capture_output=True, timeout=10)
 
     def ref(self, kind):
-        return f"ghcr.io/eduadiez/rollupx-ci-{kind}@sha256:"+"a"*64
+        return f"ghcr.io/{self.env['GITHUB_REPOSITORY'].lower()}-ci-{kind}@sha256:"+"a"*64
 
     def calls(self):
         return [json.loads(line) for line in self.trace.read_text().splitlines()] if self.trace.exists() else []
@@ -88,6 +88,24 @@ class PayloadTest(unittest.TestCase):
         self.assertEqual(calls[-1], ["rm", "b"*64])
         self.assertEqual(next(c for c in calls if c[0] == "create")[-1], "/not-executed")
         self.assertFalse(any(c[0] in ("run", "start", "exec") for c in calls))
+
+    def test_transfer_publishes_and_fetches_in_new_namespace_but_rejects_old_payloads(self):
+        old_ref = self.ref("runtime")
+        self.env["GITHUB_REPOSITORY"] = "eez-association/rollupX"
+        for kind in ("runtime", "tests"):
+            with self.subTest(kind=kind):
+                result = self.run_script("publish", kind, self.payload)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"{kind}-ref={self.ref(kind)}", (self.root / "output").read_text())
+                command = next(c for c in reversed(self.calls()) if c[:2] == ["buildx", "build"])
+                self.assertIn("org.opencontainers.image.source=https://github.com/eez-association/rollupX", command)
+                result = self.run_script("fetch", kind, self.ref(kind), self.root / kind)
+                self.assertEqual(result.returncode, 0, result.stderr)
+        self.trace.write_text("")
+        result = self.run_script("fetch", "runtime", old_ref, self.root / "old")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("repository-bound immutable payload digest", result.stderr)
+        self.assertFalse(self.calls())
 
     def test_bad_revision_or_wrong_registry_rejected_before_container_creation(self):
         for ref in ("ghcr.io/other/repo@sha256:"+"a"*64, "ghcr.io/eduadiez/rollupx-ci-tests:latest"):

@@ -669,10 +669,12 @@ bash testing/kurtosis/scripts/run-protocol-e2e.sh
 ```
 
 The suite uses the pinned upstream `script/e2e/run/network/parallel.sh`, with a
-fresh funded wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the default on both hosted
-and ARC runners) starts one worker per eligible scenario, including
-`revertCounter` and `staticCounterL2`. Foundry artifacts are warmed before workers
-start. Set a positive integer to bound concurrency, or `1` to run serially with
+fresh funded wallet per worker. `EEZ_PROTOCOL_MAX_PARALLEL=all` (the local script
+default) starts one worker per eligible scenario, including `revertCounter` and
+`staticCounterL2`. GitHub-hosted CI sets `EEZ_PROTOCOL_MAX_PARALLEL=2` in both
+publication paths; this changes concurrency, not scenario selection. Foundry
+artifacts are warmed before workers start. Set a positive integer to bound
+concurrency, or `1` to run serially with
 the same assertions. When both bridge scenarios are selected, `bridge` runs
 first: its settled deposit supplies the shared rollup escrow required by
 `bridgeL2`. The remaining scenarios then run in parallel with fresh worker

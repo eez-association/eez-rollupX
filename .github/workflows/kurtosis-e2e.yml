@@ -3,9 +3,6 @@ name: Kurtosis E2E
 on:
   workflow_call:
     inputs:
-      runner:
-        required: true
-        type: string
       runtime-ref:
         required: true
         type: string
@@ -17,14 +14,14 @@ permissions:
 jobs:
   kurtosis-e2e:
     name: Kurtosis E2E
-    runs-on: ${{ inputs.runner }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 150
     env:
       CARGO_INCREMENTAL: "0"
       KURTOSIS_ENCLAVE: eez-ci
       EEZ_CI_RESULT_DIR: ${{ github.workspace }}/artifacts/kurtosis-e2e
-      # One worker per discovered scenario.
-      EEZ_PROTOCOL_MAX_PARALLEL: "all"
+      # Bound process concurrency on standard hosted VMs; run every scenario.
+      EEZ_PROTOCOL_MAX_PARALLEL: "2"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
         with:

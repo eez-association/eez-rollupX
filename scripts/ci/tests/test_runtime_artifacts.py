@@ -584,6 +584,22 @@ class RuntimeArtifactsTest(unittest.TestCase):
         self.assertEqual(values["EEZ_SKIP_DEPLOY_BUILD"], "1")
         self.assertTrue(os.access(values["EEZ_BLOB_VERIFIER_BIN"], os.X_OK))
 
+    def test_transfer_builds_and_consumes_organization_images(self):
+        self.env["GITHUB_REPOSITORY"] = "eez-association/rollupX"
+        self.build()
+        for image in self.manifest()["images"].values():
+            self.assertTrue(image["reference"].startswith("ghcr.io/eez-association/rollupx-"))
+        self.prepare()
+        self.assertEqual(sum(c[:2] == ["docker", "pull"] for c in self.commands()), 3)
+        self.assertFalse(any(c[0] == "cargo" or "build" in c for c in self.commands()))
+
+    def test_transfer_rejects_pre_transfer_image_manifest_before_pulling(self):
+        self.build()
+        self.env["GITHUB_REPOSITORY"] = "eez-association/rollupX"
+        self.prepare(success=False)
+        self.assertEqual(self.commands(), [])
+        self.assertNotIn("EEZ_SKIP_NODE_BUILD", self.env_file.read_text())
+
     def test_all_outputs_use_the_same_resolved_base_images(self):
         self.build()
         manifest = self.manifest()
