@@ -37,7 +37,8 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 2. **L1 execution datadir.** Either:
    - a **reth** datadir already synced for the network. Stop the reth that uses
      it first: the Composer becomes its only writer. Confirm reth v2.7 can open
-     it, and that its pruning keeps history from `EEZ_REGISTRY_DEPLOY_BLOCK`; or
+     it, and that it retains the history required for
+     [recovery](#recovery-with-a-pruned-l1); or
    - an empty directory. A mainnet sync takes days, and the default (archive)
      storage needs several TB.
 
@@ -99,3 +100,46 @@ land before relying on a builder set.
 `docker compose down` keeps every datadir. Pending requests and retry counters
 are in memory: a restart reconciles canonical state, and clients may need to
 resubmit unsettled work.
+
+## Recovery with a pruned L1
+
+Preserve the L2 datadir, including its persistent L1/L2 correlation index. With
+a valid saved checkpoint, startup scans from its containing L1 block, not from
+`EEZ_REGISTRY_DEPLOY_BLOCK`. The checkpoint block is included: retain its receipts,
+logs and transaction bodies, subsequent history, and required native blobs.
+Older canonical headers are still needed to authenticate the genesis reference
+and restore indexed settlement history. Allow additional retention for downtime
+and reorg recovery to an earlier checkpoint; the latest L1 head is not a safe
+pruning boundary.
+
+A fresh node, missing index, or rejected checkpoint can require history back to
+deployment. This fix does not recover already-pruned data. Increasing retention
+does not restore it either. If the selected recovery range is unavailable, use
+a history-serving source or a consistent supported backup; do not advance the
+deployment block, delete the index, or reset L2 to bypass validation. Execution
+RPC history does not replace missing Beacon blob data.
+
+Check startup in order:
+
+1. `eez.node.l1_ready` means chain/height/finality preflight only, not successful
+   history recovery.
+2. `eez.deriver.correlation.seeded` identifies the validated restart anchor.
+   `eez.deriver.catch_up.start` reports the actual inclusive scan range. Without
+   a usable checkpoint, expect a scan starting at deployment.
+3. Require completed catch-up and `eez.node.deriver.spawned`, then advancing L2
+   blocks. Check a subsequent canonical settlement and independent replay before
+   declaring full recovery. A healthy container or advancing RPC height alone
+   does not establish that new transactions settle.
+
+To return from a temporary external execution RPC, first verify the local source
+serves the actual recovery range (including address-filtered `eth_getLogs` at the
+checkpoint), has current canonical state, and the Beacon source supplies needed
+blobs. Update the existing node/signer RPC settings consistently and restart only
+as an authorized deployment operation; preserve all datadirs and secrets. Keep
+the working configuration available for rollback. No new environment variable or
+database migration is needed. Older binaries still require deployment-era logs
+at preflight, so a binary rollback may also require the external RPC again.
+
+The automated regression uses simulated receipt pruning on an isolated native
+network; it does not establish that any particular mainnet datadir has sufficient
+retention or authorize changing its pruning configuration.

@@ -2176,6 +2176,188 @@ async fn interval_posts_accumulated_activity_using_the_registration_l1_timestamp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint() {
+    let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
+        .await
+        .unwrap();
+    let follower = NodeHandle::start(
+        "pruned-restart-replay",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let first = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(1),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let first_receipt = l2.get_transaction_receipt(first).await.unwrap().unwrap();
+    let safe = wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        first_receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let post = latest_post(&world).await;
+    let anchor = post.block_number.unwrap();
+    assert!(anchor > 0);
+    world
+        .wait_for_persisted_l1_block(
+            alloy_eips::BlockNumHash::new(anchor, post.block_hash.unwrap()),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+    world.prune_rpc_logs_before(anchor).unwrap();
+    let fault_url = world.fault_rpc_url().to_owned();
+
+    // Without a checkpoint, the same source must still reject full replay.
+    // A live RPC alone is not readiness; assert the error in the actual deriver.
+    let mut fresh_env = world.partial_follower_env();
+    fresh_env.push(("EEZ_L1_RPC_URL", fault_url.clone()));
+    let fresh = NodeHandle::start(
+        "pruned-fresh-rejected",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &fresh_env,
+    )
+    .await
+    .unwrap();
+    assert_pruned_boot_waits(&fresh).await;
+    drop(fresh);
+
+    world
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
+        .await
+        .unwrap();
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((world
+            .node
+            .log_count_matching(&["boot seeded from the persistent L1/L2 correlation index"])?
+            > 0)
+        .then_some(()))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "checkpoint restart failed: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], safe.number, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(safe.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        safe.hash
+    );
+    let second = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(2),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let receipt = l2.get_transaction_receipt(second).await.unwrap().unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    let replayed = replay
+        .get_transaction_receipt(second)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(replayed.status());
+    assert_eq!(replayed.block_hash, receipt.block_hash);
+
+    // A saved checkpoint is not permission to skip its containing L1 block.
+    let post = latest_post(&world).await;
+    let anchor = post.block_number.unwrap();
+    world
+        .wait_for_persisted_l1_block(
+            alloy_eips::BlockNumHash::new(anchor, post.block_hash.unwrap()),
+            TIMEOUT,
+        )
+        .await
+        .unwrap();
+    world.prune_rpc_logs_before(anchor + 1).unwrap();
+    world.restart_composer_with_env(&[]).await.unwrap();
+    assert_pruned_boot_waits(&world.node).await;
+    world.prune_rpc_logs_before(anchor).unwrap();
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(0)?
+            .iter()
+            .any(|event| event.name == "eez.node.composer.spawned")
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
+async fn assert_pruned_boot_waits(node: &NodeHandle) {
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok((node
+            .log_count_matching(&["boot-time catch_up could not read all L1 source data yet"])?
+            > 0
+            && node.log_count_matching(&["pruned history unavailable"])? > 0)
+            .then_some(()))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "pruned recovery was not rejected: {error:#}\n{}",
+            node.log_tail(60)
+        )
+    });
+    assert_eq!(
+        node.log_count_matching(&["spawning eez deriver"]).unwrap(),
+        0
+    );
+    assert!(
+        !node
+            .signals_since(0)
+            .unwrap()
+            .iter()
+            .any(|event| event.name == "eez.node.composer.spawned")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn restart_reevaluates_current_interval_without_resetting_the_l1_timer() {
     let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "interval"))
         .await
