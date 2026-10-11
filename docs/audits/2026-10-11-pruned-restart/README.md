@@ -48,6 +48,9 @@ cargo +1.95.0 test --locked -p eez-node-common --features l1-startup --lib \
   the regression, wrong-chain rejection, and an unfinalized-reference case.
 - Fixture relay tests: **16 passed**, including the inclusive pruning boundary
   and retention of header access.
+- Full Python tooling suite: **351 passed, 5 skipped** (356 discovered). The
+  skipped opt-in checks require real Docker payload/runtime images, native
+  archive relocation, or a Kurtosis resource probe; none is counted as coverage.
 - `forge build --root contracts`: passed with existing compiler/lint warnings.
 
 The first test invocation could not bind a loopback socket in the execution
@@ -56,6 +59,13 @@ build also found stale workspace artifacts (an enum variant present in source
 was missing from compiled metadata). Workspace package artifacts were cleaned
 before rebuilding; dependencies and the lockfile were not changed. These were
 setup/build failures, not successful executions of the process regression.
+
+The first executed process regression reached checkpoint-based restart but then
+failed with connection refused: its test client still used the pre-restart L2
+RPC port. The fixture allocates a new port on reopen. The test now rebuilds that
+client and waits for Composer readiness. The failure's logs/datadirs were retained
+locally under `artifacts/native-e2e/` (test process `2659057`); it is not reported
+as a passing process run or silently retried unchanged.
 
 The process regression is
 `settlement_policy::restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint`.

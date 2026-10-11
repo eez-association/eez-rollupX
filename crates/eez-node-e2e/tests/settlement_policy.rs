@@ -2256,6 +2256,18 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
             world.settlement_diagnostics()
         )
     });
+    // The fixture allocates a new public L2 RPC port on every reopen.
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    eez_testkit::wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(0)?
+            .iter()
+            .any(|event| event.name == "eez.node.composer.spawned")
+            .then_some(()))
+    })
+    .await
+    .unwrap();
     wait_for_safe_prefix_convergence(&[&world.node, &follower], safe.number, TIMEOUT)
         .await
         .unwrap();
