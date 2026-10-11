@@ -868,11 +868,7 @@ Required logs, transaction bodies, headers and native blob data must still be
 available for the selected recovery range. Missing history fails recovery; it
 does not authorize skipping blocks or declaring settlement complete.
 
-This changes no protocol, storage format, configuration, or signer contract.
-Composer and follower can upgrade independently for this fix; old versions
-retain their unconditional deployment-history preflight. Rolling back may
-therefore require an RPC that still serves deployment receipts even when the
-saved checkpoint is recent. See the [Ethereum recovery checks](runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
+See the [recovery and rollback requirements](runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
 
 Recovery can retain validated ordinary L2 history present in the reopened chain
 database. A completed graceful shutdown lets the engine flush its recent blocks

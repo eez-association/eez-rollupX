@@ -165,6 +165,12 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded[-1], request)
 
+        # With pruning disabled, even malformed params belong to the upstream
+        # RPC's validation; the fault control must not intercept them.
+        request["params"] = []
+        self.send(request)
+        self.assertEqual(self.forwarded[-1], request)
+
     def test_controlled_consensus_forwards_one_post_after_capturing_its_blob(self):
         (self.directory / "single-transaction.json").write_text("{}")
         captures = self.directory / "captures"

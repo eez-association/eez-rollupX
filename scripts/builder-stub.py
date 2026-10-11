@@ -120,11 +120,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 pass
         # Test-only receipt pruning: keep headers available, but fail even an
         # empty address-filtered log query if its range includes pruned blocks.
-        log_start = (body.get("params", [{}])[0].get("fromBlock", "latest")
-                     if body.get("method") == "eth_getLogs" else "latest")
-        pruned_logs = (log_start == "earliest" and pruned_before > 0) or (
-            isinstance(log_start, str) and log_start.startswith("0x")
-            and int(log_start, 16) < pruned_before)
+        pruned_logs = False
+        if pruned_before and body.get("method") == "eth_getLogs":
+            start = body["params"][0].get("fromBlock", "latest")
+            pruned_logs = start == "earliest" or (
+                start.startswith("0x") and int(start, 16) < pruned_before)
         if body.get("method") in failed_methods:
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),

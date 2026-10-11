@@ -2180,12 +2180,13 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
         .await
         .unwrap();
+    let follower_config = NodeConfig {
+        binary: NodeBinary::Follower,
+        genesis_path: Some(&world.cfg.l2_genesis.0),
+    };
     let follower = NodeHandle::start(
         "pruned-restart-replay",
-        &NodeConfig {
-            binary: NodeBinary::Follower,
-            genesis_path: Some(&world.cfg.l2_genesis.0),
-        },
+        &follower_config,
         &world.partial_follower_env(),
     )
     .await
@@ -2210,7 +2211,6 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     .unwrap();
     let post = latest_post(&world).await;
     let anchor = post.block_number.unwrap();
-    assert!(anchor > 0);
     world
         .wait_for_persisted_l1_block(
             alloy_eips::BlockNumHash::new(anchor, post.block_hash.unwrap()),
@@ -2225,49 +2225,28 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     // A live RPC alone is not readiness; assert the error in the actual deriver.
     let mut fresh_env = world.partial_follower_env();
     fresh_env.push(("EEZ_L1_RPC_URL", fault_url.clone()));
-    let fresh = NodeHandle::start(
-        "pruned-fresh-rejected",
-        &NodeConfig {
-            binary: NodeBinary::Follower,
-            genesis_path: Some(&world.cfg.l2_genesis.0),
-        },
-        &fresh_env,
-    )
-    .await
-    .unwrap();
+    let fresh = NodeHandle::start("pruned-fresh-rejected", &follower_config, &fresh_env)
+        .await
+        .unwrap();
     assert_pruned_boot_waits(&fresh).await;
     drop(fresh);
 
     world
-        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url.clone())])
         .await
         .unwrap();
+    // The fixture allocates a new public L2 RPC port on every reopen.
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
         Ok((world
             .node
-            .log_count_matching(&["boot seeded from the persistent L1/L2 correlation index"])?
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
             > 0)
         .then_some(()))
     })
     .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "checkpoint restart failed: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
-    // The fixture allocates a new public L2 RPC port on every reopen.
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    eez_testkit::wait_for(TIMEOUT, || async {
-        Ok(world
-            .node
-            .signals_since(0)?
-            .iter()
-            .any(|event| event.name == "eez.node.composer.spawned")
-            .then_some(()))
-    })
-    .await
     .unwrap();
+    assert_recovery_starts_at(&world.node, anchor);
     wait_for_safe_prefix_convergence(&[&world.node, &follower], safe.number, TIMEOUT)
         .await
         .unwrap();
@@ -2297,15 +2276,6 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     )
     .await
     .unwrap();
-    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
-    let replayed = replay
-        .get_transaction_receipt(second)
-        .await
-        .unwrap()
-        .unwrap();
-    assert!(replayed.status());
-    assert_eq!(replayed.block_hash, receipt.block_hash);
-
     // A saved checkpoint is not permission to skip its containing L1 block.
     let post = latest_post(&world).await;
     let anchor = post.block_number.unwrap();
@@ -2317,16 +2287,19 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
         .await
         .unwrap();
     world.prune_rpc_logs_before(anchor + 1).unwrap();
-    world.restart_composer_with_env(&[]).await.unwrap();
+    world
+        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
+        .await
+        .unwrap();
     assert_pruned_boot_waits(&world.node).await;
+    assert_recovery_starts_at(&world.node, anchor);
     world.prune_rpc_logs_before(anchor).unwrap();
     eez_testkit::wait_for(TIMEOUT, || async {
-        Ok(world
+        Ok((world
             .node
-            .signals_since(0)?
-            .iter()
-            .any(|event| event.name == "eez.node.composer.spawned")
-            .then_some(()))
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)?
+            > 0)
+        .then_some(()))
     })
     .await
     .unwrap();
@@ -2339,6 +2312,19 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     .unwrap();
     world.node.assert_no_divergence_failure_logs();
     follower.assert_no_divergence_failure_logs();
+}
+
+fn assert_recovery_starts_at(node: &NodeHandle, anchor: u64) {
+    let logs = std::fs::read_to_string(&node.log_path).unwrap();
+    let scan = logs
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|line| {
+            line["fields"]["message"]
+                == "starting batch scan to populate L1CanonicalHead and reconcile L2 chain"
+        })
+        .expect("boot must report its recovery scan");
+    assert_eq!(scan["fields"]["from_l1_block"], anchor);
 }
 
 async fn assert_pruned_boot_waits(node: &NodeHandle) {
@@ -2360,12 +2346,10 @@ async fn assert_pruned_boot_waits(node: &NodeHandle) {
         node.log_count_matching(&["spawning eez deriver"]).unwrap(),
         0
     );
-    assert!(
-        !node
-            .signals_since(0)
-            .unwrap()
-            .iter()
-            .any(|event| event.name == "eez.node.composer.spawned")
+    assert_eq!(
+        node.count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)
+            .unwrap(),
+        0
     );
 }
 

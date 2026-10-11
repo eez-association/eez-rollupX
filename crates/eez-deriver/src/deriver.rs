@@ -170,12 +170,7 @@ where
     /// the caller reads whatever L1 serves and the usual validation decides.
     async fn await_l1_head(&self, block: u64) {
         if crate::l1_catch_up::wait_for_head(block, || async {
-            self.inner
-                .l1_reader
-                .readiness()
-                .await
-                .ok()
-                .map(|state| state.head_block_number)
+            self.inner.l1_reader.head_block_number().await.ok()
         })
         .await
         {
@@ -676,13 +671,7 @@ where
             // genesis, so retry. A head ABOVE this block means pruned/rewound,
             // which retrying won't fix; report it so that is diagnosable.
             let Some(canonical) = canonical else {
-                let head = self
-                    .inner
-                    .l1_reader
-                    .readiness()
-                    .await
-                    .map(|r| r.head_block_number)
-                    .ok();
+                let head = self.inner.l1_reader.head_block_number().await.ok();
                 return Err(DeriverError::l1_scan(eez_l1::L1Error::SourceIncomplete {
                     block: tail.l1_block,
                     tx_hash: tail.tx_hash,

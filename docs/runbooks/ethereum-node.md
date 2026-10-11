@@ -119,27 +119,24 @@ a history-serving source or a consistent supported backup; do not advance the
 deployment block, delete the index, or reset L2 to bypass validation. Execution
 RPC history does not replace missing Beacon blob data.
 
+Unavailable history now fails during catch-up rather than the deployment-block
+preflight. Readiness stays closed while catch-up retries; persistent RPC errors
+(including the receipt-pruning error) exhaust the existing 32-failure budget and
+exit. Repeated restarts cannot restore missing history.
+
 Check startup in order:
 
-1. `eez.node.l1_ready` means chain/height/finality preflight only, not successful
-   history recovery.
-2. `eez.deriver.correlation.seeded` identifies the validated restart anchor.
-   `eez.deriver.catch_up.start` reports the actual inclusive scan range. Without
-   a usable checkpoint, expect a scan starting at deployment.
-3. Require completed catch-up and `eez.node.deriver.spawned`, then advancing L2
-   blocks. Check a subsequent canonical settlement and independent replay before
-   declaring full recovery. A healthy container or advancing RPC height alone
-   does not establish that new transactions settle.
+1. `L1 chain and finality ready` means preflight only, not successful recovery.
+2. `boot seeded from the persistent L1/L2 correlation index` reports the anchor
+   in `l1_block`; `starting batch scan` reports the inclusive `from_l1_block`.
+   Without a usable checkpoint, expect a scan starting at deployment.
+3. Require `spawning eez composer umbrella` (or `spawning eez deriver` for a
+   follower) after catch-up. Check advancing L2 blocks, a subsequent canonical
+   settlement and independent replay; container/RPC health alone is insufficient.
 
-To return from a temporary external execution RPC, first verify the local source
-serves the actual recovery range (including address-filtered `eth_getLogs` at the
-checkpoint), has current canonical state, and the Beacon source supplies needed
-blobs. Update the existing node/signer RPC settings consistently and restart only
-as an authorized deployment operation; preserve all datadirs and secrets. Keep
-the working configuration available for rollback. No new environment variable or
+Before returning to local RPC, verify address-filtered `eth_getLogs` at the
+checkpoint and availability of the full recovery range, current state and blobs.
+Preserve datadirs and the working configuration for rollback. Composer and
+follower can upgrade independently for this fix; no environment variable or
 database migration is needed. Older binaries still require deployment-era logs
-at preflight, so a binary rollback may also require the external RPC again.
-
-The automated regression uses simulated receipt pruning on an isolated native
-network; it does not establish that any particular mainnet datadir has sufficient
-retention or authorize changing its pruning configuration.
+at preflight, so downgrading may require the external RPC again.

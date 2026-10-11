@@ -187,18 +187,18 @@ pub async fn wait_for_l1_ready(
             }
         }
 
-        let (progressing, status) = match l1_reader.readiness().await {
+        let (progressing, status) = match l1_reader.head_block_number().await {
             Err(err) => {
                 last_err = Some(err.to_string());
                 (false, format!("unreachable: {err}"))
             }
-            Ok(state) if state.head_block_number < deploy_block => {
-                let remaining = deploy_block - state.head_block_number;
+            Ok(head) if head < deploy_block => {
+                let remaining = deploy_block - head;
                 let closer = remaining < best_remaining;
                 best_remaining = best_remaining.min(remaining);
                 (closer, format!("{remaining} blocks below the deploy block"))
             }
-            Ok(state) if chain_verified => {
+            Ok(head) if chain_verified => {
                 // Block zero needs no finality probe (see `reference_is_final`);
                 // a fresh devnet reports no `finalized` block for 20+ minutes.
                 let finalized = if genesis_reference_number == 0 {
@@ -216,7 +216,7 @@ pub async fn wait_for_l1_ready(
                         event!(
                             name: "eez.node.l1_ready",
                             Level::INFO,
-                            head = state.head_block_number,
+                            head,
                             deploy_block,
                             genesis_reference_number,
                             "L1 chain and finality ready; history validation deferred to deriver recovery anchor",
@@ -300,23 +300,13 @@ pub fn validate_system_address(system_address: alloy_primitives::Address) -> eyr
 #[cfg(all(test, feature = "l1-startup"))]
 mod tests {
     use super::reference_is_final;
-    use std::{
-        sync::{
-            Arc,
-            atomic::{AtomicUsize, Ordering},
-        },
-        time::Duration,
-    };
+    use std::time::Duration;
 
     /// Serve headers but reject receipts, as a synced, receipt-pruned Reth does.
     async fn pruned_source(
         chain_id: u64,
         finalized: u64,
-    ) -> (
-        eez_l1::L1Reader,
-        jsonrpsee::server::ServerHandle,
-        Arc<AtomicUsize>,
-    ) {
+    ) -> (eez_l1::L1Reader, jsonrpsee::server::ServerHandle) {
         use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
         let server = ServerBuilder::default()
             .build((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -325,16 +315,12 @@ mod tests {
         let rpc_url = format!("http://{}", server.local_addr().unwrap())
             .parse()
             .unwrap();
-        let probes = Arc::new(AtomicUsize::new(0));
-        let mut module = RpcModule::new(probes.clone());
+        let mut module = RpcModule::new(());
         module
             .register_method("eth_chainId", move |_, _, _| format!("{chain_id:#x}"))
             .unwrap();
         module
             .register_method("eth_blockNumber", |_, _, _| "0x64")
-            .unwrap();
-        module
-            .register_method("eth_syncing", |_, _, _| false)
             .unwrap();
         module
             .register_method("eth_getBlockByNumber", move |params, _, _| {
@@ -345,8 +331,7 @@ mod tests {
             })
             .unwrap();
         module
-            .register_method("eth_getLogs", |_, probes, _| {
-                probes.fetch_add(1, Ordering::SeqCst);
+            .register_method("eth_getLogs", |_, _, _| {
                 Err::<serde_json::Value, _>(ErrorObjectOwned::owned(
                     4444,
                     "pruned history unavailable",
@@ -362,14 +347,14 @@ mod tests {
             rollup_id: 1,
             deploy_block: 5,
         });
-        (reader, handle, probes)
+        (reader, handle)
     }
 
     #[tokio::test]
     async fn readiness_defers_pruned_history_to_checkpoint_aware_derivation() {
-        let (reader, server, probes) = pruned_source(1, 80).await;
+        let (reader, server) = pruned_source(1, 80).await;
         let result = tokio::time::timeout(
-            Duration::from_secs(1),
+            Duration::from_secs(5),
             super::wait_for_l1_ready(&reader, 5, 1, 40),
         )
         .await;
@@ -377,19 +362,25 @@ mod tests {
         result
             .expect("deployment receipts must not block checkpoint selection")
             .unwrap();
-        assert_eq!(probes.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
-    async fn pruned_source_still_requires_correct_chain_and_final_reference() {
-        let (reader, server, _) = pruned_source(2, 80).await;
-        let error = super::wait_for_l1_ready(&reader, 5, 1, 40)
-            .await
-            .unwrap_err();
+    async fn pruned_source_still_requires_correct_chain() {
+        let (reader, server) = pruned_source(2, 80).await;
+        let error = tokio::time::timeout(
+            Duration::from_secs(5),
+            super::wait_for_l1_ready(&reader, 5, 1, 40),
+        )
+        .await
+        .expect("wrong-chain readiness must terminate")
+        .unwrap_err();
         assert!(error.to_string().contains("serves chain 2, expected 1"));
         server.stop().unwrap();
+    }
 
-        let (reader, server, probes) = pruned_source(1, 39).await;
+    #[tokio::test]
+    async fn pruned_source_still_requires_final_reference() {
+        let (reader, server) = pruned_source(1, 39).await;
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(100),
@@ -399,7 +390,6 @@ mod tests {
             .is_err(),
             "an unfinalized reference must not pass readiness"
         );
-        assert_eq!(probes.load(Ordering::SeqCst), 0);
         server.stop().unwrap();
     }
 

@@ -2,10 +2,10 @@
 
 | Field | Value |
 | --- | --- |
-| Date/status | 2026-10-11 UTC; local validation passed; release CI and mainnet validation pending |
+| Date/status | 2026-10-11 UTC; revised local validation passed; release CI and mainnet validation pending |
 | Scope | Composer/follower startup preflight; no protocol, scheduling, storage or pruning-policy change |
 | Baseline | `eduadiez/rollupX` main `264301894d12b671c0f52107fd2b6bc1a02bfb7f` |
-| Candidate | Runtime/test sources at `36ea595487c50bfbf19ac1a4143a31a11bb98bb0`; subsequent record-only update in PR #83 |
+| Candidate | PR #83; original validation at `36ea595487c50bfbf19ac1a4143a31a11bb98bb0`; revised source and validation described below |
 | Protocol | Unchanged `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` |
 | Environment | Rust 1.95.0, LLVM 22, Foundry 1.7.1; local loopback fixtures, no public-chain writes |
 
@@ -16,17 +16,10 @@ deriver can choose its validated persistent correlation checkpoint. A synced
 source with deployment receipts pruned therefore blocks a restart even when the
 actual checkpoint's recovery range remains available.
 
-The fix leaves chain/height/finality checks in preflight and delegates history
-availability to the existing deriver scan. `correlation_seed` validates canonical
-L1 and local L2 identities; `sync_batches_inner` scans the checkpoint's containing
-L1 block inclusively. Missing or invalid checkpoints retain the existing fallback
-toward deployment. Composer/follower do not start L1-active tasks before successful
-reconciliation. No trusted-height override, new checkpoint format, or pruning
-configuration is introduced.
-
-This does not restore pruned receipts, remove older-header requirements, or replace
-native blob availability. It cannot guarantee recovery after arbitrary downtime
-or index loss. See the [operator procedure](../../runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
+The [startup contract](../../configurable-settlement-policy.md) delegates history
+validation to the existing inclusive deriver scan. See the
+[operator procedure](../../runbooks/ethereum-node.md#recovery-with-a-pruned-l1)
+for retained-history requirements, fresh-node fallback and rollback limits.
 
 ## Reproduction and evidence
 
@@ -70,14 +63,6 @@ RPC port. The fixture allocates a new port on reopen. The test now rebuilds that
 client and waits for Composer readiness. The failure's logs/datadirs were retained
 locally under `artifacts/native-e2e/` (test process `2659057`); it is not reported
 as a passing process run or silently retried unchanged.
-
-The process regression is
-`settlement_policy::restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint`.
-It uses the existing isolated native network and a reversible fixture relay
-control, not deletion of a real Reth database. It covers full-replay rejection
-without deployment history, checkpoint-based restart, a subsequent ordinary
-transfer's settlement and independent follower replay, rejection when the
-checkpoint block's logs are missing, and resumption when they return.
 
 The corrected process regression **passed**: 1 executed, 136 filtered out, no
 ignored tests; 173.17 seconds including fixture setup/build waiting, not a
@@ -128,6 +113,65 @@ evidence. The committed test inputs and failure summary above are reproducible.
 No mainnet services, operator settings, databases, contracts, or wallets were
 changed. Only generated local Cargo workspace artifacts were removed for the
 rebuild; they are reproducible from source.
+
+## Claude review and simplification (2026-10-11)
+
+Claude Opus 5.5 reviewed PR head `2ea463c8e9694b62a9ff1957a2be05b150f50e39`
+against the recorded base, using only the diff and scoped tracked source. It
+reported no correctness blocker, requested the policy-bootstrap caller, and
+recommended removing dead code and duplicate assertions while preserving the
+three process scenarios. `canonical_policy_anchor` uses `registration_anchor`
+only when no commitment exists and the endpoint is genesis; interval mode does
+not rescan deployment after a validated settlement. No policy change is needed.
+
+The revision removes the unused history probe and sync-status query/wrapper,
+uses the existing signal-count helper, directly checks the recovery scan starts
+at the checkpoint, and trims duplicated prose. Block-range fault parsing now
+runs only when pruning is enabled. Wrong-chain/finality checks and all three
+recovery scenarios remain. Executable hashes and first-failure evidence above
+are retained as historical evidence, not proof that the revision passes.
+
+Claude's second review found no runtime correctness blockers in the supplied
+revision. Its record-status correction, wrong-chain timeout, stale scan-range
+comment correction, and further prose trimming were applied. Source inspection
+closed the remaining caller questions: `validate_settlement_policy_startup`
+uses the same canonical anchor and retained L2 blocks; `update_activity_index`
+reads L2 only. The inclusive scan publishes commitment evidence used by
+`policy_anchor_snapshot`; fixture restarts create fresh log files.
+
+The receipt-pruning RPC error is currently a `Provider` error, so catch-up uses
+the existing bounded 32-failure retry path, not unlimited retries. The runbook
+now states this. Registration and recovery log calls use block ranges; the
+fault simulation deliberately does not model block-hash queries or physical
+database pruning. Broader provider/error-classification changes were not added.
+Historical evidence and all safety scenarios were retained despite suggestions
+to trim the record further.
+
+Revised validation (same commands above):
+
+- Full Python tooling suite: **351 passed, 5 opt-in infrastructure checks
+  skipped** (356 discovered, 304.803 seconds); exclusions unchanged.
+- Workspace Clippy with `-D warnings`, formatting, diff whitespace and the
+  edited runbooks' shell-example syntax: **passed**.
+- Final affected unit suites: **252 passed** (shared startup 28, deriver 44,
+  L1 180; no ignored or filtered tests).
+- Revised native regression: **1 passed**, 136 unrelated tests filtered, none
+  ignored; 143.11 seconds including fixture setup/build waiting. This is not a
+  performance comparison. Both exact recovery-block assertions passed, as did
+  fresh-node rejection, unchanged safe hash, a new settled transfer with
+  independent follower convergence, and missing-checkpoint-log rejection then
+  recovery in the same process. Local-only logs: test process `2773599` under
+  `artifacts/native-e2e/logs/`. No retry was needed for the revised test.
+
+Revised local debug executable SHA-256 values (source in this revision; not
+promoted release artifacts):
+
+| Executable | SHA-256 |
+| --- | --- |
+| Composer | `ffec1f8e5af317c693c863e2e0be4a6b064de7ec41c8cc69fd1a2eabe54035ca` |
+| Follower | `07f7a0f8b0b3d01750e5a422748ce9d295fd9d2f913eaa0c821f4be693fbcd14` |
+| Proof signer | `2bd862f0ddd54c9387169552aa32bf66cae4935591d2618b671beb335ab24d13` |
+| Process test | `1fd393f552d1bd19fa33ee387770dbe25551b74774fb1663a8d413d11cce98dc` |
 
 Full release-artifact/Kurtosis CI and a mainnet restart on the released candidate
 remain separate acceptance checks. Local simulated pruning does not validate the
