@@ -28,6 +28,7 @@ import json
 import os
 import socketserver
 import tempfile
+import threading
 import urllib.request
 import time
 
@@ -37,6 +38,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     capture_dir = None
     passthrough_bundles = False
     test_control_dir = None
+    control_lock = threading.Lock()
 
     def log_message(self, *_):
         pass
@@ -139,6 +141,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             params = body["params"][0]
             txs = params.get("txs", [])
             if self.passthrough_bundles:
+                # A restart barrier must also stop later recompositions after
+                # the first held request's transport deadline has expired.
+                pause_path = (os.path.join(self.test_control_dir, "pause-after.json")
+                              if self.test_control_dir else None)
+                paused = False
+                if pause_path:
+                    with self.control_lock:
+                        try:
+                            with open(pause_path) as source:
+                                skip = json.load(source)["skip"]
+                            if not isinstance(skip, int) or skip < 0:
+                                raise ValueError("pause skip must be a non-negative integer")
+                            if skip:
+                                with open(pause_path + ".new", "w") as output:
+                                    json.dump({"skip": skip - 1}, output)
+                                os.replace(pause_path + ".new", pause_path)
+                            else:
+                                paused = True
+                                captured = os.path.join(self.test_control_dir, "paused-bundle.json")
+                                if not os.path.exists(captured):
+                                    with open(captured + ".new", "w") as output:
+                                        json.dump(body, output)
+                                    os.replace(captured + ".new", captured)
+                        except FileNotFoundError:
+                            pass
+                if paused:
+                    resp = json.dumps({
+                        "jsonrpc": "2.0", "id": body.get("id"),
+                        "error": {"code": -32000, "message": "test relay paused"},
+                    }).encode()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.send_header("Content-Length", str(len(resp)))
+                    self.end_headers()
+                    self.wfile.write(resp)
+                    return
                 drop_path = (os.path.join(self.test_control_dir, "drop-next.json")
                              if self.test_control_dir else None)
                 drop_next = False

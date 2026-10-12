@@ -203,6 +203,14 @@ jobs:
           bash scripts/ci/with-compiler-cache.sh debug-units
           cargo nextest run --locked --timings --workspace --lib --bins
           --profile ci --no-fail-fast --no-tests=fail
+      - name: Reth shutdown cleanup regression (debug)
+        run: >-
+          bash scripts/ci/with-compiler-cache.sh reth-shutdown
+          cargo nextest run --locked --timings
+          --manifest-path crates/vendor/reth/Cargo.toml
+          -p reth-engine-tree --lib
+          -E 'test(test_engine_termination_waits_for_cleanup)'
+          --no-tests=fail --retries 0 --flaky-result fail
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh

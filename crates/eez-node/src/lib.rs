@@ -9,6 +9,7 @@ mod bundle_rpc;
 mod composer_rpc;
 mod ingress;
 mod l1_embedded;
+mod l1_runtime;
 mod queue_metrics;
 mod queue_rpc;
 mod settlement_metrics;
@@ -83,8 +84,8 @@ impl WitnessCapture {
     }
 }
 
-/// Embedded L1 reth handle — owned by `main` for the node lifetime so
-/// the L1 stays alive (drop tears it down). Generic over both variants'
+/// Embedded L1 reth handle — owned by the composer launch future. Its
+/// runtime is linked to the CLI's shutdown and panic monitoring. Generic over both variants'
 /// `NodeHandle` params because the AddOns type differs between
 /// EthereumNode (Devnet/Testing) and GnosisNode (Chiado).
 ///
@@ -546,15 +547,9 @@ async fn launch_composer(
     // `StateProviderFactory` backs `LocalChainClient::new_entry` for
     // L1 source-tx simulation. Inline (not in `l1_embedded.rs`)
     // because the `NodeHandle` AddOns type resists a typed return.
-    // Shared L1-reth tokio runtime — built once, used by whichever
-    // L1 path runs.
-    let build_l1_runtime = || {
-        reth_tasks::RuntimeBuilder::new(reth_tasks::RuntimeConfig::default().with_tokio(
-            reth_tasks::TokioConfig::existing_handle(tokio::runtime::Handle::current()),
-        ))
-        .build()
-        .map_err(|e| eyre::eyre!("L1 embedded RuntimeBuilder: {e}"))
-    };
+    // Keep the L1 worker pools independent, but register their shutdown before
+    // awaiting startup so SIGTERM during launch also reaches the embedded node.
+    let l1_runtime = l1_runtime::build(builder.task_executor())?;
     // Testing = vanilla EthereumNode (5s auto-mine); Devnet = vanilla
     // EthereumNode + external CL; Chiado = reth_gnosis::GnosisNode +
     // external CL, its provider wrapped by `GnosisL1Adapter` for the
@@ -586,7 +581,7 @@ async fn launch_composer(
                 );
                 let l1_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(EthereumNode::default())
                     .launch_with_debug_capabilities()
                     .await?;
@@ -619,7 +614,7 @@ async fn launch_composer(
                 );
                 let l1_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(EthereumNode::default())
                     .extend_rpc_modules(bundle_rpc::install_dev_bundle_rpc)
                     .launch_with_debug_capabilities()
@@ -668,7 +663,7 @@ async fn launch_composer(
                 );
                 let chiado_handle = reth_node_builder::NodeBuilder::new(node_cfg)
                     .with_database(db)
-                    .with_launch_context(build_l1_runtime()?)
+                    .with_launch_context(l1_runtime.clone())
                     .node(reth_gnosis::GnosisNode::default())
                     .extend_rpc_modules(move |ctx| {
                         if testing {

@@ -396,3 +396,178 @@ They are not committed evidence and depend on local retention; the run links
 provide the remote job logs. No existing enclave, deployment, wallet or
 operator configuration was changed. A new hosted run must still establish
 full settlement and protocol-replay success before merge.
+
+## Deployment output and native shutdown investigation (2026-10-12)
+
+The [next hosted run](https://github.com/eduadiez/rollupX/actions/runs/38239878942)
+tested PR head `ccb393d621763ce296edab7903820c7b22704b04` through merge revision
+`c80b0ef677d872a25d0f270c132a7216ba1467d9`, against base
+`e15bb412420b36bfa40a0e2a73233ac4f213441d`. The protocol remained
+`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. All jobs used hosted runners.
+Lint, debug units, the release build and seven native partitions passed. The
+embedded partition 1/4 and Kurtosis failed, so promotion remained blocked.
+The relay readiness gate passed, as did the inbound, outbound, mixed and
+proof-signer semantic checks preceding the new Kurtosis failure.
+
+### Deployment parser: reproduced SIGPIPE
+
+The mixed-pure scenario failed while extracting a deployed address:
+`lib.sh: printf: Broken pipe`. `grab_address` used `grep -m1`, which closed its
+input after the first match. A successful Forge command with substantial later
+output made the producer's `printf` fail under `pipefail`.
+
+The regression runs the real helper with a stub Forge producing more than a
+megabyte after its address: baseline exit 141, corrected helper success. The
+parser now consumes the complete stream while returning the first match. The
+21 wave tooling checks pass, including missing/short addresses and a Forge
+failure after printing an address. No deployment was broadcast by this check.
+
+### Native restart: worker cleanup outlived termination
+
+The hosted restart test failed at `restart_composer_with_env` with SIGABRT and
+`pthread lock: Invalid argument`. The original CI test payload could not be
+pulled with the available registry authorization. Exact published Composer,
+follower and signer images were anonymously retrievable and verified against
+the CI merge revision and protocol labels; their runtime bytes were retained.
+One diagnostic using those bytes and a source-built driver passed. This was
+not a rerun of the inaccessible CI test archive and did not establish absence
+of the race.
+
+The exact fork baseline was then built locally with Rust 1.95.0, Foundry 1.7.1,
+LLVM 22, locked dependencies and a separate target directory. Two diagnostics
+observed RocksDB's abort path on a thread named `persistence`; one still had a
+zero process status because process exit outran that worker. It is not recorded
+as clean validation. A further diagnostic added a bounded 200 ms `atexit`
+delay and an abort backtrace hook **only to owned test subprocesses**. It
+reproduced the hosted SIGABRT and resolved this stack:
+
+```text
+rocksdb::port::PthreadCall / Mutex::Lock
+rocksdb::DBImpl::CancelPeriodicTaskScheduler
+rocksdb::DBImpl::CloseHelper / CloseImpl / ~DBImpl
+rocksdb_optimistictransactiondb_close
+RocksDBBalStore / ProviderFactory<EezNode> destruction
+PersistenceService<EezNode>::run
+```
+
+In pinned Reth `3d592ece6de8c4559987416a544fc215fd6d6921`, the engine sends its
+termination acknowledgement before dropping itself. The CLI can return while
+the persistence thread is still closing RocksDB. The stack identifies L2
+cleanup, not a settlement assertion or the signer's database. The instrumentation
+amplifies the exit race; it is not production code or a performance measurement.
+
+A separate defect was found in the embedded L1 wiring: sharing the Tokio handle
+does not share Reth's shutdown counter/signal or panic monitor. Linking those
+lifecycles fixes the missing L1 drain, but the same instrumented process still
+aborted with that correction alone. Both first-attempt failures are retained;
+the L1 helper is not claimed as the RocksDB fix.
+
+The [shutdown proposal](../../proposals/reth-shutdown-backport.md) therefore
+includes a focused backport of the still-open
+[upstream Reth correction](https://github.com/paradigmxyz/reth/pull/27609), head
+`00a894ab7925d9af094689478abcb8aaaa410459`. It drops engine resources and joins
+workers before acknowledging termination, and waits for explicit shutdown in
+the launcher. Only `reth-engine-tree` and `reth-node-builder` are replaced with
+local v2.7.0 copies. All other lockfile package entries, dependency versions and
+dependency lists are unchanged. Their source diff and licenses are retained in
+[the vendor record](../../../crates/vendor/reth/README.md).
+
+The resulting lockfile source change also changes prover validation identity.
+An initial diagnostic reusing the old CI signer was rejected at
+startup, before reaching restart. It is not shutdown coverage. Composer and
+signer must be built from the same new lockfile for the comparison and upgrade.
+
+### Restart fixture: a one-shot hold did not stop later proposals
+
+One baseline diagnostic instead failed with two `BatchPosted` events where the
+test expected one. The relay held the second proposal, but a third recomposition
+escaped while the test waited for the first L1 block to reach disk. The new
+900-second policy had reached the restarted node correctly; the additional
+settlement predated that restart.
+
+The fixture now atomically allows one bundle and rejects every subsequent
+bundle until resumed. It resumes delivery after restart **before** checking
+policy inactivity, so the barrier cannot manufacture that result. The canonical
+anchor, eventual convergence and independent follower assertions remain intact.
+The existing one-shot controls retain their previous behavior. All 18 builder
+control tests pass, including repeated recompositions and delivery recovery.
+
+### Local validation and remaining limits
+
+- The production L1 helper's two lifecycle tests failed against the old wiring
+  and passed with the correction. The final `eez-node --lib` suite passed all
+  79 tests. Its first sandboxed attempt passed 72 and could not bind sockets for
+  seven HTTP fixtures; rerunning with local sockets permitted passed all 79.
+  These are environment-blocked attempts, not retry-only flaky passes.
+- With the same 200 ms abort instrumentation, the original restart driver
+  passed against the backport (100.36 s), followed by the corrected fixture
+  (100.83 s). No abort marker or RocksDB failure appeared. Detailed logs for
+  the latter contain three graceful restarts: each terminates both engines,
+  completes the embedded L1 drain and records no shutdown timeout or persistence
+  failure. These timings identify runs; they are not performance comparisons.
+- Clearing all prebuilt overrides, the three `settlement_policy::restart_`
+  source-based process tests passed, with their canonical settlement and
+  independent follower-replay assertions (309.19 s including fixture builds).
+- The upstream `test_engine_termination_waits_for_cleanup` passed for both
+  successful persistence and persistence error. It also passed through the new
+  CI Nextest command: one test selected, 206 others filtered. The separate
+  locked vendor workspace adds four test-only packages without changing any
+  shared package version/source. The upstream Ethereum process regression
+  retained in `shutdown.patch` was not separately executed.
+- `cargo +1.95.0 fmt --all --check`, workspace/all-target Clippy with
+  `-D warnings`, `cargo deny check advisories bans sources`, and `cargo audit`
+  passed. Audit reported nine already-allowed warnings for the root lock and
+  six for the separate vendor test lock. Both copied crate
+  directories, including manifests, were byte-compared against the exact pinned
+  checkout plus the recorded patch: 52 engine files and 29 builder files match.
+- The full tooling suite selected 369 tests: 363 passed and six opt-in environment
+  checks skipped. After adding the targeted CI regression step, all 20 workflow
+  contract checks and Actionlint passed. Shell syntax, edited links and
+  whitespace checks passed. The vendored-source secret scan found no leaks.
+- Claude's read-only review found no blocker in the worker joins or acknowledgement
+  ordering. Its shutdown-budget clarification and fixture startup-dispatch
+  assertion were added: the restarted process must emit no bundle dispatch even
+  during barrier removal. The regression is now part of the debug unit CI lane.
+
+The Linux-only [abort hook](abort-trace.c) is retained to reproduce the diagnostic,
+not linked into production or CI tests. Build it with
+`cc -shared -fPIC -g -O0 -o /tmp/eez-abort-trace.so abort-trace.c -ldl -pthread`
+from this audit directory, and preload it only in an owned test Composer wrapper.
+The wrapper must exec the recorded Composer binary; use the native restart
+filter above with separately retained logs/datadirs and matching node/signer
+validation identities. Build baseline and candidate from the recorded sources
+before selecting these diagnostic overrides. The ordinary source-based check
+clears overrides and has no preload or exit delay.
+
+Retained diagnostic executable identities (SHA-256):
+
+| Executable | Baseline | Backport |
+| --- | --- | --- |
+| Composer | `f90291ca09a48dc7ab2830471db1e2ed2318688e93d70bc327e6ff3f450b87c8` | `da128ddd37e73053dbcc814559adca843fcb10a1e9572eb60f119d3c807d53e2` |
+| Follower | `6b71f1b782fa0f2a3b784a0bee5f75981e15ed9885af5603473fe5417afcafd6` | `5169a734ab0bc75d10e8854f66cbe7a42089445475dfd03606cb2899080afb0c` |
+| Signer | CI runtime `df36c7f5b81594856db5f84f0577879a3b14bb58ebac4f4223612140af29679a` | `4f133ee6aa480c66cb8394f4c5f2a2f65fc559efd013e4cfbdb752e0cdf7d0bc` |
+
+The ordinary source harness rebuilt the signer under its normal feature selection
+(`fd03ff48d9c93548dc3c1f9c64d3cc1880ba1f6efa08d5ffca611bd0b4124f6a`).
+Neither local diagnostic nor debug-source binaries are the new hosted release
+artifacts. Full hosted shipping-build, artifact-verification, native partitions,
+Kurtosis and public-fork acceptance remain required before merge/transfer.
+
+Selected local evidence SHA-256:
+
+| File under `/tmp/` | Digest |
+| --- | --- |
+| `rollupx-pr84-native-abort-backtrace.txt` | `294b7234f074fe50f1f3ff38138d243f01a99e87d9de798423802b717e6a644d` |
+| `rollupx-pr84-native-before-4.log` | `073e09b9ce8a8e68fcb527152b071ad9ef0a175746f4975e2da57e9c4297a181` |
+| `rollupx-pr84-native-backport-traced-3.log` | `de98f0dede8ce85c111b9a4e0dd184f6fa74d89bfb85e7a3e341e12bec74c0f9` |
+| `rollupx-pr84-final-source-restarts.log` | `ff00093b963faa12413d75e55faef7f7b662eaf6660419a2ad8503bc9bb6605b` |
+| `rollupx-pr84-final-tooling.log` | `abcce0e1675e55075eed3b435cf79cc424d2d6cef732aed8d59bdbbaea619be0` |
+
+Local first-failure evidence is retained under
+`artifacts/pr84-investigation/baseline-{1,2,3,4}` and
+`artifacts/pr84-investigation/candidate-traced-1` in the operator checkout.
+The symbolized backtrace is `/tmp/rollupx-pr84-native-abort-backtrace.txt`.
+These ignored/local files are not portable evidence; the hosted run link above
+retains the original CI failures. No shared deployment, wallet, container,
+enclave, operator configuration, repository visibility or organization setting
+was changed. Hosted acceptance and publication criteria remain open.

@@ -70,6 +70,9 @@ report the superproject's HEAD; it does not prove the protocol revision.
 Preserve Reth, Stateless, reth_gnosis, REVM, and Alloy compatibility in
 [Cargo.toml](Cargo.toml) and `Cargo.lock`. Use `--locked`; do not upgrade dependencies
 incidentally to bypass a build failure.
+The two Reth packages in [the shutdown backport](crates/vendor/reth/README.md)
+retain v2.7.0 with a recorded upstream patch. Review that diff when changing
+dependencies; do not silently drop the cleanup ordering or edit Cargo's cache.
 
 For protocol changes, read the relevant **pinned core specification first**, then
 its Solidity implementation/tests and the applicable fork contract:

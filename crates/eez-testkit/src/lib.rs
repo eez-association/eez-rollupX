@@ -5053,6 +5053,42 @@ impl CrossChainWorld {
         Ok(())
     }
 
+    /// Forward `skip` bundles, then reject every subsequent bundle until
+    /// `resume_bundles`. Unlike a one-shot hold, this also blocks recompositions
+    /// while a test persists a canonical prefix and restarts the Composer.
+    pub fn pause_bundles_after(&self, skip: u32) -> Result<()> {
+        let directory = self.builder_stub.capture_dir().join("control");
+        let temporary = directory.join("pause-after.new");
+        std::fs::write(
+            &temporary,
+            serde_json::to_vec(&serde_json::json!({"skip": skip}))?,
+        )?;
+        std::fs::rename(temporary, directory.join("pause-after.json"))?;
+        Ok(())
+    }
+
+    /// The first proved bundle rejected by the persistent relay barrier.
+    pub fn paused_bundle(&self) -> Result<Option<serde_json::Value>> {
+        match std::fs::read(
+            self.builder_stub
+                .capture_dir()
+                .join("control/paused-bundle.json"),
+        ) {
+            Ok(raw) => Ok(Some(serde_json::from_slice(&raw)?)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn resume_bundles(&self) -> Result<()> {
+        std::fs::remove_file(
+            self.builder_stub
+                .capture_dir()
+                .join("control/pause-after.json"),
+        )?;
+        Ok(())
+    }
+
     /// The existing relay also forwards read RPC unchanged; tests may point
     /// the canonical reader here to inject a narrow, reversible RPC outage.
     pub fn fault_rpc_url(&self) -> &str {
