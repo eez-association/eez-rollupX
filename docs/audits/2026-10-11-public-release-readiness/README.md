@@ -321,3 +321,78 @@ The full suite log is `/tmp/rollupx-pr84-compose-fix-tooling.log`
 (`488164743379381be3829e335ee0d009827524a79cd29a4f264278e65a205c66`).
 The updated hosted run remains required; these local checks do not establish
 full Rust, E2E, protocol replay or fork-path capacity on the new runner.
+
+## Hosted Kurtosis failures and correction (2026-10-12)
+
+The run at `f20dbc7941a1e9f03d8849c819df11c1cc0c6236` passed lint,
+debug unit tests, the release producer, and all eight native E2E partitions.
+The protocol pin remains `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`.
+[Attempt 1](https://github.com/eduadiez/rollupX/actions/runs/38157778162/attempts/1)
+passed the inbound wave but failed outbound canonical settlement after its
+60-second deadline. Cold protocol compilation overlapped the network checks
+for 905 seconds. Contention is a hypothesis, not an established explanation for
+the settlement failure.
+[Attempt 2](https://github.com/eduadiez/rollupX/actions/runs/38157778162/attempts/2)
+failed earlier: the relay API exited with a duplicate `custom_migrations_pkey`
+while applying migration `005-remove-blocked-validator`. Neither attempt could
+upload failure artifacts because the account's artifact storage quota was full.
+
+The exact [Ethereum package launcher](https://github.com/ethpandaops/ethereum-package/blob/199620b24ac979c676010c5a68b2893c2bce4f1f/src/mev/flashbots/mev_relay/mev_relay_launcher.star)
+starts a housekeeper without ports or readiness, then immediately starts the API.
+The pinned relay image's labels identify Flashbots source
+`fddb05e974622396c1f0c03f7285617ba13b6e0f`; both commands call the same
+[database initializer](https://github.com/flashbots/mev-boost-relay/blob/fddb05e974622396c1f0c03f7285617ba13b6e0f/database/database.go),
+which applies migrations without coordinating the two processes. The
+[housekeeper](https://github.com/flashbots/mev-boost-relay/blob/fddb05e974622396c1f0c03f7285617ba13b6e0f/services/housekeeper/housekeeper.go)
+opens `/metrics` only after database initialization and beacon readiness.
+
+The correction inserts a bounded loopback health wait immediately after the
+upstream housekeeper launch. A small Plan wrapper is necessary because the
+pinned launcher exposes no readiness hook; a real probe established that a
+later `set_service` readiness override does not delay the original creation.
+The wrapper preserves service configuration, return values, optional arguments
+(including the upstream Reth launcher's `force_update`), and every other method.
+A failed wait prevents API creation. It does not skip migrations or retry a
+failed suite.
+
+Both host Foundry roots, `eez-core-protocol` and `contracts`, now finish compiling
+before network startup. Each retains one compiler thread, a 20-minute limit,
+the pinned compiler settings and process-group cancellation. Workload assertions,
+settlement deadlines, scenario selection and artifact provenance remain intact.
+Failure console output now includes bounded builder, relay, beacon, validator
+and MEV-Boost tails as well as node/signer logs. This preserves useful diagnostics
+when the separate artifact upload fails; it does not clear account storage.
+
+Local validation:
+
+- The preparation-order regression failed at the previous parallel shell and
+  passed after serialization. The final focused suite selected 28 tests:
+  26 passed, two opt-in Kurtosis tests skipped.
+- The final full tooling suite selected 363 tests: 357 passed and six opt-in
+  checks skipped. Two of those six are the real Kurtosis checks below; the
+  remaining four require separate Docker payload/runtime or native archive
+  fixtures and were not executed. The local-only full log is
+  `/tmp/rollupx-pr84-kurtosis-final-tooling.log` (SHA-256
+  `c0bd99c32615091604de14e71c0bf3be7e593717fc91cd96629142dca01deae5`).
+- Both opt-in checks were run separately in uniquely named, disposable enclaves:
+  the existing real CPU-override check passed, and the readiness before/after
+  check failed without the wait and passed with it. These exercise real Kurtosis
+  ordering with an HTTP fixture, not the complete relay/database topology.
+- The exact `wget -q -T 2 -O /dev/null` probe also passed in the pinned relay
+  image against an isolated loopback HTTP fixture.
+- Full pinned-package planning passed and placed the wait between housekeeper
+  and API creation. Node/signer/deploy images were inert placeholders for this
+  dry run; no application services or runtime binaries were executed.
+- Actionlint, shell syntax, configuration propagation and `git diff --check`
+  passed. Claude's final read-only review resolved both findings and found no
+  blocking issue; full hosted E2E remains required.
+
+The original job logs are retained locally at
+`/tmp/rollupx-pr84-kurtosis-failure.log` (SHA-256
+`f7e53896832de71bc010e40209033fc5e82831019d9bed17ced8b2fb112e2a46`) and
+`/tmp/rollupx-pr84-kurtosis-attempt2.log`
+(`d886341a61cd7e2c0eb5d29565f5652b8430b1a18ab19e822080751e391be0dd`).
+They are not committed evidence and depend on local retention; the run links
+provide the remote job logs. No existing enclave, deployment, wallet or
+operator configuration was changed. A new hosted run must still establish
+full settlement and protocol-replay success before merge.

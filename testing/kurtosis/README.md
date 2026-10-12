@@ -682,20 +682,22 @@ wallets. A failed deposit skips the dependent release and fails the suite;
 unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
 escrow, as specified by the pinned protocol's scenario.
 
-The full CI entry point, `run-ci.sh`, overlaps one bounded protocol fixture build
-with network startup, readiness, and the sequential wave/state-chaining checks.
-It requires Bash 5.1 or newer (`wait -n -p`). The build uses one Forge thread and
-a 20-minute timeout, retaining the pinned compiler/optimizer/metadata settings.
-Both branches must succeed before protocol scenarios begin. Failure or
-cancellation stops the owned preparation process groups; a busy protocol-suite
+The full CI entry point, `run-ci.sh`, completes its protocol and integration fixture builds
+before starting the network, readiness, and sequential wave/state-chaining checks.
+Cold compilation must not compete with the live PBS fixture's slot deadlines on
+a small hosted VM. Each build uses one Forge thread and a 20-minute timeout,
+retaining the pinned compiler/optimizer/metadata settings. All preparation must
+succeed before protocol scenarios begin. Failure or cancellation stops the
+owned preparation process group; a busy protocol-suite
 lock or mismatched pin is rejected before network startup/teardown. The existing
 upstream `forge build` still runs afterwards and checks the warmed artifacts;
 there is no new persistent artifact cache or runtime-binary rebuild.
 
-`protocol-build.log` retains compiler output. `timings.jsonl` records completed
+`protocol-build.log` and `integration-build.log` retain compiler output.
+`timings.jsonl` records completed
 phases with elapsed seconds and exit codes, including individual wave modes and
 state chaining; a forcibly cancelled phase may have no completion record.
-Nested and overlapping phase durations must not be added together as wall time.
+Nested phase durations must not be added together as wall time.
 The protocol wrapper streams phase boundaries and 30-second progress messages
 while retaining the raw logs. Scenario output/accounting remains unchanged.
 
@@ -937,6 +939,14 @@ Kurtosis assigns different host ports automatically. Remember that
 
 ## Troubleshooting
 
+- **Relay startup fails with a duplicate database migration key:** the pinned
+  Ethereum package starts its housekeeper without a readiness check, allowing
+  the API to migrate the same database concurrently. `resources.star` adds a
+  bounded check of the housekeeper's loopback `/metrics` endpoint, which the
+  pinned relay opens after database migration and beacon readiness. The wait
+  follows housekeeper creation and precedes API creation in the plan. Recheck the
+  endpoint and in-image `wget` when changing the relay image. Do not disable
+  migrations or reuse a partially initialized database to hide this failure.
 - **Docker rejects a 3-CPU limit on a 2-CPU runner:** the pinned Ethereum
   package hard-codes this limit for four MEV services. `ci-args.yaml` sets
   `eez.mev_relay_cpu: {min: 100, max: 2000}` (millicpus) to override their CPU
@@ -947,7 +957,9 @@ Kurtosis assigns different host ports automatically. Remember that
   Redis image in `resources.star` when updating the Ethereum package pin.
 - **A CI scenario fails after earlier scenarios passed:** download the
   `kurtosis-e2e` artifact. The lane captures full service logs with `--all`,
-  not Kurtosis's default last 200 lines. Console output remains tail-limited.
+  not Kurtosis's default last 200 lines. Bounded node, signer, builder, beacon,
+  validator, MEV-Boost and relay tails are also printed to the job log so an
+  artifact storage quota failure does not hide the PBS diagnostics.
 - **The submodule is missing or stale:** run
   `git submodule update --init --recursive eez-core-protocol`.
 - **The enclave name already exists:** inspect it before deciding whether to

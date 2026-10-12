@@ -271,6 +271,9 @@ Cargo state is disabled in CI; the optional local tooling still follows the
 Registry and compiler caches remain optional and cannot substitute for validation.
 Protocol network scenarios run with at most two workers on hosted VMs, preserving
 the full scenario inventory. See the [hosted CI proposal](docs/proposals/github-hosted-ci.md).
+Kurtosis completes cold protocol and integration fixture compilation before starting the live
+network. Preserve the relay housekeeper readiness gate: its post-migration
+metrics endpoint must answer before the API starts against the same database.
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 
