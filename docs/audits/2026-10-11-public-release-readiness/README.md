@@ -571,3 +571,117 @@ These ignored/local files are not portable evidence; the hosted run link above
 retains the original CI failures. No shared deployment, wallet, container,
 enclave, operator configuration, repository visibility or organization setting
 was changed. Hosted acceptance and publication criteria remain open.
+
+## Native CI failure diagnostics follow-up (2026-10-12)
+
+The [hosted run for `711e554`](https://github.com/eduadiez/rollupX/actions/runs/38259566576)
+completed with successful lint, debug units (including the upstream shutdown
+regression), release-artifact production, Kurtosis, and six of eight native
+partitions. The earlier shutdown/restart and Forge-parser failures did not recur.
+Two different native tests failed; this follow-up does **not** establish their
+root causes or clear them for merge.
+
+| Failure | First retained evidence | Unresolved question |
+| --- | --- | --- |
+| `settlement_policy::conditional_position_paces_late_pool_transactions_and_replays` | [Embedded partition 3](https://github.com/eduadiez/rollupX/actions/runs/38259566576/job/114881807256): fixture setup returned RPC `-32000`, `replacement transaction underpriced`, before the scenario began | Did a rollback of unsafe deployment receipts let the next helper reuse a nonce whose earlier transaction had returned to the pool? The surviving log cannot identify the sender or nonce. |
+| `dynamic_admission::consecutive_skipped_slots_keep_the_full_group_and_reach_the_next_block` | [Cross-chain partition 1](https://github.com/eduadiez/rollupX/actions/runs/38259566576/job/114881807280): original block-9 target `1791819424` and first replacement `1791819429` dispatched; expected replacement `1791819434` was absent | Which replacement/preparation step missed the available window? The later `canonical settlement evidence changed during proving` error occurred after the target L1 block arrived; it does not identify the earlier cause. |
+
+The second trace shows retained users and a subsequent dispatch for block 10 at
+`1791819439`. That later progress does not satisfy the test's exact-slot assertion.
+No assertion, retry policy, nonce selection, timing budget, or production
+scheduling behavior has been relaxed.
+
+GitHub's artifact storage quota rejected uploads, so the CI node/datadir artifacts
+are unavailable. The console records remain available at the job links above.
+The test harness now retains useful failure evidence in that console:
+
+- A setup guard emits bounded node/signer and reconciliation tails before an
+  early `Result` error drops the processes. Previously the node's panic-only
+  destructor ran before the caller panicked, losing its diagnostic output.
+- Rejected fixture submissions include transaction/chain/sender/nonce identity
+  and best-effort latest/pending nonce and conflicting pool hashes. Three reads
+  share a two-second deadline; unsupported/unavailable diagnostics retain the
+  original RPC error. These observations are not an atomic snapshot. Pool
+  inspection is enabled only in the isolated loopback test fixture, and output
+  excludes transaction input. Successful setup receipts retain hash/block
+  identities for correlating later rollback evidence.
+- Separate bounded slot/replacement and proof-deadline/posting timelines survive
+  verbose blob records. The fixture enables scheduler logging, and individual
+  printed records are limited to 4,096 characters; full retained files are
+  unaffected. Failure assertions include the requested target identities.
+
+### Exact baseline and local reproductions
+
+PR base remains `e15bb412420b36bfa40a0e2a73233ac4f213441d`, branch head
+`711e55476eda9889b7f074127055c27addf3a6a6`, and protocol gitlink
+`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. CI built the synthetic merge
+`0c6a0b4de6744ec5e386a501911d033ba4e89a86`; its tree and the branch head's
+tree both equal `d275149601085397df0719bd744ed9b70dbbb10c`.
+
+Published runtime images were pulled by the digests recorded in the producer's
+log. OCI revision/protocol/profile/platform labels were checked and binaries
+extracted from owned containers which were never started and were then removed.
+The private test payload was inaccessible, and the artifact manifest upload was
+unavailable. Consequently these checks used a local source-built test driver,
+not the verified CI release test archive or the complete artifact consumer path.
+
+| Runtime image | Digest |
+| --- | --- |
+| `ghcr.io/eduadiez/rollupx-node` | `sha256:02ab43df338104a04ec15f12a30860b43c4a49222c9fd318f5907b453dcd8924` |
+| `ghcr.io/eduadiez/rollupx-proof-signer` | `sha256:89331c846c2bb123147f384fceda6217ab85e9e7e6622185ebe1482cd6216767` |
+
+| Executable | SHA-256 |
+| --- | --- |
+| Extracted Composer | `c5542e924fddcea05bd2b08a0fdb70f742904d547701d14f7734e633c0c2cc94` |
+| Extracted follower | `209f346f64d79d6ad849d923f61fefe2d0c672cf20954f07c541413e1fdc85b3` |
+| Extracted signer | `40409ee2feeceaff0e8301e2cd635e34cec417e98c08d5dc94afdddc60bd55f4` |
+| Unchanged debug-profile test driver | `5bc1a62df3e05074aaf9d8c9be224c51cd830460e718a9e452583b06c83488cb` |
+| First diagnostic test driver | `5e61d026b9528b4b34afa41d16424b0a0e1b5dae840a28499c694ebe43ffd825` |
+| Final diagnostic test driver | `d544423060e31b8c85af1f4b911038360be7797c125f648d1282c7eb276b3787` |
+
+Each failing test passed three local runs with the unchanged driver and release
+runtime restricted to two CPUs (`taskset -c 0,2`). Both also passed three one-CPU
+runs with the first diagnostic driver. These were bounded diagnostic series,
+with every result retained; they do not replace the first CI failures. CPU
+affinity does not reproduce hosted hardware, memory, disk, or scheduling.
+Earlier unmodified source-based checks also passed each test individually.
+
+Reproduction uses each full test name above with `--exact --test-threads=1
+--nocapture`, `EEZ_TEST_PREBUILT=1`, and both runtime override paths pointing at
+the recorded extracted binaries. Each invocation has a 300-second process
+timeout and fresh `EEZ_TEST_LOG_DIR`/`EEZ_TEST_DATADIR_DIR`; `LD_PRELOAD` is unset.
+This is a diagnostic executable override, not a CI fallback or release validation.
+
+The local-only evidence is under `artifacts/pr84-investigation/` in the operator
+checkout: `hosted-baseline-{fixture,skipped}-{1,2,3}`,
+`one-cpu-diagnostic-{fixture,skipped}-{1,2,3}`, and `final-diagnostic-*`.
+The first two series' result inventories are `hosted-baseline-results.json` and
+`one-cpu-diagnostic-results.json`. These ignored files are unavailable to another
+checkout. Downloaded console logs in `/tmp/` have these identities:
+
+| File | SHA-256 |
+| --- | --- |
+| `rollupx-pr84-ci-38259566576-embedded-3.log` | `73029b629cec5a1b04254573a0661ebe4421b53effac309683c20378af3d0d97` |
+| `rollupx-pr84-ci-38259566576-crosschain-1.log` | `f1c0f8414fdf286ad97d4f4c883c89f4d718702ab4489dfa461034fc51cb2ebf` |
+
+The final mock RPC/log unit suite passed 18 tests, including rejection identity,
+original error preservation and bounded Unicode output. Workspace/all-target
+Clippy, Rust formatting and whitespace checks passed. The final diagnostic driver
+passed both failing scenarios and
+`settlement_policy::ordinary_rpc_rejects_unpostable_data_without_consuming_nonce`
+on two CPUs, retaining their semantic assertions and the skipped-slot follower
+comparison. A direct query verified the fixture's L2 pool RPC, and its logs
+contained scheduler trigger/decision records. The first auxiliary RPC probe
+missed children launched by worker threads; that fixture test passed, and the
+probe succeeded after selecting the owned endpoint from its log instead.
+
+Claude's read-only follow-up review found no blocker and checked the error
+consumers, log selectors and fixture-only API changes. Its requested nonce/pool
+and deadline diagnostics were incorporated. The embedded L1 and cross-chain
+fronts still do not expose pool inspection; failures there retain nonce/error
+observations and explicitly report unavailable pool data. Review output is
+local-only at `/tmp/rollupx-pr84-diagnostics-final-claude.txt`, SHA-256
+`82d4898f4f4a4879e10561db09dbc4b44f4908c6e95b2df1d5881e0ad474bb6a`.
+No new dependency, protocol or production behavior changed. The inaccessible
+release test archive and unreproduced first CI failures remain gaps; the fresh
+full hosted matrix remains the acceptance gate.

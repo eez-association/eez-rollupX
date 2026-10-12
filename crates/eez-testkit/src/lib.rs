@@ -2192,26 +2192,31 @@ impl NodeHandle {
         // env_clear alone does not stop dotenv searching parent directories.
         isolate_dotenv(datadir)?;
         let signal_filter = std::env::var("EEZ_TEST_LOG").unwrap_or_else(|_| {
-            "warn,eez_node=info,eez_l1=info,eez_composer=info,eez_deriver=info,eez_posting=info"
+            "warn,eez_node=info,eez_l1=info,eez_composer=info,eez_deriver=info,eez_posting=info,eez_driver=info,eez_driver::slot=debug"
                 .to_string()
         });
         // Each role binary loads dotenv files from its working directory. Running from
         // the datadir prevents repository settings from changing the explicit
         // test configuration or redirecting L1 traffic to a developer endpoint.
         cmd.arg("node");
-        // Explicit fixture-only opt-in for execution-witness capture. The
-        // service still binds loopback, and shipping node defaults are untouched.
+        // Pool inspection supports rejected-transaction diagnostics on the
+        // loopback fixture. Execution-witness capture remains opt-in; shipping
+        // node defaults are untouched.
         match env
             .iter()
             .rev()
             .find(|(name, _)| *name == "EEZ_TEST_L2_DEBUG_RPC")
         {
             Some((_, value)) if value == "true" => {
-                cmd.args(["--http.api", "eth,net,web3,debug"]);
+                cmd.args(["--http.api", "eth,net,web3,txpool,debug"]);
             }
-            Some((_, value)) if value == "false" => {}
+            Some((_, value)) if value == "false" => {
+                cmd.args(["--http.api", "eth,net,web3,txpool"]);
+            }
             Some(_) => bail!("EEZ_TEST_L2_DEBUG_RPC must be true or false"),
-            None => {}
+            None => {
+                cmd.args(["--http.api", "eth,net,web3,txpool"]);
+            }
         }
 
         cmd.current_dir(datadir)
@@ -2537,7 +2542,21 @@ fn last_lines(path: &std::path::Path, max: usize, patterns: Option<&[&str]>) -> 
         .filter(|line| patterns.is_none_or(|patterns| json_line_matches(line, patterns)))
         .collect();
     let skip = selected.len().saturating_sub(max);
-    selected[skip..].join("\n")
+    selected[skip..]
+        .iter()
+        .map(|line| {
+            // A single record can contain a whole blob or transaction array.
+            // Keep failure output usable even when artifact uploads fail.
+            const MAX_CHARS: usize = 4096;
+            let mut chars = line.chars();
+            let mut bounded: String = chars.by_ref().take(MAX_CHARS).collect();
+            if chars.next().is_some() {
+                bounded.push_str(" … [record truncated]");
+            }
+            bounded
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn json_line_matches(line: &str, patterns: &[&str]) -> bool {
@@ -3732,7 +3751,53 @@ pub async fn sign_and_send(
             {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
-            Err(err) => return Err(err.into()),
+            Err(err) => {
+                // Capture the race after rejection without changing the nonce,
+                // retrying the transaction, or delaying failure indefinitely.
+                // These separate RPC reads are observations, not one snapshot.
+                let diagnostics = tokio::time::timeout(Duration::from_secs(2), async {
+                    let sender = signer.address();
+                    let (latest, pending, pool) = tokio::join!(
+                        async { provider.get_transaction_count(sender).await.ok() },
+                        async { provider.get_transaction_count(sender).pending().await.ok() },
+                        async {
+                            provider
+                                .client()
+                                .request::<_, serde_json::Value>("txpool_contentFrom", (sender,))
+                                .await
+                                .ok()
+                        },
+                    );
+                    // Log only identities at the rejected nonce, never the
+                    // pool's transaction input or an unbounded response.
+                    let conflict = |category: &str| {
+                        let entries = pool.as_ref()?.get(category)?;
+                        entries
+                            .get(nonce.to_string())
+                            .or_else(|| entries.get(format!("{nonce:#x}")))?
+                            .get("hash")?
+                            .as_str()?
+                            .parse::<B256>()
+                            .ok()
+                    };
+                    format!(
+                        "latest_nonce={latest:?}, pending_nonce={pending:?}, \
+                         pool_available={}, pending_conflict={:?}, queued_conflict={:?}",
+                        pool.is_some(),
+                        conflict("pending"),
+                        conflict("queued"),
+                    )
+                })
+                .await
+                .unwrap_or_else(|_| "nonce/pool diagnostics timed out".into());
+                return Err(err).with_context(|| {
+                    format!(
+                        "submit fixture transaction {hash}: chain={chain_id}, sender={}, \
+                         nonce={nonce}, to={to:?}; observed after rejection: {diagnostics}",
+                        signer.address(),
+                    )
+                });
+            }
         }
     }
 }
@@ -3761,6 +3826,10 @@ async fn wait_for_successful_receipt(
     if !receipt.status() {
         bail!("{action} reverted");
     }
+    eprintln!(
+        "fixture receipt: {action}, transaction={hash}, block={:?}, block_hash={:?}",
+        receipt.block_number, receipt.block_hash,
+    );
     Ok(receipt)
 }
 
@@ -5234,9 +5303,37 @@ impl CrossChainWorld {
              node exit: {node_exit:?} (None = still running)\n\
              signer exit: {signer_exit:?} (None = still running)\n\
              prover proxy: {proxy}\n\
+             \n== node log, slot and replacement timeline ==\n{}\n\
+             \n== node log, proof deadlines and posting failures ==\n{}\n\
              \n== node log, settlement lines ==\n{}\n\
              \n== node log, tail ==\n{}\n\
              \n== proof-signer log, tail ==\n{}\n",
+            self.node.log_lines_matching(
+                &[
+                    "eez.composer.slot.plan",
+                    "eez.sequencer.slot.decision",
+                    "eez.sequencer.slot.plan_timeout",
+                    "sync-slot trigger firing",
+                    "schedule channel full; skipping live tick",
+                    "built Sync block after held-pool admission",
+                    "eez.composer.settlement.replacement",
+                    "eez.submitter.bundle.dispatch",
+                    "eez.submitter.bundle.fanout",
+                    "eez.composer.bundle.observed",
+                    "eez.composer.admission.skipped_slot",
+                    "canonical settlement evidence changed during proving",
+                    "next-slot replacement deferred",
+                ],
+                80,
+            ),
+            self.node.log_lines_matching(
+                &[
+                    "eez.composer.posting.v1",
+                    "proof_requested",
+                    "cross-chain compose failed",
+                ],
+                40,
+            ),
             self.node.log_lines_matching(SETTLEMENT_LOG_MARKERS, 60),
             self.node.log_tail(40),
             self.proof_signer.log_tail(60),
@@ -6518,6 +6615,36 @@ pub async fn setup_cross_chain_static_round_trip(
     })
 }
 
+/// Setup can return an error before the caller panics. Emit diagnostics while
+/// the process-owned log directories still exist, including without artifacts.
+struct FixtureSetupDiagnostics<'a> {
+    node: &'a NodeHandle,
+    signer: &'a ProofSignerHandle,
+    complete: bool,
+}
+
+impl Drop for FixtureSetupDiagnostics<'_> {
+    fn drop(&mut self) {
+        if !self.complete {
+            eprintln!(
+                "\n== incomplete fixture setup: reconciliation ==\n{}\n\
+                 \n== incomplete fixture setup: node ==\n{}\n\
+                 \n== incomplete fixture setup: signer ==\n{}",
+                self.node.log_lines_matching(
+                    &[
+                        "eez.deriver",
+                        "eez.composer.settlement.replacement",
+                        "eez.node.pool.recovery_rejected"
+                    ],
+                    40,
+                ),
+                self.node.log_tail(50),
+                self.signer.log_tail(20),
+            );
+        }
+    }
+}
+
 async fn setup_cross_chain_inner(
     mutation: Option<ProverMutation>,
     attester_override: Option<Address>,
@@ -6701,6 +6828,11 @@ async fn setup_cross_chain_inner(
         &env,
         cfg.take_port_leases(),
     )?;
+    let mut setup_diagnostics = FixtureSetupDiagnostics {
+        node: &node,
+        signer: &proof_signer,
+        complete: false,
+    };
     let l1_rpc = cfg.l1_rpc_url();
     let l2_rpc = node.l2_rpc_url();
 
@@ -6818,6 +6950,8 @@ async fn setup_cross_chain_inner(
         setup_started.elapsed().as_secs_f64()
     );
     datadir.fixture_ready();
+    setup_diagnostics.complete = true;
+    drop(setup_diagnostics);
     Ok(CrossChainWorld {
         node,
         cfg,
@@ -6888,6 +7022,93 @@ mod mined_revert_tests {
 #[cfg(test)]
 mod framework_tests {
     use super::*;
+
+    #[test]
+    fn failure_log_tail_bounds_large_unicode_records_without_losing_selection() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("node.log");
+        let large = serde_json::json!({"fields": {
+            "event_name": "eez.test.failure",
+            "message": "é".repeat(10_000),
+        }});
+        std::fs::write(
+            &path,
+            format!("{large}\n{{\"fields\":{{\"event_name\":\"eez.test.success\"}}}}\n"),
+        )
+        .unwrap();
+        let selected = last_lines(&path, 1, Some(&["eez.test.failure"]));
+        assert!(selected.contains("eez.test.failure"));
+        assert!(selected.ends_with(" … [record truncated]"));
+        assert!(selected.chars().count() < 4200);
+        assert!(last_lines(&path, 1, None).contains("eez.test.success"));
+        assert!(last_lines(&path, 0, None).is_empty());
+    }
+
+    #[tokio::test]
+    async fn rejected_fixture_submission_reports_identity_and_original_rpc_error() {
+        use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
+        let server = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+        let address = server.local_addr().unwrap();
+        let mut module = RpcModule::new(());
+        module
+            .register_method("eth_sendRawTransaction", |_, _, _| {
+                Err::<String, _>(ErrorObjectOwned::owned(
+                    -32000,
+                    "replacement transaction underpriced",
+                    None::<()>,
+                ))
+            })
+            .unwrap();
+        module
+            .register_method("eth_getTransactionCount", |params, _, _| {
+                let (_, block): (Address, String) = params.parse()?;
+                Ok::<_, ErrorObjectOwned>(if block == "pending" { "0x12" } else { "0x11" })
+            })
+            .unwrap();
+        module
+            .register_method("txpool_contentFrom", |_, _, _| {
+                serde_json::json!({"pending": {"17": {
+                    "hash": B256::repeat_byte(0xab),
+                    "input": "transaction input must not appear in diagnostics",
+                }}, "queued": {}})
+            })
+            .unwrap();
+        let handle = server.start(module);
+        let error = sign_and_send(
+            &format!("http://{address}"),
+            ANVIL_KEY_1,
+            DEV_CHAIN_ID,
+            17,
+            Some(ANVIL_ADDR_3),
+            U256::from(1),
+            Vec::new(),
+            21_000,
+        )
+        .await
+        .unwrap_err();
+        let diagnostic = format!("{error:#}");
+        assert!(diagnostic.contains("chain=1337"), "{diagnostic}");
+        assert!(diagnostic.contains("nonce=17"), "{diagnostic}");
+        assert!(diagnostic.contains(&signer_address(ANVIL_KEY_1).unwrap().to_string()));
+        assert!(diagnostic.contains("-32000"), "{diagnostic}");
+        assert!(diagnostic.contains("replacement transaction underpriced"));
+        assert!(diagnostic.contains("latest_nonce=Some(17)"), "{diagnostic}");
+        assert!(
+            diagnostic.contains("pending_nonce=Some(18)"),
+            "{diagnostic}"
+        );
+        assert!(
+            diagnostic.contains(&format!(
+                "pending_conflict=Some({})",
+                B256::repeat_byte(0xab)
+            )),
+            "{diagnostic}"
+        );
+        assert!(!diagnostic.contains("transaction input must not appear"));
+        assert!(!diagnostic.contains(ANVIL_KEY_1));
+        handle.stop().unwrap();
+        handle.stopped().await;
+    }
 
     #[test]
     fn cold_fixture_expands_exact_prepared_ancestry_and_rejects_wrong_endpoints() {
