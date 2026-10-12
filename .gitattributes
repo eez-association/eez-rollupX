@@ -1,2 +1,6 @@
 testing/kurtosis/blobscan/*.patch -whitespace
 deploy/explorers/*.patch -whitespace
+crates/vendor/reth/** linguist-vendored
+crates/vendor/reth/shutdown.patch -whitespace
+# Keep this upstream document byte-for-byte, including its three trailing spaces.
+crates/vendor/reth/reth-engine-tree/docs/root.md -whitespace

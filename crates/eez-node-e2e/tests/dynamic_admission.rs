@@ -1533,7 +1533,9 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     .await
     .unwrap_or_else(|error| {
         panic!(
-            "no next-slot replacement dispatch: {error:#}{}",
+            "no next-slot replacement dispatch for L1 block {target_height}, original timestamp \
+             {target_timestamp}, expected timestamp {}: {error:#}{}",
+            target_timestamp + 5 * skipped_slots,
             world.settlement_diagnostics()
         )
     });

@@ -879,6 +879,16 @@ was never persisted has no such recovery source. Clients must reconcile receipts
 and nonces before resubmitting unsettled transactions. The policy does not make
 in-memory request ownership or retry counters durable.
 
+Composer links the embedded L1 runtime's graceful shutdown and critical-task
+monitor to the CLI while retaining independent L1/L2 worker pools. Both engines
+are given the existing CLI shutdown budget. The pinned Reth shutdown
+[backport](../crates/vendor/reth/README.md) delays termination acknowledgement
+until engine-owned persistence and prewarming workers release their resources.
+Exceeding the shutdown budget can still race process exit; forced shutdown and
+persistence errors can leave an unflushed suffix. Neither a termination
+notification nor a successful process exit proves that
+every pending request is recoverable.
+
 See the [migration validation record](audits/2026-09-26-reth-27429/README.md#retained-failures-and-limits)
 for tested crash/restart behavior, retained failures and recovery limits.
 

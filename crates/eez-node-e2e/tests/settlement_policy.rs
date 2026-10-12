@@ -2724,9 +2724,9 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
         0
     );
     if restart_after_prefix {
-        // Let the first drain settlement through and hold the second, armed
-        // before the drain starts so the hold cannot miss the second bundle.
-        world.hold_bundle_after(1).unwrap();
+        // Stop every later proposal, including recompositions while the
+        // canonical prefix is being persisted before the policy restart.
+        world.pause_bundles_after(1).unwrap();
     }
     if !cross_chain_trigger {
         world
@@ -2800,9 +2800,9 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             first.header.number < covered,
             "fixture must restart during the drain"
         );
-        // The second drain bundle is held (armed before the drain), so the
+        // Later drain bundles are blocked (armed before the drain), so the
         // graceful policy restart occurs before a second canonical settlement.
-        wait_for(TIMEOUT, || async { world.held_bundle() })
+        wait_for(TIMEOUT, || async { world.paused_bundle() })
             .await
             .unwrap();
         let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -2815,7 +2815,7 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             )
             .await
             .unwrap();
-        assert_eq!(posts.len(), 1, "fixture must hold the second settlement");
+        assert_eq!(posts.len(), 1, "fixture must block later settlements");
         // Restart also stops the isolated L1 miner. Its canonical RPC suffix
         // can precede disk persistence, and no peer can restore that suffix.
         world
@@ -2836,6 +2836,9 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
             ])
             .await
             .unwrap();
+        // Restore relay delivery before checking the new policy: a paused
+        // relay must not be the reason that no further settlement is observed.
+        world.resume_bundles().unwrap();
         let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
         let height = l2.get_block_number().await.unwrap();
         wait_for_latest_height(&world.node, height + 12, TIMEOUT)
@@ -2857,6 +2860,15 @@ async fn assert_capacity_drain(restart_after_prefix: bool, cross_chain_trigger: 
                 .hash,
             first.header.hash,
             "process start must not replace the canonical anchor"
+        );
+        assert!(
+            world
+                .node
+                .signals_since(0)
+                .unwrap()
+                .iter()
+                .all(|event| event.name != "eez.composer.bundle.dispatched"),
+            "the new policy must not dispatch even while the relay barrier is being removed"
         );
         world
             .restart_composer_with_env(&[("EEZ_SETTLEMENT_PURE_L2_MODE", "always".into())])

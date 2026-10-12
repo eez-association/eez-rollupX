@@ -87,7 +87,7 @@ def run(plan, args):
         )
 
     # Pair B: canonical L1, validators, and MEV stack.
-    eth = ethereum_package.run(plan, eth_args)
+    eth = ethereum_package.run(resources.relay_startup_plan(plan), eth_args)
     resources.configure_mev_relay_cpu(plan, eth_args, eez.get("mev_relay_cpu", None))
 
     participants = eth.all_participants

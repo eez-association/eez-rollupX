@@ -248,6 +248,55 @@ if (( do_out )); then OUT_HASHES+=("0x000000000000000000000000000000000000000000
             self.assertIn(assertion, script)
 
 
+class WaveDeploymentOutputTest(unittest.TestCase):
+    """Consume Forge output through the same pipefail pipeline as wave setup."""
+
+    def deploy(self, output, forge_exit=0):
+        with tempfile.TemporaryDirectory(prefix="eez-wave-forge.") as temporary:
+            output_file = Path(temporary) / "forge-output"
+            output_file.write_text(output)
+            return subprocess.run(
+                ["bash", "-euo", "pipefail", "-c", r'''
+source "$REPO/testing/kurtosis/scripts/lib.sh"
+gas_price_for() { echo 15; }
+forge() { cat "$FORGE_OUTPUT"; return "$FORGE_EXIT"; }
+address=$(forge_deploy http://rpc.invalid fixture-key Fixture.s.sol:Fixture 'run()' \
+    | grab_address EEZ_SETTER_WRAPPER)
+printf 'READY=%s\n' "$address"
+'''], text=True, capture_output=True, timeout=10,
+                env={**os.environ, "REPO": str(REPO), "FORGE_OUTPUT": str(output_file),
+                     "FORGE_EXIT": str(forge_exit)})
+
+    def test_address_parser_drains_verbose_forge_output(self):
+        address = "0x" + "1" * 40
+        # Exceed pipe capacity after the match: an early-closing parser causes
+        # forge_deploy's printf to fail even though deployment succeeded.
+        result = self.deploy(f"EEZ_SETTER_WRAPPER={address}\n" + "trace output\n" * 100_000)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f"READY={address}\n")
+
+    def test_address_parser_returns_only_the_first_matching_address(self):
+        first, second = "0x" + "1" * 40, "0x" + "2" * 40
+        result = self.deploy(f"UNRELATED={second}\nEEZ_SETTER_WRAPPER={first}\n"
+                             f"EEZ_SETTER_WRAPPER={second}\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout, f"READY={first}\n")
+
+    def test_missing_address_fails_setup(self):
+        for output in ("", "EEZ_SETTER_WRAPPER=0x1234\n", "UNRELATED=0x" + "1" * 40):
+            with self.subTest(output=output):
+                result = self.deploy(output)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("READY=", result.stdout)
+
+    def test_failed_forge_does_not_report_a_deployed_address(self):
+        output = "EEZ_SETTER_WRAPPER=0x" + "1" * 40 + "\nbroadcast failed\n"
+        result = self.deploy(output, forge_exit=7)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("READY=", result.stdout)
+        self.assertIn("broadcast failed", result.stderr)
+
+
 class WaveProxySetupTest(unittest.TestCase):
     """Execute the shell helper, including its command-substitution call site."""
 

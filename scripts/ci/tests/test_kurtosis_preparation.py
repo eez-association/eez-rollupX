@@ -18,15 +18,12 @@ from pathlib import Path
 root = Path(os.environ['FIXTURE'])
 role = Path(sys.argv[0]).name
 (root / (role + '-started')).touch()
-other = 'network' if role == 'forge' else 'forge'
-deadline = time.monotonic() + 5
-while not (root / (other + '-started')).exists():
-    if time.monotonic() > deadline: raise SystemExit(90)
-    time.sleep(.01)
-if os.environ.get('FAIL_ROLE') == role:
-    while not (root / 'child-pid').exists():
-        if time.monotonic() > deadline: raise SystemExit(92)
-        time.sleep(.01)
+if role == 'network' and not all((root / marker).exists() for marker in ('build-done', 'integration-done')):
+    print('network started before fixture compilation finished', file=sys.stderr)
+    raise SystemExit(90)
+if os.environ.get('FAIL_ROLE') == role or (
+    role == 'forge' and os.environ.get('FAIL_BUILD') == Path(sys.argv[3]).name
+):
     raise SystemExit(19 if role == 'forge' else 17)
 if os.environ.get('HANG_ROLE') == role:
     child = subprocess.Popen([sys.executable, '-c',
@@ -34,17 +31,18 @@ if os.environ.get('HANG_ROLE') == role:
     (root / 'child-pid').write_text(str(child.pid))
     time.sleep(60)
 if role == 'forge':
-    assert sys.argv[1:] == ['build', '--root', str(root / 'eez-core-protocol'), '--threads', '1']
-    while not os.environ.get('BUILD_EARLY') and not (root / 'waves-done').exists():
-        if time.monotonic() > deadline: raise SystemExit(91)
-        time.sleep(.01)
-    (root / 'build-done').touch()
+    target = Path(sys.argv[3])
+    assert target in (root / 'eez-core-protocol', root / 'contracts')
+    assert sys.argv[1:] == ['build', '--root', str(target), '--threads', '1']
+    # Leave enough time for the former parallel startup to reach its assertion.
+    time.sleep(.2)
+    (root / ('build-done' if target.name == 'eez-core-protocol' else 'integration-done')).touch()
 '''
 
 
-class KurtosisOverlapTest(unittest.TestCase):
+class KurtosisPreparationTest(unittest.TestCase):
     def setUp(self):
-        temporary = tempfile.TemporaryDirectory(prefix='eez-kurtosis-overlap.')
+        temporary = tempfile.TemporaryDirectory(prefix='eez-kurtosis-preparation.')
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.package = self.root / 'testing/kurtosis'
@@ -63,6 +61,7 @@ class KurtosisOverlapTest(unittest.TestCase):
         (scripts / 'verify-cross-chain-waves.sh').write_text('touch "$FIXTURE/waves-done"\n')
         (scripts / 'run-protocol-e2e.sh').write_text('''set -e
 test -f "$FIXTURE/build-done"
+test -f "$FIXTURE/integration-done"
 test -f "$FIXTURE/waves-done"
 flock -n "$FIXTURE/eez-core-protocol/tmp/.eez-network-e2e.lock" true
 touch "$FIXTURE/scenarios-started"
@@ -116,26 +115,29 @@ echo eez.prover_client.attested
             time.sleep(.01)
         self.fail(f'owned descendant {pid} survived cancellation')
 
-    def test_build_overlaps_network_and_both_join_before_scenarios(self):
+    def test_compilation_finishes_before_network_and_all_checks_precede_scenarios(self):
         result = self.run_fixture()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue((self.root / 'scenarios-started').exists())
         rows = [json.loads(row) for row in (self.root / 'results/timings.jsonl').read_text().splitlines()]
         self.assertEqual({row['phase'] for row in rows}, {
             'network-start', 'settlement-readiness', 'waves-and-state-chaining',
-            'network-checks', 'protocol-build', 'protocol-suite'})
+            'network-checks', 'protocol-build', 'integration-build', 'protocol-suite'})
         self.assertTrue(all(row['exit_code'] == 0 for row in rows))
 
-    def test_build_failure_stops_network_and_never_runs_scenarios(self):
-        result = self.run_fixture(FAIL_ROLE='forge', HANG_ROLE='network')
+    def test_build_failure_never_starts_network_or_scenarios(self):
+        result = self.run_fixture(FAIL_ROLE='forge')
         self.assertEqual(result.returncode, 19, result.stdout + result.stderr)
+        self.assertFalse((self.root / 'network-started').exists())
         self.assertFalse((self.root / 'scenarios-started').exists())
-        self.assert_stopped()
 
-    def test_already_finished_build_is_joined_without_losing_its_status(self):
-        result = self.run_fixture(BUILD_EARLY='1')
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertTrue((self.root / 'scenarios-started').exists())
+    def test_integration_compile_failure_never_starts_network(self):
+        result = self.run_fixture(FAIL_BUILD='contracts')
+        self.assertEqual(result.returncode, 19, result.stdout + result.stderr)
+        self.assertTrue((self.root / 'build-done').exists())
+        self.assertFalse((self.root / 'integration-done').exists())
+        self.assertFalse((self.root / 'network-started').exists())
+        self.assertFalse((self.root / 'scenarios-started').exists())
 
     def test_build_timeout_stops_descendants_and_fails_the_suite(self):
         timeout = shutil.which('timeout')
@@ -148,14 +150,15 @@ exec {timeout} "$@"
 ''')
         result = self.run_fixture(HANG_ROLE='forge')
         self.assertEqual(result.returncode, 124, result.stdout + result.stderr)
+        self.assertFalse((self.root / 'network-started').exists())
         self.assertFalse((self.root / 'scenarios-started').exists())
         self.assert_stopped()
 
-    def test_network_failure_stops_build_and_preserves_failure(self):
-        result = self.run_fixture(FAIL_ROLE='network', HANG_ROLE='forge')
+    def test_network_failure_preserves_failure_and_never_runs_scenarios(self):
+        result = self.run_fixture(FAIL_ROLE='network')
         self.assertEqual(result.returncode, 17, result.stdout + result.stderr)
+        self.assertTrue((self.root / 'build-done').exists())
         self.assertFalse((self.root / 'scenarios-started').exists())
-        self.assert_stopped()
 
     def test_signal_stops_owned_descendants_but_not_unrelated_process(self):
         with subprocess.Popen(['sleep', '60']) as unrelated:

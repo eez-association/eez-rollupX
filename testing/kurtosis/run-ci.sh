@@ -177,10 +177,18 @@ cleanup() {
         done
         refresh_proof_counts
         write_result fail "$status" || true
-        echo "==> candidate node log tail (failure diagnostics)" >&2
-        tail -n 200 "$RESULT_DIR/eez-node.log" >&2 || true
-        echo "==> proof signer log tail (failure diagnostics)" >&2
-        tail -n 200 "$RESULT_DIR/eez-proof-signer.log" >&2 || true
+        # Artifact uploads can fail independently (for example account quota).
+        # Keep the PBS path in the job log too, so missing settlement can still
+        # be traced from submission through relay and proposer fallback.
+        for service in eez-node eez-proof-signer "$KURTOSIS_BUILDER_SERVICE" \
+            cl-1-lighthouse-reth cl-2-lighthouse-reth-builder \
+            vc-1-reth-lighthouse mev-boost-1-lighthouse-reth \
+            mev-relay-api mev-relay-housekeeper; do
+            echo "==> $service log tail (failure diagnostics)" >&2
+            tail -n 200 "$RESULT_DIR/$service.log" >&2 || true
+        done
+        tail -n 80 "$RESULT_DIR/protocol-build.log" >&2 || true
+        tail -n 80 "$RESULT_DIR/integration-build.log" >&2 || true
     fi
     bash "$HERE/stop.sh" || true
     exit "$status"
@@ -282,31 +290,32 @@ echo "==> running native cross-chain wave suite"
 timed_phase waves-and-state-chaining bash "$HERE/scripts/verify-cross-chain-waves.sh"
 }
 
-# Only fixture compilation overlaps chain activity. The two jobs must both
-# succeed before protocol scenarios, and either failure cancels its sibling.
-# One Forge thread bounds contention with the live PBS fixture; compiler,
-# optimizer and metadata settings remain the pinned Foundry configuration.
-set -m
-timed_phase protocol-build timeout --foreground --kill-after=5s 1200s \
+# Keep each phase in an owned process group so cancellation stops descendants.
+run_preparation() {
+    set -m
+    timed_phase "$@" &
+    preparation_pids=("$!")
+    set +m
+    local status=0
+    wait "${preparation_pids[0]}" || status=$?
+    (( status == 0 )) || return "$status"
+    preparation_pids=()
+}
+
+# A hosted VM must run the PBS fixture within real slot deadlines. Complete
+# cold Solidity compilation before chain activity; retain the pinned compiler,
+# optimizer and metadata settings, and fail before startup if it cannot finish.
+echo "==> building protocol fixtures before network startup; log: $RESULT_DIR/protocol-build.log"
+run_preparation protocol-build timeout --foreground --kill-after=5s 1200s \
     forge build --root "$REPO/eez-core-protocol" --threads 1 \
-    >"$RESULT_DIR/protocol-build.log" 2>&1 &
-preparation_pids+=("$!")
-build_pid=$!
-timed_phase network-checks prepare_network &
-preparation_pids+=("$!")
-set +m
-echo "==> protocol fixture build overlaps network checks; log: $RESULT_DIR/protocol-build.log"
-while (( ${#preparation_pids[@]} )); do
-    status=0
-    wait -n -p completed "${preparation_pids[@]}" || status=$?
-    (( status == 0 )) || { tail -n 80 "$RESULT_DIR/protocol-build.log" >&2; exit "$status"; }
-    [[ "$completed" != "$build_pid" ]] || tail -n 1 "$RESULT_DIR/protocol-build.log"
-    remaining=()
-    for pid in "${preparation_pids[@]}"; do
-        [[ "$pid" == "$completed" ]] || remaining+=("$pid")
-    done
-    preparation_pids=("${remaining[@]}")
-done
+    >"$RESULT_DIR/protocol-build.log" 2>&1
+tail -n 1 "$RESULT_DIR/protocol-build.log"
+# Wave deployments use a separate Foundry root/cache from the core scenarios.
+run_preparation integration-build timeout --foreground --kill-after=5s 1200s \
+    forge build --root "$REPO/contracts" --threads 1 \
+    >"$RESULT_DIR/integration-build.log" 2>&1
+tail -n 1 "$RESULT_DIR/integration-build.log"
+run_preparation network-checks prepare_network
 flock -u "$preparation_lock"
 exec {preparation_lock}>&-
 

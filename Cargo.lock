@@ -8281,7 +8281,6 @@ dependencies = [
 [[package]]
 name = "reth-engine-tree"
 version = "2.7.0"
-source = "git+https://github.com/paradigmxyz/reth?tag=v2.7.0#3d592ece6de8c4559987416a544fc215fd6d6921"
 dependencies = [
  "alloy-consensus",
  "alloy-eip7928",
@@ -9050,7 +9049,6 @@ dependencies = [
 [[package]]
 name = "reth-node-builder"
 version = "2.7.0"
-source = "git+https://github.com/paradigmxyz/reth?tag=v2.7.0#3d592ece6de8c4559987416a544fc215fd6d6921"
 dependencies = [
  "alloy-consensus",
  "alloy-eips",

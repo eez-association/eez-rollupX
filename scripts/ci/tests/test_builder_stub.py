@@ -122,6 +122,35 @@ class BuilderControlTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.send(bundle("0x0301"))
 
+    def test_pause_blocks_every_recomposition_until_delivery_resumes(self):
+        first, second, third = bundle("0x0301"), bundle("0x0302"), bundle("0x0303")
+        pause = self.directory / "pause-after.json"
+        pause.write_text(json.dumps({"skip": 1}))
+        self.assertIn("result", self.send(first))
+        self.assertFalse((self.directory / "paused-bundle.json").exists())
+        for request in [second, third, second]:
+            self.assertEqual(self.send(request)["error"], {
+                "code": -32000, "message": "test relay paused"})
+        self.assertEqual(self.forwarded, [first])
+        self.assertEqual(json.loads((self.directory / "paused-bundle.json").read_text()), second)
+        # The barrier affects bundle submission only, not persistence reads.
+        read = {"jsonrpc": "2.0", "id": 4, "method": "eth_blockNumber", "params": []}
+        self.assertIn("result", self.send(read))
+        pause.unlink()
+        self.assertIn("result", self.send(third))
+        self.assertEqual(self.forwarded, [first, read, third])
+
+    def test_pause_can_block_immediately_and_rejects_invalid_skip(self):
+        pause = self.directory / "pause-after.json"
+        pause.write_text(json.dumps({"skip": 0}))
+        self.assertIn("error", self.send(bundle("0x0301")))
+        self.assertEqual(self.forwarded, [])
+        for skip in [-1, "1"]:
+            with self.subTest(skip=skip):
+                pause.write_text(json.dumps({"skip": skip}))
+                with self.assertRaises(ValueError):
+                    self.send(bundle("0x0301"))
+
     def test_rpc_outage_affects_only_selected_methods_and_recovers(self):
         request = {"jsonrpc": "2.0", "id": 5,
                    "method": "eth_maxPriorityFeePerGas", "params": []}

@@ -37,8 +37,10 @@ and its pinned protocol revision; upstream `main` is not a substitute.
   its driver holds both known checkout locks and requires explicit test funding.
 - Keep private keys, authenticated URLs, private hostnames, and bulk logs/databases
   out of committed records. Do not treat public fixture/workload keys as private
-  operator credentials. The repository and published images are public; do not
-  add authentication instructions for cloning or pulling.
+  operator credentials. Published release images must support anonymous pulls;
+  do not add authentication to public setup instructions. Follow the
+  [public release runbook](docs/runbooks/public-release.md) for the separate
+  repository and package visibility changes.
 
 ## Establish the baseline and read the applicable contract
 
@@ -68,6 +70,9 @@ report the superproject's HEAD; it does not prove the protocol revision.
 Preserve Reth, Stateless, reth_gnosis, REVM, and Alloy compatibility in
 [Cargo.toml](Cargo.toml) and `Cargo.lock`. Use `--locked`; do not upgrade dependencies
 incidentally to bypass a build failure.
+The two Reth packages in [the shutdown backport](crates/vendor/reth/README.md)
+retain v2.7.0 with a recorded upstream patch. Review that diff when changing
+dependencies; do not silently drop the cleanup ordering or edit Cargo's cache.
 
 For protocol changes, read the relevant **pinned core specification first**, then
 its Solidity implementation/tests and the applicable fork contract:
@@ -209,9 +214,12 @@ task authorization.
 | Cargo features | Build affected shipping targets with the production feature selection in [Dockerfile.runtime](Dockerfile.runtime). Test/`--all-features` builds alone do not establish that configuration works. |
 | Documentation | `git diff --check`; resolve edited links/paths at the protocol pin; run `bash -n` on edited shell examples. Syntax checking does not execute the procedure. |
 
-Python configuration checks require Docker Compose's CLI, not a daemon or live
-deployment. The full tooling suite also needs the initialized protocol, `jq`, and
-PyYAML; inspect skipped tests rather than treating a successful exit as full coverage.
+Python configuration checks use Docker Compose **5.5.1**, pinned and verified in
+CI, without a daemon or live deployment. Older Compose versions can still read
+service `env_file` contents despite `config --no-env-resolution`; 2.38.2 fails the
+static-render regression. The full tooling suite also needs the initialized
+protocol, `jq`, and PyYAML; inspect skipped tests rather than treating a successful
+exit as full coverage.
 
 ### Source-based process tests
 
@@ -259,12 +267,16 @@ non-workspace crate. Workspace lib/bin unit tests, whose dev-dependencies enable
 test-only features (Tokio `test-util`), run in CI's separate debug unit lane.
 Test-only features must not reach shipping bytes; the producer freezes the
 release candidate before archiving and rechecks its hashes afterwards.
-The retained-state compile cap is sized from the build's Docker daemon (all CPUs;
-memory in whole GiB minus 4 GiB), which under ARC DinD reports the node. That
-assumes one build job per node; if the DinD sidecar's limits are smaller, the
-runner must set `EEZ_CI_BUILD_CPUS`/`EEZ_CI_BUILD_MEMORY` from them. Cargo cannot
-detect an outer quota, so the producer passes the job count explicitly.
-See the [test-archive split](docs/proposals/ci-test-archive-split.md#compile-cap).
+All workflow jobs use GitHub-hosted `ubuntu-24.04` runners. Do not restore runner
+selectors or use self-hosted resources for public PRs. Docker-native retained
+Cargo state is disabled in CI; the optional local tooling still follows the
+[test-archive split's compile cap](docs/proposals/ci-test-archive-split.md#compile-cap).
+Registry and compiler caches remain optional and cannot substitute for validation.
+Protocol network scenarios run with at most two workers on hosted VMs, preserving
+the full scenario inventory. See the [hosted CI proposal](docs/proposals/github-hosted-ci.md).
+Kurtosis completes cold protocol and integration fixture compilation before starting the live
+network. Preserve the relay housekeeper readiness gate: its post-migration
+metrics endpoint must answer before the API starts against the same database.
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.
 

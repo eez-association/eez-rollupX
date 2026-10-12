@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["crates/vendor/reth"]
 members = [
     "crates/eez-blob-codec",
     "crates/eez-composer",
@@ -65,7 +66,7 @@ mimalloc           = "0.1"
 # CLI
 clap               = { version = "4", features = ["derive"] }
 
-# Upstream Reth v2.7.0; keep every Reth consumer aligned to the release commit.
+# Upstream Reth v2.7.0; only the shutdown backport below differs from the release.
 reth-chain-state                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-chainspec                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-cli                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -288,3 +289,9 @@ clone_on_ref_ptr                 = "allow"
 # on_batch_posted 10, compose_via_evm_composer 8) need these params;
 # a refactor or dediacted crates would reduce some of this
 too_many_arguments               = "allow"
+
+# v2.7.0 shutdown ordering only; source identity and the upstream diff are
+# recorded in crates/vendor/reth/README.md. Keep the other Reth crates pinned.
+[patch."https://github.com/paradigmxyz/reth"]
+reth-engine-tree = { path = "crates/vendor/reth/reth-engine-tree" }
+reth-node-builder = { path = "crates/vendor/reth/reth-node-builder" }

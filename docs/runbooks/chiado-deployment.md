@@ -401,6 +401,17 @@ a validated pure-L2 prefix, but unowned Sync blocks and their descendants are ro
 After startup, reconcile receipts/nonces before resubmitting unsettled work.
 A datadir backup does not retain volatile request ownership.
 
+Composer forwards graceful shutdown to both embedded engines. Their persistence
+workers must finish cleanup before termination is acknowledged; see the
+[shutdown backport](../../crates/vendor/reth/README.md). A forced stop or logged
+persistence/shutdown failure still requires recovery assessment. The existing
+CLI shutdown budget is unchanged, and this does not make unsettled requests
+durable.
+
+When adopting or rolling back this backport, select matching Composer and signer
+revisions and restart them together. Its lockfile change alters prover validation
+identity; an old signer cannot serve the new Composer.
+
 **Stop changes running services; preserves bind-mounted data:**
 
 ```bash

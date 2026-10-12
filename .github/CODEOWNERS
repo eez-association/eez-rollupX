@@ -1,0 +1,4 @@
+# Keep a verified maintainer until an organization team has repository access.
+# Replace with that team during the organization transfer; ownership requires
+# branch/ruleset settings to enforce review.
+* @eduadiez

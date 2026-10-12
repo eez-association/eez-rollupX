@@ -69,7 +69,8 @@ class GenesisReferenceReadinessTest(unittest.TestCase):
             el_context=SimpleNamespace(service_name="el-1-reth-lighthouse", rpc_http_url="http://l1:8545"),
             cl_context=SimpleNamespace(enr="enr", multiaddr="peer", peer_id="id"))
         ethereum = SimpleNamespace(run=lambda *_: SimpleNamespace(all_participants=[participant]))
-        resources = SimpleNamespace(configure_mev_relay_cpu=lambda *_: None)
+        resources = SimpleNamespace(configure_mev_relay_cpu=lambda *_: None,
+                                    relay_startup_plan=lambda plan: plan)
         namespace = {
             "import_module": lambda name: ethereum if "ethereum-package" in name else resources,
             "StoreSpec": dict, "PostHttpRequestRecipe": dict, "fail": fail,
@@ -127,6 +128,45 @@ class CiTimingTest(unittest.TestCase):
         self.assertEqual((position, trigger_lead), (3, 6000))
         self.assertGreaterEqual(proof, 4000)
         self.assertGreaterEqual(trigger_lead - proof - slack - 150, 1350)
+
+
+class RelayReadinessTest(unittest.TestCase):
+    def test_housekeeper_completion_gates_the_next_relay_service(self):
+        namespace = {"ExecRecipe": dict, "struct": lambda **kwargs: SimpleNamespace(**kwargs)}
+        exec(compile(RESOURCES.read_text(), str(RESOURCES), "exec"), namespace)
+        for ready in (False, True):
+            with self.subTest(ready=ready):
+                calls = []
+                config = {"image": RELAY_IMAGE, "env_vars": {"GENESIS_FORK_VERSION": "fixture"}}
+                service = object()
+
+                def add_service(name, config, **kwargs):
+                    calls.append(name)
+                    self.assertIs(config, original)
+                    self.assertEqual(kwargs, {"force_update": True})
+                    return service
+
+                def wait(**kwargs):
+                    calls.append("database-ready")
+                    self.assertEqual(kwargs["service_name"], "mev-relay-housekeeper")
+                    self.assertEqual((kwargs["field"], kwargs["assertion"], kwargs["target_value"]),
+                                     ("code", "==", 0))
+                    self.assertEqual(kwargs["timeout"], "120s")
+                    if not ready:
+                        raise RuntimeError("database startup failed")
+
+                original = config
+                plan = SimpleNamespace(add_service=add_service, wait=wait, run_sh=object())
+                wrapped = namespace["relay_startup_plan"](plan)
+                self.assertIs(wrapped.run_sh, plan.run_sh)
+                try:
+                    self.assertIs(wrapped.add_service("redis", config, force_update=True), service)
+                    self.assertIs(wrapped.add_service("mev-relay-housekeeper", config, force_update=True), service)
+                    wrapped.add_service("mev-relay-api", config, force_update=True)
+                except RuntimeError:
+                    self.assertFalse(ready)
+                self.assertEqual(calls, ["redis", "mev-relay-housekeeper", "database-ready"]
+                                 + (["mev-relay-api"] if ready else []))
 
 
 class RelayResourcesTest(unittest.TestCase):
@@ -393,6 +433,7 @@ class FailureArtifactsTest(unittest.TestCase):
             (package / "start.sh").write_text('touch "$START_MARKER"\nexit 17\n')
             (package / "stop.sh").write_text("exit 0\n")
             (tools / "git").write_text("#!/bin/sh\ncase \"$*\" in *ls-files*) printf '160000 ';; esac\nprintf '%040d\\n' 1\n")
+            (tools / "forge").write_text("#!/bin/sh\nexit 0\n")
             (tools / "kurtosis").write_text('''#!/usr/bin/env python3
 import sys
 args = sys.argv[1:]
@@ -424,6 +465,15 @@ else:
                 lines = (root / "results" / f"{service}.log").read_text().splitlines()
                 self.assertEqual(len(lines), 250, lines)
                 self.assertEqual(lines[0], "fixture log 0")
+            # Relay/proposer diagnostics must remain available even when the
+            # independent Actions artifact upload fails.
+            for service in ("mev-relay-api", "mev-relay-housekeeper",
+                            "el-2-reth-builder-lighthouse", "cl-1-lighthouse-reth",
+                            "cl-2-lighthouse-reth-builder", "vc-1-reth-lighthouse",
+                            "mev-boost-1-lighthouse-reth"):
+                self.assertIn(f"==> {service} log tail", result.stderr)
+            self.assertNotIn("fixture log 0\n", result.stderr)
+            self.assertIn("fixture log 249\n", result.stderr)
 
             # A failed genesis check must fail before any network is started,
             # and must not leave a prior result available on a local rerun.
@@ -454,6 +504,41 @@ else:
 @unittest.skipUnless(os.environ.get("EEZ_TEST_KURTOSIS_RESOURCES") == "1",
                      "set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe")
 class RealRelayResourcesTest(unittest.TestCase):
+    def test_readiness_wait_blocks_the_following_instruction_until_ready(self):
+        with tempfile.TemporaryDirectory(prefix="eez-relay-readiness.") as temporary:
+            root = Path(temporary)
+            shutil.copy2(RESOURCES, root / "resources.star")
+            (root / "kurtosis.yml").write_text("name: github.com/eez-ci/relay-readiness-probe\n")
+            (root / "main.star").write_text('''resources = import_module("./resources.star")
+def run(plan, args):
+    if args["guarded"]:
+        plan = resources.relay_startup_plan(plan)
+    plan.add_service(name="mev-relay-housekeeper", config=ServiceConfig(
+        image="alpine:3.20", cmd=["sh", "-c",
+            "sleep 5; while true; do printf 'HTTP/1.0 200 OK\\\\r\\\\nContent-Length: 6\\\\r\\\\n\\\\r\\\\nready\\\\n' | nc -l -p 9064 -w 2; done"]))
+    result = plan.exec(service_name="mev-relay-housekeeper", recipe=ExecRecipe(
+        command=["wget", "-q", "-O", "-", "http://127.0.0.1:9064/metrics"]))
+    plan.verify(value=result["code"], assertion="==", target_value=0)
+''')
+            for guarded in (False, True):
+                enclave = "eez-relay-readiness-" + uuid.uuid4().hex[:12]
+                env = dict(os.environ, KURTOSIS_ENCLAVE=enclave)
+                try:
+                    result = subprocess.run([
+                        "kurtosis", "run", "--enclave", enclave, "--resource-check=true",
+                        "--image-download", "missing", str(root), json.dumps({"guarded": guarded}),
+                    ], env=env, capture_output=True, text=True, timeout=180)
+                    output = result.stdout + result.stderr
+                    if guarded:
+                        self.assertEqual(result.returncode, 0, output)
+                        self.assertIn("ready", result.stdout)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, output)
+                        self.assertIn("Connection refused", output)
+                finally:
+                    subprocess.run(["kurtosis", "enclave", "rm", "-f", enclave],
+                                   env=env, check=True, timeout=60, capture_output=True)
+
     def test_overrides_apply_before_creation_and_preserve_memory_and_command(self):
         enclave = "eez-ci-resources-" + uuid.uuid4().hex[:12]
         with tempfile.TemporaryDirectory(prefix="eez-kurtosis-resources.") as temporary:
