@@ -388,8 +388,8 @@ from that directory. Its database additionally joins the existing Grafana ledger
 network; the checked-in overlay uses localhost with the base stack's host networking.
 The live datasource was added using Grafana's API, which stores its password
 encrypted, and survives restart in the existing Grafana volume. The dashboard
-is file-provisioned in the EEZ folder on the operator Grafana instance, at
-`/grafana/d/eez-settlement-history`.
+is file-provisioned in the EEZ folder at
+`https://eez.asuscomm.com/grafana/d/eez-settlement-history`.
 Local-only validation details are in that runtime directory's `validation.json`.
 The new indexer runs independently; existing Composer metrics remain compatible.
 

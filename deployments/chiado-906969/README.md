@@ -1,4 +1,4 @@
-# Chiado L2 (chain 906969)
+# Chiado L2 at eez.asuscomm.com (chain 906969)
 
 | Field | Value |
 | --- | --- |

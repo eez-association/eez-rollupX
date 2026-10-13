@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented and merged in PR #84 after a passing hosted matrix. PR #86's later admission failure, organization execution and the external-fork path remain open; see the [current preflight](../audits/2026-10-13-publication-preflight/README.md). |
+| Design status | Implemented for review at the maintainer's request; local tooling checks pass. Hosted execution remains to be validated. |
 | Date | 2026-10-11 |
 | Source baseline | `eduadiez/rollupX` main, `e15bb412420b36bfa40a0e2a73233ac4f213441d` |
 | Protocol baseline | `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`, unchanged |
@@ -73,16 +73,3 @@ with its archive checksum pinned. Exact fixture-value exceptions come from the
 readiness audit; new keys beside those fixtures remain detectable. Inline
 suppression comments and fingerprint ignore files are disabled. This complements,
 but does not replace, disclosure review of GitHub logs, attachments and packages.
-
-## Publication sequence when private Actions minutes are unavailable
-
-On 2026-10-13 the maintainer confirmed that the destination organization cannot
-supply private Actions minutes. Continue local investigation and keep CI fixes
-in draft while the licensing and disclosure gates remain open. The
-[release runbook](../runbooks/public-release.md#route-without-paid-actions)
-therefore places fresh organization CI after source publication once those
-gates are cleared. H1–H5, exact-artifact validation and all promotion gates are
-unchanged; this sequence does not authorize merging an unvalidated fix or
-publishing unreviewed packages. Existing homelab machines may remain available
-for other trusted private work, with this repository's runner access removed
-before public visibility.
