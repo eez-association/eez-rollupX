@@ -408,9 +408,13 @@ persistence/shutdown failure still requires recovery assessment. The existing
 CLI shutdown budget is unchanged, and this does not make unsettled requests
 durable.
 
-When adopting or rolling back this backport, select matching Composer and signer
-revisions and restart them together. Its lockfile change alters prover validation
-identity; an old signer cannot serve the new Composer.
+When adopting or rolling back this backport or a dependency lockfile update,
+select matching Composer and signer revisions and restart them together. The
+validation identity fingerprints the entire lockfile, including optional
+dependencies: the `quinn-proto 0.11.18` security update therefore changes it even
+when QUIC is not enabled. Mixed identities fail the startup capability check.
+The Quinn patch itself requires no contract, genesis, wire or database migration;
+rollback still requires a matching pair and restores the affected dependency.
 
 **Stop changes running services; preserves bind-mounted data:**
 

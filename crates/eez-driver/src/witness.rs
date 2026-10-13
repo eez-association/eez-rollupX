@@ -4,7 +4,7 @@
 //! function so the block committer can call it once per canonical block:
 //!   1. re-execute the block on its parent state → exact access set,
 //!   2. record it (`ExecutionWitnessRecord`, cheap cache walk, no trie),
-//!   3. one batched trie pass → the trie nodes + ancestor headers.
+//!   3. one batched trie pass + hash-linked ancestor headers.
 //!
 //! Mirrors `reth_engine_tree`'s invalid-block witness hook
 //! (`re_execute_block`) and `DebugApi::debug_execution_witness_for_block`.
@@ -70,7 +70,9 @@ pub use reth_trie::ExecutionWitnessMode;
 ///
 /// # Errors
 ///
-/// Propagates re-execution / witness-augmentation failures.
+/// Propagates re-execution / witness-augmentation failures. Missing ancestors
+/// or a header whose number/hash does not match the block's ancestry fail before
+/// a witness can be persisted or sent to the signer.
 pub fn block_witness<P, E>(
     provider: &P,
     evm_config: &E,
@@ -227,8 +229,32 @@ where
     let accesses = witness_access_state(state, state_provider.as_ref())?;
     let (account_removal_state, removal_accounts) = touched_account_removal_state(&accesses);
     let (storage_removal_state, removal_slots) = touched_storage_removal_state(&accesses)?;
+    let oldest = state
+        .block_hashes
+        .lowest()
+        .map_or(block_number.saturating_sub(1), |(number, _)| number);
+    eyre::ensure!(
+        oldest < block_number && block_number - oldest <= revm::primitives::BLOCK_HASH_HISTORY,
+        "invalid witness ancestor window {oldest}..{block_number}"
+    );
     let mut witness =
-        record.into_execution_witness(state_provider.as_ref(), provider, block_number, mode)?;
+        record.into_execution_witness_without_headers(state_provider.as_ref(), mode)?;
+    // Canonical height lookups can change or become empty while a replacement
+    // unwinds this block. Follow its exact ancestry instead; a missing ancestor
+    // must reach capture's retry/unwound handling, not become a malformed witness.
+    let mut ancestor_hash = parent_hash;
+    for number in (oldest..block_number).rev() {
+        let header = provider
+            .header(ancestor_hash)?
+            .ok_or_else(|| eyre::eyre!("missing witness ancestor {number} ({ancestor_hash})"))?;
+        eyre::ensure!(
+            header.number == number && header.hash_slow() == ancestor_hash,
+            "witness ancestor identity mismatch at {number} ({ancestor_hash})"
+        );
+        ancestor_hash = header.parent_hash;
+        witness.headers.push(alloy_rlp::encode(header).into());
+    }
+    witness.headers.reverse();
     let endpoint_state_nodes = witness.state.len();
 
     // EEZ-specific augmentation: two removals-first witness passes emit the
@@ -376,6 +402,7 @@ mod tests {
     use eez_protocol::{CallMode, RollupId};
     use reth_primitives_traits::RecoveredBlock;
     use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+    use reth_storage_api::HeaderProvider;
     use std::sync::Arc;
 
     const MANAGER: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C");
@@ -545,6 +572,120 @@ mod tests {
             Vec::new(),
         );
         (provider, evm_config, block, parent_hash)
+    }
+
+    #[test]
+    fn witness_headers_follow_the_parent_hash_with_competing_branches() {
+        let (provider, evm_config, block, parent_hash) = observation_fixture();
+        let parent = provider.header(parent_hash).unwrap().unwrap();
+        let mut replacement = parent.clone();
+        replacement.extra_data = Bytes::from_static(b"replacement");
+        provider.add_header(replacement.hash_slow(), replacement);
+        let expected = vec![Bytes::from(alloy_rlp::encode(parent))];
+
+        let ordinary =
+            block_execution_witness(&provider, &evm_config, &block, ExecutionWitnessMode::Legacy)
+                .unwrap();
+        assert_eq!(ordinary.headers, expected);
+        let (observed, _) = block_execution_witness_with_observations(
+            &provider,
+            &evm_config,
+            &block,
+            ExecutionWitnessMode::Legacy,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(observed.headers, expected);
+    }
+
+    #[test]
+    fn witness_headers_reject_missing_or_inconsistent_parents() {
+        for fault in ["missing", "hash", "number"] {
+            let (provider, evm_config, block, parent_hash) = observation_fixture();
+            let mut parent = provider.header(parent_hash).unwrap().unwrap();
+            provider.headers.lock().clear();
+            if fault != "missing" {
+                if fault == "hash" {
+                    parent.extra_data = Bytes::from_static(b"replacement");
+                } else {
+                    parent.number += 1;
+                }
+                provider.add_header(parent_hash, parent);
+            }
+            let error = block_execution_witness(
+                &provider,
+                &evm_config,
+                &block,
+                ExecutionWitnessMode::Legacy,
+            )
+            .expect_err("incomplete or mismatched ancestry must not become a stored witness");
+            assert!(
+                error.to_string().contains("witness ancestor"),
+                "{fault}: {error:#}"
+            );
+        }
+    }
+
+    #[test]
+    fn witness_headers_preserve_the_complete_bounded_blockhash_window() {
+        let provider: MockEthProvider = MockEthProvider::new();
+        let mut parent_hash = B256::ZERO;
+        let mut expected = Vec::new();
+        for number in 0..=256 {
+            let header = Header {
+                number,
+                parent_hash,
+                ..Default::default()
+            };
+            parent_hash = header.hash_slow();
+            if number > 0 {
+                expected.push(Bytes::from(alloy_rlp::encode(&header)));
+            }
+            provider.add_header(parent_hash, header);
+        }
+        let replacement = Header {
+            number: 42,
+            extra_data: Bytes::from_static(b"other branch"),
+            ..Default::default()
+        };
+        provider.add_header(replacement.hash_slow(), replacement);
+        let block = RecoveredBlock::new_unhashed(
+            Block::new(
+                Header {
+                    number: 257,
+                    parent_hash,
+                    ..Default::default()
+                },
+                Default::default(),
+            ),
+            Vec::new(),
+        );
+        let mut state = revm::database::State::builder()
+            .with_database(revm::database::EmptyDB::default())
+            .build();
+        let oldest: Header = alloy_rlp::decode_exact(&expected[0]).unwrap();
+        state.block_hashes.insert(1, oldest.hash_slow());
+        let witness = super::execution_witness_from_state(
+            &provider,
+            &block,
+            ExecutionWitnessMode::Legacy,
+            &state,
+        )
+        .unwrap();
+        assert_eq!(witness.headers, expected);
+
+        state.block_hashes.insert(0, B256::ZERO);
+        let error = super::execution_witness_from_state(
+            &provider,
+            &block,
+            ExecutionWitnessMode::Legacy,
+            &state,
+        )
+        .expect_err("BLOCKHASH cannot require more than 256 ancestor headers");
+        assert!(
+            error.to_string().contains("witness ancestor window"),
+            "{error:#}"
+        );
     }
 
     /// Manager code that answers every call with `proxy`, standing in for
