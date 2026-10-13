@@ -685,3 +685,126 @@ local-only at `/tmp/rollupx-pr84-diagnostics-final-claude.txt`, SHA-256
 No new dependency, protocol or production behavior changed. The inaccessible
 release test archive and unreproduced first CI failures remain gaps; the fresh
 full hosted matrix remains the acceptance gate.
+
+## Post-merge CI correction (2026-10-13)
+
+PR #84 merged as `51d5cd792ee7d570d00d6a53ae4b5f1d168bf440` with tree
+`613801166dfb2b16c0e01254bbef40cde7ddbfec`, identical to the passing PR head
+`0a0d46af11fc4f415e3652cb06b7f9776cf924a4`. The protocol remains
+`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. The subsequent
+[main run](https://github.com/eduadiez/rollupX/actions/runs/38303851672) failed
+the vulnerability check and embedded slice 1/4. The producer, debug units,
+other seven native partitions and Kurtosis passed. The final gate correctly
+skipped commit/latest image promotion.
+
+### Dependency audit
+
+`cargo audit --json` reproduced three advisories for locked `quinn-proto 0.11.17`:
+`RUSTSEC-2026-0338`, `RUSTSEC-2026-0340`, and `RUSTSEC-2026-0343`. The local
+RustSec database was `d5f46becf4d442d460e1fce5e12f2c0f00924868`. Its reviewed
+advisories identify `0.11.18` as patched. Both the main lockfile and the separate
+Reth test lockfile update that package's version/checksum only; all other package
+entries, sources, dependency edges and the shutdown backport remain unchanged.
+The package is retained through optional dependency resolution; the current
+workspace's resolved graph contains no active path (`cargo tree --locked
+--workspace --all-features --target all -i quinn-proto`). This does not waive the lockfile
+audit or establish safety for a future QUIC-enabled build.
+
+The full lockfile contributes to validation identity. Composer and signer must
+be rebuilt/upgraded or rolled back together; an old/new pair fails capability
+agreement. There is no new wire, contract, genesis, database or follower replay
+format. Rolling back also restores the vulnerable locked version. Existing
+in-memory queue recovery limits still apply; no deployment was performed. See
+the [operator guidance](../../runbooks/chiado-deployment.md#restart-and-stop).
+
+### Settlement test synchronization
+
+The failing `interval_preserves_execution_but_waits_below_all_thresholds` test
+assumed twelve additional L2 blocks implied a successful planning hint. During
+startup catch-up, already-expired boundaries legitimately use the Empty recovery
+path without calling the planner. In the retained CI trace, the last cutoff
+reported `prepare=false, skip_post=false`; that is not a successful not-due hint.
+
+The unchanged source test reproduced the same missing-hint assertion locally
+on two CPUs (one selected test failed, 153.57 seconds including fixture binary
+compilation). The initial synchronization fix passed the same command before the
+dependency update (one selected test passed, 156.02 seconds). Claude's review
+identified that a cancelled planner may still log an unused result. The final
+test therefore waits, under the existing three-minute bound, for a not-due
+`eez.composer.slot.plan` after the observed execution height and a matching
+`eez.sequencer.slot.decision` with `prepare=false, skip_post=true`. It then waits
+through that plan's boundary and the original twelve-block progress threshold.
+It retains the zero-postBatch and absence-of-expensive-preparation assertions.
+The initial successful trace contains a real not-due hint and `skip_post=true`
+for target 78. No production scheduling, retry, timeout, or settlement rule changed.
+
+Both checks used Rust 1.95.0, Foundry 1.7.1 and the initialized protocol, with
+`EEZ_TEST_PREBUILT`, `EEZ_TEST_RUNTIME_BIN_DIR`, and `EEZ_TEST_PROOF_SIGNER_BIN`
+unset. After `forge build --root contracts`, the test command was:
+
+```bash
+taskset -c 0,2 cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- \
+  settlement_policy::interval_preserves_execution_but_waits_below_all_thresholds \
+  --exact --test-threads=1 --nocapture
+```
+
+Each run used separate `EEZ_TEST_LOG_DIR` and `EEZ_TEST_DATADIR_DIR` under the
+operator checkout's ignored `artifacts/postmerge-ci-investigation/`, with the
+existing task-owned Cargo target, `CARGO_BUILD_JOBS=4` and LLVM 22. These are
+local source-based process checks, not the published release archive or an
+independent follower replay. Local-only baseline executables, logs and datadirs
+are preserved there; another checkout cannot retrieve them. The original driver
+SHA-256 is `d544423060e31b8c85af1f4b911038360be7797c125f648d1282c7eb276b3787`,
+Composer `f62fff3b09900331c8ca3b9c0d614161462269bd8ed29b28a0effe4a22a19018`,
+and signer `fd03ff48d9c93548dc3c1f9c64d3cc1880ba1f6efa08d5ffca611bd0b4124f6a`.
+The baseline failure log hashes to
+`936d2eb7f34443fb16cd2272077c8ff017365ebfbcea7f0491ee827e35059210`.
+
+### Artifact storage and remaining checks
+
+The failed main job's diagnostic upload hit the account artifact quota. The
+repository inventory on 2026-10-13 contained only one unexpired artifact,
+3,501,006 bytes, already on three-day retention. No artifact was deleted: this
+small retained failure record does not explain the account quota by itself.
+The account billing-usage endpoint returned HTTP 403 for the current token;
+account usage/budget review and a successful fresh upload remain unverified.
+The downloaded lint and embedded failure logs are preserved locally with
+SHA-256 `d95109c6e407d556a79bf6a98c9f4e5787fc0c484a7695db88f3049731e6558a`
+and `860e6d6340e261a7b70243086ad4778a51f0f53f1c562c225514a151496f9d4d`.
+
+Both updated lockfiles pass `cargo audit` with zero vulnerabilities, retaining
+the existing nine allowed warnings in the root and six in the vendored workspace.
+`cargo deny check advisories bans sources` passes. Composer, RPC and prover-client
+library tests pass 353 tests, with `profile_blocked_backlog_discovery` excluded
+as its existing manual timing profile. Signer binary units pass 338 tests, with
+the existing `inventory_native_proving_fixtures` utility and
+`cold_span_feasibility` measurement explicitly excluded.
+
+The final source-based `settlement_policy::interval_` selection passed both tests
+with the patched lockfile and the stronger accepted-decision assertion: two
+passed, none ignored, 135 unrelated tests filtered out, 270.31 seconds including
+fixture compilation. This covers the no-posting assertions plus actual interval
+settlement and independent follower safe-prefix convergence. It does not cover
+the complete cross-chain/Kurtosis matrix. The local `final/` evidence directory
+retains the tested binaries and log, including these SHA-256 identities:
+
+| File | SHA-256 |
+| --- | --- |
+| `Cargo.lock` | `66bd0cdc1005f28790ca09a564edd4b4111a74d627139e14f50ac42600f1871c` |
+| `node_e2e` | `37f4301df2340544353a1f405340ef42ec8d132863005eed415cfabe8d739d0d` |
+| `eez-composer` | `bc80a04bc84ddcfe0f085b106623fab5d0f1fd1cea19557ddc7c905bddb32f46` |
+| `eez-follower` | `94399d69836565832e86f4a57abaa487bfa68e4e895b9397f58c323d02ed2a60` |
+| `eez-proof-signer` | `c168d18a7c5292a324a9b8fb172b5efc92226a11ee00f263fd07a24e6bca9f61` |
+| `test.log` | `765122e3244fa444ada22968e053ba5130527c724b102201eec1ab3d29c28f7a` |
+
+Claude's final read-only review inspected the actual baseline diff and found no
+blocking issue. Its outstanding documentation-status note is incorporated here;
+the review did not execute validation. The local report is
+`/tmp/rollupx-postmerge-claude-final.txt`, SHA-256
+`04829fd6f972795e6b889ff4249eb2ae2bbdb7f47118beae378b0dfaeebe197f`.
+Formatting passes. At recording, the production-selection build, final Clippy
+recheck and fresh hosted release matrix had not completed; later results belong
+in the follow-up PR's validation record. The two earlier intermittent failures
+recorded above remain separate investigations;
+this correction does not establish their root causes or complete the licensing,
+disclosure, organization, fork, package or publication gates.

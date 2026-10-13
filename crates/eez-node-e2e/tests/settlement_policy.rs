@@ -2102,7 +2102,33 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     .unwrap();
     let provider = ProviderBuilder::new().connect_http(node.l2_rpc_url().parse().unwrap());
     let height = provider.get_block_number().await.unwrap();
-    wait_for_latest_height(&node, height + 12, TIMEOUT)
+    // Startup catch-up can advance twelve blocks through expired boundaries,
+    // which intentionally skip planning. Require a later hint that the sequencer
+    // actually accepts: a cancelled planner may still log its unused result.
+    let planned_boundary = eez_testkit::wait_for(TIMEOUT, || async {
+        let signals = node.signals_since(0)?;
+        for plan in &signals {
+            if plan.name != "eez.composer.slot.plan" || plan.fields["prepare"] != false {
+                continue;
+            }
+            let target = plan.u64("target_height")?;
+            if target > height
+                && signals.iter().any(|decision| {
+                    decision.name == "eez.sequencer.slot.decision"
+                        && decision.fields["target"] == target
+                        && decision.fields["timestamp"] == plan.fields["target_timestamp"]
+                        && decision.fields["prepare"] == false
+                        && decision.fields["skip_post"] == true
+                })
+            {
+                return Ok(Some(target));
+            }
+        }
+        Ok(None)
+    })
+    .await
+    .expect("test must observe an accepted not-due planning decision after execution");
+    wait_for_latest_height(&node, (height + 12).max(planned_boundary), TIMEOUT)
         .await
         .unwrap();
     assert_eq!(
@@ -2111,13 +2137,6 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
         "included pure activity waits for an enabled trigger"
     );
     let signals = node.signals_since(0).unwrap();
-    assert!(
-        signals
-            .iter()
-            .any(|signal| signal.name == "eez.composer.slot.plan"
-                && signal.fields["prepare"] == false),
-        "test must observe a successful not-due planning decision"
-    );
     assert!(
         !signals
             .iter()
