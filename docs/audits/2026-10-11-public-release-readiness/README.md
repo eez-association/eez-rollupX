@@ -808,3 +808,10 @@ in the follow-up PR's validation record. The two earlier intermittent failures
 recorded above remain separate investigations;
 this correction does not establish their root causes or complete the licensing,
 disclosure, organization, fork, package or publication gates.
+
+The [2026-10-13 publication preflight](../2026-10-13-publication-preflight/README.md)
+records the completed final local build/Clippy results, the subsequent distinct
+admission-test CI failure, locked license inventory and broader retained-text
+disclosure review. It also records the owner's confirmation that destination
+transfer is possible but private organization Actions minutes are unavailable;
+MIT publication authority remains unconfirmed.

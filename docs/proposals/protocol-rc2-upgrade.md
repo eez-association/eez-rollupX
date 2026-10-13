@@ -12,7 +12,7 @@
 
 1. **Pin `v0.1.0-rc.2`** in this repository, for our code and tests.
 2. **Upgrade the deployed contracts in place** to rc.2: Ethereum mainnet (L2
-   696990), Chiado `eez.asuscomm.com` (906969) and Chiado `eez.dev` (699069).
+   696990), Chiado L2 906969 and Chiado `eez.dev` (699069).
    New deployments use regenerated genesis files.
 3. **Fix the pending protocol scenarios** our composer does not pass.
 
@@ -50,7 +50,7 @@
   work before and after each contract upgrade, so there is no activation height.
   The node and signer still upgrade together, as they do today.
 - An in-place upgrade never changes a network's genesis. Mainnet's and
-  `eez.asuscomm.com`'s genesis are recorded and verified under
+  Chiado L2 906969's genesis are recorded and verified under
   [`deployments/`](../../deployments/README.md). `eez.dev`'s must be added before
   its upgrade.
 
@@ -58,7 +58,7 @@
 
 | Scenario (rc.2) | In upstream `all` | Status on our composer | Plan |
 | --- | --- | --- | --- |
-| `topLevelStaticReentrantCounter` (L1→L2→L1 static) | yes | rejected: "static cross-chain calls with descendants are not supported" (seen on `eez.asuscomm.com`, tx `0xb772…3666`) | **Part A** |
+| `topLevelStaticReentrantCounter` (L1→L2→L1 static) | yes | rejected: "static cross-chain calls with descendants are not supported" (seen on Chiado L2 906969, tx `0xb772…3666`) | **Part A** |
 | `topLevelStaticReentrantCounterL2` (L2→L1→L2 static) | yes | same rejection (tx `0x0214…8981`) | **Part A** |
 | `topLevelStaticReentrantMissingProxy` / `…L2` | no (`E2E_EXCLUDE_FROM_ALL`, upstream "not ready") | not supported | Follow-up after upstream marks them ready |
 | `staticLocalWrite`, `staticLocalWriteL2`, `nestedStaticLocalWriteL1/L2` | no (upstream "not live yet") | not run | Follow-up, same condition |
@@ -138,7 +138,7 @@ fail closed on the new shapes.
 
 ### Part C: upgrade the deployed contracts
 
-Order: `eez.asuscomm.com`, then `eez.dev`, then mainnet. Ship the Part A + B
+Order: Chiado L2 906969, then `eez.dev`, then mainnet. Ship the Part A + B
 images first; they work with the old contracts.
 
 **Mainnet: use upstream's reviewed runner unchanged.**
@@ -229,7 +229,7 @@ its signature (one excluded bundle, a replaced Sync block) before re-running.
   every eligible scenario, including both `topLevelStaticReentrant…` scenarios.
 - **Operations:**
   - the mainnet runner in simulation mode before any broadcast;
-  - the `eez.asuscomm.com` rehearsal;
+  - the Chiado L2 906969 rehearsal;
   - evidence recorded per network.
 
 ## Implementation and follow-up
@@ -248,7 +248,7 @@ Status:
    runner.
 4. **Operations (pending; no contract has been upgraded):**
    - the mainnet runner in simulation mode;
-   - upgrade `eez.asuscomm.com`;
+   - upgrade Chiado L2 906969;
    - archive `eez.dev`'s genesis and upgrade it;
    - the mainnet maintenance window.
 
