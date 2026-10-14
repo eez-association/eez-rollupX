@@ -112,6 +112,15 @@ and restore indexed settlement history. Allow additional retention for downtime
 and reorg recovery to an earlier checkpoint; the latest L1 head is not a safe
 pruning boundary.
 
+Retained headers do not guarantee that `eth_getBlockByNumber` can serve old
+blocks: Reth also requires their bodies, and its `eth_getHeaderByNumber` follows
+the same path. On pruning error code `4444`, genesis and derivation authentication
+fall back to `debug_getRawHeader` at the same canonical height/tag. The reader
+exact-decodes the RLP, recomputes its hash, and retains the height, genesis identity
+and finality checks. The embedded profile already enables this RPC. An external
+source must expose it when block bodies have expired, or serve the full historical
+blocks. Missing/malformed raw headers still fail authentication.
+
 A fresh node, missing index, or rejected checkpoint can require history back to
 deployment. This fix does not recover already-pruned data. Increasing retention
 does not restore it either. If the selected recovery range is unavailable, use
@@ -136,7 +145,17 @@ Check startup in order:
 
 Before returning to local RPC, verify address-filtered `eth_getLogs` at the
 checkpoint and availability of the full recovery range, current state and blobs.
-Preserve datadirs and the working configuration for rollback. Composer and
-follower can upgrade independently for this fix; no environment variable or
-database migration is needed. Older binaries still require deployment-era logs
-at preflight, so downgrading may require the external RPC again.
+Preserve datadirs and the working configuration for rollback. Upgrade the signer
+as well as the Composer and followers: each authenticates historical L1 headers.
+The signer can upgrade first; the proof wire format, protocol pin, genesis and
+database format are unchanged. Older readers still fail on pruned block bodies;
+binaries predating checkpoint-based preflight also require deployment-era logs.
+Rolling back can therefore require a history-serving source again.
+
+The shared registry may contain other rollups with different DA formats. Readers
+exclude posts whose `BatchPosted.rollupIds` do not include their configured rollup
+before native-blob validation. Every post that does include it remains a queue
+replacement boundary, even without a root change. Upgrade Composer and follower
+readers together before relying on replay past a foreign blob-free post; older
+readers can halt at that transaction again. Verify recovery with a new canonical
+settlement and independent follower replay, not just an advancing speculative head.

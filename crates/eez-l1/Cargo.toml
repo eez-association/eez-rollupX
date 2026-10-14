@@ -21,6 +21,7 @@ alloy-eips.workspace          = true
 alloy-genesis.workspace       = true
 alloy-primitives.workspace    = true
 alloy-provider.workspace      = true
+alloy-rlp.workspace           = true
 alloy-rpc-types-eth.workspace = true
 alloy-signer.workspace        = true
 alloy-signer-local.workspace  = true
@@ -42,7 +43,6 @@ url.workspace         = true
 [dev-dependencies]
 tempfile = "3"
 alloy-network.workspace               = true
-alloy-rlp.workspace                   = true
 alloy-transport                      = { version = "2", default-features = false }
 eez-payload-codec.workspace          = true
 eez-primitives.workspace             = true

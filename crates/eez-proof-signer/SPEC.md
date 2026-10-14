@@ -440,6 +440,15 @@ block zero is final by definition and only has to match the canonical block
 zero, so a fresh private devnet can be served before its first finalized
 checkpoint. Deployment permits that reference only on private networks.
 
+Historical header authentication does not require the genesis reference's block
+body. When the operator-selected source returns pruning error code `4444` for a
+block read, the shared reader uses `debug_getRawHeader` at the same canonical
+number/tag, exact-decodes the header and recomputes its hash. Height, reference
+identity and finality checks still apply; a by-hash lookup cannot establish
+canonicality. Sources without this method must retain the corresponding block
+bodies. This fallback does not replace the logs, transactions or blobs required
+to authenticate a non-genesis accepted parent.
+
 All replayed headers, including prepared cache hits, must extend the authenticated
 parent and carry its independently established descendant seed. The registry
 root must equal that parent or a terminal prefix independently bound by execution

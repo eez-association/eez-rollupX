@@ -175,16 +175,23 @@ class BuilderControlTest(unittest.TestCase):
         self.send(request)
         self.assertEqual(self.forwarded, [request])
 
-    def test_receipt_pruning_preserves_headers_and_inclusive_boundary(self):
+    def test_history_pruning_preserves_raw_headers_and_inclusive_boundary(self):
         control = self.directory / "pruned-before.json"
         control.write_text("10")
         for start in ("earliest", "0x0", "0x9"):
             request = {"jsonrpc": "2.0", "id": 1, "method": "eth_getLogs",
                        "params": [{"fromBlock": start, "toBlock": "0x20"}]}
             self.assertEqual(self.send(request)["error"]["code"], 4444)
+            for method in ("eth_getBlockByNumber", "eth_getHeaderByNumber"):
+                request = {"jsonrpc": "2.0", "id": 1, "method": method,
+                           "params": [start, False]}
+                self.assertEqual(self.send(request)["error"]["code"], 4444)
         self.assertEqual(self.forwarded, [])
         for method, params in (("eth_getLogs", [{"fromBlock": "0xa"}]),
-                               ("eth_getBlockByNumber", ["0x0", False])):
+                               ("eth_getBlockByNumber", ["0xa", False]),
+                               ("eth_getBlockByNumber", ["finalized", False]),
+                               ("eth_getHeaderByNumber", ["0xa"]),
+                               ("debug_getRawHeader", ["0x0"])):
             request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
             self.send(request)
             self.assertEqual(self.forwarded[-1], request)

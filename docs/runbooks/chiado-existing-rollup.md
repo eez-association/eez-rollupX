@@ -58,8 +58,11 @@ block even when L2 blocks exist. Copying only `eez-reconcile-checkpoint` does no
 restore the database or complete index. Do not erase an existing database to select
 the fresh path; use separate storage and retain the recovery copy.
 
-For either path, the embedded L1 must serve the deployment block for startup and
-headers, logs, and transaction bodies throughout the scan range. The Beacon source
+For either path, the embedded L1 must serve historical canonical headers for the
+genesis reference and indexed anchors, plus logs and transaction bodies throughout
+the selected scan range. With a valid checkpoint, deployment-era bodies/logs need
+not remain available; follow [pruned-L1 recovery](ethereum-node.md#recovery-with-a-pruned-l1)
+for raw-header RPC support and recovery boundaries. The Beacon source
 must serve every batch's full blobs over that range, including the restored anchor
 block. A recent execution snapshot or Lighthouse checkpoint sync does not supply
 historical blobs. If retention no longer covers the range, obtain an archival

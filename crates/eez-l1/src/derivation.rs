@@ -153,20 +153,39 @@ async fn fetch(
     chain_id: u64,
     tag: BlockNumberOrTag,
 ) -> Result<AuthenticatedL1Header, DerivationError> {
-    let block = provider
-        .get_block_by_number(tag)
-        .await
-        .map_err(|_| DerivationError::Unavailable("canonical header RPC"))?
-        .ok_or(DerivationError::Unavailable("canonical header absent"))?;
-    let hash = block.header.inner.hash_slow();
-    if block.header.hash != hash
-        || matches!(tag, BlockNumberOrTag::Number(number) if number != block.header.number)
+    let (header, claimed_hash) = match provider.get_block_by_number(tag).await {
+        Ok(Some(block)) => (block.header.inner, block.header.hash),
+        Ok(None) => return Err(DerivationError::Unavailable("canonical header absent")),
+        // Reth's block RPC (including eth_getHeaderByNumber) requires retained
+        // bodies. Error 4444 reports expired history even when the canonical
+        // header remains available. The raw-header method reads headers alone;
+        // keep the same canonical number/tag, never fall back to a by-hash read.
+        Err(error)
+            if error
+                .as_error_resp()
+                .is_some_and(|error| error.code == 4444) =>
+        {
+            let raw: alloy_primitives::Bytes = provider
+                .raw_request("debug_getRawHeader".into(), (tag,))
+                .await
+                .map_err(|_| DerivationError::Unavailable("canonical header RPC"))?;
+            let header = alloy_rlp::decode_exact::<Header>(&raw)
+                .map_err(|_| DerivationError::Mismatch("canonical raw header encoding"))?;
+            // Bind the decoded representation to the bytes the source served,
+            // as well as checking the caller's expected canonical identity.
+            (header, alloy_primitives::keccak256(&raw))
+        }
+        Err(_) => return Err(DerivationError::Unavailable("canonical header RPC")),
+    };
+    let hash = header.hash_slow();
+    if claimed_hash != hash
+        || matches!(tag, BlockNumberOrTag::Number(number) if number != header.number)
     {
         return Err(DerivationError::Mismatch("canonical RPC header identity"));
     }
     Ok(AuthenticatedL1Header {
         chain_id,
-        header: block.header.inner,
+        header,
         hash,
     })
 }
