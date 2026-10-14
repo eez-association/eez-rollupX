@@ -151,25 +151,31 @@ for (const fixture of fixtures) {
   evidence.sources.push({ hash, quote, target: fixture.target, proxy: fixture.proxy, inner: fixture.inner, expected: String(fixture.expected) });
 }
 for (const source of evidence.sources) {
-  const paid = await receipt(l2, source.hash);
-  await until("canonical L1 target state", async () => await readUint(l1, source.target, "value()") === BigInt(source.expected));
-  assert.equal(await readUint(l2, source.inner, "completedProxyCalls()"), 1n);
-  const block = await rpc(l2, "eth_getBlockByHash", [paid.blockHash, false]);
-  assert.equal(block.miner.toLowerCase(), source.quote.policy.assumptions.beneficiary.toLowerCase());
-  const tip = BigInt(paid.gasUsed) * (BigInt(paid.effectiveGasPrice) - BigInt(block.baseFeePerGas));
-  assert(tip >= BigInt(source.quote.estimate.requiredL2Tip), "actual tip must cover the quoted tariff");
   const ownership = await until("canonical queue disposition", async () => {
     const status = await rpc(front, "eez_getCrossChainTransaction", [source.hash]);
     return status?.ownership?.canonical ? status : null;
   });
   assert.equal(ownership.ownership.reason, "Committed");
+  // A speculative receipt can disappear when a rejected posting is recomposed.
+  // Read it again only after canonical consumption, and bind it to that range.
+  const { paid, block, settlement } = await until("canonical receipt and range", async () => {
+    const paid = await rpc(l2, "eth_getTransactionReceipt", [source.hash]);
+    if (!paid) return null;
+    const block = await rpc(l2, "eth_getBlockByNumber", [paid.blockNumber, false]);
+    if (block?.hash !== paid.blockHash) return null;
+    const settlement = await rpc(front, "eez_getSettlementByL2Block", [paid.blockHash]);
+    return settlement?.canonicalL2 ? { paid, block, settlement } : null;
+  });
+  assert.equal(paid.status, "0x1");
+  await until("canonical L1 target state", async () => await readUint(l1, source.target, "value()") === BigInt(source.expected));
+  assert.equal(await readUint(l2, source.inner, "completedProxyCalls()"), 1n);
+  assert.equal(block.miner.toLowerCase(), source.quote.policy.assumptions.beneficiary.toLowerCase());
+  const tip = BigInt(paid.gasUsed) * (BigInt(paid.effectiveGasPrice) - BigInt(block.baseFeePerGas));
+  assert(tip >= BigInt(source.quote.estimate.requiredL2Tip), "actual tip must cover the quoted tariff");
   source.receipt = paid;
   source.grossL2Tip = tip.toString();
   source.ownership = ownership;
-  source.settlement = await until("source settlement correlation", async () => {
-    const settlement = await rpc(front, "eez_getSettlementByL2Block", [paid.blockHash]);
-    return settlement?.canonicalL2 ? settlement : null;
-  });
+  source.settlement = settlement;
 }
 const ceil = (value, denominator) => (value + denominator - 1n) / denominator;
 for (const hash of new Set(evidence.sources.map(source => source.settlement.l1TransactionHash))) {
