@@ -612,6 +612,19 @@ as well. Rollback restores the previous method placement and requires reverting
 client URLs. Preserve bindings, datadirs and operator configuration, and account
 for the existing loss of in-memory unsettled work on restart.
 
+The optional [L2 tariff](../configurable-settlement-policy.md#opt-in-l2-tariff-admission)
+requires a matched quote-capable dashboard, its exact Composer HTTP quote route,
+and an explicit conversion/service policy before enforcement is enabled. Drain
+or explicitly account for accepted work before activation. Preserve the normal
+L1 timing, contracts and genesis; this feature adds no protocol migration. Keep
+the indexer's L2 details URL on the Composer front, since the plain node RPC does
+not serve settlement correlations. The
+[October 14 trial](../audits/2026-10-14-l2-fee-integration/README.md) records the
+tested local image IDs, isolated validation, stopped-state upgrade, canonical
+paid calls and independent replay. Its test conversion and zero service/profit
+charges are not production prices. Retain the original database copies for
+binary rollback; disabling the tariff does not undo collected tips.
+
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer
 binaries, and matching deployment artifacts. It changes the EEZL2 immutable

@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | L2-first receipt accounting, Composer measurements, configurable shadow pricing and initial unsigned advisory quotes implemented; funding enforcement remains draft; no protocol or deployment change |
+| Design status | L2 tariff trial implemented and deployed after isolated validation; production financial reservations and L1 collection remain draft. No core protocol or genesis change. See the fifth increment and its deployment audit below. |
 | Date | 2026-10-10 |
 | Source baseline | `eduadiez/rollupX`, `main`, `fa916b13254a36423cad130080dde367bb18a7d6`; existing operator/worktree changes excluded |
 | Protocol baseline | Initialized, clean `eez-core-protocol` at `855fe0602484750861b4c31502a1a91355d33ed6` |
@@ -24,9 +24,10 @@ service can supply the estimate over HTTP; `eez_quoteCrossChainFee` is optional.
 Standard wallet fee RPCs alone do not supply arbitrary nested L1 cost data.
 Keep the existing execution rules and enforce funding in Composer admission
 and final dispatch. The network-wide tip alternative and native settlement-gas
-design remain alternatives, not the chosen v1 direction. This clarification
-does not authorize deployment. The development increments below distinguish
-implemented advisory behavior from the remaining draft enforcement design.
+design remain alternatives, not the chosen v1 direction. The later operational
+authorization and bounded Chiado tariff release are recorded in the fifth
+increment. That release does not accept the remaining production financial
+reservation design.
 
 The user's L1 constraint is **one ordinary signed application transaction, with
 the service contribution carried by its existing gas-fee fields**. The quote
@@ -348,6 +349,15 @@ multi-source traffic, ordinary/L1 regression checks, restart/reconciliation and
 independent replay. Run the exact candidate images in Kurtosis, retain image and
 binary identities, and preserve stopped live databases/configuration before
 the existing-rollup handover. Do not redeploy contracts or regenerate genesis.
+
+Completed evidence is recorded in the
+[L2 integration and Chiado trial audit](../audits/2026-10-14-l2-fee-integration/README.md).
+The deployed trial uses 1:1 base-unit conversion, a 20% risk allowance and zero
+fixed proving, operations, treasury or profit charges. Those are test assumptions,
+not qualified production prices. The audit distinguishes exact-image private
+network tests, actual public-network settlement, independent replay and mocked
+wallet tests. L1-origin fee collection and durable financial reservations remain
+outside this release.
 
 ### Wallet transport and accepted-work behavior
 
