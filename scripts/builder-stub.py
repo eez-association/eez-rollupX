@@ -120,19 +120,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     pruned_before = int(json.load(source))
             except FileNotFoundError:
                 pass
-        # Test-only receipt pruning: keep headers available, but fail even an
-        # empty address-filtered log query if its range includes pruned blocks.
-        pruned_logs = False
-        if pruned_before and body.get("method") == "eth_getLogs":
-            start = body["params"][0].get("fromBlock", "latest")
-            pruned_logs = start == "earliest" or (
+        # Model Reth's historical bodies/receipts boundary: full-block reads
+        # and even empty address-filtered log queries fail below it, while
+        # debug_getRawHeader still serves the retained canonical header.
+        pruned_history = False
+        if pruned_before:
+            start = "latest"
+            if body.get("method") == "eth_getLogs":
+                start = body["params"][0].get("fromBlock", "latest")
+            elif body.get("method") in ("eth_getBlockByNumber", "eth_getHeaderByNumber"):
+                start = body["params"][0]
+            pruned_history = start == "earliest" or (
                 start.startswith("0x") and int(start, 16) < pruned_before)
         if body.get("method") in failed_methods:
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),
                 "error": {"code": -32000, "message": "injected temporary RPC failure"},
             }).encode()
-        elif pruned_logs:
+        elif pruned_history:
             resp = json.dumps({
                 "jsonrpc": "2.0", "id": body.get("id"),
                 "error": {"code": 4444, "message": "pruned history unavailable"},

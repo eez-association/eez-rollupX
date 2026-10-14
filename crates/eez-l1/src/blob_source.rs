@@ -82,7 +82,8 @@ impl BeaconBlobSource {
     }
 
     /// Populate every batch's authenticated operations payload from its
-    /// mandatory native blobs.
+    /// mandatory native blobs. The scanner excludes posts whose registry event
+    /// does not verify our rollup; those may use a different DA profile.
     pub(crate) async fn hydrate_scanned_batches(
         &self,
         provider: &impl Provider,

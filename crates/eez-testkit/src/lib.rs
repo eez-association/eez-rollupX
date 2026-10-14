@@ -5172,9 +5172,9 @@ impl CrossChainWorld {
         Ok(())
     }
 
-    /// Reject log ranges before `block` through the fixture RPC, retaining
-    /// headers and newer logs. Zero restores full history; no data is deleted.
-    pub fn prune_rpc_logs_before(&self, block: u64) -> Result<()> {
+    /// Reject log ranges and block-by-number reads before `block`, retaining
+    /// raw headers and newer history. Zero restores reads; no data is deleted.
+    pub fn prune_rpc_history_before(&self, block: u64) -> Result<()> {
         let directory = self.builder_stub.capture_dir().join("control");
         let temporary = directory.join("pruned-before.new");
         std::fs::write(&temporary, serde_json::to_vec(&block)?)?;

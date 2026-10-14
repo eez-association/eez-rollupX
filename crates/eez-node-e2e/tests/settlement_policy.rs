@@ -2195,7 +2195,7 @@ async fn interval_posts_accumulated_activity_using_the_registration_l1_timestamp
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint() {
+async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint() {
     let mut world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
         .await
         .unwrap();
@@ -2237,8 +2237,27 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
         )
         .await
         .unwrap();
-    world.prune_rpc_logs_before(anchor).unwrap();
+    world.prune_rpc_history_before(anchor).unwrap();
     let fault_url = world.fault_rpc_url().to_owned();
+
+    // Exercise the signer's independent genesis authentication against the
+    // same pruning boundary as the Composer. The original signer uses direct
+    // L1 RPC and would otherwise hide the live failure after restart.
+    let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
+        l1_rpc_url: fault_url.clone(),
+        registry_address: world.cfg.eez_address,
+        chain_config: &world.cfg.l2_genesis.0,
+        l1_chain_config: Some(world.cfg.l1_genesis.0.to_string_lossy().into_owned()),
+        rollup_id: world.cfg.rollup_id,
+        signer_key: world.cfg.attester_key,
+        vkey: eez_testkit::signer_address(world.cfg.attester_key)
+            .unwrap()
+            .into_word(),
+        proof_system: world.cfg.proof_system_address,
+        max_request_blocks: None,
+    })
+    .await
+    .unwrap();
 
     // Without a checkpoint, the same source must still reject full replay.
     // A live RPC alone is not readiness; assert the error in the actual deriver.
@@ -2251,7 +2270,10 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     drop(fresh);
 
     world
-        .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url.clone())])
+        .restart_composer_with_env(&[
+            ("EEZ_L1_RPC_URL", fault_url.clone()),
+            ("EEZ_PROVER_URL", signer.endpoint().to_owned()),
+        ])
         .await
         .unwrap();
     // The fixture allocates a new public L2 RPC port on every reopen.
@@ -2305,14 +2327,21 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
         )
         .await
         .unwrap();
-    world.prune_rpc_logs_before(anchor + 1).unwrap();
+    world.prune_rpc_history_before(anchor + 1).unwrap();
     world
         .restart_composer_with_env(&[("EEZ_L1_RPC_URL", fault_url)])
         .await
         .unwrap();
     assert_pruned_boot_waits(&world.node).await;
-    assert_recovery_starts_at(&world.node, anchor);
-    world.prune_rpc_logs_before(anchor).unwrap();
+    assert_eq!(
+        world
+            .node
+            .count_signal(eez_testkit::signals::NODE_COMPOSER_SPAWNED)
+            .unwrap(),
+        0,
+        "unavailable checkpoint bodies must keep L1-active tasks stopped",
+    );
+    world.prune_rpc_history_before(anchor).unwrap();
     eez_testkit::wait_for(TIMEOUT, || async {
         Ok((world
             .node
@@ -2322,9 +2351,144 @@ async fn restart_with_pruned_deployment_logs_settles_and_replays_from_checkpoint
     })
     .await
     .unwrap();
+    assert_recovery_starts_at(&world.node, anchor);
     wait_for_safe_prefix_convergence(
         &[&world.node, &follower],
         receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn foreign_blob_free_post_preserves_live_settlement_and_fresh_replay() {
+    use alloy_primitives::{Address, Bytes};
+    use eez_protocol::abi::{
+        BatchPosted, ProofSystemBatchPerVerificationEntriesSol, RollupIdWithProofSystemsSol,
+        postAndVerifyBatchCall,
+    };
+    use eez_testkit::{DEV_CHAIN_ID, TARGET_DEPLOYER, onchain_nonce, sign_and_send, wait_for};
+
+    alloy_sol_types::sol! {
+        #[sol(rpc)]
+        interface IForeignRollupFixture {
+            function rollupId() external view returns (uint64);
+            function proofSystem() external view returns (address);
+        }
+    }
+
+    let world = setup_cross_chain_with_env(&policy_env(Vec::new(), "always"))
+        .await
+        .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let artifact: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            eez_testkit::repo_root()
+                .join("contracts/out/ForeignRollupFixture.sol/ForeignRollupFixture.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let mut input =
+        alloy_primitives::hex::decode(artifact["bytecode"]["object"].as_str().unwrap()).unwrap();
+    input.extend(alloy_sol_types::SolValue::abi_encode(
+        &world.cfg.eez_address,
+    ));
+    let deploy = sign_and_send(
+        &world.l1_rpc(),
+        TARGET_DEPLOYER,
+        DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), TARGET_DEPLOYER)
+            .await
+            .unwrap(),
+        None,
+        U256::ZERO,
+        input,
+        6_000_000,
+    )
+    .await
+    .unwrap();
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(deploy).await?)
+    })
+    .await
+    .unwrap();
+    assert!(receipt.status(), "foreign fixture deployment must succeed");
+    let peer = IForeignRollupFixture::new(receipt.contract_address.unwrap(), &l1);
+    let rollup_id = peer.rollupId().call().await.unwrap();
+    assert_ne!(rollup_id, world.cfg.rollup_id);
+    let proof_system: Address = peer.proofSystem().call().await.unwrap();
+    let batch = ProofSystemBatchPerVerificationEntriesSol {
+        rollupIdsWithProofSystems: vec![RollupIdWithProofSystemsSol {
+            rollupId: rollup_id,
+            proofSystemIndexes: vec![0],
+        }],
+        proofSystems: vec![proof_system],
+        proofs: vec![Bytes::new()],
+        ..Default::default()
+    };
+    let foreign = sign_and_send(
+        &world.l1_rpc(),
+        TARGET_DEPLOYER,
+        DEV_CHAIN_ID,
+        onchain_nonce(&world.l1_rpc(), TARGET_DEPLOYER)
+            .await
+            .unwrap(),
+        Some(world.cfg.eez_address),
+        U256::ZERO,
+        postAndVerifyBatchCall { batch }.abi_encode(),
+        1_000_000,
+    )
+    .await
+    .unwrap();
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(foreign).await?)
+    })
+    .await
+    .unwrap();
+    assert!(
+        receipt.status(),
+        "the pinned registry must accept the foreign batch"
+    );
+    let posted = receipt
+        .inner
+        .logs()
+        .iter()
+        .find_map(|log| log.log_decode::<BatchPosted>().ok())
+        .expect("foreign transaction must emit BatchPosted");
+    assert_eq!(posted.inner.data.rollupIds, vec![rollup_id]);
+    let tx = l1.get_transaction_by_hash(foreign).await.unwrap().unwrap();
+    assert!(tx.inner.blob_versioned_hashes().is_none());
+
+    // The running watcher must cross the foreign post and settle real work.
+    // A new follower scans that same post from deployment and replays the result.
+    let transfer = send_l2_value_transfer_confirmed(
+        &world.l2_rpc(),
+        ANVIL_KEY_1,
+        ANVIL_ADDR_3,
+        U256::from(2),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let transfer_receipt = l2.get_transaction_receipt(transfer).await.unwrap().unwrap();
+    let follower = NodeHandle::start(
+        "foreign-post-replay",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        transfer_receipt.block_number.unwrap(),
         TIMEOUT,
     )
     .await
