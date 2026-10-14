@@ -44,9 +44,9 @@ mkdir -p "$(dirname "$OUTPUT")"
         echo "EEZ_UI_DEMO_ENABLED=true"
         echo "EEZ_UI_DEMO_ACCOUNT_ADDRESS=$demo_account"
         # The generic UI bridge expects the current periphery Bridge ABI
-        # (`manager`, `bridgeEther`, and `bridgeTokens`). Point both browser
-        # bridge addresses at the CREATE2 twins deployed by this demo on L1
-        # and L2.
+        # (`manager`, `bridgeEther`, and `bridgeTokens`). The pinned scenario
+        # deploys and configures each chain's bridge separately; their addresses
+        # can differ when the fixture account has different chain nonces.
         echo "EEZ_L1_BRIDGE_SENDER=$BRIDGE_L1"
         echo "EEZ_L2_BRIDGE_RECEIVER=$BRIDGE_L2"
         echo "EEZ_UI_DEMO_BRIDGE_ADDRESS=$BRIDGE_L1"
