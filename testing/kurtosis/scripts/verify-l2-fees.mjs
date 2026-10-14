@@ -101,6 +101,10 @@ async function submitRaw(raw) {
 
 assert.equal(BigInt(await rpc(l1, "eth_chainId")), 7331n, "fixture requires private Kurtosis L1");
 assert.equal(BigInt(await rpc(l2, "eth_chainId")), 696990n, "fixture requires private Kurtosis L2");
+// A fresh PBS relay has no validator registrations yet. Its open RPC port
+// does not establish inclusion readiness; require an actual settled prefix.
+await until("initial canonical settlement", async () =>
+  BigInt((await rpc(l2, "eth_getBlockByNumber", ["safe", false])).number) > 0n, 600);
 const fixtures = [];
 for (let index = 0; index < 2; index++) {
   const key = `0x${randomBytes(32).toString("hex")}`;

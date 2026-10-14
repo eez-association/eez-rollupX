@@ -45,6 +45,8 @@ must remain compatible, including historical follower replay.
 | Dashboard browser regressions | Chromium / mocked RPC and wallets | Six fee scenarios, 25 bridge scenarios, 16 wallet-routing scenarios and 25 cross-chain scenarios passed, including eight responsive widths. This is not actual wallet-extension or real-network evidence |
 | Gateway fee route | Isolated container | Caddy accepted the prepared exact fee endpoint route; live gateway unchanged |
 | First Kurtosis startup | Exact local images / private network | Failed before node RPC startup: the profile set the L1 fee recipient but omitted `EEZ_L2_FEE_RECIPIENT`, so policy validation rejected the beneficiary mismatch. Corrected the selected test profile; first startup and node logs retained |
+| Final focused package matrix | Unit / integration | 1,038 passed, three ignored manual measurements/inventory utilities; no failures |
+| Kurtosis demo startup | Exact deploy image | The running-base wrapper used the removed `BRIDGE` export and failed after fixture deployments. Updated it to pinned `BRIDGE_L1`/`BRIDGE_L2`; the same deployment procedure then passed and started the dashboard. Bash syntax and seven deployment-preflight tests passed |
 | Failed-enclave stop | Container lifecycle | Kurtosis stopped part of the owned enclave, then failed because the never-started node was absent from its registry. Remaining containers were stopped by the exact owned enclave UUID; no operator services were stopped |
 
 The first Cargo log is local-only at
