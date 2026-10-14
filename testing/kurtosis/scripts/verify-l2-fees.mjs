@@ -113,7 +113,7 @@ for (let index = 0; index < 2; index++) {
   const outer = await deploy(l2, "NestedSetterWrapper.sol/NestedSetterOuter.json", cast("abi-encode", "f(address)", inner));
   const intent = { type: "0x2", chainId: hex(696990), from, to: outer, nonce: "0x0", gas: "0x124f80", value: "0x0", data: cast("calldata", "setViaInner(uint256)", String(123 + index)) };
   assert.equal(BigInt(intent.chainId), 696990n);
-  fixtures.push({ key, target, inner, intent, expected: BigInt(123 + index) });
+  fixtures.push({ key, target, proxy, inner, intent, expected: BigInt(123 + index) });
 }
 console.log("Two independently funded nested fixtures deployed");
 
@@ -131,7 +131,7 @@ assert.equal(BigInt(await rpc(l2, "eth_getTransactionCount", [first.intent.from,
 assert.equal(await readUint(l1, first.target, "value()"), 0n);
 console.log("Underpaid signed source rejected without queue ownership or execution");
 
-const evidence = { rejected, sources: [] };
+const evidence = { rejected, sources: [], postings: [] };
 // Quote/send independent nonces promptly. Canonical receipt evidence below
 // records whether scheduling batched them; this script does not assume it did.
 for (const fixture of fixtures) {
@@ -144,7 +144,7 @@ for (const fixture of fixtures) {
   } };
   const hash = await sendQuotedTransaction({ wallet, quote, intent: fixture.intent, maxTotalFee });
   assert.equal(signatures, 1);
-  evidence.sources.push({ hash, quote, target: fixture.target, inner: fixture.inner, expected: String(fixture.expected) });
+  evidence.sources.push({ hash, quote, target: fixture.target, proxy: fixture.proxy, inner: fixture.inner, expected: String(fixture.expected) });
 }
 for (const source of evidence.sources) {
   const paid = await receipt(l2, source.hash);
@@ -162,6 +162,29 @@ for (const source of evidence.sources) {
   source.receipt = paid;
   source.grossL2Tip = tip.toString();
   source.ownership = ownership;
+  source.settlement = await until("source settlement correlation", async () => {
+    const settlement = await rpc(front, "eez_getSettlementByL2Block", [paid.blockHash]);
+    return settlement?.canonicalL2 ? settlement : null;
+  });
+}
+const ceil = (value, denominator) => (value + denominator - 1n) / denominator;
+for (const hash of new Set(evidence.sources.map(source => source.settlement.l1TransactionHash))) {
+  const sources = evidence.sources.filter(source => source.settlement.l1TransactionHash === hash);
+  const post = await receipt(l1, hash);
+  assert.equal(post.type, "0x3", "settlement must use native blob DA");
+  assert(BigInt(post.blobGasUsed) > 0n);
+  const cost = BigInt(post.gasUsed) * BigInt(post.effectiveGasPrice) + BigInt(post.blobGasUsed) * BigInt(post.blobGasPrice);
+  const policy = sources[0].quote.policy.assumptions;
+  const subtotal = cost + BigInt(policy.proving_cost_l1) + BigInt(policy.operations_cost_l1) + BigInt(policy.treasury_cost_l1);
+  const requiredL1 = subtotal + ceil(subtotal * BigInt(policy.risk_bps), 10_000n) + ceil(subtotal * BigInt(policy.profit_bps), 10_000n);
+  const requiredL2 = ceil(requiredL1 * BigInt(policy.l1_per_l2_denominator), BigInt(policy.l1_per_l2_numerator));
+  const paid = sources.reduce((sum, source) => sum + BigInt(source.grossL2Tip), 0n);
+  assert(paid >= requiredL2, "pooled receipts must cover the complete canonical post/blob tariff");
+  assert.equal((await rpc(l1, "eth_getBlockByNumber", [post.blockNumber, false])).hash, post.blockHash);
+  evidence.postings.push({ hash, receipt: post, actualPostingCostL1: String(cost), requiredL2: String(requiredL2), paidL2: String(paid) });
+}
+for (const source of evidence.sources) {
+  assert.equal((await rpc(l2, "eth_getBlockByNumber", [source.receipt.blockNumber, false])).hash, source.receipt.blockHash);
 }
 evidence.sameNativeBlock = evidence.sources[0].receipt.blockHash === evidence.sources[1].receipt.blockHash;
 writeFileSync(output, `${JSON.stringify(evidence, null, 2)}\n`);
