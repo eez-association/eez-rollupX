@@ -51,6 +51,7 @@ ARG BUILD_PROFILE=release
 COPY --from=planner /build/recipe.json recipe.json
 # Chef omits excluded workspaces from its skeleton; their path dependencies
 # must exist before cook resolves the workspace graph.
+COPY crates/vendor/reth ./crates/vendor/reth
 # Slow, cache-friendly layer: only re-runs when the dep graph changes.
 RUN --mount=type=cache,id=cargo-registry,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=cargo-git,target=/usr/local/cargo/git,sharing=locked \
