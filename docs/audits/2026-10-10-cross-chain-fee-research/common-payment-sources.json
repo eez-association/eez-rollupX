@@ -1,0 +1,163 @@
+{
+  "recorded_at_utc": "2026-10-10T15:49:19.454951+00:00",
+  "scope": "Read-only public documentation comparison. No bundle, transaction, wallet operation or provider message. Prior malformed probes were not repeated.",
+  "source_reads": [
+    {
+      "name": "titan",
+      "url": "https://docs.titanbuilder.xyz/api/eth_sendbundle.md",
+      "read_at_utc": "2026-10-10T15:43:33.168529+00:00",
+      "http_status": 200,
+      "bytes": 4398,
+      "sha256": "67c5059df494497adb293d1d4ca3e7ed77a17334613238297aaa996adf555a26"
+    },
+    {
+      "name": "quasar",
+      "url": "https://docs.quasar.win/api/eth_sendbundle.md",
+      "read_at_utc": "2026-10-10T15:43:33.169169+00:00",
+      "http_status": 200,
+      "bytes": 2786,
+      "sha256": "44ee2eb64ad8a1380b71c7e1489c9e6c3b7b11f6c32fb48a59ea56e43ebdc840"
+    },
+    {
+      "name": "buildernet",
+      "url": "https://buildernet.org/docs/api",
+      "read_at_utc": "2026-10-10T15:43:33.169573+00:00",
+      "error": "<urlopen error [Errno 101] Network is unreachable>",
+      "alternate_read": {
+        "method": "web browser tool",
+        "outcome": "Current official API page read successfully; max-one refund source and default-last semantics reconfirmed. No raw-page hash from this method."
+      }
+    },
+    {
+      "name": "eureka",
+      "url": "https://docs.eurekalabs.xyz/order-flow/api/eth_sendbundle.md",
+      "read_at_utc": "2026-10-10T15:43:33.461761+00:00",
+      "http_status": 200,
+      "bytes": 7451,
+      "sha256": "e697b5f0b6ae997945241994e4fbbbe3a51913a02bde9b39572174ba46c10565"
+    },
+    {
+      "name": "bombora",
+      "url": "https://bombora.build/docs/eth-sendBundle/",
+      "read_at_utc": "2026-10-10T15:43:33.623526+00:00",
+      "http_status": 200,
+      "bytes": 59255,
+      "sha256": "1e1ae924f7ce2af3dd1dc63205f35dadf5b4ac4f88d7245cc59feea4084c8495"
+    },
+    {
+      "name": "btcs",
+      "url": "https://www.btcs.com/builder-docs/",
+      "read_at_utc": "2026-10-10T15:43:33.725793+00:00",
+      "http_status": 200,
+      "bytes": 195705,
+      "sha256": "745a36062d1224b3a5c7110f7cdc2b0c30bcfac7bc05eab27989614f12c80c25"
+    },
+    {
+      "name": "ultrasound",
+      "url": "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/bundle-rpc.md",
+      "read_at_utc": "2026-10-10T15:43:33.888536+00:00",
+      "http_status": 200,
+      "bytes": 3345,
+      "sha256": "942b17dce2cbef98a0a89925fc8db89cc36d35e436758436aa39d65a65eac44d"
+    },
+    {
+      "name": "beaver",
+      "url": "https://beaverbuild.org/docs.html",
+      "read_at_utc": "2026-10-10T15:43:34.014109+00:00",
+      "http_status": 200,
+      "bytes": 5255,
+      "sha256": "4c2ad1c1b8e031aca8f9b918b1c1d537c35a68a22161bd474945960c12129a4f"
+    },
+    {
+      "name": "mev_share_spec",
+      "url": "https://raw.githubusercontent.com/flashbots/mev-share/main/specs/bundles/v0.1.md",
+      "read_at_utc": "2026-10-10T15:43:34.143817+00:00",
+      "http_status": 200,
+      "bytes": 8085,
+      "sha256": "17e90785ce2dbb6d0ae6a0c566c12b9dc8e66f9f6dc3a70eab873011c357595b"
+    },
+    {
+      "name": "flashbots_rpc",
+      "url": "https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint",
+      "read_at_utc": "2026-10-10T15:43:34.241971+00:00",
+      "http_status": 200,
+      "bytes": 187021,
+      "sha256": "5a186c8d1af5806c1a7358fcc71e4b23aa85150480a48d563e67ea544879cfa8"
+    }
+  ],
+  "raw_source_availability": "Successful response bodies are local-only in /tmp/rollupx-builder-compatibility-20261010; public URLs and hashes are retained for later retrieval/comparison. Unavailable raw snapshots are not claimed portable.",
+  "provider_profiles": [
+    {
+      "name": "Titan",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "unconfirmed; selector cardinality and aggregation not established",
+      "value_sponsorship": "gas and transaction value documented; exact operator payment untested",
+      "payout_deduction": "example deducts transfer cost before percentage; qualify actual formula",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "Quasar",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "refundTxHashes explicitly limited to one",
+      "value_sponsorship": "only gas explicitly promised by reviewed documentation",
+      "payout_deduction": "not sufficiently specified for a net-amount guarantee",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "BuilderNet",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "refundTxHashes explicitly limited to one",
+      "value_sponsorship": "no deployed support established",
+      "payout_deduction": "example deducts transfer cost after percentage; optional delayed mode separate",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "Eureka",
+      "single_user_refund": "documented; use v2 and nonzero recipient",
+      "pooled_sources": "1 through 16 unique included hashes",
+      "value_sponsorship": "not established",
+      "payout_deduction": "in-block net payout after transaction fee; detailed rounding needs qualification",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "Bombora",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "explicit sum of selected transaction coinbase profit",
+      "value_sponsorship": "not established",
+      "payout_deduction": "floor of percentage then transfer cost; same-recipient transfers may be coalesced",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "BTCS Builder+",
+      "single_user_refund": "refund fields documented, default last; version absent or v2+",
+      "pooled_sources": "array is documented; cardinality and aggregation remain unconfirmed",
+      "value_sponsorship": "not established",
+      "payout_deduction": "not sufficiently specified for a net-amount guarantee",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "Ultra Sound",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "maximum one hash",
+      "value_sponsorship": "not established",
+      "payout_deduction": "must be qualified for exact workload",
+      "exact_workload_live_qualified": false
+    },
+    {
+      "name": "Beaverbuild",
+      "single_user_refund": "documented, defaults to final transaction",
+      "pooled_sources": "more than one hash explicitly rejected",
+      "value_sponsorship": "not established",
+      "payout_deduction": "example deducts transfer cost after percentage",
+      "exact_workload_live_qualified": false
+    }
+  ],
+  "common_profile": "Fund all submitted senders; one strict native-blob post plus ordered sources; refund one actual external user transaction to the operator treasury, using final-transaction default only when execution dependencies permit. Every receiving builder must independently cover the whole required net receipt.",
+  "common_profile_status": "Documentation candidate only; not universal live compatibility, efficient pooled fee allocation, or guaranteed atomic settlement.",
+  "other_routes": {
+    "mev_share": "Generic nesting/refunds exist, Flashbots public RPC documents one backrun; prior public Titan/Quasar method probes returned -32601. This does not qualify private routes.",
+    "overlap": "No established joint inclusion and refund contract for independently submitted bundles sharing a post. Allowing duplicate post omission does not guarantee all payer bundles execute.",
+    "self_funded_anchor": "Refunding operator-funded tips is an expense rebate, not external fee revenue.",
+    "provider_extension": "Multiple external source hashes and one combined refund is a proposed integration target where currently limited; no provider acceptance or deployed change is asserted."
+  }
+}

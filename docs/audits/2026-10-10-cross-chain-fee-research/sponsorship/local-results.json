@@ -1,0 +1,141 @@
+{
+  "scope": "Isolated native-blob funding experiment; never connects to a public RPC.\n\nUses the pinned EEZ bytecode, a hash-checking mock proof system, and synthetic\nL1 companions. This does not run Composer, an L2 prover, or a production builder.\nRetained to reproduce the funding/fee boundary without operator wallets/state.\n",
+  "cases": [
+    {
+      "name": "zero_balance_without_funding",
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "execution_cap_only",
+      "balance_wei": 1000000000000000,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "one_wei_below_full_reserve",
+      "balance_wei": 1131071999999999,
+      "result": {
+        "error": {
+          "code": -32003,
+          "message": "Insufficient funds for gas * price + value"
+        }
+      }
+    },
+    {
+      "name": "wrong_slot_reverts",
+      "status": "0x0",
+      "blob_gas_used": 131072
+    },
+    {
+      "name": "sponsored_first_batch",
+      "funding_wei": 1131072000000000,
+      "poster_balance_before_wei": 0,
+      "poster_balance_after_wei": 1047917999868928,
+      "post_cost_wei": 83154000131072,
+      "post_gas_used": 83154,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5948850000000000,
+      "builder_net_wei": 4796778000000000,
+      "txpool_only_balance_override": true,
+      "transaction_count": 5,
+      "transaction_hashes": [
+        "0xb9e3ad98d1dae21327b273244ff22207d158c2952c9ac11b5d5fb32330fb9752",
+        "0xe0aa782e3cd3fc2c0653e46e030d477b3abf75cdc714108a3a259d4acf3480b3",
+        "0xd37ae76f301c6b808e1777c61be6984880b7a7fac254af4f66a9e8a5f6b0bd91",
+        "0x1acb7aab33400063c59e25db37b521fb114f8ac11c6924dbfdcc3bce39916ce1",
+        "0xfe46900b93cd1efece24b18b1299b642c855119f0fdce227b879470a90757b19"
+      ]
+    },
+    {
+      "name": "sponsored_residual_balance",
+      "funding_wei": 83154000131072,
+      "poster_balance_before_wei": 1047917999868928,
+      "poster_balance_after_wei": 1065017999868928,
+      "post_cost_wei": 66054000131072,
+      "post_gas_used": 66054,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5093850000000000,
+      "builder_net_wei": 4989695999868928,
+      "txpool_only_balance_override": true,
+      "transaction_count": 5,
+      "transaction_hashes": [
+        "0x4a14f22c9227c9d3f2a89073f020c471cfcb2321effdef75ca521a6b366006e4",
+        "0xf0f317d1b5ac5e576860fc42c475132cf1422cb4e5162935ebc3bb42fce7a5ba",
+        "0x5fa8a8bb5f13ff181a9c6e1769085b76a2f90b3032c39da233546e387136d2c5",
+        "0xac19e9939ea82275f7d35599e9aa55c5b897a62dfd3ab085001a5c16e6611af5",
+        "0x14dd21242107bfb5552504874560359496e6c47bbf45f34b1b885762e03d8000"
+      ]
+    },
+    {
+      "name": "funded_poster_no_topup",
+      "funding_wei": 0,
+      "poster_balance_before_wei": 2262144000000000,
+      "poster_balance_after_wei": 2196077999868928,
+      "post_cost_wei": 66066000131072,
+      "post_gas_used": 66066,
+      "blob_cost_wei": 131072,
+      "customer_tips_wei": 5093850000000000,
+      "builder_net_wei": 5093850000000000,
+      "txpool_only_balance_override": false,
+      "transaction_count": 4,
+      "transaction_hashes": [
+        "0x6c0c2991f0ca0b0d4618e73d0fe2c8874a8a2ca4e349a5f58d9414c0e2a8fdec",
+        "0xc1210ef2fcd0f257daef64dcbf05594c0b769ce474f5154031e1d652855dd307",
+        "0x1ee669b737e9c949d8f80f28172a8bf56ac5454b2003c2e8c7742a5c7abca5b7",
+        "0x44db660da4ff849f0c7a24b4b669bbe82365d5580be93cf3c7c58e5b2bbeb751"
+      ]
+    }
+  ],
+  "local_evidence_directory": "/tmp/rollupx-sponsorship-1t_4acqe",
+  "source": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "fixture_sha256": {
+    "Probe.sol": "4a5e5d9029005702c42ef8b4bb778e0ea814d909612de6cdf22ce8fa55d84756",
+    "verify-local.py": "3ddc9dae96627f8efa302af6a3847400c598ec873411ab24b0cc956a430178e4"
+  },
+  "executables": {
+    "forge": {
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c",
+      "version": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "cast": {
+      "sha256": "ccd95a4607ca3ebfcb88bb90e7235cdb7f0564f5f1afa17478d5fccabbb222cb",
+      "version": "cast Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    },
+    "anvil": {
+      "sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b",
+      "version": "anvil Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+    }
+  },
+  "eez_artifact_sha256": "d3a0d29d34b7c1e67a7f7828aaa13e4aa6204fadb0f2a69e10e92b212398dd96",
+  "eez_metadata_source_files_verified": 10,
+  "probe_bytecode_sha256": "c370d4f0853bf80528a02bb41f9b97dfa1a0fa2de8e624f91b9429fdcae0f2ea",
+  "blob_hash": "0x018b37b74ce5c153db8ef031128a05ea076b13184b329a092f0fb992b3cb2611",
+  "reserve_wei": 1131072000000000,
+  "registry": "0xbffd8af45475e4206173724903979b68ea1b1e85",
+  "probe": "0xdc394460413c930e98a5ac641c56fc0d3e5277a9",
+  "status": "passed",
+  "environment": {
+    "chain_id": 31337,
+    "hardfork": "osaka",
+    "blob_sidecar": "EIP-7594",
+    "base_fee_wei_per_gas": 1000000000,
+    "network": "disposable loopback Anvil only"
+  },
+  "evidence_limits": [
+    "Hash-checking mock proof verifier and empty execution tables, not the production proof signer or L2 state transitions.",
+    "Three synthetic L1 companions require the same-block verification marker; they are not actual cross-chain requests.",
+    "The runner constructs funding explicitly; Titan and Quasar algorithms were not executed.",
+    "Temporary Anvil balance overrides are used only for txpool admission and restored before mining; on-chain balance deltas and exact transaction order are asserted.",
+    "No independent follower replay or production Composer process test."
+  ]
+}

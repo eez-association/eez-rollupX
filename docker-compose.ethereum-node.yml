@@ -62,6 +62,9 @@ services:
       # Coinbase of every L2 block (priority fees). Required so the operator
       # chooses it explicitly; the zero address is allowed if set deliberately.
       EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
+      # Optional application quote and shadow-pricing assumptions.
+      EEZ_L2_FEE_SHADOW_POLICY:
+      EEZ_L2_FEE_ENFORCE_TARIFF:
       # One relay URL or a comma-separated list; forwarded unchanged.
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
       # X-Flashbots-Signature key; BuilderNet rejects unsigned bundles.

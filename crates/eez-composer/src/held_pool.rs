@@ -930,7 +930,7 @@ impl HeldPool {
     /// Includes newly admitted users, which enter the submission ledger only
     /// when an attempt begins. Replacement, eviction and release remove this
     /// ownership, while draining/requeueing preserves it.
-    pub(crate) fn owns(&self, hash: TxHash) -> bool {
+    pub fn owns(&self, hash: TxHash) -> bool {
         let state = self.state.lock().expect("held_pool mutex poisoned");
         state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
     }

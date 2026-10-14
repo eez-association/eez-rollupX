@@ -40,6 +40,7 @@ def settlement_environment(values):
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
         "EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS", "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS",
+        "EEZ_L2_FEE_RECIPIENT", "EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF",
     ]
     result = {}
     for name, value in values.items():
@@ -422,6 +423,7 @@ def run(plan, args):
                 files=ui_files,
                 env_vars={
                     "EEZ_UI_ENCLAVE": "kurtosis",
+                    "EEZ_UI_L2_FEES_ENABLED": eez.get("settlement_env", {}).get("EEZ_L2_FEE_ENFORCE_TARIFF", "false"),
                     "EEZ_UI_DEMO_PRIVATE_KEY": eez.get(
                         "demo_private_key",
                         "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",

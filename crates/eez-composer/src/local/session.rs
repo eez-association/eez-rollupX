@@ -88,13 +88,16 @@ impl LocalExecutionSession {
     /// `cache` preloads in-flight state captured before a nested dispatch;
     /// `None` opens a fresh revm state. `overlay_channel` publishes cumulative
     /// state after execution so a suspended inspector can apply the diff.
+    /// A quote context pins both cold state reads and block opcodes. Reentrant
+    /// frames must not open `latest` after their source has begun. Normal
+    /// composition supplies no override and keeps its existing latest-state path.
     ///
     /// # Errors
     ///
     /// Returns [`ExecutorErrorKind::Provider`] if reading the latest
     /// block number or header fails, or if opening the state provider
     /// fails.
-    pub fn new(
+    pub(crate) fn new(
         provider: &ChainProvider,
         manager_address: Address,
         inspector_factory: Option<SessionInspectorFactory>,

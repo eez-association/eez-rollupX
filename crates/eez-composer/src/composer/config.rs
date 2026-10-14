@@ -18,6 +18,8 @@ pub struct ComposerSettings {
     /// the existing operator count limit, including the unset default of 50.
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
+    pub(super) enforce_l2_fee_tariff: bool,
+    pub(super) shadow_fee_policy: Option<super::fees::pricing::Policy>,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
     /// Coinbase of every L2 block this node builds, Live and Sync alike, so
@@ -161,6 +163,23 @@ impl ComposerSettings {
             ),
         };
         let max_speculative_depth = policy.max_speculative_depth;
+        let shadow_fee_policy =
+            super::fees::pricing::Policy::parse(get(super::fees::pricing::SETTING)?, fee_recipient)
+                .map_err(PolicyError::Config)?;
+        let enforce_l2_fee_tariff = match get("EEZ_L2_FEE_ENFORCE_TARIFF")?.as_deref() {
+            None | Some("false") => false,
+            Some("true") if shadow_fee_policy.is_some() => true,
+            Some("true") => {
+                return Err(PolicyError::Config(
+                    "tariff enforcement requires EEZ_L2_FEE_SHADOW_POLICY".into(),
+                ));
+            }
+            Some(_) => {
+                return Err(PolicyError::Config(
+                    "EEZ_L2_FEE_ENFORCE_TARIFF must be true or false".into(),
+                ));
+            }
+        };
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
             get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
@@ -173,6 +192,8 @@ impl ComposerSettings {
             max_blobs_per_batch,
             max_user_txs_per_bundle,
             posting_fees,
+            shadow_fee_policy,
+            enforce_l2_fee_tariff,
             gas_trace,
             emission,
             fee_recipient,
@@ -313,6 +334,7 @@ mod tests {
     #[test]
     fn operational_defaults_have_no_implicit_blob_or_gas_cap() {
         let config = settings(&[]).unwrap();
+        assert!(config.shadow_fee_policy.is_none());
         assert_eq!(config.max_blobs_per_batch, None);
         assert_eq!(config.max_speculative_depth(), 0);
         assert_eq!(config.emission.max_blocks, u64::from(u32::MAX));
@@ -322,6 +344,53 @@ mod tests {
         assert_eq!(fees.priority_max, 2_000_000_000);
         assert_eq!(fees.gas_margin_bps, 500);
         assert_eq!(fees.declared_gas(100_000, 105_000).unwrap(), 105_000);
+    }
+
+    #[test]
+    fn tariff_enforcement_is_explicit_and_requires_complete_policy() {
+        assert!(!settings(&[]).unwrap().enforce_l2_fee_tariff);
+        assert!(
+            !settings(&[("EEZ_L2_FEE_ENFORCE_TARIFF", "false")])
+                .unwrap()
+                .enforce_l2_fee_tariff
+        );
+        for value in ["", "0", "1", "TRUE", "bad", "true"] {
+            assert!(settings(&[("EEZ_L2_FEE_ENFORCE_TARIFF", value)]).is_err());
+        }
+        let policy = super::super::fees::pricing::tests::policy_json().to_string();
+        let beneficiary = Address::repeat_byte(4).to_string();
+        assert!(
+            settings(&[
+                ("EEZ_L2_FEE_ENFORCE_TARIFF", "true"),
+                ("EEZ_L2_FEE_SHADOW_POLICY", &policy),
+                ("EEZ_L2_FEE_RECIPIENT", &beneficiary)
+            ])
+            .unwrap()
+            .enforce_l2_fee_tariff
+        );
+    }
+
+    #[test]
+    fn shadow_pricing_policy_is_an_optional_validated_startup_snapshot() {
+        let raw = super::super::fees::pricing::tests::policy_json().to_string();
+        let beneficiary = Address::repeat_byte(4).to_string();
+        let config = settings(&[
+            (super::super::fees::pricing::SETTING, &raw),
+            ("EEZ_L2_FEE_RECIPIENT", &beneficiary),
+        ])
+        .unwrap();
+        assert!(
+            config
+                .shadow_fee_policy
+                .unwrap()
+                .validate_network(1, 9, [1])
+                .is_ok()
+        );
+        // A pricing policy cannot silently redirect the sequencer's beneficiary.
+        assert!(settings(&[(super::super::fees::pricing::SETTING, &raw)]).is_err());
+        for raw in ["", "null", "{}", "bad"] {
+            assert!(settings(&[(super::super::fees::pricing::SETTING, raw)]).is_err());
+        }
     }
 
     #[test]

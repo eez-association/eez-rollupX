@@ -263,6 +263,18 @@ class SettlementEnvironmentTest(unittest.TestCase):
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE="90",
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE="3500000000")
         self.assertEqual(configure(cross_chain), cross_chain)
+        for policy in ("", "bad", '{"version":1}'):
+            explicit = dict(values, EEZ_L2_FEE_SHADOW_POLICY=policy,
+                            EEZ_L2_FEE_RECIPIENT="0x" + "44" * 20)
+            self.assertEqual(configure(explicit), explicit)
+        with self.assertRaises(ValueError):
+            configure(dict(values, EEZ_L2_FEE_SHADOW_POLICY={"version": 1}))
+        self.assertNotIn("EEZ_L2_FEE_ENFORCE_TARIFF", configure(values))
+        for enforcement in ("true", "false", "", "invalid"):
+            explicit = dict(values, EEZ_L2_FEE_ENFORCE_TARIFF=enforcement)
+            self.assertEqual(configure(explicit), explicit)
+        with self.assertRaises(ValueError):
+            configure(dict(values, EEZ_L2_FEE_ENFORCE_TARIFF=True))
         without_priority_bound = dict(values)
         without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
         with self.assertRaises(ValueError):

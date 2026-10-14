@@ -311,6 +311,7 @@ struct Ctx {
     /// Local Composer-only methods. Never installed on an upstream node RPC.
     composer_methods: jsonrpsee::RpcModule<()>,
     estimator: Option<EstimationService>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 }
 
 /// Verify that a configured cross-chain front points at its expected source chain.
@@ -340,7 +341,7 @@ pub async fn validate_cross_chain_front(
 /// # Errors
 /// Fails if the listener can't bind or the reqwest client can't be built.
 #[cfg(test)]
-pub async fn run_cross_chain_front(
+pub(crate) async fn run_cross_chain_front(
     port: u16,
     upstream_rpc_url: String,
     direction: Direction,
@@ -350,6 +351,7 @@ pub async fn run_cross_chain_front(
     dispatch_address: Address,
     ready: Arc<std::sync::atomic::AtomicBool>,
     composer_info: Arc<Value>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 ) -> eyre::Result<()> {
     let mut composer_methods = jsonrpsee::RpcModule::new(());
     composer_methods.merge(crate::queue_rpc::module(Arc::clone(&held_pool))?)?;
@@ -365,6 +367,7 @@ pub async fn run_cross_chain_front(
         composer_info,
         composer_methods,
         None,
+        fee_quotes,
     )
     .await
 }
@@ -381,6 +384,7 @@ pub(crate) async fn run_cross_chain_front_with_estimator(
     composer_info: Arc<Value>,
     composer_methods: jsonrpsee::RpcModule<()>,
     estimator: Option<EstimationService>,
+    fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 ) -> eyre::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await?;
@@ -409,6 +413,7 @@ pub(crate) async fn run_cross_chain_front_with_estimator(
         composer_info,
         composer_methods,
         estimator,
+        fee_quotes,
     };
     loop {
         let (stream, _peer) = match listener.accept().await {
@@ -632,11 +637,17 @@ async fn handle(
             .expect("valid response"));
     }
 
-    if content_length_exceeds(&req, MAX_BODY) {
+    let fee_quote = req.uri().path() == crate::fee_quotes::PATH;
+    let max_body = if fee_quote {
+        crate::fee_quotes::MAX_BODY
+    } else {
+        MAX_BODY
+    };
+    if content_length_exceeds(&req, max_body) {
         return Ok(body_too_large());
     }
 
-    let body_bytes = match collect_body_limited(req.into_body(), MAX_BODY).await {
+    let body_bytes = match collect_body_limited(req.into_body(), max_body).await {
         Ok(Ok(bytes)) => bytes,
         Ok(Err(())) => return Ok(body_too_large()),
         Err(e) => {
@@ -649,8 +660,40 @@ async fn handle(
     };
 
     let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) else {
+        if fee_quote {
+            let (status, value) =
+                crate::fee_quotes::error(StatusCode::BAD_REQUEST, "invalid_json", "invalid JSON");
+            let mut response = json_response(value.to_string());
+            *response.status_mut() = status;
+            return Ok(response);
+        }
         return Ok(rpc_error(Value::Null, -32700, "parse error"));
     };
+
+    if fee_quote {
+        let (status, value) = if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
+            crate::fee_quotes::error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "starting_up",
+                STARTING_UP_MSG,
+            )
+        } else if let Some(service) = &ctx.fee_quotes {
+            service.quote(&json).await
+        } else {
+            crate::fee_quotes::error(
+                StatusCode::NOT_FOUND,
+                "quotes_disabled",
+                "quotes are available only on a configured L2 front",
+            )
+        };
+        let mut response = json_response(value.to_string());
+        *response.status_mut() = status;
+        response.headers_mut().insert(
+            "Cache-Control",
+            hyper::header::HeaderValue::from_static("no-store"),
+        );
+        return Ok(response);
+    }
 
     // A JSON-RPC batch array would bypass the single-tx intercept and forward a
     // bundled cross-chain tx straight to the mempool; reject any batch carrying
@@ -835,6 +878,23 @@ async fn intercept_send_raw(
     // nothing drains. Ordinary transactions took the forwarding branch above.
     if !ctx.ready.load(std::sync::atomic::Ordering::Relaxed) {
         return Some(rpc_error(id, -32000, STARTING_UP_MSG));
+    }
+    if ctx.direction == Direction::Outbound
+        && let Some(service) = &ctx.fee_quotes
+        && service.enforce_tariff
+    {
+        if ctx.held_pool.owns(hash) {
+            return Some(json_response(
+                serde_json::json!({"jsonrpc":"2.0","id":id,"result":hash}).to_string(),
+            ));
+        }
+        let (status, result) = service.check_signed(&envelope).await;
+        if !status.is_success() {
+            return Some(json_response(serde_json::json!({
+                "jsonrpc":"2.0", "id":id,
+                "error":{"code":-32003,"message":"L2 settlement tariff admission failed", "data":result["error"]}
+            }).to_string()));
+        }
     }
     let resp_body = match gate_and_hold(
         &envelope,
@@ -1427,6 +1487,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             Arc::new(info.clone()),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -1480,6 +1541,7 @@ mod tests {
                 Address::ZERO,
                 Arc::new(std::sync::atomic::AtomicBool::new(false)),
                 Arc::new(info.clone()),
+                None,
             ));
             wait_for_front(port).await;
             for id in [
@@ -1572,6 +1634,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(false)),
             Arc::new(info.clone()),
+            None,
         ));
         wait_for_front(port).await;
         let mut ordinary = discovery_request(serde_json::json!("ordinary"));
@@ -1878,6 +1941,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         let outbound_task = tokio::spawn(run_cross_chain_front(
             outbound_port,
@@ -1889,6 +1953,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(inbound_port).await;
         wait_for_front(outbound_port).await;
@@ -1943,6 +2008,7 @@ mod tests {
             Address::ZERO,
             Arc::clone(&ready),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -2039,6 +2105,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 
@@ -2088,6 +2155,7 @@ mod tests {
             Address::ZERO,
             Arc::new(std::sync::atomic::AtomicBool::new(true)),
             Arc::new(serde_json::json!({"fixture": true})),
+            None,
         ));
         wait_for_front(port).await;
 

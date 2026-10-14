@@ -853,6 +853,19 @@ envelope may be repriced, and its complete bundle is simulated again. Dispatch
 rechecks network identity, canonical fee-sample identity, and target. Existing
 attempt ownership governs sent transactions.
 
+Final preflight also emits [shadow fee observations](proposals/cross-chain-fee-recovery.md#second-development-increment-composer-shadow-fee-evidence)
+in the existing posting/admission event details. These pair the complete
+postBatch's measured gas and physical blob cost with gross ordinary tips from
+the final L2 terminal-block receipts, keeping native system gas separate at
+zero price. The L2 source set is checked against the settlement manifest. Costs
+and tips retain their own chain units and exact candidate context. Without the
+optional [shadow pricing policy](#shadow-l2-fee-pricing), realization,
+proving/operations, risk and profit remain unpriced. Missing or inconsistent
+accounting is reported as unavailable and does not alter dispatch, scheduling,
+accepted-work ownership, retries or canonical reconciliation. These observations
+have no admission authority and require no protocol or
+storage migration. They do not constitute a user quote or recovered revenue.
+
 Restart discards the policy's in-memory intent and cached summaries. Canonical
 anchors and pending activity are rebuilt under the new configuration. Restart
 time never becomes a settlement timestamp. Existing nonce and source-outcome
@@ -898,6 +911,275 @@ window for isolated native-test L1 miners exists because those miners have no
 peers from which to recover lost history. Operational policy-change tests must
 use graceful shutdown; deliberate crash tests must establish any required durable
 fixture state before killing the process.
+
+## Shadow L2 fee pricing
+
+`EEZ_L2_FEE_SHADOW_POLICY` optionally prices the already prepared candidate using
+explicit operator assumptions. It never changes transaction fees, admission,
+dispatch, execution, queue ownership or financial reservations. An absent value
+keeps existing unpriced accounting. Empty or invalid values fail startup; there
+are no implicit monetary defaults. Read once by `ComposerSettings`, with process
+environment before `.env` before `deployments.env`; restart is required to
+change it. There is no CLI override. Chiado and external Kurtosis Compose pass
+it only to the Composer. Kurtosis `eez.settlement_env` accepts its JSON string
+and `EEZ_L2_FEE_RECIPIENT`; neither reaches the proof signer or follower.
+
+The value is one JSON object, at most 8192 bytes, with all the following fields
+required and unknown fields rejected:
+
+| Field | Type and meaning |
+| --- | --- |
+| `version` | Integer `1`. |
+| `l1_chain_id`, `l2_chain_id`, `rollup_id` | Positive u64 integers matching the actual Composer wiring. |
+| `beneficiary` | Nonzero 20-byte address equal to `EEZ_L2_FEE_RECIPIENT`; rechecked against the measured block. Configuring it asserts expected control but does not verify possession of a key. |
+| `valid_until_l1_timestamp` | Positive u64 Unix seconds; the exact candidate target must be at or before this timestamp. Expiry makes pricing unavailable, without blocking execution. |
+| `l1_per_l2_numerator`, `l1_per_l2_denominator` | Positive U256 decimal strings: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
+| `proving_cost_l1`, `operations_cost_l1`, `treasury_cost_l1` | Nonnegative U256 decimal strings charged once per complete post. Explicit zero is allowed. Treasury cost includes the allocated fixed cost of realizing/sweeping L2 income. These are configured allowances, not measured compute expenses. |
+| `risk_bps`, `profit_bps` | Integers from 0 to 10000, each independently applied to posting plus the three fixed costs. |
+| `excluded_senders` | Array of at most 64 distinct 20-byte operator addresses. The current L1 poster and beneficiary are always excluded too. An empty list is explicit; senders outside it are only assumed external. |
+
+Amounts always carry their chain's base-unit denomination; token symbols do not
+define a conversion. The policy identifier is Keccak-256 of the parsed object's
+JSON serialization, and the complete assumptions accompany each comparison.
+It identifies assumptions, not an authorization or a treasury price certificate.
+
+For example, the following **synthetic fixture** illustrates JSON quoting and
+explicit units, not production prices or an instruction to enable this policy:
+
+```bash
+export EEZ_L2_FEE_SHADOW_POLICY='{"version":1,"l1_chain_id":1337,"l2_chain_id":1,"rollup_id":1,"beneficiary":"0x4444444444444444444444444444444444444444","valid_until_l1_timestamp":2000000000,"l1_per_l2_numerator":"2","l1_per_l2_denominator":"3","proving_cost_l1":"7","operations_cost_l1":"5","treasury_cost_l1":"3","risk_bps":1000,"profit_bps":500,"excluded_senders":[]}'
+```
+
+Let `P` be final native L1 post execution plus physical blob cost, `F` the sum of
+the three fixed costs, and `n/d` the configured conversion:
+
+```text
+subtotal_l1 = P + F
+required_l1 = subtotal_l1 + ceil(subtotal_l1 × risk_bps / 10000)
+                         + ceil(subtotal_l1 × profit_bps / 10000)
+required_l2 = ceil(required_l1 × d / n)
+projected_recovery_l1 = floor(eligible_effective_L2_tips × n / d)
+```
+
+Arithmetic uses checked U256 totals and U512 intermediate products. Overflow
+makes pricing unavailable. Base-fee burns, native system gas, historical L2 fees
+and excluded senders cannot supply projected recovery. The complete L1 post
+includes shared historical DA and all nested work, even for a single source.
+No expense paid by an L1 companion or bridged principal is counted as poster
+cost. No L1 builder refund is assumed as income.
+
+`fee_observation` version 2 adds `pricing` with the assumptions, required amounts,
+eligible/excluded tips, projected recovery, and mutually exclusive nonnegative
+`shortfall_l1`/`surplus_l1`. Successful calculation sets `pricing_status` to
+`shadow_priced`. `pricing.comparison` (`covered` or `shortfall`) is hypothetical
+coverage of the complete candidate under those assumptions, with no liquidity
+or partial-consumption guarantee. `qualified_recovery_l1` remains null.
+
+Only a single eligible L2 source with no L1 companions gets
+`required_tip_per_gas = ceil(required_l2 / source_receipt_gas)` and
+`minimum_max_fee_per_gas_at_current_base = current_L2_base + required_tip`.
+Both are L2 base units per gas. The latter has **no future base-fee headroom**.
+These are diagnostic minimums for current signed bytes and execution context,
+not wallet-ready quotes; changing fees can change execution. Shared/mixed
+candidates use `tip_status: standalone_estimate_required` and a null tip.
+Zero source gas, excluded sources and values exceeding u128 signed fee fields
+have explicit statuses and null tip fields. Native system gas and the signed
+gas limit never enter the payment denominator.
+
+Absent policy uses `pricing.status: not_configured`; failed/expired inputs use
+`unavailable` with a reason. Original measurements remain visible. Existing
+event collectors preserve this nested JSON without a schema migration. Version
+1 historical observations remain unpriced; missing observations stay unknown.
+Upgrade readers before enabling the optional policy, and handle both versions.
+Rollback omits version 2 pricing; it changes no protocol, wire commitments,
+genesis, follower replay or durable queue state. Existing admission and posting
+events remain version 1. This feature makes no durable financial reservation.
+
+## Unsigned L2 fee quotes
+
+When `EEZ_L2_FEE_SHADOW_POLICY` is configured, the L2 cross-chain HTTP front
+accepts `POST /eez/fees/l2-to-l1`. This application endpoint returns advisory
+ordinary type-2 wallet fields before signing. It does not enqueue work, reserve
+funds, request a proof, sign, submit, or change admission rules. The L1 front
+does not serve quotes. The service waits for the existing startup readiness
+gate. Missing policy returns `404 quotes_disabled`; there is no default tariff.
+
+The request is exactly this object, with JSON-RPC hex quantities and explicit
+fields (addresses and calldata below are illustrative):
+
+```json
+{
+  "type": "0x2",
+  "chainId": "0x1",
+  "from": "0x1111111111111111111111111111111111111111",
+  "to": "0x2222222222222222222222222222222222222222",
+  "nonce": "0x0",
+  "gas": "0x124f80",
+  "value": "0x0",
+  "data": "0x1234"
+}
+```
+
+All fields are mandatory; unknown fields, supplied fees, creation, access lists,
+authorizations, blob sources and reserved senders are rejected. The source
+must use the node's L2 chain ID and produce a supported outbound settlement
+group. Values remain subject to normal source balance checks and the pinned
+L1 rollup escrow. Quotes do not fund either account. The application supplies
+a gas limit between 21,000 and 5,000,000 and must keep it unchanged when signing.
+This endpoint does not solve gas-limit discovery for arbitrary cross-chain calls.
+
+The backend selects an exact L1 parent/next-block target and its normal posting
+fee sample. Its validated settlement scan must have reached that same L1 parent.
+It reads an L2 parent and validated settlement endpoint, pins the
+simulation environments and cold state reads, and uses private overlay channels.
+Its draft next L2 block is a hypothetical source context, not a prediction of
+the eventual inclusion slot. The complete supported group is composed and
+replayed as native loads, the unsigned source, and callback deliveries.
+Normal source nonce, balance and fee checks remain enabled. Only native source
+receipt gas divides the service charge; native system gas is reported separately.
+
+L1 gas uses the conservative whole-post admission projection, measured L1 target
+frames, entry/calldata framing, applicable calldata floor, and configured gas
+margin. Blob sizing includes exact retained ordinary transaction bytes and
+metadata plus the complete semantic stream. A maximum-width signature placeholder
+is used **only for encoding size**; it is never executed, authenticated, proved
+or submitted. Intermediate native history requires reconciliation and causes an
+unavailable quote. The quote charges this single intent the complete estimated
+post and retained history; it assumes no future batch participants.
+
+The [shadow pricing arithmetic](#shadow-l2-fee-pricing) adds service costs,
+risk/profit and conversion. Starting at a zero priority fee, the backend raises
+the tip to `ceil(required_L2 / native_source_gas)`, then repeats composition,
+native replay and sizing with those actual fee fields. It returns only when the
+replayed gross tip covers the estimate. At most four simulations are allowed;
+execution depending on fees may fail or not converge. `maxFeePerGas` is the
+draft base fee plus this tip, without future base-fee headroom.
+
+Successful JSON responses contain:
+
+| Field | Meaning |
+| --- | --- |
+| `version: 1`, `mode: advisory` | Application response schema and guarantee level |
+| `intent`, `intentHash` | Normalized eight request fields; Keccak-256 of their compact, lexicographically key-sorted JSON |
+| `transaction` | The same intent plus `maxPriorityFeePerGas` and `maxFeePerGas`, all wallet quantities in hex |
+| `issuedAt`, `expiresAt` | Unix seconds; expires at the earlier of ten seconds from issuance and the selected L1 target timestamp |
+| `context` | Chain/rollup IDs, L1 parent and target, L2 parent and draft timestamp, settled L2 endpoint |
+| `policy` | Policy ID and all conversion, cost, exclusion and validity assumptions |
+| `estimate` | Source/native L2 gas, projected L1/target gas, DA bytes/blobs, distinct L1 execution/blob/subtotal/risk/profit amounts, required L1/L2 amounts and gross L2 tip |
+
+Monetary amounts in `estimate` are decimal strings. Gas/counts/context heights
+are integers. `estimate.basis` is
+`isolated_native_l2_replay_and_projected_l1_post`; `qualifiedRecoveryL1` is null.
+L1 figures are estimates, not receipts. Neither the intent hash nor response
+authenticates a quote or guarantees inclusion. Applications must trust their
+chosen endpoint and reviewed policy, preserve the original intent, and impose
+their own maximum fee.
+
+Work is limited to one request per node, with no queue; additional requests get
+`429 quote_busy`. The whole request has a ten-second deadline. Input is limited
+to 32 KiB, calldata to 12 KiB, retained history to 256 blocks, encoded DA to 2 MiB,
+cross-chain target frames to 32 across all iterations, and nesting depth to eight.
+Active network/operator gas and blob limits and the negotiated emission window
+still apply. Expensive work uses Reth's blocking executor. Disconnect, timeout
+or shutdown sets cancellation; checks between frames/history/replay steps stop
+further work. A running EVM frame cannot be interrupted, and retains the sole
+worker permit until it exits. Frames also have existing EVM gas limits.
+
+Malformed intent returns `400 invalid_intent`; unsupported execution or exhausted
+work bounds return `422 unsupported_intent` / `quote_limit`; a changed/expired
+context returns `409 stale_context`; missing state, reconciliation, escrow or
+pricing returns `503 quote_unavailable`; HTTP timeout returns `504 quote_timeout`.
+Errors have `{ "error": { "code": "...", "message": "..." } }`, except the
+front's existing plain-text 413 body-limit response. Requote after a retryable
+context/availability change; never silently submit with a default fee.
+
+The dependency-free [JavaScript helper](../sdk/l2-fees.mjs) fetches and validates
+the response and returns ordinary wallet fields. `maxTotalFee` is a mandatory
+application ceiling in L2 base units, covering `gas * maxFeePerGas` (excluding
+the intent's separately specified value). `expectedPolicyId` optionally pins
+the reviewed policy. `sendQuotedTransaction` checks chain, authorized account,
+pending nonce/base fee and expiry before calling `eth_sendTransaction` once. It requests
+no second signature, permit or payment. The wallet's broadcast RPC must already
+be the EEZ route; the quote URL does not change it.
+
+```js
+import { requestL2FeeQuote, sendQuotedTransaction } from './sdk/l2-fees.mjs';
+const args = { intent, maxTotalFee: 10n ** 17n }; // App-selected L2 fee ceiling.
+const quote = await requestL2FeeQuote({ ...args, url: `${l2Front}/eez/fees/l2-to-l1` });
+const hash = await sendQuotedTransaction({ ...args, quote, wallet });
+```
+
+Changing the gas limit, nonce, calldata, value or fee fields invalidates the
+estimate. Later state/base-fee changes, wallet edits and time spent approving
+can invalidate it too. The quote supplies no inclusion deadline guarantee,
+liquid L1 reserve, treasury realization or durable financial
+ledger. Final native bundle execution remains mandatory for settlement.
+The SDK checks expiry before opening the wallet, not after a signature already
+broadcast by it. Its JSON numeric chain/context validation supports safe
+JavaScript integers only.
+
+This is an additive application API: wallet RPCs, protocol commitments, genesis,
+historical decoding and follower replay are unchanged. Deploy a compatible
+Composer/front and configure its reviewed policy before enabling the app helper;
+an older or policy-disabled front cannot provide quotes. Rollback disables quote
+availability; existing signed/accepted transactions retain their normal behavior.
+Applications must stop the quote flow on missing/unsupported responses. No
+database migration is required. SDK checks run with `node sdk/l2-fees.test.mjs`;
+the source-based process regression is the `fee_quotes::` module.
+
+### Opt-in L2 tariff admission
+
+`EEZ_L2_FEE_ENFORCE_TARIFF=true` requires a complete, runtime-matching
+`EEZ_L2_FEE_SHADOW_POLICY`. Absent or `false` preserves existing admission;
+empty and other values fail startup. This is a testnet tariff, separate from
+the production strict-funding design's durable reserves and treasury realization.
+Chiado, Ethereum and Kurtosis configuration pass it to the Composer only.
+
+For a newly submitted outbound source, the L2 front recovers the signed type-2
+transaction and replays its exact fees using the quote engine's bounded isolated
+state. Its effective priority payment must cover the whole projected settlement
+tariff. The comparison uses native receipt gas, never the user's gas limit, and
+accounts for clipping by `maxFeePerGas - baseFee`. Unsupported quote profiles
+are rejected before queue admission. A tariff failure returns JSON-RPC code
+`-32003` with `data.code = "l2_tip_underfunded"`; availability and profile errors
+retain the quote engine's stable `data.code`. Rejection neither consumes a nonce
+nor acquires queue ownership. Already-owned identical transactions remain
+idempotent. Ordinary L2 and L1-origin admission retain their existing rules.
+
+Composition checks the growing outbound prefix against the same whole-post
+projection using actual native receipt fees. A changed
+state, reduced charged gas or insufficient effective tip defers the source and
+its nonce successors, restores the accepted prefix, and continues independent
+sources. Admission quotes charge each source for a complete standalone
+post; composition can pool their actual receipts. Quotes do not discount shared
+batches. While this L2-only tariff is enabled, L1-origin users are settled in
+separate batches under the existing FIFO ordering, so unfunded L1 work cannot
+invalidate a paid outbound batch. Nested calls within one source remain whole.
+Quoting a future nonce whose
+predecessor has not executed is outside the isolated-intent profile.
+
+Immediately before dispatch, an attempt containing outbound users must also
+cover its complete newly priced L1 post and blob tariff using actual eligible
+L2 native receipts. Poster, beneficiary and explicitly excluded senders cannot
+finance this check. Failure defers the unsent attempt without charging a user
+retry or declaring canonical completion. Accepted work remains subject to
+state, price and availability changes; this is not an inclusion guarantee.
+
+The dashboard enables the fee flow with `EEZ_UI_L2_FEES_ENABLED=true` and caps
+the wallet's maximum execution fee with `EEZ_UI_L2_FEE_MAX_TOTAL_WEI` (default
+`100000000000000000` L2 wei). It quotes before the single ordinary wallet
+signature and preserves explicit fees for injected wallets and the disposable
+local test signer. Its `/composer/l2/eez/fees/l2-to-l1` proxy must reach the
+Composer's application endpoint. Quote failures stop submission rather than
+falling back to a generic wallet tip.
+
+No protocol, genesis, wire encoding or storage migration is involved. Upgrade
+the matching node/signer runtime and quote-capable dashboard before enabling
+the tariff. Existing queued outbound work is subject to final dispatch checks,
+so drain or explicitly account for it before changing the policy. A restart
+retains the existing in-memory queue limitations and may require resubmission.
+Disabling the gate or rolling back restores earlier admission behavior; it does
+not undo transactions or collected tips. Historical follower replay is unchanged.
 
 ## Deployment checklist
 

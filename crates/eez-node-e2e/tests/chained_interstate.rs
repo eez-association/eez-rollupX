@@ -320,6 +320,7 @@ async fn identical_outbound_calls_in_separate_transactions_chain_state() {
     );
 
     assert_reconciled(&w).await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 2, 0, None).await;
     assert_no_evictions(&w);
     w.node.assert_no_process_death();
 }
@@ -549,6 +550,7 @@ async fn mixed_direction_state_chain_in_one_slot() {
     );
 
     assert_reconciled(&w).await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 1, None).await;
     assert_no_evictions(&w);
     w.node.assert_no_process_death();
 }

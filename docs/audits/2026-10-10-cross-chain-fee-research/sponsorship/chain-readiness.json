@@ -1,0 +1,174 @@
+{
+  "observed_at_utc": "2026-10-10T12:01:10.789869+00:00",
+  "scope": "Public read-only chain and builder/relay metadata; no transactions submitted.",
+  "results": [
+    {
+      "name": "hoodi_chain",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "http_status": 200,
+      "response_sha256": "d7fd35316fb8a4e1770f86a8121085c3fcd3594218b15fb377b6c423d48f6e71",
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x88bb0",
+        "id": 1
+      }
+    },
+    {
+      "name": "hoodi_head",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          false
+        ]
+      },
+      "http_status": 200,
+      "response_sha256": "a81e4f949183c8eacfffca40b4918ead2ee16d587d67a79d6ee4be571c03e8e4",
+      "response": {
+        "baseFeePerGas": "0x37e6da9c",
+        "blobGasUsed": "0x2a0000",
+        "excessBlobGas": "0xe57eae4",
+        "hash": "0x74ce28ebfb98c499402765171e6e34dec5f1d466df021d5613eea6f330c6ebef",
+        "miner": "0x9029c772dde847622df1553ed9d9bdb7812e4f93",
+        "number": "0x39d151",
+        "parentHash": "0xba278542a229114f5358424df6b38ae3e861dd537db1385f666d950731631d12",
+        "timestamp": "0x6aca28fc"
+      },
+      "tx_count": 46
+    },
+    {
+      "name": "hoodi_blob_fee",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_blobBaseFee",
+        "params": []
+      },
+      "http_status": 200,
+      "response_sha256": "bc79f001f758c2cf033c4d5d71038f075b4def177fdee213668ada4d46698d4d",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "result": "0x346a7857"
+      }
+    },
+    {
+      "name": "mainnet_head",
+      "url": "https://ethereum-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          false
+        ]
+      },
+      "http_status": 200,
+      "response_sha256": "2e1e23e03ee9847da87e24b149b9fca68596d63df6f8bc7110ef13ea38610ad2",
+      "response": {
+        "baseFeePerGas": "0x3d86c7b",
+        "blobGasUsed": "0x0",
+        "excessBlobGas": "0xa905981",
+        "hash": "0x3c30458796970ab92bea7053f9de84006891857fb33860930a208572942113b8",
+        "miner": "0x52f6f20582f9126716e21cb3db5faaac4df8357b",
+        "number": "0x18f32e9",
+        "parentHash": "0x9bf6bf88c97e1c39c33da2166f3c256ca5256088e3156777f39dbe7154d1ad27",
+        "timestamp": "0x6aca28fb"
+      },
+      "tx_count": 120
+    },
+    {
+      "name": "hoodi_delivered",
+      "url": "https://hoodi.titanrelay.xyz/relay/v1/data/bidtraces/proposer_payload_delivered?limit=5",
+      "request": null,
+      "http_status": 200,
+      "response_sha256": "9db2d138dfd9b4dc612135595aa84a20c7c3153771fbf1b8cb1731bfd93939d8",
+      "response": [
+        {
+          "slot": "4118269",
+          "parent_hash": "0x60286c71d34dbee14478f2ef0d0518d671312c111069d78fd4f268e841fe6702",
+          "block_hash": "0x16db1d7742bfa53b316cbb9d418b07b53a55df753082a6c41c5f9fed90fc73e8",
+          "builder_pubkey": "0xac3c259a8f9543a2df266b0e2bf78dd934896b063a14c20be5929d0626bc89ce66899f22f4da04e722bc373a53486377",
+          "proposer_pubkey": "0x99fa37423d1fee2ece0a9dc58a53f629011d242f64c8ae39d720d217feffb9ac8c80eb765d588decd14c0e25ef7bbb7a",
+          "proposer_fee_recipient": "0xe5061fe5b4d0bd260f1ff80fa919e339f1f5c330",
+          "gas_limit": "60000000",
+          "gas_used": "4455242",
+          "value": "1196558380312022",
+          "block_number": "3789062",
+          "num_tx": "28"
+        },
+        {
+          "slot": "4118238",
+          "parent_hash": "0x3012c9a71ea3ceb536aee013e8b2ed0f4374a9f63326dfb166f2507f5045632f",
+          "block_hash": "0x3fd9d8418abb34ff7fa46774ac4d988b90be8cf43800c0079ec6d544d78c7267",
+          "builder_pubkey": "0xa6a1e5bb17479b2c3a45e319b20ba6d884343f8196f0f2e86b6324634a4767366393897363af5530b0ffa2ea4e36133c",
+          "proposer_pubkey": "0xa2b435938cfb38e2e5b562fe8002b76c2f9923e722a1a05c5e2bd67ea442d1a34a7347171eed558594cf48781cfb35ec",
+          "proposer_fee_recipient": "0x09a43fd8ff63b79035f3c3bbe2e95c943fc0ed48",
+          "gas_limit": "60000000",
+          "gas_used": "3739971",
+          "value": "906047476625361",
+          "block_number": "3789033",
+          "num_tx": "21"
+        },
+        {
+          "slot": "4118214",
+          "parent_hash": "0x15546d8ae1bd09a9612fafcc6c76e835c57cae8d28d31b80bc1161d837488540",
+          "block_hash": "0xc1cb640a7c860495d137a46f2c256fdba0e01ada29277b77c21cdad58415d7bc",
+          "builder_pubkey": "0xa6a1e5bb17479b2c3a45e319b20ba6d884343f8196f0f2e86b6324634a4767366393897363af5530b0ffa2ea4e36133c",
+          "proposer_pubkey": "0xb27ff85c0251c8b316aa35c8a874cde3d3321af85fd3d196c3bdeca6243df5e3467bfb6d4f3060bf391219fe69205163",
+          "proposer_fee_recipient": "0xe5061fe5b4d0bd260f1ff80fa919e339f1f5c330",
+          "gas_limit": "60000000",
+          "gas_used": "4332612",
+          "value": "1072113772614039",
+          "block_number": "3789011",
+          "num_tx": "21"
+        },
+        {
+          "slot": "4118151",
+          "parent_hash": "0x4c3956994ed6cf59d976f2c3eeb49c03c40394fffd693fb2ec07fe005438a6ca",
+          "block_hash": "0x94dffc7ba0677ceb7451d27070825a4510b2680ebe953b82ad8f79032c6252e8",
+          "builder_pubkey": "0xa6a1e5bb17479b2c3a45e319b20ba6d884343f8196f0f2e86b6324634a4767366393897363af5530b0ffa2ea4e36133c",
+          "proposer_pubkey": "0xb901c235984ad1dc889197a474d06f09d9e081ea72fd190cc788c76196db1c0f2e65b79e577390a22f11add2c38e3fbf",
+          "proposer_fee_recipient": "0x9b108015fe433f173696af3aa0cf7cdb3e104258",
+          "gas_limit": "59882873",
+          "gas_used": "41598232",
+          "value": "1308299226367921",
+          "block_number": "3788954",
+          "num_tx": "39"
+        },
+        {
+          "slot": "4118136",
+          "parent_hash": "0xd3c69faad21e52184cdf24d9c67db8d721b42b23045722d2532e781778c9a1be",
+          "block_hash": "0xb5f5082fc55e8f6f8b6c449528346df0971a90ed7f13c6325adc42b7c8ba9eaa",
+          "builder_pubkey": "0xac3c259a8f9543a2df266b0e2bf78dd934896b063a14c20be5929d0626bc89ce66899f22f4da04e722bc373a53486377",
+          "proposer_pubkey": "0xb5917c7d0f523e7601b49b744c4bf3e4bd25f56cc0dac6a2b2b01b8405b373279c1cbb9fc97982c6438fffddb4596c3d",
+          "proposer_fee_recipient": "0x3652cda6fcab71a2834bf1a20a8fcd9f47734f9f",
+          "gas_limit": "60000000",
+          "gas_used": "1070019",
+          "value": "729118866116065",
+          "block_number": "3788940",
+          "num_tx": "21"
+        }
+      ]
+    },
+    {
+      "name": "titan_keys",
+      "url": "https://docs.titanbuilder.xyz/builder-public-keys.md",
+      "request": null,
+      "http_status": 200,
+      "response_sha256": "5cf51712ad488306f5af4c9189d65e019c2b968ca18fe76e42f5230e7ba80801",
+      "bytes": 2943
+    }
+  ]
+}

@@ -151,13 +151,35 @@ Beacon commitments are hashed to select only this transaction's blobs, in its
 blob order, before measuring usage. Missing/pruned bytes remain blank, not zero.
 
 Both commitment tables also show **L2 burned fees** and **L2 tip fees** for each
-verified canonical L2 range. Burn is the sum of receipt gas used times that block's base
-fee; tips use receipt gas used times (effective gas price minus base fee). These
-are L2 execution fees, including system transactions and reverted transactions,
-not L1 posting costs or poster profit. Values are stored as exact integer wei and
-displayed in ETH/xDAI. Missing receipts or incomplete scans stay blank; a fully
-collected empty range has zero fees. Receipt identities and gas totals must match
-each block, and block hashes/parents must match the correlated canonical range.
+verified canonical L2 range. Ordinary transaction burn is receipt gas used times
+that block's base fee; tips are receipt gas used times (effective gas price minus
+base fee). Ordinary reverted transactions still pay these fees. Native system
+transactions of type `0x76` contribute receipt gas but pay **zero** burn and tips,
+including in blocks with a positive base fee. A nonzero native price, an ordinary
+price below the base fee, or a missing/unsupported receipt type leaves collection
+pending. The native exception follows the
+[node's native transaction profile](../../crates/eez-proof-signer/SPEC.md#3-startup-configuration).
+
+These are gross L2 execution fees, not L1 posting costs or poster profit. The
+range records retain the existing `burnWei` and `tipWei` decimal strings in the
+network's native base units, displayed in ETH/xDAI. Fee-accounting checkpoint
+version 1 additionally records:
+
+| Field | Meaning |
+| --- | --- |
+| `ordinaryGasUsed` | Sum of ordinary receipt gas, as a decimal string. |
+| `nativeGasUsed` | Sum of native system receipt gas, as a decimal string. |
+| `tipsByBeneficiary` | Object mapping the actual L2 block beneficiaries to decimal priority-fee totals; its sum must equal `tipWei`. Zero amounts may be omitted. |
+
+A changed beneficiary is accounted for using each block's `miner` field, never
+the current operator configuration. A zero-address beneficiary is recorded when
+it receives nonzero tips. Attribution does not prove treasury ownership or exclude
+operator-funded transactions; these totals are not yet qualified external
+customer revenue, redeemable L1 funds, or inputs that authorize posting.
+Missing receipts or incomplete scans stay blank; a fully collected empty range
+has zero fees. Receipt identities and cumulative/block gas totals must match
+each block, including native gas, and block hashes/parents must match the
+correlated canonical range.
 
 The details worker processes up to four independent transaction rows concurrently,
 from batches of eight. A slow Beacon/L2 request no longer serializes all eight rows.
@@ -236,8 +258,7 @@ source hashes are deduplicated across posting ranges and retries. Reorg deletion
 of canonical receipts cascades to their counts. The indexer source record retains scanner freshness and the configured history
 start; the dashboard omits the History coverage panel.
 
-Enrichment version 5 requeues older records once without resetting fees or chain
-history. Outbound collection scans at most four 2,048-block log chunks per posting
+Outbound collection scans at most four 2,048-block log chunks per posting
 per pass, checkpoints only whole verified chunks, and resumes after restart.
 Finalized range identities and canonical block/receipt attribution are checked;
 a changed range discards the old checkpoint. Completed scans are cached. This
@@ -260,10 +281,20 @@ Upgrading creates two additive tables (`details_source`, `details`), without
 resetting or backfilling the canonical checkpoint. Existing transactions are
 enriched automatically. To disable enrichment again, remove `details` from the
 config and restart only the indexer; already collected details remain readable.
-The L2-fee update requeues older enrichment once, retaining prior observations
-and canonical history. Completed current-version details stay cached across restarts.
-No database reset is required. An older indexer cannot collect L2 fees and will
-replace details when it retries them; re-upgrading requeues those older records.
+Enrichment version 6 requeues older records once. It preserves canonical L1
+history and reusable transaction/blob/cross-chain observations, but rescans old
+L2 fee ranges: their totals alone cannot establish native gas or beneficiary
+attribution. Collection still advances at most 128 blocks per posting/pass, and
+new fee checkpoints resume across retries/restarts. Missing historical receipts
+leave that range pending; no attribution is guessed. No database reset or new
+configuration is required. Completed current-version finalized ranges stay
+cached; provisional canonical ranges continue to be revalidated.
+
+The JSON additions are readable by older consumers of `burnWei`/`tipWei`.
+Rolling the indexer back can overwrite enrichment on retry, lose the new fields
+and restore the positive-base-fee/native-receipt bug. Do not rely on beneficiary
+attribution while running an older collector. Re-upgrading requeues old-version
+details and reconstructs the affected fee ranges again.
 
 Gas-limit utilization is not block fullness or gas charged. Posting normally
 uses simulated consumption plus a 20% margin, but
@@ -346,27 +377,28 @@ stale and the cards become Unavailable after 30 seconds.
 From the repository root:
 
 ```bash
-cargo +1.94.0 fmt --manifest-path monitoring/indexer/Cargo.toml --check
-cargo +1.94.0 clippy --locked --manifest-path monitoring/indexer/Cargo.toml --all-targets -- -D warnings
-cargo +1.94.0 test --locked --manifest-path monitoring/indexer/Cargo.toml
+cargo +1.95.0 fmt --manifest-path monitoring/indexer/Cargo.toml --check
+cargo +1.95.0 clippy --locked --manifest-path monitoring/indexer/Cargo.toml --all-targets -- -D warnings
+cargo +1.95.0 test --locked --manifest-path monitoring/indexer/Cargo.toml
 ```
 
 The default tests cover config validation, event/receipt parsing, fee arithmetic,
 detail attribution, L2 range consistency, Beacon blob structure, L2 burn/tip
-arithmetic and checkpoint recovery, and WS reconnection/identity rejection.
+arithmetic, native zero-price receipts, beneficiary attribution, checkpoint
+upgrades/recovery, and WS reconnection/identity rejection.
 Cross-chain tests cover source deduplication, rollup/emitter filtering, exclusion
 of inbound delivery callbacks, receipt/log attribution, resumable collection,
 changed ranges, and a reorg during collection before checkpoint commit.
-The single database test is opt-in and
-requires a disposable database named `eez_indexer_test`: it deletes that test
+The database tests are opt-in and run serially against a disposable database
+named `eez_indexer_test`: they delete that test
 schema, then checks writer exclusion, atomic failure, repeated scans, restart,
 multiple events per transaction, reorgs and incompatible configuration.
 The reorg check also verifies deletion of associated enrichment.
 
 ```bash
 INDEXER_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:19433/eez_indexer_test \
-  cargo +1.94.0 test --locked --manifest-path monitoring/indexer/Cargo.toml \
-  --test recovery -- --ignored
+  cargo +1.95.0 test --locked --manifest-path monitoring/indexer/Cargo.toml \
+  --test recovery --test admission -- --ignored --test-threads=1
 ```
 
 No new CI workflow or node E2E matrix is required for this standalone increment.
@@ -629,9 +661,44 @@ postBatch receipt gas. Filter by candidate ID or source hash and use
 **Inspect → Data → Download CSV**. Rebuilt candidates have separate IDs and an
 explicit predecessor. Repricing joins through the posting's final signed hash.
 An orphaned receipt disappears from the canonical join while observations remain.
-Inbound companion preflight and indexed source receipt gas are separate columns;
-L2 outbound receipt gas is not collected here. No exact per-source share of the
-aggregate canonical postBatch receipt is claimed.
+Source preflight and indexed canonical source receipt gas are separate columns.
+New `source_preflight` records identify `execution_chain_id` and `preflight_basis`:
+`native_l1_companion` measures the L1 companion; `native_l2_terminal_receipt`
+measures an outbound source in the final candidate's L2 block. The latter reports
+charged gas and the signed limit; its pre-refund required gas is null. It is
+still speculative execution, not canonical L2 fee collection. Historical records
+without these fields retain their original L1-only meaning. No exact per-source
+share of the aggregate canonical postBatch receipt is claimed.
+
+Final `preflight` admission and `repriced` posting details also carry an optional
+`fee_observation` object (version 1 measurements; version 2 also supports shadow
+pricing). Its `l1` component prices the complete final
+postBatch's execution and physical blobs in L1 native base units, with the
+fee-cap balance reservation reported separately. The `l2` component records
+ordinary/native gas, base-fee burn and gross tips at the terminal Sync block's
+beneficiary in L2 native base units. Exact block/parent/target and transaction
+identities bind the observation; the L1 cost includes shared historical DA,
+while L2 historical-block fees are outside the reported scope. Per-source L2
+fee details contain the signed sender and effective priority price. A zero
+beneficiary remains visible and is not assumed to be controlled.
+The reservation field describes the signed transaction's up-front affordability
+bound; it does not create a durable financial reservation.
+
+Missing or inconsistent evidence is `unavailable`, not zero. Without a pricing
+policy, `pricing_status: unpriced` retains null recovery/tip fields. Version 2
+can report `shadow_priced` under explicit
+[operator assumptions](../../docs/configurable-settlement-policy.md#shadow-l2-fee-pricing):
+full cost, eligible/excluded tips, projected recovery and shortfall/surplus.
+A minimum tip is available only for one eligible L2 source without companions;
+it uses charged receipt gas and current execution, and is not a wallet quote.
+Qualified revenue remains null in either mode. Proving/operations and conversion
+are configured assumptions, not verified expenses or treasury redemption.
+Gross tips may include operator-funded sources; observations and treasury
+liquidity must not be equated. See the [shadow fee contract](../../docs/proposals/cross-chain-fee-recovery.md#third-development-increment-shadow-pricing-policy).
+These optional details use existing event kinds and are retained in JSON by
+current collectors, without a database migration. Older Composer records and
+rollbacks simply omit the fields. Canonical L2 fees remain the separate
+receipt-backed enrichment; log records do not authorize financial recovery.
 
 Selected counts describe the finite snapshot. `selection_limit` is its effective
 count cap; `selection_limit_reason` identifies an active configured, fairness,

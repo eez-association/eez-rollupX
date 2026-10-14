@@ -1,0 +1,48 @@
+{
+  "checked_at_utc": "2026-10-10T16:06:01.284710+00:00",
+  "scope": "Synthetic integer accounting checks only; no user refund or builder payment executed.",
+  "user_preference": "Higher quoted ordinary tips and optional later user rebates are acceptable; no additional user payment or authorization.",
+  "upfront_case": {
+    "source_model": "common-payment-analysis.json",
+    "case": "all_users_charged_full_anchor_amount",
+    "total_user_tips_wei": "67777777777777780",
+    "net_external_receipt_wei": "6000000000000000"
+  },
+  "cases": [
+    {
+      "name": "quote_fully_used_no_rebate",
+      "net_external_receipt_wei": "6000000000000000",
+      "actual_service_cost_wei": "5500000000000000",
+      "retained_profit_wei": "500000000000000",
+      "remaining_risk_reserve_wei": "0",
+      "quoted_rebate_transfer_cost_wei": "100000000000000",
+      "available_before_rebate_transfer_wei": "0",
+      "rebate_principal_wei": "0",
+      "actual_rebate_transfer_cost_wei": "0"
+    },
+    {
+      "name": "lower_actual_cost_allows_rebate",
+      "net_external_receipt_wei": "6000000000000000",
+      "actual_service_cost_wei": "5000000000000000",
+      "retained_profit_wei": "500000000000000",
+      "remaining_risk_reserve_wei": "100000000000000",
+      "quoted_rebate_transfer_cost_wei": "100000000000000",
+      "available_before_rebate_transfer_wei": "400000000000000",
+      "rebate_principal_wei": "300000000000000",
+      "actual_rebate_transfer_cost_wei": "100000000000000"
+    }
+  ],
+  "checks": [
+    "rebate principal and transfer cost never exceed settled surplus after costs, margin and reserve",
+    "unused rebate gas is not charged when no rebate is made",
+    "exactly funded service quote leaves zero customer rebate budget",
+    "lower realized costs permit a funded rebate without reducing retained profit or reserve",
+    "aggregate user tips paid to the builder are not assumed operator revenue"
+  ],
+  "limitations": [
+    "Synthetic values, not production prices.",
+    "Single-source refund compatibility remains documentation-only.",
+    "Later customer rebates require canonical settlement and external-payment reconciliation, durable identities and replay protection.",
+    "Higher quotes do not enlarge signed fee caps or establish universal deployed builder support."
+  ]
+}

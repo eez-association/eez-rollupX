@@ -36,6 +36,45 @@ fn capacity_detail(source: B256) -> Value {
 }
 
 #[test]
+fn shadow_fees_extend_existing_preflight_records_without_a_schema_upgrade() {
+    let source = event(
+        1,
+        "source_preflight",
+        json!({
+            "source_hash": B256::repeat_byte(4), "execution_chain_id": 9,
+            "preflight_basis": "native_l2_terminal_receipt", "preflight_used_gas": 21000,
+            "preflight_required_gas": null, "signed_limit_gas": 100000,
+            "fee_observation": {"version": 1, "mode": "shadow", "unit": "l2_native_base_units",
+                "gross_priority_fee": "42000000000000", "qualified_recovery_l1": null}
+        }),
+    );
+    let candidate = event(
+        2,
+        "preflight",
+        json!({
+            "transaction_hash": B256::repeat_byte(5),
+            "fee_observation": {"version": 1, "mode": "shadow", "pricing_status": "unpriced",
+                "l1": {"status": "measured", "estimated_post_cost": "999999999999999999999"},
+                "l2": {"status": "unavailable", "reason": "l2_source_receipt_missing"},
+                "qualified_recovery_l1": null, "required_tip_per_gas": null}
+        }),
+    );
+    let mut priced = candidate.clone();
+    priced["detail"]["fee_observation"] = json!({
+        "version":2, "mode":"shadow", "pricing_status":"shadow_priced",
+        "qualified_recovery_l1":null, "required_tip_per_gas":"3",
+        "pricing":{"status":"calculated", "policy_id":B256::repeat_byte(6),
+            "assumptions":{"l1_per_l2_numerator":"2", "l1_per_l2_denominator":"3"},
+            "required_service_payment_l1":"134", "required_service_payment_l2":"201",
+            "projected_recovery_l1":"66", "shortfall_l1":"68", "surplus_l1":"0",
+            "comparison":"shortfall", "tip_status":"single_source_candidate"}
+    });
+    for record in [source, candidate, priced] {
+        assert_eq!(parse(&line(&record), &config()).unwrap(), Some(record));
+    }
+}
+
+#[test]
 fn capacity_checks_require_complete_numeric_bounds_and_a_known_reason() {
     let detail = capacity_detail(B256::repeat_byte(4));
     let good = event(1, "source_capacity_check", detail.clone());

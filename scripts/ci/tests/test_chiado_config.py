@@ -140,6 +140,23 @@ class ChiadoConfigTest(unittest.TestCase):
                                  "1500" if override is None else override)
                 self.assertNotIn(key, services["eez-proof-signer"]["environment"])
 
+    def test_shadow_fee_policy_preserves_absence_and_shell_precedence(self):
+        key = "EEZ_L2_FEE_SHADOW_POLICY"
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIsNone(json.loads(result.stdout)["services"]["eez-node"]["environment"].get(key))
+        fixture = '{"version":1,"proving_cost_l1":"7"}'
+        with (self.repo / ".env").open("a") as stream:
+            stream.write(f"\n{key}='{fixture}'\n")
+        # Transport retains invalid/empty values too; Rust owns schema validation.
+        for override in (None, "", "bad", '{"version":2}'):
+            with self.subTest(override=override):
+                result = self.render({} if override is None else {key: override})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                services = json.loads(result.stdout)["services"]
+                self.assertEqual(services["eez-node"]["environment"][key], fixture if override is None else override)
+                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+
     def test_posting_logging_survives_normal_startup_and_legacy_overlay(self):
         for configured in (None, "", str(self.root / "posting-history")):
             with self.subTest(configured=configured):

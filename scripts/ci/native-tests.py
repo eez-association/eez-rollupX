@@ -30,7 +30,7 @@ E2E_TARGET = "node_e2e"
 EMBEDDED_MODULES = ("e2e", "settlement_policy", "settlement_policy_cost", "kurtosis_policy_replay")
 CROSS_CHAIN_MODULES = (
     "cross_chain", "native_system", "derivable_operations", "chained_interstate", "partial_consumption",
-    "settlement_policy_gas", "dynamic_admission", "queue_liveness", "queue_reorg")
+    "settlement_policy_gas", "dynamic_admission", "queue_liveness", "queue_reorg", "fee_quotes")
 E2E_MODULES = (*EMBEDDED_MODULES, *CROSS_CHAIN_MODULES)
 E2E_BINARIES = {f"eez-node-e2e::{E2E_TARGET}"}
 # Standalone protocol/codec regressions, keyed by test target, with their package.

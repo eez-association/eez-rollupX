@@ -1476,7 +1476,16 @@ async fn inbound_nested_contract_to_contract_to_proxy_preserves_source_attributi
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution() {
     // The L1 destination must see the inner contract's source proxy.
-    let w = setup_cross_chain().await.unwrap();
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let w = setup_cross_chain_with_env(&[
+        (
+            "EEZ_L2_FEE_RECIPIENT",
+            policy["beneficiary"].as_str().unwrap().into(),
+        ),
+        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
+    ])
+    .await
+    .unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
     let inner =
@@ -1540,6 +1549,7 @@ async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribut
         "nested outbound proxy call",
     )
     .await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 0, Some(&policy)).await;
 }
 
 // Round trips in which L1 calls back into a suspended L2 execution. The probe's

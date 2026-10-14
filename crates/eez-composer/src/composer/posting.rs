@@ -54,6 +54,8 @@ pub(super) enum PostingError {
 
 pub(super) struct PostingRuntime {
     pub fees: PostingFeeConfig,
+    pub enforce_l2_fee_tariff: bool,
+    pub shadow_fee_policy: Option<super::fees::pricing::Policy>,
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
@@ -78,9 +80,10 @@ pub(super) fn priority_profile(semantics: &[SemanticTransaction]) -> PriorityPro
     }
 }
 
+#[derive(Debug)]
 pub(super) struct PostingQuote {
     pub quote: FeeQuote,
-    parent: Header,
+    pub parent: Header,
     attributes: NextBlockEnvAttributes,
     pub env: EvmEnv,
     pub gas_budget: u64,
@@ -94,6 +97,8 @@ pub(super) struct BundleExecution {
     pub gas_required: Vec<u64>,
     pub gas_limits: Vec<u64>,
     pub transaction_hashes: Vec<B256>,
+    /// Physical blobs in each validated envelope, including user companions.
+    pub blob_counts: Vec<u64>,
 }
 
 impl PostingRuntime {
@@ -618,6 +623,13 @@ where
     let mut gas_used = Vec::with_capacity(transactions.len());
     let mut gas_required = Vec::with_capacity(transactions.len());
     let gas_limits = transactions.iter().map(|tx| tx.gas_limit()).collect();
+    let blob_counts = transactions
+        .iter()
+        .map(|tx| {
+            tx.blob_versioned_hashes()
+                .map_or(0, |hashes| hashes.len() as u64)
+        })
+        .collect();
     let transaction_hashes = transactions
         .iter()
         .map(|tx| {
@@ -683,6 +695,7 @@ where
         gas_required,
         gas_limits,
         transaction_hashes,
+        blob_counts,
     })
 }
 

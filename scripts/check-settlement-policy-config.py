@@ -33,6 +33,16 @@ def main():
         "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS": "5000",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS": "2500",
         "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+        "EEZ_L2_FEE_ENFORCE_TARIFF": "true",
+        # Transport only: production validates all fields and runtime identities.
+        "EEZ_L2_FEE_SHADOW_POLICY": json.dumps({
+            "version": 1, "l1_chain_id": 10200, "l2_chain_id": 696990,
+            "rollup_id": 1, "beneficiary": "0x0000000000000000000000000000000000000f00",
+            "valid_until_l1_timestamp": 2000000000,
+            "l1_per_l2_numerator": "2", "l1_per_l2_denominator": "3",
+            "proving_cost_l1": "7", "operations_cost_l1": "5", "treasury_cost_l1": "3",
+            "risk_bps": 1000, "profit_bps": 500, "excluded_senders": [],
+        }, separators=(",", ":")),
     }
     signer_l1_profile = {
         "chiado": "chiado",
@@ -117,6 +127,21 @@ def main():
                     services = json.loads(result.stdout)["services"]
                     assert services["eez-node"]["environment"].get(key) == value, (profile, key, value)
                     assert key not in services["eez-proof-signer"]["environment"], (profile, key)
+            assert "EEZ_L2_FEE_SHADOW_POLICY" not in services["eez-proof-signer"]["environment"]
+            # The environment overrides the env-file value; no default or empty
+            # normalization may silently enable or disable tariff admission.
+            name = "EEZ_L2_FEE_ENFORCE_TARIFF"
+            for value in ("false", "true", "", "invalid"):
+                result = subprocess.run(compose_command, env=dict(env, **{name: value}),
+                                        capture_output=True, text=True, check=True)
+                services = json.loads(result.stdout)["services"]
+                assert services["eez-node"]["environment"][name] == value, (profile, value)
+                assert name not in services["eez-proof-signer"]["environment"]
+            env.pop(name, None)
+            env_file.write_text("\n".join(line for line in fixture.splitlines()
+                                          if not line.startswith(name + "=")))
+            result = subprocess.run(compose_command, env=env, capture_output=True, text=True, check=True)
+            assert json.loads(result.stdout)["services"]["eez-node"]["environment"].get(name) is None
             print(f"{profile}: mandatory policy configuration PASS")
 
 

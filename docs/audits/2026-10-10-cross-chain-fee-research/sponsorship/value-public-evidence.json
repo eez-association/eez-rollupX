@@ -1,0 +1,272 @@
+{
+  "observed_at_utc": "2026-10-10T12:46:13.177540+00:00",
+  "scope": "Malformed method controls and public on-chain reads; no valid bundles, signed transactions, credentials or funds.",
+  "results": [
+    {
+      "name": "titan_method_control",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response_sha256": "619754f0d32fb0e0538563f188ae4334160b12d9f35d790bb893c7d054c0351c",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32700,
+          "message": "ErrorObject { code: InvalidParams, message: \"Invalid params\", data: Some(RawValue(\"invalid length 0, expected an array of length 1 at line 1 column 2\")) }"
+        }
+      }
+    },
+    {
+      "name": "titan_hoodi_method_control",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response_sha256": "619754f0d32fb0e0538563f188ae4334160b12d9f35d790bb893c7d054c0351c",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32700,
+          "message": "ErrorObject { code: InvalidParams, message: \"Invalid params\", data: Some(RawValue(\"invalid length 0, expected an array of length 1 at line 1 column 2\")) }"
+        }
+      }
+    },
+    {
+      "name": "quasar_method_control",
+      "url": "https://rpc.quasar.win",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response_sha256": "fc25658bbfe59301dbf4551dedb2525858b68b0334e33d3987b6d85825b2be41",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "Invalid parameters"
+        }
+      }
+    },
+    {
+      "name": "mainnet_receipts",
+      "url": "https://ethereum-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockReceipts",
+        "params": [
+          "latest"
+        ]
+      },
+      "http_status": 200,
+      "response_sha256": "9771dbe2dd4ac47da9119e3d01454131897fa8d0210afb7a1ae8fde328833cd6",
+      "summary": {
+        "receipts": 217
+      }
+    },
+    {
+      "name": "mainnet_block",
+      "url": "https://ethereum-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          true
+        ]
+      },
+      "http_status": 200,
+      "response_sha256": "f8eedb77adc5a34fc26f8d2f3837d3779ac67ad1f2f136ebacc0af4cdced0a33",
+      "summary": {
+        "number": "0x18f33c9",
+        "hash": "0xef30050d5a4b96e3aaf822a47eee0343bd4866cf51e5ad532a31ec1226042d51",
+        "miner": "0x396343362be2a4da1ce0c1c210945346fb82aa49",
+        "transactions": 217
+      }
+    },
+    {
+      "name": "titan_public_transfers",
+      "url": "https://eth.blockscout.com/api/v2/addresses/0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97/transactions?filter=from",
+      "request": null,
+      "http_status": 200,
+      "response_sha256": "ee893a5803e5c4b5120974d73ed58ba896d60e8b891f1770c1531671cdd5b6e9",
+      "summary": {
+        "transactions": 50,
+        "next_page": true
+      }
+    }
+  ],
+  "observational_followup": {
+    "selection": "Up to 16 distinct recent blocks in a 50-transaction Titan-address explorer sample with a builder-address payment before position 150; 9 blocks qualified. This is a targeted sample, not a representative market study.",
+    "source_url": "https://eth.blockscout.com/api/v2/addresses/0x4838B106FCe9647Bdf1E7877BF73cE8B0BAD5f97/transactions?filter=from",
+    "observed_at_utc": "2026-10-10T12:47:16.476024+00:00",
+    "blocks": [
+      {
+        "number": 26162100,
+        "hash": "0xc80f88188965121b47893cb35a86bb4d62c30bde1d060286846b119e8de32652",
+        "parent_hash": "0xc6be0e12e3352092f1f6a6a8d2afd46221440b11562f9b07b4caea79aaa24613",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 183,
+        "builder_payments": 2,
+        "candidates": []
+      },
+      {
+        "number": 26162099,
+        "hash": "0xc6be0e12e3352092f1f6a6a8d2afd46221440b11562f9b07b4caea79aaa24613",
+        "parent_hash": "0xc4431fd949d09e00f17b4e16afe6376d4412d9f4115c8f9d1b0a7543fa21d984",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 180,
+        "builder_payments": 3,
+        "candidates": []
+      },
+      {
+        "number": 26162098,
+        "hash": "0xc4431fd949d09e00f17b4e16afe6376d4412d9f4115c8f9d1b0a7543fa21d984",
+        "parent_hash": "0xf8c07e7864b73e15f3ce9a92dd30e59c814035420578b61d844d5896db98d47a",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 271,
+        "builder_payments": 2,
+        "candidates": [
+          {
+            "payment_hash": "0x114cb559650400caaf575c70e784da0fd2da51f9018fcc5f71751e009b79cf28",
+            "payment_index": 7,
+            "payment_value_wei": 2539806098190871,
+            "recipient_candidate": "0x93eff15a93aa840c319d177f041754de58df04d3",
+            "forwarder_recipient_inferred": true,
+            "later_txs": [
+              {
+                "hash": "0xc41645315288e5b37b59f2738d58f1ff99ee04a57fd8c2f0f2dfc844029d71de",
+                "from": "0x93eff15a93aa840c319d177f041754de58df04d3",
+                "to": "0x79926bbdb1de1405aa478d9a795fbe56dc92cd7e",
+                "value": "0x0",
+                "type": "0x2",
+                "gas": "0x1bca75",
+                "maxFeePerGas": "0x1a7f7c43f",
+                "transactionIndex": "0x8"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "number": 26162096,
+        "hash": "0x88811b80e6f6d96402212cd27bc142407c62d3f19513128e852a2b5c86d7211c",
+        "parent_hash": "0xb9d32deaa5875d149ee88ec027b9a180d4c3d5fcd2c7ba2e1f696b9f51eca2a5",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 253,
+        "builder_payments": 3,
+        "candidates": [
+          {
+            "payment_hash": "0x5eeeffe0520a388a2dd6c62daeb86577c89de8d49a2cd5f2d0c0eb06690830ec",
+            "payment_index": 39,
+            "payment_value_wei": 52044196578556,
+            "recipient_candidate": "0x2b923f38bd9ad6d6672c227c415b62f49c01e9f5",
+            "forwarder_recipient_inferred": true,
+            "later_txs": [
+              {
+                "hash": "0x986e79b5e6c2be5269230b7b28a3b5a9b85a551b313d68155b1054094733630b",
+                "from": "0x2b923f38bd9ad6d6672c227c415b62f49c01e9f5",
+                "to": "0x881d40237659c251811cec9c364ef91dc08d300c",
+                "value": "0x0",
+                "type": "0x2",
+                "gas": "0x47256",
+                "maxFeePerGas": "0x7ed69b24",
+                "transactionIndex": "0x28"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "number": 26162092,
+        "hash": "0xb60c558393b0f9010ef892eee27be6c99eef7f620d6d56b0048aa955d74bce96",
+        "parent_hash": "0x021087b0ebf116ee5a9073206579f14d1c87027a9562f151d43cf65ff45b4ffa",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 216,
+        "builder_payments": 1,
+        "candidates": []
+      },
+      {
+        "number": 26162086,
+        "hash": "0x8f2a04ad40aedc848d27548b6b16992a4277111d7c00db7d5304b0f21b269973",
+        "parent_hash": "0xfc2846447f24c2afefe2a3b7c9f4847f6d3e6465134623b7ccf48a46fb2501f6",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 237,
+        "builder_payments": 3,
+        "candidates": []
+      },
+      {
+        "number": 26162065,
+        "hash": "0x2599e26beff7222f01ca9f919d327a159923596c3fab73a202749e11b2015e5e",
+        "parent_hash": "0xa16b85b7dc71ed2dbe40724133393f65f3d744a9178db8f32bf3edea0ca55aea",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 515,
+        "builder_payments": 2,
+        "candidates": []
+      },
+      {
+        "number": 26162057,
+        "hash": "0x9168d7a70776f4c76a2adf303da8144a28c8f306d2f7edbfbba953c389b28a16",
+        "parent_hash": "0x7c66be10d5a6c37ca6fece18adf830c9b04cdba64231e08932a3f649f00a2734",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 369,
+        "builder_payments": 4,
+        "candidates": []
+      },
+      {
+        "number": 26162054,
+        "hash": "0x15dacf4bc9a3a648950d303c9cc3554039bb7faea11546a0e2fa749839f4a0a5",
+        "parent_hash": "0x7f24cd75e630a83201a13e585f1c95f04875749c5d94f1567b4791d0d21c19fa",
+        "miner": "0x4838b106fce9647bdf1e7877bf73ce8b0bad5f97",
+        "tx_count": 214,
+        "builder_payments": 2,
+        "candidates": []
+      }
+    ],
+    "candidate_parent_balance_controls": [
+      {
+        "block_number": 26162098,
+        "recipient": "0x93eff15a93aa840c319d177f041754de58df04d3",
+        "payment_hash": "0x114cb559650400caaf575c70e784da0fd2da51f9018fcc5f71751e009b79cf28",
+        "parent_balance_wei": 10651003783458935,
+        "next_tx_value_wei": 0,
+        "next_tx_fee_cap_and_value_wei": 12954914011178699,
+        "parent_balance_covers_next_tx": false,
+        "earlier_outgoing_count": 1
+      },
+      {
+        "block_number": 26162096,
+        "recipient": "0x2b923f38bd9ad6d6672c227c415b62f49c01e9f5",
+        "payment_hash": "0x5eeeffe0520a388a2dd6c62daeb86577c89de8d49a2cd5f2d0c0eb06690830ec",
+        "parent_balance_wei": 664253323693232,
+        "next_tx_value_wei": 0,
+        "next_tx_fee_cap_and_value_wei": 620127137441304,
+        "parent_balance_covers_next_tx": true,
+        "earlier_outgoing_count": 1
+      }
+    ],
+    "result": "Two apparent payments preceded later transactions from their inferred recipients; both later transactions had zero native value, and both recipients had an earlier outgoing transaction in the same block. This does not verify explicit operator-value sponsorship. Forwarder recipient inference was not independently traced.",
+    "raw_availability": "Local-only JSON downloads in /tmp/rollupx-value-sponsorship-20261010; public block hashes retained above.",
+    "raw_sha256": {
+      "titan_public_transfers.json": "ee893a5803e5c4b5120974d73ed58ba896d60e8b891f1770c1531671cdd5b6e9",
+      "observed-candidates.json": "36265286a0a25612cfeed2ff53b9a9df6fd17f5cc1856456a50bfd75457795a4",
+      "candidate-balance-controls.json": "2f6d04e4a0e897bf8f5f9e4fa2101bac9e85f9d069e5d37e08445b59f9ed4751"
+    }
+  }
+}

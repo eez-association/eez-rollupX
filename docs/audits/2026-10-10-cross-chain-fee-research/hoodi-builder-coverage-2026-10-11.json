@@ -1,0 +1,825 @@
+{
+  "observed_at_utc": "2026-10-11T15:32:36.710135+00:00",
+  "scope": "Public documentation, read-only relay/statistics requests, chain ID read and invalid empty-parameter bundle-method probes. No signed transaction, valid bundle, funding, deployment or service lifecycle operation.",
+  "checkout": {
+    "source": "fa916b13254a36423cad130080dde367bb18a7d6",
+    "protocol_gitlink": "855fe0602484750861b4c31502a1a91355d33ed6",
+    "note": "Existing work, operator state and protocol untracked content preserved; no protocol source inspection required for this follow-up."
+  },
+  "providers": [
+    {
+      "builder": "Titan",
+      "docs": "https://docs.titanbuilder.xyz/general.md",
+      "hoodi_endpoints": [
+        "https://rpc-hoodi.titanbuilder.xyz"
+      ],
+      "endpoint_probe": "Responded to eth_sendBundle with invalid empty params; parser error, no bundle submitted.",
+      "activity": "No published Titan key matched the 362 unique delivery records sampled. Testnet-specific unpublished keys are not established.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "Ultra Sound",
+      "docs": "https://github.com/ultrasoundmoney/builder-docs#hoodi",
+      "hoodi_endpoints": [
+        "https://builder-rpc-eu-hoodi.ultrasound.money",
+        "https://builder-rpc-us-hoodi.ultrasound.money"
+      ],
+      "endpoint_probe": "Both responded to eth_sendBundle with invalid empty params; -32602, no bundle submitted.",
+      "activity": "24 unique sampled delivery records match published Hoodi keys. Label: 1338/8540 in 7d, absent from 1031-block 24h table.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "BTCS Builder+",
+      "docs": "https://www.btcs.com/builder-docs/",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi-specific submission endpoint found in reviewed docs.",
+      "activity": "3 unique sampled delivery records match published builder keys. Label: 27/8540 in 7d, 6/1031 in 24h.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "Quasar",
+      "docs": "https://docs.quasar.win/getting-started.md",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi endpoint found in reviewed official index and endpoint documentation.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "BuilderNet",
+      "docs": "https://buildernet.org/docs/send-orderflow",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi endpoint found in reviewed endpoint documentation. Browser retrieval succeeded; separate direct HTTP fetch failed and is retained.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "Beaverbuild",
+      "docs": "https://beaverbuild.org/",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi endpoint found in reviewed homepage and API documentation.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "Eureka",
+      "docs": "https://docs.eurekalabs.xyz/readme.md",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi endpoint found in reviewed index, overview and integration documentation.",
+      "refund_workload": "Unverified"
+    },
+    {
+      "builder": "Bombora",
+      "docs": "https://bombora.build/",
+      "hoodi_endpoints": [],
+      "endpoint_probe": "No public Hoodi endpoint found in reviewed homepage and bundle API documentation.",
+      "refund_workload": "Unverified"
+    }
+  ],
+  "additional_flashbots_observation": {
+    "docs": "https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint",
+    "published_bundle_networks": [
+      "mainnet",
+      "sepolia"
+    ],
+    "hoodi_mev_boost_relay": "https://boost-relay-hoodi.flashbots.net",
+    "note": "The Hoodi MEV-Boost relay is not a documented Hoodi searcher eth_sendBundle endpoint."
+  },
+  "statistics": [
+    {
+      "source_url": "https://relayscan-hoodi.flashbots.net/overview?t=7d",
+      "window": "7d",
+      "source_updated_at_utc": "2026-10-11T15:24:24Z",
+      "latest_slot": 4126572,
+      "scope": "Observed delivered MEV-Boost block table, not all Hoodi blocks or inclusion probability. Labels are unauthenticated extra_data.",
+      "observed_blocks": 8540,
+      "html_sha256": "f007f57782bbe27eba81f29fb34631263055a41edc9643f5c68b79da61e40963",
+      "table_sha256": "5e7dce6f67f4ff9d2a61f5ff798fd3d8bcf1fc3267dd6828bd801334390e5dbb",
+      "rows": [
+        {
+          "builder_label": "hoodi two shoes",
+          "blocks": 2669,
+          "reported_percent": 31.25,
+          "computed_percent": 31.252927
+        },
+        {
+          "builder_label": "builder.ultrasound.money",
+          "blocks": 1338,
+          "reported_percent": 15.67,
+          "computed_percent": 15.667447
+        },
+        {
+          "builder_label": "MergeBuilder",
+          "blocks": 1124,
+          "reported_percent": 13.16,
+          "computed_percent": 13.161593
+        },
+        {
+          "builder_label": "Powered by bloXroute",
+          "blocks": 864,
+          "reported_percent": 10.12,
+          "computed_percent": 10.117096
+        },
+        {
+          "builder_label": "ConvexTech",
+          "blocks": 790,
+          "reported_percent": 9.25,
+          "computed_percent": 9.250585
+        },
+        {
+          "builder_label": "Tiamat",
+          "blocks": 750,
+          "reported_percent": 8.78,
+          "computed_percent": 8.782201
+        },
+        {
+          "builder_label": "Flash Builders",
+          "blocks": 463,
+          "reported_percent": 5.42,
+          "computed_percent": 5.421546
+        },
+        {
+          "builder_label": "Illuminate Dmocratize Dstribute",
+          "blocks": 190,
+          "reported_percent": 2.22,
+          "computed_percent": 2.224824
+        },
+        {
+          "builder_label": "",
+          "blocks": 111,
+          "reported_percent": 1.3,
+          "computed_percent": 1.299766
+        },
+        {
+          "builder_label": "AIMS Hoodi         1",
+          "blocks": 93,
+          "reported_percent": 1.09,
+          "computed_percent": 1.088993
+        },
+        {
+          "builder_label": "ethgas-realtime-rpc",
+          "blocks": 69,
+          "reported_percent": 0.81,
+          "computed_percent": 0.807963
+        },
+        {
+          "builder_label": "AIMS Hoodi         2",
+          "blocks": 52,
+          "reported_percent": 0.61,
+          "computed_percent": 0.608899
+        },
+        {
+          "builder_label": "Builder+ www.btcs.com/builder",
+          "blocks": 27,
+          "reported_percent": 0.32,
+          "computed_percent": 0.316159
+        }
+      ]
+    },
+    {
+      "source_url": "https://relayscan-hoodi.flashbots.net/overview?t=24h",
+      "window": "24h",
+      "source_updated_at_utc": "2026-10-11T15:24:24Z",
+      "latest_slot": 4126572,
+      "scope": "Observed delivered MEV-Boost block table, not all Hoodi blocks or inclusion probability. Labels are unauthenticated extra_data.",
+      "observed_blocks": 1031,
+      "html_sha256": "664ed0a424959dc81872d13acf0988c960e62d321ecf78464d9489673e8ba692",
+      "table_sha256": "099e4cae99c2f2ae7b7301ae674d2c0ac00321ef397329fdf269f69c5af5d439",
+      "rows": [
+        {
+          "builder_label": "hoodi two shoes",
+          "blocks": 650,
+          "reported_percent": 63.05,
+          "computed_percent": 63.045587
+        },
+        {
+          "builder_label": "MergeBuilder",
+          "blocks": 114,
+          "reported_percent": 11.06,
+          "computed_percent": 11.057226
+        },
+        {
+          "builder_label": "ConvexTech",
+          "blocks": 104,
+          "reported_percent": 10.09,
+          "computed_percent": 10.087294
+        },
+        {
+          "builder_label": "Tiamat",
+          "blocks": 50,
+          "reported_percent": 4.85,
+          "computed_percent": 4.849661
+        },
+        {
+          "builder_label": "Illuminate Dmocratize Dstribute",
+          "blocks": 42,
+          "reported_percent": 4.07,
+          "computed_percent": 4.073715
+        },
+        {
+          "builder_label": "",
+          "blocks": 27,
+          "reported_percent": 2.62,
+          "computed_percent": 2.618817
+        },
+        {
+          "builder_label": "AIMS Hoodi         1",
+          "blocks": 25,
+          "reported_percent": 2.42,
+          "computed_percent": 2.42483
+        },
+        {
+          "builder_label": "ethgas-realtime-rpc",
+          "blocks": 8,
+          "reported_percent": 0.78,
+          "computed_percent": 0.775946
+        },
+        {
+          "builder_label": "Builder+ www.btcs.com/builder",
+          "blocks": 6,
+          "reported_percent": 0.58,
+          "computed_percent": 0.581959
+        },
+        {
+          "builder_label": "AIMS Hoodi         2",
+          "blocks": 5,
+          "reported_percent": 0.48,
+          "computed_percent": 0.484966
+        }
+      ]
+    }
+  ],
+  "api_and_document_fetches": [
+    {
+      "name": "relayscan_7d",
+      "url": "https://relayscan-hoodi.flashbots.net/overview?t=7d",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:12.912531+00:00",
+      "http_status": 200,
+      "final_url": "https://relayscan-hoodi.flashbots.net/overview?t=7d",
+      "bytes": 26351,
+      "response_sha256": "f007f57782bbe27eba81f29fb34631263055a41edc9643f5c68b79da61e40963",
+      "content_type": "text/html; charset=utf-8"
+    },
+    {
+      "name": "ultrasound_readme",
+      "url": "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/README.md",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:12.913186+00:00",
+      "http_status": 200,
+      "final_url": "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/README.md",
+      "bytes": 1730,
+      "response_sha256": "e99ff0bf392f3e5111944f3f7e18f2bbe4c4a4a0986d91ad722eb45da6704649",
+      "content_type": "text/plain; charset=utf-8"
+    },
+    {
+      "name": "ultrasound_bundle",
+      "url": "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/bundle-rpc.md",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:12.913531+00:00",
+      "http_status": 200,
+      "final_url": "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/bundle-rpc.md",
+      "bytes": 3345,
+      "response_sha256": "942b17dce2cbef98a0a89925fc8db89cc36d35e436758436aa39d65a65eac44d",
+      "content_type": "text/plain; charset=utf-8"
+    },
+    {
+      "name": "titan_general",
+      "url": "https://docs.titanbuilder.xyz/general.md",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:12.913833+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.titanbuilder.xyz/general.md",
+      "bytes": 1866,
+      "response_sha256": "c8f6ff37e2f7015ab6969e720b76e8ccdb9755e4e328bfd46a2243f481b53041",
+      "content_type": "text/markdown; charset=utf-8"
+    },
+    {
+      "name": "titan_keys",
+      "url": "https://docs.titanbuilder.xyz/builder-public-keys.md",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:12.914289+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.titanbuilder.xyz/builder-public-keys.md",
+      "bytes": 2943,
+      "response_sha256": "5cf51712ad488306f5af4c9189d65e019c2b968ca18fe76e42f5230e7ba80801",
+      "content_type": "text/markdown; charset=utf-8"
+    },
+    {
+      "name": "quasar_index",
+      "url": "https://docs.quasar.win/llms.txt",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.002006+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.quasar.win/llms.txt",
+      "bytes": 847,
+      "response_sha256": "85c4845c995e08c68b5b0b758de7c6db94fe6387a831ce5b5c1f11dbb1352b6a",
+      "content_type": "text/markdown; charset=utf-8"
+    },
+    {
+      "name": "quasar_general",
+      "url": "https://docs.quasar.win/getting-started.md",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.006501+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.quasar.win/getting-started.md",
+      "bytes": 750,
+      "response_sha256": "1af73bf32c4f53dd86fbafe6ead128c3f1c4956f55e4c6e8597c4eb07bc02ff2",
+      "content_type": "text/markdown; charset=utf-8"
+    },
+    {
+      "name": "eureka_index",
+      "url": "https://docs.eurekalabs.xyz/llms.txt",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.013016+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.eurekalabs.xyz/llms.txt",
+      "bytes": 2318,
+      "response_sha256": "24cf8bafc4cae3e332b3e1dc4343fb898466cefc42b6f2e009810362eaa59b39",
+      "content_type": "text/markdown; charset=utf-8"
+    },
+    {
+      "name": "bombora_home",
+      "url": "https://bombora.build/",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.071144+00:00",
+      "http_status": 200,
+      "final_url": "https://bombora.build/",
+      "bytes": 15264,
+      "response_sha256": "cfadead7bdf325c65d39a9d52a2ceaf4ac2f1abd1f8bd966bfd6c8bd0d9debfb",
+      "content_type": "text/html; charset=utf-8"
+    },
+    {
+      "name": "beaver_home",
+      "url": "https://beaverbuild.org/",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.429898+00:00",
+      "http_status": 200,
+      "final_url": "https://beaverbuild.org/",
+      "bytes": 1033,
+      "response_sha256": "b948d5bc9b7ff62efc6db3226c099c75133439607bfbb13a921d4236e00abe67",
+      "content_type": "text/html"
+    },
+    {
+      "name": "buildernet_endpoints",
+      "url": "https://buildernet.org/docs/send-orderflow",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.479882+00:00",
+      "error": "URLError: <urlopen error [Errno 101] Network is unreachable>"
+    },
+    {
+      "name": "flashbots_endpoints",
+      "url": "https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.496726+00:00",
+      "http_status": 200,
+      "final_url": "https://docs.flashbots.net/flashbots-auction/advanced/rpc-endpoint",
+      "bytes": 187021,
+      "response_sha256": "5a186c8d1af5806c1a7358fcc71e4b23aa85150480a48d563e67ea544879cfa8",
+      "content_type": "text/html; charset=utf-8"
+    },
+    {
+      "name": "btcs_docs",
+      "url": "https://www.btcs.com/builder-docs/",
+      "request": null,
+      "observed_at_utc": "2026-10-11T15:28:14.500513+00:00",
+      "http_status": 200,
+      "final_url": "https://www.btcs.com/builder-docs/",
+      "bytes": 195705,
+      "response_sha256": "3d0a8256c3c1fc2b851becc30c2577724ccba1d3d119f9399e9c5025d5b218d4",
+      "content_type": "text/html; charset=UTF-8"
+    },
+    {
+      "name": "titan_rpc",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "observed_at_utc": "2026-10-11T15:28:14.568928+00:00",
+      "http_status": 200,
+      "final_url": "https://rpc-hoodi.titanbuilder.xyz",
+      "bytes": 219,
+      "response_sha256": "619754f0d32fb0e0538563f188ae4334160b12d9f35d790bb893c7d054c0351c",
+      "content_type": "application/json; charset=utf-8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32700,
+          "message": "ErrorObject { code: InvalidParams, message: \"Invalid params\", data: Some(RawValue(\"invalid length 0, expected an array of length 1 at line 1 column 2\")) }"
+        }
+      }
+    },
+    {
+      "name": "ultrasound_eu_rpc",
+      "url": "https://builder-rpc-eu-hoodi.ultrasound.money",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "observed_at_utc": "2026-10-11T15:28:14.587293+00:00",
+      "http_status": 200,
+      "final_url": "https://builder-rpc-eu-hoodi.ultrasound.money",
+      "bytes": 99,
+      "response_sha256": "259f3ca8304d750dbb672d3c3a0b7bf377cf9abbba18479f22c9c7680043cb36",
+      "content_type": "application/json; charset=utf-8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "Invalid params",
+          "data": "No more params"
+        }
+      }
+    },
+    {
+      "name": "ultrasound_us_rpc",
+      "url": "https://builder-rpc-us-hoodi.ultrasound.money",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_sendBundle",
+        "params": []
+      },
+      "observed_at_utc": "2026-10-11T15:28:14.733264+00:00",
+      "http_status": 200,
+      "final_url": "https://builder-rpc-us-hoodi.ultrasound.money",
+      "bytes": 99,
+      "response_sha256": "259f3ca8304d750dbb672d3c3a0b7bf377cf9abbba18479f22c9c7680043cb36",
+      "content_type": "application/json; charset=utf-8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32602,
+          "message": "Invalid params",
+          "data": "No more params"
+        }
+      }
+    },
+    {
+      "name": "hoodi_chain",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "observed_at_utc": "2026-10-11T15:28:14.834602+00:00",
+      "http_status": 200,
+      "final_url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "bytes": 44,
+      "response_sha256": "d7fd35316fb8a4e1770f86a8121085c3fcd3594218b15fb377b6c423d48f6e71",
+      "content_type": "application/json",
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x88bb0",
+        "id": 1
+      }
+    },
+    {
+      "name": "eureka_general",
+      "url": "https://docs.eurekalabs.xyz/readme.md",
+      "observed_at_utc": "2026-10-11T15:29:19.661815+00:00",
+      "http_status": 200,
+      "bytes": 4953,
+      "response_sha256": "83d26272fba604d77ede446328ed0a16886b39b75e50320b995a9173b37f176a"
+    },
+    {
+      "name": "eureka_api",
+      "url": "https://docs.eurekalabs.xyz/order-flow/api.md",
+      "observed_at_utc": "2026-10-11T15:29:19.662479+00:00",
+      "http_status": 200,
+      "bytes": 4273,
+      "response_sha256": "e37b4fe6089d99885ede96b24dd02a95cf22d741888e7c854a15a8c7cbfc52f4"
+    },
+    {
+      "name": "eureka_integration",
+      "url": "https://docs.eurekalabs.xyz/order-flow/integration.md",
+      "observed_at_utc": "2026-10-11T15:29:19.662876+00:00",
+      "http_status": 200,
+      "bytes": 12070,
+      "response_sha256": "7ae6406b74b668c7ed64b16c8bc121261aff0936f2a569f675b92ba5de186f2d"
+    },
+    {
+      "name": "relayscan_24h",
+      "url": "https://relayscan-hoodi.flashbots.net/overview?t=24h",
+      "observed_at_utc": "2026-10-11T15:29:19.663236+00:00",
+      "http_status": 200,
+      "bytes": 23512,
+      "response_sha256": "664ed0a424959dc81872d13acf0988c960e62d321ecf78464d9489673e8ba692"
+    },
+    {
+      "name": "ultrasound_deliveries",
+      "url": "https://relay-hoodi.ultrasound.money/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+      "observed_at_utc": "2026-10-11T15:29:20.028737+00:00",
+      "http_status": 200,
+      "bytes": 60089,
+      "response_sha256": "eae3986caa66b611e47516791f4272994b9e7407b3744c8675f75cd4b277d502",
+      "rows": 100
+    },
+    {
+      "name": "titan_deliveries",
+      "url": "https://hoodi.titanrelay.xyz/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+      "observed_at_utc": "2026-10-11T15:29:20.183714+00:00",
+      "http_status": 200,
+      "bytes": 60108,
+      "response_sha256": "de32ff47b449bb1058689c1ca8b8b2cdec3074dbf56aa23be72c31213f90d57b",
+      "rows": 100
+    },
+    {
+      "name": "aestus_deliveries",
+      "url": "https://hoodi.aestus.live/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+      "observed_at_utc": "2026-10-11T15:29:20.278112+00:00",
+      "http_status": 200,
+      "bytes": 60071,
+      "response_sha256": "8b6fee9f6c35cdfdf7b13e4f3b208039962c3221196293f3ffb0c481cebff801",
+      "rows": 100
+    },
+    {
+      "name": "flashbots_deliveries",
+      "url": "https://boost-relay-hoodi.flashbots.net/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+      "observed_at_utc": "2026-10-11T15:29:20.502911+00:00",
+      "http_status": 200,
+      "bytes": 60105,
+      "response_sha256": "f838e7f3df9a43493932ff182d142b0595850bcba5b1acec69692f8725199569",
+      "rows": 100
+    }
+  ],
+  "relay_sample": {
+    "queries": [
+      {
+        "name": "ultrasound_deliveries",
+        "url": "https://relay-hoodi.ultrasound.money/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+        "observed_at_utc": "2026-10-11T15:29:20.028737+00:00",
+        "http_status": 200,
+        "bytes": 60089,
+        "response_sha256": "eae3986caa66b611e47516791f4272994b9e7407b3744c8675f75cd4b277d502",
+        "rows": 100,
+        "min_slot": 4109467,
+        "max_slot": 4126596,
+        "published_key_match_counts": {
+          "Titan": 0,
+          "Ultra Sound": 24,
+          "BTCS": 0
+        }
+      },
+      {
+        "name": "titan_deliveries",
+        "url": "https://hoodi.titanrelay.xyz/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+        "observed_at_utc": "2026-10-11T15:29:20.183714+00:00",
+        "http_status": 200,
+        "bytes": 60108,
+        "response_sha256": "de32ff47b449bb1058689c1ca8b8b2cdec3074dbf56aa23be72c31213f90d57b",
+        "rows": 100,
+        "min_slot": 4121959,
+        "max_slot": 4126596,
+        "published_key_match_counts": {
+          "Titan": 0,
+          "Ultra Sound": 0,
+          "BTCS": 2
+        }
+      },
+      {
+        "name": "aestus_deliveries",
+        "url": "https://hoodi.aestus.live/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+        "observed_at_utc": "2026-10-11T15:29:20.278112+00:00",
+        "http_status": 200,
+        "bytes": 60071,
+        "response_sha256": "8b6fee9f6c35cdfdf7b13e4f3b208039962c3221196293f3ffb0c481cebff801",
+        "rows": 100,
+        "min_slot": 4125775,
+        "max_slot": 4126593,
+        "published_key_match_counts": {
+          "Titan": 0,
+          "Ultra Sound": 0,
+          "BTCS": 1
+        }
+      },
+      {
+        "name": "flashbots_deliveries",
+        "url": "https://boost-relay-hoodi.flashbots.net/relay/v1/data/bidtraces/proposer_payload_delivered?limit=100",
+        "observed_at_utc": "2026-10-11T15:29:20.502911+00:00",
+        "http_status": 200,
+        "bytes": 60105,
+        "response_sha256": "f838e7f3df9a43493932ff182d142b0595850bcba5b1acec69692f8725199569",
+        "rows": 100,
+        "min_slot": 4124513,
+        "max_slot": 4126558,
+        "published_key_match_counts": {
+          "Titan": 0,
+          "Ultra Sound": 0,
+          "BTCS": 1
+        }
+      }
+    ],
+    "records_before_dedup": 400,
+    "unique_block_hashes": 362,
+    "published_key_match_counts": {
+      "Titan": 0,
+      "Ultra Sound": 24,
+      "BTCS": 3
+    },
+    "published_keys": {
+      "Titan": [
+        "0x807a81a9873359323966feb80fcc52b6049888f885d58134bf52bf9825f89aabc723bb5bacd1d8f4dea6322a6d166535",
+        "0x8216e00e1dc8e15c362ce8083ad01feeb04688dd3a18998a37db1c3c8b641372398c504e1aca2cbddd87c4075482b42f",
+        "0x8226fb149bfe7b4967ffe82ecb9084ffd5bbf0303de0b88f68fdd8297cdffe80f611fa27bc05506b4fba12e2eb5bc5a5",
+        "0x8509ecb595da0eda2c6fced4e287f0510a2c2dba5f80ee930503ef86e268d808a6df25e397177da06cd479771ce66840",
+        "0x8527d16cf01edcea2cbb05e27f5f61b184578ea27c4015e4533e4cebd6d53297bd004c14fe3f247a468361bf781e0069",
+        "0x88857150299287cedfbadea1ee3fb7ac121f1e4e16bef44b4a7bad35432973c4009efb90394facca3fdc0759ba70f93f",
+        "0x8898a80ec199dbe15a57e3ceb51389ded413d6a2ebaaac0330af7effcdd33bba70318339ec9cbc1253b30d463c4999c4",
+        "0x88a53ec4422f50238def5696446e06acd076f94d73c76e51449cf82eb5312dcb8a845a6c3199ce35de3f2b0441deb76b",
+        "0x8a85062118e29045e8b199723d9af519b0c071d9e7586fa89733e798536d4637f8545a169012cc1b76005d9453603273",
+        "0x8b39e8f6ad0a7d2c9e893459d76ac1bc7884d5343324f7639cc883590e8914c2edb59c3751e4b4c31d466baec718d440",
+        "0x910f20173e75cc036eb232cf2081043d62c028c3ddae53d5cccdbdd1213a9830c5143c431ee9e401a4d3432f3c23d18c",
+        "0x946fcf348bbf1044a3eaa3d27f1d01397cfc4d27495a949447c95ea7ec41db9f5c4fe3b867a937623685a0462996df09",
+        "0x95c8cc31f8d4e54eddb0603b8f12d59d466f656f374bde2073e321bdd16082d420e3eef4d62467a7ea6b83818381f742",
+        "0xa32aadb23e45595fe4981114a8230128443fd5407d557dc0c158ab93bc2b88939b5a87a84b6863b0d04a4b5a2447f847",
+        "0xa7a713e0275e888a06b4a95b5c0b16557cf25fe431269f54bc898287081dc4a25110edbafa643ea1b86c4319c8d9977e",
+        "0xa9d0a0f9059972d775a45d8377768ff20234de91a6fbacba5737ff8803807c38021b5863e5084869e695ef1d6c2fdaef",
+        "0xae2ffc6986c9a368c5ad2d51f86db2031d780f6ac9b2348044dea4e3a75808b566c935099de8b1a1609db322f2110e7a",
+        "0xb0b0de6ba411630193eed5450f82a76d66501e9838fe5fbe98d4873b5de677b3a20a360302fbe094adae63bc63e4ded4",
+        "0xb26f96664274e15fb6fcda862302e47de7e0e2a6687f8349327a9846043e42596ec44af676126e2cacbdd181f548e681",
+        "0xb435dd63a14675ea11e4eaca6bd640c70e68843cf4c8bfe3bbaf3a7ebedc3fc53d80050e58748ec3d088a15113c6d4c6",
+        "0xb47963246adef02cd3e61cbb648c04fd99b05e28a616aef3aa7fb688c17b10d1ce9662b61a600efbdd110e93d62d5144",
+        "0xb4a435cf816291596fe2e405651ec8b6c80b9cc34dace3c83202ca489a833756c9a0672ebdc17f23d9d43163db1caa5d",
+        "0xb4ce6162ff05198a2a3273c3cc94615e67bff9751d0febe14c2b20a7555221f6edd61c33f128c80b758f522343c72ea1",
+        "0xb67eaa5efcfa1d17319c344e1e5167811afbfe7922a2cf01c9a361f465597a5dc3a5472bd98843bac88d2541a78eab08",
+        "0xb9ce2753254979122cf137288efe471791893a9cf6abcd192f33515f6ca778507a51bcab84542562efc244001a7b4c55"
+      ],
+      "Ultra Sound": [
+        "0x80ff91f2b5db3628ddc2863d3317e5baca972c32e86c1b4b9bc98c3424c8e36fd318d105c1fcd99f94f898a15d13cb8a",
+        "0x92476693b77b151baf0e1f4b0070c4cc75d21e02804c03d48be6c328b2c6a2c49acf8745f44e6810df80593c33e94d55"
+      ],
+      "BTCS": [
+        "0x8042acb1f21ff5ee9d0035c2ea5d9a09c3810b048ba28f89e9a94e8e76c5fdd5bebce9b88af4e489ccd1daf735b829bb",
+        "0xa3ad1da9373ae97c21274629668d5b585addc0dfd1b323f0651159df409603f7b0c1fa90237164f817301b6a5733a220",
+        "0xb7c52ab445df2be2b6910f7710de2c236a77130b44a69486abfd89e8fcadc3fd6e545fa02329dc9c30a2c23b727ddab9",
+        "0xb7c5beefbaea0b050764617a764d571929a8a250e9e1226a3c31c738d05ea1fc8b3f2d455e15d623f6a64d52e4f84761",
+        "0xb9810c6839e91b063f8d2dc7acddc60599341600351d7f09d195cbc148307d31b667b52ccfb6559c61a0bdbc06ecdf86"
+      ]
+    },
+    "latest_matching_examples": {
+      "Ultra Sound": {
+        "slot": "4110130",
+        "parent_hash": "0x7640edda318f5c03b700bf835bfb4d134336129d7d6a249db3020de11210c7a8",
+        "block_hash": "0xfda9ea5a498cf32d152d4dca1702251606a0ad64632e9cec26ec594ccb263ddb",
+        "builder_pubkey": "0x80ff91f2b5db3628ddc2863d3317e5baca972c32e86c1b4b9bc98c3424c8e36fd318d105c1fcd99f94f898a15d13cb8a",
+        "proposer_pubkey": "0xb979bbbabc76b541d32c903a6f2f4c0e0b7c5bec085f4f1b5e20f8d9239f608770baaf7c3811dd7185a981ec7dffd95b",
+        "proposer_fee_recipient": "0x3652cda6fcab71a2834bf1a20a8fcd9f47734f9f",
+        "gas_limit": "60000000",
+        "gas_used": "58855392",
+        "value": "1790274301485918",
+        "num_tx": "49",
+        "block_number": "3781841"
+      },
+      "BTCS": {
+        "slot": "4126542",
+        "parent_hash": "0x76edaad2038c93706d2f0cbd19c24af706436a8876a61230fbb07c2bbaf28354",
+        "block_hash": "0xba7c1b84c3d51463f9381fffa0cfa8af0938fb7ae738b33304f6c77eac50bd62",
+        "builder_pubkey": "0xb7c52ab445df2be2b6910f7710de2c236a77130b44a69486abfd89e8fcadc3fd6e545fa02329dc9c30a2c23b727ddab9",
+        "proposer_pubkey": "0xa5ea8512764bae433cc3df69d972f46017a461fb2923f6800df2b301f4e58a1856a53737610098c44f158a3639a6c457",
+        "proposer_fee_recipient": "0x670b24610df99b1685aeac0dfd5307b92e0cf4d7",
+        "gas_limit": "60000000",
+        "gas_used": "3447206",
+        "value": "155622168516574",
+        "block_number": "3796396",
+        "num_tx": "7"
+      }
+    },
+    "limitations": "The four latest-100 samples span different time windows, omit other relays, and are not a market-share estimate. Matching published keys relies on relay reports; signatures were not independently verified."
+  },
+  "canonical_read_attempts": [
+    {
+      "provider": "Ultra Sound",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "observed_at_utc": "2026-10-11T15:30:43.145743+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0x39b4d1",
+          false
+        ]
+      },
+      "relay_record": {
+        "slot": "4110130",
+        "parent_hash": "0x7640edda318f5c03b700bf835bfb4d134336129d7d6a249db3020de11210c7a8",
+        "block_hash": "0xfda9ea5a498cf32d152d4dca1702251606a0ad64632e9cec26ec594ccb263ddb",
+        "builder_pubkey": "0x80ff91f2b5db3628ddc2863d3317e5baca972c32e86c1b4b9bc98c3424c8e36fd318d105c1fcd99f94f898a15d13cb8a",
+        "proposer_pubkey": "0xb979bbbabc76b541d32c903a6f2f4c0e0b7c5bec085f4f1b5e20f8d9239f608770baaf7c3811dd7185a981ec7dffd95b",
+        "proposer_fee_recipient": "0x3652cda6fcab71a2834bf1a20a8fcd9f47734f9f",
+        "gas_limit": "60000000",
+        "gas_used": "58855392",
+        "value": "1790274301485918",
+        "num_tx": "49",
+        "block_number": "3781841"
+      },
+      "http_status": 403,
+      "response_sha256": "2938e9f1284180959e33ab1718d0793a72ff6e4cdb8108c34dcd14e69446de5c",
+      "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "provider": "BTCS",
+      "url": "https://ethereum-hoodi-rpc.publicnode.com",
+      "observed_at_utc": "2026-10-11T15:30:43.241788+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0x39edac",
+          false
+        ]
+      },
+      "relay_record": {
+        "slot": "4126542",
+        "parent_hash": "0x76edaad2038c93706d2f0cbd19c24af706436a8876a61230fbb07c2bbaf28354",
+        "block_hash": "0xba7c1b84c3d51463f9381fffa0cfa8af0938fb7ae738b33304f6c77eac50bd62",
+        "builder_pubkey": "0xb7c52ab445df2be2b6910f7710de2c236a77130b44a69486abfd89e8fcadc3fd6e545fa02329dc9c30a2c23b727ddab9",
+        "proposer_pubkey": "0xa5ea8512764bae433cc3df69d972f46017a461fb2923f6800df2b301f4e58a1856a53737610098c44f158a3639a6c457",
+        "proposer_fee_recipient": "0x670b24610df99b1685aeac0dfd5307b92e0cf4d7",
+        "gas_limit": "60000000",
+        "gas_used": "3447206",
+        "value": "155622168516574",
+        "block_number": "3796396",
+        "num_tx": "7"
+      },
+      "http_status": 403,
+      "response_sha256": "2938e9f1284180959e33ab1718d0793a72ff6e4cdb8108c34dcd14e69446de5c",
+      "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "provider": "Ultra Sound",
+      "url": "https://rpc.hoodi.ethpandaops.io",
+      "observed_at_utc": "2026-10-11T15:31:16.477874+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0x39b4d1",
+          false
+        ]
+      },
+      "relay_record": {
+        "slot": "4110130",
+        "parent_hash": "0x7640edda318f5c03b700bf835bfb4d134336129d7d6a249db3020de11210c7a8",
+        "block_hash": "0xfda9ea5a498cf32d152d4dca1702251606a0ad64632e9cec26ec594ccb263ddb",
+        "builder_pubkey": "0x80ff91f2b5db3628ddc2863d3317e5baca972c32e86c1b4b9bc98c3424c8e36fd318d105c1fcd99f94f898a15d13cb8a",
+        "proposer_pubkey": "0xb979bbbabc76b541d32c903a6f2f4c0e0b7c5bec085f4f1b5e20f8d9239f608770baaf7c3811dd7185a981ec7dffd95b",
+        "proposer_fee_recipient": "0x3652cda6fcab71a2834bf1a20a8fcd9f47734f9f",
+        "gas_limit": "60000000",
+        "gas_used": "58855392",
+        "value": "1790274301485918",
+        "num_tx": "49",
+        "block_number": "3781841"
+      },
+      "http_status": 403,
+      "response_sha256": "2938e9f1284180959e33ab1718d0793a72ff6e4cdb8108c34dcd14e69446de5c",
+      "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+      "provider": "BTCS",
+      "url": "https://rpc.hoodi.ethpandaops.io",
+      "observed_at_utc": "2026-10-11T15:31:16.478516+00:00",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "0x39edac",
+          false
+        ]
+      },
+      "relay_record": {
+        "slot": "4126542",
+        "parent_hash": "0x76edaad2038c93706d2f0cbd19c24af706436a8876a61230fbb07c2bbaf28354",
+        "block_hash": "0xba7c1b84c3d51463f9381fffa0cfa8af0938fb7ae738b33304f6c77eac50bd62",
+        "builder_pubkey": "0xb7c52ab445df2be2b6910f7710de2c236a77130b44a69486abfd89e8fcadc3fd6e545fa02329dc9c30a2c23b727ddab9",
+        "proposer_pubkey": "0xa5ea8512764bae433cc3df69d972f46017a461fb2923f6800df2b301f4e58a1856a53737610098c44f158a3639a6c457",
+        "proposer_fee_recipient": "0x670b24610df99b1685aeac0dfd5307b92e0cf4d7",
+        "gas_limit": "60000000",
+        "gas_used": "3447206",
+        "value": "155622168516574",
+        "block_number": "3796396",
+        "num_tx": "7"
+      },
+      "http_status": 403,
+      "response_sha256": "2938e9f1284180959e33ab1718d0793a72ff6e4cdb8108c34dcd14e69446de5c",
+      "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    }
+  ],
+  "limitations": [
+    "No live inclusion, native-blob support, sponsorship or refund payout qualified.",
+    "Absence of a documented Hoodi endpoint is a discovery gap, not proof a private endpoint does not exist.",
+    "Statistics are delivered MEV-Boost sample shares using unauthenticated extra_data labels, not all Hoodi blocks, mainnet coverage, or inclusion probability.",
+    "Both historical block-read providers returned HTTP 403 for both example blocks. Canonical hash confirmation remains unverified.",
+    "Raw page and relay snapshots are local-only under /tmp/rollupx-hoodi-coverage-20261011; retained digests and public retrieval URLs do not guarantee future availability."
+  ]
+}

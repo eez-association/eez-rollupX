@@ -468,6 +468,34 @@ network must remain available.
 
 ## Generate test traffic
 
+### Exercise L2 settlement fees
+
+Use a disposable enclave configured with `EEZ_L2_FEE_SHADOW_POLICY` and
+`EEZ_L2_FEE_ENFORCE_TARIFF: "true"` in `settlement_env`. The policy must match
+that enclave's chain IDs, rollup and L2 fee beneficiary. Enable the UI to test
+its quote proxy as well. Build integration fixtures with `forge build --root
+contracts`, export the intended `KURTOSIS_ENCLAVE` and `KURTOSIS_ARGS_FILE`, and
+source `testing/kurtosis/ports.sh` to obtain the RPC endpoints.
+
+`scripts/verify-l2-fees.mjs` requires those L1/L2/front URLs, the deployed
+`EEZL2_ADDRESS`, a funded private-network fixture key in `EEZ_TEST_FEE_KEY`, and
+an output path in `EEZ_FEE_EVIDENCE_FILE`. Optionally set
+`EEZ_TEST_FEE_QUOTE_URL` to the UI's `/composer/l2/eez/fees/l2-to-l1` URL.
+It refuses public chain IDs, creates two independent nested-call fixtures,
+rejects an underpaid signed transaction, sends each paid source through the
+SDK's single-signature path, and checks receipts, beneficiary, target state
+and canonical queue disposition. Run it from the repository root:
+
+```bash
+node testing/kurtosis/scripts/verify-l2-fees.mjs
+```
+
+The evidence records whether the two sources shared a native block; the
+exercise does not guarantee batching. It does not replace independent blob
+verification, follower replay or restart checks. Legacy fixed-tip workloads
+do not acquire a fee quote automatically: run their compatibility checks with
+the gate disabled, or update each submitted intent to use the fee SDK.
+
 The workload scripts discover the enclave ports and deployment artifact
 automatically. They also read the deterministic L1 poster key (never the proof
 signer key) as their funding account from `KURTOSIS_ARGS_FILE`, so that variable

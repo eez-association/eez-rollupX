@@ -1,0 +1,101 @@
+{
+  "observed_at_utc": "2026-10-10T12:00:01.733811+00:00",
+  "scope": "Read-only empty-parameter simulation probes and public documentation; no signed transactions, wallets or submissions.",
+  "results": [
+    {
+      "name": "titan_mainnet",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "mev_simBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "sha256": "75e0bb273c496d4e723d781bb28b7d5107123bc7f9969f15732c9fab94df5d96",
+      "bytes": 77,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "titan_hoodi",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "mev_simBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "sha256": "75e0bb273c496d4e723d781bb28b7d5107123bc7f9969f15732c9fab94df5d96",
+      "bytes": 77,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "quasar_mainnet",
+      "url": "https://rpc.quasar.win",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "mev_simBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "sha256": "75e0bb273c496d4e723d781bb28b7d5107123bc7f9969f15732c9fab94df5d96",
+      "bytes": 77,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "quasar_mev_sendbundle",
+      "url": "https://docs.quasar.win/api/mev_sendbundle.md",
+      "request": null,
+      "http_status": 200,
+      "sha256": "af52b64ab0b4809606d754245881bd045089fc5456f1b4bcfbc58a4938dd2386",
+      "bytes": 2429
+    },
+    {
+      "name": "titan_sendbundle",
+      "url": "https://docs.titanbuilder.xyz/api/eth_sendbundle.md",
+      "request": null,
+      "http_status": 200,
+      "sha256": "67c5059df494497adb293d1d4ca3e7ed77a17334613238297aaa996adf555a26",
+      "bytes": 4398
+    },
+    {
+      "name": "quasar_index",
+      "url": "https://docs.quasar.win/llms.txt",
+      "request": null,
+      "http_status": 200,
+      "sha256": "85c4845c995e08c68b5b0b758de7c6db94fe6387a831ce5b5c1f11dbb1352b6a",
+      "bytes": 847
+    },
+    {
+      "name": "titan_index",
+      "url": "https://docs.titanbuilder.xyz/llms.txt",
+      "request": null,
+      "http_status": 200,
+      "sha256": "dff820ecf8d0feee5ca2081d76ccab064595c3369d5e34522722e338190c9272",
+      "bytes": 1312
+    }
+  ]
+}

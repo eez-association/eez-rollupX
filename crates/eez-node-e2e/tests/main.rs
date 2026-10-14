@@ -13,6 +13,7 @@ mod cross_chain;
 mod derivable_operations;
 mod dynamic_admission;
 mod e2e;
+mod fee_quotes;
 mod kurtosis_policy_replay;
 mod native_system;
 mod partial_consumption;
