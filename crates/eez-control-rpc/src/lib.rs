@@ -14,6 +14,8 @@ pub mod identity;
 
 /// Tonic-generated protobuf module for the `prove.v1` package.
 pub use generated::v1;
+/// Shared streaming contract; execution and settlement profiles remain deployment-specific.
+pub use generated::v2;
 
 use prost::Message;
 
