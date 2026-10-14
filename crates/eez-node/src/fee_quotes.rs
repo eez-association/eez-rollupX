@@ -131,8 +131,9 @@ pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> (StatusCod
 fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
     let status = match err {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
-        FeeQuoteError::Unsupported(_) | FeeQuoteError::Limit(_) => StatusCode::UNPROCESSABLE_ENTITY,
-        FeeQuoteError::Underfunded => StatusCode::UNPROCESSABLE_ENTITY,
+        FeeQuoteError::Unsupported(_) | FeeQuoteError::Limit(_) | FeeQuoteError::Underfunded => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
         FeeQuoteError::Stale => StatusCode::CONFLICT,
         FeeQuoteError::Disabled => StatusCode::NOT_FOUND,
         FeeQuoteError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
