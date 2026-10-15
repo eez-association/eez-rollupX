@@ -655,8 +655,11 @@ other consumers together to `eez_quoteFee` / `eez_debugQuoteFee`; the old method
 HTTP route and SDK helpers are removed. Both legacy and EIP-1559 transactions
 remain supported. A binary rollback requires matching client rollback and new
 quotes. Preserve policy, contracts, genesis and stopped database copies; no data
-migration is needed. Deployment of this API must be established by a new audit;
-older fee-deployment records do not validate it.
+migration is needed. Reconcile canonical progress since any restored snapshot;
+restoring a database cannot reverse settlements already posted on L1. The
+[compact API deployment audit](../audits/2026-10-15-compact-fee-quotes/README.md#docker-deployment-follow-up-2026-10-15)
+records the matching runtime/UI upgrade, stopped-state preservation, live canary
+and exact-image qualification. Older fee-deployment records do not validate this API.
 
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer

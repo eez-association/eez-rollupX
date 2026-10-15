@@ -1,6 +1,7 @@
 # Compact fee quote API validation
 
-Date: 2026-10-15 UTC. Local validation completed; no deployment was performed.
+Date: 2026-10-15 UTC. Initial local validation is recorded below; the later
+Docker deployment and qualification are recorded in the follow-up section.
 This records implementation evidence, not an independent security review.
 
 | Field | Value |
@@ -113,12 +114,123 @@ providers, not actual MetaMask/Rabby extensions, and broadcast no transactions.
 The UI production build, SDK tests, payment-boundary tests, discovery/debugger
 regressions, contract tests, Rust formatting and workspace Clippy are included.
 
-## Remaining qualification
+## Initial validation limits
 
-No new Docker image, Kurtosis topology/PBS run, public-network transaction,
+At the end of the initial local validation, no new Docker image, Kurtosis topology/PBS run, public-network transaction,
 operator restart or live deployment was performed. Kurtosis scripts were
 migrated and syntax-checked, not executed. The full protocol staged/stress
 commands and complete CI release matrix were not run. Actual Falcon signature
 workloads remain unqualified: the larger gas limits in the tests validate the
 request/admission profile, not Falcon execution cost. Quotes remain advisory;
 this evidence does not establish durable queue recovery or future-price coverage.
+
+## Docker deployment follow-up, 2026-10-15
+
+The user authorized building local images, deploying first, and running Kurtosis
+validation in parallel. The runtime source is
+`a9313f9ad4eb54e79d628172381866accb3f7da7`; its production code is the implementation
+`149968a373696a5f01cfb1ef8d6aae176f122a42` above, with validation documentation added.
+The dashboard source is `6cc89033064276843325af5607bb3bfd724cc44c`.
+The protocol remains `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`.
+
+The repository's node/signer Dockerfiles produced locked `release` profile
+images; the Kurtosis deploy image used their genesis helpers. The matching
+dashboard image was built from its clean checkout. These are locally built
+development images, not a promoted CI release. No registry tag was published.
+[deployment.json](deployment.json) records immutable image IDs, executable
+hashes and source identities. Both live containers and Kurtosis were checked
+against those exact IDs; live executable hashes match the extracted candidates.
+
+The existing Chiado runtime was upgraded under temporary gateway maintenance.
+The accepted queue was empty before both runtime writers stopped cleanly.
+Complete stopped L1/L2 databases were copied to new isolated paths, with the
+originals retained. Only the runtime images, candidate database paths and UI
+image changed in the resolved Compose configurations. The matching UI was
+upgraded in the same window. Policy, keys, deployed contracts, genesis, bindings
+and posting-history storage were preserved. The pre-upgrade safe block remains
+canonical and settlement advanced after restart. Public routing was restored
+after local API and canonical-canary checks.
+
+The live canary reused an existing owned nested fixture, held both protocol
+checkout wallet locks, and capped the maximum fee reservation at 0.005 native
+units without funding or deploying another contract. It omitted gas for internal
+estimation and submitted one paid legacy transaction. An underpaid signed
+variant was rejected before ownership/execution. The paid transaction reached
+canonical consumption, updated the expected L1 state, and had successful L1/L2
+receipts and matching references on both Composer fronts. Source gas was 99,149;
+quoted and actual posting gas were both 173,707. The source paid
+365,734,801,552,714 wei in tips against a complete L1 posting/blob cost of
+304,779,001,215,949 wei and a required 20%-margin tariff of
+365,734,801,459,139 wei.
+
+Read-only public checks passed for compact/debug methods, both transaction
+formats, omitted gas/nonce, the explicit 16,777,216 gas cap on ordinary L2,
+ordinary-L2 zero settlement surcharge, removed old RPC, unsupported L1 direction
+and absence of fee methods on the plain node RPC. The supplied `cast` syntax was
+executed against the public API. A browser loaded the deployed dashboard assets
+and fee controls without page errors. This smoke check did not use a real
+MetaMask or Rabby extension.
+
+The initial local API smoke script tried the 16M limit on the small canary
+wallet's nested call. Native validation rejected that option: its full
+`gas * gasPrice` reservation exceeded the wallet balance. The ordinary-L2
+comparison accepted and preserved 16M. The checker was corrected to use that
+funded comparison; this is not evidence of a successful 16M nested execution.
+The first response is retained. The initial local Kurtosis orchestration attempt
+also stopped before any workload because its deployment-download helper required
+`ENCLAVE`; the corrected caller sets it from the explicit `KURTOSIS_ENCLAVE`.
+Its first diagnostic is retained. Neither required a product-code change.
+
+Raw build, handover and test logs, snapshots, blobs and datadirs are local-only
+under `artifacts/compact-fee-quotes-deployment-20261015/` and the recorded ignored
+operation directory in the operator checkout. The UI migration prompt and
+read-only `cast` examples are retained there as `ui-migration-prompt.txt` and
+`manual-cast.sh`. These ignored artifacts are unavailable from another checkout.
+The committed result file retains small sanitized evidence and hashes.
+
+The isolated `eez-compact-fees-20261015` enclave used private chains 7331/696990,
+native blobs, a real builder/relay/validator topology, enforced fees, 1:1
+conversion and a 20% allowance. The four `EEZ_SKIP_*_BUILD` flags selected the
+already built images. Every operating shell exported its explicit enclave name
+and argument file. Validation waited for the fresh relay's first canonical
+settlement before submitting the workload.
+
+Executed checks all passed:
+
+- `verify-eezl2-deployment.sh` verified genesis, proxy, implementation, owner and
+  deployment bindings.
+- `verify-l2-fees.mjs` quoted through the UI's Composer route, rejected an
+  underpaid source before ownership/execution, and settled two independent
+  nested sources in the same native block. Receipt costs, beneficiary, target
+  state and canonical disposition passed.
+- `verify-l2-bridge-fees.mjs` funded actual L1 escrow through an inbound deposit,
+  then verified EIP-1559 and legacy withdrawals with internally estimated gas.
+  Quoted/actual L1 gas was 492,775/492,799 and 182,933/182,945. Tip-to-complete-
+  posting-cost ratios were approximately 1.2006 and 1.2002; both satisfied
+  coverage and the existing 2% tolerance above the 20% allowance. L1/L2 user
+  balance changes matched the transfer value and source receipt fee.
+- The dashboard's `tests/l2-fees-kurtosis.cjs` completed a real browser-to-
+  settlement transaction with one compact quote and one wallet request. It
+  checked intent binding, receipt fees, beneficiary, canonical posting and L1
+  target state. The wallet was an injected fixture adapter, not an extension.
+- Canonical reference checks covered five source groups and nine physical L2
+  transactions; both fronts agreed and unknown-source lookup remained null.
+- Five native blob postings were authenticated, including the browser posting
+  and inbound deposit, with semantic tables and outbound bytes bound to their
+  settlements. The separate live Chiado canary blob was also authenticated.
+- One intended `kurtosis_policy_replay::` process test passed with zero ignored
+  selected tests, using the extracted Docker follower and the frozen harness
+  described above. It independently replayed canonical L1 data and checked 60
+  L2 blocks and five source receipts. This invocation rebuilt no runtime.
+
+The task's enclave was stopped after evidence capture, retaining its state.
+Unrelated enclaves and live Chiado services were left running. No product-code
+changes followed the image build.
+
+The full protocol staged/stress matrix, complete CI promotion lanes, actual
+wallet extensions and actual Falcon signature workloads were not run.
+Independent replay was performed on Kurtosis, not the entire Chiado history.
+These results do not establish durable queue recovery or future-price coverage.
+L1-origin recovery remains deferred. A rollback requires matching clients and
+reconciliation of canonical progress after the stopped snapshots; those copies
+cannot reverse settlements already posted on L1.

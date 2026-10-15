@@ -1,6 +1,7 @@
 # Compact, direction-aware fee quotes
 
-Status: L2 API implemented and locally validated on 2026-10-15; not deployed.
+Status: L2 API implemented, deployed and validated on 2026-10-15, including
+exact-image Kurtosis and live Chiado checks.
 See the [validation record](../audits/2026-10-15-compact-fee-quotes/README.md). The
 L1-origin recovery policy remains deferred. The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
