@@ -71,7 +71,7 @@ export function feeQuoteTransaction({ quote, transaction, type, chainId, keccak2
   if (typeof maxTotalFee !== "bigint" || maxTotalFee < 0n) throw new Error("A bigint maxTotalFee is required");
   if (quantity(chainId) !== quantity(quote.chainId) || (transaction.chainId && quantity(transaction.chainId) !== quantity(chainId))) throw new Error("Quote chain mismatch");
   const expiry = quantity(quote.expiresAt) * 1000n;
-  if (!Number.isSafeInteger(now) || expiry <= BigInt(now) || expiry > BigInt(now) + 11_000n) throw new Error("Quote expired or invalid clock");
+  if (!Number.isSafeInteger(now) || expiry <= BigInt(now) || expiry > BigInt(now) + 31_000n) throw new Error("Quote expired or invalid clock");
   if (!["0x0", "0x2"].includes(type) || (transaction.type && quantity(transaction.type) !== quantity(type))) throw new Error("Quote type mismatch");
   if (!Array.isArray(quote.options) || quote.options.length < 1 || quote.options.length > 2 ||
       quote.options.some(option => !["0x0", "0x2"].includes(option.type)) ||

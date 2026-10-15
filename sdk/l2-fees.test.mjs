@@ -19,7 +19,7 @@ function compactFixture(type = "0x2") {
   };
   const options = ["0x0", "0x2"].map(type => ({ type, gas:source.gas, requestHash:hashes[type], estimatedFee:"0x4ce78",
     ...(type === "0x0" ? {gasPrice:"0xf"} : {maxPriorityFeePerGas:"0x5",maxFeePerGas:"0xf"}) }));
-  const quote = { version:1, chainId:"0x1",nonce:"0x0",expiresAt:`0x${(Math.floor(Date.now()/1000)+10).toString(16)}`,options };
+  const quote = { version:1, chainId:"0x1",nonce:"0x0",expiresAt:`0x${(Math.floor(Date.now()/1000)+30).toString(16)}`,options };
   return { transaction, quote, type, chainId:"0x1", keccak256, maxTotalFee:1500000n };
 }
 
@@ -107,5 +107,17 @@ test("compact sends reject changed wallet chain/account and expire during prefli
         eth_accounts:[changed === "account" ? args.transaction.to : args.transaction.from],eth_getTransactionCount:"0x0"}[method];
     }};
     await assert.rejects(sendFeeQuotedTransaction({...args,wallet}), /different chain|account changed|expired/);
+  }
+});
+
+test("advisory quotes allow thirty seconds but reject expiry and implausible clock skew", () => {
+  const now = 2_000_000_000_000;
+  for (const type of ["0x0", "0x2"]) {
+    for (const remaining of [30, 1, 0, -1, 32]) {
+      const args = compactFixture(type);
+      args.quote.expiresAt = `0x${(BigInt(now / 1000) + BigInt(remaining)).toString(16)}`;
+      if (remaining > 0 && remaining <= 30) assert.equal(feeQuoteTransaction({...args, now}).type, type);
+      else assert.throws(() => feeQuoteTransaction({...args, now}), /expired or invalid clock/);
+    }
   }
 });
