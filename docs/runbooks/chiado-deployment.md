@@ -449,11 +449,34 @@ Use these diagnostics when startup fails or a running service stalls. Begin with
 | Signer unhealthy/rejecting | `docker compose logs --tail=100 eez-proof-signer`; check [keys/genesis](#deployment-identity), genesis mode (`stat -c '%a %n' datadir/genesis.json`, expected 644), UID 65532 readability, and L1 chain config `chiado`. |
 | Port in use/database locked | `ss -lntup`; `docker ps -a --format '{{.Names}}'`; `docker compose ps`. Identify the owning process/deployment; a worktree/project name cannot isolate this profile. Never share a writable datadir. |
 | L1/Beacon cannot catch up | Check [sync/peers and L1 agreement](#health-checks), shared JWT, checkpoint source (`LH_CHECKPOINT_URL`), snapshot backfill, and checked-in Fulu config. `configs/chiado/bootstrap_nodes.yaml` must be nonempty and match `bootnodes.yaml`. |
+| Fee quote reports `L1 fee sample is too old` | Check the embedded head timestamp against the external RPC and Beacon sync status. The quote may correctly reject a stalled upstream; do not relax its freshness check to hide that condition. See [stalled consensus client](#stalled-consensus-client). |
 | Beacon has no peers | `curl -fsS http://127.0.0.1:6152/eth/v1/node/identity \| jq '.data'`; inspect advertised `ip`/`udp`, firewall, NAT, and UDP 9205 reachability. See [discovery change](#discovery-change--recreates-lighthouse-only). |
 | Blob retrieval fails | Use the [blob diagnostic](#blob-diagnostic--read-only) with the settlement's slot and versioned hash. Check retention, sync, Fulu config, and semi-supernode mode. |
 | Builder probe fails | Check reachability and `eth_sendBundle` support of each `EEZ_L1_BUILDER_RPC_URL` entry. Startup sends an empty bundle to every listed relay and names them `builder[<index>] (<host>)`; JSON-RPC error `-32601` means the method is unavailable. Startup fails only when no relay passes; failing additional relays print a warning. Probe success does not prove inclusion. |
 | L2 advances without settlement | Check [L1 agreement](#health-checks), then [poster funding and settlement](#settlement-diagnostic). Inspect node/signer logs for builder inclusion, proof failure, policy due-work, fee ceilings, and gas/blob/timing deferrals. |
 | Simulation cannot fetch a block | Verify deployment RPC freshness. Skip-simulation bypasses that phase only; inspect prior broadcasts before retrying. |
+
+### Stalled consensus client
+
+An observed Chiado incident left Lighthouse reporting empty slots with peers
+while its execution hash stayed fixed and the public chain advanced. It later
+reported a growing sync distance. Restarting the existing Lighthouse container
+restored catch-up; no configuration, image or database replacement was needed.
+The [deployment record](../audits/2026-10-15-simplified-fees/README.md) retains
+the before/after evidence. This is a verified recovery for that incident, not a
+diagnosis of every stale-head error.
+
+After recording logs, checking L1 agreement and confirming this stalled state,
+an authorized service recovery can restart only the existing client:
+
+```bash
+docker compose restart lighthouse
+```
+
+Repeat the health checks below. Require a fresh embedded head,
+`is_syncing=false`, `is_optimistic=false` and `el_offline=false` before treating
+quotes or settlement as recovered. A running container or `eth_syncing=false`
+alone is insufficient. Preserve existing data and JWT throughout.
 
 ### Health checks
 

@@ -689,6 +689,12 @@ policy, `pricing_status: unpriced` retains null recovery/tip fields. Version 2
 can report `shadow_priced` under explicit
 [operator assumptions](../../docs/configurable-settlement-policy.md#shadow-l2-fee-pricing):
 full cost, eligible/excluded tips, projected recovery and shortfall/surplus.
+With simplified fee pricing, `comparison` and its shortfall/surplus still refer
+to the desired profit target. `minimum_service_payment_l1`,
+`minimum_service_payment_l2` and `cost_coverage` separately describe the enforced
+cost-plus-risk floor. A target shortfall can therefore coexist with covered
+costs; it is not by itself a settlement funding failure. Historical observations
+can omit these added fields.
 A minimum tip is available only for one eligible L2 source without companions;
 it uses charged receipt gas and current execution, and is not a wallet quote.
 Qualified revenue remains null in either mode. Proving/operations and conversion

@@ -1,11 +1,12 @@
 # Compact, direction-aware fee quotes
 
-Status: L2 API implemented, deployed and validated on 2026-10-15, including
-exact-image Kurtosis and live Chiado checks for the recorded deployed revision.
-The subsequent draft API cleanup moves enforcement metadata to debug output and
-uses transaction-request terminology. Its local validation is recorded separately
-in the [validation record](../audits/2026-10-15-compact-fee-quotes/README.md). The
-L1-origin recovery policy remains deferred. The normative API contract is in
+Status: L2 API, compact response cleanup and simplified pricing/availability
+implemented, deployed and validated on 2026-10-15. The
+[latest validation record](../audits/2026-10-15-simplified-fees/README.md) identifies
+the exact Docker images, Kurtosis checks and live Chiado handover; the
+[earlier API record](../audits/2026-10-15-compact-fee-quotes/README.md) preserves
+the preceding results. The L1-origin recovery policy remains deferred.
+The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 
 ## Scope and invariants
@@ -76,7 +77,8 @@ unit or process success alone must not be described as either.
 ## Simplified pricing and availability (accepted scope, 2026-10-15)
 
 The operator requested implementation, testing and deployment of the following
-refinement. Implementation and deployment evidence remain pending until recorded.
+refinement. Its implementation and deployment are recorded in the
+[simplified fee audit](../audits/2026-10-15-simplified-fees/README.md).
 
 Use the existing policy fields without adding configuration layers. `risk_bps`
 is the mandatory reserve above measured posting, blobs and configured service
