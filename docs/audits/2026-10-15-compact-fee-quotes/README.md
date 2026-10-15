@@ -234,3 +234,43 @@ These results do not establish durable queue recovery or future-price coverage.
 L1-origin recovery remains deferred. A rollback requires matching clients and
 reconciliation of canonical progress after the stopped snapshots; those copies
 cannot reverse settlements already posted on L1.
+
+## API cleanup follow-up (2026-10-15, not deployed)
+
+The next draft revision makes the normal quote response minimal and replaces
+Ethereum-ambiguous intent terminology. Backend implementation
+`854ad0d7b3f2dfbf9ee110a1c4cbc36faf7a628e` follows `dbf53ef2`; dashboard
+implementation `0650ec83ea16fcf927d67877bad4ebac63b6e90d` follows `6cc8903`.
+The initialized protocol remains `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`.
+
+`eez_quoteFee` now contains only `version`, `chainId`, `nonce`, `expiresAt` and
+`options`. `eez_debugQuoteFee` exposes enforcement mode only at
+`diagnostics.recoveryMode`. The SDK takes `transaction`, option bindings use
+`requestHash`, and detailed unsigned inputs use `request`. Input error codes
+are `invalid_transaction` and `unsupported_transaction`. Binding bytes, fee
+arithmetic and native enforcement are unchanged; no old aliases are accepted.
+Upgrade Composer and clients together. L1-origin recovery remains deferred.
+
+[api-cleanup.json](api-cleanup.json) records the exact implementation, executable
+hashes and results. Raw evidence is local-only under
+`artifacts/compact-fee-api-polish-20261015/`; it is ignored and unavailable from
+another checkout. Runtime binaries were built and frozen before compiling the
+process harness, using the same locked development-profile commands above.
+The serial `fee_quotes::` filter selected six fee tests and three Safe tests.
+All nine passed with zero ignored or failed tests, including nested settlement,
+underpayment rejection, ordinary-L2 behavior and independent follower replay.
+The tests check the minimal root schema, debug-only metadata and new binding
+names against real Composer processes.
+
+Composer units passed 351 tests with one existing manual timing profile ignored;
+node units passed 86. The SDK passed five tests. Dashboard checks passed four
+payment, 27 discovery, four gas-estimation and nine bridge-MAX tests, plus 16 fee
+and 27 bridge mocked-browser scenarios. No real transactions were sent by those
+browser suites. The production UI build passed with the existing chunk-size
+warning. Workspace Clippy with warnings denied, Rust formatting, JavaScript
+syntax, identical SDK copies and documentation checks passed.
+
+No new Docker image, Kurtosis run or live deployment was performed for this
+cleanup. The earlier deployment evidence above remains valid only for its
+recorded runtime/UI revisions. The complete CI/staged/stress matrix, actual
+wallet extensions and actual Falcon signature workloads remain unverified here.
