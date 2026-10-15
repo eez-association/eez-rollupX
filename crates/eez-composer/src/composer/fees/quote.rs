@@ -548,7 +548,7 @@ where
                 return Err(FeeQuoteError::Unavailable("insufficient L1 escrow"));
             }
             let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
-                &[group.clone()],
+                std::slice::from_ref(&group),
                 &[],
                 &SystemTxContext {
                     eezl2_address: runtime.ctx.eezl2_address,
@@ -588,9 +588,10 @@ where
                 tx_data: raw_size,
                 actions: composition.actions.clone(),
             };
-            let semantics = Self::cross_chain_da_overhead(rollup_id, &[semantic.clone()])
-                .map_err(|e| unavailable("semantic DA", e))?
-                .semantic_bytes;
+            let semantics =
+                Self::cross_chain_da_overhead(rollup_id, std::slice::from_ref(&semantic))
+                    .map_err(|e| unavailable("semantic DA", e))?
+                    .semantic_bytes;
             let da_bytes = eez_blob_codec::native_stream_len(operations, semantics)
                 .map_err(|e| unavailable("native DA", e))?;
             if da_bytes > MAX_DA_BYTES {

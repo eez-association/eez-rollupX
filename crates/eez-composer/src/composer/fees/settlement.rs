@@ -545,7 +545,7 @@ mod tests {
             charged_new_account_state_gas: false,
         };
         let mut gas = Gas::new(100_000);
-        assert!(gas.record_cost(4_321));
+        assert!(gas.record_regular_cost(4_321));
         let outcome = CallOutcome::new(
             InterpreterResult::new(
                 InstructionResult::Return,

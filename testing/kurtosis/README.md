@@ -496,6 +496,16 @@ verification, follower replay or restart checks. Legacy fixed-tip workloads
 do not acquire a fee quote automatically: run their compatibility checks with
 the gate disabled, or update each submitted intent to use the fee SDK.
 
+For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
+with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
+`EEZ_L2_BRIDGE_RECEIVER` and `EEZ_BRIDGE_FEE_EVIDENCE_FILE`. This requires the
+1:1, 20% risk, zero fixed-cost/profit trial policy. It funds escrow through a
+real inbound bridge, then verifies a first type-2 withdrawal and a repeated
+legacy withdrawal. It checks principal and fee balance changes, native source
+gas, L1 receipt gas within 1,000 of the quote, and payment within 2% above the
+actual complete posting/blob cost plus its 20% allowance. This regression catches
+excessive pricing that a lower-bound funding check alone cannot detect.
+
 The workload scripts discover the enclave ports and deployment artifact
 automatically. They also read the deterministic L1 poster key (never the proof
 signer key) as their funding account from `KURTOSIS_ARGS_FILE`, so that variable
