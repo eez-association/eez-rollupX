@@ -365,6 +365,14 @@ L1 from L2 belongs to the enforced outbound path; deployment entirely on L2
 retains ordinary gas rules and has no enforced posting/blob contribution. This
 scope boundary must not be described as universal L2 fee recovery.
 
+Accepted scope clarification on 2026-10-15: settlement of ordinary L2 traffic
+may be operator-subsidized in this iteration. These users still pay normal L2
+execution fees; no mandatory settlement tip or surcharge is required. The
+ordinary-L2 behavior above is therefore accepted, not an unmet acceptance
+criterion. L2-to-L1 transactions, including nested calls, must still satisfy
+the outbound tariff. This clarification does not change the existing
+whole-post pricing or final dispatch checks.
+
 ### Wallet transport and accepted-work behavior
 
 For the proposed integrated wallet flow, the wallet's source-chain submission

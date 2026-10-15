@@ -1149,8 +1149,11 @@ idempotent. Ordinary L2 and L1-origin admission retain their existing rules.
 The destination matters for factory deployments. Creating a Safe on L1 through
 its L2 cross-chain proxy is an outbound source, including the factory's CREATE2
 and initializer calls. Creating the Safe entirely on L2 is ordinary traffic and
-has no minimum settlement contribution under this flag. Application-supplied
-tips do not enforce that contribution against other clients. See the
+has no minimum settlement contribution under this flag. Under the scope accepted
+on 2026-10-15, ordinary L2 users pay normal execution fees and their settlement
+may be operator-subsidized; no additional settlement tip is required. This does
+not exempt L2-to-L1 work, including nested calls, from the outbound tariff or
+change its whole-post pricing. See the
 [Safe fee validation](audits/2026-10-14-safe-fee-recovery/README.md) and the
 `safe_fee_quotes::` process regressions for this distinction.
 

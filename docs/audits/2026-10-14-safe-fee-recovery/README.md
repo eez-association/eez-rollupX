@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Date and status | 2026-10-14–15 UTC; targeted validation complete; outbound tests passed and ordinary-L2 settlement-fee coverage gap reproduced |
+| Date and status | 2026-10-14–15 UTC; targeted validation complete; outbound tests passed and ordinary-L2 zero-tip execution reproduced; settlement subsidy accepted in the [2026-10-15 scope decision](#2026-10-15-scope-decision) |
 | Question | Can a Safe deployment initiated on L2 underpay the L1 poster? Distinguish deployment on L1 through an L2 proxy from deployment entirely on L2. |
 | Source | `99ced2f28536c98891e701cb60ccc37a826c9188` plus the new `safe_fee_quotes` process regression and fixtures; no runtime changes |
 | Runtime source | Shipping changes through `a7fee49d04be78a01220a85d37042489ba082e35`; later source commits change tests, deployment tooling and records |
@@ -47,9 +47,23 @@ local execution, not canonical L1 posting or a measured loss on that post.
 Both top-level CREATE and a Safe
 factory call that stays on L2 use ordinary gas rules. The configured tariff does
 not impose a minimum posting/blob contribution on these transactions. A dApp
-adding a tip cannot enforce payment by other clients. Covering that traffic
-requires a separate ordinary-L2 admission/sequencing or execution-rule policy.
+adding a tip cannot enforce payment by other clients. Requiring settlement
+payment from that traffic would need a separate ordinary-L2 admission/sequencing
+or execution-rule policy.
 This is the documented scope of the current trial, not a change made here.
+
+## 2026-10-15 scope decision
+
+After this review, the user explicitly accepted subsidizing settlement of
+ordinary L2 traffic. The initial review classified the absence of a mandatory
+ordinary-L2 settlement contribution as a coverage gap; under the clarified
+scope it is intentional and is not an unmet acceptance criterion. Ordinary L2
+execution fees still apply. L2-to-L1 transactions, including nested Safe
+deployment and initialization, remain subject to the outbound tariff.
+
+The existing behavior matches this scope decision. This clarification changes
+neither runtime/configuration nor the measurements and test results below;
+the whole-post tariff and final dispatch checks remain in effect.
 
 ## Why the outbound checks matter
 
