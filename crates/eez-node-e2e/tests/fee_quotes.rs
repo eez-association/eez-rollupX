@@ -973,7 +973,9 @@ async fn l1_refund_roundtrip(legacy: bool) {
         next_quantity("maxPriorityFeePerGas")
     };
     let next_signed = sign(nonce + 1, tip, cap);
-    world.hold_next_bundle().unwrap();
+    // The one-shot hold above retains its capture/release files. Use the
+    // separate persistent barrier to observe this second dispatch unambiguously.
+    world.pause_bundles_after(0).unwrap();
     let admitted = quote_rpc(
         &client,
         &world.l1_xchain(),
@@ -987,7 +989,7 @@ async fn l1_refund_roundtrip(legacy: bool) {
         json!(next_signed.tx_hash()),
         "{admitted}"
     );
-    let next_bundle = wait_for(TIMEOUT, || async { world.held_bundle() })
+    let next_bundle = wait_for(TIMEOUT, || async { world.paused_bundle() })
         .await
         .unwrap();
     assert_eq!(
