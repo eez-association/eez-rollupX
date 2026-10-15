@@ -270,15 +270,16 @@ for (let wave = 0; wave < 2; wave++) {
   const income = BigInt(payments[0].value);
   assert.equal(income, expected, "refund must come from the largest measured total tip");
   const cost = BigInt(post.gasUsed) * BigInt(post.effectiveGasPrice) + BigInt(post.blobGasUsed) * BigInt(post.blobGasPrice);
-  assert(income < cost, "exercise must demonstrate an intentionally undercovered batch");
+  if (wave === 0) assert(income < cost, "first batch must exercise an actual shortfall");
   assert.equal(BigInt(await read(l1, inner, "completedProxyCalls()")), beforeCalls + BigInt(actors.length));
   const lastValue = BigInt(`0x${ordered.at(-1).transaction.data.slice(-64)}`);
   await until("batched nested effects", async () => BigInt(await read(l2, target, "value()", "safe")) === lastValue);
   Object.assign(batch, { postHash: posts[0].hash, postReceipt: post, payoutHash: payments[0].hash,
     payoutReceipt: payout, selectedPayer: payer.hash, actualPostingCostL1: String(cost), receivedRefundL1: String(income),
-    shortfallL1: String(cost - income), expectedL2Value: String(lastValue) }); checkpoint();
+    shortfallL1: String(cost > income ? cost - income : 0n), surplusL1: String(income - cost),
+    expectedL2Value: String(lastValue) }); checkpoint();
   console.log(`Shared batch ${wave}: ${actors.length} nested sources, payer=${payer.hash}, refund=${income}, cost=${cost}`);
-  // Give the canonical observer time to record the shortfall before the next wave.
+  // Allow canonical observation before the next wave or final quote check.
   await new Promise(resolve => setTimeout(resolve, 15_000));
 }
 // Quotes remain available after an observed shortfall. Missing-payment

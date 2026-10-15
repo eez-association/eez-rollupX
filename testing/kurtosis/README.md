@@ -487,10 +487,11 @@ recipient balance increase must cover measured post/blob/service costs and risk.
 It then funds four deterministic private-network actors with one test ETH each,
 submits two concurrent waves of nested sources (mixed legacy/EIP-1559), and
 requires each wave to settle in one post. The measured largest total priority
-payment must produce the only refund. Both shared batches must be undercovered
-to prove the accepted subsidy and continued service; an accidentally profitable
-or split batch does not pass this regression. It retains incremental evidence
-before broadcasting each source:
+payment must produce the only refund. The first shared batch must be undercovered
+to prove the accepted subsidy. The next batch must settle after that observation;
+it may be profitable as posting fees change. A profitable first batch or a split
+batch does not establish this regression. It retains incremental evidence before
+broadcasting each source:
 
 ```bash
 node testing/kurtosis/scripts/verify-l1-fees.mjs
