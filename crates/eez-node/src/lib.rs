@@ -806,7 +806,11 @@ async fn launch_composer(
     // One shared module (and witness permit budget) for both fronts. None of
     // these methods is registered on Reth's HTTP, WS, IPC or auth transports.
     let mut composer_methods = jsonrpsee::RpcModule::new(());
-    composer_methods.merge(queue_rpc::module(Arc::clone(&held_pool))?)?;
+    composer_methods.merge(queue_rpc::module(
+        Arc::clone(&held_pool),
+        l1_source_chain_id,
+        chain_spec.chain().id(),
+    )?)?;
     composer_methods.merge(correlation_rpc::module(
         Arc::clone(&correlations),
         Arc::clone(&l1_head),

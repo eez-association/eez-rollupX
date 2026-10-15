@@ -5416,6 +5416,7 @@ where
         };
         let total_entries: usize = comp_refs.iter().map(|c| c.source.batch.entries.len()).sum();
 
+        let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let manifest = match SettlementManifest::build(ManifestInput {
             rollup_id,
             sync_number: built.header.number(),
@@ -5437,6 +5438,28 @@ where
             outbound_hosts: &outbound_entries,
             checkpoint_positions: &effect_end_positions,
             checkpoint_hashes: &pair_hashes,
+        })
+        .and_then(|mut manifest| {
+            use alloy_consensus::transaction::TxHashRef;
+            use eez_protocol::settlement_manifest::ChainTransaction;
+            let transactions = built
+                .block
+                .body()
+                .transactions
+                .iter()
+                .map(|tx| ChainTransaction {
+                    chain_id: ctx.l2_chain_id,
+                    hash: *tx.tx_hash(),
+                })
+                .collect::<Vec<_>>();
+            manifest.attach_transaction_references(
+                ChainTransaction {
+                    chain_id: ctx.l1_chain_id,
+                    hash: post_batch_hash,
+                },
+                &transactions,
+            )?;
+            Ok(manifest)
         }) {
             Ok(manifest) => manifest,
             Err(error) => {
@@ -5462,7 +5485,6 @@ where
 
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
-        let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
         bundle.push(prepared_postbatch.clone());
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).

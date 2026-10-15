@@ -389,6 +389,8 @@ mod tests {
                     outbound_group: Some(i),
                     effects: i..i + 1,
                     source_actions: vec![],
+                    l2_transaction_range: 0..0,
+                    transaction_references: None,
                 })
                 .collect(),
         };

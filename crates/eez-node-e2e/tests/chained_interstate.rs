@@ -418,6 +418,30 @@ async fn three_order_dependent_inbound_calls_in_one_bundle() {
         assert_receipt_ok(&l2_rpc, outcome.tx, "delivery system tx").await;
     }
 
+    let block = ProviderBuilder::new()
+        .connect_http(l2_rpc.parse().unwrap())
+        .get_block_by_number(delivered[0].block.into())
+        .await
+        .unwrap()
+        .unwrap();
+    let physical = block.transactions.hashes().collect::<Vec<_>>();
+    assert_eq!(physical.len(), 3, "three self-loading inbound deliveries");
+    let mut poster = None;
+    for (index, source) in hashes.iter().enumerate() {
+        assert_eq!(physical[index], delivered[index].tx);
+        let refs = crate::transaction_references::assert_references(
+            &w,
+            *source,
+            true,
+            std::slice::from_ref(&physical[index]),
+        )
+        .await;
+        if let Some(expected) = &poster {
+            assert_eq!(&refs["postBatch"], expected);
+        }
+        poster = Some(refs["postBatch"].clone());
+    }
+
     assert_reconciled(&w).await;
     assert_no_evictions(&w);
     assert_eq!(
@@ -551,6 +575,24 @@ async fn mixed_direction_state_chain_in_one_slot() {
 
     assert_reconciled(&w).await;
     crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 1, None).await;
+    let block = provider
+        .get_block_by_hash(outbound_receipt.block_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let physical = block.transactions.hashes().collect::<Vec<_>>();
+    assert_eq!(
+        physical.len(),
+        3,
+        "one outbound pair and one inbound delivery"
+    );
+    assert_eq!(physical[1], outbound);
+    assert_eq!(physical[2], delivered[0].tx);
+    let outbound_refs =
+        crate::transaction_references::assert_references(&w, outbound, false, &physical[..2]).await;
+    let inbound_refs =
+        crate::transaction_references::assert_references(&w, inbound, true, &physical[2..]).await;
+    assert_eq!(outbound_refs["postBatch"], inbound_refs["postBatch"]);
     assert_no_evictions(&w);
     w.node.assert_no_process_death();
 }

@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use alloy_primitives::{Address, B256, Bytes};
 use eez_l1::L1BlockRef;
-use eez_protocol::settlement_manifest::SettlementManifest;
+use eez_protocol::settlement_manifest::{SettlementManifest, TransactionReferences};
 use reth_primitives_traits::SealedHeader;
 
 use crate::held_pool::HeldTx;
@@ -145,12 +145,14 @@ pub enum SourceOutcome {
 
 /// Terminal user whose ownership record was pruned after finality. Diagnostic
 /// only: it never authorizes execution, admission or recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinalizedUser {
     pub hash: B256,
     pub identity: (Address, Direction, u64),
     pub reason: TerminalReason,
     pub canonical: Option<L1BlockRef>,
+    /// Bounded RPC history retained with the existing terminal observation.
+    pub transaction_references: Option<(u64, TransactionReferences)>,
 }
 
 /// Nonce suffix that cannot progress after a retry budget is exhausted.
@@ -427,6 +429,14 @@ impl OptimisticallyIncluded {
             }
             attempt.id.post_batch_hash = post_batch_hash;
             attempt.post_batch = post_batch;
+            for source in &mut attempt.manifest.users {
+                if let Some(references) = &mut source.transaction_references {
+                    references.post_batch.hash = post_batch_hash;
+                    if source.source_rollup_id.0 != 0 {
+                        references.l1.hash = post_batch_hash;
+                    }
+                }
+            }
             Ok(attempt.id)
         })
     }
@@ -638,7 +648,10 @@ impl OptimisticallyIncluded {
             if !eligible {
                 return Ok(Vec::new());
             }
-            state.attempts.remove(&id.generation);
+            let attempt = state
+                .attempts
+                .remove(&id.generation)
+                .expect("eligibility checked the exact retained attempt");
             let mut released = Vec::new();
             state.users.retain(|hash, user| {
                 if user.owner != id.generation {
@@ -650,6 +663,13 @@ impl OptimisticallyIncluded {
                         identity: (user.tx.sender, user.tx.direction, user.tx.nonce),
                         reason,
                         canonical,
+                        transaction_references: attempt
+                            .manifest
+                            .users
+                            .iter()
+                            .find(|source| source.tx_hash == *hash)
+                            .and_then(|source| source.transaction_references.clone())
+                            .map(|references| (id.generation, references)),
                     });
                 }
                 false
@@ -765,7 +785,23 @@ mod tests {
     }
 
     fn begin(ledger: &OptimisticallyIncluded, txs: Vec<HeldTx>, tag: u8) -> AttemptId {
-        let manifest = manifest(&txs);
+        use eez_protocol::settlement_manifest::ChainTransaction;
+        let mut manifest = manifest(&txs);
+        let references = (0..txs.len())
+            .map(|index| ChainTransaction {
+                chain_id: 31338,
+                hash: alloy_primitives::keccak256([tag, u8::try_from(index).unwrap()]),
+            })
+            .collect::<Vec<_>>();
+        manifest
+            .attach_transaction_references(
+                ChainTransaction {
+                    chain_id: 31337,
+                    hash: B256::repeat_byte(tag),
+                },
+                &references,
+            )
+            .unwrap();
         let parent = SealedHeader::seal_slow(alloy_consensus::Header {
             number: 9,
             ..Default::default()
@@ -935,6 +971,7 @@ mod tests {
     #[test]
     fn deadline_replacement_retains_history_and_old_results_cannot_release_new_owner() {
         let (ledger, pool, txs, original) = setup();
+        let original_refs = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
         assert!(pool.release_for_replacement(original).is_err());
         ledger
             .observe(
@@ -952,6 +989,14 @@ mod tests {
         let recovered = pool.pop_all();
         assert_eq!(recovered, txs);
         let replacement = begin(&ledger, recovered, 11);
+        let replacement_refs =
+            pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
+        assert_eq!(
+            replacement_refs["postBatch"]["hash"],
+            serde_json::json!(replacement.post_batch_hash)
+        );
+        assert_eq!(replacement_refs["basis"], "attempt");
+        assert_ne!(replacement_refs, original_refs);
         ledger
             .observe(
                 original,
@@ -968,6 +1013,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, replacement);
+        assert_eq!(
+            pool.transaction_status(txs[0].hash).unwrap()["transactions"],
+            replacement_refs
+        );
         assert!(pool.is_empty());
         assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
         ledger.read(|state| {
@@ -1101,6 +1150,7 @@ mod tests {
     #[test]
     fn unsent_repricing_preserves_users_and_rejects_old_callbacks() {
         let (ledger, pool, txs, id) = setup();
+        let before = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
         let replacement = Bytes::from_static(b"replacement poster envelope");
         let next = ledger
             .replace_prepared_post_batch(id, B256::repeat_byte(42), replacement.clone())
@@ -1124,6 +1174,13 @@ mod tests {
             txs.iter().map(|tx| &tx.raw_tx).collect::<Vec<_>>()
         );
         assert_eq!(current.manifest.users.len(), txs.len());
+        let after = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
+        assert_eq!(after["l1"], before["l1"], "the signed source is unchanged");
+        assert_eq!(after["l2"], before["l2"]);
+        assert_eq!(
+            after["postBatch"]["hash"],
+            serde_json::json!(next.post_batch_hash)
+        );
         assert!(pool.pop_all().is_empty());
         assert!(
             ledger
@@ -1770,6 +1827,13 @@ mod tests {
         pool.forget_finalized(id, block(99)).unwrap();
         ledger.read(|state| assert_eq!(state.users.len(), 2));
 
+        let before_pruning =
+            pool.transaction_status(committed.hash).unwrap()["transactions"].clone();
+        assert_eq!(before_pruning["l2"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            before_pruning["postBatch"]["hash"],
+            serde_json::json!(id.post_batch_hash)
+        );
         pool.forget_finalized(id, block(100)).unwrap();
         ledger.read(|state| {
             assert!(state.users.is_empty());
@@ -1783,6 +1847,7 @@ mod tests {
         assert_eq!(status["nonce"], 0);
 
         let status = pool.transaction_status(committed.hash).unwrap();
+        assert_eq!(status["transactions"], before_pruning);
         assert_eq!(status["lifecycle"], "terminal");
         assert_eq!(status["ownership"]["reason"], "Committed");
         assert_eq!(status["ownership"]["canonical"]["number"], 100);

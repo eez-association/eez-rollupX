@@ -9,6 +9,7 @@ use std::{
 use alloy_primitives::{Address, B256};
 use eez_l1::L1BlockRef;
 use eez_protocol::SourceCondition;
+use eez_protocol::settlement_manifest::{ChainTransaction, TransactionReferences};
 use serde_json::{Value, json};
 
 use super::{
@@ -32,6 +33,7 @@ struct LocalRemoval {
     /// Canonical L1 block of a finalized outcome; local pool removals have none.
     canonical: Option<L1BlockRef>,
     observed_at_ms: u64,
+    transaction_references: Option<(u64, TransactionReferences)>,
 }
 
 /// Exact states used for readiness evaluation, independent of wall-clock age.
@@ -106,14 +108,21 @@ impl QueueTelemetry {
         reason: TerminalReason,
         replacement: Option<B256>,
     ) {
-        self.record_removal(hash, identity, reason, replacement, None);
+        self.record_removal(hash, identity, reason, replacement, None, None);
     }
 
     /// Keep the outcome of a user whose ledger record finality pruned.
     /// Without this, a settled or exhausted request becomes unknown once its
     /// attempt is finalized, although its outcome is still the useful answer.
     pub fn finalized(&mut self, user: FinalizedUser) {
-        self.record_removal(user.hash, user.identity, user.reason, None, user.canonical);
+        self.record_removal(
+            user.hash,
+            user.identity,
+            user.reason,
+            None,
+            user.canonical,
+            user.transaction_references,
+        );
     }
 
     fn record_removal(
@@ -123,6 +132,7 @@ impl QueueTelemetry {
         reason: TerminalReason,
         replacement: Option<B256>,
         canonical: Option<L1BlockRef>,
+        transaction_references: Option<(u64, TransactionReferences)>,
     ) {
         self.recent_removals.retain(|removed| removed.hash != hash);
         if self.recent_removals.len() == MAX_RECENT_REMOVALS {
@@ -137,6 +147,7 @@ impl QueueTelemetry {
             replacement,
             canonical,
             observed_at_ms: now_ms(),
+            transaction_references,
         });
     }
 
@@ -177,6 +188,8 @@ impl QueueTelemetry {
             "nonce": removed.nonce, "lifecycle": "terminal", "ownerGeneration": null,
             "ownership": ownership,
             "blocking": null,
+            "transactions": removed.transaction_references.as_ref()
+                .map(|(generation, references)| references_json(*generation, references)),
         }))
     }
 
@@ -379,14 +392,30 @@ impl HeldPool {
                 else if state.in_flight.contains_key(&hash) { "in_flight" }
                 else { ownership.as_ref().and_then(|value| value["state"].as_str()).unwrap_or("unknown") };
             let blocked = state.telemetry.blocked.get(&(sender, direction)).filter(|b| nonce >= b.nonce);
+            let transactions = owner.and_then(|user| data.attempts.get(&user.owner))
+                .and_then(|attempt| attempt.manifest.users.iter().find(|source| source.tx_hash == hash)
+                    .and_then(|source| source.transaction_references.as_ref())
+                    .map(|references| references_json(attempt.id.generation, references)));
             Some(json!({"hash": hash, "sender": sender, "direction": direction_name(direction),
                 "nonce": nonce, "lifecycle": lifecycle, "ownerGeneration": owner.map(|u| u.owner),
+                "transactions": transactions,
                 "ownership": ownership,
                 "blocking": blocked.map(|b| json!({"condition": b.condition,
                     "predecessorHash": b.hash, "observedAtMs": b.observed_at_ms,
                     "sourceState": b.source.json(), "current": Some(b.source) == state.telemetry.current}))}))
         })
     }
+}
+
+fn references_json(generation: u64, references: &TransactionReferences) -> Value {
+    let reference =
+        |tx: &ChainTransaction| json!({"chainId":format!("{:#x}",tx.chain_id),"hash":tx.hash});
+    json!({
+        "basis":"attempt", "complete":true, "attemptGeneration":format!("{generation:#x}"),
+        "l1":reference(&references.l1),
+        "l2":references.l2.iter().map(reference).collect::<Vec<_>>(),
+        "postBatch":reference(&references.post_batch),
+    })
 }
 
 impl PoolState {

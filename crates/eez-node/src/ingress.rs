@@ -354,7 +354,11 @@ pub(crate) async fn run_cross_chain_front(
     fee_quotes: Option<Arc<crate::fee_quotes::FeeQuotes>>,
 ) -> eyre::Result<()> {
     let mut composer_methods = jsonrpsee::RpcModule::new(());
-    composer_methods.merge(crate::queue_rpc::module(Arc::clone(&held_pool))?)?;
+    composer_methods.merge(crate::queue_rpc::module(
+        Arc::clone(&held_pool),
+        expected_source_chain_id,
+        expected_source_chain_id,
+    )?)?;
     run_cross_chain_front_with_estimator(
         port,
         upstream_rpc_url,
