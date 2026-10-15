@@ -110,3 +110,76 @@ test("wrong wallet chain, nonce or changed base fee cannot submit",async()=>{
     }};await assert.rejects(sendQuotedTransaction({...args,wallet}));assert.equal(sent,false);
   }
 });
+
+function walletFixture(args, overrides = {}) {
+  const requests = [];
+  const responses = {
+    eth_chainId: "0x1",
+    eth_accounts: [args.intent.from],
+    eth_getTransactionCount: "0x0",
+    eth_getBlockByNumber: { baseFeePerGas: "0xa" },
+    ...overrides,
+  };
+  const wallet = { request: async request => {
+    requests.push(request);
+    if (request.method === "eth_sendTransaction") return "0xhash";
+    return responses[request.method];
+  } };
+  return { wallet, requests };
+}
+
+test("numeric and zero-padded wallet quantities preserve the exact legacy and type-2 quote", async () => {
+  for (const create of [fixture, legacyFixture]) for (const overrides of [
+    { eth_getTransactionCount: 0 },
+    { eth_chainId: 1, eth_getTransactionCount: 0, eth_getBlockByNumber: { baseFeePerGas: 10 } },
+    { eth_chainId: "0x01", eth_getTransactionCount: "0x00", eth_getBlockByNumber: { baseFeePerGas: "0x0A" } },
+  ]) {
+    const args = create();
+    const { wallet, requests } = walletFixture(args, overrides);
+    assert.equal(await sendQuotedTransaction({ ...args, wallet }), "0xhash");
+    assert.deepEqual(requests.filter(({ method }) => method === "eth_sendTransaction"), [
+      { method: "eth_sendTransaction", params: [args.quote.transaction] },
+    ]);
+  }
+});
+
+test("zero padding cannot hide a changed wallet chain, nonce or base fee", async () => {
+  for (const [override, expected] of [
+    [{ eth_chainId: "0x02" }, /different chain/],
+    [{ eth_getTransactionCount: "0x01" }, /nonce changed/],
+    [{ eth_getBlockByNumber: { baseFeePerGas: "0x0b" } }, /Base fee changed/],
+    [{ eth_getTransactionCount: 1 }, /nonce changed/],
+  ]) {
+    const args = fixture();
+    const { wallet, requests } = walletFixture(args, override);
+    await assert.rejects(sendQuotedTransaction({ ...args, wallet }), expected);
+    assert.equal(requests.some(({ method }) => method === "eth_sendTransaction"), false);
+  }
+});
+
+test("malformed or oversized wallet quantities fail before submission with field context", async () => {
+  for (const [method, label] of [
+    ["eth_chainId", "chain ID"],
+    ["eth_getTransactionCount", "pending nonce"],
+    ["eth_getBlockByNumber", "pending base fee"],
+  ]) for (const value of [undefined, null, 0n, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "0", "0x", "0x-1", "0xgg", " 0x0", "0x0\n", `0x1${"0".repeat(64)}`]) {
+    const args = fixture();
+    const override = { [method]: method === "eth_getBlockByNumber" ? { baseFeePerGas: value } : value };
+    const { wallet, requests } = walletFixture(args, override);
+    await assert.rejects(sendQuotedTransaction({ ...args, wallet }), new RegExp(`Invalid wallet ${label}`));
+    assert.equal(requests.some(({ method }) => method === "eth_sendTransaction"), false);
+  }
+});
+
+test("wallet compatibility does not relax canonical quote or intent quantities", () => {
+  for (const mutate of [
+    args => args.intent.nonce = "0x00",
+    args => args.quote.intent.chainId = "0x01",
+    args => args.quote.transaction.value = "0x00",
+    args => args.quote.transaction.maxPriorityFeePerGas = "0x05",
+  ]) {
+    const args = fixture();
+    mutate(args);
+    assert.throws(() => quotedTransaction(args), /canonical hex quantity/);
+  }
+});

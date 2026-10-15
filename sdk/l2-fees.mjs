@@ -11,6 +11,14 @@ function quantity(value) {
   return BigInt(value);
 }
 
+// Wallet middleware can return a numeric pending nonce or zero-padded hex.
+// Normalize observations only; signed intents and server quotes stay canonical.
+function walletQuantity(value, field) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  if (typeof value === "string" && /^0x[0-9a-f]{1,64}$/i.test(value)) return BigInt(value);
+  throw new Error(`Invalid wallet ${field}: expected a hex quantity or non-negative safe integer`);
+}
+
 function exactKeys(value, keys) {
   if (!value || Array.isArray(value) || Object.keys(value).length !== keys.length || keys.some(key => !(key in value))) {
     throw new Error("Unexpected transaction fields");
@@ -109,9 +117,9 @@ export async function sendQuotedTransaction({ wallet, quote, intent, maxTotalFee
     wallet.request({ method: "eth_getTransactionCount", params: [intent.from, "pending"] }),
     wallet.request({ method: "eth_getBlockByNumber", params: ["pending", false] }),
   ]);
-  if (quantity(chainId) !== quantity(intent.chainId)) throw new Error("Wallet is on a different chain");
+  if (walletQuantity(chainId, "chain ID") !== quantity(intent.chainId)) throw new Error("Wallet is on a different chain");
   if (!Array.isArray(accounts) || !accounts.some(account => typeof account === "string" && account.toLowerCase() === intent.from.toLowerCase())) throw new Error("Wallet account changed");
-  if (quantity(nonce) !== quantity(intent.nonce)) throw new Error("Wallet nonce changed; request a new quote");
-  if (quantity(pending?.baseFeePerGas) !== decimal(quote.estimate.l2BaseFeePerGas)) throw new Error("Base fee changed; request a new quote");
+  if (walletQuantity(nonce, "pending nonce") !== quantity(intent.nonce)) throw new Error("Wallet nonce changed; request a new quote");
+  if (walletQuantity(pending?.baseFeePerGas, "pending base fee") !== decimal(quote.estimate.l2BaseFeePerGas)) throw new Error("Base fee changed; request a new quote");
   return wallet.request({ method: "eth_sendTransaction", params: [validate()] });
 }

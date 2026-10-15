@@ -1083,6 +1083,13 @@ authenticates a quote or guarantees inclusion. Applications must trust their
 chosen endpoint and reviewed policy, preserve the original intent, and impose
 their own maximum fee.
 
+The SDK's wallet preflight compares chain ID, pending nonce and pending base fee
+by numeric value. Wallet middleware may return non-negative safe JavaScript
+integers or zero-padded hex strings; these observations are accepted without
+changing the quoted transaction. Hex observations are bounded to 256 bits;
+unsafe numbers and malformed or missing values fail before submission with the
+affected field identified. Intent and quote quantities remain canonical hex.
+
 Work is limited to one request per node, with no queue; additional requests get
 `429 quote_busy`. The whole request has a ten-second deadline. Input is limited
 to 32 KiB, calldata to 12 KiB, retained history to 256 blocks, encoded DA to 2 MiB,
