@@ -396,6 +396,14 @@ No protocol, genesis, signing RPC or persistent storage migration is required.
 Rollback to older Composer restores its excessive tariff and can reject newer
 lower-fee transactions; drain accepted work before handover.
 
+Implemented and deployed on 2026-10-15. The
+[measured settlement audit](../audits/2026-10-15-measured-l1-fee-quotes/README.md)
+records receipt comparisons, candidate Docker tests, independent replay and the
+Chiado handover. The repeated bridge's public quote fell from 0.0013997604 to
+0.0003768348 xDAI; the separate live nested-call canary collected 1.2000945 times
+its actual complete posting cost. These are bounded trial observations, not a
+guarantee of identical gas or prices for future transactions or shared batches.
+
 The follow-up [Safe fee review](../audits/2026-10-14-safe-fee-recovery/README.md)
 checks actual Safe 1.4.1 factory and nested initializer execution. Deployment on
 L1 from L2 belongs to the enforced outbound path; deployment entirely on L2

@@ -634,6 +634,11 @@ to an older Composer restores the larger tariff and can reject newer lower-fee
 transactions; clients must requote. The signing RPC and historical replay are
 unchanged. See the [quote contract](../configurable-settlement-policy.md#unsigned-l2-fee-quotes)
 for the conditional proof assumption and compatibility details.
+The [measured settlement deployment audit](../audits/2026-10-15-measured-l1-fee-quotes/README.md)
+records the tested images and completed handover. During startup, a
+`starting_up` quote response means readiness has not yet been established;
+retain maintenance routing until a usable quote and canonical settlement checks
+pass. It does not require another restart or database copy.
 
 For the legacy/wallet compatibility increment, upgrade Composer before the
 dashboard. The dashboard uses `eez_quoteL2ToL1Fee` on the L2 Composer front;
