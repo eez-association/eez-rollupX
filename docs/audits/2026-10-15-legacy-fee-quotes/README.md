@@ -1,5 +1,9 @@
 # Legacy fee quotes and Composer JSON-RPC
 
+Deployment follow-up: the [October 15 Docker/Kurtosis and Chiado record](../2026-10-15-l2-fee-deployment/README.md)
+supersedes the deployment-pending status below. The original validation record
+and its limits are retained.
+
 | Field | Value |
 | --- | --- |
 | Date and status | 2026-10-15 UTC; implementation and local validation complete; not deployed |

@@ -613,7 +613,7 @@ client URLs. Preserve bindings, datadirs and operator configuration, and account
 for the existing loss of in-memory unsettled work on restart.
 
 The optional [L2 tariff](../configurable-settlement-policy.md#opt-in-l2-tariff-admission)
-requires a matched quote-capable dashboard, its exact Composer HTTP quote route,
+requires a matched quote-capable dashboard, the Composer quote API,
 and an explicit conversion/service policy before enforcement is enabled. Drain
 or explicitly account for accepted work before activation. Preserve the normal
 L1 timing, contracts and genesis; this feature adds no protocol migration. Keep
@@ -624,6 +624,18 @@ tested local image IDs, isolated validation, stopped-state upgrade, canonical
 paid calls and independent replay. Its test conversion and zero service/profit
 charges are not production prices. Retain the original database copies for
 binary rollback; disabling the tariff does not undo collected tips.
+
+For the legacy/wallet compatibility increment, upgrade Composer before the
+dashboard. The dashboard uses `eez_quoteL2ToL1Fee` on the L2 Composer front;
+the existing `/eez/fees/l2-to-l1` HTTP route remains supported. Older Composers
+do not support this custom method or legacy fee quotes, so restore the older
+dashboard first when rolling back. This adds no contract/genesis migration.
+The [October 15 deployment](../audits/2026-10-15-l2-fee-deployment/README.md)
+records both transaction types on the tested Docker images, independent replay,
+and the completed Chiado handover. Static wallet discovery accepts standard
+block selectors, while transaction estimation can still report temporary
+settlement unavailability; the dashboard retries only the explicit supported
+temporary errors within its bounded retry policy.
 
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer

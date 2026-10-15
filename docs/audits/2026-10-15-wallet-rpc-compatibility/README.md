@@ -1,5 +1,9 @@
 # Static discovery and temporary estimation unavailability
 
+Deployment follow-up: the [October 15 Docker/Kurtosis and Chiado record](../2026-10-15-l2-fee-deployment/README.md)
+supersedes the deployment-pending status below and repeats the original wallet
+selector checks against the upgraded live server.
+
 | Field | Value |
 | --- | --- |
 | Date and status | 2026-10-15 UTC; implementation and local validation complete; not deployed |
