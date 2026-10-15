@@ -140,16 +140,34 @@ pub(super) fn validate(
             .provider
             .state_by_block_hash(s.l1.anchor.hash())
             .map_err(unavailable)?;
-    proxy(state.as_ref(), e.l1.manager_address(), &REGISTRY)?;
-    proxy(state.as_ref(), rollup, &ROLLUP)?;
-    if e.post_batch_target != e.l1.manager_address() {
-        check(state.as_ref(), e.post_batch_target, &POST_BATCHER)?;
+    validate_at(
+        state.as_ref(),
+        e.l1.manager_address(),
+        rollup,
+        e.verifier,
+        e.post_batch_target,
+    )
+}
+
+/// Recognize the supported contracts before a conditional proof result is used
+/// in disposable wallet or fee estimation state.
+pub(in crate::composer) fn validate_at(
+    state: &dyn StateProvider,
+    registry: Address,
+    rollup: Address,
+    verifier: Address,
+    post_batch_target: Address,
+) -> Result<(), EstimateError> {
+    proxy(state, registry, &REGISTRY)?;
+    proxy(state, rollup, &ROLLUP)?;
+    if post_batch_target != registry {
+        check(state, post_batch_target, &POST_BATCHER)?;
         let code = state
-            .account_code(&e.post_batch_target)
+            .account_code(&post_batch_target)
             .map_err(unavailable)?
             .ok_or_else(|| unsupported("posting wrapper code missing"))?;
         let bytes = code.original_bytes();
-        let registry = e.l1.manager_address().into_word();
+        let registry = registry.into_word();
         // The wrapper's constructor embeds its registry in each immutable
         // reference. Check the binding at the same parent as setup execution.
         if POST_BATCHER
@@ -160,7 +178,7 @@ pub(super) fn validate(
             return Err(unsupported("posting wrapper registry differs"));
         }
     }
-    check_any(state.as_ref(), e.verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
+    check_any(state, verifier, &[&VERIFIER, &PROTOCOL_VERIFIER])
 }
 
 #[cfg(test)]

@@ -26,9 +26,7 @@ use reth_storage_api::{BlockReader, BlockSource, StateProviderFactory};
 use revm::context::TxEnv;
 use serde_json::{Value, json};
 
-use super::super::{
-    Composer, PostBatchGasBudget, l1_target_gas, posting::PostingQuote, projected_tx_l1_gas,
-};
+use super::super::{Composer, l1_target_gas, posting::PostingQuote};
 use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBlockState};
 
 const MAX_SOURCE_GAS: u64 = 5_000_000;
@@ -550,7 +548,7 @@ where
                 return Err(FeeQuoteError::Unavailable("insufficient L1 escrow"));
             }
             let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
-                &[group],
+                &[group.clone()],
                 &[],
                 &SystemTxContext {
                     eezl2_address: runtime.ctx.eezl2_address,
@@ -590,7 +588,7 @@ where
                 tx_data: raw_size,
                 actions: composition.actions.clone(),
             };
-            let semantics = Self::cross_chain_da_overhead(rollup_id, &[semantic])
+            let semantics = Self::cross_chain_da_overhead(rollup_id, &[semantic.clone()])
                 .map_err(|e| unavailable("semantic DA", e))?
                 .semantic_bytes;
             let da_bytes = eez_blob_codec::native_stream_len(operations, semantics)
@@ -604,12 +602,25 @@ where
             if blobs > maximum_blobs {
                 return Err(FeeQuoteError::Limit("blob allowance"));
             }
-            let (l1_gas, cost, payment) = projected_payment(
+            let traces = &composition
+                .targets
+                .iter()
+                .find(|target| target.rollup_id.is_mainnet())
+                .ok_or(FeeQuoteError::Unsupported("no L1 settlement traces"))?
+                .entry_traces;
+            budget.check()?;
+            let (l1_gas, cost, payment) = super::settlement::measured_payment(
                 runtime,
                 &posting,
-                l1_entries,
-                l1_target_gas(&composition.actions),
-                blobs,
+                super::settlement::SettlementInput {
+                    rollup_id,
+                    settled_root: endpoint.hash,
+                    entries: l1_entries,
+                    traces,
+                    groups: &[group],
+                    semantics: &[semantic],
+                    blobs,
+                },
             )?;
             let next_tip = required_tip(payment.l2, gas)?;
             if next_tip > effective_tip {
@@ -668,7 +679,7 @@ where
                     "l1TargetNumber":target_block, "l1TargetTimestamp":target_timestamp,
                     "l2ParentHash":parent.hash(), "l2ParentNumber":parent.number, "l2Timestamp":timestamp,
                     "settledL2Hash":endpoint.hash, "settledL2Number":endpoint.number},
-                "estimate":{"basis":"isolated_native_l2_replay_and_projected_l1_post", "iterations":iteration,
+                "estimate":{"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
                     "sourceGasUsed":gas, "nativeL2GasUsed":draft.gas_used()-gas, "l2BaseFeePerGas":base.to_string(),
                     "l1Gas":l1_gas, "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
@@ -689,47 +700,6 @@ fn unix_now() -> Result<u64, FeeQuoteError> {
         .duration_since(UNIX_EPOCH)
         .map(|time| time.as_secs())
         .map_err(|_| FeeQuoteError::Unavailable("clock"))
-}
-
-/// Quote and composition use the same whole-post projection. Quotes price one
-/// source; composition checks cumulative receipts against the growing prefix.
-pub(in crate::composer) fn projected_payment(
-    runtime: &super::super::posting::PostingRuntime,
-    posting: &PostingQuote,
-    entries: &[eez_protocol::abi::ExecutionEntrySol],
-    target_gas: u64,
-    blobs: usize,
-) -> Result<
-    (
-        u64,
-        eez_l1::posting_fees::PostingCost,
-        super::pricing::RequiredPayment,
-    ),
-    FeeQuoteError,
-> {
-    let mut budget = PostBatchGasBudget::with_calldata_limits(
-        runtime.fees.estimate_budget(posting.gas_budget),
-        blobs,
-        runtime.calldata_floor_active(posting.quote.target),
-    );
-    if !budget.try_accept(projected_tx_l1_gas(entries, target_gas)) {
-        return Err(FeeQuoteError::Limit("L1 gas estimate"));
-    }
-    let gas = runtime
-        .fees
-        .declared_gas(budget.full_estimate(), posting.gas_budget)
-        .map_err(|e| unavailable("L1 gas margin", e))?;
-    let cost = posting
-        .quote
-        .estimate(gas, blobs as u64)
-        .map_err(|e| unavailable("L1 costs", e))?;
-    let payment = runtime
-        .shadow_fee_policy
-        .as_ref()
-        .ok_or(FeeQuoteError::Disabled)?
-        .required_payment(cost.total)
-        .map_err(FeeQuoteError::Limit)?;
-    Ok((gas, cost, payment))
 }
 
 pub(in crate::composer) fn tariff_history_size<L2: BlockReader<Header = Header>>(

@@ -20,7 +20,7 @@ use std::{collections::HashMap, sync::Arc, time::Instant};
 
 mod budget;
 mod classify;
-mod deployment;
+pub(super) mod deployment;
 pub use classify::is_dispatch;
 mod l1;
 mod preparation;

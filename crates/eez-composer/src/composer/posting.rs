@@ -84,7 +84,7 @@ pub(super) fn priority_profile(semantics: &[SemanticTransaction]) -> PriorityPro
 pub(super) struct PostingQuote {
     pub quote: FeeQuote,
     pub parent: Header,
-    attributes: NextBlockEnvAttributes,
+    pub(super) attributes: NextBlockEnvAttributes,
     pub env: EvmEnv,
     pub gas_budget: u64,
 }

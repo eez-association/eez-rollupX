@@ -15,6 +15,7 @@ use crate::local::BuiltSyncBlock;
 
 pub(super) mod pricing;
 pub(crate) mod quote;
+pub(super) mod settlement;
 
 #[derive(Debug)]
 pub(super) struct SourceFees {

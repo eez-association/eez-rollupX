@@ -74,7 +74,7 @@ export function quotedTransaction({ quote, intent, maxTotalFee, now = Date.now()
   const legacy = quantity(intent.type) === 0n;
   const cap = quantity(legacy ? quote.transaction.gasPrice : quote.transaction.maxFeePerGas);
   const tip = legacy ? cap - base : quantity(quote.transaction.maxPriorityFeePerGas);
-  if (estimate?.basis !== "isolated_native_l2_replay_and_projected_l1_post" ||
+  if (!["isolated_native_l2_replay_and_projected_l1_post", "isolated_native_l2_and_l1_settlement"].includes(estimate?.basis) ||
       !Number.isSafeInteger(estimate.sourceGasUsed) || estimate.sourceGasUsed <= 0 ||
       BigInt(estimate.sourceGasUsed) > quantity(intent.gas) || tip < 0n || cap !== tip + base ||
       tip * BigInt(estimate.sourceGasUsed) !== decimal(estimate.grossL2Tip) ||

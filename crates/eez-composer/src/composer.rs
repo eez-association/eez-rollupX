@@ -2999,6 +2999,7 @@ where
                 endpoint,
                 suggested_fee_recipient,
             )
+            .map(|size| (endpoint, size))
         });
         let mut source_nonces = HashMap::new();
         let l1_anchor_hash = l1_state.anchor.hash();
@@ -3759,7 +3760,8 @@ where
                     }
                     if let Some(history) = &tariff_history {
                         let coverage = (|| -> Result<U256, String> {
-                            let operations = *history.as_ref().map_err(ToString::to_string)?;
+                            let (endpoint, operations) =
+                                *history.as_ref().map_err(ToString::to_string)?;
                             let policy = self
                                 .inner
                                 .posting
@@ -3788,14 +3790,22 @@ where
                             let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
                             let mut prefix_entries = outbound_entries.clone();
                             prefix_entries.extend(l1_entries.iter().cloned());
-                            let (_, _, required) = fees::quote::projected_payment(
+                            let mut prefix_traces = outbound_entry_traces.clone();
+                            prefix_traces.extend(l1_target.entry_traces.iter().cloned());
+                            let mut prefix_groups = pending_out.clone();
+                            prefix_groups.push(outbound_group.clone());
+                            let (_, _, required) = fees::settlement::measured_payment(
                                 &self.inner.posting,
                                 &composition_quote,
-                                &prefix_entries,
-                                outbound_target_gas
-                                    .checked_add(target_gas)
-                                    .ok_or("tariff target gas overflow")?,
-                                blobs,
+                                fees::settlement::SettlementInput {
+                                    rollup_id,
+                                    settled_root: endpoint.hash,
+                                    entries: &prefix_entries,
+                                    traces: &prefix_traces,
+                                    groups: &prefix_groups,
+                                    semantics: &prefix_semantics,
+                                    blobs,
+                                },
                             )
                             .map_err(|e| e.to_string())?;
                             let gas = pair_txs

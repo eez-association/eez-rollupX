@@ -19,6 +19,17 @@ function legacyFixture() {
   return args;
 }
 
+test("accepts measured settlement quotes during rollout and rejects unknown pricing bases", () => {
+  for (const create of [fixture, legacyFixture]) {
+    const args = create();
+    args.quote.estimate.basis = "isolated_native_l2_and_l1_settlement";
+    args.quote.estimate.proof = "metered_assumed_valid";
+    assert.deepEqual(quotedTransaction(args), args.quote.transaction);
+    args.quote.estimate.basis = "unrecognized";
+    assert.throws(() => quotedTransaction(args), /Inconsistent fee estimate/);
+  }
+});
+
 test("legacy quotes count only gasPrice minus base fee and preserve the fee ceiling", async () => {
   const args = legacyFixture();
   assert.deepEqual(quotedTransaction(args), args.quote.transaction);

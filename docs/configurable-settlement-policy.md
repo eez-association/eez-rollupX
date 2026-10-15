@@ -1043,14 +1043,34 @@ replayed as native loads, the unsigned source, and callback deliveries.
 Normal source nonce, balance and fee checks remain enabled. Only native source
 receipt gas divides the service charge; native system gas is reported separately.
 
-L1 gas uses the conservative whole-post admission projection, measured L1 target
-frames, entry/calldata framing, applicable calldata floor, and configured gas
-margin. Blob sizing includes exact retained ordinary transaction bytes and
-metadata plus the complete semantic stream. A maximum-width signature placeholder
-is used **only for encoding size**; it is never executed, authenticated, proved
-or submitted. Intermediate native history requires reconciliation and causes an
-unavailable quote. The quote charges this single intent the complete estimated
-post and retained history; it assumes no future batch participants.
+L1 gas is measured by executing the complete outbound `postAndVerifyBatch`
+under the native L1 configuration at the selected parent/target, including
+nested calls, proxy creation, storage refunds and the applicable calldata floor.
+It prices receipt gas, separately from the gas-limit headroom used to make the
+posting executable. Conservative admission reserves remain capacity limits and
+are not charged as estimated consumption. Physical blob costs are added before
+the configured service costs and risk/profit allowance; the Chiado trial applies
+its 20% risk allowance once.
+
+Unsigned execution cannot produce an authenticated proof or final signed L2
+block hashes. Disposable settlement estimation uses distinct full-width root
+and versioned-blob-hash placeholders and a 65-byte low-s signature placeholder.
+It recognizes the pinned registry, rollup, wrapper and ECDSA verifier bytecode,
+computes the exact verification digest for that private batch, executes the real
+verifier to retain its gas, and assumes a valid result only for the single exact
+registry verification call. Reverted/malformed verification, unknown bytecode,
+skipped entries, incomplete root advancement or mismatched nested effects fail
+closed. No signing key is used, no proof is requested, and no simulated artifact
+can enter canonical execution or submission. Final signed native execution and
+independent signer validation remain mandatory. Actual proof/root bytes and
+future state can change receipt costs slightly; this remains an advisory estimate.
+
+Blob sizing includes exact retained ordinary transaction bytes and metadata
+plus the complete semantic stream. A maximum-width source signature placeholder
+is used only for encoding size; it is never authenticated, proved or submitted.
+Intermediate native history requires reconciliation and causes an unavailable
+quote. The quote charges this single intent the complete estimated post and
+retained history; it assumes no future batch participants.
 
 The [shadow pricing arithmetic](#shadow-l2-fee-pricing) adds service costs,
 risk/profit and conversion. Starting at a zero priority fee, the backend raises
@@ -1073,11 +1093,12 @@ Successful JSON responses contain:
 | `issuedAt`, `expiresAt` | Unix seconds; expires at the earlier of ten seconds from issuance and the selected L1 target timestamp |
 | `context` | Chain/rollup IDs, L1 parent and target, L2 parent and draft timestamp, settled L2 endpoint |
 | `policy` | Policy ID and all conversion, cost, exclusion and validity assumptions |
-| `estimate` | Source/native L2 gas, projected L1/target gas, DA bytes/blobs, distinct L1 execution/blob/subtotal/risk/profit amounts, required L1/L2 amounts and gross L2 tip |
+| `estimate` | Source/native L2 gas, measured conditional L1/target gas, DA bytes/blobs, distinct L1 execution/blob/subtotal/risk/profit amounts, required L1/L2 amounts and gross L2 tip |
 
 Monetary amounts in `estimate` are decimal strings. Gas/counts/context heights
 are integers. `estimate.basis` is
-`isolated_native_l2_replay_and_projected_l1_post`; `qualifiedRecoveryL1` is null.
+`isolated_native_l2_and_l1_settlement`, with `estimate.proof` set to
+`metered_assumed_valid`; `qualifiedRecoveryL1` is null.
 L1 figures are estimates, not receipts. Neither the intent hash nor response
 authenticates a quote or guarantees inclusion. Applications must trust their
 chosen endpoint and reviewed policy, preserve the original intent, and impose
@@ -1157,6 +1178,15 @@ Applications must stop the quote flow on missing/unsupported responses. No
 database migration is required. SDK checks run with `node sdk/l2-fees.test.mjs`;
 the source-based process regression is the `fee_quotes::` module.
 
+The measured-settlement correction changes `estimate.basis` while retaining
+response version 1 and wallet transaction fields. Upgrade the SDK/dashboard
+first: it accepts both the previous projection basis and the new measured basis.
+Then upgrade Composer, including signed ingress and cumulative prefix checks.
+An older SDK rejects the new basis; an older Composer can reject the lower fees
+quoted by the new implementation. Drain accepted requests before handover and
+requote after a rollback. Protocol, signing RPC, genesis, historical decoding and
+follower replay are unchanged; there is no persistent-data migration.
+
 ### Opt-in L2 tariff admission
 
 `EEZ_L2_FEE_ENFORCE_TARIFF=true` requires a complete, runtime-matching
@@ -1167,7 +1197,7 @@ Chiado, Ethereum and Kurtosis configuration pass it to the Composer only.
 
 For a newly submitted outbound source, the L2 front recovers the signed legacy or type-2
 transaction and replays its exact fees using the quote engine's bounded isolated
-state. Its effective priority payment must cover the whole projected settlement
+state. Its effective priority payment must cover the whole measured settlement
 tariff. The comparison uses native receipt gas, never the user's gas limit, and
 accounts for clipping by `maxFeePerGas - baseFee`, or the legacy difference
 `gasPrice - baseFee`. Unsupported quote profiles
@@ -1188,8 +1218,8 @@ change its whole-post pricing. See the
 [Safe fee validation](audits/2026-10-14-safe-fee-recovery/README.md) and the
 `safe_fee_quotes::` process regressions for this distinction.
 
-Composition checks the growing outbound prefix against the same whole-post
-projection using actual native receipt fees. A changed
+Composition checks the growing outbound prefix against the same complete
+conditional L1 execution estimate using actual native receipt fees. A changed
 state, reduced charged gas or insufficient effective tip defers the source and
 its nonce successors, restores the accepted prefix, and continues independent
 sources. Admission quotes charge each source for a complete standalone

@@ -625,6 +625,16 @@ paid calls and independent replay. Its test conversion and zero service/profit
 charges are not production prices. Retain the original database copies for
 binary rollback; disabling the tariff does not undo collected tips.
 
+For measured L1 settlement pricing, upgrade the SDK/dashboard before Composer
+so both old and new quote bases work during handover. The 20% trial allowance
+is applied to simulated receipt gas plus blobs, without the admission gas
+reserve or gas-limit margin. Preserve the existing policy, bindings and genesis.
+Drain accepted work and retain stopped database/configuration backups. Rollback
+to an older Composer restores the larger tariff and can reject newer lower-fee
+transactions; clients must requote. The signing RPC and historical replay are
+unchanged. See the [quote contract](../configurable-settlement-policy.md#unsigned-l2-fee-quotes)
+for the conditional proof assumption and compatibility details.
+
 For the legacy/wallet compatibility increment, upgrade Composer before the
 dashboard. The dashboard uses `eez_quoteL2ToL1Fee` on the L2 Composer front;
 the existing `/eez/fees/l2-to-l1` HTTP route remains supported. Older Composers

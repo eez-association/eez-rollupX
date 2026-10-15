@@ -359,6 +359,43 @@ network tests, actual public-network settlement, independent replay and mocked
 wallet tests. L1-origin fee collection and durable financial reservations remain
 outside this release.
 
+### Accepted correction: measured L1 settlement pricing
+
+Authorized on 2026-10-15 after the bridge fee reconciliation: replace the generic
+admission gas reserve in L2 quotes and tariff admission with isolated execution
+of the complete outbound L1 posting. Charge its receipt gas and physical blob
+cost, then apply the existing service/conversion policy and 20% trial risk
+allowance once. Gas-limit headroom remains a capacity setting, not a user fee.
+Ordinary L2 settlement subsidies and final signed-bundle validation are unchanged.
+
+Unsigned intents cannot have an authenticated settlement proof or final signed
+L2 block hashes. The estimate therefore uses private root/blob/signature
+placeholders, executes the recognized deployed verifier's full ECDSA path, and
+assumes acceptance only for the exact independently computed proof-call digest.
+This assumption is restricted to disposable estimation state and recognized
+deployment bytecode; it produces no signature, proof, queue ownership or posting
+artifact. Unknown deployment code and mismatched, skipped or reverted effects
+fail closed. The later signer and final native preflight retain every real check.
+The response identifies this estimation basis and proof assumption explicitly.
+
+The same measured pricing must reach unsigned quotes, signed ingress and the
+growing multi-user prefix check. Keep whole nested groups, state pinning,
+work/cancellation bounds, exact wallet fields and separate L1/L2 meters. Do not
+reduce the admission reserves to conceal the quote error. Proof/root placeholder
+byte differences and later state/price changes remain estimate uncertainty;
+there is no automatic rebate in this iteration.
+
+Acceptance: reproduce the old quote, compare new quotes with actual complete
+posting receipts (including blobs), verify the policy margin arithmetic, reject
+underpayment, and cover legacy/type-2, nested calls, first-time proxy creation,
+repeated bridges and multi-user batching. Validate real candidate Docker images
+in a fresh Kurtosis enclave with semantic checks and independent replay before
+the authorized Chiado handover. Upgrade the SDK/dashboard to accept the new
+basis before Composer; retain acceptance of older advisory quotes during rollout.
+No protocol, genesis, signing RPC or persistent storage migration is required.
+Rollback to older Composer restores its excessive tariff and can reject newer
+lower-fee transactions; drain accepted work before handover.
+
 The follow-up [Safe fee review](../audits/2026-10-14-safe-fee-recovery/README.md)
 checks actual Safe 1.4.1 factory and nested initializer execution. Deployment on
 L1 from L2 belongs to the enforced outbound path; deployment entirely on L2

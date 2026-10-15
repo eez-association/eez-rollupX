@@ -163,6 +163,11 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
         )
     });
     assert_eq!(quote["mode"], "advisory");
+    assert_eq!(
+        quote["estimate"]["basis"],
+        "isolated_native_l2_and_l1_settlement"
+    );
+    assert_eq!(quote["estimate"]["proof"], "metered_assumed_valid");
     assert_eq!(quote["policy"]["assumptions"], policy);
     assert!(quote["estimate"]["iterations"].as_u64().unwrap() >= 2);
     assert!(
@@ -463,7 +468,12 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
                 "unpaid inbound costs must be settled separately"
             );
         }
-        assert!(quote["estimate"]["l1Gas"].as_u64().unwrap() >= post.gas_used);
+        let estimated_gas = quote["estimate"]["l1Gas"].as_u64().unwrap();
+        assert!(
+            estimated_gas.abs_diff(post.gas_used) <= 1_000,
+            "the fee must price executed settlement, not admission reserves: quote={estimated_gas}, receipt={}",
+            post.gas_used
+        );
         assert_eq!(
             quote["estimate"]["blobs"].as_u64().unwrap() * alloy_eips::eip4844::DATA_GAS_PER_BLOB,
             post.blob_gas_used.unwrap()
