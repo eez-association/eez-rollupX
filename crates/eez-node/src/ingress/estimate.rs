@@ -55,8 +55,17 @@ fn error(id: Value, error: EstimateError) -> Value {
         _ => -32000,
     };
     let mut response = serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":code,"message":error.to_string()}});
-    if let EstimateError::Revert(data) = error {
-        response["error"]["data"] = serde_json::json!(data);
+    match error {
+        EstimateError::Revert(data) => response["error"]["data"] = serde_json::json!(data),
+        EstimateError::SettlementPending | EstimateError::ContextChanged => {
+            let reason = if matches!(error, EstimateError::SettlementPending) {
+                "settlement_reconciliation_pending"
+            } else {
+                "estimation_context_changed"
+            };
+            response["error"]["data"] = serde_json::json!({"code":reason,"retryable":true});
+        }
+        _ => {}
     }
     response
 }
@@ -250,6 +259,38 @@ mod tests {
             .unwrap()
             .unwrap();
         drop(permit);
+    }
+
+    #[test]
+    fn only_reconciliation_and_context_changes_have_retry_hints() {
+        for (failure, reason) in [
+            (
+                EstimateError::SettlementPending,
+                "settlement_reconciliation_pending",
+            ),
+            (EstimateError::ContextChanged, "estimation_context_changed"),
+        ] {
+            let response = error(serde_json::json!("estimate"), failure);
+            assert_eq!(response["id"], "estimate");
+            assert_eq!(response["error"]["code"], -32000);
+            assert_eq!(
+                response["error"]["data"],
+                serde_json::json!({"code":reason,"retryable":true})
+            );
+        }
+        for failure in [
+            EstimateError::Unavailable("settlement reconciliation pending".into()),
+            EstimateError::Invalid("bad request".into()),
+            EstimateError::Unsupported("shape".into()),
+            EstimateError::Effects("mismatch".into()),
+            EstimateError::Timeout,
+        ] {
+            assert!(
+                error(serde_json::json!(1), failure)["error"]
+                    .get("data")
+                    .is_none()
+            );
+        }
     }
 
     #[test]

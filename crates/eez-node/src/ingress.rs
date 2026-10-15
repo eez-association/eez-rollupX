@@ -1589,21 +1589,25 @@ mod tests {
                 serde_json::json!(7),
                 Value::Null,
             ] {
-                let response = post(port, &discovery_request(id.clone())).await;
-                assert_eq!(response["id"], id);
-                assert_eq!(
-                    response["result"],
-                    serde_json::json!(Bytes::from(eez_protocol::discovery::encode_response(
-                        B256::repeat_byte(0xa5),
-                        chain,
-                        info.to_string().as_bytes()
-                    )))
-                );
+                for block in [serde_json::json!("latest"), serde_json::json!("0x9ff58")] {
+                    let mut request = discovery_request(id.clone());
+                    request["params"][1] = block;
+                    let response = post(port, &request).await;
+                    assert_eq!(response["id"], id);
+                    assert_eq!(
+                        response["result"],
+                        serde_json::json!(Bytes::from(eez_protocol::discovery::encode_response(
+                            B256::repeat_byte(0xa5),
+                            chain,
+                            info.to_string().as_bytes()
+                        )))
+                    );
+                }
             }
             let mut notification = discovery_request(Value::Null);
             notification.as_object_mut().unwrap().remove("id");
             let mut invalid_notification = notification.clone();
-            invalid_notification["params"][1] = serde_json::json!("pending");
+            invalid_notification["params"][1] = serde_json::json!("not-a-block");
             for body in [
                 notification.clone(),
                 serde_json::json!([

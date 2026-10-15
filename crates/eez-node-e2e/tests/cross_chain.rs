@@ -2453,12 +2453,11 @@ async fn wallet_estimate_rpc(front: &str, request: serde_json::Value) -> serde_j
             &response
         };
         let context_wait = estimate["error"]["code"] == -32000
-            && estimate["error"]["message"]
-                .as_str()
-                .is_some_and(|message| {
-                    message.contains("settlement reconciliation pending")
-                        || message.contains("chain context changed during estimation")
-                });
+            && estimate["error"]["data"]["retryable"] == true
+            && matches!(
+                estimate["error"]["data"]["code"].as_str(),
+                Some("settlement_reconciliation_pending" | "estimation_context_changed")
+            );
         if context_wait {
             eprintln!("wallet context retry: {}", estimate["error"]);
             return Ok(None);

@@ -31,6 +31,10 @@ pub enum EstimateError {
     Invalid(String),
     #[error("cross-chain estimation unavailable: {0}")]
     Unavailable(String),
+    #[error("cross-chain estimation unavailable: settlement reconciliation pending")]
+    SettlementPending,
+    #[error("cross-chain estimation unavailable: chain context changed during estimation")]
+    ContextChanged,
     #[error("unsupported cross-chain estimate: {0}")]
     Unsupported(String),
     #[error("execution reverted")]
@@ -248,7 +252,7 @@ impl GasEstimator {
         if self.optimistic.pending_attempt().is_some()
             || self.head.policy_anchor_snapshot().generation != snapshot.generation
         {
-            return Err(unavailable("chain context changed during estimation"));
+            return Err(EstimateError::ContextChanged);
         }
         tracing::debug!(
             ?direction,
@@ -262,7 +266,7 @@ impl GasEstimator {
 
     fn snapshot(&self) -> Result<Snapshot, EstimateError> {
         if self.optimistic.pending_attempt().is_some() {
-            return Err(unavailable("settlement reconciliation pending"));
+            return Err(EstimateError::SettlementPending);
         }
         let anchor = self.head.policy_anchor_snapshot();
         let through = anchor

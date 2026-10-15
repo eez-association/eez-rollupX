@@ -43,9 +43,14 @@ front, not an upstream lookup. A fresh client nonce must be echoed exactly.
 Only the exact destination and selector pair is intercepted. Calldata must be
 `0x`-prefixed hex with exactly four selector bytes and 32 nonce bytes. `data`
 and `input` are aliases; when both appear their decoded bytes must match.
-Use positional params `[transaction, "latest"]`; an omitted block tag also
-means latest. Any other block selector and any third parameter (including null
-or empty state overrides) is rejected with `-32602`. An optional valid `from`
+Use positional params `[transaction, blockSelector]`; the selector may be
+omitted. Discovery always returns the current process configuration. Valid
+Ethereum block tags, numbers and EIP-1898 objects are accepted but do not select
+historical metadata, read chain state, or establish block existence/canonicality.
+This accommodates wallet middleware resolving `latest` to a numeric block.
+The original latest-only restriction was removed following the owner's static
+metadata clarification on 2026-10-15. Invalid selectors and any third parameter
+(including null or empty state overrides) return `-32602`. An optional valid `from`
 and valid wallet gas/fee fields are accepted and ignored. No balance is read;
 `value` must be absent or zero. Malformed matching probes return `-32602`.
 
@@ -79,6 +84,11 @@ older fronts do not serve the moved methods or virtual probe. Detection should
 fail closed on empty/malformed results, a wrong marker/version/nonce/chain, or
 provider errors; it cannot authenticate an untrusted provider.
 
+The block-selector relaxation does not change the discovery ABI or response
+schema. Existing latest-tag clients remain compatible; clients whose wallets
+rewrite the tag need the updated Composer. Rolling back the binary restores
+the latest-only restriction and its wallet compatibility failure.
+
 Restart applies the new routing. No database, genesis, historical decoding,
 follower replay or signer wire migration is needed. A binary rollback restores
 the old endpoint placement, so client URLs must roll back too. Pending queue
@@ -88,7 +98,8 @@ ownership remains in memory; this change adds no durable recovery guarantees.
 
 - Independent address/selector/marker derivation and ABI round-trip vectors.
 - Both source-chain IDs, aliases and conflict/malformed-input rejection.
-- Latest-only/override/value policy, unfunded sender and ignored gas fields.
+- Static metadata across valid block selectors; malformed selector, override
+  and value rejection, unfunded sender and ignored gas fields.
 - Discovery while readiness is false and upstream is unavailable.
 - Mixed batches, IDs, notifications, invalid members, and submission guard.
 - Front-only custom methods; ordinary RPC does not emulate discovery.
