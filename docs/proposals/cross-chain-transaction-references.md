@@ -2,6 +2,8 @@
 
 Status: implementation requested by the owner on 2026-10-15 for
 [issue 90](https://github.com/eez-association/eez-rollupX/issues/90).
+Implemented and locally validated; not deployed. See the
+[validation record](../audits/2026-10-15-transaction-references/README.md).
 Baseline: fork `227b24d90a059a5af4a81b7a9fe29104bebd385e`, protocol
 `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. This is an additive observation API;
 it does not change the core protocol or authorize new execution profiles.
@@ -57,7 +59,7 @@ not an archive of all superseded candidates.
 
 Map each user through the existing validated source forest and physical
 checkpoint positions, not all transactions in a shared batch. Attach hashes
-from the final built native block after gas limits are resolved. Verify complete,
+from the final built native block and the exact signed poster. Verify complete,
 non-overlapping physical coverage and the outbound source's membership. Store
 only chain IDs and hashes with the attempt manifest. Preserve them with the
 existing bounded terminal observations when finality prunes the ledger.

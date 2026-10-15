@@ -83,7 +83,7 @@ pub struct UserManifest {
     pub source_actions: Vec<SourceActionManifest>,
     /// Physical terminal-block positions, including loads, source and callbacks.
     pub l2_transaction_range: Range<usize>,
-    /// Observations attached after final native gas limits and the poster exist.
+    /// Observations attached once the final block and signed poster exist.
     /// These references never authorize execution or establish settlement.
     pub transaction_references: Option<TransactionReferences>,
 }
@@ -123,8 +123,8 @@ pub struct SettlementManifest {
 }
 
 impl SettlementManifest {
-    /// Attach the final block's identities after native gas limits are fixed.
-    /// Pre-build system transaction hashes are not interchangeable.
+    /// Attach identities from the built block, preserving its actual encoded
+    /// transactions and group order instead of synthesizing hashes from actions.
     ///
     /// # Errors
     /// Rejects incomplete/overlapping physical coverage and missing outbound
