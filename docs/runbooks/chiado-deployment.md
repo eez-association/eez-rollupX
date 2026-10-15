@@ -871,18 +871,34 @@ reorg behavior. This wiring has no legacy-source or offline-signing fallback.
 
 ### Enabling L1 fee recovery
 
-Leave `EEZ_L1_FEE_REFUND_POLICY` unset until each configured builder has passed the
+Leave `EEZ_L1_FEE_REFUND_POLICY` unset for public traffic until each configured builder has passed the
 [L1 refund profile](../configurable-settlement-policy.md#l1-builder-refund-profile)
 on this network with a real native-blob post, signed source and canonical payout.
 The startup bundle API probe does not test refund support. Public builder docs
 or a successful private Kurtosis test do not qualify the Chiado route.
 
+Qualification on an existing network uses a controlled canary: pause public
+transaction ingress, drain accepted work, preserve stopped state and configure
+the candidate with the refund policy before submitting operator test sources
+through the local front. Keep public ingress paused until canonical payments and
+replay are verified. This temporary test configuration does not qualify the route
+by itself; retain failed submissions and receipts before recovery or rollback.
+
 Use a dedicated plain EOA recipient, keep the existing cost policy and L2 fee
 settings, and drain accepted work before enabling the L1 policy. Both fronts
 use `eez_quoteFee` and `eez_debugQuoteFee`; only the source chain and recovery
 mechanism differ. The SDK needs the expected L1 chain ID and `/composer/l1`.
+The matching dashboard uses `EEZ_UI_L1_FEES_ENABLED=true` and its independent
+`EEZ_UI_L1_FEE_MAX_TOTAL_WEI` reservation cap; retain the existing L2 settings.
+Older clients that omit the L1 fee quote can be rejected as underfunded after
+enforcement is enabled. The compact response format is unchanged.
 Verify both transaction formats, source/target effects, native blob evidence,
 independent follower replay and the canonical `refund_status = qualified` event.
+
+The [October 15 qualification](../audits/2026-10-15-l1-fee-refunds/README.md)
+records the isolated builder checks and the existing Chiado route's four paid
+canaries, native blob authentication, incremental follower replay and handover.
+It does not qualify additional provider URLs or durable restart recovery.
 
 A missing or ambiguous payout pauses new L1-funded work without resending settled
 sources. Preserve the posting logs and inspect the source/post/payout receipts.

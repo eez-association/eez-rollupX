@@ -6,8 +6,10 @@ implemented, deployed and validated on 2026-10-15. The
 the exact Docker images, Kurtosis checks and live Chiado handover; the
 [earlier API record](../audits/2026-10-15-compact-fee-quotes/README.md) preserves
 the preceding results. The [L1-origin collection increment](cross-chain-fee-recovery.md#l1-collection-increment-authorized-on-2026-10-15)
-is authorized and implemented behind an opt-in policy; real builder qualification
-and deployment validation are separate from the completed L2 work.
+is implemented behind an opt-in policy and
+[validated on the configured Chiado builder route](../audits/2026-10-15-l1-fee-refunds/README.md).
+The deployed L1 and L2 fronts share this API; additional builder providers still
+require separate payout qualification.
 The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 
@@ -118,10 +120,11 @@ upgrade: older Composers can reject lower-margin signed transactions. Coordinate
 policy and Composer rollout/rollback, drain accepted work, preserve datadirs and
 the existing compact API client upgrade. No protocol/storage migration applies.
 
-L1→L2 requires actual receipt of a selected user's builder refund. The current
-submitter has no refund request/qualification path, and the deployed Chiado
-route has no demonstrated payout. Preserve `unsupported_direction` until the
-native-blob bundle, selected payer, payout deductions, recipient and canonical
-receipt are qualified. Do not count a requested refund or the poster's own tip
-as external revenue. This route is a separate collection integration, not a
-mirror of the L2 pricing calculation.
+At the simplified-pricing baseline, L1→L2 remained `unsupported_direction`:
+the submitter had no refund path and the deployed Chiado route had no
+demonstrated payout. The later
+[L1 collection increment](cross-chain-fee-recovery.md#l1-collection-increment-authorized-on-2026-10-15)
+adds an opt-in refund path and uses `quotes_disabled` while it is unconfigured.
+Enable it only after qualifying the native-blob bundle, selected payer, payout
+deductions, recipient and canonical receipt on the receiving builder route.
+Requested refunds and the poster's own tip are not external revenue.
