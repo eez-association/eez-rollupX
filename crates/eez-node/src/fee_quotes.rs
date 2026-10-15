@@ -65,6 +65,7 @@ impl FeeQuotes {
     pub(crate) fn new<L2>(
         composer: Composer<L2>,
         rollup_id: u64,
+        direction: eez_composer::Direction,
         executor: TaskExecutor,
     ) -> Arc<Self>
     where
@@ -75,7 +76,7 @@ impl FeeQuotes {
             + Sync
             + 'static,
     {
-        let enforce_tariff = composer.enforces_l2_fee_tariff();
+        let enforce_tariff = composer.enforces_fee_tariff(direction);
         Arc::new(Self {
             enforce_tariff,
             prepare: Arc::new(move |request| {
@@ -83,17 +84,16 @@ impl FeeQuotes {
                 Box::pin(async move {
                     match request {
                         Request::Signed(request) => {
-                            let prepared =
-                                composer.prepare_l2_fee_quote(rollup_id, *request).await?;
-                            Ok(
-                                Box::new(move |cancelled| {
-                                    composer.quote_l2_fee(prepared, cancelled)
-                                }) as Work,
-                            )
+                            let prepared = composer
+                                .prepare_fee_quote(direction, rollup_id, *request)
+                                .await?;
+                            Ok(Box::new(move |cancelled| {
+                                composer.quote_signed_fee(prepared, cancelled)
+                            }) as Work)
                         }
                         Request::Compact(request, debug) => {
                             let prepared = composer
-                                .prepare_compact_fee_quote(rollup_id, request)
+                                .prepare_compact_fee_quote(rollup_id, direction, request)
                                 .await?;
                             Ok(Box::new(move |cancelled| {
                                 composer.quote_fee(prepared, cancelled, debug)
@@ -204,9 +204,10 @@ pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> (StatusCod
 fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
     let status = match err {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
-        FeeQuoteError::Unsupported(_) | FeeQuoteError::Limit(_) | FeeQuoteError::Underfunded => {
-            StatusCode::UNPROCESSABLE_ENTITY
-        }
+        FeeQuoteError::Unsupported(_)
+        | FeeQuoteError::Limit(_)
+        | FeeQuoteError::Underfunded
+        | FeeQuoteError::L1Underfunded => StatusCode::UNPROCESSABLE_ENTITY,
         FeeQuoteError::Stale => StatusCode::CONFLICT,
         FeeQuoteError::Disabled => StatusCode::NOT_FOUND,
         FeeQuoteError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,

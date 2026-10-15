@@ -55,6 +55,8 @@ pub(super) enum PostingError {
 pub(super) struct PostingRuntime {
     pub fees: PostingFeeConfig,
     pub enforce_l2_fee_tariff: bool,
+    pub l1_refund_policy: Option<super::fees::refund::Policy>,
+    pub l1_refund_failed: std::sync::atomic::AtomicBool,
     pub shadow_fee_policy: Option<super::fees::pricing::Policy>,
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,

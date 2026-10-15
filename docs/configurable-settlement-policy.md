@@ -1002,10 +1002,10 @@ events remain version 1. This feature makes no durable financial reservation.
 ## Compact fee quotes
 
 `eez_quoteFee` and `eez_debugQuoteFee` use positional params `[transaction, options?]`
-on the Composer fronts only. `/composer/l2` selects L2-origin pricing.
-`/composer/l1` returns `-32004` with `error.data.code = "unsupported_direction"`:
-L1-origin builder-refund recovery is not implemented. Regular node/follower
-transports do not expose either method. These are project-specific JSON-RPC
+on the Composer fronts only. `/composer/l2` selects L2-origin pricing;
+`/composer/l1` selects the optional [L1 refund profile](#l1-builder-refund-profile).
+An unconfigured direction returns `-32004` with `error.data.code = "quotes_disabled"`.
+Regular node/follower transports do not expose either method. These are project-specific JSON-RPC
 methods, not Ethereum standard methods.
 
 ```json
@@ -1085,7 +1085,7 @@ silent unquoted send.
 The debug method accepts identical params and returns the compact result plus
 `diagnostics.recoveryMode` and `diagnostics.options`. `recoveryMode` is
 `enforced_tariff` when signed ingress and final dispatch enforce the configured
-tariff, otherwise `advisory`. This metadata appears only under `diagnostics`; it
+L2 tariff, otherwise `advisory`; the L1 profile uses `builder_refund`. This metadata appears only under `diagnostics`; it
 is absent from `eez_quoteFee` and is not needed to construct a wallet transaction.
 `diagnostics.options` contains the detailed calculation result (or error) for each type,
 including policy, contexts, measured costs and replay iterations. Ordinary-L2
@@ -1215,7 +1215,7 @@ quote quantities remain canonical. Wallet observations cannot change signed
 transaction fields. The pending nonce check detects ordinary-mempool predecessors
 that isolated quote execution does not simulate.
 
-Four workers serve compact/debug quotes with space for sixteen waiting requests.
+Each Composer direction has four workers for compact/debug quotes with space for sixteen waiting requests.
 Signed admission has one reserved worker and space for eight waiting requests,
 so quote traffic cannot occupy its capacity. Each lane returns `quote_busy` only
 when its total capacity is full. The ten-second request deadline includes queue
@@ -1268,7 +1268,8 @@ are rejected before queue admission. A tariff failure returns JSON-RPC code
 `-32003` with `data.code = "l2_tip_underfunded"`; availability and profile errors
 retain the quote engine's stable `data.code`. Rejection neither consumes a nonce
 nor acquires queue ownership. Already-owned identical transactions remain
-idempotent. Ordinary L2 and L1-origin admission retain their existing rules.
+idempotent. Ordinary L2 admission retains its existing rules; the independent
+L1 refund profile below controls L1-origin work.
 
 The destination matters for factory deployments. Creating a Safe on L1 through
 its L2 cross-chain proxy is an outbound source, including the factory's CREATE2
@@ -1494,3 +1495,89 @@ list is rejected at startup or silently becomes one wrong endpoint. Set a list
 only after upgrading and return to a single URL before rolling back.
 Collectors that ignore unknown fields keep reading delivery events; version 1
 capture readers must handle version 2 metadata.
+
+## L1 builder refund profile
+
+`EEZ_L1_FEE_REFUND_POLICY` is optional and absent by default. When supplied it
+must be a JSON object with exactly `version: 1`, a nonzero `recipient` address,
+and integer `percent` from 1 to 99. Empty, invalid and unknown fields fail startup.
+It requires `EEZ_L2_FEE_SHADOW_POLICY` for the existing chain/rollup identities,
+explicit service costs, risk and profit. L1 calculations use its L1-denominated
+costs directly, without conversion to L2. The L2 conversion assumption remains
+independent. Setting this policy enables L1 quotes, signed admission and final
+coverage checks together; it does not enable L2 tariff enforcement.
+
+The operator must first qualify **every** configured builder relay for the same
+immediate native-blob refund profile. Generic `eth_sendBundle` support or an ACK
+is insufficient. The recipient must be a dedicated plain EOA; contract and
+EIP-7702 delegated recipients are unsupported. This initial profile observes a
+single successful 21,000-gas transfer from the canonical block beneficiary after
+the selected source and before a subsequent native post. Delayed payouts, pooled payouts, multiple matching transfers,
+a different payer address, public-mempool fallback and sponsorship are unsupported.
+A recipient shared across unrelated revenue routes cannot establish attribution.
+
+The L1 front returns the same compact wallet fields, with independently simulated
+legacy and EIP-1559 options. It estimates omitted gas, composes nested calls,
+constructs the native L2 delivery commitments, and executes a disposable native
+blob post followed by the source. The known verifier executes with real gas;
+only its final, exact verification boolean is privately assumed valid. Actual
+posting still requires the independent signer and final signed native validation.
+Ordinary L1 transactions do not use this cross-chain pricing profile; use their
+normal Ethereum estimation path. Ordinary L2 settlement remains subsidized as
+specified above.
+
+Let `C` be measured posting execution plus physical blob cost and configured
+proving/operations/treasury costs; `R` the configured risk amount; `P` the target
+profit; `g` the charged source receipt gas; and `p` the refund percentage.
+The payout allowance `H` is 21,000 times the sampled posting effective gas price.
+The quote finds fee fields satisfying:
+
+```text
+required net refund = C + R + P
+required gross tip = ceil((required net refund + H) * 100 / p)
+priority fee per gas = ceil(required gross tip / g)
+projected net refund = max(0, floor(g * effective priority fee * p / 100) - H)
+```
+
+Deducting all payout gas after applying the percentage is conservative for
+providers that deduct it before the percentage. Fee-dependent execution is
+replayed at the proposed fields within the same bounded quote worker. Debug
+includes measured L1/source gas, DA, percentage, payout allowance, cost/risk/profit
+and `projectedRefundL1`. `qualifiedRecoveryL1` remains null in a quote.
+
+Signed admission and final dispatch require `C + R`; profit is a quote target
+and may absorb drift. They use effective priority fees and charged receipt gas,
+not gas limits or fee caps. Underpayment uses `data.code = "l1_tip_underfunded"`.
+Admission does not reserve a quote or change transaction encoding.
+
+For this first implementation each L1-funded post contains **one complete source
+request**, including all its nested calls. L1 and L2 fee-funded batches remain
+separate under existing FIFO/nonce ownership. Multi-user L1 batching is deferred
+until prefix funding is measured and validated. The dispatch selector can choose
+one external payer by recoverable total payment, never by gas price alone; it
+excludes the poster, recipient and configured excluded senders. The exact request
+contains `refundPercent`, `refundRecipient`, and one `refundTxHashes` element.
+That payer is required: it is removed from `revertingTxHashes`. Other existing
+partial-consumption and reconciliation behavior is unchanged.
+
+The final post hash binds immutable refund terms in the in-memory cost ledger.
+Canonical accounting checks the selected source, same-block payment, actual cost
+floor and uniqueness. Repeated observations are idempotent; reorgs retract their
+previous cost/payment reports. `eez.composer.postbatch.actual_cost` adds
+`refund_status`, `refund_hash`, `refund_value`, `refund_source`, and
+`refund_minimum`. A requested refund is never cash. A missing, ambiguous or
+underfunded immediate payout stops new L1 quotes and funded dispatch until the
+operator requalifies the route and restarts. L2 service and canonical ownership
+reconciliation continue. This stop remains conservative across reorgs.
+
+There is no protocol, genesis, protobuf, DA or historical replay migration.
+Upgrade Composer before using its L1 fee API; older Composers neither enforce the
+L1 tariff nor request these refunds. Keep the policy unset during a mixed-version
+rollout, drain outstanding work, qualify the actual builder path, then enable it.
+Disabling it or rolling back restores subsidized L1 admission. The financial
+plans and stop flag are **in memory**, like accepted requests: a restart can lose
+unsettled requests and refund attribution. Inspect retained posting logs and
+canonical receipts before restarting/re-enabling; node database persistence does
+not recover that ledger. Do not use projected or unobserved L1 revenue as credit
+for another request. These limits prevent claiming durable financial accounting
+or an on-chain payment guarantee.

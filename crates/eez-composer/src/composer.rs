@@ -1470,6 +1470,7 @@ where
             max_user_txs_per_bundle,
             posting_fees,
             shadow_fee_policy,
+            l1_refund_policy,
             enforce_l2_fee_tariff,
             gas_trace,
             emission,
@@ -1496,6 +1497,8 @@ where
         let posting = Arc::new(posting::PostingRuntime {
             fees: posting_fees,
             shadow_fee_policy,
+            l1_refund_policy,
+            l1_refund_failed: std::sync::atomic::AtomicBool::new(false),
             enforce_l2_fee_tariff,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
@@ -4021,9 +4024,37 @@ where
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
             }
-            if self.inner.posting.enforce_l2_fee_tariff && !pending_out.is_empty() {
-                // L1-origin fees are not collected by this trial. Keep their
-                // costs out of funded outbound batches. The normal FIFO rebuild
+            if self
+                .inner
+                .posting
+                .l1_refund_failed
+                .load(std::sync::atomic::Ordering::Acquire)
+            {
+                capacity.defer(
+                    &mut selection,
+                    &candidate,
+                    idx,
+                    held,
+                    "l1_refund_route_unqualified",
+                );
+                continue;
+            }
+            if self.inner.posting.l1_refund_policy.is_some() && !survivors.is_empty() {
+                capacity.defer(
+                    &mut selection,
+                    &candidate,
+                    idx,
+                    held,
+                    "l1_refund_single_group",
+                );
+                continue;
+            }
+            if (self.inner.posting.enforce_l2_fee_tariff
+                || self.inner.posting.l1_refund_policy.is_some())
+                && !pending_out.is_empty()
+            {
+                // Each direction has its own collection mechanism and coverage.
+                // Keep costs separate. The normal FIFO rebuild
                 // still puts an older eligible inbound ahead of younger users.
                 capacity.defer(&mut selection, &candidate, idx, held, "l2_tariff_direction");
                 continue;
@@ -7743,10 +7774,20 @@ async fn observe_bundle_outcome(
             )
             .map_err(|reason| ("l2_tariff_blocked", reason.to_owned()))?;
         }
+        let refund = fees::refund::select(&posting, quote, &prepared, &execution)
+            .map_err(|reason| ("l1_refund_blocked", reason.to_owned()))?;
         let id = optimistic
             .replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())
             .map_err(|error| ("ledger_update_failed", error))?;
-        Ok::<_, (&str, String)>((prepared, quote, id, execution))
+        if let Some(refund) = refund {
+            posting
+                .costs
+                .lock()
+                .unwrap()
+                .plan_refund(rollup_id, hash, refund)
+                .map_err(|error| ("refund_identity_changed", error.to_owned()))?;
+        }
+        Ok::<_, (&str, String)>((prepared, quote, id, execution, refund))
     };
     let preparation = if let Some(deadline) = preparation_timing.deadline {
         tokio::time::timeout(
@@ -7771,7 +7812,7 @@ async fn observe_bundle_outcome(
         candidate.duration("finalization", finalization_elapsed);
     }
     let fee_quote = match preparation {
-        Ok((prepared, quote, id, execution)) => {
+        Ok((prepared, quote, id, execution, refund)) => {
             if let Some(timings) = &preparation_timing.timings {
                 timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
             }
@@ -7779,6 +7820,7 @@ async fn observe_bundle_outcome(
                 "preflight_gas_used":execution.gas_used.get(..1),"preflight_gas_required":execution.gas_required.get(..1),
                 "signed_gas_limits":execution.gas_limits.get(..1),"finalization_ms":finalization_elapsed.as_secs_f64()*1000.0,
                 "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0,
+                "refund":refund.map(|p|serde_json::json!({"source":p.request.source(),"recipient":p.request.recipient(),"percent":p.request.percent(),"minimumL1":p.minimum.to_string(),"projectedL1":p.projected.to_string()})),
                 "fee_observation": fees::observation(quote, &execution, id.post_batch_hash,
                     posting.native_currency(), l2_fees.as_ref(), posting.shadow_fee_policy.as_ref(),
                     posting.ctx.l1_poster_signer.address())});
@@ -7812,7 +7854,10 @@ async fn observe_bundle_outcome(
             if let Some(events) = &events {
                 events.emit("repriced", id.post_batch_hash, detail);
             }
-            quote
+            eez_l1::refund::BundlePricing {
+                quote,
+                refund: refund.map(|p| p.request),
+            }
         }
         Err((reason, error)) => {
             if reason == "pipeline_deadline"
@@ -7900,8 +7945,9 @@ async fn observe_bundle_outcome(
                         // derived-parent guard. The quote was checked against
                         // the canonical head immediately before dispatch.
                         let expected_parent_hash = delivery.expected_parent_hash.or_else(|| {
-                            (fee_quote.sample.number.checked_add(1) == Some(delivery.target_block))
-                                .then_some(fee_quote.sample.hash)
+                            (fee_quote.quote.sample.number.checked_add(1)
+                                == Some(delivery.target_block))
+                            .then_some(fee_quote.quote.sample.hash)
                         });
                         candidate.duration("delivery", delivery.elapsed);
                         candidate.emit(

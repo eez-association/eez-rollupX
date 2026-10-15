@@ -868,3 +868,24 @@ upgrade or roll back both binaries together. No new genesis or database change
 is introduced by this signer simplification. See the
 [signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
 reorg behavior. This wiring has no legacy-source or offline-signing fallback.
+
+### Enabling L1 fee recovery
+
+Leave `EEZ_L1_FEE_REFUND_POLICY` unset until each configured builder has passed the
+[L1 refund profile](../configurable-settlement-policy.md#l1-builder-refund-profile)
+on this network with a real native-blob post, signed source and canonical payout.
+The startup bundle API probe does not test refund support. Public builder docs
+or a successful private Kurtosis test do not qualify the Chiado route.
+
+Use a dedicated plain EOA recipient, keep the existing cost policy and L2 fee
+settings, and drain accepted work before enabling the L1 policy. Both fronts
+use `eez_quoteFee` and `eez_debugQuoteFee`; only the source chain and recovery
+mechanism differ. The SDK needs the expected L1 chain ID and `/composer/l1`.
+Verify both transaction formats, source/target effects, native blob evidence,
+independent follower replay and the canonical `refund_status = qualified` event.
+
+A missing or ambiguous payout pauses new L1-funded work without resending settled
+sources. Preserve the posting logs and inspect the source/post/payout receipts.
+Requalify the route before restart; the stop flag and per-post refund plans are
+in memory and are not restored by the databases. Disabling the policy permits
+subsidized L1 work again; it is not a revenue-preserving rollback.

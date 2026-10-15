@@ -128,6 +128,8 @@ pub(super) fn outbound(
         source_gas: user.gas_used,
         output: user.output,
         actions: c.actions.clone(),
+        settlement: None,
+        post_required: 0,
     })
 }
 
@@ -137,6 +139,7 @@ pub(super) fn inbound(
     e: &GasEstimator,
     s: &Snapshot,
     c: &Composition,
+    blob_hashes: &[B256],
 ) -> Result<(eez_protocol::EvmBatch, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
     let txs = build_inbound_system_txs(&sidecars, &system_context(e), system_nonce(e, s)?)
@@ -239,8 +242,12 @@ pub(super) fn inbound(
         rollupId: e.rollup_id,
         proofSystemIndexes: vec![0],
     }];
-    batch.proofs = vec![Bytes::new()];
-    batch.blobIndices.clear();
+    batch.proofs = vec![if blob_hashes.is_empty() {
+        Bytes::new()
+    } else {
+        super::super::fees::settlement::placeholder_proof()
+    }];
+    batch.blobIndices = (0..blob_hashes.len()).map(U256::from).collect();
     let registry = read_call(
         e,
         s,
@@ -273,8 +280,13 @@ pub(super) fn inbound(
         parent_hash: s.l1.anchor.hash(),
         target_timestamp: s.l1_attributes.timestamp,
     };
-    let digests = eez_protocol::public_inputs::public_inputs_hashes(&batch, *vkey, context)
-        .map_err(unsupported)?;
+    let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
+        &batch,
+        *vkey,
+        blob_hashes,
+        context,
+    )
+    .map_err(unsupported)?;
     let [digest] = digests.as_slice() else {
         return Err(unsupported("single proof digest required"));
     };

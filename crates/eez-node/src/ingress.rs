@@ -573,13 +573,7 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
     ) {
         match request.get("params").and_then(Value::as_array) {
             Some(params) if (1..=2).contains(&params.len()) => {
-                let (status, value) = if ctx.direction == Direction::Inbound {
-                    crate::fee_quotes::error(
-                        StatusCode::UNPROCESSABLE_ENTITY,
-                        "unsupported_direction",
-                        "L1-origin fee recovery is not implemented",
-                    )
-                } else if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
+                let (status, value) = if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
                     crate::fee_quotes::error(
                         StatusCode::SERVICE_UNAVAILABLE,
                         "starting_up",
@@ -886,8 +880,7 @@ async fn intercept_send_raw(
     if !ctx.ready.load(std::sync::atomic::Ordering::Relaxed) {
         return Some(rpc_error(id, -32000, STARTING_UP_MSG));
     }
-    if ctx.direction == Direction::Outbound
-        && let Some(service) = &ctx.fee_quotes
+    if let Some(service) = &ctx.fee_quotes
         && service.enforce_tariff
     {
         if ctx.held_pool.owns(hash) {
@@ -899,7 +892,7 @@ async fn intercept_send_raw(
         if !status.is_success() {
             return Some(json_response(serde_json::json!({
                 "jsonrpc":"2.0", "id":id,
-                "error":{"code":-32003,"message":"L2 settlement tariff admission failed", "data":result["error"]}
+                "error":{"code":-32003,"message":"settlement tariff admission failed", "data":result["error"]}
             }).to_string()));
         }
     }

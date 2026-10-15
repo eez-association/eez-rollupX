@@ -78,12 +78,22 @@ pub(super) struct Snapshot {
     generation: Option<u64>,
 }
 #[derive(Debug)]
-struct Probe {
+pub(super) struct Probe {
     required: u64,
     limit: u64,
-    source_gas: u64,
+    pub(super) source_gas: u64,
+    pub(super) settlement: Option<(u64, usize, usize)>,
+    post_required: u64,
     output: Bytes,
     actions: Vec<eez_protocol::ExecutedAction>,
+}
+
+pub(super) struct InboundPricing<'a> {
+    pub runtime: &'a super::posting::PostingRuntime,
+    pub posting: &'a super::posting::PostingQuote,
+    pub operations: usize,
+    pub maximum_blobs: usize,
+    pub budget: Arc<super::fees::quote::Budget>,
 }
 
 impl<L2> super::Composer<L2>
@@ -436,6 +446,32 @@ impl GasEstimator {
         tx: TxEnv,
         deadline: Instant,
     ) -> Result<Probe, EstimateError> {
+        self.probe_inner(direction, s, tx, deadline, None)
+    }
+
+    pub(super) fn priced_inbound(
+        &self,
+        s: &Snapshot,
+        tx: TxEnv,
+        deadline: Instant,
+        pricing: InboundPricing<'_>,
+    ) -> Result<Probe, EstimateError> {
+        let limit = tx.gas_limit;
+        let result = self.probe_inner(Direction::Inbound, s, tx, deadline, Some(pricing))?;
+        if result.limit != limit {
+            return Err(unsupported("quoted gas exceeds native block capacity"));
+        }
+        Ok(result)
+    }
+
+    fn probe_inner(
+        &self,
+        direction: Direction,
+        s: &Snapshot,
+        tx: TxEnv,
+        deadline: Instant,
+        pricing: Option<InboundPricing<'_>>,
+    ) -> Result<Probe, EstimateError> {
         if Instant::now() >= deadline {
             return Err(EstimateError::Timeout);
         }
@@ -460,10 +496,14 @@ impl GasEstimator {
             rollups.insert(
                 id,
                 Rollup {
-                    client: Arc::new(budget::Client {
-                        inner: client.clone(),
-                        deadline,
-                    }),
+                    client: if let Some(pricing) = &pricing {
+                        super::fees::quote::bounded_client(client.clone(), pricing.budget.clone())
+                    } else {
+                        Arc::new(budget::Client {
+                            inner: client.clone(),
+                            deadline,
+                        })
+                    },
                     session: None,
                     config: eez_protocol::TargetConfig {
                         dialect,
@@ -475,16 +515,20 @@ impl GasEstimator {
                 },
             );
         }
+        let wrap = |session: Box<dyn eez_protocol::TargetExecutionSession + Send>| {
+            if let Some(pricing) = &pricing {
+                super::fees::quote::bounded_session(session, pricing.budget.clone())
+            } else {
+                budget::wrap(session, deadline)
+            }
+        };
         let mut draft = self.l2_draft(s)?;
         let (entry, mut builder, source) = if direction == Direction::Inbound {
             let session =
                 InboundL2TargetSession::new(draft.fork().map_err(unavailable)?, l2.clone());
             let mut builder =
                 CompositionBuilder::new(RollupId::MAINNET, rollups).with_sessions(HashMap::from([
-                    (
-                        RollupId(self.rollup_id),
-                        budget::wrap(Box::new(session), deadline),
-                    ),
+                    (RollupId(self.rollup_id), wrap(Box::new(session))),
                 ]));
             let (mut state, _) = s.l1.fork_state(&l1).map_err(unavailable)?;
             let mut source_env = s.l1_env.clone();
@@ -497,7 +541,7 @@ impl GasEstimator {
             let session = L1TargetSession::new(&s.l1, l1).map_err(unavailable)?;
             let mut builder =
                 CompositionBuilder::new(RollupId(self.rollup_id), rollups).with_sessions(
-                    HashMap::from([(RollupId::MAINNET, budget::wrap(Box::new(session), deadline))]),
+                    HashMap::from([(RollupId::MAINNET, wrap(Box::new(session)))]),
                 );
             let mut fork = draft.fork().map_err(unavailable)?;
             let (state, env) = fork.state_and_env();
@@ -537,6 +581,8 @@ impl GasEstimator {
                     source_gas: user.gas_used,
                     output: user.output,
                     actions: vec![],
+                    settlement: None,
+                    post_required: 0,
                 });
             }
             return Err(unsupported("request did not produce a cross-chain action"));
@@ -553,8 +599,84 @@ impl GasEstimator {
             return Err(EstimateError::Timeout);
         }
         let replay = if entry == RollupId::MAINNET {
-            let (batch, digest) = preparation::inbound(self, s, &composition)?;
-            l1::replay(self, s, &batch, &composition, tx, digest)
+            let (blobs, da_bytes) = if let Some(pricing) = &pricing {
+                let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                    origin_chain: RollupId::MAINNET,
+                    tx_data: Bytes::new(),
+                    actions: composition.actions.clone(),
+                };
+                let overhead = super::policy::semantic_overhead(self.rollup_id, &[semantic])
+                    .map_err(unavailable)?;
+                let bytes =
+                    eez_blob_codec::native_stream_len(pricing.operations, overhead.semantic_bytes)
+                        .map_err(unavailable)?;
+                let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
+                if bytes > 2 * 1024 * 1024 || blobs > pricing.maximum_blobs {
+                    return Err(unsupported("quote DA capacity"));
+                }
+                (blobs, bytes)
+            } else {
+                (0, 0)
+            };
+            let hashes = (0..blobs)
+                .map(|i| {
+                    let mut hash = B256::repeat_byte(0x11);
+                    hash[0] = 1;
+                    hash[31] = i as u8;
+                    hash
+                })
+                .collect::<Vec<_>>();
+            let (batch, digest) = preparation::inbound(self, s, &composition, &hashes)?;
+            let mut replay = l1::replay(
+                self,
+                s,
+                l1::Replay {
+                    batch: &batch,
+                    composition: &composition,
+                    tx: tx.clone(),
+                    digest,
+                    posting: pricing.as_ref().map(|p| p.posting),
+                    blob_hashes: &hashes,
+                    gas_limit: None,
+                },
+            )?;
+            if let Some(pricing) = &pricing {
+                let used = replay
+                    .settlement
+                    .ok_or_else(|| unavailable("missing posting receipt"))?
+                    .0;
+                let gas_limit = pricing
+                    .runtime
+                    .fees
+                    .declared_gas(replay.post_required, pricing.posting.gas_budget)
+                    .map_err(unavailable)?;
+                if gas_limit != pricing.posting.gas_budget {
+                    match l1::replay(
+                        self,
+                        s,
+                        l1::Replay {
+                            batch: &batch,
+                            composition: &composition,
+                            tx,
+                            digest,
+                            posting: Some(pricing.posting),
+                            blob_hashes: &hashes,
+                            gas_limit: Some(gas_limit),
+                        },
+                    ) {
+                        Ok(selected) => replay = selected,
+                        Err(
+                            EstimateError::Unsupported(_)
+                            | EstimateError::Revert(_)
+                            | EstimateError::Effects(_),
+                        ) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+                let used = replay.settlement.map_or(used, |v| v.0);
+                replay.settlement = Some((used, blobs, da_bytes));
+            }
+            Ok(replay)
         } else {
             preparation::outbound(self, s, &composition, tx)
         }?;

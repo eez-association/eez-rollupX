@@ -19,6 +19,7 @@ pub struct ComposerSettings {
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
     pub(super) enforce_l2_fee_tariff: bool,
+    pub(super) l1_refund_policy: Option<super::fees::refund::Policy>,
     pub(super) shadow_fee_policy: Option<super::fees::pricing::Policy>,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
@@ -180,6 +181,14 @@ impl ComposerSettings {
                 ));
             }
         };
+        let l1_refund_policy =
+            super::fees::refund::Policy::parse(get(super::fees::refund::SETTING)?)
+                .map_err(PolicyError::Config)?;
+        if l1_refund_policy.is_some() && shadow_fee_policy.is_none() {
+            return Err(PolicyError::Config(
+                "L1 refunds require EEZ_L2_FEE_SHADOW_POLICY cost assumptions".into(),
+            ));
+        }
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
             get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
@@ -193,6 +202,7 @@ impl ComposerSettings {
             max_user_txs_per_bundle,
             posting_fees,
             enforce_l2_fee_tariff,
+            l1_refund_policy,
             shadow_fee_policy,
             gas_trace,
             emission,
@@ -367,6 +377,41 @@ mod tests {
             ])
             .unwrap()
             .enforce_l2_fee_tariff
+        );
+    }
+
+    #[test]
+    fn l1_refund_policy_requires_costs_and_reaches_runtime_settings() {
+        assert!(settings(&[]).unwrap().l1_refund_policy.is_none());
+        let refund =
+            serde_json::json!({"version":1,"recipient":Address::repeat_byte(9),"percent":90})
+                .to_string();
+        assert!(settings(&[("EEZ_L1_FEE_REFUND_POLICY", &refund)]).is_err());
+        let cost = super::super::fees::pricing::tests::policy_json().to_string();
+        let beneficiary = Address::repeat_byte(4).to_string();
+        for raw in ["", "{}", "null", "bad"] {
+            assert!(
+                settings(&[
+                    ("EEZ_L1_FEE_REFUND_POLICY", raw),
+                    ("EEZ_L2_FEE_SHADOW_POLICY", &cost),
+                    ("EEZ_L2_FEE_RECIPIENT", &beneficiary)
+                ])
+                .is_err()
+            );
+        }
+        let parsed = settings(&[
+            ("EEZ_L1_FEE_REFUND_POLICY", &refund),
+            ("EEZ_L2_FEE_SHADOW_POLICY", &cost),
+            ("EEZ_L2_FEE_RECIPIENT", &beneficiary),
+        ])
+        .unwrap();
+        assert_eq!(
+            parsed.l1_refund_policy.unwrap().recipient,
+            Address::repeat_byte(9)
+        );
+        assert!(
+            !parsed.enforce_l2_fee_tariff,
+            "each direction is independently enabled"
         );
     }
 

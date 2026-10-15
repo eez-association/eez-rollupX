@@ -6,7 +6,7 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 | Field | Value |
 | --- | --- |
-| Design status | L2 tariff trial implemented and deployed after isolated validation; production financial reservations and L1 collection remain draft. No core protocol or genesis change. See the fifth increment and its deployment audit below. |
+| Design status | L2 tariff trial implemented and deployed after isolated validation. The L1 collection increment below is authorized and implemented pending builder/deployment validation; production financial reservations and broader collection profiles remain draft. No core protocol or genesis change. |
 | Date | 2026-10-10 |
 | Source baseline | `eduadiez/rollupX`, `main`, `fa916b13254a36423cad130080dde367bb18a7d6`; existing operator/worktree changes excluded |
 | Protocol baseline | Initialized, clean `eez-core-protocol` at `855fe0602484750861b4c31502a1a91355d33ed6` |
@@ -14,6 +14,47 @@ by the compact API replacement. Both transaction encodings remain supported.
 | Research evidence | [Source trace, references, review and limitations](../audits/2026-10-10-cross-chain-fee-research/README.md) |
 
 ## Recommendation
+
+### L1 collection increment authorized on 2026-10-15
+
+Implement the funded single-source refund profile after the
+[L2 fee load test](../audits/2026-10-15-chiado-fee-load/README.md). Revenue may stay
+on its source chain; sweeping or converting the L1/L2 balances is not a release
+prerequisite. Keep both denominations explicit and never count one chain's
+balance twice. L1 and L2 fee-funded candidates remain separate in this increment. The first
+implementation deliberately settles one complete L1 source group per funded post;
+shared L1 batching requires a later measured prefix-funding check. This is an
+implementation scope limit, not a change to the proposed future batching policy.
+
+The L1 front will reuse the compact quote contract and internal gas estimation.
+Price complete native posting/DA plus the configured service costs, risk and
+profit; divide the required refund by the selected L1 source's measured receipt
+gas and the configured refund percentage. Deduct an EOA payout's gas cost before
+crediting recovery. Iterate at the actual fee fields and retain final signed
+native validation. The quote targets profit; signed admission and dispatch may
+consume that profit while preserving the configured cost/risk floor.
+
+Use an opt-in, immediate EOA refund profile with explicit percentage and
+recipient. Every receiving relay must be qualified for the same profile; no
+refund-dependent request goes to an unqualified fallback. Select one external
+user by recoverable total priority payment, preserve source order, and remove
+that payer from the optional-revert list. Keep all other partial-consumption,
+nonce, ownership and reconciliation rules. A return of the poster's own money
+is not revenue. Do not request sponsorship or depend on discretionary rebates.
+
+Record the selected source and requested payout with the posting identity, then
+reconcile canonical L1 payments separately from L2 tips. Missing, ambiguous or
+wrong-recipient payments remain unqualified. Refund observation must not change
+whether a source was canonically consumed or authorize resending its nonce.
+Requested refunds are projected revenue, not received cash or an on-chain
+zero-loss guarantee. Existing in-memory ownership/recovery limits remain.
+
+Acceptance requires arithmetic/configuration and request-encoding regressions,
+internal quotes for both formats, nested/Safe execution, cost-floor rejection,
+mandatory refund payer handling, canonical payment evidence and preserved
+policy-disabled behavior. A controlled builder test is distinct from qualifying
+an external provider; enable a live network only after its native-blob payout is
+verified. Implementation is authorized; provider qualification remains pending.
 
 Introduce a transaction-specific **cross-chain service quote**, backed by a
 Composer admission and final dispatch check. The quote pays for the poster's

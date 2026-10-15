@@ -29,6 +29,14 @@ pub(crate) struct Policy {
     excluded_senders: Vec<Address>,
 }
 
+pub(crate) struct RequiredL1Payment {
+    pub subtotal: U256,
+    pub risk: U256,
+    pub profit: U256,
+    pub l1: U256,
+    pub minimum_l1: U256,
+}
+
 pub(crate) struct RequiredPayment {
     pub subtotal: U256,
     pub risk: U256,
@@ -51,10 +59,10 @@ impl Policy {
             && !self.excluded_senders.contains(&sender)
     }
 
-    pub(crate) fn required_payment(
+    pub(crate) fn required_l1_payment(
         &self,
         post_cost: U256,
-    ) -> Result<RequiredPayment, &'static str> {
+    ) -> Result<RequiredL1Payment, &'static str> {
         let subtotal = [post_cost, self.proving, self.operations, self.treasury]
             .into_iter()
             .try_fold(U256::ZERO, |sum, cost| {
@@ -73,10 +81,30 @@ impl Policy {
             true,
         )?;
         let minimum_l1 = subtotal.checked_add(risk).ok_or("pricing_cost_overflow")?;
-        let minimum_l2 = mul_div(minimum_l1, self.denominator, self.numerator, true)?;
         let l1 = minimum_l1
             .checked_add(profit)
             .ok_or("pricing_cost_overflow")?;
+        Ok(RequiredL1Payment {
+            subtotal,
+            risk,
+            profit,
+            l1,
+            minimum_l1,
+        })
+    }
+
+    pub(crate) fn required_payment(
+        &self,
+        post_cost: U256,
+    ) -> Result<RequiredPayment, &'static str> {
+        let RequiredL1Payment {
+            subtotal,
+            risk,
+            profit,
+            l1,
+            minimum_l1,
+        } = self.required_l1_payment(post_cost)?;
+        let minimum_l2 = mul_div(minimum_l1, self.denominator, self.numerator, true)?;
         let l2 = mul_div(l1, self.denominator, self.numerator, true)?;
         Ok(RequiredPayment {
             subtotal,

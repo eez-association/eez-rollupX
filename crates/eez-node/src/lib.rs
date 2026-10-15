@@ -1225,11 +1225,6 @@ async fn launch_composer(
     // Bind before the L1 wait so port checks see a live front. Submissions are
     // refused until catch-up completes and the watcher owns subsequent blocks.
     let xchain_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let l2_fee_quotes = fee_quotes::FeeQuotes::new(
-        composer.clone(),
-        rollup_config.rollup_id,
-        task_executor.clone(),
-    );
     let xchain_checks: Vec<_> = xchain_fronts
         .iter()
         .map(|(spec, _, _, provider, _)| (spec.expected_source_chain_id, provider.clone()))
@@ -1244,8 +1239,12 @@ async fn launch_composer(
         let ready = Arc::clone(&xchain_ready);
         let composer_info = Arc::clone(&composer_info);
         let composer_methods = composer_methods.clone();
-        let quotes = (spec.direction == eez_composer::Direction::Outbound)
-            .then(|| Arc::clone(&l2_fee_quotes));
+        let quotes = Some(fee_quotes::FeeQuotes::new(
+            composer.clone(),
+            rollup_config.rollup_id,
+            spec.direction,
+            task_executor.clone(),
+        ));
         task_executor.spawn_critical_task(spec.task, async move {
             ingress::run_cross_chain_front_with_estimator(
                 port,

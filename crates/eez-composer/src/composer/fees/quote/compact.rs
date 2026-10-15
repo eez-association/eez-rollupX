@@ -130,15 +130,21 @@ where
     pub async fn prepare_compact_fee_quote(
         &self,
         rollup_id: u64,
+        direction: crate::Direction,
         request: CompactFeeRequest,
     ) -> Result<PreparedCompactFeeQuote, FeeQuoteError> {
         let transaction = request.resolve(
-            self.inner.posting.ctx.l2_chain_id,
+            match direction {
+                crate::Direction::Inbound => self.inner.posting.ctx.l1_chain_id,
+                crate::Direction::Outbound => self.inner.posting.ctx.l2_chain_id,
+            },
             0,
             MAX_SOURCE_GAS,
             request.types[0],
         )?;
-        let prepared = self.prepare_l2_fee_quote(rollup_id, transaction).await?;
+        let prepared = self
+            .prepare_fee_quote(direction, rollup_id, transaction)
+            .await?;
         Ok(PreparedCompactFeeQuote { request, prepared })
     }
 
@@ -160,15 +166,26 @@ where
             .gas_estimator(prepared.rollup_id)
             .map_err(estimate_error)?;
         let snapshot = self.fee_snapshot(&prepared, &budget)?;
-        let source = self.inner.cross_chain.local.l2_entry.chain_provider();
+        let direction = prepared.direction;
+        let (source, source_hash, chain) = match direction {
+            crate::Direction::Inbound => (
+                self.inner.cross_chain.local.l1_entry.chain_provider(),
+                prepared.posting.quote.sample.hash,
+                self.inner.posting.ctx.l1_chain_id,
+            ),
+            crate::Direction::Outbound => (
+                self.inner.cross_chain.local.l2_entry.chain_provider(),
+                snapshot.l2_parent.hash(),
+                self.inner.posting.ctx.l2_chain_id,
+            ),
+        };
         let nonce = source
             .provider
-            .state_by_block_hash(snapshot.l2_parent.hash())
-            .map_err(|e| unavailable("L2 quote state", e))?
+            .state_by_block_hash(source_hash)
+            .map_err(|e| unavailable("source quote state", e))?
             .account_nonce(&prepared.request.sender)
             .map_err(|e| unavailable("source nonce", e))?
             .unwrap_or_default();
-        let chain = self.inner.posting.ctx.l2_chain_id;
         let rollup = self
             .inner
             .rollups
@@ -176,10 +193,7 @@ where
             .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
         let sender = prepared.request.sender;
         let check_nonce = || {
-            if rollup
-                .held_pool
-                .owns_nonce(sender, crate::Direction::Outbound, nonce)
-            {
+            if rollup.held_pool.owns_nonce(sender, direction, nonce) {
                 Err(FeeQuoteError::Invalid(
                     "source nonce is already pending; queued predecessors are not simulated",
                 ))
@@ -206,7 +220,7 @@ where
                     let fields = transaction.fields(0, 0);
                     let gas = estimator
                         .estimate_on_snapshot(
-                            crate::Direction::Outbound,
+                            direction,
                             serde_json::from_value(fields)
                                 .map_err(|e| unavailable("estimation transaction", e))?,
                             budget.deadline,
@@ -217,7 +231,7 @@ where
                     transaction = request.resolve(chain, nonce, gas, ty)?;
                 }
                 prepared.request = transaction;
-                let mut detail = self.quote_l2_fee_in_context(&prepared, &snapshot, &budget)?;
+                let mut detail = self.quote_in_context(&prepared, &snapshot, &budget)?;
                 budget.check()?;
                 let tx = &detail["transaction"];
                 let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
@@ -226,9 +240,15 @@ where
                 } else {
                     price(tx, "maxPriorityFeePerGas")?
                 };
-                let validated_gas = estimator
-                    .validate_quote(&snapshot, prepared.request.env(tip, cap), budget.deadline)
-                    .map_err(estimate_error)?;
+                let validated_gas = if direction == crate::Direction::Outbound {
+                    estimator
+                        .validate_quote(&snapshot, prepared.request.env(tip, cap), budget.deadline)
+                        .map_err(estimate_error)?
+                } else {
+                    detail["estimate"]["sourceGasUsed"]
+                        .as_u64()
+                        .ok_or(FeeQuoteError::Unavailable("L1 receipt gas"))?
+                };
                 if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
                     return Err(FeeQuoteError::Unsupported(
                         "final native gas differs from priced execution",
@@ -248,7 +268,8 @@ where
                 Err(
                     error @ (FeeQuoteError::Unsupported(_)
                     | FeeQuoteError::Invalid(_)
-                    | FeeQuoteError::Underfunded),
+                    | FeeQuoteError::Underfunded
+                    | FeeQuoteError::L1Underfunded),
                 ) => {
                     let failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
                     options.push(failed.clone());
@@ -269,7 +290,7 @@ where
             "expiresAt":format!("{expiry:#x}"), "options":options});
         if debug {
             response["diagnostics"] = json!({
-                "recoveryMode":if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
+                "recoveryMode":if direction == crate::Direction::Inbound {"builder_refund"} else if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
                 "options":diagnostics
             });
         }

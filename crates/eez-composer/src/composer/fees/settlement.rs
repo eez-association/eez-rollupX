@@ -181,14 +181,17 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
         proofSystemIndexes: vec![0],
     }];
     result.blobIndices = (0..input.blobs).map(U256::from).collect();
-    // Valid curve-point r, low s and v=27 exercise the complete recovery path
-    // in both recognized verifiers. Every byte is nonzero for calldata sizing.
+    result.proofs = vec![placeholder_proof()];
+    Ok(result)
+}
+
+/// Full-width valid curve input executes the verifier's real recovery path.
+pub(in crate::composer) fn placeholder_proof() -> Bytes {
     let mut proof =
         b256!("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798").to_vec();
     proof.extend([0x11; 32]);
     proof.push(27);
-    result.proofs = vec![proof.into()];
-    Ok(result)
+    proof.into()
 }
 
 fn read_call<C: SolCall>(
@@ -454,7 +457,7 @@ fn replay(
 /// Execute the actual verifier bytecode and preserve all its gas consumption.
 /// Only its final boolean is assumed valid, scoped to one exact registry call.
 /// This inspector is never installed on signed preflight or canonical execution.
-struct MeteredProof {
+pub(in crate::composer) struct MeteredProof {
     registry: Address,
     verifier: Address,
     calldata: Bytes,
@@ -465,6 +468,27 @@ struct MeteredProof {
 }
 
 impl MeteredProof {
+    pub(in crate::composer) fn setup(
+        registry: Address,
+        verifier: Address,
+        calldata: Bytes,
+        rollup_id: u64,
+    ) -> Result<Self, String> {
+        Ok(Self {
+            registry,
+            verifier,
+            calldata,
+            matches: 0,
+            completed: 0,
+            invalid: false,
+            effects: EffectInspector::new(registry, rollup_id, &[]).map_err(|e| e.to_string())?,
+        })
+    }
+
+    pub(in crate::composer) fn valid(&self) -> bool {
+        !self.invalid && self.matches == 1 && self.completed == 1
+    }
+
     fn matches<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>>(
         &self,
         context: &C,

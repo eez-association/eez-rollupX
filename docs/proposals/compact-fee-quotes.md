@@ -5,7 +5,9 @@ implemented, deployed and validated on 2026-10-15. The
 [latest validation record](../audits/2026-10-15-simplified-fees/README.md) identifies
 the exact Docker images, Kurtosis checks and live Chiado handover; the
 [earlier API record](../audits/2026-10-15-compact-fee-quotes/README.md) preserves
-the preceding results. The L1-origin recovery policy remains deferred.
+the preceding results. The [L1-origin collection increment](cross-chain-fee-recovery.md#l1-collection-increment-authorized-on-2026-10-15)
+is authorized and implemented behind an opt-in policy; real builder qualification
+and deployment validation are separate from the completed L2 work.
 The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 
@@ -13,9 +15,10 @@ The normative API contract is in
 
 Add `eez_quoteFee` and `eez_debugQuoteFee` on Composer fronts. The L2 front
 resolves omitted gas and nonce and returns independently simulated legacy and
-EIP-1559 options. The L1 front reports `unsupported_direction` until builder
-eligibility, refund recipient, funding source and conditional recovery have a
-qualified policy. An API name alone does not implement that policy.
+EIP-1559 options. The L1 front uses the same contract when its refund policy is
+configured and reports `quotes_disabled` otherwise. Builder eligibility, refund
+recipient, funding source and actual recovery must be qualified on each network.
+An API name alone does not establish builder payment.
 
 Reuse the existing gas-discovery algorithm with the fee engine's exact L1
 posting target and a shared pinned L2 parent. Both encodings run under that

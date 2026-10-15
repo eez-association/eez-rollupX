@@ -53,10 +53,12 @@ pub enum FeeQuoteError {
     Limit(&'static str),
     #[error("quote context expired or changed")]
     Stale,
-    #[error("L2 fee quote policy is not configured")]
+    #[error("fee quote policy is not configured")]
     Disabled,
     #[error("signed L2 priority payment does not cover the configured settlement tariff")]
     Underfunded,
+    #[error("signed L1 priority payment does not cover the configured refund tariff")]
+    L1Underfunded,
 }
 
 impl FeeQuoteError {
@@ -69,6 +71,7 @@ impl FeeQuoteError {
             Self::Stale => "stale_context",
             Self::Disabled => "quotes_disabled",
             Self::Underfunded => "l2_tip_underfunded",
+            Self::L1Underfunded => "l1_tip_underfunded",
         }
     }
 }
@@ -272,6 +275,7 @@ impl L2FeeRequest {
 /// work must run through its bounded blocking worker, never on an async thread.
 #[derive(Debug)]
 pub struct PreparedL2FeeQuote {
+    direction: crate::Direction,
     request: L2FeeRequest,
     rollup_id: u64,
     posting: PostingQuote,
@@ -294,9 +298,17 @@ where
         self.inner.posting.enforce_l2_fee_tariff
     }
 
+    pub fn enforces_fee_tariff(&self, direction: crate::Direction) -> bool {
+        match direction {
+            crate::Direction::Inbound => self.inner.posting.l1_refund_policy.is_some(),
+            crate::Direction::Outbound => self.enforces_l2_fee_tariff(),
+        }
+    }
+
     /// Pin the target and fee sample without signing or invoking a prover.
-    pub async fn prepare_l2_fee_quote(
+    pub async fn prepare_fee_quote(
         &self,
+        direction: crate::Direction,
         rollup_id: u64,
         request: L2FeeRequest,
     ) -> Result<PreparedL2FeeQuote, FeeQuoteError> {
@@ -305,9 +317,22 @@ where
             .shadow_fee_policy
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
-        if request.tx.chain_id() != Some(posting.ctx.l2_chain_id)
-            || !self.inner.rollups.contains_key(&rollup_id)
-        {
+        let chain_id = match direction {
+            crate::Direction::Inbound => {
+                let refund = posting
+                    .l1_refund_policy
+                    .as_ref()
+                    .ok_or(FeeQuoteError::Disabled)?;
+                if request.sender == refund.recipient {
+                    return Err(FeeQuoteError::Unsupported(
+                        "refund recipient cannot fund its own recovery",
+                    ));
+                }
+                posting.ctx.l1_chain_id
+            }
+            crate::Direction::Outbound => posting.ctx.l2_chain_id,
+        };
+        if request.tx.chain_id() != Some(chain_id) || !self.inner.rollups.contains_key(&rollup_id) {
             return Err(FeeQuoteError::Invalid("wrong chain or rollup"));
         }
         let (sample, endpoint) = self.inner.rollups[&rollup_id]
@@ -338,6 +363,7 @@ where
             .map_err(|e| unavailable("L1 escrow", e))?
             .etherBalance;
         Ok(PreparedL2FeeQuote {
+            direction,
             request,
             rollup_id,
             posting: quote,
@@ -350,14 +376,14 @@ where
     /// Simulate a single unsigned transaction and price its whole settlement. The
     /// caller owns cancellation and must retain its work permit until return.
     /// Only disposable caches are mutated; no queue or chain writes occur.
-    pub fn quote_l2_fee(
+    pub fn quote_signed_fee(
         &self,
         prepared: PreparedL2FeeQuote,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Value, FeeQuoteError> {
         let budget = Arc::new(Budget::new(cancelled));
         let snapshot = self.fee_snapshot(&prepared, &budget)?;
-        let result = self.quote_l2_fee_in_context(&prepared, &snapshot, &budget)?;
+        let result = self.quote_in_context(&prepared, &snapshot, &budget)?;
         self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
         Ok(result)
     }
@@ -375,7 +401,7 @@ where
             .headers
             .best_block_number()
             .map_err(|e| unavailable("L2 head", e))?;
-        if best > parent.number {
+        if prepared.direction == crate::Direction::Outbound && best > parent.number {
             let latest = source
                 .headers
                 .header_by_number(best)
@@ -469,6 +495,18 @@ where
         Ok(())
     }
 
+    fn quote_in_context(
+        &self,
+        prepared: &PreparedL2FeeQuote,
+        snapshot: &super::super::estimate::Snapshot,
+        budget: &Arc<Budget>,
+    ) -> Result<Value, FeeQuoteError> {
+        match prepared.direction {
+            crate::Direction::Inbound => self.quote_l1_fee_in_context(prepared, snapshot, budget),
+            crate::Direction::Outbound => self.quote_l2_fee_in_context(prepared, snapshot, budget),
+        }
+    }
+
     fn quote_l2_fee_in_context(
         &self,
         prepared: &PreparedL2FeeQuote,
@@ -482,6 +520,7 @@ where
             escrow,
             endpoint,
             expires_at,
+            ..
         } = prepared;
         let rollup_id = *rollup_id;
         let escrow = *escrow;
@@ -1045,7 +1084,7 @@ fn outbound_group(
     ))
 }
 
-struct Budget {
+pub(in crate::composer) struct Budget {
     cancelled: Arc<AtomicBool>,
     deadline: Instant,
     frames: AtomicUsize,
@@ -1076,6 +1115,19 @@ impl Budget {
             .map_err(|e| ExecutorErrorKind::Unavailable(e.to_string()).into())
     }
 }
+pub(in crate::composer) fn bounded_client(
+    client: Arc<LocalChainClient>,
+    budget: Arc<Budget>,
+) -> Arc<dyn ChainClient> {
+    Arc::new(BoundedClient { client, budget })
+}
+pub(in crate::composer) fn bounded_session(
+    inner: Box<dyn TargetExecutionSession + Send>,
+    budget: Arc<Budget>,
+) -> Box<dyn TargetExecutionSession + Send> {
+    Box::new(BoundedSession { inner, budget })
+}
+
 struct BoundedClient {
     client: Arc<LocalChainClient>,
     budget: Arc<Budget>,
@@ -1122,6 +1174,8 @@ impl TargetExecutionSession for BoundedSession {
 }
 
 mod compact;
+mod inbound;
+
 pub use compact::{CompactFeeRequest, PreparedCompactFeeQuote};
 
 #[cfg(test)]

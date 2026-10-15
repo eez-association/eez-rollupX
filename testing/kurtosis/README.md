@@ -468,6 +468,33 @@ network must remain available.
 
 ## Generate test traffic
 
+### Exercise L1 builder refunds
+
+Use an isolated enclave with the [L1 refund profile](../../docs/configurable-settlement-policy.md#l1-builder-refund-profile)
+and its matching cost policy in `settlement_env`. The dedicated recipient must
+be a plain EOA, different from the source and poster. Keep both chain IDs and
+the L2 beneficiary consistent with the profile. Build integration fixtures with
+`forge build --root contracts`, export the intended `KURTOSIS_ENCLAVE`, source
+`testing/kurtosis/ports.sh` and load the enclave's deployment bindings as above.
+
+`scripts/verify-l1-fees.mjs` requires those endpoints, `EEZ_REGISTRY_ADDRESS`,
+an independently funded public devnet fixture key in `EEZ_TEST_FEE_KEY`, and
+`EEZ_FEE_EVIDENCE_FILE`. It refuses public chain IDs. The script exercises both
+transaction types through the shared SDK, rejects an underpaid source, checks
+nested calls and official Safe 1.4.1 creation, then independently reads the native
+blob post, source and builder payment from the canonical L1 block. The actual
+recipient balance increase must cover measured post/blob/service costs and risk.
+It retains incremental evidence before broadcasting each source:
+
+```bash
+node testing/kurtosis/scripts/verify-l1-fees.mjs
+```
+
+This is a real builder test. The development mempool adapter does not preserve
+bundle ordering or implement refunds and cannot establish success. The script
+does not replace independent follower replay or qualify a public provider;
+run the replay procedure below and qualify each deployment's actual route.
+
 ### Exercise L2 settlement fees
 
 Use a disposable enclave configured with `EEZ_L2_FEE_SHADOW_POLICY` and
