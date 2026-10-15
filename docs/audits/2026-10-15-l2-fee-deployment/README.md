@@ -117,3 +117,46 @@ pre-upgrade checkpoint; it is not a fresh replay of all historical Chiado data.
 Quotes remain advisory, final native funding validation remains mandatory, and
 the existing maximum quote gas limit remains 5,000,000. No new durability,
 exchange-rate, treasury-liquidity or unrestricted-transaction guarantee is made.
+
+## Subsequent dashboard wallet-quantity fix
+
+The reported MetaMask bridge popup, `Expected a canonical hex quantity`, was
+reproduced against dashboard `4957a1c` with a numeric pending nonce and separately
+with zero-padded hex. Both attempts stopped before requesting a signature.
+MetaMask's [pending middleware](https://github.com/MetaMask/metamask-extension/blob/af2aef8d69f6031eb75c07473cf795ac26abdc58/app/scripts/lib/middleware/pending.ts)
+returns the pending-nonce callback result, whose implementation returns a number.
+The previous SDK applied canonical wire-format validation to that wallet response.
+
+SDK `331b27aca409d21dcd64ebd766e8a222796caf40` now compares bounded hex strings
+and non-negative safe integers numerically during wallet preflight. Invalid,
+missing and unsafe values still fail before submission; quoted transaction
+fields remain canonical and unchanged. Dashboard
+`80c51458d49384aa2c9a752465af4512b7539f95` includes this SDK and places the fee
+notice below the Bridge card.
+
+The authorized dashboard-only update deployed local image
+`sha256:75ca25f68491bd46bddd973eb0fa896e5f385355e73da71b5434c760a7ead886`.
+Validation: 11 SDK tests, two payment-wrapper tests, production build, and 16
+browser scenarios against both source and this exact image passed. The browser
+scenarios cover MetaMask/type-2 and Rabby/legacy, native/ERC-20 bridges, numeric
+and padded nonces, changed-nonce rejection, quote failure and the app fee ceiling.
+The screenshot's 0.01 native transfer also reached exactly one mocked wallet
+request after the fix. Layout checks passed at 1440, 390 and 320 pixels.
+
+Public desktop/mobile rendering passed, and the served JavaScript hash matched
+the tested image: `041e25cdb4d0d13ac09680f4ffcab5f70ca87f494c7ab0e2593c394c86b2168d`.
+The UI environment, node/signer container identities and start times were
+preserved. UI/signer were healthy; all three services had zero restarts.
+Rollback changes only the dashboard image to the previous recorded digest;
+there is no protocol, storage or configuration migration.
+
+The `artifacts/l2-fee-wallet-fix-20261015/` directory in the operator checkout
+contains local-only before/after logs, screenshots,
+source bundles and image/bundle verification. These browser tests use wallet
+fixtures, not installed extensions. No transaction was broadcast for this fix;
+Rust/Kurtosis/replay suites were not rerun for this JavaScript-only change.
+An attempted read-only type-2 quote using the earlier live nested canary returned
+`unsupported_intent`; it is not counted as successful live quote/settlement
+validation. The initial browser launch used an unset browser-cache path and
+failed before execution; selecting the existing browser installation fixed the
+harness setup. The normal Vite bundle-size warning remains.
