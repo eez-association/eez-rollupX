@@ -1,0 +1,66 @@
+--- a/scripts/chiado-fee-load.mjs
++++ b/scripts/chiado-fee-load.mjs
+@@ -24,7 +24,7 @@
+ const manager = process.env.EEZL2_ADDRESS;
+ const funder = privateKeyToAccount(process.env.SOURCE_PK);
+ const kinds = ['nested', 'safe_create', 'safe_nested', 'safe_transfer'];
+-const actorCount = 64, actorFunding = 14_000_000_000_000_000n;
++const actorCount = 256, actorFunding = 14_000_000_000_000_000n;
+ const maxSourceFee = 10_000_000_000_000_000n;
+ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+ const json = value => JSON.stringify(value, (_, v) => typeof v === 'bigint' ? v.toString() : v);
+@@ -305,7 +305,7 @@
+       record('observations', { at, queue, l1: { number: head.number, hash: head.hash, timestamp: head.timestamp },
+         safe: { number: safe.number, hash: safe.hash }, pendingTestSources: active.length });
+       if (Date.now() / 1000 - Number(BigInt(head.timestamp)) > 45) stopped ??= 'stale_l1';
+-      if (queue.queued + queue.inFlight > 64) stopped ??= 'backlog_bound';
++      if (queue.queued + queue.inFlight > 256) stopped ??= 'backlog_bound';
+       const correlations = new Map();
+       for (let offset = 0; offset < active.length; offset += 8) await Promise.all(active.slice(offset, offset + 8).map(async e => {
+         const r = await rpc(L2, 'eth_getTransactionReceipt', [e.hash]);
+@@ -353,15 +353,7 @@
+ }
+ async function run() {
+   assert(state.prepared, 'Prepare first'); assert(!existsSync(`${out}/run-start.json`), 'A measured run cannot be resumed or silently repeated');
+-  // The measured nested-Safe quote is about twice the simple-call price.
+-  // Give those actors a larger reserve from the already bridged test budget.
+-  let lastFunding;
+-  for (let i = 0; i < state.actors.length; i++) {
+-    const actor = state.actors[i];
+-    if (actor.kind !== 'safe_nested') continue;
+-    lastFunding = await ordinary(`nested-reserve-${i}`, L2, privateKeyToAccount(actor.key).address, '0x', 8_000_000_000_000_000n, 21000n);
+-    actor.funding = (actorFunding + 8_000_000_000_000_000n).toString(); checkpoint();
+-  }
++  const lastFunding = await receipt(L2, state.setup['expanded-fund']);
+   await until('fixture canonical settlement', async () => {
+     const r = await rpc(L2, 'eth_getTransactionReceipt', [lastFunding.transactionHash]);
+     const safe = await rpc(L2, 'eth_getBlockByNumber', ['safe', false]);
+@@ -379,8 +371,8 @@
+       await drain(); assert(!stopped, stopped);
+       progress('Canary canonically settled', { kind });
+     }
+-    const cursors = Object.fromEntries(kinds.map(k => [k, 0]));
+-    for (const [quoteRate, txRate, seconds] of [[10, .5, 60], [25, 1, 60], [50, 2, 60], [100, 4, 60], [25, 8, 30]]) {
++    const cursors = Object.fromEntries(kinds.map(k => [k, 1]));
++    for (const [quoteRate, txRate, seconds] of [[25, 8, 30]]) {
+       if (stopped) break;
+       const name = `q${quoteRate}-tx${txRate}`, begin = Date.now();
+       const stage = { name, quoteRate, txRate, durationSeconds: seconds, begin }; stages.push(stage);
+@@ -476,7 +468,7 @@
+     save('canonical-postings.json', postEvidence);
+     assert(paid >= cost, `Collected test tips below whole posting/blob cost: ${post.hash}`);
+   }
+-  const nested = entries.filter(e => e.kind === 'nested').length;
++  const nested = Number(state.initialNested) + entries.filter(e => e.kind === 'nested').length;
+   for (const [url, address, signature] of [[L2, state.fixtures.counter, 'counter() view returns (uint256)'],
+     [L1, state.fixtures.cap, 'counter() view returns (uint256)'], [L1, state.fixtures.cap, 'targetCounter() view returns (uint256)']]) {
+     const tag = url === L2 ? l2.number : l1.number;
+@@ -515,7 +507,7 @@
+   const q = await rpc(F2, 'eez_getCrossChainQueueStatus');
+   assert(['queued', 'inFlight', 'blocked', 'unknown'].every(k => q[k] === 0));
+   save('verification.json', { pass: true, at: Date.now(), sources: entries.length, postings: postEvidence.length,
+-    createdSafes: created.length, nestedRoundTrips: nested, semantic, independentL1: true, independentL2Replay: false,
++    createdSafes: created.length, nestedRoundTrips: entries.filter(e => e.kind === 'nested').length, initialNestedCounter: state.initialNested, semantic, independentL1: true, independentL2Replay: false,
+     postingAndBlobCost: postEvidence.reduce((sum, p) => sum + BigInt(p.postingAndBlobCost), 0n),
+     collectedTestTips: sourceEvidence.reduce((sum, e) => sum + BigInt(e.tip), 0n), l1Snapshot: l1.hash, l2Snapshot: l2.hash });
+   progress('Canonical sources, independent L1 settlement, semantics and exact fee accounting verified', { sources: entries.length, postings: postEvidence.length, createdSafes: created.length });

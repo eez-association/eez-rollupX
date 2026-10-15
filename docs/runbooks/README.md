@@ -10,6 +10,7 @@ reconstructing a process from scripts, old logs, or an earlier conversation.
 | Sync and run a Composer for an existing Chiado L2 | [Existing-rollup Composer](chiado-existing-rollup.md) | Source reviewed; live replay/restore rehearsal pending |
 | Deploy, start, check, and stop a Chiado rollup | [Chiado deployment](chiado-deployment.md) | Source reviewed; static checks; full deployment rehearsal pending |
 | Validate a delayed-cutoff canary with sustained mixed traffic | [Mixed-load validation](chiado-mixed-validation.md) | Complete live workload/replay with funding intervention; later safeguards checked offline |
+| Measure compact fee quotes and nested/Safe settlement | [Chiado fee load](chiado-fee-load.md) | Live candidate ramp and burst completed; expanded independent verification passed after a retained availability-wait correction |
 | Start and check a Composer on Ethereum mainnet, Hoodi or Sepolia | [Ethereum node](ethereum-node.md) | Static Compose checks, unit tests and builder acceptance probes; not yet run against a synced Ethereum node |
 | Trace Composer gas for selected source hashes or an address | [Composer gas traces](composer-gas-tracing.md) | Hash-mode Chiado evidence; address-mode local coverage |
 | Run L2 Blockscout, Chiado Blobscan, or both | [Optional explorers](explorers.md) | Compose/helper and isolated Blobscan source checks; full stack rehearsal pending; operated outside CI |
