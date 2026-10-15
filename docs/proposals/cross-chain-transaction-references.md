@@ -2,7 +2,8 @@
 
 Status: implementation requested by the owner on 2026-10-15 for
 [issue 90](https://github.com/eez-association/eez-rollupX/issues/90).
-Implemented and locally validated; not deployed. See the
+Implemented, validated with native process tests and Kurtosis, and deployed to
+the existing Chiado L2 on 2026-10-15. See the
 [validation record](../audits/2026-10-15-transaction-references/README.md).
 Baseline: fork `227b24d90a059a5af4a81b7a9fe29104bebd385e`, protocol
 `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. This is an additive observation API;

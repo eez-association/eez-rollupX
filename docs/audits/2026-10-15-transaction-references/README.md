@@ -120,7 +120,7 @@ regressions now have passing evidence**, against the same frozen runtime.
 There were no runtime-code changes or unexplained retry-only passes between
 these runs. `results.json` preserves the per-run outcomes and executable hashes.
 
-## Limits and operations
+## Initial validation limits and operations
 
 No deployment, public transaction, contract broadcast to Chiado, wallet funding,
 or operator service restart was performed. Native tests use isolated local
@@ -129,3 +129,93 @@ independent follower replay. No new Kurtosis topology/PBS run, full protocol
 staged workload, Falcon signature workload, or complete CI release matrix ran
 for this observational RPC change. The proposed fee API is not implemented by
 these changes; the existing quote RPC and SDK interface remain in use.
+
+## Follow-up Docker, Kurtosis and Chiado deployment
+
+The owner subsequently requested deployment and Kurtosis work in parallel.
+Deployment preparation ran alongside validation; the live handover started only
+after the targeted Kurtosis checks and independent replay passed. Runtime source
+was the clean commit `712f713f3601d9ecbf678e69db67eb656cad0fb1`, with the same
+protocol pin. [deployment.json](deployment.json) records image IDs, executable
+hashes, measured fees, public checks and evidence digests. These are locally
+built development images, not artifacts promoted through the full CI matrix.
+
+The repository's `Dockerfile`, `Dockerfile.signer` and
+`testing/kurtosis/Dockerfile.deploy` produced release images with locked
+dependencies. The deploy image used the candidate node's genesis tools.
+Kurtosis and Chiado ran the same node/signer image IDs; the extracted Composer,
+follower and signer hashes were checked again in the running Chiado containers.
+The existing UI image was retained. No runtime source changes followed the build.
+
+The isolated enclave `eez-tx-references-20261015` used the existing measured-fee
+profile: private chains 7331/696990, native blobs, real builder/relay/validator
+inclusion, enforced fees, a 1:1 conversion and a 20% allowance. Startup used
+`testing/kurtosis/start.sh` with the selected images already built and all four
+`EEZ_SKIP_*_BUILD` flags set. Both enclave variables were exported in every
+operating shell. Initial readiness waited for relay proposer duties; the first
+canonical settlement arrived at L1 block 34. No workload assertion failed or
+needed a rerun.
+
+Executed checks:
+
+- `verify-eezl2-deployment.sh` verified the proxy, implementation, genesis and
+  deployment bindings.
+- `verify-l2-fees.mjs` used the existing UI quote route, rejected an underpaid
+  source before ownership/execution, and settled two independently funded nested
+  sources in the same native block. Receipt fees, beneficiary and target states
+  passed their assertions.
+- `verify-l2-bridge-fees.mjs` funded escrow through an inbound deposit, then
+  verified type-2 and legacy withdrawals. Quoted/actual L1 gas was
+  492,835/492,823 and 182,957/182,957 respectively. Tip-to-posting/blob-cost ratios
+  were approximately 1.2000 and 1.2002, within the existing 2% tolerance above the
+  20% allowance.
+- A local read-only reference verifier compared five source groups and nine
+  physical L2 transactions against canonical block positions and successful
+  receipts. Both fronts agreed, different users had disjoint L2 references, and
+  unknown-source lookup remained null. It identified outbound load/source pairs
+  and the isolated inbound delivery independently of the new reference lists.
+- `verify-semantic-settlement-blob.sh` authenticated all four posting blobs and
+  bound their semantic tables and outbound transaction bytes to settlement.
+- The existing `kurtosis_policy_replay::` process test ran once, with one intended
+  test selected, using the frozen candidate follower executable. It independently
+  replayed from L1 and checked 48 L2 blocks and four signed-source receipts.
+  Its harness identity and local build override are described above; no runtime
+  binary was rebuilt by this invocation.
+
+Service specifications, logs, genesis, blob evidence and replay datadirs were
+retained under the local-only artifact root in `deployment.json`. The completed
+enclave was stopped with its state retained. The pre-existing debug enclave was
+not modified. This targeted run does not cover the full protocol staged/stress
+suite or the complete CI release matrix.
+
+The authorized Chiado handover followed the
+[existing-rollup procedure](../../runbooks/chiado-existing-rollup.md) and
+[restart boundaries](../../runbooks/chiado-deployment.md#restart-and-stop).
+Public HTTP/WebSocket transaction routes were paused; queued, in-flight,
+blocked and unknown counts were all zero before stopping. Node and signer
+exited cleanly. Complete stopped databases were preserved and copied into
+separate candidate paths. Compose comparison allowed only the two images and
+these database paths to change; environment, command arguments, contracts,
+genesis, deployment bindings and fee policy stayed unchanged.
+
+On chains 10200/906969, both transaction types still returned quotes for the
+recorded Safe limits 6,050,247 and 6,037,754, as well as 16,777,216; 16,777,217
+was rejected with the specified gas-bound error. These were unsigned simulations,
+not Falcon signature execution. One already-funded, wallet-locked legacy canary
+then passed underpayment rejection, canonical settlement, target-state and
+receipt-cost checks. Its L2 gas used was 99,149 and both quoted and actual L1 gas
+were 173,695. Posting plus blob cost was 304,767,001,215,865 wei-equivalent; the
+20% tariff was 365,720,401,459,038 and the received tip was
+365,720,401,548,550. No wallet funding or contract deployment was needed.
+
+The canary's load/source references and posting hash matched canonical receipts.
+After restoring the gateway, both public Composer fronts returned those same
+references, and both public chain RPCs returned the expected chain IDs. The
+existing UI, genesis and bindings were checked unchanged. The older stopped
+databases remain the recovery copies; no rollback rehearsal or fresh full
+Chiado history replay was performed. Pending ownership and reference history
+remain in memory, as specified; the backup does not make them durable.
+
+The compact fee API proposal remains a draft. This deployment does not introduce
+`eez_quoteFee` or `eez_debugQuoteFee`; the existing quote endpoint and SDK remain
+the integration contract.
