@@ -19,6 +19,7 @@ mod native_system;
 mod partial_consumption;
 mod queue_liveness;
 mod queue_reorg;
+mod safe_fee_quotes;
 mod settlement_policy;
 mod settlement_policy_cost;
 mod settlement_policy_gas;

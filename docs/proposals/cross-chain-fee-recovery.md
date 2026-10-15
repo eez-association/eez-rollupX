@@ -359,6 +359,12 @@ network tests, actual public-network settlement, independent replay and mocked
 wallet tests. L1-origin fee collection and durable financial reservations remain
 outside this release.
 
+The follow-up [Safe fee review](../audits/2026-10-14-safe-fee-recovery/README.md)
+checks actual Safe 1.4.1 factory and nested initializer execution. Deployment on
+L1 from L2 belongs to the enforced outbound path; deployment entirely on L2
+retains ordinary gas rules and has no enforced posting/blob contribution. This
+scope boundary must not be described as universal L2 fee recovery.
+
 ### Wallet transport and accepted-work behavior
 
 For the proposed integrated wallet flow, the wallet's source-chain submission

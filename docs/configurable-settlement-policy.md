@@ -1146,6 +1146,14 @@ retain the quote engine's stable `data.code`. Rejection neither consumes a nonce
 nor acquires queue ownership. Already-owned identical transactions remain
 idempotent. Ordinary L2 and L1-origin admission retain their existing rules.
 
+The destination matters for factory deployments. Creating a Safe on L1 through
+its L2 cross-chain proxy is an outbound source, including the factory's CREATE2
+and initializer calls. Creating the Safe entirely on L2 is ordinary traffic and
+has no minimum settlement contribution under this flag. Application-supplied
+tips do not enforce that contribution against other clients. See the
+[Safe fee validation](audits/2026-10-14-safe-fee-recovery/README.md) and the
+`safe_fee_quotes::` process regressions for this distinction.
+
 Composition checks the growing outbound prefix against the same whole-post
 projection using actual native receipt fees. A changed
 state, reduced charged gas or insufficient effective tip defers the source and
