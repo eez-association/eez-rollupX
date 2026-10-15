@@ -274,3 +274,19 @@ No new Docker image, Kurtosis run or live deployment was performed for this
 cleanup. The earlier deployment evidence above remains valid only for its
 recorded runtime/UI revisions. The complete CI/staged/stress matrix, actual
 wallet extensions and actual Falcon signature workloads remain unverified here.
+
+### CI secret-scanner correction
+
+The first draft-PR lint job stopped before Rust checks with eight scanner
+findings. Reproducing its pinned Gitleaks 8.30.1 command over fetched history and
+PR merge diffs found four nonsecret values twice: the public fee-policy variable
+name, a verified Git commit ID and two SHA-256 digests verified against retained
+RPC evidence. [ci-scan.json](ci-scan.json) records the failed job, reproduction,
+classification and evidence hashes.
+
+The correction adds exact-value AND exact-path exceptions only. The same history
+scan then found zero issues. A separate synthetic control introduced new fake
+credentials into all three affected paths; all three remained detectable while
+the known nonsecret values were ignored. Default rules, full-history scanning and
+merge-diff coverage remain enabled. No runtime code changed; this scanner check
+does not stand in for the remaining CI lanes or a deployment.
