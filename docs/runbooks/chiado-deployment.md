@@ -640,6 +640,15 @@ records the tested images and completed handover. During startup, a
 retain maintenance routing until a usable quote and canonical settlement checks
 pass. It does not require another restart or database copy.
 
+The source quote/admission gas-cap correction raises the application profile
+from 5,000,000 to the active EIP-7825 limit of 16,777,216. Upgrade Composer and
+all copied SDKs, including the dashboard, to admit the full range. This changes
+no fee formula, signing RPC, storage, contracts or genesis. Old clients/servers
+still reject limits above 5,000,000. Drain accepted work before rollback; preserve
+stopped databases as for other binary upgrades. The
+[gas-cap deployment record](../audits/2026-10-15-l2-fee-gas-cap/README.md)
+distinguishes the expedited handover from subsequent regression checks.
+
 For the legacy/wallet compatibility increment, upgrade Composer before the
 dashboard. The dashboard uses `eez_quoteL2ToL1Fee` on the L2 Composer front;
 the existing `/eez/fees/l2-to-l1` HTTP route remains supported. Older Composers

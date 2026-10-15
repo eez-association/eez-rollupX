@@ -359,7 +359,7 @@ network tests, actual public-network settlement, independent replay and mocked
 wallet tests. L1-origin fee collection and durable financial reservations remain
 outside this release.
 
-### Accepted correction: measured L1 settlement pricing
+### Accepted correction: full source transaction gas range
 
 Gas-profile correction authorized on 2026-10-15: admit source limits up to the
 active EIP-7825 maximum, 16,777,216, in quotes, signed tariff admission and the
@@ -370,6 +370,8 @@ protocol, storage or genesis rules. Older servers/SDK copies still reject these
 higher limits; upgrade every client copy and Composer. Rollback requires draining
 accepted work and restoring the older client limit. The user authorized this
 small correction's expedited deployment before the broader post-deploy tests.
+
+### Accepted correction: measured L1 settlement pricing
 
 Authorized on 2026-10-15 after the bridge fee reconciliation: replace the generic
 admission gas reserve in L2 quotes and tariff admission with isolated execution
