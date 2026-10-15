@@ -74,17 +74,17 @@ await until("inbound escrow settlement", async () => (await rpc(outbound, "eez_g
 const evidence = { inboundHash, sources: [] };
 for (const type of ["0x2", "0x0"]) {
   const value = 10n ** 15n;
-  const intent = { type, chainId: hex(696990), from: user, to: bridgeL2,
+  const transaction = { type, chainId: hex(696990), from: user, to: bridgeL2,
     nonce: await rpc(l2, "eth_getTransactionCount", [user, "latest"]), value: hex(value),
     data: cast("calldata", "bridgeEther(uint64,address)", "0", user) };
   const beforeL1 = BigInt(await rpc(l1, "eth_getBalance", [user, "latest"]));
   const beforeL2 = BigInt(await rpc(l2, "eth_getBalance", [user, "latest"]));
   const maxTotalFee = 10n ** 17n;
   const quote = await until("bridge quote", async () => {
-    const response = await request(outbound, "eez_debugQuoteFee", [intent]);
+    const response = await request(outbound, "eez_debugQuoteFee", [transaction]);
     if (["stale_context", "quote_unavailable", "quote_busy"].includes(response.error?.data?.code)) return null;
     assert(!response.error, JSON.stringify(response.error));
-    feeQuoteTransaction({quote:response.result,intent,type,chainId:intent.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
+    feeQuoteTransaction({quote:response.result,transaction,type,chainId:transaction.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
     return response.result;
   });
   const detail = quote.diagnostics.options[0];
@@ -111,7 +111,7 @@ for (const type of ["0x2", "0x0"]) {
     }
     return rpc(outbound, method, params);
   } };
-  const hash = await sendFeeQuotedTransaction({wallet,quote,intent,type,chainId:intent.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
+  const hash = await sendFeeQuotedTransaction({wallet,quote,transaction,type,chainId:transaction.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
   assert.equal(signatures, 1);
   await until("canonical bridge settlement", async () => (await rpc(outbound, "eez_getCrossChainTransaction", [hash]))?.ownership?.canonical);
   const paid = await receipt(l2, hash);

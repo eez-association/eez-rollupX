@@ -19,7 +19,7 @@ const fixtureKey = env("EEZ_TEST_FEE_KEY");
 const output = env("EEZ_FEE_EVIDENCE_FILE");
 const maxTotalFee = 10n ** 17n;
 const quoteRpc = process.env.EEZ_TEST_FEE_RPC_URL ?? front;
-const quoteArgs = (quote, intent) => ({ quote, intent, type: intent.type, chainId: intent.chainId, maxTotalFee, keccak256: text => cast("keccak", text) });
+const quoteArgs = (quote, transaction) => ({ quote, transaction, type: transaction.type, chainId: transaction.chainId, maxTotalFee, keccak256: text => cast("keccak", text) });
 let id = 0;
 const hex = value => `0x${BigInt(value).toString(16)}`;
 function cast(...args) {
@@ -82,12 +82,12 @@ async function deploy(url, artifact, constructor) {
 async function readUint(url, to, signature) {
   return BigInt(await rpc(url, "eth_call", [{ to, data: cast("calldata", signature) }, "latest"]));
 }
-async function getQuote(intent) {
+async function getQuote(transaction) {
   return until("available fee quote", async () => {
-    const response = await request(quoteRpc, "eez_debugQuoteFee", [intent]);
+    const response = await request(quoteRpc, "eez_debugQuoteFee", [transaction]);
     if (["stale_context", "quote_unavailable", "quote_busy"].includes(response.error?.data?.code)) return null;
     assert(!response.error, JSON.stringify(response.error));
-    feeQuoteTransaction(quoteArgs(response.result, intent));
+    feeQuoteTransaction(quoteArgs(response.result, transaction));
     return response.result;
   }, 60);
 }
@@ -116,15 +116,15 @@ for (let index = 0; index < 2; index++) {
   await ordinary(l2, fixtureKey, manager, cast("calldata", "createCrossChainProxy(address,uint64)", target, "0"));
   const inner = await deploy(l2, "NestedSetterWrapper.sol/NestedSetterInner.json", cast("abi-encode", "f(address)", proxy));
   const outer = await deploy(l2, "NestedSetterWrapper.sol/NestedSetterOuter.json", cast("abi-encode", "f(address)", inner));
-  const intent = { type: "0x2", chainId: hex(696990), from, to: outer, nonce: "0x0", value: "0x0", data: cast("calldata", "setViaInner(uint256)", String(123 + index)) };
-  assert.equal(BigInt(intent.chainId), 696990n);
-  fixtures.push({ key, target, proxy, inner, intent, expected: BigInt(123 + index) });
+  const transaction = { type: "0x2", chainId: hex(696990), from, to: outer, nonce: "0x0", value: "0x0", data: cast("calldata", "setViaInner(uint256)", String(123 + index)) };
+  assert.equal(BigInt(transaction.chainId), 696990n);
+  fixtures.push({ key, target, proxy, inner, transaction, expected: BigInt(123 + index) });
 }
 console.log("Two independently funded nested fixtures deployed");
 
 const first = fixtures[0];
-const initialQuote = await getQuote(first.intent);
-const badRaw = sign({ ...feeQuoteTransaction(quoteArgs(initialQuote, first.intent)), maxPriorityFeePerGas: "0x0" }, first.key);
+const initialQuote = await getQuote(first.transaction);
+const badRaw = sign({ ...feeQuoteTransaction(quoteArgs(initialQuote, first.transaction)), maxPriorityFeePerGas: "0x0" }, first.key);
 const rejected = await until("underpayment rejection", async () => {
   const result = await request(front, "eth_sendRawTransaction", [badRaw]);
   if (["stale_context", "quote_unavailable", "quote_busy"].includes(result.error?.data?.code)) return null;
@@ -132,7 +132,7 @@ const rejected = await until("underpayment rejection", async () => {
   return result;
 }, 30);
 assert.equal(await rpc(front, "eez_getCrossChainTransaction", [cast("keccak", badRaw)]), null);
-assert.equal(BigInt(await rpc(l2, "eth_getTransactionCount", [first.intent.from, "latest"])), 0n);
+assert.equal(BigInt(await rpc(l2, "eth_getTransactionCount", [first.transaction.from, "latest"])), 0n);
 assert.equal(await readUint(l1, first.target, "value()"), 0n);
 console.log("Underpaid signed source rejected without queue ownership or execution");
 
@@ -140,14 +140,14 @@ const evidence = { rejected, sources: [], postings: [] };
 // Quote/send independent nonces promptly. Canonical receipt evidence below
 // records whether scheduling batched them; this script does not assume it did.
 for (const fixture of fixtures) {
-  const quote = await getQuote(fixture.intent);
+  const quote = await getQuote(fixture.transaction);
   let signatures = 0;
   const wallet = { request: async ({ method, params = [] }) => {
-    if (method === "eth_accounts") return [fixture.intent.from];
+    if (method === "eth_accounts") return [fixture.transaction.from];
     if (method === "eth_sendTransaction") { signatures++; return submitRaw(sign(params[0], fixture.key)); }
     return rpc(front, method, params);
   } };
-  const hash = await sendFeeQuotedTransaction({ wallet, ...quoteArgs(quote, fixture.intent) });
+  const hash = await sendFeeQuotedTransaction({ wallet, ...quoteArgs(quote, fixture.transaction) });
   assert.equal(signatures, 1);
   evidence.sources.push({ hash, quote, target: fixture.target, proxy: fixture.proxy, inner: fixture.inner, expected: String(fixture.expected) });
 }

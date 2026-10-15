@@ -41,7 +41,7 @@ const MAX_DA_BYTES: usize = 2 * 1024 * 1024;
 /// strings: backend/provider errors stay in local diagnostics.
 #[derive(Debug, thiserror::Error)]
 pub enum FeeQuoteError {
-    #[error("invalid intent: {0}")]
+    #[error("invalid transaction: {0}")]
     Invalid(&'static str),
     #[error("unsupported quote: {0}")]
     Unsupported(&'static str),
@@ -60,8 +60,8 @@ pub enum FeeQuoteError {
 impl FeeQuoteError {
     pub const fn code(&self) -> &'static str {
         match self {
-            Self::Invalid(_) => "invalid_intent",
-            Self::Unsupported(_) => "unsupported_intent",
+            Self::Invalid(_) => "invalid_transaction",
+            Self::Unsupported(_) => "unsupported_transaction",
             Self::Unavailable(_) => "quote_unavailable",
             Self::Limit(_) => "quote_limit",
             Self::Stale => "stale_context",
@@ -76,7 +76,7 @@ fn unavailable(context: &'static str, error: impl std::fmt::Display) -> FeeQuote
     FeeQuoteError::Unavailable(context)
 }
 
-/// Explicit legacy or type-2 call intent. No fee fields are accepted: the service finds
+/// Explicit legacy or type-2 call request. No fee fields are accepted: the service finds
 /// and replays them. The gas limit is fixed throughout this search.
 #[derive(Clone, Debug)]
 pub struct L2FeeRequest {
@@ -124,7 +124,7 @@ impl L2FeeRequest {
         Ok(request)
     }
 
-    /// Parse the strict intent schema. All numbers are canonical JSON-RPC
+    /// Parse the strict transaction schema. All numbers are canonical JSON-RPC
     /// hex quantities, avoiding JavaScript precision loss and ambiguous defaults.
     pub fn parse(value: &Value) -> Result<Self, FeeQuoteError> {
         const FIELDS: &[&str] = &[
@@ -135,7 +135,7 @@ impl L2FeeRequest {
             .ok_or(FeeQuoteError::Invalid("expected object"))?;
         if fields.len() != FIELDS.len() || fields.keys().any(|k| !FIELDS.contains(&k.as_str())) {
             return Err(FeeQuoteError::Invalid(
-                "all eight intent fields are required; unknown fields are rejected",
+                "all eight transaction fields are required; unknown fields are rejected",
             ));
         }
         let quantity = |key: &str| -> Result<U256, FeeQuoteError> {
@@ -347,7 +347,7 @@ where
         })
     }
 
-    /// Simulate a single unsigned intent and price its whole settlement. The
+    /// Simulate a single unsigned transaction and price its whole settlement. The
     /// caller owns cancellation and must retain its work permit until return.
     /// Only disposable caches are mutated; no queue or chain writes occur.
     pub fn quote_l2_fee(
@@ -461,21 +461,21 @@ where
         }
         let document = |tip, cap, estimate: Value| {
             let transaction = request.fields(tip, cap);
-            let mut intent = transaction.clone();
-            intent
+            let mut request_fields = transaction.clone();
+            request_fields
                 .as_object_mut()
                 .expect("constructed object")
                 .remove("maxFeePerGas");
-            intent
+            request_fields
                 .as_object_mut()
                 .expect("constructed object")
                 .remove("maxPriorityFeePerGas");
-            intent
+            request_fields
                 .as_object_mut()
                 .expect("constructed object")
                 .remove("gasPrice");
             json!({
-                "version":1, "mode":"advisory", "intent":intent, "intentHash":keccak256(intent.to_string()), "transaction":transaction,
+                "version":1, "mode":"advisory", "request":request_fields, "requestHash":keccak256(request_fields.to_string()), "transaction":transaction,
                 "issuedAt":issued, "expiresAt":expiry, "policy":policy.details(),
                 "context":{"rollupId":rollup_id, "l1ChainId":runtime.ctx.l1_chain_id, "l2ChainId":runtime.ctx.l2_chain_id,
                     "l1ParentHash":posting.quote.sample.hash, "l1ParentNumber":posting.quote.sample.number,

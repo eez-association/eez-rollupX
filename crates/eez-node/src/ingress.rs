@@ -605,7 +605,7 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
             _ => error(
                 id,
                 -32602,
-                "expected transaction intent and optional quote options",
+                "expected transaction and optional quote options",
             ),
         }
     } else if method.starts_with("eez_") {

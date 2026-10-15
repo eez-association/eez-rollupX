@@ -101,10 +101,10 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
         .await
         .unwrap();
     let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(123) }.abi_encode());
-    let intent = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
+    let transaction = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
         "nonce":format!("{nonce:#x}"),"gas":format!("{source_gas_limit:#x}"),"value":"0x0","data":data});
     let client = reqwest::Client::new();
-    let mut wrong = intent.clone();
+    let mut wrong = transaction.clone();
     wrong["chainId"] = json!("0xdead");
     let response = quote_rpc(&client, &world.l2_xchain(), "eez_quoteFee", json!([wrong]))
         .await
@@ -121,9 +121,14 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
     .unwrap();
     assert_eq!(response["error"]["data"]["code"], "quote_limit");
     for rpc_url in [world.l1_xchain(), world.l2_xchain(), world.l2_rpc()] {
-        let response = quote_rpc(&client, &rpc_url, "eez_quoteL2ToL1Fee", json!([intent]))
-            .await
-            .unwrap();
+        let response = quote_rpc(
+            &client,
+            &rpc_url,
+            "eez_quoteL2ToL1Fee",
+            json!([transaction]),
+        )
+        .await
+        .unwrap();
         assert_eq!(
             response["error"]["code"], -32601,
             "removed API must not remain active: {response}"
@@ -134,7 +139,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
     let last_error = std::sync::Mutex::new(Value::Null);
     let quote = wait_for(Duration::from_secs(30), || async {
         if compact {
-            let mut input = intent.clone();
+            let mut input = transaction.clone();
             for key in ["gas", "nonce", "chainId", "type"] {
                 input.as_object_mut().unwrap().remove(key);
             }
@@ -154,6 +159,11 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
                 "debug quote failed: {detailed}"
             );
             let detailed = &detailed["result"];
+            anyhow::ensure!(
+                detailed.get("recoveryMode").is_none()
+                    && detailed["diagnostics"]["recoveryMode"] == "enforced_tariff",
+                "tariff mode must be diagnostic only: {detailed}"
+            );
             let options = detailed["options"].as_array().unwrap();
             anyhow::ensure!(options.len() == 2, "missing fee variants: {detailed}");
             for (i, ty) in ["0x0", "0x2"].iter().enumerate() {
@@ -164,19 +174,23 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
                     "failed variant: {option}"
                 );
                 anyhow::ensure!(
-                    option["intentHash"] == diagnostic["intentHash"],
+                    option["requestHash"] == diagnostic["requestHash"],
                     "different binding"
+                );
+                anyhow::ensure!(
+                    option.get("intentHash").is_none() && diagnostic.get("intent").is_none(),
+                    "retired transaction terminology"
                 );
                 anyhow::ensure!(
                     option["gas"] == diagnostic["transaction"]["gas"],
                     "different gas"
                 );
                 anyhow::ensure!(
-                    option["intentHash"]
+                    option["requestHash"]
                         == json!(alloy_primitives::keccak256(
-                            diagnostic["intent"].to_string()
+                            diagnostic["request"].to_string()
                         )),
-                    "invalid intent binding"
+                    "invalid transaction binding"
                 );
                 anyhow::ensure!(
                     diagnostic["context"] == detailed["diagnostics"]["options"][0]["context"],
@@ -193,11 +207,18 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
             );
             let simple = &simple["result"];
             anyhow::ensure!(
-                simple.get("diagnostics").is_none() && simple.get("context").is_none(),
+                simple
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+                    == ["chainId", "expiresAt", "nonce", "options", "version"],
                 "verbose compact quote: {simple}"
             );
             anyhow::ensure!(
-                simple["chainId"] == intent["chainId"] && simple["nonce"] == intent["nonce"],
+                simple["chainId"] == transaction["chainId"]
+                    && simple["nonce"] == transaction["nonce"],
                 "incorrect defaults"
             );
             // Calls can legitimately select different heads. Compare only when
@@ -213,7 +234,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
             &client,
             &world.l2_xchain(),
             "eez_debugQuoteFee",
-            json!([intent]),
+            json!([transaction]),
         )
         .await?;
         if quote_retry(&value) {
@@ -224,6 +245,16 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
             value.get("result").is_some(),
             "quote failed: {value}{}",
             world.settlement_diagnostics()
+        );
+        anyhow::ensure!(
+            value["result"].get("recoveryMode").is_none()
+                && value["result"]["diagnostics"]["recoveryMode"]
+                    == if enforced {
+                        "enforced_tariff"
+                    } else {
+                        "advisory"
+                    },
+            "incorrect diagnostic tariff mode: {value}"
         );
         let diagnostic = &value["result"]["diagnostics"]["options"][0];
         anyhow::ensure!(diagnostic.get("error").is_none(), "failed variant: {value}");
@@ -617,14 +648,14 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     .unwrap();
     let client = reqwest::Client::new();
     let signer: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
-    let intent = json!({"from":signer.address(),"to":world.value_l2,
+    let transaction = json!({"from":signer.address(),"to":world.value_l2,
         "data":Bytes::from(IValue::setValueCall {v:U256::from(999)}.abi_encode())});
     for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
-        let response = quote_rpc(&client, &world.l1_xchain(), method, json!([intent]))
+        let response = quote_rpc(&client, &world.l1_xchain(), method, json!([transaction]))
             .await
             .unwrap();
         assert_eq!(response["error"]["data"]["code"], "unsupported_direction");
-        let response = quote_rpc(&client, &world.l2_rpc(), method, json!([intent]))
+        let response = quote_rpc(&client, &world.l2_rpc(), method, json!([transaction]))
             .await
             .unwrap();
         assert_eq!(response["error"]["code"], -32601);
@@ -647,8 +678,10 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         }
     };
     let before = l2_value(&world.l2_rpc(), world.value_l2).await.unwrap();
-    let quote = call(json!([intent])).await;
+    let quote = call(json!([transaction])).await;
     assert!(quote.get("result").is_some(), "{quote}");
+    assert!(quote["result"].get("recoveryMode").is_none());
+    assert_eq!(quote["result"]["diagnostics"]["recoveryMode"], "advisory");
     for diagnostic in quote["result"]["diagnostics"]["options"]
         .as_array()
         .unwrap()
@@ -661,17 +694,17 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         before
     );
     for (field, value, code) in [
-        ("chainId", json!("0xdead"), "invalid_intent"),
-        ("nonce", json!("0xff"), "invalid_intent"),
-        ("gas", json!("0x1000001"), "invalid_intent"),
-        ("gasPrice", json!("0x1"), "invalid_intent"),
+        ("chainId", json!("0xdead"), "invalid_transaction"),
+        ("nonce", json!("0xff"), "invalid_transaction"),
+        ("gas", json!("0x1000001"), "invalid_transaction"),
+        ("gasPrice", json!("0x1"), "invalid_transaction"),
     ] {
-        let mut bad = intent.clone();
+        let mut bad = transaction.clone();
         bad[field] = value;
         let response = call(json!([bad])).await;
         assert_eq!(response["error"]["data"]["code"], code, "{response}");
     }
-    let mut poor = intent.clone();
+    let mut poor = transaction.clone();
     poor["from"] = json!(Address::repeat_byte(0x19));
     poor["value"] = json!("0x1");
     let response = call(json!([poor])).await;
@@ -679,16 +712,19 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         .as_array()
         .expect("per-variant funding error")
     {
-        assert_eq!(option["error"]["code"], "invalid_intent", "{response}");
+        assert_eq!(option["error"]["code"], "invalid_transaction", "{response}");
     }
-    let mut short = intent.clone();
+    let mut short = transaction.clone();
     short["gas"] = json!("0x5208");
     let response = call(json!([short])).await;
     for option in response["result"]["options"]
         .as_array()
         .expect("per-variant execution error")
     {
-        assert_eq!(option["error"]["code"], "unsupported_intent", "{response}");
+        assert_eq!(
+            option["error"]["code"], "unsupported_transaction",
+            "{response}"
+        );
     }
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json");
@@ -736,7 +772,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         .expect("per-variant fee-dependent rejection")
     {
         assert_eq!(
-            option["error"]["code"], "unsupported_intent",
+            option["error"]["code"], "unsupported_transaction",
             "must replay final price: {response}"
         );
     }

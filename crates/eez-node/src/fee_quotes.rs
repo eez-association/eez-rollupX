@@ -95,18 +95,18 @@ impl FeeQuotes {
 
     pub(crate) async fn compact(
         &self,
-        intent: &Value,
+        transaction: &Value,
         options: &Value,
         debug: bool,
     ) -> (StatusCode, Value) {
-        if intent.to_string().len() + options.to_string().len() > MAX_BODY {
+        if transaction.to_string().len() + options.to_string().len() > MAX_BODY {
             return error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "quote_limit",
                 "quote exceeds 32 KiB",
             );
         }
-        match CompactFeeRequest::parse(intent, options) {
+        match CompactFeeRequest::parse(transaction, options) {
             Ok(request) => self.run(Request::Compact(request, debug)).await,
             Err(error) => failure(error),
         }
@@ -193,7 +193,7 @@ mod tests {
     use super::*;
     use alloy_primitives::Address;
 
-    fn intent() -> Value {
+    fn transaction() -> Value {
         json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(1),"to":Address::repeat_byte(2),"gas":"0x186a0","nonce":"0x0","value":"0x0","data":"0x"})
     }
 
@@ -238,7 +238,7 @@ mod tests {
         .unwrap();
         let client = reqwest::Client::new();
         let url = format!("http://127.0.0.1:{port}");
-        let call = json!({"jsonrpc":"2.0","id":-2,"method":METHOD,"params":[intent()]});
+        let call = json!({"jsonrpc":"2.0","id":-2,"method":METHOD,"params":[transaction()]});
         let response: Value = client
             .post(&url)
             .json(&call)
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(batch[0]["id"], -2);
         assert_eq!(batch[0]["result"], expected);
         assert_eq!(batch[1]["id"], "info");
-        let mut oversized = intent();
+        let mut oversized = transaction();
         oversized["data"] = json!("x".repeat(MAX_BODY));
         let response: Value = client
             .post(&url)
@@ -303,7 +303,7 @@ mod tests {
         for params in [
             Value::Null,
             json!([]),
-            json!([intent(), intent()]),
+            json!([transaction(), transaction()]),
             json!([{}]),
         ] {
             let mut request = call.clone();
@@ -321,8 +321,8 @@ mod tests {
         }
         for method in [METHOD, DEBUG_METHOD] {
             for params in [
-                json!([{"from":intent()["from"],"to":intent()["to"]}]),
-                json!([intent(), {"transactionTypes":["0x2"]}]),
+                json!([{"from":transaction()["from"],"to":transaction()["to"]}]),
+                json!([transaction(), {"transactionTypes":["0x2"]}]),
             ] {
                 let response: Value = client
                     .post(&url)
@@ -338,7 +338,7 @@ mod tests {
                 assert_eq!(response["result"], expected, "{response}");
             }
             let response: Value = client.post(&url).json(&json!({
-                "jsonrpc":"2.0", "id":2, "method":method, "params":[intent(), {"transactionTypes":["0x0"]}]
+                "jsonrpc":"2.0", "id":2, "method":method, "params":[transaction(), {"transactionTypes":["0x0"]}]
             })).send().await.unwrap().json().await.unwrap();
             assert_eq!(response["error"]["code"], -32602);
         }
@@ -399,18 +399,18 @@ mod tests {
             let cloned = Arc::clone(&service);
             let request = tokio::spawn(async move {
                 if compact {
-                    cloned.compact(&intent(), &json!({}), false).await
+                    cloned.compact(&transaction(), &json!({}), false).await
                 } else {
                     cloned
                         .run(Request::Signed(Box::new(
-                            L2FeeRequest::parse(&intent()).unwrap(),
+                            L2FeeRequest::parse(&transaction()).unwrap(),
                         )))
                         .await
                 }
             });
             let cancelled = started_rx.await.unwrap();
             assert_eq!(
-                service.compact(&intent(), &json!({}), false).await.0,
+                service.compact(&transaction(), &json!({}), false).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             if timeout {
@@ -421,7 +421,7 @@ mod tests {
             }
             assert!(cancelled.load(Ordering::Relaxed));
             assert_eq!(
-                service.compact(&intent(), &json!({}), false).await.0,
+                service.compact(&transaction(), &json!({}), false).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             finish_tx.send(()).unwrap();
@@ -448,7 +448,7 @@ mod tests {
             StatusCode::BAD_REQUEST
         );
         assert_eq!(
-            service.compact(&intent(), &json!({}), false).await.0,
+            service.compact(&transaction(), &json!({}), false).await.0,
             StatusCode::GATEWAY_TIMEOUT
         );
         assert_eq!(service.permits.available_permits(), 1);

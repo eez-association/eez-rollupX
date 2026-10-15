@@ -1,8 +1,10 @@
 # Compact, direction-aware fee quotes
 
 Status: L2 API implemented, deployed and validated on 2026-10-15, including
-exact-image Kurtosis and live Chiado checks.
-See the [validation record](../audits/2026-10-15-compact-fee-quotes/README.md). The
+exact-image Kurtosis and live Chiado checks for the recorded deployed revision.
+The subsequent draft API cleanup moves enforcement metadata to debug output and
+uses transaction-request terminology. Its local validation is recorded separately
+in the [validation record](../audits/2026-10-15-compact-fee-quotes/README.md). The
 L1-origin recovery policy remains deferred. The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 
@@ -39,19 +41,22 @@ to both types unless a type or explicit `transactionTypes` selection is supplied
 Reject conflicting selections. Preserve supplied gas/nonce, and refuse queued
 nonce dependencies instead of simulating a different transaction. Per-type
 execution errors are explicit; shared-context/infrastructure errors fail the
-whole request. Compact output includes only wallet fields, intent bindings,
-expiry, source network/nonce, recovery mode and estimated source fees.
+whole request. Compact output includes only wallet fields, transaction request
+bindings, expiry, source network/nonce and estimated source fees. Tariff enforcement mode
+is diagnostic metadata, exposed only as `diagnostics.recoveryMode`. The unsigned
+input is a transaction request, and `requestHash` binds its normalized fields
+without claiming to be a signed Ethereum transaction hash.
 
 `eez_debugQuoteFee` runs the identical engine and adds detailed diagnostics.
 It is not an execution trace. Separate calls can select different heads; compact
-and debug outputs are equivalent only for the same intent and context.
+and debug outputs are equivalent only for the same transaction request and context.
 
 The user explicitly chose a breaking API replacement: remove
 `eez_quoteL2ToL1Fee`, the HTTP quote route and old SDK helpers. Migrate the
 reference dashboard and test drivers to the new API in the same change. Upgrade
 server and clients together; no compatibility fallback or unquoted send is
-retained. The SDK verifies intent bindings using the application's existing
-Ethereum hash function.
+retained. The SDK verifies transaction request bindings using the application's
+existing Ethereum hash function.
 
 ## Validation criteria
 
@@ -60,8 +65,9 @@ canonical quantities, wrong chains/nonces, ordinary and nested execution,
 fee-sensitive rejection, gas-sensitive replay, insufficient balance, cancellation
 and permit retention. Compare source gas and measured L1 fees against receipts,
 reject underfunded signed transactions, and independently replay settled blocks.
-Retain signed-fee and Safe regressions and verify the old method is absent. Recorded Falcon gas limits are parser
-coverage only; qualification of actual Falcon signature workloads is separate.
+Retain signed-fee and Safe regressions and verify the old method is absent.
+Recorded Falcon gas limits are parser coverage only; qualification of actual
+Falcon signature workloads is separate.
 
 The full protocol staged/stress matrix and live deployment are separate evidence;
 unit or process success alone must not be described as either.

@@ -124,14 +124,14 @@ async fn predicted(
 
 async fn quote(world: &CrossChainWorld, target: Address, data: &Bytes, nonce: u64) -> Value {
     let signer: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
-    let intent = json!({"type":"0x2", "chainId":format!("{:#x}",world.l2_chain_id),
+    let transaction = json!({"type":"0x2", "chainId":format!("{:#x}",world.l2_chain_id),
         "from":signer.address(), "to":target, "nonce":format!("{nonce:#x}"),
         "gas":format!("{GAS_LIMIT:#x}"), "value":"0x0", "data":data});
     let client = reqwest::Client::new();
     wait_for(Duration::from_secs(40), || async {
         let response = client
             .post(world.l2_xchain())
-            .json(&json!({"jsonrpc":"2.0","id":1,"method":"eez_debugQuoteFee","params":[intent]}))
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"eez_debugQuoteFee","params":[transaction]}))
             .send()
             .await?;
         let status = response.status();

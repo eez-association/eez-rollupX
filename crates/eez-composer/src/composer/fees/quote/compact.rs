@@ -9,14 +9,14 @@ use crate::composer::estimate::EstimateError;
 
 #[derive(Debug)]
 pub struct CompactFeeRequest {
-    intent: Value,
+    transaction: Value,
     types: Vec<u8>,
 }
 
 impl CompactFeeRequest {
     /// Fee fields and unsupported transaction extensions are rejected. Defaults
     /// resolve only missing fields; explicit null or malformed values are errors.
-    pub fn parse(intent: &Value, options: &Value) -> Result<Self, FeeQuoteError> {
+    pub fn parse(transaction: &Value, options: &Value) -> Result<Self, FeeQuoteError> {
         let options = options
             .as_object()
             .ok_or(FeeQuoteError::Invalid("expected options object"))?;
@@ -24,7 +24,7 @@ impl CompactFeeRequest {
             return Err(FeeQuoteError::Invalid("unknown quote option"));
         }
         let types = match options.get("transactionTypes") {
-            None => match intent.get("type") {
+            None => match transaction.get("type") {
                 Some(value) => vec![tx_type(value)?],
                 None => vec![0, 2],
             },
@@ -41,7 +41,7 @@ impl CompactFeeRequest {
                 if types.len() == 2 && types[0] == types[1] {
                     return Err(FeeQuoteError::Invalid("duplicate transaction type"));
                 }
-                if let Some(value) = intent.get("type")
+                if let Some(value) = transaction.get("type")
                     && types != [tx_type(value)?]
                 {
                     return Err(FeeQuoteError::Invalid(
@@ -52,7 +52,7 @@ impl CompactFeeRequest {
             }
         };
         let request = Self {
-            intent: intent.clone(),
+            transaction: transaction.clone(),
             types,
         };
         // Reuse the established strict parser and limits before acquiring work.
@@ -67,10 +67,10 @@ impl CompactFeeRequest {
         gas: u64,
         ty: u8,
     ) -> Result<L2FeeRequest, FeeQuoteError> {
-        let mut value = self.intent.clone();
+        let mut value = self.transaction.clone();
         let fields = value
             .as_object_mut()
-            .ok_or(FeeQuoteError::Invalid("expected intent object"))?;
+            .ok_or(FeeQuoteError::Invalid("expected transaction object"))?;
         for (key, default) in [
             ("chainId", json!(format!("{chain:#x}"))),
             ("nonce", json!(format!("{nonce:#x}"))),
@@ -132,13 +132,13 @@ where
         rollup_id: u64,
         request: CompactFeeRequest,
     ) -> Result<PreparedCompactFeeQuote, FeeQuoteError> {
-        let intent = request.resolve(
+        let transaction = request.resolve(
             self.inner.posting.ctx.l2_chain_id,
             0,
             MAX_SOURCE_GAS,
             request.types[0],
         )?;
-        let prepared = self.prepare_l2_fee_quote(rollup_id, intent).await?;
+        let prepared = self.prepare_l2_fee_quote(rollup_id, transaction).await?;
         Ok(PreparedCompactFeeQuote { request, prepared })
     }
 
@@ -206,22 +206,22 @@ where
         for &ty in &request.types {
             budget.check()?;
             let result = (|| {
-                let mut intent = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
-                if request.intent.get("gas").is_none() {
-                    let fields = intent.fields(0, 0);
+                let mut transaction = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
+                if request.transaction.get("gas").is_none() {
+                    let fields = transaction.fields(0, 0);
                     let gas = estimator
                         .estimate_on_snapshot(
                             crate::Direction::Outbound,
                             serde_json::from_value(fields)
-                                .map_err(|e| unavailable("estimation intent", e))?,
+                                .map_err(|e| unavailable("estimation transaction", e))?,
                             budget.deadline,
                             &snapshot,
                         )
                         .map_err(estimate_error)?;
                     budget.check()?;
-                    intent = request.resolve(chain, nonce, gas, ty)?;
+                    transaction = request.resolve(chain, nonce, gas, ty)?;
                 }
-                prepared.request = intent;
+                prepared.request = transaction;
                 let mut detail =
                     self.quote_l2_fee_in_context(&prepared, Some(&snapshot), &budget)?;
                 budget.check()?;
@@ -285,10 +285,12 @@ where
             return Err(FeeQuoteError::Stale);
         }
         let mut response = json!({"version":1, "chainId":format!("{chain:#x}"), "nonce":format!("{nonce:#x}"),
-            "expiresAt":format!("{expiry:#x}"), "recoveryMode":if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
-            "options":options});
+            "expiresAt":format!("{expiry:#x}"), "options":options});
         if debug {
-            response["diagnostics"] = json!({"options":diagnostics});
+            response["diagnostics"] = json!({
+                "recoveryMode":if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
+                "options":diagnostics
+            });
         }
         Ok(response)
     }
@@ -304,7 +306,7 @@ fn price(tx: &Value, key: &str) -> Result<u128, FeeQuoteError> {
 
 fn compact_option(detail: &Value) -> Result<Value, FeeQuoteError> {
     let transaction = &detail["transaction"];
-    let mut option = json!({"type":transaction["type"], "gas":transaction["gas"], "intentHash":detail["intentHash"]});
+    let mut option = json!({"type":transaction["type"], "gas":transaction["gas"], "requestHash":detail["requestHash"]});
     let cap = if transaction["type"] == "0x0" {
         option["gasPrice"] = transaction["gasPrice"].clone();
         price(transaction, "gasPrice")?
@@ -328,13 +330,13 @@ mod tests {
     use alloy_consensus::Typed2718;
     use alloy_primitives::{Address, keccak256};
 
-    fn intent() -> Value {
+    fn transaction() -> Value {
         json!({"from":Address::repeat_byte(0x11), "to":Address::repeat_byte(0x22)})
     }
 
     #[test]
-    fn omitted_fields_resolve_without_overwriting_explicit_intent() {
-        let request = CompactFeeRequest::parse(&intent(), &json!({})).unwrap();
+    fn omitted_fields_resolve_without_overwriting_explicit_transaction() {
+        let request = CompactFeeRequest::parse(&transaction(), &json!({})).unwrap();
         assert_eq!(request.types, [0, 2]);
         for ty in request.types.iter().copied() {
             let resolved = request.resolve(906969, 7, 6_050_247, ty).unwrap();
@@ -343,7 +345,7 @@ mod tests {
             assert_eq!(resolved.tx.gas_limit(), 6_050_247);
             assert_eq!(resolved.tx.ty(), ty);
         }
-        let mut explicit = intent();
+        let mut explicit = transaction();
         explicit["nonce"] = json!("0x9");
         explicit["chainId"] = json!("0x27d9");
         explicit["gas"] = json!("0x1000000");
@@ -369,7 +371,7 @@ mod tests {
             json!({"transactionTypes":["0x1"]}),
         ] {
             assert!(
-                CompactFeeRequest::parse(&intent(), &options).is_err(),
+                CompactFeeRequest::parse(&transaction(), &options).is_err(),
                 "{options}"
             );
         }
@@ -382,11 +384,11 @@ mod tests {
             ("gasPrice", json!("0x1")),
             ("accessList", json!([])),
         ] {
-            let mut bad = intent();
+            let mut bad = transaction();
             bad[key] = value;
             assert!(CompactFeeRequest::parse(&bad, &json!({})).is_err(), "{bad}");
         }
-        let mut typed = intent();
+        let mut typed = transaction();
         typed["type"] = json!("0x0");
         assert!(CompactFeeRequest::parse(&typed, &json!({"transactionTypes":["0x2"]})).is_err());
         assert!(
@@ -396,16 +398,16 @@ mod tests {
 
     #[test]
     fn compact_projection_keeps_type_specific_fields_and_charged_gas() {
-        let request = CompactFeeRequest::parse(&intent(), &json!({})).unwrap();
+        let request = CompactFeeRequest::parse(&transaction(), &json!({})).unwrap();
         let mut hashes = Vec::new();
         for ty in [0, 2] {
             let request = request.resolve(906969, 1, 6_050_247, ty).unwrap();
             let tx = request.fields(5, 15);
-            let mut intent = tx.clone();
+            let mut transaction = tx.clone();
             for fee in ["gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
-                intent.as_object_mut().unwrap().remove(fee);
+                transaction.as_object_mut().unwrap().remove(fee);
             }
-            let detail = json!({"transaction":tx,"intentHash":keccak256(intent.to_string()),
+            let detail = json!({"transaction":tx,"requestHash":keccak256(transaction.to_string()),
                 "estimate":{"sourceGasUsed":100_000}, "policy":{"private":"debug only"}});
             let option = compact_option(&detail).unwrap();
             assert_eq!(option["estimatedFee"], "0x16e360");
@@ -413,7 +415,7 @@ mod tests {
             assert_eq!(option.get("maxFeePerGas").is_some(), ty == 2);
             assert!(option.get("policy").is_none());
             assert!(option.get("transaction").is_none());
-            hashes.push(option["intentHash"].clone());
+            hashes.push(option["requestHash"].clone());
         }
         assert_ne!(hashes[0], hashes[1], "binding includes envelope type");
     }
@@ -430,7 +432,7 @@ mod tests {
                 "0xb027810c300a8577d3d15e441e23fad18defd8cf8f1485f2c42dfcaa015b3c31",
             ),
         ] {
-            let mut input = intent();
+            let mut input = transaction();
             input["data"] = json!("0x1234");
             let request = CompactFeeRequest::parse(&input, &json!({}))
                 .unwrap()

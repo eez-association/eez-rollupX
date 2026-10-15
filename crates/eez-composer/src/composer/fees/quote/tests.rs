@@ -1,14 +1,14 @@
 use super::*;
 use alloy_consensus::SignableTransaction;
 
-fn intent() -> Value {
+fn transaction() -> Value {
     json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(0x11),
         "to":Address::repeat_byte(0x22),"nonce":"0x0","gas":"0x186a0","value":"0x0","data":"0x1234"})
 }
 
 #[test]
-fn intent_profile_is_explicit_and_bounded() {
-    let parsed = L2FeeRequest::parse(&intent()).unwrap();
+fn transaction_profile_is_explicit_and_bounded() {
+    let parsed = L2FeeRequest::parse(&transaction()).unwrap();
     assert_eq!(parsed.tx.gas_limit(), 100_000);
     for (field, value) in [
         ("gas", json!(100000)),
@@ -23,12 +23,12 @@ fn intent_profile_is_explicit_and_bounded() {
         ),
         ("from", json!(eez_primitives::SYSTEM_ADDRESS)),
     ] {
-        let mut bad = intent();
+        let mut bad = transaction();
         bad[field] = value;
         assert!(L2FeeRequest::parse(&bad).is_err(), "{field}");
     }
     for field in ["gas", "value", "nonce", "from"] {
-        let mut bad = intent();
+        let mut bad = transaction();
         bad.as_object_mut().unwrap().remove(field);
         assert!(L2FeeRequest::parse(&bad).is_err());
     }
@@ -38,7 +38,7 @@ fn intent_profile_is_explicit_and_bounded() {
         "maxFeePerGas",
         "gasPrice",
     ] {
-        let mut bad = intent();
+        let mut bad = transaction();
         bad[field] = json!([]);
         assert!(L2FeeRequest::parse(&bad).is_err());
     }
@@ -56,7 +56,7 @@ fn quote_and_signed_admission_accept_the_full_source_transaction_gas_range() {
         for gas_limit in [
             21_000, 5_000_001, 6_050_247, 6_037_754, 16_777_216, 20_999, 16_777_217,
         ] {
-            let mut input = intent();
+            let mut input = transaction();
             input["type"] = json!(format!("{tx_type:#x}"));
             let mut tx = L2FeeRequest::parse(&input).unwrap().tx;
             input["gas"] = json!(format!("{gas_limit:#x}"));
@@ -100,7 +100,7 @@ fn signed_admission_recovers_sender_and_preserves_fee_caps() {
         &alloy_primitives::B256::with_last_byte(7),
     )
     .unwrap();
-    let mut tx = L2FeeRequest::parse(&intent())
+    let mut tx = L2FeeRequest::parse(&transaction())
         .unwrap()
         .tx
         .eip1559()
@@ -172,7 +172,7 @@ fn legacy_admission_preserves_gas_price_and_requires_replay_protection() {
 fn legacy_quote_sizes_the_actual_eip155_envelope() {
     use alloy_eips::Decodable2718;
     for chain in [1, 906969, u64::from(u32::MAX)] {
-        let mut input = intent();
+        let mut input = transaction();
         input["type"] = json!("0x0");
         input["chainId"] = json!(format!("{chain:#x}"));
         let request = L2FeeRequest::parse(&input).unwrap();
@@ -208,7 +208,7 @@ fn rounded_tip_covers_cost_without_using_the_gas_limit() {
 
 #[test]
 fn placeholder_bounds_signature_encoding_but_env_has_real_sender() {
-    let request = L2FeeRequest::parse(&intent()).unwrap();
+    let request = L2FeeRequest::parse(&transaction()).unwrap();
     let mut signed = request.tx.eip1559().unwrap().clone();
     signed.max_priority_fee_per_gas = 5;
     signed.max_fee_per_gas = 15;
@@ -307,7 +307,7 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
         &alloy_primitives::B256::with_last_byte(7),
     )
     .unwrap();
-    let mut tx = L2FeeRequest::parse(&intent())
+    let mut tx = L2FeeRequest::parse(&transaction())
         .unwrap()
         .tx
         .eip1559()

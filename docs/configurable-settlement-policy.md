@@ -997,7 +997,7 @@ events remain version 1. This feature makes no durable financial reservation.
 
 ## Compact fee quotes
 
-`eez_quoteFee` and `eez_debugQuoteFee` use positional params `[intent, options?]`
+`eez_quoteFee` and `eez_debugQuoteFee` use positional params `[transaction, options?]`
 on the Composer fronts only. `/composer/l2` selects L2-origin pricing.
 `/composer/l1` returns `-32004` with `error.data.code = "unsupported_direction"`:
 L1-origin builder-refund recovery is not implemented. Regular node/follower
@@ -1031,9 +1031,9 @@ final gas and price. Gas/fee-sensitive code may require the high bound or fail
 explicitly; the API does not promise a minimum gas limit or universal convergence.
 
 `transactionTypes` defaults to `["0x0", "0x2"]`. Supply one type to reduce work.
-Alternatively `intent.type` selects one type; combining it with conflicting or
+Alternatively `transaction.type` selects one type; combining it with conflicting or
 multiple `transactionTypes` is invalid. Duplicates, empty selections, unknown
-options/intent fields, explicit nulls, fee fields, access lists and authorizations
+options/transaction fields, explicit nulls, fee fields, access lists and authorizations
 are rejected. Input quantities must be canonical hex strings.
 
 The compact result is:
@@ -1044,12 +1044,11 @@ The compact result is:
   "chainId": "0x1",
   "nonce": "0x0",
   "expiresAt": "0x6b000000",
-  "recoveryMode": "enforced_tariff",
   "options": [
     { "type": "0x0", "gas": "0x186a0", "gasPrice": "0xf",
-      "intentHash": "0x…", "estimatedFee": "0x4ce78" },
+      "requestHash": "0x…", "estimatedFee": "0x4ce78" },
     { "type": "0x2", "gas": "0x186a0", "maxPriorityFeePerGas": "0x5",
-      "maxFeePerGas": "0xf", "intentHash": "0x…", "estimatedFee": "0x4ce78" }
+      "maxFeePerGas": "0xf", "requestHash": "0x…", "estimatedFee": "0x4ce78" }
   ]
 }
 ```
@@ -1058,21 +1057,21 @@ Values above are illustrative. Apart from numeric schema `version`, all compact
 quantities, including expiry Unix seconds, use canonical hex. Fees are in source
 native base units. `estimatedFee` is charged source gas times the quoted effective
 price; the separate maximum reservation is `gas * gasPrice` or `gas * maxFeePerGas`.
-Each option's `intentHash` is Keccak-256 of the normalized eight-field intent's
-UTF-8 JSON, with lexicographically sorted keys, no whitespace, lowercase addresses,
-calldata and minimal lowercase hex quantities. It includes resolved type/gas/nonce,
+Each option's `requestHash` is Keccak-256 of the normalized eight-field transaction
+request's UTF-8 JSON, with lexicographically sorted keys, no whitespace, lowercase
+addresses, calldata and minimal lowercase hex quantities. It includes resolved type/gas/nonce,
 chain, sender, destination, value and calldata. It does not authenticate the server
-or authorize execution. Signing changed fees or intent requires a fresh quote.
+or authorize execution, and is not an Ethereum transaction hash. Changing the
+transaction or its fees requires a fresh quote.
 
-`recoveryMode` is `enforced_tariff` when signed ingress and final dispatch enforce
-the configured tariff, otherwise `advisory`. Both are advisory estimates, not
-inclusion or treasury-realization guarantees. Ordinary L2 calls use zero settlement
-contribution; they still pay normal L2 execution fees. A missing fee policy or
+Quotes are advisory estimates, not inclusion or treasury-realization guarantees.
+Ordinary L2 calls use zero settlement contribution; they still pay normal L2
+execution fees. A missing fee policy or
 unknown L1 direction never becomes a zero-cost cross-chain quote.
 
 Every requested type has one ordered entry. A variant that cannot execute returns
-`{"type":"0x2","error":{"code":"unsupported_intent","message":"…"}}` instead
-of wallet fields. Bad balance/input for a variant uses `invalid_intent`. No variant
+`{"type":"0x2","error":{"code":"unsupported_transaction","message":"…"}}` instead
+of wallet fields. Bad balance/input for a variant uses `invalid_transaction`. No variant
 may be signed when it contains an error. Shared unavailability, stale state, expiry
 or exhausted work fails the whole RPC with the existing quote error envelope;
 there are no partial successful options after those errors. Invalid request syntax,
@@ -1080,15 +1079,19 @@ chain/nonce or selection fails with `-32602`. Transient errors never trigger a
 silent unquoted send.
 
 The debug method accepts identical params and returns the compact result plus
-`diagnostics.options`: the detailed calculation result (or error) for each type,
+`diagnostics.recoveryMode` and `diagnostics.options`. `recoveryMode` is
+`enforced_tariff` when signed ingress and final dispatch enforce the configured
+tariff, otherwise `advisory`. This metadata appears only under `diagnostics`; it
+is absent from `eez_quoteFee` and is not needed to construct a wallet transaction.
+`diagnostics.options` contains the detailed calculation result (or error) for each type,
 including policy, contexts, measured costs and replay iterations. Ordinary-L2
 diagnostics use `estimate.basis = "ordinary_l2"` and zero `requiredL2Tip`; they do
 not invent L1 cost components. Debug is a projection of the same calculation,
 not a trace. Separate calls can select different contexts and need not be equal.
 
 Both methods share the existing one-worker, no-queue, ten-second request budget
-with signed tariff checks. Per type, at most three gas
-discovery probes, four pricing iterations and one final validation probe run
+with signed tariff checks. Per type, at most three gas discovery probes, four
+pricing iterations and one final validation probe run
 (maximum sixteen across both types). Each probe may compose and replay nested
 execution. Pricing retains the aggregate 32-target-frame/eight-depth limit;
 discovery/final validation reuse the estimator's 64-recorded-action bound and
@@ -1099,10 +1102,11 @@ blocking frame retains its permit until it exits, including after RPC timeout.
 The dependency-free [SDK](../sdk/l2-fees.mjs) adds `requestFeeQuote`,
 `feeQuoteTransaction` and `sendFeeQuotedTransaction`. Supply an expected source
 `chainId`, selected type, `maxTotalFee` bigint and a `keccak256(utf8String)` function
-from the app's existing Ethereum library. For viem, use
-`text => keccak256(toHex(text))`. The helper verifies the resolved intent binding,
+from the app's existing Ethereum library. Pass the unsigned input as the SDK's
+`transaction` argument. For viem, use
+`text => keccak256(toHex(text))`. The helper verifies the resolved transaction binding,
 expiry, selected type and maximum fee, and copies only approved wallet fields into
-the original intent. The send helper rechecks wallet account, network and pending
+the original transaction. The send helper rechecks wallet account, network and pending
 nonce, then requests one ordinary transaction signature. Wallet approval delays,
 base-fee changes and wallet edits can invalidate the quote; native admission is
 still authoritative. Compact output does not pin a policy ID; applications that
@@ -1113,6 +1117,11 @@ The API replacement is intentionally breaking: `eez_quoteL2ToL1Fee`, the
 Composer and applications together; old callers fail instead of falling back.
 Coordinate rollback of both. This changes no storage, contracts, genesis,
 historical decoding, signer RPC or follower replay, and needs no data migration.
+The draft also renames `intentHash` to `requestHash`, the SDK input argument
+from `intent` to `transaction`, detailed input from `intent` to `request`, and
+input errors to `invalid_transaction` / `unsupported_transaction`.
+`recoveryMode` moves from the compact result to `diagnostics.recoveryMode`.
+No aliases are retained; the normalized eight-field binding bytes are unchanged.
 Keep final signed native settlement validation enabled.
 
 ## Unsigned L2 fee quotes
@@ -1156,7 +1165,7 @@ Blob sizing includes exact retained ordinary transaction bytes and metadata
 plus the complete semantic stream. A maximum-width source signature placeholder
 is used only for encoding size; it is never authenticated, proved or submitted.
 Intermediate native history requires reconciliation and causes an unavailable
-quote. The quote charges this single intent the complete estimated post and
+quote. The quote charges this single transaction the complete estimated post and
 retained history; it assumes no future batch participants.
 
 The [shadow pricing arithmetic](#shadow-l2-fee-pricing) adds service costs,
@@ -1175,8 +1184,8 @@ Each successful `diagnostics.options` entry contains:
 | Field | Meaning |
 | --- | --- |
 | `version: 1`, `mode: advisory` | Application response schema and guarantee level |
-| `intent`, `intentHash` | Normalized eight request fields; Keccak-256 of their compact, lexicographically key-sorted JSON |
-| `transaction` | The same intent plus `gasPrice` for legacy, or `maxPriorityFeePerGas` and `maxFeePerGas` for type 2; all wallet quantities in hex |
+| `request`, `requestHash` | Normalized eight request fields; Keccak-256 of their compact, lexicographically key-sorted JSON |
+| `transaction` | The normalized request plus `gasPrice` for legacy, or `maxPriorityFeePerGas` and `maxFeePerGas` for type 2; all wallet quantities in hex |
 | `issuedAt`, `expiresAt` | Unix seconds; expires at the earlier of ten seconds from issuance and the selected L1 target timestamp |
 | `context` | Chain/rollup IDs, L1 parent and target, L2 parent and draft timestamp, settled L2 endpoint |
 | `policy` | Policy ID and all conversion, cost, exclusion and validity assumptions |
@@ -1186,15 +1195,15 @@ Monetary amounts in `estimate` are decimal strings. Gas/counts/context heights
 are integers. `estimate.basis` is
 `isolated_native_l2_and_l1_settlement`, with `estimate.proof` set to
 `metered_assumed_valid`; `qualifiedRecoveryL1` is null.
-L1 figures are estimates, not receipts. Neither the intent hash nor response
+L1 figures are estimates, not receipts. Neither the request hash nor response
 authenticates a quote or guarantees inclusion. Applications must trust their
-chosen endpoint and reviewed policy, preserve the original intent, and impose
+chosen endpoint and reviewed policy, preserve the original transaction, and impose
 their own maximum fee.
 
 The SDK compares wallet chain ID and pending nonce numerically, accepting
-safe non-negative integers or bounded zero-padded hex observations. Intent and
+safe non-negative integers or bounded zero-padded hex observations. Transaction and
 quote quantities remain canonical. Wallet observations cannot change signed
-intent fields. The pending nonce check detects ordinary-mempool predecessors
+transaction fields. The pending nonce check detects ordinary-mempool predecessors
 that isolated quote execution does not simulate.
 
 Work is limited to one request per node, with no queue; additional requests get
@@ -1207,14 +1216,14 @@ or shutdown sets cancellation; checks between frames/history/replay steps stop
 further work. A running EVM frame cannot be interrupted, and retains the sole
 worker permit until it exits. Frames also have existing EVM gas limits.
 
-Malformed params/intents use JSON-RPC `-32602`; other shared quote failures
+Malformed params/transactions use JSON-RPC `-32602`; other shared quote failures
 use `-32004`, with `{code, message}` in `error.data`. Stable application codes
-include `invalid_intent`, `unsupported_intent`, `quote_limit`, `stale_context`,
+include `invalid_transaction`, `unsupported_transaction`, `quote_limit`, `stale_context`,
 `quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
 Per-variant execution/input errors are represented as described above; shared
 errors never return a usable option. IDs, mixed batches and notifications follow
 the front's existing semantics. Members execute sequentially under the shared
-worker bound. The 32 KiB intent/options bound applies alongside the front's
+worker bound. The 32 KiB transaction/options bound applies alongside the front's
 overall transport-body limit. Requote after transient availability/context changes.
 
 Changing gas, nonce, calldata, value or fee fields invalidates the estimate.
@@ -1264,7 +1273,7 @@ batches. While this L2-only tariff is enabled, L1-origin users are settled in
 separate batches under the existing FIFO ordering, so unfunded L1 work cannot
 invalidate a paid outbound batch. Nested calls within one source remain whole.
 Quoting a future nonce whose
-predecessor has not executed is outside the isolated-intent profile.
+predecessor has not executed is outside the isolated-transaction profile.
 
 Immediately before dispatch, an attempt containing outbound users must also
 cover its complete newly priced L1 post and blob tariff using actual eligible
