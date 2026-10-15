@@ -129,7 +129,7 @@ async fn nested_inbound_references_include_both_deliveries() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn nested_outbound_references_include_source_and_callbacks() {
+async fn nested_outbound_references_keep_inline_callbacks_in_the_source_transaction() {
     nested_references(false).await;
 }
 
@@ -194,9 +194,23 @@ async fn nested_references(inbound: bool) {
     let hashes = block.transactions.hashes().collect::<Vec<_>>();
     // This fixture submits exactly one cross-chain source. Every transaction
     // in its Sync block belongs to it; omitted loads/deliveries must fail here.
-    assert_eq!(hashes.len(), if inbound { 2 } else { 4 });
+    // Inbound produces two self-loading deliveries. This outbound fixture runs
+    // its reentrant callbacks inside the source transaction: one load + source.
+    // Those internal calls must not be advertised as extra transaction hashes.
+    assert_eq!(hashes.len(), 2);
     if !inbound {
-        assert!(hashes.contains(&source));
+        assert_eq!(hashes[1], source);
+        let completed = eez_testkit::read_state_word(
+            &world.l2_rpc(),
+            &eez_testkit::call_read(
+                world.probe,
+                "completed()",
+                IOverlayProbeL2::completedCall {}.abi_encode(),
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(completed, U256::from(1));
     }
     assert_references(&world, source, inbound, &hashes).await;
     assert_eq!(
