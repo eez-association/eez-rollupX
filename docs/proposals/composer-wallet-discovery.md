@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Accepted for implementation by the repository owner's request, 2026-10-09; not yet deployed |
+| Design status | Accepted and implemented; 2026-10-15 static-selector compatibility amendment locally validated, not deployed |
 | Source baseline | `eduadiez/rollupX` main `a39e2ccd01a28d067f87af4bfdd67c637be97853` |
 | Protocol baseline | Unchanged `855fe0602484750861b4c31502a1a91355d33ed6` |
 
@@ -105,6 +105,8 @@ ownership remains in memory; this change adds no durable recovery guarantees.
 - Front-only custom methods; ordinary RPC does not emulate discovery.
 - Update repository clients, test helpers and operational instructions.
 
-Use pure unit and mock HTTP tests for this implementation; no deployment,
-transaction signing or broadcasting is authorized. Source-based live process
-and Kurtosis validation remain CI responsibilities, not claimed local evidence.
+The initial discovery implementation used pure unit and mock HTTP tests. The
+[2026-10-15 compatibility audit](../audits/2026-10-15-wallet-rpc-compatibility/README.md)
+records the live read-only reproduction, updated selector regressions, client
+checks and isolated wallet process tests. It does not claim a live upgrade or
+real extension validation.

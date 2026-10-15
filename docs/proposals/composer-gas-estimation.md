@@ -172,6 +172,8 @@ Persistent unavailability stays a blocking error with a retry message. Upgrade
 Composer to expose these optional hints before relying on automatic client
 retries. Older clients ignore the additive data; newer clients surface older
 unstructured errors without guessing retryability from their message text.
+The [compatibility audit](../audits/2026-10-15-wallet-rpc-compatibility/README.md)
+records baseline failures, live read-only sampling and validation of this change.
 
 Reuse the protocol builders used by
 [`prepare_post_batch_raw`](../../crates/eez-composer/src/composer.rs), keeping
