@@ -19,25 +19,42 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
+alloy_sol_types::sol! {
+    interface FeeQuoteProbe {
+        function gasSensitive() external view returns (uint256);
+        function rejectsSettlementTip(address proxy) external;
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unsigned_nested_quote_matches_receipt_and_replays() {
-    nested_quote_roundtrip(false, false).await;
+    nested_quote_roundtrip(false, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn enforced_nested_quote_rejects_underpayment_and_replays() {
-    nested_quote_roundtrip(true, false).await;
+    nested_quote_roundtrip(true, false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn legacy_rpc_quote_rejects_underpayment_settles_and_replays() {
-    nested_quote_roundtrip(true, true).await;
+    nested_quote_roundtrip(true, true, false).await;
 }
 
-async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compact_nested_legacy_estimates_both_types_settles_and_replays() {
+    nested_quote_roundtrip(true, true, true).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compact_nested_eip1559_estimates_both_types_settles_and_replays() {
+    nested_quote_roundtrip(true, false, true).await;
+}
+
+async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
     // Exercise signed tariff admission above the old 5M quote-profile ceiling.
     // This covers submitted gas limits, not the Falcon verifier's execution cost.
-    let source_gas_limit = if !enforced {
+    let mut source_gas_limit = if !enforced {
         1_200_000
     } else if legacy {
         6_050_247
@@ -87,81 +104,130 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
     let intent = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
         "nonce":format!("{nonce:#x}"),"gas":format!("{source_gas_limit:#x}"),"value":"0x0","data":data});
     let client = reqwest::Client::new();
-    let url = format!("{}/eez/fees/l2-to-l1", world.l2_xchain());
     let mut wrong = intent.clone();
     wrong["chainId"] = json!("0xdead");
-    let response = client.post(&url).json(&wrong).send().await.unwrap();
-    assert_eq!(response.status(), 400);
-    assert_eq!(
-        response.json::<Value>().await.unwrap()["error"]["code"],
-        "invalid_intent"
-    );
-    let oversized = client
-        .post(&url)
-        .body(" ".repeat(32 * 1024 + 1))
-        .send()
+    let response = quote_rpc(&client, &world.l2_xchain(), "eez_quoteFee", json!([wrong]))
         .await
         .unwrap();
-    assert_eq!(oversized.status(), 413);
-    let response = client
-        .post(format!("{}/eez/fees/l2-to-l1", world.l1_xchain()))
-        .json(&intent)
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 404);
-    for rpc_url in [world.l1_xchain(), world.l2_rpc()] {
-        let response: Value = client
-            .post(rpc_url)
-            .json(&json!({
-                "jsonrpc":"2.0", "id":7, "method":"eez_quoteL2ToL1Fee", "params":[intent]
-            }))
-            .send()
-            .await
-            .unwrap()
-            .json()
+    assert_eq!(response["error"]["code"], -32602);
+    let oversized = json!({"from":signer.address(),"to":outer,"data":"x".repeat(32 * 1024)});
+    let response = quote_rpc(
+        &client,
+        &world.l2_xchain(),
+        "eez_quoteFee",
+        json!([oversized]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response["error"]["data"]["code"], "quote_limit");
+    for rpc_url in [world.l1_xchain(), world.l2_xchain(), world.l2_rpc()] {
+        let response = quote_rpc(&client, &rpc_url, "eez_quoteL2ToL1Fee", json!([intent]))
             .await
             .unwrap();
         assert_eq!(
             response["error"]["code"], -32601,
-            "quote method must be L2-front-only: {response}"
+            "removed API must not remain active: {response}"
         );
     }
     // Exact-parent quotes can race a new L1 head. Retry only this documented
     // availability condition; unsupported or failed simulation is a test error.
     let last_error = std::sync::Mutex::new(Value::Null);
     let quote = wait_for(Duration::from_secs(30), || async {
-        let response =
-            if enforced {
-                client.post(world.l2_xchain()).json(&json!({
-                "jsonrpc":"2.0", "id":"quote", "method":"eez_quoteL2ToL1Fee", "params":[intent]
-            })).send().await?
-            } else {
-                client.post(&url).json(&intent).send().await?
-            };
-        let status = response.status();
-        let value = response.json::<Value>().await?;
-        if status.is_success() && (!enforced || value.get("result").is_some()) {
-            if enforced {
-                anyhow::ensure!(value["id"] == "quote", "quote ID changed: {value}");
-                return Ok(Some(value["result"].clone()));
+        if compact {
+            let mut input = intent.clone();
+            for key in ["gas", "nonce", "chainId", "type"] {
+                input.as_object_mut().unwrap().remove(key);
             }
-            return Ok(Some(value));
-        }
-        if status == 409
-            || status == 503
-            || matches!(
-                value["error"]["data"]["code"].as_str(),
-                Some("stale_context" | "quote_unavailable")
+            let params = json!([input]);
+            let detailed = quote_rpc(
+                &client,
+                &world.l2_xchain(),
+                "eez_debugQuoteFee",
+                params.clone(),
             )
-        {
+            .await?;
+            if quote_retry(&detailed) {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                detailed.get("result").is_some(),
+                "debug quote failed: {detailed}"
+            );
+            let detailed = &detailed["result"];
+            let options = detailed["options"].as_array().unwrap();
+            anyhow::ensure!(options.len() == 2, "missing fee variants: {detailed}");
+            for (i, ty) in ["0x0", "0x2"].iter().enumerate() {
+                let option = &options[i];
+                let diagnostic = &detailed["diagnostics"]["options"][i];
+                anyhow::ensure!(
+                    option["type"] == *ty && option.get("error").is_none(),
+                    "failed variant: {option}"
+                );
+                anyhow::ensure!(
+                    option["intentHash"] == diagnostic["intentHash"],
+                    "different binding"
+                );
+                anyhow::ensure!(
+                    option["gas"] == diagnostic["transaction"]["gas"],
+                    "different gas"
+                );
+                anyhow::ensure!(
+                    option["intentHash"]
+                        == json!(alloy_primitives::keccak256(
+                            diagnostic["intent"].to_string()
+                        )),
+                    "invalid intent binding"
+                );
+                anyhow::ensure!(
+                    diagnostic["context"] == detailed["diagnostics"]["options"][0]["context"],
+                    "variants mixed chain state"
+                );
+            }
+            let simple = quote_rpc(&client, &world.l2_xchain(), "eez_quoteFee", params).await?;
+            if quote_retry(&simple) {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                simple.get("result").is_some(),
+                "compact quote failed: {simple}"
+            );
+            let simple = &simple["result"];
+            anyhow::ensure!(
+                simple.get("diagnostics").is_none() && simple.get("context").is_none(),
+                "verbose compact quote: {simple}"
+            );
+            anyhow::ensure!(
+                simple["chainId"] == intent["chainId"] && simple["nonce"] == intent["nonce"],
+                "incorrect defaults"
+            );
+            // Calls can legitimately select different heads. Compare only when
+            // they produce the same options, then sign those compact fields.
+            if simple["options"] != detailed["options"] {
+                return Ok(None);
+            }
+            return Ok(Some(
+                detailed["diagnostics"]["options"][usize::from(!legacy)].clone(),
+            ));
+        }
+        let value = quote_rpc(
+            &client,
+            &world.l2_xchain(),
+            "eez_debugQuoteFee",
+            json!([intent]),
+        )
+        .await?;
+        if quote_retry(&value) {
             *last_error.lock().unwrap() = value;
             return Ok(None);
         }
-        anyhow::bail!(
-            "quote failed: {status} {value}{}",
+        anyhow::ensure!(
+            value.get("result").is_some(),
+            "quote failed: {value}{}",
             world.settlement_diagnostics()
         );
+        let diagnostic = &value["result"]["diagnostics"]["options"][0];
+        anyhow::ensure!(diagnostic.get("error").is_none(), "failed variant: {value}");
+        Ok(Some(diagnostic.clone()))
     })
     .await
     .unwrap_or_else(|error| {
@@ -216,6 +282,9 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
     } else {
         quantity("maxPriorityFeePerGas")
     };
+    if compact {
+        source_gas_limit = u64::try_from(quantity("gas")).unwrap();
+    }
     let sign = |priority, price| {
         let mut tx: TypedTransaction = if legacy {
             TxLegacy {
@@ -492,7 +561,11 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
     assert!(checked_post, "independent canonical post receipt required");
     if let Ok(dir) = std::env::var("EEZ_TEST_LOG_DIR") {
         std::fs::write(
-            std::path::Path::new(&dir).join(if legacy {
+            std::path::Path::new(&dir).join(if compact && legacy {
+                "compact-legacy-fee-quote.json"
+            } else if compact {
+                "compact-eip1559-fee-quote.json"
+            } else if legacy {
                 "legacy-fee-quote.json"
             } else if enforced {
                 "enforced-fee-quote.json"
@@ -502,5 +575,169 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
             serde_json::to_vec_pretty(&quote).unwrap(),
         )
         .unwrap();
+    }
+}
+
+async fn quote_rpc(
+    client: &reqwest::Client,
+    url: &str,
+    method: &str,
+    params: Value,
+) -> anyhow::Result<Value> {
+    Ok(client
+        .post(url)
+        .json(&json!({"jsonrpc":"2.0","id":"compact", "method":method,"params":params}))
+        .send()
+        .await?
+        .json()
+        .await?)
+}
+
+fn quote_retry(response: &Value) -> bool {
+    matches!(
+        response["error"]["data"]["code"].as_str(),
+        Some("stale_context" | "quote_unavailable" | "quote_busy")
+    )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let world = setup_cross_chain_with_env(&[
+        (
+            "EEZ_L2_FEE_RECIPIENT",
+            policy["beneficiary"].as_str().unwrap().into(),
+        ),
+        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+    ])
+    .await
+    .unwrap();
+    let client = reqwest::Client::new();
+    let signer: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
+    let intent = json!({"from":signer.address(),"to":world.value_l2,
+        "data":Bytes::from(IValue::setValueCall {v:U256::from(999)}.abi_encode())});
+    for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
+        let response = quote_rpc(&client, &world.l1_xchain(), method, json!([intent]))
+            .await
+            .unwrap();
+        assert_eq!(response["error"]["data"]["code"], "unsupported_direction");
+        let response = quote_rpc(&client, &world.l2_rpc(), method, json!([intent]))
+            .await
+            .unwrap();
+        assert_eq!(response["error"]["code"], -32601);
+    }
+    let call = |params: Value| {
+        let client = client.clone();
+        let url = world.l2_xchain();
+        async move {
+            wait_for(Duration::from_secs(30), || {
+                let params = params.clone();
+                let client = &client;
+                let url = &url;
+                async move {
+                    let response = quote_rpc(client, url, "eez_debugQuoteFee", params).await?;
+                    Ok((!quote_retry(&response)).then_some(response))
+                }
+            })
+            .await
+            .unwrap()
+        }
+    };
+    let before = l2_value(&world.l2_rpc(), world.value_l2).await.unwrap();
+    let quote = call(json!([intent])).await;
+    assert!(quote.get("result").is_some(), "{quote}");
+    for diagnostic in quote["result"]["diagnostics"]["options"]
+        .as_array()
+        .unwrap()
+    {
+        assert_eq!(diagnostic["estimate"]["basis"], "ordinary_l2", "{quote}");
+        assert_eq!(diagnostic["estimate"]["requiredL2Tip"], "0");
+    }
+    assert_eq!(
+        l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+        before
+    );
+    for (field, value, code) in [
+        ("chainId", json!("0xdead"), "invalid_intent"),
+        ("nonce", json!("0xff"), "invalid_intent"),
+        ("gas", json!("0x1000001"), "invalid_intent"),
+        ("gasPrice", json!("0x1"), "invalid_intent"),
+    ] {
+        let mut bad = intent.clone();
+        bad[field] = value;
+        let response = call(json!([bad])).await;
+        assert_eq!(response["error"]["data"]["code"], code, "{response}");
+    }
+    let mut poor = intent.clone();
+    poor["from"] = json!(Address::repeat_byte(0x19));
+    poor["value"] = json!("0x1");
+    let response = call(json!([poor])).await;
+    for option in response["result"]["options"]
+        .as_array()
+        .expect("per-variant funding error")
+    {
+        assert_eq!(option["error"]["code"], "invalid_intent", "{response}");
+    }
+    let mut short = intent.clone();
+    short["gas"] = json!("0x5208");
+    let response = call(json!([short])).await;
+    for option in response["result"]["options"]
+        .as_array()
+        .expect("per-variant execution error")
+    {
+        assert_eq!(option["error"]["code"], "unsupported_intent", "{response}");
+    }
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json");
+    let artifact: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let bytecode: Bytes = artifact["bytecode"]["object"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let hash = sign_and_send(
+        &world.l2_rpc(),
+        TARGET_DEPLOYER,
+        world.l2_chain_id,
+        onchain_nonce(&world.l2_rpc(), TARGET_DEPLOYER)
+            .await
+            .unwrap(),
+        None,
+        U256::ZERO,
+        bytecode.to_vec(),
+        1_000_000,
+    )
+    .await
+    .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(hash).await?)
+    })
+    .await
+    .unwrap();
+    assert!(receipt.status());
+    let probe = receipt.contract_address.unwrap();
+    let sensitive = json!({"from":signer.address(),"to":probe,
+        "data":Bytes::from(FeeQuoteProbe::gasSensitiveCall {}.abi_encode())});
+    let response = call(json!([sensitive, {"transactionTypes":["0x2"]}])).await;
+    assert_eq!(response["result"]["options"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        response["result"]["options"][0]["gas"], "0x1000000",
+        "gas-dependent output must retain verified ceiling: {response}"
+    );
+    let sensitive = json!({"from":signer.address(),"to":probe,
+        "data":Bytes::from(FeeQuoteProbe::rejectsSettlementTipCall {proxy:world.outbound_proxy}.abi_encode())});
+    let response = call(json!([sensitive])).await;
+    for option in response["result"]["options"]
+        .as_array()
+        .expect("per-variant fee-dependent rejection")
+    {
+        assert_eq!(
+            option["error"]["code"], "unsupported_intent",
+            "must replay final price: {response}"
+        );
     }
 }

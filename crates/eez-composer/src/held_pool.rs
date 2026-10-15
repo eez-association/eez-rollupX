@@ -935,6 +935,20 @@ impl HeldPool {
         state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
     }
 
+    /// Read-only quote guard: queued and composing predecessors are not part
+    /// of isolated canonical-state execution. This does not reserve a nonce.
+    pub(crate) fn owns_nonce(&self, sender: Address, direction: Direction, nonce: u64) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state
+            .txs
+            .iter()
+            .any(|tx| tx.sender == sender && tx.direction == direction && tx.nonce == nonce)
+            || state
+                .in_flight
+                .values()
+                .any(|owner| *owner == (sender, direction, nonce))
+    }
+
     /// Cross-chain sources must not enter ordinary L2 sequencing when Reth
     /// reinjects an orphaned Sync block. Include the unfinalized ledger even
     /// after resolution/eviction: pool reinjection is asynchronous and must
@@ -953,6 +967,21 @@ impl HeldPool {
 mod tests {
     use super::*;
     use alloy_primitives::B256;
+
+    #[test]
+    fn quote_nonce_guard_tracks_queued_and_in_flight_ownership() {
+        let pool = HeldPool::new(Default::default());
+        let tx = tx_dir(1, Direction::Outbound);
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        pool.push_contiguous(tx.clone(), tx.nonce).unwrap();
+        assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        assert!(!pool.owns_nonce(tx.sender, Direction::Inbound, tx.nonce));
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce + 1));
+        let claimed = pool.pop_all();
+        assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+        pool.release_in_flight_batch(&claimed);
+        assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
+    }
 
     fn insert(pool: &HeldPool, tx: HeldTx, on_chain: u64) {
         pool.push_contiguous(tx, on_chain).unwrap();

@@ -480,7 +480,8 @@ source `testing/kurtosis/ports.sh` to obtain the RPC endpoints.
 `scripts/verify-l2-fees.mjs` requires those L1/L2/front URLs, the deployed
 `EEZL2_ADDRESS`, a funded private-network fixture key in `EEZ_TEST_FEE_KEY`, and
 an output path in `EEZ_FEE_EVIDENCE_FILE`. Optionally set
-`EEZ_TEST_FEE_QUOTE_URL` to the UI's `/composer/l2/eez/fees/l2-to-l1` URL.
+`EEZ_TEST_FEE_RPC_URL` to the UI's `/composer/l2` RPC URL. The exercise uses
+`eez_debugQuoteFee` for receipt comparisons and the compact SDK fields for signing.
 It refuses public chain IDs, creates two independent nested-call fixtures,
 rejects an underpaid signed transaction, sends each paid source through the
 SDK's single-signature path, and checks receipts, beneficiary, target state

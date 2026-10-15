@@ -1,5 +1,9 @@
 # Cross-chain fee recovery
 
+The public quote API is now specified in [compact fee quotes](../configurable-settlement-policy.md#compact-fee-quotes).
+The earlier method/HTTP migration described below is historical and is removed
+by the compact API replacement. Both transaction encodings remain supported.
+
 | Field | Value |
 | --- | --- |
 | Design status | L2 tariff trial implemented and deployed after isolated validation; production financial reservations and L1 collection remain draft. No core protocol or genesis change. See the fifth increment and its deployment audit below. |

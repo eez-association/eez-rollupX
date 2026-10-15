@@ -67,15 +67,15 @@ pub struct GasEstimator {
     recipient: Address,
 }
 
-struct Snapshot {
+pub(super) struct Snapshot {
     l1: L1SlotState,
     l1_env: EvmEnv,
     l1_attributes: NextBlockEnvAttributes,
-    l2_parent: SealedHeader<Header>,
-    l2_timestamp: u64,
-    l2_randao: B256,
+    pub(super) l2_parent: SealedHeader<Header>,
+    pub(super) l2_timestamp: u64,
+    pub(super) l2_randao: B256,
     settled_root: B256,
-    generation: u64,
+    pub(super) generation: u64,
 }
 #[derive(Debug)]
 struct Probe {
@@ -123,6 +123,19 @@ impl GasEstimator {
         request: TransactionRequest,
         deadline: Instant,
     ) -> Result<u64, EstimateError> {
+        let snapshot = self.snapshot()?;
+        self.estimate_on_snapshot(direction, request, deadline, &snapshot)
+    }
+
+    /// Reuse one pinned context for gas discovery and fee variants. The fee
+    /// worker owns the aggregate deadline and permit; this acquires neither.
+    pub(super) fn estimate_on_snapshot(
+        &self,
+        direction: Direction,
+        request: TransactionRequest,
+        deadline: Instant,
+        snapshot: &Snapshot,
+    ) -> Result<u64, EstimateError> {
         if request.from.is_none() {
             return Err(EstimateError::Invalid("from is required".into()));
         }
@@ -139,13 +152,12 @@ impl GasEstimator {
                 "only legacy, access-list and EIP-1559 source calls are supported",
             ));
         }
-        let snapshot = self.snapshot()?;
         let source = if direction == Direction::Inbound {
             &self.l1
         } else {
             &self.l2
         };
-        let mut draft = self.l2_draft(&snapshot)?;
+        let mut draft = self.l2_draft(snapshot)?;
         let mut fork = draft.fork().map_err(unavailable)?;
         let mut env = if direction == Direction::Inbound {
             snapshot.l1_env.clone()
@@ -203,7 +215,7 @@ impl GasEstimator {
                 .gas_limit
                 .min((available / U256::from(tx.gas_price)).saturating_to());
         }
-        let first = self.probe(direction, &snapshot, tx.clone(), deadline)?;
+        let first = self.probe(direction, snapshot, tx.clone(), deadline)?;
         // Native setup consumes block capacity. Its measured remainder can
         // tighten the high bound before the user's first execution.
         let ceiling = first.limit;
@@ -219,7 +231,7 @@ impl GasEstimator {
             ceiling
         } else {
             tx.gas_limit = candidate;
-            match self.probe(direction, &snapshot, tx.clone(), deadline) {
+            match self.probe(direction, snapshot, tx.clone(), deadline) {
                 Ok(ref lower)
                     if lower.limit == candidate
                         && same_actions(&first.actions, &lower.actions)
@@ -229,7 +241,7 @@ impl GasEstimator {
                 }
                 Ok(_) | Err(EstimateError::Revert(_) | EstimateError::Effects(_)) => {
                     tx.gas_limit = ceiling;
-                    let repeated = self.probe(direction, &snapshot, tx, deadline)?;
+                    let repeated = self.probe(direction, snapshot, tx, deadline)?;
                     if repeated.limit != ceiling
                         || !same_actions(&first.actions, &repeated.actions)
                         || first.output != repeated.output
@@ -262,6 +274,45 @@ impl GasEstimator {
             "wallet gas estimate completed"
         );
         Ok(selected)
+    }
+
+    /// Gas and pricing must use the exact posting target, including skipped-slot
+    /// timestamps and the poster's fee environment, rather than independently
+    /// choosing a nominal next slot.
+    pub(super) fn quote_snapshot(
+        &self,
+        posting: &super::posting::PostingQuote,
+    ) -> Result<Snapshot, EstimateError> {
+        let mut snapshot = self.snapshot()?;
+        if snapshot.l1.anchor.hash() != posting.quote.sample.hash {
+            return Err(EstimateError::ContextChanged);
+        }
+        snapshot.l1_env = posting.env.clone();
+        snapshot.l1_attributes = posting.attributes.clone();
+        snapshot.l1.posting = Some((
+            posting.env.clone(),
+            self.poster,
+            posting.quote.estimated_effective_gas_price,
+        ));
+        Ok(snapshot)
+    }
+
+    /// Validate effects at the final gas limit and effective price; discovering
+    /// gas at a provisional price alone cannot validate GASPRICE-dependent code.
+    pub(super) fn validate_quote(
+        &self,
+        snapshot: &Snapshot,
+        tx: TxEnv,
+        deadline: Instant,
+    ) -> Result<u64, EstimateError> {
+        let gas = tx.gas_limit;
+        let replay = self.probe(Direction::Outbound, snapshot, tx, deadline)?;
+        if replay.limit != gas {
+            return Err(EstimateError::Effects(
+                "quoted gas exceeds native block capacity".into(),
+            ));
+        }
+        Ok(replay.source_gas)
     }
 
     fn snapshot(&self) -> Result<Snapshot, EstimateError> {
@@ -448,10 +499,36 @@ impl GasEstimator {
             return Err(EstimateError::Revert(source.output));
         }
         let _sessions = builder.take_sessions();
-        let composition = builder.finalize().map_err(unsupported)?;
-        if composition.actions.is_empty() {
+        // Finalization requires cross-chain entries; ordinary calls must take
+        // the native replay path before that protocol-only validation.
+        if builder.recorded_count() == 0 {
+            if direction == Direction::Outbound {
+                let mut fork = draft.fork().map_err(unavailable)?;
+                let limit = tx.gas_limit.min(fork.remaining_gas());
+                let mut tx = tx;
+                tx.gas_limit = limit;
+                let user = fork
+                    .execute_unsigned(tx, revm::inspector::NoOpInspector)
+                    .map_err(unavailable)?;
+                if !user.success {
+                    return Err(EstimateError::Revert(user.output));
+                }
+                if user.output != source.output {
+                    return Err(EstimateError::Effects(
+                        "ordinary replay output changed".into(),
+                    ));
+                }
+                return Ok(Probe {
+                    required: user.gas_required,
+                    limit,
+                    source_gas: user.gas_used,
+                    output: user.output,
+                    actions: vec![],
+                });
+            }
             return Err(unsupported("request did not produce a cross-chain action"));
         }
+        let composition = builder.finalize().map_err(unsupported)?;
         if composition
             .targets
             .iter()

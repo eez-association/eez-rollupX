@@ -995,46 +995,130 @@ Rollback omits version 2 pricing; it changes no protocol, wire commitments,
 genesis, follower replay or durable queue state. Existing admission and posting
 events remain version 1. This feature makes no durable financial reservation.
 
-## Unsigned L2 fee quotes
+## Compact fee quotes
 
-When `EEZ_L2_FEE_SHADOW_POLICY` is configured, the L2 Composer front accepts
-`eez_quoteL2ToL1Fee` with JSON-RPC positional params `[intent]`, and retains
-`POST /eez/fees/l2-to-l1` with the intent as its body. Both use the same quote
-engine and worker budget. They return advisory ordinary legacy or type-2 wallet
-fields before signing. A quote does not enqueue work, reserve
-funds, request a proof, sign, submit, or change admission rules. The L1 front
-does not serve quotes. The service waits for the existing startup readiness
-gate. Missing policy returns `404 quotes_disabled`; there is no default tariff.
-
-The intent is exactly this object, with JSON-RPC hex quantities and explicit
-fields (addresses and calldata below are illustrative):
+`eez_quoteFee` and `eez_debugQuoteFee` use positional params `[intent, options?]`
+on the Composer fronts only. `/composer/l2` selects L2-origin pricing.
+`/composer/l1` returns `-32004` with `error.data.code = "unsupported_direction"`:
+L1-origin builder-refund recovery is not implemented. Regular node/follower
+transports do not expose either method. These are project-specific JSON-RPC
+methods, not Ethereum standard methods.
 
 ```json
 {
-  "type": "0x2",
-  "chainId": "0x1",
-  "from": "0x1111111111111111111111111111111111111111",
-  "to": "0x2222222222222222222222222222222222222222",
-  "nonce": "0x0",
-  "gas": "0x124f80",
-  "value": "0x0",
-  "data": "0x1234"
+  "jsonrpc": "2.0", "id": 1, "method": "eez_quoteFee",
+  "params": [
+    { "from": "0x1111111111111111111111111111111111111111",
+      "to": "0x2222222222222222222222222222222222222222", "data": "0x1234" },
+    { "transactionTypes": ["0x0", "0x2"] }
+  ]
 }
 ```
 
-All fields are mandatory; unknown fields, supplied fees, creation, access lists,
-authorizations, blob sources and reserved senders are rejected. The source
-type is `0x0` for an EIP-155-protected legacy transaction or `0x2` for EIP-1559;
-the service preserves that type in execution, DA sizing and returned fields.
-Replay-unprotected signed legacy transactions are rejected. The source
-must use the node's L2 chain ID and produce a supported outbound settlement
-group. Values remain subject to normal source balance checks and the pinned
-L1 rollup escrow. Quotes do not fund either account. The application supplies
-a gas limit between 21,000 and 16,777,216 (the active EIP-7825 transaction cap)
-and must keep it unchanged when signing. This bound applies to both quotes and
-signed tariff admission. Upgrade Composer and every SDK copy together: older
-versions reject limits above 5,000,000 even when native execution permits them.
-This endpoint does not solve gas-limit discovery for arbitrary cross-chain calls.
+`from` and `to` are required; creation is unsupported. `value` defaults to `0x0`
+and `data` to `0x`. `chainId` defaults to the front's source network; a mismatch
+is rejected. `nonce` defaults to the pinned source state. An explicit nonce must
+match it, and an already-owned nonce is rejected: queued predecessors are not
+simulated. This read does not reserve a nonce or observe an ordinary mempool;
+clients must recheck the wallet's pending nonce before signing.
+
+`gas` is optional. Its explicit value is preserved and must fit 21,000..16,777,216
+as well as native transaction/block capacity. When absent, the existing internal
+cross-chain estimator discovers and verifies it, including nested calls. The
+estimator and fee variants share one pinned L1/L2 context and exact posting target.
+The provisional gas search is followed by pricing and effect validation at the
+final gas and price. Gas/fee-sensitive code may require the high bound or fail
+explicitly; the API does not promise a minimum gas limit or universal convergence.
+
+`transactionTypes` defaults to `["0x0", "0x2"]`. Supply one type to reduce work.
+Alternatively `intent.type` selects one type; combining it with conflicting or
+multiple `transactionTypes` is invalid. Duplicates, empty selections, unknown
+options/intent fields, explicit nulls, fee fields, access lists and authorizations
+are rejected. Input quantities must be canonical hex strings.
+
+The compact result is:
+
+```json
+{
+  "version": 1,
+  "chainId": "0x1",
+  "nonce": "0x0",
+  "expiresAt": "0x6b000000",
+  "recoveryMode": "enforced_tariff",
+  "options": [
+    { "type": "0x0", "gas": "0x186a0", "gasPrice": "0xf",
+      "intentHash": "0x…", "estimatedFee": "0x4ce78" },
+    { "type": "0x2", "gas": "0x186a0", "maxPriorityFeePerGas": "0x5",
+      "maxFeePerGas": "0xf", "intentHash": "0x…", "estimatedFee": "0x4ce78" }
+  ]
+}
+```
+
+Values above are illustrative. Apart from numeric schema `version`, all compact
+quantities, including expiry Unix seconds, use canonical hex. Fees are in source
+native base units. `estimatedFee` is charged source gas times the quoted effective
+price; the separate maximum reservation is `gas * gasPrice` or `gas * maxFeePerGas`.
+Each option's `intentHash` is Keccak-256 of the normalized eight-field intent's
+UTF-8 JSON, with lexicographically sorted keys, no whitespace, lowercase addresses,
+calldata and minimal lowercase hex quantities. It includes resolved type/gas/nonce,
+chain, sender, destination, value and calldata. It does not authenticate the server
+or authorize execution. Signing changed fees or intent requires a fresh quote.
+
+`recoveryMode` is `enforced_tariff` when signed ingress and final dispatch enforce
+the configured tariff, otherwise `advisory`. Both are advisory estimates, not
+inclusion or treasury-realization guarantees. Ordinary L2 calls use zero settlement
+contribution; they still pay normal L2 execution fees. A missing fee policy or
+unknown L1 direction never becomes a zero-cost cross-chain quote.
+
+Every requested type has one ordered entry. A variant that cannot execute returns
+`{"type":"0x2","error":{"code":"unsupported_intent","message":"…"}}` instead
+of wallet fields. Bad balance/input for a variant uses `invalid_intent`. No variant
+may be signed when it contains an error. Shared unavailability, stale state, expiry
+or exhausted work fails the whole RPC with the existing quote error envelope;
+there are no partial successful options after those errors. Invalid request syntax,
+chain/nonce or selection fails with `-32602`. Transient errors never trigger a
+silent unquoted send.
+
+The debug method accepts identical params and returns the compact result plus
+`diagnostics.options`: the detailed calculation result (or error) for each type,
+including policy, contexts, measured costs and replay iterations. Ordinary-L2
+diagnostics use `estimate.basis = "ordinary_l2"` and zero `requiredL2Tip`; they do
+not invent L1 cost components. Debug is a projection of the same calculation,
+not a trace. Separate calls can select different contexts and need not be equal.
+
+Both methods share the existing one-worker, no-queue, ten-second request budget
+with signed tariff checks. Per type, at most three gas
+discovery probes, four pricing iterations and one final validation probe run
+(maximum sixteen across both types). Each probe may compose and replay nested
+execution. Pricing retains the aggregate 32-target-frame/eight-depth limit;
+discovery/final validation reuse the estimator's 64-recorded-action bound and
+shared deadline. Existing calldata, DA/history, gas and blob limits remain active.
+No ordinary estimator worker is acquired. Cancellation is cooperative; a running
+blocking frame retains its permit until it exits, including after RPC timeout.
+
+The dependency-free [SDK](../sdk/l2-fees.mjs) adds `requestFeeQuote`,
+`feeQuoteTransaction` and `sendFeeQuotedTransaction`. Supply an expected source
+`chainId`, selected type, `maxTotalFee` bigint and a `keccak256(utf8String)` function
+from the app's existing Ethereum library. For viem, use
+`text => keccak256(toHex(text))`. The helper verifies the resolved intent binding,
+expiry, selected type and maximum fee, and copies only approved wallet fields into
+the original intent. The send helper rechecks wallet account, network and pending
+nonce, then requests one ordinary transaction signature. Wallet approval delays,
+base-fee changes and wallet edits can invalidate the quote; native admission is
+still authoritative. Compact output does not pin a policy ID; applications that
+require policy verification must use/debug-check the diagnostic response.
+
+The API replacement is intentionally breaking: `eez_quoteL2ToL1Fee`, the
+`/eez/fees/l2-to-l1` HTTP route and the old SDK helpers are removed. Upgrade
+Composer and applications together; old callers fail instead of falling back.
+Coordinate rollback of both. This changes no storage, contracts, genesis,
+historical decoding, signer RPC or follower replay, and needs no data migration.
+Keep final signed native settlement validation enabled.
+
+## Unsigned L2 fee quotes
+
+Both methods use the following measured pricing contract. The diagnostic endpoint
+exposes its full evidence; the compact endpoint projects wallet-ready fields.
 
 The backend selects an exact L1 parent/next-block target and its normal posting
 fee sample. Its validated settlement scan must have reached that same L1 parent.
@@ -1086,7 +1170,7 @@ return that sum as `gasPrice`, with no EIP-1559 fee fields. On execution, only
 `gasUsed * (gasPrice - actualBaseFee)` counts as legacy priority revenue; the
 burned base fee is excluded. A base-fee increase can invalidate coverage.
 
-Successful JSON responses contain:
+Each successful `diagnostics.options` entry contains:
 
 | Field | Meaning |
 | --- | --- |
@@ -1107,12 +1191,11 @@ authenticates a quote or guarantees inclusion. Applications must trust their
 chosen endpoint and reviewed policy, preserve the original intent, and impose
 their own maximum fee.
 
-The SDK's wallet preflight compares chain ID, pending nonce and pending base fee
-by numeric value. Wallet middleware may return non-negative safe JavaScript
-integers or zero-padded hex strings; these observations are accepted without
-changing the quoted transaction. Hex observations are bounded to 256 bits;
-unsafe numbers and malformed or missing values fail before submission with the
-affected field identified. Intent and quote quantities remain canonical hex.
+The SDK compares wallet chain ID and pending nonce numerically, accepting
+safe non-negative integers or bounded zero-padded hex observations. Intent and
+quote quantities remain canonical. Wallet observations cannot change signed
+intent fields. The pending nonce check detects ordinary-mempool predecessors
+that isolated quote execution does not simulate.
 
 Work is limited to one request per node, with no queue; additional requests get
 `429 quote_busy`. The whole request has a ten-second deadline. Input is limited
@@ -1124,71 +1207,21 @@ or shutdown sets cancellation; checks between frames/history/replay steps stop
 further work. A running EVM frame cannot be interrupted, and retains the sole
 worker permit until it exits. Frames also have existing EVM gas limits.
 
-Malformed intent returns `400 invalid_intent`; unsupported execution or exhausted
-work bounds return `422 unsupported_intent` / `quote_limit`; a changed/expired
-context returns `409 stale_context`; missing state, reconciliation, escrow or
-pricing returns `503 quote_unavailable`; HTTP timeout returns `504 quote_timeout`.
-Errors have `{ "error": { "code": "...", "message": "..." } }`, except the
-front's existing plain-text 413 body-limit response. For JSON-RPC, malformed
-params/intents use `-32602`; other quote failures use `-32004` with the same
-stable error object in `error.data`. Successful `result` contains the unchanged
-quote response. The RPC method is absent (`-32601`) from the L1 front and regular
-node/follower RPCs. A policy-disabled L2 front reports `quotes_disabled`.
-JSON-RPC IDs, mixed batches and notifications follow the front's existing
-semantics; batch members execute sequentially under the shared worker bound.
-The 32 KiB intent bound also applies through JSON-RPC, alongside the front's
-overall request-body limit. Requote after a retryable
-context/availability change; never silently submit with a default fee.
+Malformed params/intents use JSON-RPC `-32602`; other shared quote failures
+use `-32004`, with `{code, message}` in `error.data`. Stable application codes
+include `invalid_intent`, `unsupported_intent`, `quote_limit`, `stale_context`,
+`quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
+Per-variant execution/input errors are represented as described above; shared
+errors never return a usable option. IDs, mixed batches and notifications follow
+the front's existing semantics. Members execute sequentially under the shared
+worker bound. The 32 KiB intent/options bound applies alongside the front's
+overall transport-body limit. Requote after transient availability/context changes.
 
-The dependency-free [JavaScript helper](../sdk/l2-fees.mjs) fetches and validates
-the response and returns ordinary wallet fields. `maxTotalFee` is a mandatory
-application ceiling in L2 base units, covering `gas * maxFeePerGas` or legacy
-`gas * gasPrice` (excluding
-the intent's separately specified value). `expectedPolicyId` optionally pins
-the reviewed policy. `sendQuotedTransaction` checks chain, authorized account,
-pending nonce/base fee and expiry before calling `eth_sendTransaction` once. It requests
-no second signature, permit or payment. The wallet's broadcast RPC must already
-be the EEZ route; selecting a quote transport does not change it. Supply either
-a direct Composer `rpc(method, params)` function or the existing HTTP quote URL
-to `requestL2FeeQuote`; not both. Injected wallets need not forward custom RPCs.
-
-```js
-import { requestL2FeeQuote, sendQuotedTransaction } from './sdk/l2-fees.mjs';
-const args = { intent, maxTotalFee: 10n ** 17n }; // App-selected L2 fee ceiling.
-const quote = await requestL2FeeQuote({ ...args, rpc: composerRpc });
-const hash = await sendQuotedTransaction({ ...args, quote, wallet });
-```
-
-Changing the gas limit, nonce, calldata, value or fee fields invalidates the
-estimate. Later state/base-fee changes, wallet edits and time spent approving
-can invalidate it too. The quote supplies no inclusion deadline guarantee,
-liquid L1 reserve, treasury realization or durable financial
-ledger. Final native bundle execution remains mandatory for settlement.
-The SDK checks expiry before opening the wallet, not after a signature already
-broadcast by it. Its JSON numeric chain/context validation supports safe
-JavaScript integers only.
-
-The RPC method and legacy profile are additive application APIs: standard
-wallet RPCs, protocol commitments, genesis,
-historical decoding and follower replay are unchanged. Deploy a compatible
-Composer/front and configure its reviewed policy before enabling the app helper;
-an older front lacks the custom quote method and legacy profile, and a
-policy-disabled front cannot provide quotes. Upgrade the node before clients
-select the new method or legacy type; roll those clients back before restoring
-an older node. Existing type-2 HTTP clients continue working. Rollback disables quote
-availability; existing signed/accepted transactions retain their normal behavior.
-Applications must stop the quote flow on missing/unsupported responses. No
-database migration is required. SDK checks run with `node sdk/l2-fees.test.mjs`;
-the source-based process regression is the `fee_quotes::` module.
-
-The measured-settlement correction changes `estimate.basis` while retaining
-response version 1 and wallet transaction fields. Upgrade the SDK/dashboard
-first: it accepts both the previous projection basis and the new measured basis.
-Then upgrade Composer, including signed ingress and cumulative prefix checks.
-An older SDK rejects the new basis; an older Composer can reject the lower fees
-quoted by the new implementation. Drain accepted requests before handover and
-requote after a rollback. Protocol, signing RPC, genesis, historical decoding and
-follower replay are unchanged; there is no persistent-data migration.
+Changing gas, nonce, calldata, value or fee fields invalidates the estimate.
+Later state/base-fee changes, wallet edits and approval delays can invalidate it
+too. Quotes provide no inclusion guarantee, liquid L1 reserve, treasury realization
+or durable financial ledger. SDK checks run with `node sdk/l2-fees.test.mjs`;
+source-based process regressions are selected with `fee_quotes::`.
 
 ### Opt-in L2 tariff admission
 
@@ -1243,10 +1276,9 @@ state, price and availability changes; this is not an inclusion guarantee.
 The dashboard enables the fee flow with `EEZ_UI_L2_FEES_ENABLED=true` and caps
 the wallet's maximum execution fee with `EEZ_UI_L2_FEE_MAX_TOTAL_WEI` (default
 `100000000000000000` L2 wei). It quotes before the single ordinary wallet
-signature and preserves explicit fees for injected wallets and the disposable
-local test signer. Its `/composer/l2/eez/fees/l2-to-l1` proxy must reach the
-Composer's application endpoint for existing clients. Updated dashboards call
-`eez_quoteL2ToL1Fee` directly on the L2 Composer RPC and default to legacy quotes
+signature and preserves quoted fees for injected wallets and the disposable
+local test signer. It calls `eez_quoteFee` directly on `/composer/l2`, including
+internal gas estimation, and defaults to legacy quotes
 when the selected provider identifies itself as Rabby, whose custom-network
 path uses `gasPrice`. Other providers default to type 2; an explicit supported
 transaction type is preserved. Quote failures stop submission rather than

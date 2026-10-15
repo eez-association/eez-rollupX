@@ -36,90 +36,82 @@ function validateIntent(intent) {
   if (quantity(intent.gas) < 21000n || quantity(intent.gas) > 16777216n) throw new Error("Gas outside quote profile");
 }
 
-function sameField(key, actual, expected) {
-  return quantityKeys.includes(key) ? quantity(actual) === quantity(expected) :
-    typeof actual === "string" && actual.toLowerCase() === expected.toLowerCase();
+function compactIntent(intent) {
+  if (!intent || Array.isArray(intent) || Object.keys(intent).some(key => !intentKeys.includes(key))) throw new Error("Unexpected intent fields");
+  const normalized = { type: "0x2", chainId: "0x1", nonce: "0x0", gas: "0x1000000", value: "0x0", data: "0x", ...intent };
+  validateIntent(normalized);
+  return Object.fromEntries(Object.entries(normalized).map(([key, value]) => [key,
+    quantityKeys.includes(key) ? `0x${quantity(value).toString(16)}` : value.toLowerCase()]));
 }
 
-function decimal(value) {
-  if (typeof value !== "string" || !/^(0|[1-9][0-9]*)$/.test(value) || value.length > 78) throw new Error("Invalid quote amount");
-  return BigInt(value);
-}
-
-/** Validate exact intent, expiry, quoted coverage and the app's maximum L2
- * execution fee (gas limit * gasPrice or maxFeePerGas). Returns a fresh wallet transaction.
- * maxTotalFee is a bigint in L2 native base units; no floating-point currency.
- * The quote server and its conversion policy remain trusted advisory inputs.
+/** One Composer call; omitted gas/nonce are resolved by the server. Does not
+ * sign or silently fall back to an unquoted transaction on old servers/errors.
  */
-export function quotedTransaction({ quote, intent, maxTotalFee, now = Date.now(), expectedPolicyId }) {
-  validateIntent(intent);
-  if (typeof maxTotalFee !== "bigint" || maxTotalFee < 0n) throw new Error("A bigint maxTotalFee is required");
-  if (quote?.version !== 1 || quote.mode !== "advisory") throw new Error("Unsupported quote version or mode");
-  if (!Number.isSafeInteger(quote.issuedAt) || !Number.isSafeInteger(quote.expiresAt) ||
-      quote.expiresAt <= quote.issuedAt || quote.expiresAt - quote.issuedAt > 10 ||
-      now >= quote.expiresAt * 1000 || quote.issuedAt * 1000 > now + 1000) throw new Error("Quote expired or invalid clock");
-  exactKeys(quote.intent, intentKeys);
-  const fees = feeKeys(intent);
-  exactKeys(quote.transaction, [...intentKeys, ...fees]);
-  for (const key of intentKeys) {
-    if (!sameField(key, quote.intent[key], intent[key]) || !sameField(key, quote.transaction[key], intent[key])) throw new Error(`Quote changed ${key}`);
-  }
-  const context = quote.context;
-  if (!Number.isSafeInteger(context?.l2ChainId) || BigInt(context.l2ChainId) !== quantity(intent.chainId) ||
-      !Number.isSafeInteger(context.rollupId) || context.rollupId < 1 ||
-      context.l2ChainId !== quote.policy?.assumptions?.l2_chain_id || context.rollupId !== quote.policy.assumptions.rollup_id) throw new Error("Quote chain or policy mismatch");
-  if (!/^0x[0-9a-f]{64}$/i.test(quote.policy.id) || (expectedPolicyId && quote.policy.id.toLowerCase() !== expectedPolicyId.toLowerCase())) throw new Error("Quote policy changed");
-  const estimate = quote.estimate;
-  const base = decimal(estimate?.l2BaseFeePerGas);
-  const legacy = quantity(intent.type) === 0n;
-  const cap = quantity(legacy ? quote.transaction.gasPrice : quote.transaction.maxFeePerGas);
-  const tip = legacy ? cap - base : quantity(quote.transaction.maxPriorityFeePerGas);
-  if (!["isolated_native_l2_replay_and_projected_l1_post", "isolated_native_l2_and_l1_settlement"].includes(estimate?.basis) ||
-      !Number.isSafeInteger(estimate.sourceGasUsed) || estimate.sourceGasUsed <= 0 ||
-      BigInt(estimate.sourceGasUsed) > quantity(intent.gas) || tip < 0n || cap !== tip + base ||
-      tip * BigInt(estimate.sourceGasUsed) !== decimal(estimate.grossL2Tip) ||
-      decimal(estimate.grossL2Tip) < decimal(estimate.requiredL2Tip)) throw new Error("Inconsistent fee estimate");
-  if (cap * quantity(intent.gas) > maxTotalFee) throw new Error("Quoted maximum fee exceeds app limit");
-  // Copy only validated fields, never forward arbitrary server properties.
-  return Object.fromEntries([...intentKeys, ...fees].map(key => [key, quote.transaction[key]]));
-}
-
-/** Fetch a quote through a Composer RPC function (method, params), or the
- * existing HTTP route's complete URL. Use a direct RPC client: injected wallets
- * may filter custom methods. Neither transport signs, reserves or submits.
- */
-export async function requestL2FeeQuote({ rpc, url, intent, maxTotalFee, expectedPolicyId, signal, fetchImpl = globalThis.fetch }) {
-  validateIntent(intent);
-  if ((rpc == null) === (url == null) || (rpc != null && typeof rpc !== "function")) throw new Error("Supply either a Composer RPC function or an HTTP quote URL");
-  let quote;
-  if (rpc) {
-    quote = await rpc("eez_quoteL2ToL1Fee", [intent]);
-  } else {
-    const response = await fetchImpl(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(intent), signal });
-    quote = await response.json();
-    if (!response.ok) throw new Error(`Fee quote ${quote?.error?.code ?? response.status}: ${quote?.error?.message ?? "unavailable"}`);
-  }
-  quotedTransaction({ quote, intent, maxTotalFee, expectedPolicyId });
+export async function requestFeeQuote({ rpc, intent, transactionTypes }) {
+  compactIntent(intent);
+  if (typeof rpc !== "function") throw new Error("A Composer RPC function is required");
+  const types = transactionTypes ?? (intent.type ? [intent.type] : ["0x0", "0x2"]);
+  if (!Array.isArray(types) || types.length < 1 || types.length > 2 ||
+      types.some(type => !["0x0", "0x2"].includes(type)) || new Set(types).size !== types.length ||
+      (intent.type && (types.length !== 1 || quantity(types[0]) !== quantity(intent.type)))) throw new Error("Invalid transactionTypes");
+  const quote = await rpc("eez_quoteFee", [intent, { transactionTypes: types }]);
+  if (!Array.isArray(quote?.options) || quote.options.length !== types.length ||
+      quote.options.some((option, i) => option.type !== types[i])) throw new Error("Quote changed requested transaction types");
   return quote;
 }
 
-/** Recheck an authorized EIP-1193 wallet's chain, account, pending nonce/base fee,
- * then request its one normal transaction signature. Expiry is checked before
- * opening the wallet; approval delays, wallet edits and later state changes
- * require a new quote and remain outside this advisory guarantee.
+/** Select exactly one compact option and bind it to the caller's original
+ * intent. keccak256 receives a UTF-8 string and returns its 0x-prefixed hash;
+ * inject the application's existing Ethereum library (no extra SDK dependency).
+ * chainId is the application's expected source network, not a server default.
  */
-export async function sendQuotedTransaction({ wallet, quote, intent, maxTotalFee, expectedPolicyId }) {
-  const validate = () => quotedTransaction({ quote, intent, maxTotalFee, expectedPolicyId });
-  validate();
-  const [chainId, accounts, nonce, pending] = await Promise.all([
-    wallet.request({ method: "eth_chainId" }),
-    wallet.request({ method: "eth_accounts" }),
-    wallet.request({ method: "eth_getTransactionCount", params: [intent.from, "pending"] }),
-    wallet.request({ method: "eth_getBlockByNumber", params: ["pending", false] }),
+export function feeQuoteTransaction({ quote, intent, type, chainId, keccak256, maxTotalFee, now = Date.now() }) {
+  const normalized = compactIntent(intent);
+  if (quote?.version !== 1 || !["advisory", "enforced_tariff"].includes(quote.recoveryMode)) throw new Error("Unsupported fee quote");
+  if (typeof maxTotalFee !== "bigint" || maxTotalFee < 0n) throw new Error("A bigint maxTotalFee is required");
+  if (quantity(chainId) !== quantity(quote.chainId) || (intent.chainId && quantity(intent.chainId) !== quantity(chainId))) throw new Error("Quote chain mismatch");
+  const expiry = quantity(quote.expiresAt) * 1000n;
+  if (!Number.isSafeInteger(now) || expiry <= BigInt(now) || expiry > BigInt(now) + 11_000n) throw new Error("Quote expired or invalid clock");
+  if (!["0x0", "0x2"].includes(type) || (intent.type && quantity(intent.type) !== quantity(type))) throw new Error("Quote type mismatch");
+  if (!Array.isArray(quote.options) || quote.options.length < 1 || quote.options.length > 2 ||
+      quote.options.some(option => !["0x0", "0x2"].includes(option.type)) ||
+      new Set(quote.options.map(option => option.type)).size !== quote.options.length) throw new Error("Invalid quote options");
+  const option = quote.options.find(option => option.type === type);
+  if (!option || option.error) throw new Error(`Fee option unavailable: ${option?.error?.code ?? "missing"}`);
+  const fees = feeKeys({ type });
+  exactKeys(option, ["type", "gas", "intentHash", "estimatedFee", ...fees]);
+  for (const key of ["gas", "nonce"]) {
+    const resolved = key === "gas" ? option.gas : quote.nonce;
+    if (intent[key] != null && quantity(intent[key]) !== quantity(resolved)) throw new Error(`Quote changed ${key}`);
+    normalized[key] = `0x${quantity(resolved).toString(16)}`;
+  }
+  normalized.type = type;
+  normalized.chainId = `0x${quantity(chainId).toString(16)}`;
+  validateIntent(normalized);
+  if (quantity(normalized.nonce) > (1n << 64n) - 1n || quantity(normalized.chainId) > (1n << 64n) - 1n) throw new Error("Quantity exceeds u64");
+  const canonical = JSON.stringify(Object.fromEntries([...intentKeys].sort().map(key => [key, normalized[key]])));
+  if (typeof keccak256 !== "function" || typeof option.intentHash !== "string" ||
+      !/^0x[0-9a-f]{64}$/i.test(option.intentHash) || keccak256(canonical).toLowerCase() !== option.intentHash.toLowerCase()) throw new Error("Quote intent binding mismatch");
+  const cap = quantity(type === "0x0" ? option.gasPrice : option.maxFeePerGas);
+  if (cap > (1n << 128n) - 1n || (type === "0x2" && quantity(option.maxPriorityFeePerGas) > cap)) throw new Error("Invalid fee fields");
+  const maximum = quantity(option.gas) * cap;
+  if (quantity(option.estimatedFee) > maximum) throw new Error("Inconsistent estimated fee");
+  if (maximum > maxTotalFee) throw new Error("Quoted maximum fee exceeds app limit");
+  return { ...normalized, ...Object.fromEntries(fees.map(key => [key, option[key]])) };
+}
+
+/** Wallet approval can outlive the quote. Native admission remains authoritative;
+ * a rejected/expired transaction needs a new quote, never an unquoted retry.
+ */
+export async function sendFeeQuotedTransaction({ wallet, ...args }) {
+  const validate = () => feeQuoteTransaction({ ...args, now: Date.now() });
+  const tx = validate();
+  const [chain, accounts, nonce] = await Promise.all([
+    wallet.request({ method: "eth_chainId" }), wallet.request({ method: "eth_accounts" }),
+    wallet.request({ method: "eth_getTransactionCount", params: [tx.from, "pending"] }),
   ]);
-  if (walletQuantity(chainId, "chain ID") !== quantity(intent.chainId)) throw new Error("Wallet is on a different chain");
-  if (!Array.isArray(accounts) || !accounts.some(account => typeof account === "string" && account.toLowerCase() === intent.from.toLowerCase())) throw new Error("Wallet account changed");
-  if (walletQuantity(nonce, "pending nonce") !== quantity(intent.nonce)) throw new Error("Wallet nonce changed; request a new quote");
-  if (walletQuantity(pending?.baseFeePerGas, "pending base fee") !== decimal(quote.estimate.l2BaseFeePerGas)) throw new Error("Base fee changed; request a new quote");
+  if (walletQuantity(chain, "chain ID") !== quantity(tx.chainId)) throw new Error("Wallet is on a different chain");
+  if (!Array.isArray(accounts) || !accounts.some(account => typeof account === "string" && account.toLowerCase() === tx.from)) throw new Error("Wallet account changed");
+  if (walletQuantity(nonce, "pending nonce") !== quantity(tx.nonce)) throw new Error("Wallet nonce changed; request a new quote");
   return wallet.request({ method: "eth_sendTransaction", params: [validate()] });
 }

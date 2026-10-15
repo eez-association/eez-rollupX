@@ -64,7 +64,9 @@ mod config;
 mod costs;
 pub mod estimate;
 mod fees;
-pub use fees::quote::{FeeQuoteError, L2FeeRequest, PreparedL2FeeQuote};
+pub use fees::quote::{
+    CompactFeeRequest, FeeQuoteError, L2FeeRequest, PreparedCompactFeeQuote, PreparedL2FeeQuote,
+};
 mod gas;
 pub(crate) mod gas_trace;
 mod policy;

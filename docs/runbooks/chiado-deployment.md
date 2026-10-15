@@ -649,17 +649,14 @@ stopped databases as for other binary upgrades. The
 [gas-cap deployment record](../audits/2026-10-15-l2-fee-gas-cap/README.md)
 distinguishes the expedited handover from subsequent regression checks.
 
-For the legacy/wallet compatibility increment, upgrade Composer before the
-dashboard. The dashboard uses `eez_quoteL2ToL1Fee` on the L2 Composer front;
-the existing `/eez/fees/l2-to-l1` HTTP route remains supported. Older Composers
-do not support this custom method or legacy fee quotes, so restore the older
-dashboard first when rolling back. This adds no contract/genesis migration.
-The [October 15 deployment](../audits/2026-10-15-l2-fee-deployment/README.md)
-records both transaction types on the tested Docker images, independent replay,
-and the completed Chiado handover. Static wallet discovery accepts standard
-block selectors, while transaction estimation can still report temporary
-settlement unavailability; the dashboard retries only the explicit supported
-temporary errors within its bounded retry policy.
+The [compact fee API](../configurable-settlement-policy.md#compact-fee-quotes)
+is an intentionally breaking replacement. Update the Composer, dashboard and
+other consumers together to `eez_quoteFee` / `eez_debugQuoteFee`; the old method,
+HTTP route and SDK helpers are removed. Both legacy and EIP-1559 transactions
+remain supported. A binary rollback requires matching client rollback and new
+quotes. Preserve policy, contracts, genesis and stopped database copies; no data
+migration is needed. Deployment of this API must be established by a new audit;
+older fee-deployment records do not validate it.
 
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer

@@ -1,10 +1,10 @@
-//! Application quotes over HTTP and JSON-RPC. One shared worker, no waiting
+//! Application quotes over JSON-RPC. One shared worker, no waiting
 //! queue; its permit remains owned by execution after timeout or cancellation.
 
 use alloy_consensus::Header;
 use eez_composer::{
     Composer,
-    composer::{FeeQuoteError, L2FeeRequest},
+    composer::{CompactFeeRequest, FeeQuoteError, L2FeeRequest},
 };
 use hyper::StatusCode;
 use reth_storage_api::{BlockReader, StateProviderFactory};
@@ -20,14 +20,19 @@ use std::{
 };
 use tokio::sync::Semaphore;
 
-pub(crate) const PATH: &str = "/eez/fees/l2-to-l1";
-pub(crate) const METHOD: &str = "eez_quoteL2ToL1Fee";
+pub(crate) const METHOD: &str = "eez_quoteFee";
+pub(crate) const DEBUG_METHOD: &str = "eez_debugQuoteFee";
 pub(crate) const MAX_BODY: usize = 32 * 1024;
 type Work = Box<dyn FnOnce(Arc<AtomicBool>) -> Result<Value, FeeQuoteError> + Send>;
 type Preparation = Pin<Box<dyn Future<Output = Result<Work, FeeQuoteError>> + Send>>;
 
+enum Request {
+    Signed(Box<L2FeeRequest>),
+    Compact(CompactFeeRequest, bool),
+}
+
 pub(crate) struct FeeQuotes {
-    prepare: Arc<dyn Fn(L2FeeRequest) -> Preparation + Send + Sync>,
+    prepare: Arc<dyn Fn(Request) -> Preparation + Send + Sync>,
     executor: TaskExecutor,
     permits: Arc<Semaphore>,
     timeout: Duration,
@@ -61,11 +66,25 @@ impl FeeQuotes {
             prepare: Arc::new(move |request| {
                 let composer = composer.clone();
                 Box::pin(async move {
-                    let prepared = composer.prepare_l2_fee_quote(rollup_id, request).await?;
-                    Ok(
-                        Box::new(move |cancelled| composer.quote_l2_fee(prepared, cancelled))
-                            as Work,
-                    )
+                    match request {
+                        Request::Signed(request) => {
+                            let prepared =
+                                composer.prepare_l2_fee_quote(rollup_id, *request).await?;
+                            Ok(
+                                Box::new(move |cancelled| {
+                                    composer.quote_l2_fee(prepared, cancelled)
+                                }) as Work,
+                            )
+                        }
+                        Request::Compact(request, debug) => {
+                            let prepared = composer
+                                .prepare_compact_fee_quote(rollup_id, request)
+                                .await?;
+                            Ok(Box::new(move |cancelled| {
+                                composer.quote_fee(prepared, cancelled, debug)
+                            }) as Work)
+                        }
+                    }
                 })
             }),
             executor,
@@ -74,19 +93,23 @@ impl FeeQuotes {
         })
     }
 
-    pub(crate) async fn quote(&self, input: &Value) -> (StatusCode, Value) {
-        if input.to_string().len() > MAX_BODY {
+    pub(crate) async fn compact(
+        &self,
+        intent: &Value,
+        options: &Value,
+        debug: bool,
+    ) -> (StatusCode, Value) {
+        if intent.to_string().len() + options.to_string().len() > MAX_BODY {
             return error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "quote_limit",
-                "intent exceeds 32 KiB",
+                "quote exceeds 32 KiB",
             );
         }
-        let request = match L2FeeRequest::parse(input) {
-            Ok(request) => request,
-            Err(error) => return failure(error),
-        };
-        self.run(request).await
+        match CompactFeeRequest::parse(intent, options) {
+            Ok(request) => self.run(Request::Compact(request, debug)).await,
+            Err(error) => failure(error),
+        }
     }
 
     pub(crate) async fn check_signed(
@@ -94,12 +117,12 @@ impl FeeQuotes {
         envelope: &alloy_consensus::TxEnvelope,
     ) -> (StatusCode, Value) {
         match L2FeeRequest::from_signed(envelope) {
-            Ok(request) => self.run(request).await,
+            Ok(request) => self.run(Request::Signed(Box::new(request))).await,
             Err(error) => failure(error),
         }
     }
 
-    async fn run(&self, request: L2FeeRequest) -> (StatusCode, Value) {
+    async fn run(&self, request: Request) -> (StatusCode, Value) {
         let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
             return error(
                 StatusCode::TOO_MANY_REQUESTS,
@@ -246,16 +269,7 @@ mod tests {
                 json!({"jsonrpc":"2.0","id":id,"result":{"quote":"shared"}})
             );
         }
-        let http: Value = client
-            .post(format!("{url}{PATH}"))
-            .json(&intent())
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(http, json!({"quote":"shared"}));
+        let expected = json!({"quote":"shared"});
         let batch: Value = client
             .post(&url)
             .json(&json!([
@@ -269,7 +283,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(batch[0]["id"], -2);
-        assert_eq!(batch[0]["result"], http);
+        assert_eq!(batch[0]["result"], expected);
         assert_eq!(batch[1]["id"], "info");
         let mut oversized = intent();
         oversized["data"] = json!("x".repeat(MAX_BODY));
@@ -305,8 +319,31 @@ mod tests {
                 .unwrap();
             assert_eq!(response["error"]["code"], -32602, "{response}");
         }
-        // A held permit applies to both transports; switching to JSON-RPC must
-        // not create a second simulation worker.
+        for method in [METHOD, DEBUG_METHOD] {
+            for params in [
+                json!([{"from":intent()["from"],"to":intent()["to"]}]),
+                json!([intent(), {"transactionTypes":["0x2"]}]),
+            ] {
+                let response: Value = client
+                    .post(&url)
+                    .json(&json!({
+                        "jsonrpc":"2.0", "id":"compact", "method":method,"params":params
+                    }))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
+                assert_eq!(response["result"], expected, "{response}");
+            }
+            let response: Value = client.post(&url).json(&json!({
+                "jsonrpc":"2.0", "id":2, "method":method, "params":[intent(), {"transactionTypes":["0x0"]}]
+            })).send().await.unwrap().json().await.unwrap();
+            assert_eq!(response["error"]["code"], -32602);
+        }
+        // Both diagnostic and compact requests share signed admission
+        // capacity; switching methods cannot create another worker.
         let permit = service.permits.acquire().await.unwrap();
         let response: Value = client
             .post(&url)
@@ -318,16 +355,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response["error"]["data"]["code"], "quote_busy");
-        assert_eq!(
-            client
-                .post(format!("{url}{PATH}"))
-                .json(&intent())
-                .send()
-                .await
-                .unwrap()
-                .status(),
-            429
-        );
         drop(permit);
         let mut notification = call.clone();
         notification.as_object_mut().unwrap().remove("id");
@@ -348,7 +375,7 @@ mod tests {
     // not make its slot available until this worker is explicitly released.
     #[tokio::test]
     async fn cancelled_or_timed_out_request_keeps_worker_permit_until_exit() {
-        for timeout in [false, true] {
+        for (timeout, compact) in [(false, false), (true, false), (false, true), (true, true)] {
             let (started_tx, started_rx) = tokio::sync::oneshot::channel();
             let (finish_tx, finish_rx) = std::sync::mpsc::channel();
             let channels = std::sync::Mutex::new(Some((started_tx, finish_rx)));
@@ -370,10 +397,20 @@ mod tests {
                 timeout: Duration::from_millis(if timeout { 200 } else { 30_000 }),
             });
             let cloned = Arc::clone(&service);
-            let request = tokio::spawn(async move { cloned.quote(&intent()).await });
+            let request = tokio::spawn(async move {
+                if compact {
+                    cloned.compact(&intent(), &json!({}), false).await
+                } else {
+                    cloned
+                        .run(Request::Signed(Box::new(
+                            L2FeeRequest::parse(&intent()).unwrap(),
+                        )))
+                        .await
+                }
+            });
             let cancelled = started_rx.await.unwrap();
             assert_eq!(
-                service.quote(&intent()).await.0,
+                service.compact(&intent(), &json!({}), false).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             if timeout {
@@ -384,7 +421,7 @@ mod tests {
             }
             assert!(cancelled.load(Ordering::Relaxed));
             assert_eq!(
-                service.quote(&intent()).await.0,
+                service.compact(&intent(), &json!({}), false).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             finish_tx.send(()).unwrap();
@@ -406,9 +443,12 @@ mod tests {
             permits: Arc::new(Semaphore::new(1)),
             timeout: Duration::ZERO,
         };
-        assert_eq!(service.quote(&json!({})).await.0, StatusCode::BAD_REQUEST);
         assert_eq!(
-            service.quote(&intent()).await.0,
+            service.compact(&json!({}), &json!({}), false).await.0,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            service.compact(&intent(), &json!({}), false).await.0,
             StatusCode::GATEWAY_TIMEOUT
         );
         assert_eq!(service.permits.available_permits(), 1);

@@ -567,13 +567,46 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
             &ctx.composer_info,
             ctx.expected_source_chain_id,
         )
-    } else if method == crate::fee_quotes::METHOD && ctx.direction == Direction::Outbound {
+    } else if matches!(
+        method,
+        crate::fee_quotes::METHOD | crate::fee_quotes::DEBUG_METHOD
+    ) {
         match request.get("params").and_then(Value::as_array) {
-            Some(params) if params.len() == 1 => {
-                let (status, value) = quote_response(ctx, &params[0]).await;
+            Some(params) if (1..=2).contains(&params.len()) => {
+                let (status, value) = if ctx.direction == Direction::Inbound {
+                    crate::fee_quotes::error(
+                        StatusCode::UNPROCESSABLE_ENTITY,
+                        "unsupported_direction",
+                        "L1-origin fee recovery is not implemented",
+                    )
+                } else if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
+                    crate::fee_quotes::error(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        "starting_up",
+                        STARTING_UP_MSG,
+                    )
+                } else if let Some(service) = &ctx.fee_quotes {
+                    service
+                        .compact(
+                            &params[0],
+                            params.get(1).unwrap_or(&serde_json::json!({})),
+                            method == crate::fee_quotes::DEBUG_METHOD,
+                        )
+                        .await
+                } else {
+                    crate::fee_quotes::error(
+                        StatusCode::NOT_FOUND,
+                        "quotes_disabled",
+                        "fee quotes are not configured",
+                    )
+                };
                 crate::fee_quotes::rpc_response(id, status, value)
             }
-            _ => error(id, -32602, "expected one transaction intent in params"),
+            _ => error(
+                id,
+                -32602,
+                "expected transaction intent and optional quote options",
+            ),
         }
     } else if method.starts_with("eez_") {
         let mut call = request.clone();
@@ -605,24 +638,6 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
         )
     };
     request.get("id").map(|_| response)
-}
-
-async fn quote_response(ctx: &Ctx, input: &Value) -> (StatusCode, Value) {
-    if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
-        crate::fee_quotes::error(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "starting_up",
-            STARTING_UP_MSG,
-        )
-    } else if let Some(service) = &ctx.fee_quotes {
-        service.quote(input).await
-    } else {
-        crate::fee_quotes::error(
-            StatusCode::NOT_FOUND,
-            "quotes_disabled",
-            "quotes are available only on a configured L2 front",
-        )
-    }
 }
 
 async fn handle_composer_methods(ctx: &Ctx, request: &Value) -> Response<Full<HyperBytes>> {
@@ -667,17 +682,11 @@ async fn handle(
             .expect("valid response"));
     }
 
-    let fee_quote = req.uri().path() == crate::fee_quotes::PATH;
-    let max_body = if fee_quote {
-        crate::fee_quotes::MAX_BODY
-    } else {
-        MAX_BODY
-    };
-    if content_length_exceeds(&req, max_body) {
+    if content_length_exceeds(&req, MAX_BODY) {
         return Ok(body_too_large());
     }
 
-    let body_bytes = match collect_body_limited(req.into_body(), max_body).await {
+    let body_bytes = match collect_body_limited(req.into_body(), MAX_BODY).await {
         Ok(Ok(bytes)) => bytes,
         Ok(Err(())) => return Ok(body_too_large()),
         Err(e) => {
@@ -690,26 +699,8 @@ async fn handle(
     };
 
     let Ok(json) = serde_json::from_slice::<Value>(&body_bytes) else {
-        if fee_quote {
-            let (status, value) =
-                crate::fee_quotes::error(StatusCode::BAD_REQUEST, "invalid_json", "invalid JSON");
-            let mut response = json_response(value.to_string());
-            *response.status_mut() = status;
-            return Ok(response);
-        }
         return Ok(rpc_error(Value::Null, -32700, "parse error"));
     };
-
-    if fee_quote {
-        let (status, value) = quote_response(&ctx, &json).await;
-        let mut response = json_response(value.to_string());
-        *response.status_mut() = status;
-        response.headers_mut().insert(
-            "Cache-Control",
-            hyper::header::HeaderValue::from_static("no-store"),
-        );
-        return Ok(response);
-    }
 
     // A JSON-RPC batch array would bypass the single-tx intercept and forward a
     // bundled cross-chain tx straight to the mempool; reject any batch carrying

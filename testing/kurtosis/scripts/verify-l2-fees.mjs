@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { requestL2FeeQuote, sendQuotedTransaction } from "../../../sdk/l2-fees.mjs";
+import { feeQuoteTransaction, sendFeeQuotedTransaction } from "../../../sdk/l2-fees.mjs";
 
 const env = name => {
   assert(process.env[name], `${name} is required`);
@@ -18,7 +18,8 @@ const manager = env("EEZL2_ADDRESS");
 const fixtureKey = env("EEZ_TEST_FEE_KEY");
 const output = env("EEZ_FEE_EVIDENCE_FILE");
 const maxTotalFee = 10n ** 17n;
-const quoteUrl = process.env.EEZ_TEST_FEE_QUOTE_URL ?? `${front}/eez/fees/l2-to-l1`;
+const quoteRpc = process.env.EEZ_TEST_FEE_RPC_URL ?? front;
+const quoteArgs = (quote, intent) => ({ quote, intent, type: intent.type, chainId: intent.chainId, maxTotalFee, keccak256: text => cast("keccak", text) });
 let id = 0;
 const hex = value => `0x${BigInt(value).toString(16)}`;
 function cast(...args) {
@@ -83,11 +84,11 @@ async function readUint(url, to, signature) {
 }
 async function getQuote(intent) {
   return until("available fee quote", async () => {
-    try { return await requestL2FeeQuote({ url: quoteUrl, intent, maxTotalFee }); }
-    catch (error) {
-      if (/Fee quote (stale_context|quote_unavailable|quote_busy)/.test(error.message)) return null;
-      throw error;
-    }
+    const response = await request(quoteRpc, "eez_debugQuoteFee", [intent]);
+    if (["stale_context", "quote_unavailable", "quote_busy"].includes(response.error?.data?.code)) return null;
+    assert(!response.error, JSON.stringify(response.error));
+    feeQuoteTransaction(quoteArgs(response.result, intent));
+    return response.result;
   }, 60);
 }
 async function submitRaw(raw) {
@@ -115,7 +116,7 @@ for (let index = 0; index < 2; index++) {
   await ordinary(l2, fixtureKey, manager, cast("calldata", "createCrossChainProxy(address,uint64)", target, "0"));
   const inner = await deploy(l2, "NestedSetterWrapper.sol/NestedSetterInner.json", cast("abi-encode", "f(address)", proxy));
   const outer = await deploy(l2, "NestedSetterWrapper.sol/NestedSetterOuter.json", cast("abi-encode", "f(address)", inner));
-  const intent = { type: "0x2", chainId: hex(696990), from, to: outer, nonce: "0x0", gas: "0x124f80", value: "0x0", data: cast("calldata", "setViaInner(uint256)", String(123 + index)) };
+  const intent = { type: "0x2", chainId: hex(696990), from, to: outer, nonce: "0x0", value: "0x0", data: cast("calldata", "setViaInner(uint256)", String(123 + index)) };
   assert.equal(BigInt(intent.chainId), 696990n);
   fixtures.push({ key, target, proxy, inner, intent, expected: BigInt(123 + index) });
 }
@@ -123,7 +124,7 @@ console.log("Two independently funded nested fixtures deployed");
 
 const first = fixtures[0];
 const initialQuote = await getQuote(first.intent);
-const badRaw = sign({ ...initialQuote.transaction, maxPriorityFeePerGas: "0x0" }, first.key);
+const badRaw = sign({ ...feeQuoteTransaction(quoteArgs(initialQuote, first.intent)), maxPriorityFeePerGas: "0x0" }, first.key);
 const rejected = await until("underpayment rejection", async () => {
   const result = await request(front, "eth_sendRawTransaction", [badRaw]);
   if (["stale_context", "quote_unavailable", "quote_busy"].includes(result.error?.data?.code)) return null;
@@ -146,7 +147,7 @@ for (const fixture of fixtures) {
     if (method === "eth_sendTransaction") { signatures++; return submitRaw(sign(params[0], fixture.key)); }
     return rpc(front, method, params);
   } };
-  const hash = await sendQuotedTransaction({ wallet, quote, intent: fixture.intent, maxTotalFee });
+  const hash = await sendFeeQuotedTransaction({ wallet, ...quoteArgs(quote, fixture.intent) });
   assert.equal(signatures, 1);
   evidence.sources.push({ hash, quote, target: fixture.target, proxy: fixture.proxy, inner: fixture.inner, expected: String(fixture.expected) });
 }
@@ -169,9 +170,9 @@ for (const source of evidence.sources) {
   assert.equal(paid.status, "0x1");
   await until("canonical L1 target state", async () => await readUint(l1, source.target, "value()") === BigInt(source.expected));
   assert.equal(await readUint(l2, source.inner, "completedProxyCalls()"), 1n);
-  assert.equal(block.miner.toLowerCase(), source.quote.policy.assumptions.beneficiary.toLowerCase());
+  assert.equal(block.miner.toLowerCase(), source.quote.diagnostics.options[0].policy.assumptions.beneficiary.toLowerCase());
   const tip = BigInt(paid.gasUsed) * (BigInt(paid.effectiveGasPrice) - BigInt(block.baseFeePerGas));
-  assert(tip >= BigInt(source.quote.estimate.requiredL2Tip), "actual tip must cover the quoted tariff");
+  assert(tip >= BigInt(source.quote.diagnostics.options[0].estimate.requiredL2Tip), "actual tip must cover the quoted tariff");
   source.receipt = paid;
   source.grossL2Tip = tip.toString();
   source.ownership = ownership;
@@ -184,7 +185,7 @@ for (const hash of new Set(evidence.sources.map(source => source.settlement.l1Tr
   assert.equal(post.type, "0x3", "settlement must use native blob DA");
   assert(BigInt(post.blobGasUsed) > 0n);
   const cost = BigInt(post.gasUsed) * BigInt(post.effectiveGasPrice) + BigInt(post.blobGasUsed) * BigInt(post.blobGasPrice);
-  const policy = sources[0].quote.policy.assumptions;
+  const policy = sources[0].quote.diagnostics.options[0].policy.assumptions;
   const subtotal = cost + BigInt(policy.proving_cost_l1) + BigInt(policy.operations_cost_l1) + BigInt(policy.treasury_cost_l1);
   const requiredL1 = subtotal + ceil(subtotal * BigInt(policy.risk_bps), 10_000n) + ceil(subtotal * BigInt(policy.profit_bps), 10_000n);
   const requiredL2 = ceil(requiredL1 * BigInt(policy.l1_per_l2_denominator), BigInt(policy.l1_per_l2_numerator));

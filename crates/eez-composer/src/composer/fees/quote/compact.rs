@@ -1,0 +1,446 @@
+//! Compact projections of the existing pricing engine. Each envelope is
+//! simulated independently, under one snapshot, deadline and worker permit.
+use super::{
+    Arc, AtomicBool, BlockReader, Budget, BundleTarget, Composer, FeeQuoteError, Header,
+    L2FeeRequest, MAX_SOURCE_GAS, PreparedL2FeeQuote, StateProviderFactory, Transaction, U256,
+    Value, json, unavailable, unix_now,
+};
+use crate::composer::estimate::EstimateError;
+
+#[derive(Debug)]
+pub struct CompactFeeRequest {
+    intent: Value,
+    types: Vec<u8>,
+}
+
+impl CompactFeeRequest {
+    /// Fee fields and unsupported transaction extensions are rejected. Defaults
+    /// resolve only missing fields; explicit null or malformed values are errors.
+    pub fn parse(intent: &Value, options: &Value) -> Result<Self, FeeQuoteError> {
+        let options = options
+            .as_object()
+            .ok_or(FeeQuoteError::Invalid("expected options object"))?;
+        if options.keys().any(|key| key != "transactionTypes") {
+            return Err(FeeQuoteError::Invalid("unknown quote option"));
+        }
+        let types = match options.get("transactionTypes") {
+            None => match intent.get("type") {
+                Some(value) => vec![tx_type(value)?],
+                None => vec![0, 2],
+            },
+            Some(value) => {
+                let types = value
+                    .as_array()
+                    .filter(|v| !v.is_empty() && v.len() <= 2)
+                    .ok_or(FeeQuoteError::Invalid(
+                        "transactionTypes must contain one or two types",
+                    ))?
+                    .iter()
+                    .map(tx_type)
+                    .collect::<Result<Vec<_>, _>>()?;
+                if types.len() == 2 && types[0] == types[1] {
+                    return Err(FeeQuoteError::Invalid("duplicate transaction type"));
+                }
+                if let Some(value) = intent.get("type")
+                    && types != [tx_type(value)?]
+                {
+                    return Err(FeeQuoteError::Invalid(
+                        "type conflicts with transactionTypes",
+                    ));
+                }
+                types
+            }
+        };
+        let request = Self {
+            intent: intent.clone(),
+            types,
+        };
+        // Reuse the established strict parser and limits before acquiring work.
+        request.resolve(1, 0, MAX_SOURCE_GAS, request.types[0])?;
+        Ok(request)
+    }
+
+    fn resolve(
+        &self,
+        chain: u64,
+        nonce: u64,
+        gas: u64,
+        ty: u8,
+    ) -> Result<L2FeeRequest, FeeQuoteError> {
+        let mut value = self.intent.clone();
+        let fields = value
+            .as_object_mut()
+            .ok_or(FeeQuoteError::Invalid("expected intent object"))?;
+        for (key, default) in [
+            ("chainId", json!(format!("{chain:#x}"))),
+            ("nonce", json!(format!("{nonce:#x}"))),
+            ("gas", json!(format!("{gas:#x}"))),
+            ("value", json!("0x0")),
+            ("data", json!("0x")),
+        ] {
+            fields.entry(key).or_insert(default);
+        }
+        fields.insert("type".into(), json!(format!("{ty:#x}")));
+        L2FeeRequest::parse(&value)
+    }
+}
+
+fn tx_type(value: &Value) -> Result<u8, FeeQuoteError> {
+    match value.as_str() {
+        Some("0x0") => Ok(0),
+        Some("0x2") => Ok(2),
+        _ => Err(FeeQuoteError::Invalid(
+            "transaction type must be 0x0 or 0x2",
+        )),
+    }
+}
+
+#[derive(Debug)]
+pub struct PreparedCompactFeeQuote {
+    request: CompactFeeRequest,
+    prepared: PreparedL2FeeQuote,
+}
+
+fn estimate_error(error: EstimateError) -> FeeQuoteError {
+    tracing::debug!(%error, "compact quote estimation failed");
+    match error {
+        EstimateError::ContextChanged => FeeQuoteError::Stale,
+        EstimateError::SettlementPending => {
+            FeeQuoteError::Unavailable("settlement reconciliation pending")
+        }
+        EstimateError::Timeout => FeeQuoteError::Limit("gas estimation deadline"),
+        EstimateError::Invalid(_) => {
+            FeeQuoteError::Invalid("gas estimation input or insufficient balance")
+        }
+        EstimateError::Unsupported(_) | EstimateError::Revert(_) | EstimateError::Effects(_) => {
+            FeeQuoteError::Unsupported("gas estimation or final effect validation failed")
+        }
+        EstimateError::Unavailable(_) => FeeQuoteError::Unavailable("gas estimation"),
+    }
+}
+
+impl<L2> Composer<L2>
+where
+    L2: BlockReader<Block = eez_primitives::Block, Header = Header>
+        + StateProviderFactory
+        + Send
+        + Sync
+        + 'static,
+{
+    pub async fn prepare_compact_fee_quote(
+        &self,
+        rollup_id: u64,
+        request: CompactFeeRequest,
+    ) -> Result<PreparedCompactFeeQuote, FeeQuoteError> {
+        let intent = request.resolve(
+            self.inner.posting.ctx.l2_chain_id,
+            0,
+            MAX_SOURCE_GAS,
+            request.types[0],
+        )?;
+        let prepared = self.prepare_l2_fee_quote(rollup_id, intent).await?;
+        Ok(PreparedCompactFeeQuote { request, prepared })
+    }
+
+    /// Blocking, bounded work. Both projections execute exactly this path; debug
+    /// adds diagnostics after calculation, never a different pricing algorithm.
+    pub fn quote_fee(
+        &self,
+        input: PreparedCompactFeeQuote,
+        cancelled: Arc<AtomicBool>,
+        debug: bool,
+    ) -> Result<Value, FeeQuoteError> {
+        let PreparedCompactFeeQuote {
+            request,
+            mut prepared,
+        } = input;
+        let budget = Arc::new(Budget::new(cancelled));
+        budget.check()?;
+        let estimator = self
+            .gas_estimator(prepared.rollup_id)
+            .map_err(estimate_error)?;
+        let snapshot = estimator
+            .quote_snapshot(&prepared.posting)
+            .map_err(estimate_error)?;
+        let source = self.inner.cross_chain.local.l2_entry.chain_provider();
+        let nonce = source
+            .provider
+            .state_by_block_hash(snapshot.l2_parent.hash())
+            .map_err(|e| unavailable("L2 quote state", e))?
+            .account_nonce(&prepared.request.sender)
+            .map_err(|e| unavailable("source nonce", e))?
+            .unwrap_or_default();
+        let chain = self.inner.posting.ctx.l2_chain_id;
+        let rollup = self
+            .inner
+            .rollups
+            .get(&prepared.rollup_id)
+            .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
+        let sender = prepared.request.sender;
+        let check_nonce = || {
+            if rollup
+                .held_pool
+                .owns_nonce(sender, crate::Direction::Outbound, nonce)
+            {
+                Err(FeeQuoteError::Invalid(
+                    "source nonce is already pending; queued predecessors are not simulated",
+                ))
+            } else {
+                Ok(())
+            }
+        };
+        check_nonce()?;
+        let initial = request.resolve(chain, nonce, MAX_SOURCE_GAS, request.types[0])?;
+        if initial.tx.nonce() != nonce {
+            return Err(FeeQuoteError::Invalid(
+                "nonce must match pinned source state; queued predecessors are not simulated",
+            ));
+        }
+        let BundleTarget::Exact { timestamp, .. } = prepared.posting.quote.target else {
+            return Err(FeeQuoteError::Unavailable("unresolved target"));
+        };
+        let issued = unix_now()?;
+        let expiry = timestamp.min(issued.saturating_add(10));
+        let mut options = Vec::new();
+        let mut diagnostics = Vec::new();
+        for &ty in &request.types {
+            budget.check()?;
+            let result = (|| {
+                let mut intent = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
+                if request.intent.get("gas").is_none() {
+                    let fields = intent.fields(0, 0);
+                    let gas = estimator
+                        .estimate_on_snapshot(
+                            crate::Direction::Outbound,
+                            serde_json::from_value(fields)
+                                .map_err(|e| unavailable("estimation intent", e))?,
+                            budget.deadline,
+                            &snapshot,
+                        )
+                        .map_err(estimate_error)?;
+                    budget.check()?;
+                    intent = request.resolve(chain, nonce, gas, ty)?;
+                }
+                prepared.request = intent;
+                let mut detail =
+                    self.quote_l2_fee_in_context(&prepared, Some(&snapshot), &budget)?;
+                budget.check()?;
+                let tx = &detail["transaction"];
+                let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
+                let tip = if ty == 0 {
+                    cap
+                } else {
+                    price(tx, "maxPriorityFeePerGas")?
+                };
+                let validated_gas = estimator
+                    .validate_quote(&snapshot, prepared.request.env(tip, cap), budget.deadline)
+                    .map_err(estimate_error)?;
+                if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
+                    return Err(FeeQuoteError::Unsupported(
+                        "final native gas differs from priced execution",
+                    ));
+                }
+                detail["issuedAt"] = json!(issued);
+                detail["expiresAt"] = json!(expiry);
+                compact_option(&detail).map(|option| (option, detail))
+            })();
+            match result {
+                Ok((option, detail)) => {
+                    options.push(option);
+                    diagnostics.push(detail);
+                }
+                // Execution can support one encoding but not the other. Never
+                // return a successful option after infrastructure/context failure.
+                Err(
+                    error @ (FeeQuoteError::Unsupported(_)
+                    | FeeQuoteError::Invalid(_)
+                    | FeeQuoteError::Underfunded),
+                ) => {
+                    let failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
+                    options.push(failed.clone());
+                    diagnostics.push(failed);
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        budget.check()?;
+        // Recheck once after ALL variants, including ordinary calls and errors.
+        // A fresh second snapshot is used only for equality, never for execution.
+        let current = estimator
+            .quote_snapshot(&prepared.posting)
+            .map_err(estimate_error)?;
+        check_nonce()?;
+        let l1 = self.inner.cross_chain.local.l1_entry.chain_provider();
+        if unix_now()? >= expiry
+            || current.generation != snapshot.generation
+            || current.l2_parent.hash() != snapshot.l2_parent.hash()
+            || current.l2_timestamp != snapshot.l2_timestamp
+            || current.l2_randao != snapshot.l2_randao
+            || l1
+                .headers
+                .best_block_number()
+                .map_err(|e| unavailable("L1 freshness", e))?
+                != prepared.posting.quote.sample.number
+        {
+            return Err(FeeQuoteError::Stale);
+        }
+        let mut response = json!({"version":1, "chainId":format!("{chain:#x}"), "nonce":format!("{nonce:#x}"),
+            "expiresAt":format!("{expiry:#x}"), "recoveryMode":if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
+            "options":options});
+        if debug {
+            response["diagnostics"] = json!({"options":diagnostics});
+        }
+        Ok(response)
+    }
+}
+
+fn price(tx: &Value, key: &str) -> Result<u128, FeeQuoteError> {
+    tx[key]
+        .as_str()
+        .and_then(|v| v.strip_prefix("0x"))
+        .and_then(|v| u128::from_str_radix(v, 16).ok())
+        .ok_or(FeeQuoteError::Unavailable("internal quote price"))
+}
+
+fn compact_option(detail: &Value) -> Result<Value, FeeQuoteError> {
+    let transaction = &detail["transaction"];
+    let mut option = json!({"type":transaction["type"], "gas":transaction["gas"], "intentHash":detail["intentHash"]});
+    let cap = if transaction["type"] == "0x0" {
+        option["gasPrice"] = transaction["gasPrice"].clone();
+        price(transaction, "gasPrice")?
+    } else {
+        option["maxPriorityFeePerGas"] = transaction["maxPriorityFeePerGas"].clone();
+        option["maxFeePerGas"] = transaction["maxFeePerGas"].clone();
+        price(transaction, "maxFeePerGas")?
+    };
+    let gas = detail["estimate"]["sourceGasUsed"]
+        .as_u64()
+        .ok_or(FeeQuoteError::Unavailable("internal quote gas"))?;
+    // The unsigned engine uses cap = base + tip, so this is the effective
+    // price. The caller computes the separate wallet reservation from the limit.
+    option["estimatedFee"] = json!(format!("{:#x}", U256::from(cap) * U256::from(gas)));
+    Ok(option)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_consensus::Typed2718;
+    use alloy_primitives::{Address, keccak256};
+
+    fn intent() -> Value {
+        json!({"from":Address::repeat_byte(0x11), "to":Address::repeat_byte(0x22)})
+    }
+
+    #[test]
+    fn omitted_fields_resolve_without_overwriting_explicit_intent() {
+        let request = CompactFeeRequest::parse(&intent(), &json!({})).unwrap();
+        assert_eq!(request.types, [0, 2]);
+        for ty in request.types.iter().copied() {
+            let resolved = request.resolve(906969, 7, 6_050_247, ty).unwrap();
+            assert_eq!(resolved.tx.nonce(), 7);
+            assert_eq!(resolved.tx.chain_id(), Some(906969));
+            assert_eq!(resolved.tx.gas_limit(), 6_050_247);
+            assert_eq!(resolved.tx.ty(), ty);
+        }
+        let mut explicit = intent();
+        explicit["nonce"] = json!("0x9");
+        explicit["chainId"] = json!("0x27d9");
+        explicit["gas"] = json!("0x1000000");
+        explicit["type"] = json!("0x0");
+        let request = CompactFeeRequest::parse(&explicit, &json!({})).unwrap();
+        assert_eq!(request.types, [0]);
+        let resolved = request.resolve(1, 0, 21_000, 0).unwrap();
+        assert_eq!(resolved.tx.nonce(), 9);
+        assert_eq!(resolved.tx.chain_id(), Some(10201));
+        assert_eq!(resolved.tx.gas_limit(), 16_777_216);
+    }
+
+    #[test]
+    fn compact_parser_rejects_ambiguous_and_unbounded_requests() {
+        for options in [
+            Value::Null,
+            json!([]),
+            json!({"gas":1}),
+            json!({"transactionTypes":[]}),
+            json!({"transactionTypes":["0x2","0x2"]}),
+            json!({"transactionTypes":["0x0","0x2","0x0"]}),
+            json!({"transactionTypes":["0x02"]}),
+            json!({"transactionTypes":["0x1"]}),
+        ] {
+            assert!(
+                CompactFeeRequest::parse(&intent(), &options).is_err(),
+                "{options}"
+            );
+        }
+        for (key, value) in [
+            ("nonce", json!("0x00")),
+            ("gas", json!("0x1000001")),
+            ("gas", Value::Null),
+            ("from", Value::Null),
+            ("to", Value::Null),
+            ("gasPrice", json!("0x1")),
+            ("accessList", json!([])),
+        ] {
+            let mut bad = intent();
+            bad[key] = value;
+            assert!(CompactFeeRequest::parse(&bad, &json!({})).is_err(), "{bad}");
+        }
+        let mut typed = intent();
+        typed["type"] = json!("0x0");
+        assert!(CompactFeeRequest::parse(&typed, &json!({"transactionTypes":["0x2"]})).is_err());
+        assert!(
+            CompactFeeRequest::parse(&typed, &json!({"transactionTypes":["0x0","0x2"]})).is_err()
+        );
+    }
+
+    #[test]
+    fn compact_projection_keeps_type_specific_fields_and_charged_gas() {
+        let request = CompactFeeRequest::parse(&intent(), &json!({})).unwrap();
+        let mut hashes = Vec::new();
+        for ty in [0, 2] {
+            let request = request.resolve(906969, 1, 6_050_247, ty).unwrap();
+            let tx = request.fields(5, 15);
+            let mut intent = tx.clone();
+            for fee in ["gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
+                intent.as_object_mut().unwrap().remove(fee);
+            }
+            let detail = json!({"transaction":tx,"intentHash":keccak256(intent.to_string()),
+                "estimate":{"sourceGasUsed":100_000}, "policy":{"private":"debug only"}});
+            let option = compact_option(&detail).unwrap();
+            assert_eq!(option["estimatedFee"], "0x16e360");
+            assert_eq!(option.get("gasPrice").is_some(), ty == 0);
+            assert_eq!(option.get("maxFeePerGas").is_some(), ty == 2);
+            assert!(option.get("policy").is_none());
+            assert!(option.get("transaction").is_none());
+            hashes.push(option["intentHash"].clone());
+        }
+        assert_ne!(hashes[0], hashes[1], "binding includes envelope type");
+    }
+
+    #[test]
+    fn normalized_binding_matches_independent_sdk_vectors() {
+        for (ty, expected) in [
+            (
+                0,
+                "0x873184abbd3d864413844c1aad934f779432aba75064a5ed1c7060547c249712",
+            ),
+            (
+                2,
+                "0xb027810c300a8577d3d15e441e23fad18defd8cf8f1485f2c42dfcaa015b3c31",
+            ),
+        ] {
+            let mut input = intent();
+            input["data"] = json!("0x1234");
+            let request = CompactFeeRequest::parse(&input, &json!({}))
+                .unwrap()
+                .resolve(1, 0, 100_000, ty)
+                .unwrap();
+            let mut fields = request.fields(5, 15);
+            for key in ["gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
+                fields.as_object_mut().unwrap().remove(key);
+            }
+            assert_eq!(format!("{:#x}", keccak256(fields.to_string())), expected);
+        }
+    }
+}

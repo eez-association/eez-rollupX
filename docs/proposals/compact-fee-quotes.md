@@ -1,130 +1,66 @@
 # Compact, direction-aware fee quotes
 
-Status: draft evaluation requested on 2026-10-15; not an implemented or deployed
-API. Baseline is the accepted measured-pricing implementation and its 16,777,216
-source gas profile. Preserve the [existing pricing contract](../configurable-settlement-policy.md#unsigned-l2-fee-quotes).
+Status: L2 API implementation authorized on 2026-10-15. Implementation and local
+validation are in progress; this record does not establish deployment. The
+L1-origin recovery policy remains deferred. The normative API contract is in
+[the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 
-## Recommendation
+## Scope and invariants
 
-Introduce `eez_quoteFee` on both Composer fronts. Derive the source direction
-from the front: `/composer/l1` means L1-origin, `/composer/l2` means L2-origin.
-Reject a supplied chain ID that disagrees. Keep `eth_estimateGas` available for
-normal wallet compatibility. Reuse its internal estimator rather than issuing
-an HTTP request to the node's own public endpoint.
+Add `eez_quoteFee` and `eez_debugQuoteFee` on Composer fronts. The L2 front
+resolves omitted gas and nonce and returns independently simulated legacy and
+EIP-1559 options. The L1 front reports `unsupported_direction` until builder
+eligibility, refund recipient, funding source and conditional recovery have a
+qualified policy. An API name alone does not implement that policy.
 
-Allow `gas` to be omitted. The service resolves an executable gas limit, computes
-the settlement contribution, then replays the final gas/fee combination before
-returning. Gas limits and gas consumed remain different quantities: the source
-receipt's charged gas divides the tip; gas-limit headroom is not billed as
-consumption. Keep independent L1/L2 meters, including nested execution.
+Reuse the existing gas-discovery algorithm with the fee engine's exact L1
+posting target and a shared pinned L2 parent. Both encodings run under that
+context and are validated again at their actual gas limit and effective price.
+A stale context invalidates the entire response. Gas discovery verifies a
+measured requirement plus headroom; it does not promise a binary-search minimum.
+Contracts observing `gasleft()` can require the verified high limit. Contracts
+observing `GASPRICE` can fail after fees are selected; report the failed variant.
 
-Accept an optional list of requested transaction types, defaulting to both
-`0x0` and `0x2`. Apps that already know their wallet's supported type can request
-one to avoid unnecessary simulation. Return a separately validated option for
-each requested type. Do not convert an already-quoted type 2 into legacy by
-renaming fee fields: encoding/DA and fee-dependent execution may differ. A gas
-limit may also differ between types. All options share pinned chain state and
-policy, and the caller signs exactly one.
+Preserve measured L1 settlement pricing, separate L1/L2 meters, whole nested
+execution, ordinary-L2 settlement subsidy and final signed native validation.
+Gas-limit headroom is a wallet reservation, not charged consumption. No new
+payment, authorization, protocol, signer, genesis or storage format is introduced.
 
-Use `eez_debugQuoteFee` for detailed estimates, assumptions, component costs and
-context. Reserve a future `eez_traceQuoteFee` for actual execution traces; the
-current diagnostic response is not a trace. These are project-specific methods,
-not existing Ethereum standards. Both compact and diagnostic methods use the
-same calculation and return identical fee options for the same pinned context.
+One worker owns preparation, gas discovery, both pricing searches and final
+replays. There is no nested acquisition of the ordinary estimator's worker pool.
+Cancellation/deadline expiry does not release the fee worker permit while a
+blocking frame is still running. `eth_estimateGas` keeps its own existing limits.
 
-## Candidate contract
+## API and migration decisions
 
-Request, using ordinary transaction fields plus method options:
+Use optional `gas`, `nonce` and `chainId`, with canonical hex quantities. Default
+to both types unless a type or explicit `transactionTypes` selection is supplied.
+Reject conflicting selections. Preserve supplied gas/nonce, and refuse queued
+nonce dependencies instead of simulating a different transaction. Per-type
+execution errors are explicit; shared-context/infrastructure errors fail the
+whole request. Compact output includes only wallet fields, intent bindings,
+expiry, source network/nonce, recovery mode and estimated source fees.
 
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "eez_quoteFee",
-  "params": [
-    { "from": "0x…", "to": "0x…", "value": "0x0", "data": "0x…" },
-    { "transactionTypes": ["0x0", "0x2"] }
-  ]
-}
-```
+`eez_debugQuoteFee` runs the identical engine and adds detailed diagnostics.
+It is not an execution trace. Separate calls can select different heads; compact
+and debug outputs are equivalent only for the same intent and context.
 
-`gas`, `nonce` and `chainId` can be supplied explicitly. Preserve explicit gas
-and nonce; reject an unusable value rather than silently substituting another.
-Apply the active source chain's transaction/block limits and the service's
-declared resource profile; a common method does not imply identical chain limits.
-Resolve an omitted nonce from the pinned source state. Current execution does
-not simulate queued predecessors: return a clear nonce/dependency error rather
-than suggesting a conflicting nonce or claiming pending-queue support.
+The user explicitly chose a breaking API replacement: remove
+`eez_quoteL2ToL1Fee`, the HTTP quote route and old SDK helpers. Migrate the
+reference dashboard and test drivers to the new API in the same change. Upgrade
+server and clients together; no compatibility fallback or unquoted send is
+retained. The SDK verifies intent bindings using the application's existing
+Ethereum hash function.
 
-Keep the compact response to a version, source chain ID, resolved nonce,
-expiry, recovery mode, and one option per requested type. Each successful option
-contains its type, gas limit, ordinary fee fields, normalized intent hash and
-estimated total source fee. The direction is already selected by the front;
-policy details, component costs, pinned block identities and replay diagnostics
-belong in the debug response. All monetary amounts use source-native base units;
-encode quantities as canonical hex. The recovery mode distinguishes conditional
-builder refunds from enforced settlement funding.
+## Validation criteria
 
-The SDK combines each option with the original authorized destination, value
-and calldata. It validates the normalized intent binding, supplied nonce/gas,
-source network, expiry and app maximum fee before sending. It recomputes the
-maximum from `gas * gasPrice` or `gas * maxFeePerGas`; the maximum is a wallet
-reservation, not an estimate of the amount charged. Signing must preserve the
-selected option. Changing type, gas, fees, calldata or nonce requires requoting.
-Each intent hash covers that option's resolved type and gas along with the
-original destination, value, calldata, sender, chain and nonce. A shared hash of
-only the untyped request is insufficient. These hashes detect mismatched intents;
-they are not authorizations or a substitute for signed admission and native
-validation. The SDK copies only the allowed gas/fee fields into the original
-intent; it never accepts a replacement destination or calldata from an option.
+Exercise compact and debug routing, one/both types, omitted and explicit fields,
+canonical quantities, wrong chains/nonces, ordinary and nested execution,
+fee-sensitive rejection, gas-sensitive replay, insufficient balance, cancellation
+and permit retention. Compare source gas and measured L1 fees against receipts,
+reject underfunded signed transactions, and independently replay settled blocks.
+Retain signed-fee and Safe regressions and verify the old method is absent. Recorded Falcon gas limits are parser
+coverage only; qualification of actual Falcon signature workloads is separate.
 
-For two requested types, represent an unsupported/failed variant explicitly;
-never silently return an incomplete list or relabel the other variant as valid.
-No success may be returned for a stale shared context. Zero source fees are not
-a substitute for an unavailable cross-chain policy.
-
-## Implementation work and unresolved decisions
-
-This is more than renaming the current RPC. Today gas estimation and fee quotes
-use different snapshot/preparation paths and separate worker limits. Refactor a
-shared pinned context, gas-discovery helper and final fee replay. Avoid acquiring
-one worker while waiting for the other. One owner retains the permit until all
-blocking work exits, including after cancellation. Bound aggregate simulations
-and total deadline across gas discovery and both types. Ordinary wallet gas
-estimation must not lose its existing resource protection.
-
-The existing estimator tries a measured requirement plus headroom and verifies
-the lower limit against the high-limit execution's effects; it does not promise
-a universal binary-search minimum. Contracts observing `gasleft()` or `GASPRICE`
-make blind arithmetic unsafe. Fee search must use the resolved final limit and
-fail explicitly on non-convergence or changed effects. One client round trip
-does not necessarily mean one EVM execution or lower server CPU cost.
-
-The L2-origin fee engine and admission policy already exist. L1-origin user-tip
-collection through builder refunds remains a separate unimplemented policy:
-declare the direction unsupported until builder eligibility, selected tip,
-refund recipient, funding source and conditional recovery are specified and
-tested. Do not reuse the L2 tariff or advertise a guaranteed L1 refund. The
-common method name provides a stable shape, not identical economics.
-
-## Staging and compatibility
-
-1. Add the compact L2 response and diagnostic method around the existing engine,
-   retaining `eez_quoteL2ToL1Fee` and the HTTP route unchanged.
-2. Integrate gas discovery with the pinned quote context, then support both
-   independently replayed transaction types under a shared work budget.
-3. Enable the L1 route after its separate recovery policy qualifies. Until then
-   return `unsupported_direction` rather than a fabricated quote.
-
-Keep old methods and SDK support during rollout; do not remove the verbose
-legacy response while clients depend on it. Upgrade servers first, then clients
-with explicit capability handling. Do not turn transient quote failures into
-silent unquoted sends. No change to EVM gas accounting, signing authorization,
-storage, contracts or genesis is required for the proposed L2 API work.
-
-Acceptance requires ordinary and nested calls, both types, fee/gas-sensitive
-execution, actual Falcon workloads, changed heads/nonces, insufficient balance,
-unknown L1 policy, cancellation/permit retention, old clients, and independent
-checks that compact/debug options match. Decide the exact response field names,
-aggregate simulation budget and error envelope before implementation. The draft
-does not mark those choices as accepted or claim the new endpoints exist today.
+The full protocol staged/stress matrix and live deployment are separate evidence;
+unit or process success alone must not be described as either.

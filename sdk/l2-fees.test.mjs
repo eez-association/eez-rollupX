@@ -1,6 +1,75 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { quotedTransaction, requestL2FeeQuote, sendQuotedTransaction } from "./l2-fees.mjs";
+import { requestFeeQuote, feeQuoteTransaction, sendFeeQuotedTransaction } from "./l2-fees.mjs";
+
+function compactFixture(type = "0x2") {
+  const old = fixture();
+  const intent = { from: old.intent.from, to: old.intent.to, data: old.intent.data };
+  // Independent cast keccak vectors of the normalized JSON; no server fixture
+  // determines which destination/calldata the SDK is allowed to send.
+  const hashes = { "0x0":"0x873184abbd3d864413844c1aad934f779432aba75064a5ed1c7060547c249712",
+    "0x2":"0xb027810c300a8577d3d15e441e23fad18defd8cf8f1485f2c42dfcaa015b3c31" };
+  const keccak256 = text => {
+    for (const type of ["0x0", "0x2"]) {
+      const normalized = { ...old.intent, type };
+      const expected = JSON.stringify(Object.fromEntries(Object.keys(normalized).sort().map(k => [k, normalized[k]])));
+      if (text === expected) return hashes[type];
+    }
+    return `0x${"00".repeat(32)}`;
+  };
+  const options = ["0x0", "0x2"].map(type => ({ type, gas:old.intent.gas, intentHash:hashes[type], estimatedFee:"0x4ce78",
+    ...(type === "0x0" ? {gasPrice:"0xf"} : {maxPriorityFeePerGas:"0x5",maxFeePerGas:"0xf"}) }));
+  const quote = { version:1, chainId:"0x1",nonce:"0x0",expiresAt:`0x${old.quote.expiresAt.toString(16)}`,recoveryMode:"enforced_tariff",options };
+  return { intent, quote, type, chainId:"0x1", keccak256, maxTotalFee:1500000n };
+}
+
+test("compact quotes use one RPC round trip and preserve requested type selection", async () => {
+  const args = compactFixture(); let calls = 0;
+  const rpc = async (method, params) => {
+    calls++; assert.equal(method, "eez_quoteFee");
+    assert.deepEqual(params, [args.intent, {transactionTypes:["0x0","0x2"]}]);
+    return args.quote;
+  };
+  assert.equal(await requestFeeQuote({rpc,intent:args.intent}), args.quote);
+  assert.equal(calls, 1);
+  await assert.rejects(requestFeeQuote({rpc, intent:args.intent,transactionTypes:[]}), /transactionTypes/);
+  await assert.rejects(requestFeeQuote({rpc:async () => ({...args.quote,options:[args.quote.options[0]]}),intent:args.intent}), /requested transaction types/);
+});
+
+test("compact options bind resolved gas, nonce and type without accepting replacement intent", () => {
+  for (const type of ["0x0","0x2"]) {
+    const args = compactFixture(type);
+    const tx = feeQuoteTransaction(args);
+    assert.equal(tx.type, type); assert.equal(tx.gas, "0x186a0"); assert.equal(tx.nonce,"0x0");
+    assert.equal(tx.to,args.intent.to); assert.equal(tx.data,args.intent.data);
+    assert.equal("gasPrice" in tx, type === "0x0"); assert.equal("maxFeePerGas" in tx,type === "0x2");
+    assert.throws(() => feeQuoteTransaction({...args, maxTotalFee:1499999n}), /app limit/);
+    assert.throws(() => feeQuoteTransaction({...args, chainId:"0x2"}), /chain mismatch/);
+    assert.throws(() => feeQuoteTransaction({...args, intent:{...args.intent,nonce:"0x1"}}), /changed nonce/);
+    assert.throws(() => feeQuoteTransaction({...args, intent:{...args.intent,gas:"0x186a1"}}), /changed gas/);
+    assert.throws(() => feeQuoteTransaction({...args, intent:{...args.intent,data:"0x5678"}}), /binding mismatch/);
+    for (const mutate of [q => q.expiresAt="0x0", q => q.nonce="0x1", q => q.options[0].type="0x2",
+      q => q.options.find(o=>o.type===type).gas="0x1000001",
+      q => q.options.find(o=>o.type===type).to=args.intent.to,
+      q => q.options.find(o=>o.type===type).estimatedFee="0xffffffffffff",
+      q => q.options.find(o=>o.type===type).error={code:"unsupported_intent"}]) {
+      const bad = compactFixture(type); mutate(bad.quote); assert.throws(() => feeQuoteTransaction(bad));
+    }
+  }
+});
+
+test("compact wallet send checks account and nonce then sends exactly one selected transaction", async () => {
+  const args = compactFixture("0x0"); let sent = 0;
+  const wallet = {request:async ({method,params}) => {
+    if (method === "eth_sendTransaction") { sent++; assert.deepEqual(params,[feeQuoteTransaction(args)]); return "0xhash"; }
+    return {eth_chainId:1,eth_accounts:[args.intent.from],eth_getTransactionCount:"0x00"}[method];
+  }};
+  assert.equal(await sendFeeQuotedTransaction({...args,wallet}),"0xhash"); assert.equal(sent,1);
+  await assert.rejects(sendFeeQuotedTransaction({...args,wallet:{request:async ({method}) => {
+    assert.notEqual(method,"eth_sendTransaction");
+    return {eth_chainId:"0x1",eth_accounts:[args.intent.from],eth_getTransactionCount:"0x1"}[method];
+  }}}), /nonce changed/);
+});
 
 function fixture() {
   const intent = { type:"0x2",chainId:"0x1",from:`0x${"11".repeat(20)}`,to:`0x${"22".repeat(20)}`,nonce:"0x0",gas:"0x186a0",value:"0x0",data:"0x1234" };
@@ -11,204 +80,37 @@ function fixture() {
   return {intent,quote,maxTotalFee:1500000n};
 }
 
-function legacyFixture() {
-  const args = fixture();
-  args.intent.type = "0x0";
-  args.quote.intent = { ...args.intent };
-  args.quote.transaction = { ...args.intent, gasPrice: "0xf" };
-  return args;
-}
-
-test("accepts Falcon Safe gas limits and the EIP-7825 cap while enforcing fee ceilings", () => {
-  for (const create of [fixture, legacyFixture]) {
-    for (const gas of [21000n, 5000001n, 6050247n, 6037754n, 16777216n, 20999n, 16777217n]) {
-      const args = create();
-      args.intent.gas = `0x${gas.toString(16)}`;
-      args.quote.intent.gas = args.intent.gas;
-      args.quote.transaction.gas = args.intent.gas;
+test("compact gas profile accepts measured Falcon limits and rejects malformed quantities", () => {
+  for (const type of ["0x0", "0x2"]) {
+    for (const gas of [21_000n, 6_050_247n, 6_037_754n, 16_777_216n, 20_999n, 16_777_217n]) {
+      const args = compactFixture(type);
+      const option = args.quote.options.find(option => option.type === type);
+      option.gas = `0x${gas.toString(16)}`;
+      // Isolate resource-bound checking; the separate binding tests use fixed
+      // independently computed Keccak vectors, including intent mutations.
+      args.keccak256 = () => option.intentHash;
       args.maxTotalFee = gas * 15n;
-      if (gas >= 21000n && gas <= 16777216n) {
-        assert.deepEqual(quotedTransaction(args), args.quote.transaction);
-        assert.throws(() => quotedTransaction({ ...args, maxTotalFee: args.maxTotalFee - 1n }), /app limit/);
-      } else {
-        assert.throws(() => quotedTransaction(args), /Gas outside quote profile/);
-      }
+      if (gas >= 21_000n && gas <= 16_777_216n) {
+        assert.equal(feeQuoteTransaction(args).gas, option.gas);
+        assert.throws(() => feeQuoteTransaction({...args,maxTotalFee:args.maxTotalFee-1n}), /app limit/);
+      } else assert.throws(() => feeQuoteTransaction(args), /Gas outside quote profile/);
+    }
+    for (const value of ["0x00", "0x", 0, "1", null]) {
+      const args = compactFixture(type); args.quote.nonce = value;
+      assert.throws(() => feeQuoteTransaction(args), /canonical hex quantity/);
     }
   }
 });
 
-test("accepts measured settlement quotes during rollout and rejects unknown pricing bases", () => {
-  for (const create of [fixture, legacyFixture]) {
-    const args = create();
-    args.quote.estimate.basis = "isolated_native_l2_and_l1_settlement";
-    args.quote.estimate.proof = "metered_assumed_valid";
-    assert.deepEqual(quotedTransaction(args), args.quote.transaction);
-    args.quote.estimate.basis = "unrecognized";
-    assert.throws(() => quotedTransaction(args), /Inconsistent fee estimate/);
-  }
-});
-
-test("legacy quotes count only gasPrice minus base fee and preserve the fee ceiling", async () => {
-  const args = legacyFixture();
-  assert.deepEqual(quotedTransaction(args), args.quote.transaction);
-  assert.throws(() => quotedTransaction({ ...args, maxTotalFee: 1499999n }), /app limit/);
-  for (const mutate of [
-    q => q.transaction.gasPrice = "0x9",
-    q => q.transaction.maxFeePerGas = "0xf",
-    q => q.transaction.maxPriorityFeePerGas = "0x5",
-    q => q.transaction.type = "0x2",
-    q => q.estimate.grossL2Tip = "315000", // Incorrectly includes the burned base fee.
-  ]) {
-    const bad = legacyFixture();
-    mutate(bad.quote);
-    assert.throws(() => quotedTransaction(bad));
-  }
-  let sent = 0;
-  const wallet = { request: async ({ method, params }) => {
-    if (method === "eth_sendTransaction") {
-      sent++;
-      assert.deepEqual(params, [args.quote.transaction]);
-      return "0xhash";
-    }
-    return { eth_chainId: "0x1", eth_accounts: [args.intent.from], eth_getTransactionCount: "0x0", eth_getBlockByNumber: { baseFeePerGas: "0xa" } }[method];
-  } };
-  assert.equal(await sendQuotedTransaction({ ...args, wallet }), "0xhash");
-  assert.equal(sent, 1);
-  wallet.request = async ({ method }) => {
-    assert.notEqual(method, "eth_sendTransaction");
-    return { eth_chainId: "0x1", eth_accounts: [args.intent.from], eth_getTransactionCount: "0x0", eth_getBlockByNumber: { baseFeePerGas: "0xb" } }[method];
-  };
-  await assert.rejects(sendQuotedTransaction({ ...args, wallet }), /Base fee changed/);
-});
-
-test("custom RPC quotes use the same validation and never silently fall back", async () => {
-  for (const args of [fixture(), legacyFixture()]) {
-    const rpc = async (method, params) => {
-      assert.equal(method, "eez_quoteL2ToL1Fee");
-      assert.deepEqual(params, [args.intent]);
-      return args.quote;
-    };
-    assert.equal(await requestL2FeeQuote({ ...args, rpc }), args.quote);
-    await assert.rejects(requestL2FeeQuote({ ...args, rpc, url: "https://example.invalid" }), /either/);
-    await assert.rejects(requestL2FeeQuote({ ...args, rpc: async () => { throw new Error("quotes_disabled"); } }), /quotes_disabled/);
-    await assert.rejects(requestL2FeeQuote({ ...args, rpc: async () => ({ ...args.quote, expiresAt: 0 }) }), /expired/);
-  }
-});
-
-test("returns only the exact intent and ordinary fee fields",()=>{
-  const args=fixture(); const tx=quotedTransaction(args);
-  assert.deepEqual(tx,args.quote.transaction); assert.notEqual(tx,args.quote.transaction);
-  assert.throws(()=>quotedTransaction({...args,maxTotalFee:1499999n}),/app limit/);
-});
-
-test("rejects intent changes, extra authority, expiry and inconsistent pricing",()=>{
-  const mutations=[q=>q.transaction.to=`0x${"33".repeat(20)}`,q=>q.transaction.gas="0x186a1",
-    q=>q.transaction.authorizationList=[],q=>q.intent.nonce="0x1",q=>q.context.l2ChainId=2,
-    q=>q.estimate.sourceGasUsed=0,q=>q.estimate.grossL2Tip="1",q=>q.estimate.requiredL2Tip="105001",
-    q=>q.transaction.maxFeePerGas="0xe",q=>q.expiresAt=q.issuedAt,q=>q.mode="guaranteed"];
-  for(const mutate of mutations){const args=fixture();mutate(args.quote);assert.throws(()=>quotedTransaction(args));}
-  const args=fixture();assert.throws(()=>quotedTransaction({...args,now:args.quote.expiresAt*1000}),/expired/);
-  assert.throws(()=>quotedTransaction({...args,expectedPolicyId:`0x${"cd".repeat(32)}`}),/policy/);
-});
-
-test("fetches without requesting a wallet signature",async()=>{
-  const args=fixture();let called=0;
-  const quote=await requestL2FeeQuote({...args,url:"https://example.invalid/eez/fees/l2-to-l1",fetchImpl:async(url,req)=>{
-    called++;assert.equal(req.method,"POST");assert.deepEqual(JSON.parse(req.body),args.intent);return {ok:true,json:async()=>args.quote};
-  }});assert.equal(called,1);assert.equal(quote,args.quote);
-});
-
-test("one normal wallet submission after chain, account and nonce checks",async()=>{
-  const args=fixture();const methods=[];
-  const wallet={request:async({method,params})=>{methods.push(method);switch(method){
-    case "eth_chainId":return "0x1";case "eth_accounts":return [args.intent.from];case "eth_getTransactionCount":return "0x0";
-    case "eth_getBlockByNumber":return {baseFeePerGas:"0xa"};
-    case "eth_sendTransaction":assert.deepEqual(params,[args.quote.transaction]);return "0xhash";
-    default:throw new Error(`Unexpected ${method}`);
-  }}};
-  assert.equal(await sendQuotedTransaction({...args,wallet}),"0xhash");
-  assert.equal(methods.filter(m=>m==="eth_sendTransaction").length,1);
-});
-
-test("wrong wallet chain, nonce or changed base fee cannot submit",async()=>{
-  for(const wrong of ["eth_chainId","eth_getTransactionCount","eth_getBlockByNumber"]){
-    const args=fixture();let sent=false;const wallet={request:async({method})=>{
-      if(method==="eth_sendTransaction"){sent=true;return "0xhash";}
-      if(method===wrong)return method==="eth_getBlockByNumber"?{baseFeePerGas:"0xb"}:"0x2";
-      return {eth_chainId:"0x1",eth_getTransactionCount:"0x0",eth_accounts:[args.intent.from],eth_getBlockByNumber:{baseFeePerGas:"0xa"}}[method];
-    }};await assert.rejects(sendQuotedTransaction({...args,wallet}));assert.equal(sent,false);
-  }
-});
-
-function walletFixture(args, overrides = {}) {
-  const requests = [];
-  const responses = {
-    eth_chainId: "0x1",
-    eth_accounts: [args.intent.from],
-    eth_getTransactionCount: "0x0",
-    eth_getBlockByNumber: { baseFeePerGas: "0xa" },
-    ...overrides,
-  };
-  const wallet = { request: async request => {
-    requests.push(request);
-    if (request.method === "eth_sendTransaction") return "0xhash";
-    return responses[request.method];
-  } };
-  return { wallet, requests };
-}
-
-test("numeric and zero-padded wallet quantities preserve the exact legacy and type-2 quote", async () => {
-  for (const create of [fixture, legacyFixture]) for (const overrides of [
-    { eth_getTransactionCount: 0 },
-    { eth_chainId: 1, eth_getTransactionCount: 0, eth_getBlockByNumber: { baseFeePerGas: 10 } },
-    { eth_chainId: "0x01", eth_getTransactionCount: "0x00", eth_getBlockByNumber: { baseFeePerGas: "0x0A" } },
-  ]) {
-    const args = create();
-    const { wallet, requests } = walletFixture(args, overrides);
-    assert.equal(await sendQuotedTransaction({ ...args, wallet }), "0xhash");
-    assert.deepEqual(requests.filter(({ method }) => method === "eth_sendTransaction"), [
-      { method: "eth_sendTransaction", params: [args.quote.transaction] },
-    ]);
-  }
-});
-
-test("zero padding cannot hide a changed wallet chain, nonce or base fee", async () => {
-  for (const [override, expected] of [
-    [{ eth_chainId: "0x02" }, /different chain/],
-    [{ eth_getTransactionCount: "0x01" }, /nonce changed/],
-    [{ eth_getBlockByNumber: { baseFeePerGas: "0x0b" } }, /Base fee changed/],
-    [{ eth_getTransactionCount: 1 }, /nonce changed/],
-  ]) {
-    const args = fixture();
-    const { wallet, requests } = walletFixture(args, override);
-    await assert.rejects(sendQuotedTransaction({ ...args, wallet }), expected);
-    assert.equal(requests.some(({ method }) => method === "eth_sendTransaction"), false);
-  }
-});
-
-test("malformed or oversized wallet quantities fail before submission with field context", async () => {
-  for (const [method, label] of [
-    ["eth_chainId", "chain ID"],
-    ["eth_getTransactionCount", "pending nonce"],
-    ["eth_getBlockByNumber", "pending base fee"],
-  ]) for (const value of [undefined, null, 0n, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, "0", "0x", "0x-1", "0xgg", " 0x0", "0x0\n", `0x1${"0".repeat(64)}`]) {
-    const args = fixture();
-    const override = { [method]: method === "eth_getBlockByNumber" ? { baseFeePerGas: value } : value };
-    const { wallet, requests } = walletFixture(args, override);
-    await assert.rejects(sendQuotedTransaction({ ...args, wallet }), new RegExp(`Invalid wallet ${label}`));
-    assert.equal(requests.some(({ method }) => method === "eth_sendTransaction"), false);
-  }
-});
-
-test("wallet compatibility does not relax canonical quote or intent quantities", () => {
-  for (const mutate of [
-    args => args.intent.nonce = "0x00",
-    args => args.quote.intent.chainId = "0x01",
-    args => args.quote.transaction.value = "0x00",
-    args => args.quote.transaction.maxPriorityFeePerGas = "0x05",
-  ]) {
-    const args = fixture();
-    mutate(args);
-    assert.throws(() => quotedTransaction(args), /canonical hex quantity/);
+test("compact sends reject changed wallet chain/account and expire during preflight", async () => {
+  for (const changed of ["chain", "account", "expiry"]) {
+    const args = compactFixture();
+    const wallet = { request: async ({method}) => {
+      assert.notEqual(method,"eth_sendTransaction");
+      if (changed === "expiry") args.quote.expiresAt = "0x0";
+      return {eth_chainId: changed === "chain" ? "0x2" : "0x1",
+        eth_accounts:[changed === "account" ? args.intent.to : args.intent.from],eth_getTransactionCount:"0x0"}[method];
+    }};
+    await assert.rejects(sendFeeQuotedTransaction({...args,wallet}), /different chain|account changed|expired/);
   }
 });

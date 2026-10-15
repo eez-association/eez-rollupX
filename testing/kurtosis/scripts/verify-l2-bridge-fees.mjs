@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { writeFileSync } from "node:fs";
-import { requestL2FeeQuote, sendQuotedTransaction } from "../../../sdk/l2-fees.mjs";
+import { feeQuoteTransaction, sendFeeQuotedTransaction } from "../../../sdk/l2-fees.mjs";
 
 const env = name => { assert(process.env[name], `${name} is required`); return process.env[name]; };
 const l1 = env("EEZ_DEVNET_L1_RPC"), l2 = env("EEZ_DEVNET_L2_RPC");
@@ -75,25 +75,27 @@ const evidence = { inboundHash, sources: [] };
 for (const type of ["0x2", "0x0"]) {
   const value = 10n ** 15n;
   const intent = { type, chainId: hex(696990), from: user, to: bridgeL2,
-    nonce: await rpc(l2, "eth_getTransactionCount", [user, "latest"]), gas: "0xf4240", value: hex(value),
+    nonce: await rpc(l2, "eth_getTransactionCount", [user, "latest"]), value: hex(value),
     data: cast("calldata", "bridgeEther(uint64,address)", "0", user) };
   const beforeL1 = BigInt(await rpc(l1, "eth_getBalance", [user, "latest"]));
   const beforeL2 = BigInt(await rpc(l2, "eth_getBalance", [user, "latest"]));
   const maxTotalFee = 10n ** 17n;
   const quote = await until("bridge quote", async () => {
-    const response = await request(outbound, "eez_quoteL2ToL1Fee", [intent]);
+    const response = await request(outbound, "eez_debugQuoteFee", [intent]);
     if (["stale_context", "quote_unavailable", "quote_busy"].includes(response.error?.data?.code)) return null;
     assert(!response.error, JSON.stringify(response.error));
-    return requestL2FeeQuote({ intent, maxTotalFee, rpc: async () => response.result });
+    feeQuoteTransaction({quote:response.result,intent,type,chainId:intent.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
+    return response.result;
   });
-  assert.equal(quote.estimate.basis, "isolated_native_l2_and_l1_settlement");
-  assert.equal(quote.policy.assumptions.risk_bps, 2000);
-  for (const field of ["proving_cost_l1", "operations_cost_l1", "treasury_cost_l1"]) assert.equal(quote.policy.assumptions[field], "0");
-  assert.equal(quote.policy.assumptions.profit_bps, 0);
-  assert.equal(quote.policy.assumptions.l1_per_l2_numerator, "1");
-  assert.equal(quote.policy.assumptions.l1_per_l2_denominator, "1");
-  const projectedCost = BigInt(quote.estimate.l1PostingCost);
-  assert.equal(BigInt(quote.estimate.requiredL2Tip), projectedCost + ceil(projectedCost * 2000n, 10_000n));
+  const detail = quote.diagnostics.options[0];
+  assert.equal(detail.estimate.basis, "isolated_native_l2_and_l1_settlement");
+  assert.equal(detail.policy.assumptions.risk_bps, 2000);
+  for (const field of ["proving_cost_l1", "operations_cost_l1", "treasury_cost_l1"]) assert.equal(detail.policy.assumptions[field], "0");
+  assert.equal(detail.policy.assumptions.profit_bps, 0);
+  assert.equal(detail.policy.assumptions.l1_per_l2_numerator, "1");
+  assert.equal(detail.policy.assumptions.l1_per_l2_denominator, "1");
+  const projectedCost = BigInt(detail.estimate.l1PostingCost);
+  assert.equal(BigInt(detail.estimate.requiredL2Tip), projectedCost + ceil(projectedCost * 2000n, 10_000n));
   let signatures = 0;
   const wallet = { request: async ({ method, params = [] }) => {
     if (method === "eth_accounts") return [user];
@@ -109,7 +111,7 @@ for (const type of ["0x2", "0x0"]) {
     }
     return rpc(outbound, method, params);
   } };
-  const hash = await sendQuotedTransaction({ wallet, quote, intent, maxTotalFee });
+  const hash = await sendFeeQuotedTransaction({wallet,quote,intent,type,chainId:intent.chainId,maxTotalFee,keccak256:text=>cast("keccak",text)});
   assert.equal(signatures, 1);
   await until("canonical bridge settlement", async () => (await rpc(outbound, "eez_getCrossChainTransaction", [hash]))?.ownership?.canonical);
   const paid = await receipt(l2, hash);
@@ -122,8 +124,8 @@ for (const type of ["0x2", "0x0"]) {
   const cost = BigInt(post.gasUsed) * BigInt(post.effectiveGasPrice) + BigInt(post.blobGasUsed) * BigInt(post.blobGasPrice);
   assert.equal(BigInt(await rpc(l1, "eth_getBalance", [user, "latest"])) - beforeL1, value);
   assert.equal(beforeL2 - BigInt(await rpc(l2, "eth_getBalance", [user, "latest"])), value + fee);
-  assert.equal(BigInt(paid.gasUsed), BigInt(quote.estimate.sourceGasUsed));
-  const gasDifference = BigInt(quote.estimate.l1Gas) - BigInt(post.gasUsed);
+  assert.equal(BigInt(paid.gasUsed), BigInt(detail.estimate.sourceGasUsed));
+  const gasDifference = BigInt(detail.estimate.l1Gas) - BigInt(post.gasUsed);
   assert(gasDifference >= -1000n && gasDifference <= 1000n, `settlement gas differs: ${gasDifference}`);
   const tariff = cost + ceil(cost * 2000n, 10_000n);
   assert(tip >= tariff, "actual payment must cover settlement plus the 20% tariff");
@@ -131,5 +133,5 @@ for (const type of ["0x2", "0x0"]) {
   evidence.sources.push({ hash, quote, receipt: paid, settlement, post,
     l1Cost: String(cost), requiredL2Tip: String(tariff), grossL2Tip: String(tip), gasDifference: String(gasDifference) });
   writeFileSync(output, JSON.stringify(evidence, null, 2) + "\n");
-  console.log(`${type} bridge settled: quoted L1 gas ${quote.estimate.l1Gas}, actual ${BigInt(post.gasUsed)}, tip/cost ${Number(tip * 10000n / cost) / 10000}`);
+  console.log(`${type} bridge settled: quoted L1 gas ${detail.estimate.l1Gas}, actual ${BigInt(post.gasUsed)}, tip/cost ${Number(tip * 10000n / cost) / 10000}`);
 }

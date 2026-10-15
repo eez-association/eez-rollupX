@@ -130,17 +130,19 @@ async fn quote(world: &CrossChainWorld, target: Address, data: &Bytes, nonce: u6
     let client = reqwest::Client::new();
     wait_for(Duration::from_secs(40), || async {
         let response = client
-            .post(format!("{}/eez/fees/l2-to-l1", world.l2_xchain()))
-            .json(&intent)
+            .post(world.l2_xchain())
+            .json(&json!({"jsonrpc":"2.0","id":1,"method":"eez_debugQuoteFee","params":[intent]}))
             .send()
             .await?;
         let status = response.status();
         let value: Value = response.json().await?;
-        if status.is_success() {
-            return Ok(Some(value));
+        if status.is_success() && value.get("result").is_some() {
+            let detail = &value["result"]["diagnostics"]["options"][0];
+            anyhow::ensure!(detail.get("error").is_none(), "Safe quote failed: {detail}");
+            return Ok(Some(detail.clone()));
         }
         if matches!(
-            value["error"]["code"].as_str(),
+            value["error"]["data"]["code"].as_str(),
             Some("stale_context" | "quote_unavailable" | "quote_busy")
         ) {
             return Ok(None);

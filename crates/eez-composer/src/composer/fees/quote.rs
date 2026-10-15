@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use super::super::{Composer, l1_target_gas, posting::PostingQuote};
 use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBlockState};
 
-const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
+pub(super) const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
 const MAX_CALLDATA: usize = 12 * 1024;
 const MAX_HISTORY: u64 = 256;
 const MAX_ITERATIONS: usize = 4;
@@ -80,8 +80,8 @@ fn unavailable(context: &'static str, error: impl std::fmt::Display) -> FeeQuote
 /// and replays them. The gas limit is fixed throughout this search.
 #[derive(Clone, Debug)]
 pub struct L2FeeRequest {
-    sender: Address,
-    tx: TypedTransaction,
+    pub(super) sender: Address,
+    pub(super) tx: TypedTransaction,
     signed_fees: bool,
 }
 
@@ -218,7 +218,7 @@ impl L2FeeRequest {
         })
     }
 
-    fn fields(&self, tip: u128, cap: u128) -> Value {
+    pub(super) fn fields(&self, tip: u128, cap: u128) -> Value {
         let mut fields = json!({"type":format!("{:#x}",self.tx.ty()), "chainId":format!("{:#x}",self.tx.chain_id().expect("parser requires chain ID")), "from":self.sender,
             "to":self.tx.to().expect("parser admits calls only"), "nonce":format!("{:#x}",self.tx.nonce()),
             "gas":format!("{:#x}",self.tx.gas_limit()), "value":format!("{:#x}",self.tx.value()), "data":self.tx.input()});
@@ -231,7 +231,7 @@ impl L2FeeRequest {
         fields
     }
 
-    fn env(&self, tip: u128, cap: u128) -> TxEnv {
+    pub(super) fn env(&self, tip: u128, cap: u128) -> TxEnv {
         TxEnv {
             tx_type: self.tx.ty(),
             caller: self.sender,
@@ -355,13 +355,24 @@ where
         prepared: PreparedL2FeeQuote,
         cancelled: Arc<AtomicBool>,
     ) -> Result<Value, FeeQuoteError> {
+        let budget = Arc::new(Budget::new(cancelled));
+        self.quote_l2_fee_in_context(&prepared, None, &budget)
+    }
+
+    fn quote_l2_fee_in_context(
+        &self,
+        prepared: &PreparedL2FeeQuote,
+        snapshot: Option<&super::super::estimate::Snapshot>,
+        budget: &Arc<Budget>,
+    ) -> Result<Value, FeeQuoteError> {
         let PreparedL2FeeQuote {
             request,
             rollup_id,
             posting,
             escrow,
         } = prepared;
-        let budget = Arc::new(Budget::new(cancelled));
+        let rollup_id = *rollup_id;
+        let escrow = *escrow;
         let runtime = &self.inner.posting;
         let policy = runtime
             .shadow_fee_policy
@@ -374,18 +385,25 @@ where
             .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
         let cc = &self.inner.cross_chain;
         let source = cc.local.l2_entry.chain_provider();
-        let parent_number = source
-            .headers
-            .best_block_number()
-            .map_err(|e| unavailable("L2 head", e))?;
-        let parent = SealedHeader::seal_slow(
-            source
+        let parent = if let Some(snapshot) = snapshot {
+            snapshot.l2_parent.clone()
+        } else {
+            let parent_number = source
                 .headers
-                .header_by_number(parent_number)
-                .map_err(|e| unavailable("L2 header", e))?
-                .ok_or(FeeQuoteError::Unavailable("L2 header"))?,
-        );
+                .best_block_number()
+                .map_err(|e| unavailable("L2 head", e))?;
+            SealedHeader::seal_slow(
+                source
+                    .headers
+                    .header_by_number(parent_number)
+                    .map_err(|e| unavailable("L2 header", e))?
+                    .ok_or(FeeQuoteError::Unavailable("L2 header"))?,
+            )
+        };
         let anchor = rollup.l1_head.policy_anchor_snapshot();
+        if snapshot.is_some_and(|snapshot| snapshot.generation != anchor.generation) {
+            return Err(FeeQuoteError::Stale);
+        }
         if anchor.through != Some(posting.quote.sample) {
             return Err(FeeQuoteError::Unavailable(
                 "settlement scan has not reached the selected L1 parent",
@@ -408,12 +426,16 @@ where
             &parent,
             endpoint,
             self.inner.fee_recipient,
-            &budget,
+            budget,
         )?;
-        let (timestamp, randao) = rollup
-            .l1_head
-            .next_block_context(&parent)
-            .map_err(|e| unavailable("L2 context", e))?;
+        let (timestamp, randao) = if let Some(snapshot) = snapshot {
+            (snapshot.l2_timestamp, snapshot.l2_randao)
+        } else {
+            rollup
+                .l1_head
+                .next_block_context(&parent)
+                .map_err(|e| unavailable("L2 context", e))?
+        };
         let state = source
             .provider
             .state_by_block_hash(parent.hash())
@@ -437,6 +459,32 @@ where
         if issued >= expiry {
             return Err(FeeQuoteError::Stale);
         }
+        let document = |tip, cap, estimate: Value| {
+            let transaction = request.fields(tip, cap);
+            let mut intent = transaction.clone();
+            intent
+                .as_object_mut()
+                .expect("constructed object")
+                .remove("maxFeePerGas");
+            intent
+                .as_object_mut()
+                .expect("constructed object")
+                .remove("maxPriorityFeePerGas");
+            intent
+                .as_object_mut()
+                .expect("constructed object")
+                .remove("gasPrice");
+            json!({
+                "version":1, "mode":"advisory", "intent":intent, "intentHash":keccak256(intent.to_string()), "transaction":transaction,
+                "issuedAt":issued, "expiresAt":expiry, "policy":policy.details(),
+                "context":{"rollupId":rollup_id, "l1ChainId":runtime.ctx.l1_chain_id, "l2ChainId":runtime.ctx.l2_chain_id,
+                    "l1ParentHash":posting.quote.sample.hash, "l1ParentNumber":posting.quote.sample.number,
+                    "l1TargetNumber":target_block, "l1TargetTimestamp":target_timestamp,
+                    "l2ParentHash":parent.hash(), "l2ParentNumber":parent.number, "l2Timestamp":timestamp,
+                    "settledL2Hash":endpoint.hash, "settledL2Number":endpoint.number},
+                "estimate":estimate
+            })
+        };
         let mut tip = if request.signed_fees {
             request
                 .tx
@@ -505,7 +553,7 @@ where
                     eez_protocol::composition::Rollup {
                         client: Arc::new(BoundedClient {
                             client,
-                            budget: Arc::clone(&budget),
+                            budget: Arc::clone(budget),
                         }),
                         session: None,
                         config: config.clone(),
@@ -517,7 +565,7 @@ where
                     RollupId::MAINNET,
                     Box::new(BoundedSession {
                         inner: Box::new(session),
-                        budget: Arc::clone(&budget),
+                        budget: Arc::clone(budget),
                     }) as Box<dyn TargetExecutionSession + Send>,
                 )]),
             );
@@ -530,6 +578,24 @@ where
             {
                 return Err(FeeQuoteError::Unsupported(
                     "source validation or execution failed",
+                ));
+            }
+            if builder.recorded_count() == 0 && snapshot.is_some() {
+                let outcome = draft
+                    .preview_unsigned(tx_env)
+                    .map_err(|e| unavailable("ordinary L2 replay", e))?;
+                if !outcome.success {
+                    return Err(FeeQuoteError::Unsupported("ordinary L2 replay reverted"));
+                }
+                return Ok(document(
+                    tip,
+                    cap,
+                    json!({
+                        "basis":"ordinary_l2", "sourceGasUsed":outcome.gas_used,
+                        "l2BaseFeePerGas":base.to_string(), "iterations":iteration,
+                        "requiredL2Tip":"0", "grossL2Tip":(U256::from(effective_tip)*U256::from(outcome.gas_used)).to_string(),
+                        "qualifiedRecoveryL1":null
+                    }),
                 ));
             }
             let composition = builder
@@ -612,7 +678,7 @@ where
             budget.check()?;
             let (l1_gas, cost, payment) = super::settlement::measured_payment(
                 runtime,
-                &posting,
+                posting,
                 super::settlement::SettlementInput {
                     rollup_id,
                     settled_root: endpoint.hash,
@@ -658,37 +724,18 @@ where
             {
                 return Err(FeeQuoteError::Stale);
             }
-            let transaction = request.fields(tip, cap);
-            let mut intent = transaction.clone();
-            intent
-                .as_object_mut()
-                .expect("constructed object")
-                .remove("maxFeePerGas");
-            intent
-                .as_object_mut()
-                .expect("constructed object")
-                .remove("maxPriorityFeePerGas");
-            intent
-                .as_object_mut()
-                .expect("constructed object")
-                .remove("gasPrice");
-            return Ok(json!({
-                "version":1, "mode":"advisory", "intent":intent, "intentHash":keccak256(intent.to_string()), "transaction":transaction,
-                "issuedAt":issued, "expiresAt":expiry, "policy":policy.details(),
-                "context":{"rollupId":rollup_id, "l1ChainId":runtime.ctx.l1_chain_id, "l2ChainId":runtime.ctx.l2_chain_id,
-                    "l1ParentHash":posting.quote.sample.hash, "l1ParentNumber":posting.quote.sample.number,
-                    "l1TargetNumber":target_block, "l1TargetTimestamp":target_timestamp,
-                    "l2ParentHash":parent.hash(), "l2ParentNumber":parent.number, "l2Timestamp":timestamp,
-                    "settledL2Hash":endpoint.hash, "settledL2Number":endpoint.number},
-                "estimate":{"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
+            return Ok(document(
+                tip,
+                cap,
+                json!({"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
                     "sourceGasUsed":gas, "nativeL2GasUsed":draft.gas_used()-gas, "l2BaseFeePerGas":base.to_string(),
                     "l1Gas":l1_gas, "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),
                     "l1Subtotal":payment.subtotal.to_string(), "l1Risk":payment.risk.to_string(), "l1Profit":payment.profit.to_string(),
                     "requiredL1":payment.l1.to_string(), "requiredL2Tip":payment.l2.to_string(), "grossL2Tip":(U256::from(effective_tip)*U256::from(gas)).to_string(),
-                    "qualifiedRecoveryL1":null}
-            }));
+                    "qualifiedRecoveryL1":null}),
+            ));
         }
         Err(FeeQuoteError::Limit(
             "fee-dependent execution did not converge in four simulations",
@@ -950,6 +997,9 @@ impl TargetExecutionSession for BoundedSession {
         self.inner.rollback(snapshot)
     }
 }
+
+mod compact;
+pub use compact::{CompactFeeRequest, PreparedCompactFeeQuote};
 
 #[cfg(test)]
 mod tests;
