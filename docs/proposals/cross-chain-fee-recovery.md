@@ -15,6 +15,39 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### L1 batching and observation-only recovery authorized on 2026-10-16
+
+The operator accepts losses when one user's refund does not cover a shared L1
+batch. Remove the single-source scheduling restriction: include whole eligible
+L1 source groups up to the existing gas, blob, timing and configured admission
+bounds. Select the largest recoverable **total** priority payment using final
+native receipts, not the highest per-gas price. Request one refund and retain
+the selected payer as mandatory; preserve source order and nonce dependencies.
+Do not reject or shrink a final batch because that refund is below its cost.
+Standalone quotes still target the configured profit and signed ingress still
+checks the standalone cost/risk floor. L2 fee enforcement is unchanged.
+
+Missing, ambiguous and insufficient refunds are observations, never a reason
+to pause quotes, admission or settlement. Reject duplicate accounting credits,
+keep canonical consumption/reorg rules, and expose costs, received refunds,
+shortfalls and observation errors in Prometheus/Grafana. Do not credit projected
+payments as cash. In-memory attribution remains acceptable for this iteration;
+monitoring resets on process restart and is not a durable financial ledger.
+No automatic alert, provider switch or new configuration mode is introduced.
+
+Acceptance: a real builder settles multiple independent nested L1 sources in
+one post, refunds the largest measured payer, and repeats after an undercovered
+batch. Process tests show quoting and dispatch continue after missing refunds.
+Unit tests cover selection below the batch floor, excluded senders, bounded
+labels, duplicate observations and reorg corrections. Existing execution,
+partial-consumption, L2 fee and policy-disabled regressions remain applicable.
+
+This authorization supersedes the single-source, final L1 coverage and
+payment-failure stop requirements of the preceding increment below. It changes
+Composer policy and observability only; protocol, signer and replay formats
+remain unchanged. Older Composers restore the one-source restriction and stop
+behavior, so drain accepted work before upgrading or rolling back.
+
 ### L1 collection increment authorized on 2026-10-15
 
 Implement the funded single-source refund profile after the

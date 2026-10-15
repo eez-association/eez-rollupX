@@ -484,7 +484,13 @@ transaction types through the shared SDK, rejects an underpaid source, checks
 nested calls and official Safe 1.4.1 creation, then independently reads the native
 blob post, source and builder payment from the canonical L1 block. The actual
 recipient balance increase must cover measured post/blob/service costs and risk.
-It retains incremental evidence before broadcasting each source:
+It then funds four deterministic private-network actors with one test ETH each,
+submits two concurrent waves of nested sources (mixed legacy/EIP-1559), and
+requires each wave to settle in one post. The measured largest total priority
+payment must produce the only refund. Both shared batches must be undercovered
+to prove the accepted subsidy and continued service; an accidentally profitable
+or split batch does not pass this regression. It retains incremental evidence
+before broadcasting each source:
 
 ```bash
 node testing/kurtosis/scripts/verify-l1-fees.mjs

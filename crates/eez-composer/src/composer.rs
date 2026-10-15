@@ -1498,7 +1498,6 @@ where
             fees: posting_fees,
             shadow_fee_policy,
             l1_refund_policy,
-            l1_refund_failed: std::sync::atomic::AtomicBool::new(false),
             enforce_l2_fee_tariff,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
@@ -1509,6 +1508,15 @@ where
             costs: std::sync::Mutex::default(),
             gas_trace: gas_trace.clone(),
         });
+        if posting.l1_refund_policy.is_some() {
+            for rollup in rollups.keys() {
+                costs::register_refund_metrics(
+                    *rollup,
+                    posting.ctx.l1_chain_id,
+                    posting.native_currency(),
+                );
+            }
+        }
         event!(name: "eez.composer.emission.limits", Level::INFO,
             max_blocks = emission.max_blocks, configured_gas_cap = emission.max_gas,
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
@@ -2060,6 +2068,11 @@ where
             }
         }
         if let Err(error) = self.observe_settlement_cost(rollup_id, rollup).await {
+            if self.inner.posting.l1_refund_policy.is_some() {
+                metrics::counter!("eez_composer_l1_refund_observation_errors_total",
+                    "rollup_id" => rollup_id.to_string())
+                .increment(1);
+            }
             event!(Level::WARN, rollup_id, %error, "canonical receipt cost unavailable; retaining observability retry");
         }
     }
@@ -4023,31 +4036,6 @@ where
                 admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
-            }
-            if self
-                .inner
-                .posting
-                .l1_refund_failed
-                .load(std::sync::atomic::Ordering::Acquire)
-            {
-                capacity.defer(
-                    &mut selection,
-                    &candidate,
-                    idx,
-                    held,
-                    "l1_refund_route_unqualified",
-                );
-                continue;
-            }
-            if self.inner.posting.l1_refund_policy.is_some() && !survivors.is_empty() {
-                capacity.defer(
-                    &mut selection,
-                    &candidate,
-                    idx,
-                    held,
-                    "l1_refund_single_group",
-                );
-                continue;
             }
             if (self.inner.posting.enforce_l2_fee_tariff
                 || self.inner.posting.l1_refund_policy.is_some())

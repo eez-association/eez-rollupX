@@ -40,8 +40,8 @@ async function until(label, check, seconds = 180) {
   throw new Error(`Timed out: ${label}`);
 }
 const retryable = result => ["stale_context", "quote_unavailable", "quote_busy"].includes(result.error?.data?.code);
-function sign(tx) {
-  const args = ["mktx", "--private-key", key, "--chain", String(BigInt(tx.chainId)), "--nonce", String(BigInt(tx.nonce)),
+function sign(tx, signingKey = key) {
+  const args = ["mktx", "--private-key", signingKey, "--chain", String(BigInt(tx.chainId)), "--nonce", String(BigInt(tx.nonce)),
     "--gas-limit", String(BigInt(tx.gas)), "--value", String(BigInt(tx.value ?? "0x0"))];
   if (tx.type === "0x0") args.push("--legacy", "--gas-price", String(BigInt(tx.gasPrice)));
   else args.push("--gas-price", String(BigInt(tx.maxFeePerGas)), "--priority-gas-price", String(BigInt(tx.maxPriorityFeePerGas)));
@@ -53,11 +53,11 @@ async function receipt(url, hash) {
   assert.equal(result.status, "0x1", `reverted ${hash}`);
   return result;
 }
-async function ordinary(url, to, data = "0x") {
+async function ordinary(url, to, data = "0x", value = "0x0") {
   const [chainId, nonce, parent] = await Promise.all([rpc(url, "eth_chainId"),
     rpc(url, "eth_getTransactionCount", [from, "pending"]), rpc(url, "eth_getBlockByNumber", ["latest", false])]);
   const tip = 1_000_000_000n;
-  const raw = sign({ to, data, chainId, nonce, gas: hex(8_000_000), maxPriorityFeePerGas: hex(tip),
+  const raw = sign({ to, data, value, chainId, nonce, gas: hex(8_000_000), maxPriorityFeePerGas: hex(tip),
     maxFeePerGas: hex(2n * BigInt(parent.baseFeePerGas) + tip) });
   return receipt(url, await rpc(url, "eth_sendRawTransaction", [raw]));
 }
@@ -202,9 +202,88 @@ for (const [index, type] of ["0x0", "0x2"].entries()) {
     });
 }
 Object.assign(evidence.fixtures, { singleton, factory, factoryProxy, safes });
-// A fourth quote would fail after any conclusive refund shortfall. Check route
-// health after all receipts and the cost observer's next recovery ticks.
+
+// Public fixture keys, used only after the private-chain identity checks above.
+// Independent senders let quotes use actual current nonces while a concurrent
+// wave reaches the scheduler before its next preparation opportunity.
+const actors = [101, 102, 103, 104].map(n => {
+  const signingKey = `0x${n.toString(16).padStart(64, "0")}`;
+  return { signingKey, from: cast("wallet", "address", "--private-key", signingKey) };
+});
+for (const actor of actors) await ordinary(l1, actor.from, "0x", hex(10n ** 18n));
+evidence.batches = [];
+for (let wave = 0; wave < 2; wave++) {
+  const batch = { sources: [] };
+  evidence.batches.push(batch); checkpoint();
+  const beforeCalls = BigInt(await read(l1, inner, "completedProxyCalls()"));
+  // Prepare fees ahead of the boundary; do not depend on per-gas priority order.
+  const prepared = await Promise.all(actors.map(async (actor, index) => {
+    const type = index % 2 ? "0x2" : "0x0";
+    const value = BigInt(900 + wave * actors.length + index);
+    const transaction = { chainId: hex(7331), from: actor.from, to: outer,
+      data: cast("calldata", "setViaInner(uint256)", String(value)), value: "0x0" };
+    const quoted = await quote(transaction);
+    const tx = feeQuoteTransaction(quoteArgs(quoted, transaction, type));
+    const raw = sign(tx, actor.signingKey);
+    const source = { transaction, type, quote: quoted, hash: cast("keccak", raw) };
+    batch.sources.push(source); checkpoint();
+    return { raw, source };
+  }));
+  const head = await rpc(l1, "eth_blockNumber");
+  await until("next L1 slot before concurrent submission", async () => (await rpc(l1, "eth_blockNumber")) !== head);
+  await Promise.all(prepared.map(async ({ raw, source }) => {
+    const result = await until("batched source admission", async () => {
+      const r = await request(front, "eth_sendRawTransaction", [raw]);
+      if (retryable(r)) return null;
+      assert(!r.error, JSON.stringify(r)); return r.result;
+    }, 30);
+    assert.equal(result, source.hash);
+  }));
+  for (const source of batch.sources) {
+    source.ownership = await until("batched canonical consumption", async () => {
+      const r = await rpc(front, "eez_getCrossChainTransaction", [source.hash]);
+      return r?.ownership?.canonical ? r : null;
+    });
+    assert.equal(source.ownership.ownership.reason, "Committed");
+    source.receipt = await receipt(l1, source.hash); checkpoint();
+  }
+  const first = batch.sources[0].receipt;
+  assert(batch.sources.every(s => s.receipt.blockHash === first.blockHash), "all sources must share one L1 block");
+  const block = await rpc(l1, "eth_getBlockByNumber", [first.blockNumber, true]);
+  const posts = block.transactions.filter(t => t.to?.toLowerCase() === registry.toLowerCase() && t.type === "0x3");
+  assert.equal(posts.length, 1, "multiple L1 groups must share one native post");
+  const post = await receipt(l1, posts[0].hash);
+  const ordered = batch.sources.toSorted((a, b) => Number(BigInt(a.receipt.transactionIndex) - BigInt(b.receipt.transactionIndex)));
+  assert(BigInt(post.transactionIndex) < BigInt(ordered[0].receipt.transactionIndex));
+  for (const source of ordered) source.grossUserTipL1 = String(BigInt(source.receipt.gasUsed)
+    * (BigInt(source.receipt.effectiveGasPrice) - BigInt(block.baseFeePerGas)));
+  const payer = ordered.reduce((a, b) => BigInt(b.grossUserTipL1) > BigInt(a.grossUserTipL1) ? b : a);
+  const detail = payer.quote.diagnostics.options.find(o => o.transaction.type === payer.type);
+  const recipient = detail.estimate.refundRecipient.toLowerCase();
+  const payments = block.transactions.filter(t => t.from.toLowerCase() === block.miner.toLowerCase()
+    && t.to?.toLowerCase() === recipient && t.input === "0x" && BigInt(t.value) > 0n);
+  assert.equal(payments.length, 1, "one selected-payer refund per shared post");
+  const payout = await receipt(l1, payments[0].hash);
+  assert(BigInt(payout.transactionIndex) > BigInt(payer.receipt.transactionIndex));
+  const payoutCost = BigInt(payout.gasUsed) * BigInt(payout.effectiveGasPrice);
+  const expected = BigInt(payer.grossUserTipL1) * BigInt(detail.estimate.refundPercent) / 100n - payoutCost;
+  const income = BigInt(payments[0].value);
+  assert.equal(income, expected, "refund must come from the largest measured total tip");
+  const cost = BigInt(post.gasUsed) * BigInt(post.effectiveGasPrice) + BigInt(post.blobGasUsed) * BigInt(post.blobGasPrice);
+  assert(income < cost, "exercise must demonstrate an intentionally undercovered batch");
+  assert.equal(BigInt(await read(l1, inner, "completedProxyCalls()")), beforeCalls + BigInt(actors.length));
+  const lastValue = BigInt(`0x${ordered.at(-1).transaction.data.slice(-64)}`);
+  await until("batched nested effects", async () => BigInt(await read(l2, target, "value()", "safe")) === lastValue);
+  Object.assign(batch, { postHash: posts[0].hash, postReceipt: post, payoutHash: payments[0].hash,
+    payoutReceipt: payout, selectedPayer: payer.hash, actualPostingCostL1: String(cost), receivedRefundL1: String(income),
+    shortfallL1: String(cost - income), expectedL2Value: String(lastValue) }); checkpoint();
+  console.log(`Shared batch ${wave}: ${actors.length} nested sources, payer=${payer.hash}, refund=${income}, cost=${cost}`);
+  // Give the canonical observer time to record the shortfall before the next wave.
+  await new Promise(resolve => setTimeout(resolve, 15_000));
+}
+// Quotes remain available after an observed shortfall. Missing-payment
+// continuation is independently covered by the process adapter regressions.
 await new Promise(resolve => setTimeout(resolve, 15_000));
 await quote({ chainId: hex(7331), from, to: outer, data: cast("calldata", "setViaInner(uint256)", "783") });
 evidence.completed = true; checkpoint();
-console.log("Legacy/EIP-1559, nested calls, Safe creation, receipt costs and actual builder refunds passed");
+console.log("Legacy/EIP-1559, nested/Safe execution, multi-user batching, largest-payer refunds and subsidized continuation passed");

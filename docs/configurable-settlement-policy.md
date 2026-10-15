@@ -1504,8 +1504,8 @@ and integer `percent` from 1 to 99. Empty, invalid and unknown fields fail start
 It requires `EEZ_L2_FEE_SHADOW_POLICY` for the existing chain/rollup identities,
 explicit service costs, risk and profit. L1 calculations use its L1-denominated
 costs directly, without conversion to L2. The L2 conversion assumption remains
-independent. Setting this policy enables L1 quotes, signed admission and final
-coverage checks together; it does not enable L2 tariff enforcement.
+independent. Setting this policy enables L1 quotes, signed admission and refund
+selection together; it does not enable L2 tariff enforcement.
 
 The operator must first qualify **every** configured builder relay for the same
 immediate native-blob refund profile. Generic `eth_sendBundle` support or an ACK
@@ -1545,19 +1545,23 @@ replayed at the proposed fields within the same bounded quote worker. Debug
 includes measured L1/source gas, DA, percentage, payout allowance, cost/risk/profit
 and `projectedRefundL1`. `qualifiedRecoveryL1` remains null in a quote.
 
-Signed admission and final dispatch require `C + R`; profit is a quote target
-and may absorb drift. They use effective priority fees and charged receipt gas,
+Signed admission requires the standalone `C + R`; profit is a quote target
+and may absorb drift. It uses effective priority fees and charged receipt gas,
 not gas limits or fee caps. Underpayment uses `data.code = "l1_tip_underfunded"`.
 Admission does not reserve a quote or change transaction encoding.
 
-For this first implementation each L1-funded post contains **one complete source
-request**, including all its nested calls. L1 and L2 fee-funded batches remain
-separate under existing FIFO/nonce ownership. Multi-user L1 batching is deferred
-until prefix funding is measured and validated. The dispatch selector can choose
+L1-funded posts pack multiple complete source requests, including their nested
+calls, up to the existing gas/blob/timing and configured admission bounds. L1 and
+L2 fee-funded batches remain separate under existing FIFO/nonce ownership.
+Following the operator's accepted subsidy policy, the final batch need not cover
+its cost: do not shrink or reject it because the largest refund is below `C + R`.
+The dispatch selector chooses
 one external payer by recoverable total payment, never by gas price alone; it
 excludes the poster, recipient and configured excluded senders. The exact request
 contains `refundPercent`, `refundRecipient`, and one `refundTxHashes` element.
-That payer is required: it is removed from `revertingTxHashes`. Other existing
+That payer is required: it is removed from `revertingTxHashes`. An absent eligible
+external payer is still an error; internal money cannot be labeled user revenue.
+Other existing
 partial-consumption and reconciliation behavior is unchanged.
 
 The final post hash binds immutable refund terms in the in-memory cost ledger.
@@ -1566,18 +1570,26 @@ floor and uniqueness. Repeated observations are idempotent; reorgs retract their
 previous cost/payment reports. `eez.composer.postbatch.actual_cost` adds
 `refund_status`, `refund_hash`, `refund_value`, `refund_source`, and
 `refund_minimum`. A requested refund is never cash. A missing, ambiguous or
-underfunded immediate payout stops new L1 quotes and funded dispatch until the
-operator requalifies the route and restarts. L2 service and canonical ownership
-reconciliation continue. This stop remains conservative across reorgs.
+underfunded immediate payout does **not** stop quotes, admission or dispatch.
+Underfunded means received revenue is below the refreshed cost/risk floor; with
+subsidized batching it need not mean the builder violated its refund terms.
+Duplicate payment attribution is rejected without suspending the network.
+The [refund metrics](../monitoring/README.md#l1-refund-observations) expose received
+revenue, posting cost, shortfall, status and observation errors for operator
+follow-up. They never authorize execution or source resubmission.
 
 There is no protocol, genesis, protobuf, DA or historical replay migration.
 Upgrade Composer before using its L1 fee API; older Composers neither enforce the
 L1 tariff nor request these refunds. Keep the policy unset during a mixed-version
 rollout, drain outstanding work, qualify the actual builder path, then enable it.
 Disabling it or rolling back restores subsidized L1 admission. The financial
-plans and stop flag are **in memory**, like accepted requests: a restart can lose
-unsettled requests and refund attribution. Inspect retained posting logs and
-canonical receipts before restarting/re-enabling; node database persistence does
-not recover that ledger. Do not use projected or unobserved L1 revenue as credit
-for another request. These limits prevent claiming durable financial accounting
-or an on-chain payment guarantee.
+plans are **in memory**, like accepted requests: a restart can lose unsettled
+requests and refund attribution. Monitoring totals reset at restart; retained
+posting logs and canonical receipts remain the evidence for historical checks.
+Node database persistence does not recover that ledger. Do not use projected or
+unobserved L1 revenue as received cash. There is no on-chain payment guarantee.
+
+The batching/observation-only increment changes no API or stored encoding.
+Drain accepted work before replacing Composer. An older Composer restores the
+one-source restriction, final funding floor and automatic pause after a bad
+refund; upgrading the signer/follower is not required for this policy change.

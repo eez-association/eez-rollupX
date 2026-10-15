@@ -1,9 +1,9 @@
 //! L1-origin quotes use the same private composition as gas estimation, then
 //! execute the native blob post and source at the actual proposed fee fields.
 use super::{
-    Arc, BlockReader, Budget, Composer, FeeQuoteError, Header, MAX_ITERATIONS, Ordering,
-    PreparedL2FeeQuote, StateProviderFactory, Transaction, U256, Value, compact, history_size,
-    json, keccak256, required_tip, unavailable,
+    Arc, BlockReader, Budget, Composer, FeeQuoteError, Header, MAX_ITERATIONS, PreparedL2FeeQuote,
+    StateProviderFactory, Transaction, U256, Value, compact, history_size, json, keccak256,
+    required_tip, unavailable,
 };
 use crate::composer::estimate::InboundPricing;
 
@@ -22,11 +22,6 @@ where
         budget: &Arc<Budget>,
     ) -> Result<Value, FeeQuoteError> {
         let runtime = &self.inner.posting;
-        if runtime.l1_refund_failed.load(Ordering::Acquire) {
-            return Err(FeeQuoteError::Unavailable(
-                "L1 refund route requires operator requalification",
-            ));
-        }
         let refund = runtime
             .l1_refund_policy
             .as_ref()

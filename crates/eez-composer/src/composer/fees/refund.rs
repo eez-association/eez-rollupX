@@ -30,12 +30,6 @@ pub(in crate::composer) fn select(
     if raw.len() == 1 {
         return Ok(None);
     }
-    if runtime
-        .l1_refund_failed
-        .load(std::sync::atomic::Ordering::Acquire)
-    {
-        return Err("l1_refund_route_unqualified");
-    }
     let policy = runtime
         .shadow_fee_policy
         .as_ref()
@@ -124,10 +118,9 @@ fn select_payer(
             });
         }
     }
-    selected
-        .filter(|p| p.projected >= p.minimum)
-        .map(Some)
-        .ok_or("l1_tip_underfunded")
+    // A shared batch may deliberately cost more than its largest refund.
+    // Keep the floor for receipt observability, never as a batch size gate.
+    selected.map(Some).ok_or("refund external payer missing")
 }
 
 pub(crate) const SETTING: &str = "EEZ_L1_FEE_REFUND_POLICY";
@@ -274,10 +267,11 @@ mod tests {
             .unwrap();
         assert_eq!(plan.request.source(), *capped.tx_hash());
         assert_eq!(plan.projected, U256::from(1_737_000));
-        assert_eq!(
-            pick(&execution, Address::ZERO, plan.projected + U256::from(1)),
-            Err("l1_tip_underfunded")
-        );
+        let subsidized = pick(&execution, Address::ZERO, plan.projected + U256::from(1))
+            .unwrap()
+            .unwrap();
+        assert_eq!(subsidized.request.source(), *capped.tx_hash());
+        assert!(subsidized.projected < subsidized.minimum);
         let poster = capped.recover_signer().unwrap();
         assert_eq!(
             pick(&execution, poster, U256::from(500_000))

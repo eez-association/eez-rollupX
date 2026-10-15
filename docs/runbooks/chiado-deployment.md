@@ -900,8 +900,16 @@ records the isolated builder checks and the existing Chiado route's four paid
 canaries, native blob authentication, incremental follower replay and handover.
 It does not qualify additional provider URLs or durable restart recovery.
 
-A missing or ambiguous payout pauses new L1-funded work without resending settled
-sources. Preserve the posting logs and inspect the source/post/payout receipts.
-Requalify the route before restart; the stop flag and per-post refund plans are
-in memory and are not restored by the databases. Disabling the policy permits
-subsidized L1 work again; it is not a revenue-preserving rollback.
+L1 posts may contain several complete source groups. Only the largest measured
+external priority payment is selected for a refund, even when it cannot cover
+the combined posting cost. A missing, ambiguous or insufficient refund does not
+pause quotes or settlement. Preserve posting logs and inspect source/post/payout
+receipts when the [refund dashboard](../../monitoring/README.md#l1-refund-observations)
+shows missing payments or shortfalls. A shortfall can be the accepted batching
+subsidy rather than a builder payment failure; compare the agreed refund terms.
+
+Per-post attribution and monitoring totals remain in memory and are not restored
+by node databases. Restart does not require clearing a refund pause flag, but may
+lose pending requests and observations. Drain work before upgrades/rollback;
+older Composers restore the single-source restriction and payment-failure pause.
+Disabling the policy also disables L1 quote/admission checks and refund requests.

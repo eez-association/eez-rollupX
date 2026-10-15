@@ -727,12 +727,12 @@ fn quote_retry(response: &Value) -> bool {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn l1_refund_quote_legacy_detects_unqualified_builder() {
+async fn l1_refund_quote_legacy_continues_after_missing_payment() {
     l1_refund_roundtrip(true).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn l1_refund_quote_eip1559_detects_unqualified_builder() {
+async fn l1_refund_quote_eip1559_continues_after_missing_payment() {
     l1_refund_roundtrip(false).await;
 }
 
@@ -829,7 +829,7 @@ async fn l1_refund_roundtrip(legacy: bool) {
         quantity("maxPriorityFeePerGas")
     };
     let gas = quantity("gas") as u64;
-    let sign = |tip, cap| {
+    let sign = |nonce, tip, cap| {
         let mut tx: TypedTransaction = if legacy {
             TxLegacy {
                 chain_id: Some(chain),
@@ -858,7 +858,7 @@ async fn l1_refund_roundtrip(legacy: bool) {
         tx.into_envelope(sig)
     };
     let base: u128 = detail["l1BaseFeePerGas"].as_str().unwrap().parse().unwrap();
-    let underpaid = sign(0, if legacy { base + 1 } else { cap });
+    let underpaid = sign(nonce, 0, if legacy { base + 1 } else { cap });
     let rejected = quote_rpc(
         &client,
         &world.l1_xchain(),
@@ -872,7 +872,7 @@ async fn l1_refund_roundtrip(legacy: bool) {
         "{rejected}"
     );
     world.hold_next_bundle().unwrap();
-    let paid = sign(tip, cap);
+    let paid = sign(nonce, tip, cap);
     let hash = *paid.tx_hash();
     let admitted = quote_rpc(
         &client,
@@ -927,7 +927,8 @@ async fn l1_refund_roundtrip(legacy: bool) {
         "expected the native mempool adapter's ordering failure"
     );
     // This process fixture deliberately has no refund-capable PBS builder.
-    // Inclusion must not be mistaken for payment or allow further subsidized work.
+    // Inclusion must not be mistaken for payment. Missing payment is now
+    // observation-only: another quote, admission and dispatch must still work.
     wait_for(TIMEOUT, || async {
         let signals = world.node.signals_since(0)?;
         Ok(signals
@@ -940,17 +941,58 @@ async fn l1_refund_roundtrip(legacy: bool) {
     })
     .await
     .unwrap();
-    let paused = quote_rpc(
+    let next = wait_for(TIMEOUT, || async {
+        let response = quote_rpc(
+            &client,
+            &world.l1_xchain(),
+            "eez_quoteFee",
+            json!([transaction]),
+        )
+        .await?;
+        if quote_retry(&response) {
+            return Ok(None);
+        }
+        anyhow::ensure!(response.get("error").is_none(), "{response}");
+        let option = &response["result"]["options"][index];
+        anyhow::ensure!(option.get("error").is_none(), "{response}");
+        Ok(Some(option.clone()))
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        onchain_nonce(&world.l1_rpc(), INBOUND_USER).await.unwrap(),
+        nonce + 1
+    );
+    let next_quantity = |name: &str| {
+        u128::from_str_radix(next[name].as_str().unwrap().trim_start_matches("0x"), 16).unwrap()
+    };
+    let cap = next_quantity(if legacy { "gasPrice" } else { "maxFeePerGas" });
+    let tip = if legacy {
+        cap
+    } else {
+        next_quantity("maxPriorityFeePerGas")
+    };
+    let next_signed = sign(nonce + 1, tip, cap);
+    world.hold_next_bundle().unwrap();
+    let admitted = quote_rpc(
         &client,
         &world.l1_xchain(),
-        "eez_quoteFee",
-        json!([transaction]),
+        "eth_sendRawTransaction",
+        json!([Bytes::from(next_signed.encoded_2718())]),
     )
     .await
     .unwrap();
     assert_eq!(
-        paused["error"]["data"]["code"], "quote_unavailable",
-        "{paused}"
+        admitted["result"],
+        json!(next_signed.tx_hash()),
+        "{admitted}"
+    );
+    let next_bundle = wait_for(TIMEOUT, || async { world.held_bundle() })
+        .await
+        .unwrap();
+    assert_eq!(
+        next_bundle["params"][0]["refundTxHashes"],
+        json!([next_signed.tx_hash()])
     );
     let follower = NodeHandle::start(
         "l1-refund-follower",

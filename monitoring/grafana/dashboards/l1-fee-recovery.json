@@ -1,0 +1,321 @@
+{
+  "uid": "eez-l1-fee-recovery",
+  "title": "EEZ L1 fee recovery",
+  "tags": [
+    "eez",
+    "fees"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "editable": false,
+  "description": "L1 refund observations since Composer process start. Reorgs retract observations. Totals reset on restart; retained samples are not durable accounting. Missing or insufficient payments never pause the network.",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Refunds received",
+      "description": "Canonical selected-payer refunds observed since this Composer started. Unconfirmed or ambiguous payments contribute zero. Native currency, not wei.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_native{kind=\"received\"}",
+          "legendFormat": "Rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Posting execution + blobs",
+      "description": "Actual fees of posts that requested L1 refunds, including failed posts. Excludes ordinary L2 posts and off-chain operations. Native currency.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_native{kind=\"posting_cost\"}",
+          "legendFormat": "Rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "title": "On-chain surplus / loss",
+      "description": "Received refunds minus posting execution/blob fees since process start. Negative means operator subsidy. Excludes actual proving and infrastructure expenses.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_native{kind=\"received\"} - ignoring(kind) reth_eez_composer_l1_refund_native{kind=\"posting_cost\"}",
+          "legendFormat": "Rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "Refunds and posting costs",
+      "description": "Cumulative observations since process start; reorgs can reduce totals and restart resets them. Do not apply rate/increase: these are gauges.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_native{kind=~\"received|posting_cost\"}",
+          "legendFormat": "{{kind}} \u00b7 rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Accumulated shortfall",
+      "description": "Sum of max(actual cost/risk floor minus received refund, zero) for observed posts. Larger shared batches can intentionally be undercovered even when builders honor the refund. Native currency.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_native{kind=\"shortfall\"}",
+          "legendFormat": "Rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Payment status counts",
+      "description": "Counts since process start, corrected on reorg. Qualified covers the cost/risk floor; underfunded is a real payment below that floor; missing/ambiguous are not credited. No status pauses execution.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 13,
+        "w": 16,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_reports",
+          "legendFormat": "{{status}} \u00b7 rollup {{rollup_id}} \u00b7 {{currency}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "title": "Receipt observation errors",
+      "description": "Observation attempts that failed, including unavailable canonical data or duplicate attribution. Counts retries, not distinct transactions. Posting continues. A gap in monetary totals is not evidence of zero loss.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "eez-prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 13,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "reth_eez_composer_l1_refund_observation_errors_total",
+          "legendFormat": "Rollup {{rollup_id}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "eez-prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 6
+        },
+        "overrides": []
+      },
+      "options": {
+        "tooltip": {
+          "mode": "multi"
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      }
+    }
+  ]
+}
