@@ -14,7 +14,7 @@ fn intent_profile_is_explicit_and_bounded() {
         ("gas", json!(100000)),
         ("nonce", json!("0x00")),
         ("chainId", json!("0x0")),
-        ("gas", json!("0x4c4b41")),
+        ("gas", json!("0x1000001")),
         ("type", json!("0x4")),
         ("to", Value::Null),
         (
@@ -41,6 +41,55 @@ fn intent_profile_is_explicit_and_bounded() {
         let mut bad = intent();
         bad[field] = json!([]);
         assert!(L2FeeRequest::parse(&bad).is_err());
+    }
+}
+
+#[test]
+fn quote_and_signed_admission_accept_the_full_source_transaction_gas_range() {
+    use alloy_network::TxSignerSync;
+    let signer = alloy_signer_local::PrivateKeySigner::from_bytes(
+        &alloy_primitives::B256::with_last_byte(7),
+    )
+    .unwrap();
+    // Include the recorded Falcon Safe creation/transfer limits, not just gas used.
+    for tx_type in [0, 2] {
+        for gas_limit in [
+            21_000, 5_000_001, 6_050_247, 6_037_754, 16_777_216, 20_999, 16_777_217,
+        ] {
+            let mut input = intent();
+            input["type"] = json!(format!("{tx_type:#x}"));
+            let mut tx = L2FeeRequest::parse(&input).unwrap().tx;
+            input["gas"] = json!(format!("{gas_limit:#x}"));
+            let envelope = match &mut tx {
+                TypedTransaction::Legacy(tx) => {
+                    tx.gas_limit = gas_limit;
+                    tx.gas_price = 456;
+                    let signature = signer.sign_transaction_sync(tx).unwrap();
+                    alloy_consensus::TxEnvelope::from(tx.clone().into_signed(signature))
+                }
+                TypedTransaction::Eip1559(tx) => {
+                    tx.gas_limit = gas_limit;
+                    tx.max_priority_fee_per_gas = 123;
+                    tx.max_fee_per_gas = 456;
+                    let signature = signer.sign_transaction_sync(tx).unwrap();
+                    alloy_consensus::TxEnvelope::from(tx.clone().into_signed(signature))
+                }
+                _ => unreachable!(),
+            };
+            for result in [
+                L2FeeRequest::parse(&input),
+                L2FeeRequest::from_signed(&envelope),
+            ] {
+                if (21_000..=16_777_216).contains(&gas_limit) {
+                    assert_eq!(result.unwrap().tx.gas_limit(), gas_limit);
+                } else {
+                    assert!(matches!(
+                        result,
+                        Err(FeeQuoteError::Invalid("gas must be 21000..16777216"))
+                    ));
+                }
+            }
+        }
     }
 }
 

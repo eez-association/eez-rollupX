@@ -19,6 +19,24 @@ function legacyFixture() {
   return args;
 }
 
+test("accepts Falcon Safe gas limits and the EIP-7825 cap while enforcing fee ceilings", () => {
+  for (const create of [fixture, legacyFixture]) {
+    for (const gas of [21000n, 5000001n, 6050247n, 6037754n, 16777216n, 20999n, 16777217n]) {
+      const args = create();
+      args.intent.gas = `0x${gas.toString(16)}`;
+      args.quote.intent.gas = args.intent.gas;
+      args.quote.transaction.gas = args.intent.gas;
+      args.maxTotalFee = gas * 15n;
+      if (gas >= 21000n && gas <= 16777216n) {
+        assert.deepEqual(quotedTransaction(args), args.quote.transaction);
+        assert.throws(() => quotedTransaction({ ...args, maxTotalFee: args.maxTotalFee - 1n }), /app limit/);
+      } else {
+        assert.throws(() => quotedTransaction(args), /Gas outside quote profile/);
+      }
+    }
+  }
+});
+
 test("accepts measured settlement quotes during rollout and rejects unknown pricing bases", () => {
   for (const create of [fixture, legacyFixture]) {
     const args = create();

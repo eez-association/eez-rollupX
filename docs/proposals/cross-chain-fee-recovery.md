@@ -361,6 +361,16 @@ outside this release.
 
 ### Accepted correction: measured L1 settlement pricing
 
+Gas-profile correction authorized on 2026-10-15: admit source limits up to the
+active EIP-7825 maximum, 16,777,216, in quotes, signed tariff admission and the
+SDK. The former application-only 5,000,000 cap excluded recorded Falcon Safe
+transactions with gas limits of 6,050,247 and 6,037,754. Keep the other simulation
+work bounds, fee calculation and final native validation. This changes no
+protocol, storage or genesis rules. Older servers/SDK copies still reject these
+higher limits; upgrade every client copy and Composer. Rollback requires draining
+accepted work and restoring the older client limit. The user authorized this
+small correction's expedited deployment before the broader post-deploy tests.
+
 Authorized on 2026-10-15 after the bridge fee reconciliation: replace the generic
 admission gas reserve in L2 quotes and tariff admission with isolated execution
 of the complete outbound L1 posting. Charge its receipt gas and physical blob

@@ -1030,7 +1030,10 @@ Replay-unprotected signed legacy transactions are rejected. The source
 must use the node's L2 chain ID and produce a supported outbound settlement
 group. Values remain subject to normal source balance checks and the pinned
 L1 rollup escrow. Quotes do not fund either account. The application supplies
-a gas limit between 21,000 and 5,000,000 and must keep it unchanged when signing.
+a gas limit between 21,000 and 16,777,216 (the active EIP-7825 transaction cap)
+and must keep it unchanged when signing. This bound applies to both quotes and
+signed tariff admission. Upgrade Composer and every SDK copy together: older
+versions reject limits above 5,000,000 even when native execution permits them.
 This endpoint does not solve gas-limit discovery for arbitrary cross-chain calls.
 
 The backend selects an exact L1 parent/next-block target and its normal posting

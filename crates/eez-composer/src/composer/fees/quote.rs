@@ -29,7 +29,7 @@ use serde_json::{Value, json};
 use super::super::{Composer, l1_target_gas, posting::PostingQuote};
 use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBlockState};
 
-const MAX_SOURCE_GAS: u64 = 5_000_000;
+const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
 const MAX_CALLDATA: usize = 12 * 1024;
 const MAX_HISTORY: u64 = 256;
 const MAX_ITERATIONS: usize = 4;
@@ -183,7 +183,7 @@ impl L2FeeRequest {
             .map_err(|_| FeeQuoteError::Invalid("invalid calldata"))?;
         let gas_limit = small("gas")?;
         if !(21_000..=MAX_SOURCE_GAS).contains(&gas_limit) {
-            return Err(FeeQuoteError::Invalid("gas must be 21000..5000000"));
+            return Err(FeeQuoteError::Invalid("gas must be 21000..16777216"));
         }
         let chain_id = small("chainId")?;
         if chain_id == 0 {
