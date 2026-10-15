@@ -1,6 +1,7 @@
 //! Receipt-backed checks of per-source transaction references, independent of
 //! the manifest's boundary calculation. Shared by nested and multi-user cases.
 
+use alloy_network::{AnyNetwork, ReceiptResponse};
 use alloy_primitives::{B256, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::SolCall;
@@ -56,7 +57,9 @@ pub(crate) async fn assert_references(
             .starts_with("0x")
     );
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new()
+        .network::<AnyNetwork>()
+        .connect_http(world.l2_rpc().parse().unwrap());
     let l1_id = format!("{:#x}", l1.get_chain_id().await.unwrap());
     assert_eq!(references["postBatch"]["chainId"], l1_id);
     let post: B256 = references["postBatch"]["hash"]
@@ -179,7 +182,9 @@ async fn nested_references(inbound: bool) {
         .unwrap()
         .parse()
         .unwrap();
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new()
+        .network::<AnyNetwork>()
+        .connect_http(world.l2_rpc().parse().unwrap());
     let receipt = l2.get_transaction_receipt(first).await.unwrap().unwrap();
     let block = l2
         .get_block_by_hash(receipt.block_hash.unwrap())
