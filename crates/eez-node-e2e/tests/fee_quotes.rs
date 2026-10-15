@@ -28,30 +28,40 @@ alloy_sol_types::sol! {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unsigned_nested_quote_matches_receipt_and_replays() {
-    nested_quote_roundtrip(false, false, false).await;
+    nested_quote_roundtrip(false, false, false, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn enforced_nested_quote_rejects_underpayment_and_replays() {
-    nested_quote_roundtrip(true, false, false).await;
+    nested_quote_roundtrip(true, false, false, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn legacy_rpc_quote_rejects_underpayment_settles_and_replays() {
-    nested_quote_roundtrip(true, true, false).await;
+    nested_quote_roundtrip(true, true, false, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compact_nested_legacy_estimates_both_types_settles_and_replays() {
-    nested_quote_roundtrip(true, true, true).await;
+    nested_quote_roundtrip(true, true, true, None).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compact_nested_eip1559_estimates_both_types_settles_and_replays() {
-    nested_quote_roundtrip(true, false, true).await;
+    nested_quote_roundtrip(true, false, true, None).await;
 }
 
-async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn simplified_five_percent_legacy_payment_settles_below_twenty_percent_quote() {
+    nested_quote_roundtrip(true, true, true, Some(500)).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quote() {
+    nested_quote_roundtrip(true, false, true, Some(100)).await;
+}
+
+async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, margin: Option<u64>) {
     // Exercise signed tariff admission above the old 5M quote-profile ceiling.
     // This covers submitted gas limits, not the Falcon verifier's execution cost.
     let mut source_gas_limit = if !enforced {
@@ -61,7 +71,11 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
     } else {
         16_777_216
     };
-    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let mut policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    if margin.is_some() {
+        policy["risk_bps"] = json!(0);
+        policy["profit_bps"] = json!(2000);
+    }
     let world = setup_cross_chain_with_env(&[
         (
             "EEZ_L2_FEE_RECIPIENT",
@@ -307,14 +321,31 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
         .unwrap()
         .parse::<u128>()
         .unwrap();
-    let cap = quantity(if legacy { "gasPrice" } else { "maxFeePerGas" });
-    let tip = if legacy {
+    let mut cap = quantity(if legacy { "gasPrice" } else { "maxFeePerGas" });
+    let mut tip = if legacy {
         cap - base
     } else {
         quantity("maxPriorityFeePerGas")
     };
     if compact {
         source_gas_limit = u64::try_from(quantity("gas")).unwrap();
+    }
+    if let Some(margin) = margin {
+        let minimum = quote["estimate"]["minimumL2Tip"]
+            .as_str()
+            .unwrap()
+            .parse::<u128>()
+            .unwrap();
+        let gas = u128::from(quote["estimate"]["sourceGasUsed"].as_u64().unwrap());
+        let reduced = (minimum * u128::from(10_000 + margin))
+            .div_ceil(10_000)
+            .div_ceil(gas);
+        assert!(
+            reduced < tip,
+            "the signed fee must be below the recommended quote"
+        );
+        tip = reduced;
+        cap = base + tip;
     }
     let sign = |priority, price| {
         let mut tx: TypedTransaction = if legacy {
@@ -435,6 +466,46 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
     })
     .await
     .unwrap();
+    if margin.is_some() {
+        // Reach the pending-attempt condition that previously disabled every
+        // quote. Another sender can still estimate independently at a completed
+        // snapshot. No retries hide quote_busy or reconciliation failures here.
+        wait_for(Duration::from_secs(30), || async {
+            let status = quote_rpc(
+                &client,
+                &world.l2_xchain(),
+                "eez_getCrossChainTransaction",
+                json!([hash]),
+            )
+            .await?;
+            Ok((status["result"]["ownership"]["state"] == "awaiting_evidence").then_some(()))
+        })
+        .await
+        .unwrap();
+        let independent: PrivateKeySigner = TARGET_DEPLOYER.parse().unwrap();
+        let params = json!([{"from":independent.address(), "to":outer, "data":data}, {"transactionTypes":["0x2"]}]);
+        let mut burst = tokio::task::JoinSet::new();
+        for _ in 0..8 {
+            let client = client.clone();
+            let url = world.l2_xchain();
+            let params = params.clone();
+            burst.spawn(async move { quote_rpc(&client, &url, "eez_quoteFee", params).await });
+        }
+        let mut count = 0;
+        while let Some(result) = burst.join_next().await {
+            let response = result.unwrap().unwrap();
+            assert!(
+                response.get("error").is_none(),
+                "first-attempt quote must succeed: {response}"
+            );
+            assert!(
+                response["result"]["options"][0].get("error").is_none(),
+                "{response}"
+            );
+            count += 1;
+        }
+        assert_eq!(count, 8);
+    }
     let inbound = if enforced {
         Some(
             sign_and_send(
@@ -477,18 +548,28 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
         // Legacy fixes the total gas price, so a lower inclusion base fee
         // increases the beneficiary's share without changing the user's price.
         assert_eq!(receipt.effective_gas_price, cap);
-        assert_eq!(
-            (U256::from(receipt.gas_used) * U256::from(cap - base)).to_string(),
-            quote["estimate"]["grossL2Tip"]
-        );
-    } else {
+        if margin.is_none() {
+            assert_eq!(
+                (U256::from(receipt.gas_used) * U256::from(cap - base)).to_string(),
+                quote["estimate"]["grossL2Tip"]
+            );
+        }
+    } else if margin.is_none() {
         assert_eq!(paid_tip.to_string(), quote["estimate"]["grossL2Tip"]);
     }
-    assert!(
-        paid_tip
-            >= U256::from_str_radix(quote["estimate"]["requiredL2Tip"].as_str().unwrap(), 10)
-                .unwrap()
-    );
+    let target =
+        U256::from_str_radix(quote["estimate"]["requiredL2Tip"].as_str().unwrap(), 10).unwrap();
+    let minimum =
+        U256::from_str_radix(quote["estimate"]["minimumL2Tip"].as_str().unwrap(), 10).unwrap();
+    assert!(paid_tip >= minimum);
+    if margin.is_some() {
+        assert!(
+            paid_tip < target,
+            "lower margin must survive admission and final dispatch"
+        );
+    } else {
+        assert!(paid_tip >= target);
+    }
     wait_for(TIMEOUT, || async {
         Ok(
             (l2_value(&world.l1_rpc(), world.outbound_value).await? == U256::from(123))
@@ -587,12 +668,26 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool) {
             quote["estimate"]["blobs"].as_u64().unwrap() * alloy_eips::eip4844::DATA_GAS_PER_BLOB,
             post.blob_gas_used.unwrap()
         );
+        if margin.is_some() {
+            assert_eq!(
+                observation["pricing"]["cost_coverage"], "covered",
+                "{observation}"
+            );
+            assert_eq!(
+                observation["pricing"]["comparison"], "shortfall",
+                "target profit may be missed: {observation}"
+            );
+        }
         checked_post = true;
     }
     assert!(checked_post, "independent canonical post receipt required");
     if let Ok(dir) = std::env::var("EEZ_TEST_LOG_DIR") {
         std::fs::write(
-            std::path::Path::new(&dir).join(if compact && legacy {
+            std::path::Path::new(&dir).join(if margin.is_some() && legacy {
+                "simplified-legacy-fee-quote.json"
+            } else if margin.is_some() {
+                "simplified-eip1559-fee-quote.json"
+            } else if compact && legacy {
                 "compact-legacy-fee-quote.json"
             } else if compact {
                 "compact-eip1559-fee-quote.json"

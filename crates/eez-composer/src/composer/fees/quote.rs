@@ -36,6 +36,8 @@ const MAX_ITERATIONS: usize = 4;
 const MAX_FRAMES: usize = 32;
 const MAX_DEPTH: usize = 8;
 const MAX_DA_BYTES: usize = 2 * 1024 * 1024;
+const QUOTE_LIFETIME_SECONDS: u64 = 30;
+const MAX_CONTEXT_AGE_SECONDS: u64 = 60;
 
 /// Stable error categories for the application quote APIs. Details are fixed
 /// strings: backend/provider errors stay in local diagnostics.
@@ -274,6 +276,8 @@ pub struct PreparedL2FeeQuote {
     rollup_id: u64,
     posting: PostingQuote,
     escrow: U256,
+    endpoint: L2Endpoint,
+    expires_at: u64,
 }
 
 impl<L2> Composer<L2>
@@ -306,30 +310,24 @@ where
         {
             return Err(FeeQuoteError::Invalid("wrong chain or rollup"));
         }
-        let target = self
-            .inner
-            .submitter
-            .next_policy_target()
-            .await
-            .map_err(|e| unavailable("L1 target", e))?;
-        let BundleTarget::Exact { timestamp, .. } = target else {
-            return Err(FeeQuoteError::Unavailable("unresolved target"));
-        };
+        let (sample, endpoint) = self.inner.rollups[&rollup_id]
+            .l1_head
+            .estimation_anchor()
+            .ok_or(FeeQuoteError::Unavailable(
+                "completed settlement snapshot unavailable",
+            ))?;
+        let issued = unix_now()?;
         if !policy.quote_eligible(
             request.sender,
             posting.ctx.l1_poster_signer.address(),
-            timestamp,
+            issued.saturating_add(QUOTE_LIFETIME_SECONDS),
         ) {
             return Err(FeeQuoteError::Unsupported(
                 "expired policy or excluded sender",
             ));
         }
         let quote = posting
-            .quote(
-                target,
-                true,
-                eez_l1::posting_fees::PriorityProfile::CrossChain,
-            )
+            .advisory_quote(sample, self.inner.emission.timing.l1_block_time().as_secs())
             .await
             .map_err(|e| unavailable("L1 pricing", e))?;
         let escrow = super::super::IEEZReader::new(posting.registry, &posting.ctx.l1_provider)
@@ -344,6 +342,8 @@ where
             rollup_id,
             posting: quote,
             escrow,
+            endpoint,
+            expires_at: issued.saturating_add(QUOTE_LIFETIME_SECONDS),
         })
     }
 
@@ -356,13 +356,123 @@ where
         cancelled: Arc<AtomicBool>,
     ) -> Result<Value, FeeQuoteError> {
         let budget = Arc::new(Budget::new(cancelled));
-        self.quote_l2_fee_in_context(&prepared, None, &budget)
+        let snapshot = self.fee_snapshot(&prepared, &budget)?;
+        let result = self.quote_l2_fee_in_context(&prepared, &snapshot, &budget)?;
+        self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
+        Ok(result)
+    }
+
+    fn fee_snapshot(
+        &self,
+        prepared: &PreparedL2FeeQuote,
+        budget: &Budget,
+    ) -> Result<super::super::estimate::Snapshot, FeeQuoteError> {
+        let rollup = &self.inner.rollups[&prepared.rollup_id];
+        let parent = advisory_parent(rollup.l2_provider.as_ref(), prepared.endpoint, budget)?;
+        self.validate_fee_context(prepared, &parent)?;
+        let source = self.inner.cross_chain.local.l2_entry.chain_provider();
+        let best = source
+            .headers
+            .best_block_number()
+            .map_err(|e| unavailable("L2 head", e))?;
+        if best > parent.number {
+            let latest = source
+                .headers
+                .header_by_number(best)
+                .map_err(|e| unavailable("L2 head", e))?
+                .ok_or(FeeQuoteError::Unavailable("L2 head missing"))?;
+            let current = source
+                .provider
+                .state_by_block_hash(latest.hash_slow())
+                .map_err(|e| unavailable("pending source state", e))?;
+            let pinned = source
+                .provider
+                .state_by_block_hash(parent.hash())
+                .map_err(|e| unavailable("quote source state", e))?;
+            let sender = prepared.request.sender;
+            if current
+                .account_nonce(&sender)
+                .map_err(|e| unavailable("pending source nonce", e))?
+                != pinned
+                    .account_nonce(&sender)
+                    .map_err(|e| unavailable("quote source nonce", e))?
+            {
+                return Err(FeeQuoteError::Unavailable(
+                    "source nonce depends on unsettled state",
+                ));
+            }
+            let to = prepared
+                .request
+                .tx
+                .to()
+                .ok_or(FeeQuoteError::Unsupported("contract creation"))?;
+            if current
+                .account_code(&to)
+                .map_err(|e| unavailable("pending destination code", e))?
+                != pinned
+                    .account_code(&to)
+                    .map_err(|e| unavailable("quote destination code", e))?
+            {
+                return Err(FeeQuoteError::Unavailable(
+                    "destination code depends on unsettled state",
+                ));
+            }
+        }
+        self.gas_estimator(prepared.rollup_id)
+            .map_err(compact::estimate_error)?
+            .quote_snapshot(&prepared.posting, parent, prepared.endpoint)
+            .map_err(compact::estimate_error)
+    }
+
+    /// Advisory freshness is bounded age and canonical ancestry, not equality
+    /// with the latest height or a scheduling/ownership generation.
+    fn validate_fee_context(
+        &self,
+        prepared: &PreparedL2FeeQuote,
+        parent: &SealedHeader<Header>,
+    ) -> Result<(), FeeQuoteError> {
+        let l1 = self.inner.cross_chain.local.l1_entry.chain_provider();
+        let l2 = self.inner.cross_chain.local.l2_entry.chain_provider();
+        for (chain, number, hash, timestamp) in [
+            (
+                &l1,
+                prepared.posting.parent.number,
+                prepared.posting.quote.sample.hash,
+                prepared.posting.parent.timestamp,
+            ),
+            (&l2, parent.number, parent.hash(), parent.timestamp),
+        ] {
+            if chain
+                .headers
+                .header_by_number(number)
+                .map_err(|e| unavailable("snapshot canonicality", e))?
+                .is_none_or(|header| header.hash_slow() != hash)
+            {
+                return Err(FeeQuoteError::Stale);
+            }
+            let best = chain
+                .headers
+                .best_block_number()
+                .map_err(|e| unavailable("snapshot head", e))?;
+            let latest = chain
+                .headers
+                .header_by_number(best)
+                .map_err(|e| unavailable("snapshot age", e))?
+                .ok_or(FeeQuoteError::Unavailable("snapshot head missing"))?;
+            if latest.timestamp.saturating_sub(timestamp) > MAX_CONTEXT_AGE_SECONDS {
+                return Err(FeeQuoteError::Unavailable("completed snapshot is too old"));
+            }
+        }
+        if unix_now()?.saturating_sub(prepared.posting.parent.timestamp) > MAX_CONTEXT_AGE_SECONDS {
+            return Err(FeeQuoteError::Unavailable("L1 fee sample is too old"));
+        }
+        Ok(())
     }
 
     fn quote_l2_fee_in_context(
         &self,
         prepared: &PreparedL2FeeQuote,
-        snapshot: Option<&super::super::estimate::Snapshot>,
+        snapshot: &super::super::estimate::Snapshot,
         budget: &Arc<Budget>,
     ) -> Result<Value, FeeQuoteError> {
         let PreparedL2FeeQuote {
@@ -370,9 +480,12 @@ where
             rollup_id,
             posting,
             escrow,
+            endpoint,
+            expires_at,
         } = prepared;
         let rollup_id = *rollup_id;
         let escrow = *escrow;
+        let endpoint = *endpoint;
         let runtime = &self.inner.posting;
         let policy = runtime
             .shadow_fee_policy
@@ -385,34 +498,7 @@ where
             .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
         let cc = &self.inner.cross_chain;
         let source = cc.local.l2_entry.chain_provider();
-        let parent = if let Some(snapshot) = snapshot {
-            snapshot.l2_parent.clone()
-        } else {
-            let parent_number = source
-                .headers
-                .best_block_number()
-                .map_err(|e| unavailable("L2 head", e))?;
-            SealedHeader::seal_slow(
-                source
-                    .headers
-                    .header_by_number(parent_number)
-                    .map_err(|e| unavailable("L2 header", e))?
-                    .ok_or(FeeQuoteError::Unavailable("L2 header"))?,
-            )
-        };
-        let anchor = rollup.l1_head.policy_anchor_snapshot();
-        if snapshot.is_some_and(|snapshot| snapshot.generation != anchor.generation) {
-            return Err(FeeQuoteError::Stale);
-        }
-        if anchor.through != Some(posting.quote.sample) {
-            return Err(FeeQuoteError::Unavailable(
-                "settlement scan has not reached the selected L1 parent",
-            ));
-        }
-        let endpoint = anchor
-            .endpoint
-            .filter(|_| anchor.through.is_some())
-            .ok_or(FeeQuoteError::Unavailable("validated settlement anchor"))?;
+        let parent = snapshot.l2_parent.clone();
         let terminal_number = parent
             .number
             .checked_add(1)
@@ -428,14 +514,7 @@ where
             self.inner.fee_recipient,
             budget,
         )?;
-        let (timestamp, randao) = if let Some(snapshot) = snapshot {
-            (snapshot.l2_timestamp, snapshot.l2_randao)
-        } else {
-            rollup
-                .l1_head
-                .next_block_context(&parent)
-                .map_err(|e| unavailable("L2 context", e))?
-        };
+        let (timestamp, randao) = (snapshot.l2_timestamp, snapshot.l2_randao);
         let state = source
             .provider
             .state_by_block_hash(parent.hash())
@@ -455,10 +534,7 @@ where
             return Err(FeeQuoteError::Unavailable("unresolved target"));
         };
         let issued = unix_now()?;
-        let expiry = target_timestamp.min(issued.saturating_add(10));
-        if issued >= expiry {
-            return Err(FeeQuoteError::Stale);
-        }
+        let expiry = *expires_at;
         let document = |tip, cap, estimate: Value| {
             let transaction = request.fields(tip, cap);
             let mut request_fields = transaction.clone();
@@ -580,7 +656,7 @@ where
                     "source validation or execution failed",
                 ));
             }
-            if builder.recorded_count() == 0 && snapshot.is_some() {
+            if builder.recorded_count() == 0 {
                 let outcome = draft
                     .preview_unsigned(tx_env)
                     .map_err(|e| unavailable("ordinary L2 replay", e))?;
@@ -689,7 +765,14 @@ where
                     blobs,
                 },
             )?;
-            let next_tip = required_tip(payment.l2, gas)?;
+            let next_tip = required_tip(
+                if request.signed_fees {
+                    payment.minimum_l2
+                } else {
+                    payment.l2
+                },
+                gas,
+            )?;
             if next_tip > effective_tip {
                 if request.signed_fees {
                     return Err(FeeQuoteError::Underfunded);
@@ -698,32 +781,10 @@ where
                 continue;
             }
             budget.check()?;
-            if unix_now()? >= expiry
-                || !rollup.l1_head.generation_is(anchor.generation)
-                || source
-                    .headers
-                    .header_by_number(parent.number)
-                    .map_err(|e| unavailable("L2 freshness", e))?
-                    .is_none_or(|h| h.hash_slow() != parent.hash())
-                || cc
-                    .local
-                    .l1_entry
-                    .chain_provider()
-                    .headers
-                    .header_by_number(posting.quote.sample.number)
-                    .map_err(|e| unavailable("L1 freshness", e))?
-                    .is_none_or(|h| h.hash_slow() != posting.quote.sample.hash)
-                || cc
-                    .local
-                    .l1_entry
-                    .chain_provider()
-                    .headers
-                    .best_block_number()
-                    .map_err(|e| unavailable("L1 freshness", e))?
-                    != posting.quote.sample.number
-            {
+            if unix_now()? >= expiry {
                 return Err(FeeQuoteError::Stale);
             }
+            self.validate_fee_context(prepared, &parent)?;
             return Ok(document(
                 tip,
                 cap,
@@ -734,6 +795,7 @@ where
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),
                     "l1Subtotal":payment.subtotal.to_string(), "l1Risk":payment.risk.to_string(), "l1Profit":payment.profit.to_string(),
                     "requiredL1":payment.l1.to_string(), "requiredL2Tip":payment.l2.to_string(), "grossL2Tip":(U256::from(effective_tip)*U256::from(gas)).to_string(),
+                    "minimumL1":payment.minimum_l1.to_string(), "minimumL2Tip":payment.minimum_l2.to_string(),
                     "qualifiedRecoveryL1":null}),
             ));
         }
@@ -771,6 +833,67 @@ fn required_tip(cost: U256, gas: u64) -> Result<u128, FeeQuoteError> {
     }
     u128::try_from(cost.div_ceil(U256::from(gas)))
         .map_err(|_| FeeQuoteError::Limit("priority fee exceeds u128"))
+}
+
+/// Retain ordinary history, but never price a new independent request on top
+/// of native effects whose L1 settlement has not been reconciled. Those effects
+/// can disappear. Stopping before them preserves their users' queue ownership
+/// and lets unrelated users quote against a consistent older state.
+fn advisory_parent<L2: BlockReader<Header = Header>>(
+    provider: &L2,
+    endpoint: L2Endpoint,
+    budget: &Budget,
+) -> Result<SealedHeader<Header>, FeeQuoteError> {
+    let number = provider
+        .best_block_number()
+        .map_err(|e| unavailable("L2 head", e))?;
+    if number < endpoint.number || number - endpoint.number > MAX_HISTORY {
+        return Err(FeeQuoteError::Limit("unsettled history exceeds 256 blocks"));
+    }
+    let mut parent = SealedHeader::seal_slow(
+        provider
+            .header_by_number(number)
+            .map_err(|e| unavailable("L2 header", e))?
+            .ok_or(FeeQuoteError::Unavailable("L2 header"))?,
+    );
+    let mut hash = parent.hash();
+    let mut cutoff = hash;
+    for height in (endpoint.number + 1..=number).rev() {
+        budget.check()?;
+        let block = provider
+            .find_block_by_hash(hash, BlockSource::Any)
+            .map_err(|e| unavailable("quote history", e))?
+            .ok_or(FeeQuoteError::Unavailable("quote history missing"))?;
+        if block.header().number != height || block.header().hash_slow() != hash {
+            return Err(FeeQuoteError::Stale);
+        }
+        for tx in block.body().transactions() {
+            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+                || tx
+                    .recover_signer()
+                    .map_err(|e| unavailable("history signer", e))?
+                    == eez_primitives::SYSTEM_ADDRESS
+            {
+                cutoff = block.header().parent_hash;
+                break;
+            }
+        }
+        hash = block.header().parent_hash;
+    }
+    if hash != endpoint.hash {
+        return Err(FeeQuoteError::Stale);
+    }
+    if cutoff != parent.hash() {
+        let block = provider
+            .find_block_by_hash(cutoff, BlockSource::Any)
+            .map_err(|e| unavailable("quote parent", e))?
+            .ok_or(FeeQuoteError::Unavailable("quote parent missing"))?;
+        parent = SealedHeader::seal_slow(block.header().clone());
+        if parent.hash() != cutoff {
+            return Err(FeeQuoteError::Stale);
+        }
+    }
+    Ok(parent)
 }
 
 fn history_size<L2: BlockReader<Header = Header>>(

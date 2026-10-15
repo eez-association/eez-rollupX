@@ -3823,7 +3823,7 @@ where
                             let collected = tariff_tips
                                 .checked_add(U256::from(gas) * U256::from(tip))
                                 .ok_or("tariff payment overflow")?;
-                            if collected < required.l2 {
+                            if collected < required.minimum_l2 {
                                 return Err("l2_tip_underfunded".into());
                             }
                             Ok(collected)

@@ -200,6 +200,36 @@ impl PostingRuntime {
         final_parent: bool,
         profile: PriorityProfile,
     ) -> Result<PostingQuote, PostingError> {
+        self.quote_sample(Some(target), final_parent, profile, None, 0)
+            .await
+    }
+
+    /// Price a hypothetical next block from a completed scan. Unlike submission
+    /// pricing, ordinary head advancement is allowed; the sampled block must
+    /// remain canonical. This result cannot select a real submission target.
+    pub(super) async fn advisory_quote(
+        &self,
+        sample: L1BlockRef,
+        slot_seconds: u64,
+    ) -> Result<PostingQuote, PostingError> {
+        self.quote_sample(
+            None,
+            false,
+            PriorityProfile::CrossChain,
+            Some(sample),
+            slot_seconds,
+        )
+        .await
+    }
+
+    async fn quote_sample(
+        &self,
+        target: Option<BundleTarget>,
+        final_parent: bool,
+        profile: PriorityProfile,
+        pinned: Option<L1BlockRef>,
+        slot_seconds: u64,
+    ) -> Result<PostingQuote, PostingError> {
         let percentile = self.fees.priority_percentile_for(profile);
         let provider = &self.ctx.l1_provider;
         let chain_id = provider
@@ -214,7 +244,7 @@ impl PostingRuntime {
             ));
         }
         let head = provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
+            .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?
             .ok_or_else(|| PostingError::Unavailable("canonical fee sample is missing".into()))?;
@@ -222,7 +252,24 @@ impl PostingRuntime {
             number: head.header.number,
             hash: head.header.hash,
         };
+        if pinned.is_some_and(|expected| expected != sample) {
+            return Err(PostingError::Unavailable(
+                "advisory fee sample was reorged".into(),
+            ));
+        }
         let parent = head.header.inner;
+        let target =
+            match target {
+                Some(target) => target,
+                None => BundleTarget::Exact {
+                    block: parent.number.checked_add(1).ok_or_else(|| {
+                        PostingError::Unavailable("sample height overflow".into())
+                    })?,
+                    timestamp: parent.timestamp.checked_add(slot_seconds).ok_or_else(|| {
+                        PostingError::Unavailable("sample timestamp overflow".into())
+                    })?,
+                },
+            };
         let (env, attributes) = self.environment(&parent, target)?;
         if final_parent && sample.number.checked_add(1) != Some(env.block_env.number.to::<u64>()) {
             return Err(PostingError::Unavailable(
@@ -233,7 +280,7 @@ impl PostingRuntime {
             let history = provider
                 .get_fee_history(
                     PRIORITY_FEE_HISTORY_BLOCKS,
-                    BlockNumberOrTag::Latest,
+                    sample.number.into(),
                     &[f64::from(percentile)],
                 )
                 .await
@@ -261,7 +308,7 @@ impl PostingRuntime {
             estimated_priority_fee,
         })?;
         let check = provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
+            .get_block_by_number(pinned.map_or(BlockNumberOrTag::Latest, |b| b.number.into()))
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?
             .ok_or_else(|| PostingError::Unavailable("fee sample disappeared".into()))?;

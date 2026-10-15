@@ -1,5 +1,5 @@
-//! Application quotes over JSON-RPC. One shared worker, no waiting
-//! queue; its permit remains owned by execution after timeout or cancellation.
+//! Bounded quote workers and waiting requests, with reserved signed-admission
+//! capacity. Execution owns both permits through timeout or cancellation.
 
 use alloy_consensus::Header;
 use eez_composer::{
@@ -34,9 +34,24 @@ enum Request {
 pub(crate) struct FeeQuotes {
     prepare: Arc<dyn Fn(Request) -> Preparation + Send + Sync>,
     executor: TaskExecutor,
-    permits: Arc<Semaphore>,
+    quotes: Workers,
+    admission: Workers,
     timeout: Duration,
     pub(crate) enforce_tariff: bool,
+}
+
+struct Workers {
+    active: Arc<Semaphore>,
+    capacity: Arc<Semaphore>,
+}
+
+impl Workers {
+    fn new(active: usize, waiting: usize) -> Self {
+        Self {
+            active: Arc::new(Semaphore::new(active)),
+            capacity: Arc::new(Semaphore::new(active + waiting)),
+        }
+    }
 }
 
 struct CancelOnDrop(Arc<AtomicBool>);
@@ -88,7 +103,10 @@ impl FeeQuotes {
                 })
             }),
             executor,
-            permits: Arc::new(Semaphore::new(1)),
+            // Each worker has independent EVM overlays and the quote profile's
+            // gas/DA bounds. A small fixed pool also bounds worst-case memory.
+            quotes: Workers::new(4, 16),
+            admission: Workers::new(1, 8),
             timeout: Duration::from_secs(10),
         })
     }
@@ -123,22 +141,30 @@ impl FeeQuotes {
     }
 
     async fn run(&self, request: Request) -> (StatusCode, Value) {
-        let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
+        let workers = match &request {
+            Request::Signed(_) => &self.admission,
+            Request::Compact(..) => &self.quotes,
+        };
+        let Ok(slot) = Arc::clone(&workers.capacity).try_acquire_owned() else {
             return error(
                 StatusCode::TOO_MANY_REQUESTS,
                 "quote_busy",
-                "one quote is already running",
+                "quote request capacity is full",
             );
         };
         let cancellation = CancelOnDrop(Arc::new(AtomicBool::new(false)));
         let cancelled = Arc::clone(&cancellation.0);
         let operation = async {
+            let permit = Arc::clone(&workers.active)
+                .acquire_owned()
+                .await
+                .map_err(|_| FeeQuoteError::Unavailable("quote service stopped"))?;
             let work = (self.prepare)(request).await?;
             self.executor
                 .spawn_blocking(move || {
                     // Dropping the JoinHandle does not stop synchronous EVM work.
                     // Keep the permit inside that work until all its frames exit.
-                    let _permit = permit;
+                    let _permits = (slot, permit);
                     work(cancelled)
                 })
                 .await
@@ -207,7 +233,8 @@ mod tests {
                 Box::pin(async { Ok(Box::new(|_| Ok(json!({"quote":"shared"}))) as Work) })
             }),
             executor: TaskExecutor::test(),
-            permits: Arc::new(Semaphore::new(1)),
+            quotes: Workers::new(1, 0),
+            admission: Workers::new(1, 0),
             timeout: Duration::from_secs(10),
         });
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -342,9 +369,8 @@ mod tests {
             })).send().await.unwrap().json().await.unwrap();
             assert_eq!(response["error"]["code"], -32602);
         }
-        // Both diagnostic and compact requests share signed admission
-        // capacity; switching methods cannot create another worker.
-        let permit = service.permits.acquire().await.unwrap();
+        // Both diagnostic and compact requests share the quote capacity.
+        let permit = service.quotes.capacity.acquire().await.unwrap();
         let response: Value = client
             .post(&url)
             .json(&call)
@@ -371,6 +397,98 @@ mod tests {
         task.abort();
     }
 
+    async fn run_test_request(service: &FeeQuotes, compact: bool) -> (StatusCode, Value) {
+        if compact {
+            service.compact(&transaction(), &json!({}), false).await
+        } else {
+            service
+                .run(Request::Signed(Box::new(
+                    L2FeeRequest::parse(&transaction()).unwrap(),
+                )))
+                .await
+        }
+    }
+
+    #[tokio::test]
+    async fn bounded_queue_waits_without_blocking_signed_admission() {
+        let (started, mut starts) = tokio::sync::mpsc::unbounded_channel();
+        let (finish, finished) = std::sync::mpsc::channel();
+        let finished = std::sync::Mutex::new(Some(finished));
+        let service = Arc::new(FeeQuotes {
+            enforce_tariff: true,
+            prepare: Arc::new(move |request| {
+                let finish = if matches!(request, Request::Compact(..)) {
+                    finished.lock().unwrap().take()
+                } else {
+                    None
+                };
+                let started = started.clone();
+                Box::pin(async move {
+                    Ok(Box::new(move |_| {
+                        if let Some(finish) = finish {
+                            started.send(()).unwrap();
+                            finish.recv_timeout(Duration::from_secs(10)).unwrap();
+                        }
+                        Ok(json!({"ok":true}))
+                    }) as Work)
+                })
+            }),
+            executor: TaskExecutor::test(),
+            quotes: Workers::new(1, 1),
+            admission: Workers::new(1, 0),
+            timeout: Duration::from_secs(5),
+        });
+        let first = Arc::clone(&service);
+        let first = tokio::spawn(async move { run_test_request(&first, true).await });
+        starts.recv().await.unwrap();
+        let second = Arc::clone(&service);
+        let second =
+            tokio::spawn(async move { second.compact(&transaction(), &json!({}), true).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while service.quotes.capacity.available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(!second.is_finished(), "request waits for its worker");
+        assert_eq!(
+            run_test_request(&service, true).await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        assert_eq!(run_test_request(&service, false).await.0, StatusCode::OK);
+        finish.send(()).unwrap();
+        assert_eq!(first.await.unwrap().0, StatusCode::OK);
+        assert_eq!(second.await.unwrap().0, StatusCode::OK);
+        assert_eq!(service.quotes.capacity.available_permits(), 2);
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_waiting_request_releases_capacity_without_starting_work() {
+        let service = Arc::new(FeeQuotes {
+            enforce_tariff: false,
+            prepare: Arc::new(|_| panic!("cancelled queued work must not start")),
+            executor: TaskExecutor::test(),
+            quotes: Workers::new(1, 1),
+            admission: Workers::new(1, 0),
+            timeout: Duration::from_secs(5),
+        });
+        let active = service.quotes.active.acquire().await.unwrap();
+        let cloned = Arc::clone(&service);
+        let waiting = tokio::spawn(async move { run_test_request(&cloned, true).await });
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while service.quotes.capacity.available_permits() != 1 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        waiting.abort();
+        assert!(waiting.await.unwrap_err().is_cancelled());
+        assert_eq!(service.quotes.capacity.available_permits(), 2);
+        drop(active);
+    }
+
     // The worker is held by a channel, not timing: an aborted HTTP task must
     // not make its slot available until this worker is explicitly released.
     #[tokio::test]
@@ -393,24 +511,20 @@ mod tests {
                     })
                 }),
                 executor: TaskExecutor::test(),
-                permits: Arc::new(Semaphore::new(1)),
+                quotes: Workers::new(1, 0),
+                admission: Workers::new(1, 0),
                 timeout: Duration::from_millis(if timeout { 200 } else { 30_000 }),
             });
+            let workers = if compact {
+                &service.quotes
+            } else {
+                &service.admission
+            };
             let cloned = Arc::clone(&service);
-            let request = tokio::spawn(async move {
-                if compact {
-                    cloned.compact(&transaction(), &json!({}), false).await
-                } else {
-                    cloned
-                        .run(Request::Signed(Box::new(
-                            L2FeeRequest::parse(&transaction()).unwrap(),
-                        )))
-                        .await
-                }
-            });
+            let request = tokio::spawn(async move { run_test_request(&cloned, compact).await });
             let cancelled = started_rx.await.unwrap();
             assert_eq!(
-                service.compact(&transaction(), &json!({}), false).await.0,
+                run_test_request(&service, compact).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             if timeout {
@@ -421,16 +535,17 @@ mod tests {
             }
             assert!(cancelled.load(Ordering::Relaxed));
             assert_eq!(
-                service.compact(&transaction(), &json!({}), false).await.0,
+                run_test_request(&service, compact).await.0,
                 StatusCode::TOO_MANY_REQUESTS
             );
             finish_tx.send(()).unwrap();
-            let permit = tokio::time::timeout(Duration::from_secs(5), service.permits.acquire())
+            let permit = tokio::time::timeout(Duration::from_secs(5), workers.active.acquire())
                 .await
                 .unwrap()
                 .unwrap();
             drop(permit);
-            assert_eq!(service.permits.available_permits(), 1);
+            assert_eq!(workers.active.available_permits(), 1);
+            assert_eq!(workers.capacity.available_permits(), 1);
         }
     }
 
@@ -440,7 +555,8 @@ mod tests {
             enforce_tariff: false,
             prepare: Arc::new(|_| Box::pin(std::future::pending())),
             executor: TaskExecutor::test(),
-            permits: Arc::new(Semaphore::new(1)),
+            quotes: Workers::new(1, 0),
+            admission: Workers::new(1, 0),
             timeout: Duration::ZERO,
         };
         assert_eq!(
@@ -451,6 +567,6 @@ mod tests {
             service.compact(&transaction(), &json!({}), false).await.0,
             StatusCode::GATEWAY_TIMEOUT
         );
-        assert_eq!(service.permits.available_permits(), 1);
+        assert_eq!(service.quotes.active.available_permits(), 1);
     }
 }

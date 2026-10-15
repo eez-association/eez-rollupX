@@ -294,6 +294,56 @@ fn bounded_session_refuses_further_target_execution() {
 }
 
 #[test]
+fn advisory_parent_keeps_ordinary_history_and_excludes_unsettled_native_effects() {
+    use reth_provider::test_utils::MockEthProvider;
+    let provider = MockEthProvider::<eez_primitives::EezPrimitives>::new();
+    let mut blocks = Vec::new();
+    for number in 0..=4 {
+        let mut block = eez_primitives::Block::default();
+        block.header.number = number;
+        block.header.parent_hash = blocks
+            .last()
+            .map_or(Default::default(), |header: &Header| header.hash_slow());
+        if number == 2 || number == 4 {
+            block.body.transactions.push(
+                eez_primitives::SystemTransaction {
+                    chain_id: 1,
+                    nonce: number,
+                    to: eez_protocol::EEZL2_ADDRESS,
+                    value: U256::ZERO,
+                    input: Bytes::new(),
+                }
+                .into(),
+            );
+        }
+        blocks.push(block.header.clone());
+        provider.add_block(block.header.hash_slow(), block);
+    }
+    let budget = Budget::new(Arc::new(AtomicBool::new(false)));
+    for (settled, expected) in [(0, 1), (2, 3), (4, 4)] {
+        let endpoint = L2Endpoint {
+            number: settled,
+            hash: blocks[settled as usize].hash_slow(),
+        };
+        let parent = advisory_parent(&provider, endpoint, &budget).unwrap();
+        assert_eq!(parent.number, expected);
+        assert_eq!(parent.hash(), blocks[expected as usize].hash_slow());
+        assert!(history_size(&provider, &parent, endpoint, Address::ZERO, &budget).is_ok());
+    }
+    assert!(matches!(
+        advisory_parent(
+            &provider,
+            L2Endpoint {
+                number: 0,
+                hash: Default::default()
+            },
+            &budget
+        ),
+        Err(FeeQuoteError::Stale)
+    ));
+}
+
+#[test]
 fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
     use alloy_network::TxSignerSync;
     use reth_provider::test_utils::MockEthProvider;

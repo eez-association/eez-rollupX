@@ -935,7 +935,7 @@ required and unknown fields rejected:
 | `valid_until_l1_timestamp` | Positive u64 Unix seconds; the exact candidate target must be at or before this timestamp. Expiry makes pricing unavailable, without blocking execution. |
 | `l1_per_l2_numerator`, `l1_per_l2_denominator` | Positive U256 decimal strings: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
 | `proving_cost_l1`, `operations_cost_l1`, `treasury_cost_l1` | Nonnegative U256 decimal strings charged once per complete post. Explicit zero is allowed. Treasury cost includes the allocated fixed cost of realizing/sweeping L2 income. These are configured allowances, not measured compute expenses. |
-| `risk_bps`, `profit_bps` | Integers from 0 to 10000, each independently applied to posting plus the three fixed costs. |
+| `risk_bps`, `profit_bps` | Integers from 0 to 10000, each independently applied to posting plus the three fixed costs. Risk is a mandatory reserve; profit is the additional quote target and may be consumed by later cost changes. |
 | `excluded_senders` | Array of at most 64 distinct 20-byte operator addresses. The current L1 poster and beneficiary are always excluded too. An empty list is explicit; senders outside it are only assumed external. |
 
 Amounts always carry their chain's base-unit denomination; token symbols do not
@@ -955,8 +955,9 @@ the three fixed costs, and `n/d` the configured conversion:
 
 ```text
 subtotal_l1 = P + F
-required_l1 = subtotal_l1 + ceil(subtotal_l1 × risk_bps / 10000)
-                         + ceil(subtotal_l1 × profit_bps / 10000)
+minimum_l1 = subtotal_l1 + ceil(subtotal_l1 × risk_bps / 10000)
+required_l1 = minimum_l1 + ceil(subtotal_l1 × profit_bps / 10000)
+minimum_l2 = ceil(minimum_l1 × d / n)
 required_l2 = ceil(required_l1 × d / n)
 projected_recovery_l1 = floor(eligible_effective_L2_tips × n / d)
 ```
@@ -974,6 +975,9 @@ eligible/excluded tips, projected recovery, and mutually exclusive nonnegative
 `shadow_priced`. `pricing.comparison` (`covered` or `shortfall`) is hypothetical
 coverage of the complete candidate under those assumptions, with no liquidity
 or partial-consumption guarantee. `qualified_recovery_l1` remains null.
+`minimum_service_payment_l1` / `minimum_service_payment_l2` and `cost_coverage`
+report the separate hard floor; `comparison` still compares against the quote
+target. A target shortfall can therefore coexist with sufficient cost coverage.
 
 Only a single eligible L2 source with no L1 companions gets
 `required_tip_per_gas = ceil(required_l2 / source_receipt_gas)` and
@@ -1089,8 +1093,8 @@ diagnostics use `estimate.basis = "ordinary_l2"` and zero `requiredL2Tip`; they 
 not invent L1 cost components. Debug is a projection of the same calculation,
 not a trace. Separate calls can select different contexts and need not be equal.
 
-Both methods share the existing one-worker, no-queue, ten-second request budget
-with signed tariff checks. Per type, at most three gas discovery probes, four
+Both methods share the bounded quote worker pool. Signed tariff checks have
+separate capacity; both lanes use a ten-second request budget. Per type, at most three gas discovery probes, four
 pricing iterations and one final validation probe run
 (maximum sixteen across both types). Each probe may compose and replay nested
 execution. Pricing retains the aggregate 32-target-frame/eight-depth limit;
@@ -1129,10 +1133,13 @@ Keep final signed native settlement validation enabled.
 Both methods use the following measured pricing contract. The diagnostic endpoint
 exposes its full evidence; the compact endpoint projects wallet-ready fields.
 
-The backend selects an exact L1 parent/next-block target and its normal posting
-fee sample. Its validated settlement scan must have reached that same L1 parent.
-It reads an L2 parent and validated settlement endpoint, pins the
-simulation environments and cold state reads, and uses private overlay channels.
+The backend selects the last completely scanned canonical L1/L2 pair and prices
+a hypothetical next L1 block at that parent. A later scan or submitted attempt
+may remain pending. It extends the L2 parent through retained ordinary blocks,
+stopping before any unresolved native effects. Thus independent requests remain
+quotable without treating speculative cross-chain state as settled. L2 time/seed
+derivation uses only anchors available at the sampled L1 block. Simulation
+environments and cold state reads stay pinned in private overlay channels.
 Its draft next L2 block is a hypothetical source context, not a prediction of
 the eventual inclusion slot. The complete supported group is composed and
 replayed as native loads, the unsigned source, and callback deliveries.
@@ -1146,7 +1153,7 @@ It prices receipt gas, separately from the gas-limit headroom used to make the
 posting executable. Conservative admission reserves remain capacity limits and
 are not charged as estimated consumption. Physical blob costs are added before
 the configured service costs and risk/profit allowance; the Chiado trial applies
-its 20% risk allowance once.
+its 20% target markup once (zero mandatory risk reserve, 2000 profit bps).
 
 Unsigned execution cannot produce an authenticated proof or final signed L2
 block hashes. Disposable settlement estimation uses distinct full-width root
@@ -1164,9 +1171,11 @@ future state can change receipt costs slightly; this remains an advisory estimat
 Blob sizing includes exact retained ordinary transaction bytes and metadata
 plus the complete semantic stream. A maximum-width source signature placeholder
 is used only for encoding size; it is never authenticated, proved or submitted.
-Intermediate native history requires reconciliation and causes an unavailable
-quote. The quote charges this single transaction the complete estimated post and
-retained history; it assumes no future batch participants.
+Unresolved native history is excluded by choosing the preceding L2 parent. A
+transaction depending on that excluded state (including a nonce predecessor or
+a newly deployed contract) still needs reconciliation; its dependencies are not
+guessed. The quote charges this single transaction the complete estimated post
+and retained ordinary history; it assumes no future batch participants.
 
 The [shadow pricing arithmetic](#shadow-l2-fee-pricing) adds service costs,
 risk/profit and conversion. Starting at a zero priority fee, the backend raises
@@ -1186,7 +1195,7 @@ Each successful `diagnostics.options` entry contains:
 | `version: 1`, `mode: advisory` | Application response schema and guarantee level |
 | `request`, `requestHash` | Normalized eight request fields; Keccak-256 of their compact, lexicographically key-sorted JSON |
 | `transaction` | The normalized request plus `gasPrice` for legacy, or `maxPriorityFeePerGas` and `maxFeePerGas` for type 2; all wallet quantities in hex |
-| `issuedAt`, `expiresAt` | Unix seconds; expires at the earlier of ten seconds from issuance and the selected L1 target timestamp |
+| `issuedAt`, `expiresAt` | Unix seconds; expires thirty seconds after issuance, independently of the hypothetical L1 target slot |
 | `context` | Chain/rollup IDs, L1 parent and target, L2 parent and draft timestamp, settled L2 endpoint |
 | `policy` | Policy ID and all conversion, cost, exclusion and validity assumptions |
 | `estimate` | Source/native L2 gas, measured conditional L1/target gas, DA bytes/blobs, distinct L1 execution/blob/subtotal/risk/profit amounts, required L1/L2 amounts and gross L2 tip |
@@ -1206,15 +1215,18 @@ quote quantities remain canonical. Wallet observations cannot change signed
 transaction fields. The pending nonce check detects ordinary-mempool predecessors
 that isolated quote execution does not simulate.
 
-Work is limited to one request per node, with no queue; additional requests get
-`429 quote_busy`. The whole request has a ten-second deadline. Input is limited
+Four workers serve compact/debug quotes with space for sixteen waiting requests.
+Signed admission has one reserved worker and space for eight waiting requests,
+so quote traffic cannot occupy its capacity. Each lane returns `quote_busy` only
+when its total capacity is full. The ten-second request deadline includes queue
+wait and network preparation; the simulated frame budget also remains bounded. Input is limited
 to 32 KiB, calldata to 12 KiB, retained history to 256 blocks, encoded DA to 2 MiB,
 cross-chain target frames to 32 across all iterations, and nesting depth to eight.
 Active network/operator gas and blob limits and the negotiated emission window
 still apply. Expensive work uses Reth's blocking executor. Disconnect, timeout
 or shutdown sets cancellation; checks between frames/history/replay steps stop
-further work. A running EVM frame cannot be interrupted, and retains the sole
-worker permit until it exits. Frames also have existing EVM gas limits.
+further work. A running EVM frame cannot be interrupted, and retains its
+worker and capacity permits until it exits. Frames also have existing EVM gas limits.
 
 Malformed params/transactions use JSON-RPC `-32602`; other shared quote failures
 use `-32004`, with `{code, message}` in `error.data`. Stable application codes
@@ -1224,7 +1236,12 @@ Per-variant execution/input errors are represented as described above; shared
 errors never return a usable option. IDs, mixed batches and notifications follow
 the front's existing semantics. Members execute sequentially under the shared
 worker bound. The 32 KiB transaction/options bound applies alongside the front's
-overall transport-body limit. Requote after transient availability/context changes.
+overall transport-body limit. Requote after genuine availability/context failures. Ordinary head advancement
+alone does not discard a quote. Before and after simulation, both sampled hashes
+must remain canonical. Neither chain may have advanced more than sixty seconds
+beyond its sampled parent, and the L1 fee sample must be at most sixty seconds
+old by the server clock. Reorged context, stale samples and startup without a
+completed scan remain explicit failures.
 
 Changing gas, nonce, calldata, value or fee fields invalidates the estimate.
 Later state/base-fee changes, wallet edits and approval delays can invalidate it
@@ -1243,7 +1260,8 @@ Chiado, Ethereum and Kurtosis configuration pass it to the Composer only.
 For a newly submitted outbound source, the L2 front recovers the signed legacy or type-2
 transaction and replays its exact fees using the quote engine's bounded isolated
 state. Its effective priority payment must cover the whole measured settlement
-tariff. The comparison uses native receipt gas, never the user's gas limit, and
+cost plus the mandatory risk reserve. The desired profit markup is not an
+admission requirement. The comparison uses native receipt gas, never the user's gas limit, and
 accounts for clipping by `maxFeePerGas - baseFee`, or the legacy difference
 `gasPrice - baseFee`. Unsupported quote profiles
 are rejected before queue admission. A tariff failure returns JSON-RPC code
@@ -1276,8 +1294,9 @@ Quoting a future nonce whose
 predecessor has not executed is outside the isolated-transaction profile.
 
 Immediately before dispatch, an attempt containing outbound users must also
-cover its complete newly priced L1 post and blob tariff using actual eligible
-L2 native receipts. Poster, beneficiary and explicitly excluded senders cannot
+cover its complete newly priced L1 post, blobs, configured service costs and risk
+reserve using actual eligible L2 native receipts. It may earn less than the
+quoted profit target; with risk zero it may settle at cost. Poster, beneficiary and explicitly excluded senders cannot
 finance this check. Failure defers the unsent attempt without charging a user
 retry or declaring canonical completion. Accepted work remains subject to
 state, price and availability changes; this is not an inclusion guarantee.
@@ -1292,6 +1311,17 @@ when the selected provider identifies itself as Rabby, whose custom-network
 path uses `gasPrice`. Other providers default to type 2; an explicit supported
 transaction type is preserved. Quote failures stop submission rather than
 falling back to a generic wallet tip.
+
+The simplified trial uses `risk_bps: 0` and `profit_bps: 2000`. Moving the
+existing 2000 bps risk allowance to profit preserves the quoted target but
+relaxes the hard floor. Retaining a nonzero risk reserve is supported; do not
+change it implicitly. Older Composers enforce both fields as a hard tariff, so
+rollback can defer signed transactions that the new policy accepted. Drain or
+account for accepted work before policy changes and preserve both configurations.
+The compact response shape is unchanged; the added minimum figures are debug
+and observation fields. Historical observations may omit them. This enforces a
+refreshed simulated cost floor under configured conversion/service assumptions,
+not a guarantee of realized profit or immunity to price and execution changes.
 
 No protocol, genesis, wire encoding or storage migration is involved. Upgrade
 the matching node/signer runtime and quote-capable dashboard before enabling

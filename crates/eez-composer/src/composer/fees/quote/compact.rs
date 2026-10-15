@@ -1,9 +1,9 @@
 //! Compact projections of the existing pricing engine. Each envelope is
 //! simulated independently, under one snapshot, deadline and worker permit.
 use super::{
-    Arc, AtomicBool, BlockReader, Budget, BundleTarget, Composer, FeeQuoteError, Header,
-    L2FeeRequest, MAX_SOURCE_GAS, PreparedL2FeeQuote, StateProviderFactory, Transaction, U256,
-    Value, json, unavailable, unix_now,
+    Arc, AtomicBool, BlockReader, Budget, Composer, FeeQuoteError, Header, L2FeeRequest,
+    MAX_SOURCE_GAS, PreparedL2FeeQuote, StateProviderFactory, Transaction, U256, Value, json,
+    unavailable, unix_now,
 };
 use crate::composer::estimate::EstimateError;
 
@@ -101,7 +101,7 @@ pub struct PreparedCompactFeeQuote {
     prepared: PreparedL2FeeQuote,
 }
 
-fn estimate_error(error: EstimateError) -> FeeQuoteError {
+pub(super) fn estimate_error(error: EstimateError) -> FeeQuoteError {
     tracing::debug!(%error, "compact quote estimation failed");
     match error {
         EstimateError::ContextChanged => FeeQuoteError::Stale,
@@ -159,9 +159,7 @@ where
         let estimator = self
             .gas_estimator(prepared.rollup_id)
             .map_err(estimate_error)?;
-        let snapshot = estimator
-            .quote_snapshot(&prepared.posting)
-            .map_err(estimate_error)?;
+        let snapshot = self.fee_snapshot(&prepared, &budget)?;
         let source = self.inner.cross_chain.local.l2_entry.chain_provider();
         let nonce = source
             .provider
@@ -196,11 +194,8 @@ where
                 "nonce must match pinned source state; queued predecessors are not simulated",
             ));
         }
-        let BundleTarget::Exact { timestamp, .. } = prepared.posting.quote.target else {
-            return Err(FeeQuoteError::Unavailable("unresolved target"));
-        };
         let issued = unix_now()?;
-        let expiry = timestamp.min(issued.saturating_add(10));
+        let expiry = prepared.expires_at;
         let mut options = Vec::new();
         let mut diagnostics = Vec::new();
         for &ty in &request.types {
@@ -222,8 +217,7 @@ where
                     transaction = request.resolve(chain, nonce, gas, ty)?;
                 }
                 prepared.request = transaction;
-                let mut detail =
-                    self.quote_l2_fee_in_context(&prepared, Some(&snapshot), &budget)?;
+                let mut detail = self.quote_l2_fee_in_context(&prepared, &snapshot, &budget)?;
                 budget.check()?;
                 let tx = &detail["transaction"];
                 let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
@@ -264,24 +258,11 @@ where
             }
         }
         budget.check()?;
-        // Recheck once after ALL variants, including ordinary calls and errors.
-        // A fresh second snapshot is used only for equality, never for execution.
-        let current = estimator
-            .quote_snapshot(&prepared.posting)
-            .map_err(estimate_error)?;
+        // Recheck canonical identity and bounded age after ALL variants.
+        // Advancing heads do not invalidate an advisory simulation.
+        self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
         check_nonce()?;
-        let l1 = self.inner.cross_chain.local.l1_entry.chain_provider();
-        if unix_now()? >= expiry
-            || current.generation != snapshot.generation
-            || current.l2_parent.hash() != snapshot.l2_parent.hash()
-            || current.l2_timestamp != snapshot.l2_timestamp
-            || current.l2_randao != snapshot.l2_randao
-            || l1
-                .headers
-                .best_block_number()
-                .map_err(|e| unavailable("L1 freshness", e))?
-                != prepared.posting.quote.sample.number
-        {
+        if unix_now()? >= expiry {
             return Err(FeeQuoteError::Stale);
         }
         let mut response = json!({"version":1, "chainId":format!("{chain:#x}"), "nonce":format!("{nonce:#x}"),

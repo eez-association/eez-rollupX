@@ -35,6 +35,8 @@ pub(crate) struct RequiredPayment {
     pub profit: U256,
     pub l1: U256,
     pub l2: U256,
+    pub minimum_l1: U256,
+    pub minimum_l2: U256,
 }
 
 impl Policy {
@@ -70,9 +72,10 @@ impl Policy {
             U256::from(10_000),
             true,
         )?;
-        let l1 = subtotal
-            .checked_add(risk)
-            .and_then(|sum| sum.checked_add(profit))
+        let minimum_l1 = subtotal.checked_add(risk).ok_or("pricing_cost_overflow")?;
+        let minimum_l2 = mul_div(minimum_l1, self.denominator, self.numerator, true)?;
+        let l1 = minimum_l1
+            .checked_add(profit)
             .ok_or("pricing_cost_overflow")?;
         let l2 = mul_div(l1, self.denominator, self.numerator, true)?;
         Ok(RequiredPayment {
@@ -81,6 +84,8 @@ impl Policy {
             profit,
             l1,
             l2,
+            minimum_l1,
+            minimum_l2,
         })
     }
 
@@ -260,7 +265,9 @@ impl Policy {
         self.validate_evidence(l1, l2)?;
         let payment = self.required_payment(l1.post_cost)?;
         let (tips, _) = self.eligible_tips(l2, poster)?;
-        if tips < payment.l2 {
+        // Profit is a quote target. Only refreshed cost and the explicit risk
+        // reserve are mandatory; normal price drift may consume the markup.
+        if tips < payment.minimum_l2 {
             return Err("l2_tip_underfunded");
         }
         Ok(())
@@ -313,6 +320,8 @@ impl Policy {
             profit,
             l1: required_l1,
             l2: required_l2,
+            minimum_l1,
+            minimum_l2,
         } = payment;
         let excluded_tips = l2
             .tip
@@ -360,6 +369,9 @@ impl Policy {
             "profit_allowance_l1":profit.to_string(),
             "required_service_payment_l1":required_l1.to_string(),
             "required_service_payment_l2":required_l2.to_string(),
+            "minimum_service_payment_l1":minimum_l1.to_string(),
+            "minimum_service_payment_l2":minimum_l2.to_string(),
+            "cost_coverage":if recovery >= minimum_l1 {"covered"} else {"shortfall"},
             "eligible_source_count":eligible_sources,
             "eligible_priority_fees_l2":eligible_tips.to_string(),
             "excluded_priority_fees_l2":excluded_tips.to_string(),
@@ -446,6 +458,41 @@ pub(in crate::composer) mod tests {
     }
 
     #[test]
+    fn target_profit_is_optional_but_costs_and_risk_are_mandatory() {
+        let mut config = policy_json();
+        config["risk_bps"] = json!(0);
+        config["profit_bps"] = json!(2000);
+        config["l1_per_l2_numerator"] = json!(1.to_string());
+        config["l1_per_l2_denominator"] = json!(1.to_string());
+        let policy = parse(config.clone()).unwrap();
+        let (l1, mut l2) = candidate();
+        // All costs: 101 + 7 + 5 + 3 = 116. Quote 140; 122 pays ~5%
+        // surplus, and 117 pays less than 1%. Both remain above cost.
+        assert_eq!(
+            policy.required_payment(l1.post_cost).unwrap().l2,
+            U256::from(140)
+        );
+        for payment in [140, 122, 117, 116] {
+            l2.sources[0].tip = U256::from(payment);
+            l2.tip = U256::from(payment);
+            assert_eq!(policy.check_tariff(&l1, &l2, Address::ZERO), Ok(()));
+        }
+        l2.sources[0].tip = U256::from(115);
+        l2.tip = U256::from(115);
+        assert_eq!(
+            policy.check_tariff(&l1, &l2, Address::ZERO),
+            Err("l2_tip_underfunded")
+        );
+        config["risk_bps"] = json!(500);
+        let policy = parse(config).unwrap();
+        for (payment, expected) in [(121, Err("l2_tip_underfunded")), (122, Ok(()))] {
+            l2.sources[0].tip = U256::from(payment);
+            l2.tip = U256::from(payment);
+            assert_eq!(policy.check_tariff(&l1, &l2, Address::ZERO), expected);
+        }
+    }
+
+    #[test]
     fn dispatch_tariff_uses_actual_external_receipts_and_rechecks_context() {
         let policy = parse(policy_json()).unwrap();
         let (mut l1, mut l2) = candidate();
@@ -453,8 +500,8 @@ pub(in crate::composer) mod tests {
             policy.check_tariff(&l1, &l2, Address::ZERO),
             Err("l2_tip_underfunded")
         );
-        l2.sources[0].tip = U256::from(201);
-        l2.tip = U256::from(201);
+        l2.sources[0].tip = U256::from(192);
+        l2.tip = U256::from(192);
         assert!(policy.check_tariff(&l1, &l2, Address::ZERO).is_ok());
         l1.post_cost += U256::from(1);
         assert_eq!(

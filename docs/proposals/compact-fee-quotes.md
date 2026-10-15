@@ -19,7 +19,8 @@ qualified policy. An API name alone does not implement that policy.
 Reuse the existing gas-discovery algorithm with the fee engine's exact L1
 posting target and a shared pinned L2 parent. Both encodings run under that
 context and are validated again at their actual gas limit and effective price.
-A stale context invalidates the entire response. Gas discovery verifies a
+A reorged or excessively old context invalidates the entire response; normal
+head advancement does not. Gas discovery verifies a
 measured requirement plus headroom; it does not promise a binary-search minimum.
 Contracts observing `gasleft()` can require the verified high limit. Contracts
 observing `GASPRICE` can fail after fees are selected; report the failed variant.
@@ -29,8 +30,8 @@ execution, ordinary-L2 settlement subsidy and final signed native validation.
 Gas-limit headroom is a wallet reservation, not charged consumption. No new
 payment, authorization, protocol, signer, genesis or storage format is introduced.
 
-One worker owns preparation, gas discovery, both pricing searches and final
-replays. There is no nested acquisition of the ordinary estimator's worker pool.
+Each request owns a worker through preparation, gas discovery, both pricing
+searches and final replays. There is no nested acquisition of the ordinary estimator's worker pool.
 Cancellation/deadline expiry does not release the fee worker permit while a
 blocking frame is still running. `eth_estimateGas` keeps its own existing limits.
 
@@ -71,3 +72,51 @@ Falcon signature workloads is separate.
 
 The full protocol staged/stress matrix and live deployment are separate evidence;
 unit or process success alone must not be described as either.
+
+## Simplified pricing and availability (accepted scope, 2026-10-15)
+
+The operator requested implementation, testing and deployment of the following
+refinement. Implementation and deployment evidence remain pending until recorded.
+
+Use the existing policy fields without adding configuration layers. `risk_bps`
+is the mandatory reserve above measured posting, blobs and configured service
+costs; `profit_bps` is the desired additional markup in a quote. Admission,
+composition and final dispatch require costs plus the reserve, not the target
+profit. The trial configuration moves its 2000 bps from risk to profit: quote
+120% of estimated cost, accept less surplus while still covering refreshed cost.
+Operators may retain a nonzero mandatory reserve. Conversion remains an explicit
+operator assumption, and ordinary L2 settlement remains subsidized.
+
+Quotes use the latest completed, canonical L1/L2 scan pair, even while the next
+scan or an unrelated settlement is pending. Extend the L2 parent through ordinary
+history only; stop before unresolved native effects. Every request keeps one
+immutable context for gas discovery, both envelopes and priced native replay.
+Normal head advancement does not invalidate an estimate. Reorged or excessively
+old inputs still fail. A quote has a short wall-clock lifetime independent of the
+simulated L1 slot; final settlement still selects and validates its exact target.
+Dependencies on unresolved transactions are not guessed or silently executed.
+
+Allow a small bounded pool of quote workers and a bounded waiting queue, with
+separate signed-admission capacity. Preserve cancellation, shutdown and permit
+ownership through blocking execution. No unbounded background work or financial
+reservation is introduced. Standard gas estimation keeps its execution contract;
+the relaxed snapshot rule belongs to advisory fee quotes and fee admission only.
+
+Validation must cover a 20% quote followed by lower-margin signed settlement,
+rejection below costs, the mandatory reserve, clipped effective tips, nested
+calls, both envelopes, independent replay, concurrent requests, ongoing
+settlement, advancing heads, reorg invalidation and expired context. Record
+first-attempt availability and timing rather than hiding failures with retries.
+
+Changing profit from a hard requirement to a quote target is a behavioral
+upgrade: older Composers can reject lower-margin signed transactions. Coordinate
+policy and Composer rollout/rollback, drain accepted work, preserve datadirs and
+the existing compact API client upgrade. No protocol/storage migration applies.
+
+L1→L2 requires actual receipt of a selected user's builder refund. The current
+submitter has no refund request/qualification path, and the deployed Chiado
+route has no demonstrated payout. Preserve `unsupported_direction` until the
+native-blob bundle, selected payer, payout deductions, recipient and canonical
+receipt are qualified. Do not count a requested refund or the poster's own tip
+as external revenue. This route is a separate collection integration, not a
+mirror of the L2 pricing calculation.

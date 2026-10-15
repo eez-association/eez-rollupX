@@ -495,14 +495,14 @@ The evidence records whether the two sources shared a native block; the
 exercise does not guarantee batching. It does not replace independent blob
 verification, follower replay or restart checks. Legacy fixed-tip workloads
 do not acquire a fee quote automatically: run their compatibility checks with
-the gate disabled, or update each submitted intent to use the fee SDK.
+the gate disabled, or update each submitted transaction to use the fee SDK.
 
 For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
 with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
 `EEZ_L2_BRIDGE_RECEIVER` and `EEZ_BRIDGE_FEE_EVIDENCE_FILE`. Obtain the bridge
 addresses from `demo.env` in the enclave's `eez-ui-demo` files artifact; the
 base `deployments.env` does not contain these demo contracts. This requires the
-1:1, 20% risk, zero fixed-cost/profit trial policy. It funds escrow through a
+1:1, 20% target profit, zero fixed-cost/risk-reserve trial policy. It funds escrow through a
 real inbound bridge, then verifies a first type-2 withdrawal and a repeated
 legacy withdrawal. It checks principal and fee balance changes, native source
 gas, L1 receipt gas within 1,000 of the quote, and payment within 2% above the

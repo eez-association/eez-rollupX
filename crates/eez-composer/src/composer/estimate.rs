@@ -75,7 +75,7 @@ pub(super) struct Snapshot {
     pub(super) l2_timestamp: u64,
     pub(super) l2_randao: B256,
     settled_root: B256,
-    pub(super) generation: u64,
+    generation: Option<u64>,
 }
 #[derive(Debug)]
 struct Probe {
@@ -261,8 +261,9 @@ impl GasEstimator {
                 Err(error) => return Err(error),
             }
         };
-        if self.optimistic.pending_attempt().is_some()
-            || self.head.policy_anchor_snapshot().generation != snapshot.generation
+        if let Some(generation) = snapshot.generation
+            && (self.optimistic.pending_attempt().is_some()
+                || self.head.policy_anchor_snapshot().generation != generation)
         {
             return Err(EstimateError::ContextChanged);
         }
@@ -282,19 +283,31 @@ impl GasEstimator {
     pub(super) fn quote_snapshot(
         &self,
         posting: &super::posting::PostingQuote,
+        l2_parent: SealedHeader<Header>,
+        endpoint: eez_l1::L2Endpoint,
     ) -> Result<Snapshot, EstimateError> {
-        let mut snapshot = self.snapshot()?;
-        if snapshot.l1.anchor.hash() != posting.quote.sample.hash {
-            return Err(EstimateError::ContextChanged);
-        }
-        snapshot.l1_env = posting.env.clone();
-        snapshot.l1_attributes = posting.attributes.clone();
-        snapshot.l1.posting = Some((
-            posting.env.clone(),
-            self.poster,
-            posting.quote.estimated_effective_gas_price,
-        ));
-        Ok(snapshot)
+        let (l2_timestamp, l2_randao) = self
+            .head
+            .estimation_block_context(&l2_parent, posting.quote.sample)
+            .map_err(unavailable)?;
+        Ok(Snapshot {
+            l1: L1SlotState {
+                anchor: SealedHeader::new(posting.parent.clone(), posting.quote.sample.hash),
+                cache: Default::default(),
+                posting: Some((
+                    posting.env.clone(),
+                    self.poster,
+                    posting.quote.estimated_effective_gas_price,
+                )),
+            },
+            l1_env: posting.env.clone(),
+            l1_attributes: posting.attributes.clone(),
+            l2_parent,
+            l2_timestamp,
+            l2_randao,
+            settled_root: endpoint.hash,
+            generation: None,
+        })
     }
 
     /// Validate effects at the final gas limit and effective price; discovering
@@ -398,7 +411,7 @@ impl GasEstimator {
             l2_timestamp,
             l2_randao,
             settled_root: endpoint.hash,
-            generation: anchor.generation,
+            generation: Some(anchor.generation),
         })
     }
 

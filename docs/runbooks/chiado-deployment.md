@@ -649,6 +649,21 @@ stopped databases as for other binary upgrades. The
 [gas-cap deployment record](../audits/2026-10-15-l2-fee-gas-cap/README.md)
 distinguishes the expedited handover from subsequent regression checks.
 
+The simplified fee policy separates the recommended markup from minimum cost
+coverage. `profit_bps` applies to quotes; admission and final dispatch require
+measured costs plus `risk_bps`. For the 20% target trial, explicitly change the
+existing policy from `risk_bps: 2000, profit_bps: 0` to
+`risk_bps: 0, profit_bps: 2000`; retain every other operator assumption and value.
+This preserves quoted target pricing while permitting lower positive margins.
+Drain accepted work before changing policy or restarting. Keep the old policy
+with the old image: rollback reinstates its hard target and can defer newly
+accepted lower-tip transactions. Ordinary L2 settlement remains subsidized.
+Quotes use recent completed canonical snapshots during reconciliation, expire
+after thirty seconds, and still reject unavailable dependencies or reorged/old
+state. Four quote workers and a bounded queue share no permits with signed
+admission. Validate concurrent quoting during settlement and the final receipt
+cost floor after upgrading; startup alone does not validate these guarantees.
+
 The [compact fee API](../configurable-settlement-policy.md#compact-fee-quotes)
 is an intentionally breaking replacement. Update the Composer, dashboard and
 other consumers together to `eez_quoteFee` / `eez_debugQuoteFee`; the old method,

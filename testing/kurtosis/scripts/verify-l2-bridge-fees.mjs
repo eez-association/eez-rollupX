@@ -89,9 +89,9 @@ for (const type of ["0x2", "0x0"]) {
   });
   const detail = quote.diagnostics.options[0];
   assert.equal(detail.estimate.basis, "isolated_native_l2_and_l1_settlement");
-  assert.equal(detail.policy.assumptions.risk_bps, 2000);
+  assert.equal(detail.policy.assumptions.risk_bps, 0);
   for (const field of ["proving_cost_l1", "operations_cost_l1", "treasury_cost_l1"]) assert.equal(detail.policy.assumptions[field], "0");
-  assert.equal(detail.policy.assumptions.profit_bps, 0);
+  assert.equal(detail.policy.assumptions.profit_bps, 2000);
   assert.equal(detail.policy.assumptions.l1_per_l2_numerator, "1");
   assert.equal(detail.policy.assumptions.l1_per_l2_denominator, "1");
   const projectedCost = BigInt(detail.estimate.l1PostingCost);
