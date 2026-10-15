@@ -1,7 +1,7 @@
 # Compact, direction-aware fee quotes
 
-Status: L2 API implementation authorized on 2026-10-15. Implementation and local
-validation are in progress; this record does not establish deployment. The
+Status: L2 API implemented and locally validated on 2026-10-15; not deployed.
+See the [validation record](../audits/2026-10-15-compact-fee-quotes/README.md). The
 L1-origin recovery policy remains deferred. The normative API contract is in
 [the settlement policy](../configurable-settlement-policy.md#compact-fee-quotes).
 

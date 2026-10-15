@@ -625,9 +625,8 @@ paid calls and independent replay. Its test conversion and zero service/profit
 charges are not production prices. Retain the original database copies for
 binary rollback; disabling the tariff does not undo collected tips.
 
-For measured L1 settlement pricing, upgrade the SDK/dashboard before Composer
-so both old and new quote bases work during handover. The 20% trial allowance
-is applied to simulated receipt gas plus blobs, without the admission gas
+Measured L1 settlement pricing applies the 20% trial allowance
+to simulated receipt gas plus blobs, without the admission gas
 reserve or gas-limit margin. Preserve the existing policy, bindings and genesis.
 Drain accepted work and retain stopped database/configuration backups. Rollback
 to an older Composer restores the larger tariff and can reject newer lower-fee
@@ -635,7 +634,8 @@ transactions; clients must requote. The signing RPC and historical replay are
 unchanged. See the [quote contract](../configurable-settlement-policy.md#unsigned-l2-fee-quotes)
 for the conditional proof assumption and compatibility details.
 The [measured settlement deployment audit](../audits/2026-10-15-measured-l1-fee-quotes/README.md)
-records the tested images and completed handover. During startup, a
+records the tested images and completed handover on the previous API. Current
+upgrades must follow the coordinated compact-API replacement below. During startup, a
 `starting_up` quote response means readiness has not yet been established;
 retain maintenance routing until a usable quote and canonical settlement checks
 pass. It does not require another restart or database copy.
