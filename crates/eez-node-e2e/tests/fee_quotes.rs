@@ -35,6 +35,15 @@ async fn legacy_rpc_quote_rejects_underpayment_settles_and_replays() {
 }
 
 async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
+    // Exercise signed tariff admission above the old 5M quote-profile ceiling.
+    // This covers submitted gas limits, not the Falcon verifier's execution cost.
+    let source_gas_limit = if !enforced {
+        1_200_000
+    } else if legacy {
+        6_050_247
+    } else {
+        16_777_216
+    };
     let policy = crate::settlement_policy_cost::shadow_pricing_policy();
     let world = setup_cross_chain_with_env(&[
         (
@@ -76,7 +85,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
         .unwrap();
     let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(123) }.abi_encode());
     let intent = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
-        "nonce":format!("{nonce:#x}"),"gas":"0x124f80","value":"0x0","data":data});
+        "nonce":format!("{nonce:#x}"),"gas":format!("{source_gas_limit:#x}"),"value":"0x0","data":data});
     let client = reqwest::Client::new();
     let url = format!("{}/eez/fees/l2-to-l1", world.l2_xchain());
     let mut wrong = intent.clone();
@@ -212,7 +221,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
             TxLegacy {
                 chain_id: Some(world.l2_chain_id),
                 nonce,
-                gas_limit: 1_200_000,
+                gas_limit: source_gas_limit,
                 gas_price: price,
                 to: TxKind::Call(outer),
                 input: data.clone(),
@@ -223,7 +232,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
             TxEip1559 {
                 chain_id: world.l2_chain_id,
                 nonce,
-                gas_limit: 1_200_000,
+                gas_limit: source_gas_limit,
                 max_priority_fee_per_gas: priority,
                 max_fee_per_gas: price,
                 to: TxKind::Call(outer),
