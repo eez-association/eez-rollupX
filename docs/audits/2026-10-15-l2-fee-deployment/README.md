@@ -160,3 +160,31 @@ An attempted read-only type-2 quote using the earlier live nested canary returne
 validation. The initial browser launch used an unset browser-cache path and
 failed before execution; selecting the existing browser installation fixed the
 harness setup. The normal Vite bundle-size warning remains.
+
+## Bridge fee reconciliation
+
+The subsequent user bridge `0x3bc2940e0e3737f66384e06fd81ff5e8358fd8f07b92d194af3b7e7812b89076`
+settled through posting `0x9b8040557d45331260f40f802fab9f77c4f862a6b102fd45844ef02a33815d16`.
+Read-only RPC receipts, the posting call trace, decoded native events and before/after
+balances reconcile the complete 0.001 xDAI principal and all transaction fees.
+The L2 user paid `1399760428773168` base units; `1399760408966976` reached
+the L2 beneficiary. The poster spent `314017001280615` L1 base units, comprising
+`182945001280615` execution and `131072000000000` blob fees. This is the full
+posting cost, without allocating part to another fee-paying user.
+
+Under the retained 1:1 conversion, the tip covers 4.45759 times the actual L1
+cost. The excess comes from the conservative quote projection: 1,035,395 L1 gas
+versus 182,945 actually used. Reconstructing the projection, blob cost and 20%
+risk allowance reproduces the signed priority fee exactly: `3462970572` base
+units per gas. The original quote response was not retained, so this is a model
+reconstruction, distinct from the measured receipt and balance evidence.
+
+The [fee report](bridge-fee-analysis.json) records exact amounts, source/protocol/image
+identity, policy, reconstruction components and validation limits. Full receipts,
+trace, extracted fee observations and a SHA-256 inventory are local-only under
+`artifacts/bridge-fees-3bc2940e-20261015/` in the operator checkout. This analysis
+did not broadcast a transaction, change services, run independent KZG verification
+or replay a follower. It does not establish off-chain profitability or liquid L1
+proceeds: income is on L2, and configured proving/operations/treasury/profit
+allowances remain zero. The current fee policy has no automatic rebate of the
+difference between projected and actual L1 settlement costs.
