@@ -1,8 +1,8 @@
 // Application-side advisory pricing. The wallet still receives one ordinary
 // eth_sendTransaction. Its network RPC must route broadcasts to the EEZ front.
 const intentKeys = ["type", "chainId", "from", "to", "nonce", "gas", "value", "data"];
-const feeKeys = ["maxPriorityFeePerGas", "maxFeePerGas"];
-const quantityKeys = ["type", "chainId", "nonce", "gas", "value", ...feeKeys];
+const feeKeys = intent => quantity(intent.type) === 0n ? ["gasPrice"] : ["maxPriorityFeePerGas", "maxFeePerGas"];
+const quantityKeys = ["type", "chainId", "nonce", "gas", "value", "gasPrice", "maxPriorityFeePerGas", "maxFeePerGas"];
 
 function quantity(value) {
   if (typeof value !== "string" || !/^0x(?:0|[1-9a-f][0-9a-f]*)$/i.test(value) || value.length > 66) {
@@ -20,7 +20,7 @@ function exactKeys(value, keys) {
 function validateIntent(intent) {
   exactKeys(intent, intentKeys);
   for (const key of quantityKeys.filter(key => key in intent)) quantity(intent[key]);
-  if (quantity(intent.type) !== 2n || quantity(intent.chainId) === 0n) throw new Error("Expected a type-2 chain-specific intent");
+  if (![0n, 2n].includes(quantity(intent.type)) || quantity(intent.chainId) === 0n) throw new Error("Expected a legacy or type-2 chain-specific intent");
   for (const key of ["from", "to"]) {
     if (!/^0x[0-9a-f]{40}$/i.test(intent[key])) throw new Error("Invalid address");
   }
@@ -39,7 +39,7 @@ function decimal(value) {
 }
 
 /** Validate exact intent, expiry, quoted coverage and the app's maximum L2
- * execution fee (gas limit * maxFeePerGas). Returns a fresh wallet transaction.
+ * execution fee (gas limit * gasPrice or maxFeePerGas). Returns a fresh wallet transaction.
  * maxTotalFee is a bigint in L2 native base units; no floating-point currency.
  * The quote server and its conversion policy remain trusted advisory inputs.
  */
@@ -51,7 +51,8 @@ export function quotedTransaction({ quote, intent, maxTotalFee, now = Date.now()
       quote.expiresAt <= quote.issuedAt || quote.expiresAt - quote.issuedAt > 10 ||
       now >= quote.expiresAt * 1000 || quote.issuedAt * 1000 > now + 1000) throw new Error("Quote expired or invalid clock");
   exactKeys(quote.intent, intentKeys);
-  exactKeys(quote.transaction, [...intentKeys, ...feeKeys]);
+  const fees = feeKeys(intent);
+  exactKeys(quote.transaction, [...intentKeys, ...fees]);
   for (const key of intentKeys) {
     if (!sameField(key, quote.intent[key], intent[key]) || !sameField(key, quote.transaction[key], intent[key])) throw new Error(`Quote changed ${key}`);
   }
@@ -60,27 +61,36 @@ export function quotedTransaction({ quote, intent, maxTotalFee, now = Date.now()
       !Number.isSafeInteger(context.rollupId) || context.rollupId < 1 ||
       context.l2ChainId !== quote.policy?.assumptions?.l2_chain_id || context.rollupId !== quote.policy.assumptions.rollup_id) throw new Error("Quote chain or policy mismatch");
   if (!/^0x[0-9a-f]{64}$/i.test(quote.policy.id) || (expectedPolicyId && quote.policy.id.toLowerCase() !== expectedPolicyId.toLowerCase())) throw new Error("Quote policy changed");
-  const tip = quantity(quote.transaction.maxPriorityFeePerGas);
-  const cap = quantity(quote.transaction.maxFeePerGas);
   const estimate = quote.estimate;
+  const base = decimal(estimate?.l2BaseFeePerGas);
+  const legacy = quantity(intent.type) === 0n;
+  const cap = quantity(legacy ? quote.transaction.gasPrice : quote.transaction.maxFeePerGas);
+  const tip = legacy ? cap - base : quantity(quote.transaction.maxPriorityFeePerGas);
   if (estimate?.basis !== "isolated_native_l2_replay_and_projected_l1_post" ||
       !Number.isSafeInteger(estimate.sourceGasUsed) || estimate.sourceGasUsed <= 0 ||
-      BigInt(estimate.sourceGasUsed) > quantity(intent.gas) || cap !== tip + decimal(estimate.l2BaseFeePerGas) ||
+      BigInt(estimate.sourceGasUsed) > quantity(intent.gas) || tip < 0n || cap !== tip + base ||
       tip * BigInt(estimate.sourceGasUsed) !== decimal(estimate.grossL2Tip) ||
       decimal(estimate.grossL2Tip) < decimal(estimate.requiredL2Tip)) throw new Error("Inconsistent fee estimate");
   if (cap * quantity(intent.gas) > maxTotalFee) throw new Error("Quoted maximum fee exceeds app limit");
   // Copy only validated fields, never forward arbitrary server properties.
-  return Object.fromEntries([...intentKeys, ...feeKeys].map(key => [key, quote.transaction[key]]));
+  return Object.fromEntries([...intentKeys, ...fees].map(key => [key, quote.transaction[key]]));
 }
 
-/** Fetch a quote from the application endpoint. Does not contact the wallet,
- * sign, reserve funds or submit anything. The caller supplies the complete URL.
+/** Fetch a quote through a Composer RPC function (method, params), or the
+ * existing HTTP route's complete URL. Use a direct RPC client: injected wallets
+ * may filter custom methods. Neither transport signs, reserves or submits.
  */
-export async function requestL2FeeQuote({ url, intent, maxTotalFee, expectedPolicyId, signal, fetchImpl = globalThis.fetch }) {
+export async function requestL2FeeQuote({ rpc, url, intent, maxTotalFee, expectedPolicyId, signal, fetchImpl = globalThis.fetch }) {
   validateIntent(intent);
-  const response = await fetchImpl(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(intent), signal });
-  const quote = await response.json();
-  if (!response.ok) throw new Error(`Fee quote ${quote?.error?.code ?? response.status}: ${quote?.error?.message ?? "unavailable"}`);
+  if ((rpc == null) === (url == null) || (rpc != null && typeof rpc !== "function")) throw new Error("Supply either a Composer RPC function or an HTTP quote URL");
+  let quote;
+  if (rpc) {
+    quote = await rpc("eez_quoteL2ToL1Fee", [intent]);
+  } else {
+    const response = await fetchImpl(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(intent), signal });
+    quote = await response.json();
+    if (!response.ok) throw new Error(`Fee quote ${quote?.error?.code ?? response.status}: ${quote?.error?.message ?? "unavailable"}`);
+  }
   quotedTransaction({ quote, intent, maxTotalFee, expectedPolicyId });
   return quote;
 }

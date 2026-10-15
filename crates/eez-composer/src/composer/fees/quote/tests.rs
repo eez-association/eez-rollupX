@@ -1,4 +1,5 @@
 use super::*;
+use alloy_consensus::SignableTransaction;
 
 fn intent() -> Value {
     json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(0x11),
@@ -8,7 +9,7 @@ fn intent() -> Value {
 #[test]
 fn intent_profile_is_explicit_and_bounded() {
     let parsed = L2FeeRequest::parse(&intent()).unwrap();
-    assert_eq!(parsed.tx.gas_limit, 100_000);
+    assert_eq!(parsed.tx.gas_limit(), 100_000);
     for (field, value) in [
         ("gas", json!(100000)),
         ("nonce", json!("0x00")),
@@ -31,7 +32,12 @@ fn intent_profile_is_explicit_and_bounded() {
         bad.as_object_mut().unwrap().remove(field);
         assert!(L2FeeRequest::parse(&bad).is_err());
     }
-    for field in ["accessList", "authorizationList", "maxFeePerGas"] {
+    for field in [
+        "accessList",
+        "authorizationList",
+        "maxFeePerGas",
+        "gasPrice",
+    ] {
         let mut bad = intent();
         bad[field] = json!([]);
         assert!(L2FeeRequest::parse(&bad).is_err());
@@ -45,14 +51,19 @@ fn signed_admission_recovers_sender_and_preserves_fee_caps() {
         &alloy_primitives::B256::with_last_byte(7),
     )
     .unwrap();
-    let mut tx = L2FeeRequest::parse(&intent()).unwrap().tx;
+    let mut tx = L2FeeRequest::parse(&intent())
+        .unwrap()
+        .tx
+        .eip1559()
+        .unwrap()
+        .clone();
     tx.max_priority_fee_per_gas = 123;
     tx.max_fee_per_gas = 456;
     let signature = signer.sign_transaction_sync(&mut tx).unwrap();
     let envelope = alloy_consensus::TxEnvelope::from(tx.clone().into_signed(signature));
     let request = L2FeeRequest::from_signed(&envelope).unwrap();
     assert_eq!(request.sender, signer.address());
-    assert_eq!(request.tx, tx);
+    assert_eq!(request.tx, tx.clone().into());
     assert!(request.signed_fees);
 
     tx.access_list = alloy_eips::eip2930::AccessList(vec![alloy_eips::eip2930::AccessListItem {
@@ -66,6 +77,70 @@ fn signed_admission_recovers_sender_and_preserves_fee_caps() {
             "access lists are outside the quote profile"
         ))
     ));
+}
+
+#[test]
+fn legacy_admission_preserves_gas_price_and_requires_replay_protection() {
+    use alloy_network::TxSignerSync;
+    let signer = alloy_signer_local::PrivateKeySigner::from_bytes(
+        &alloy_primitives::B256::with_last_byte(7),
+    )
+    .unwrap();
+    let mut tx = alloy_consensus::TxLegacy {
+        chain_id: Some(1),
+        gas_limit: 100_000,
+        gas_price: 15,
+        to: TxKind::Call(Address::repeat_byte(0x22)),
+        ..Default::default()
+    };
+    let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+    let envelope = tx.clone().into_signed(signature).into();
+    let request = L2FeeRequest::from_signed(&envelope).unwrap();
+    assert_eq!(request.sender, signer.address());
+    assert!(request.signed_fees);
+    let fields = request.fields(5, 15);
+    assert_eq!(fields["type"], "0x0");
+    assert_eq!(fields["gasPrice"], "0xf");
+    assert!(fields.get("maxFeePerGas").is_none());
+    assert!(fields.get("maxPriorityFeePerGas").is_none());
+    let env = request.env(5, 15);
+    assert_eq!(env.tx_type, 0);
+    assert_eq!(env.gas_priority_fee, None);
+    assert_eq!(env.gas_price, 15);
+    assert_eq!(env.chain_id, Some(1));
+
+    tx.chain_id = None;
+    let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+    assert!(matches!(
+        L2FeeRequest::from_signed(&tx.into_signed(signature).into()),
+        Err(FeeQuoteError::Unsupported(
+            "legacy source requires EIP-155 replay protection"
+        ))
+    ));
+}
+
+#[test]
+fn legacy_quote_sizes_the_actual_eip155_envelope() {
+    use alloy_eips::Decodable2718;
+    for chain in [1, 906969, u64::from(u32::MAX)] {
+        let mut input = intent();
+        input["type"] = json!("0x0");
+        input["chainId"] = json!(format!("{chain:#x}"));
+        let request = L2FeeRequest::parse(&input).unwrap();
+        let encoded = request.sizing_bytes(5, 15).unwrap();
+        let decoded = alloy_consensus::TxEnvelope::decode_2718(&mut encoded.as_ref()).unwrap();
+        assert_eq!(decoded.ty(), 0);
+        assert_eq!(decoded.chain_id(), Some(chain));
+        assert_eq!(decoded.gas_price(), Some(15));
+        assert_eq!(decoded.effective_tip_per_gas(10), Some(5));
+        assert_eq!(decoded.effective_tip_per_gas(16), None);
+        for parity in [false, true] {
+            let mut tx = request.tx.legacy().unwrap().clone();
+            tx.gas_price = 15;
+            let signature = Signature::new(U256::MAX, U256::MAX, parity);
+            assert!(tx.into_signed(signature).encoded_2718().len() <= encoded.len());
+        }
+    }
 }
 
 #[test]
@@ -85,7 +160,7 @@ fn rounded_tip_covers_cost_without_using_the_gas_limit() {
 #[test]
 fn placeholder_bounds_signature_encoding_but_env_has_real_sender() {
     let request = L2FeeRequest::parse(&intent()).unwrap();
-    let mut signed = request.tx.clone();
+    let mut signed = request.tx.eip1559().unwrap().clone();
     signed.max_priority_fee_per_gas = 5;
     signed.max_fee_per_gas = 15;
     for signature in [
@@ -94,7 +169,7 @@ fn placeholder_bounds_signature_encoding_but_env_has_real_sender() {
     ] {
         assert!(
             signed.clone().into_signed(signature).encoded_2718().len()
-                <= request.sizing_bytes(5, 15).len()
+                <= request.sizing_bytes(5, 15).unwrap().len()
         );
     }
     let env = request.env(5, 15);
@@ -183,7 +258,12 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
         &alloy_primitives::B256::with_last_byte(7),
     )
     .unwrap();
-    let mut tx = L2FeeRequest::parse(&intent()).unwrap().tx;
+    let mut tx = L2FeeRequest::parse(&intent())
+        .unwrap()
+        .tx
+        .eip1559()
+        .unwrap()
+        .clone();
     let sig = signer.sign_transaction_sync(&mut tx).unwrap();
     let tx = eez_primitives::EezTxEnvelope::from(tx.into_signed(sig));
     let raw = Bytes::from(tx.encoded_2718());

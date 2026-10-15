@@ -997,14 +997,16 @@ events remain version 1. This feature makes no durable financial reservation.
 
 ## Unsigned L2 fee quotes
 
-When `EEZ_L2_FEE_SHADOW_POLICY` is configured, the L2 cross-chain HTTP front
-accepts `POST /eez/fees/l2-to-l1`. This application endpoint returns advisory
-ordinary type-2 wallet fields before signing. It does not enqueue work, reserve
+When `EEZ_L2_FEE_SHADOW_POLICY` is configured, the L2 Composer front accepts
+`eez_quoteL2ToL1Fee` with JSON-RPC positional params `[intent]`, and retains
+`POST /eez/fees/l2-to-l1` with the intent as its body. Both use the same quote
+engine and worker budget. They return advisory ordinary legacy or type-2 wallet
+fields before signing. A quote does not enqueue work, reserve
 funds, request a proof, sign, submit, or change admission rules. The L1 front
 does not serve quotes. The service waits for the existing startup readiness
 gate. Missing policy returns `404 quotes_disabled`; there is no default tariff.
 
-The request is exactly this object, with JSON-RPC hex quantities and explicit
+The intent is exactly this object, with JSON-RPC hex quantities and explicit
 fields (addresses and calldata below are illustrative):
 
 ```json
@@ -1022,6 +1024,9 @@ fields (addresses and calldata below are illustrative):
 
 All fields are mandatory; unknown fields, supplied fees, creation, access lists,
 authorizations, blob sources and reserved senders are rejected. The source
+type is `0x0` for an EIP-155-protected legacy transaction or `0x2` for EIP-1559;
+the service preserves that type in execution, DA sizing and returned fields.
+Replay-unprotected signed legacy transactions are rejected. The source
 must use the node's L2 chain ID and produce a supported outbound settlement
 group. Values remain subject to normal source balance checks and the pinned
 L1 rollup escrow. Quotes do not fund either account. The application supplies
@@ -1053,7 +1058,10 @@ the tip to `ceil(required_L2 / native_source_gas)`, then repeats composition,
 native replay and sizing with those actual fee fields. It returns only when the
 replayed gross tip covers the estimate. At most four simulations are allowed;
 execution depending on fees may fail or not converge. `maxFeePerGas` is the
-draft base fee plus this tip, without future base-fee headroom.
+draft base fee plus this tip, without future base-fee headroom. Legacy quotes
+return that sum as `gasPrice`, with no EIP-1559 fee fields. On execution, only
+`gasUsed * (gasPrice - actualBaseFee)` counts as legacy priority revenue; the
+burned base fee is excluded. A base-fee increase can invalidate coverage.
 
 Successful JSON responses contain:
 
@@ -1061,7 +1069,7 @@ Successful JSON responses contain:
 | --- | --- |
 | `version: 1`, `mode: advisory` | Application response schema and guarantee level |
 | `intent`, `intentHash` | Normalized eight request fields; Keccak-256 of their compact, lexicographically key-sorted JSON |
-| `transaction` | The same intent plus `maxPriorityFeePerGas` and `maxFeePerGas`, all wallet quantities in hex |
+| `transaction` | The same intent plus `gasPrice` for legacy, or `maxPriorityFeePerGas` and `maxFeePerGas` for type 2; all wallet quantities in hex |
 | `issuedAt`, `expiresAt` | Unix seconds; expires at the earlier of ten seconds from issuance and the selected L1 target timestamp |
 | `context` | Chain/rollup IDs, L1 parent and target, L2 parent and draft timestamp, settled L2 endpoint |
 | `policy` | Policy ID and all conversion, cost, exclusion and validity assumptions |
@@ -1090,22 +1098,33 @@ work bounds return `422 unsupported_intent` / `quote_limit`; a changed/expired
 context returns `409 stale_context`; missing state, reconciliation, escrow or
 pricing returns `503 quote_unavailable`; HTTP timeout returns `504 quote_timeout`.
 Errors have `{ "error": { "code": "...", "message": "..." } }`, except the
-front's existing plain-text 413 body-limit response. Requote after a retryable
+front's existing plain-text 413 body-limit response. For JSON-RPC, malformed
+params/intents use `-32602`; other quote failures use `-32004` with the same
+stable error object in `error.data`. Successful `result` contains the unchanged
+quote response. The RPC method is absent (`-32601`) from the L1 front and regular
+node/follower RPCs. A policy-disabled L2 front reports `quotes_disabled`.
+JSON-RPC IDs, mixed batches and notifications follow the front's existing
+semantics; batch members execute sequentially under the shared worker bound.
+The 32 KiB intent bound also applies through JSON-RPC, alongside the front's
+overall request-body limit. Requote after a retryable
 context/availability change; never silently submit with a default fee.
 
 The dependency-free [JavaScript helper](../sdk/l2-fees.mjs) fetches and validates
 the response and returns ordinary wallet fields. `maxTotalFee` is a mandatory
-application ceiling in L2 base units, covering `gas * maxFeePerGas` (excluding
+application ceiling in L2 base units, covering `gas * maxFeePerGas` or legacy
+`gas * gasPrice` (excluding
 the intent's separately specified value). `expectedPolicyId` optionally pins
 the reviewed policy. `sendQuotedTransaction` checks chain, authorized account,
 pending nonce/base fee and expiry before calling `eth_sendTransaction` once. It requests
 no second signature, permit or payment. The wallet's broadcast RPC must already
-be the EEZ route; the quote URL does not change it.
+be the EEZ route; selecting a quote transport does not change it. Supply either
+a direct Composer `rpc(method, params)` function or the existing HTTP quote URL
+to `requestL2FeeQuote`; not both. Injected wallets need not forward custom RPCs.
 
 ```js
 import { requestL2FeeQuote, sendQuotedTransaction } from './sdk/l2-fees.mjs';
 const args = { intent, maxTotalFee: 10n ** 17n }; // App-selected L2 fee ceiling.
-const quote = await requestL2FeeQuote({ ...args, url: `${l2Front}/eez/fees/l2-to-l1` });
+const quote = await requestL2FeeQuote({ ...args, rpc: composerRpc });
 const hash = await sendQuotedTransaction({ ...args, quote, wallet });
 ```
 
@@ -1118,10 +1137,14 @@ The SDK checks expiry before opening the wallet, not after a signature already
 broadcast by it. Its JSON numeric chain/context validation supports safe
 JavaScript integers only.
 
-This is an additive application API: wallet RPCs, protocol commitments, genesis,
+The RPC method and legacy profile are additive application APIs: standard
+wallet RPCs, protocol commitments, genesis,
 historical decoding and follower replay are unchanged. Deploy a compatible
 Composer/front and configure its reviewed policy before enabling the app helper;
-an older or policy-disabled front cannot provide quotes. Rollback disables quote
+an older front lacks the custom quote method and legacy profile, and a
+policy-disabled front cannot provide quotes. Upgrade the node before clients
+select the new method or legacy type; roll those clients back before restoring
+an older node. Existing type-2 HTTP clients continue working. Rollback disables quote
 availability; existing signed/accepted transactions retain their normal behavior.
 Applications must stop the quote flow on missing/unsupported responses. No
 database migration is required. SDK checks run with `node sdk/l2-fees.test.mjs`;
@@ -1135,11 +1158,12 @@ empty and other values fail startup. This is a testnet tariff, separate from
 the production strict-funding design's durable reserves and treasury realization.
 Chiado, Ethereum and Kurtosis configuration pass it to the Composer only.
 
-For a newly submitted outbound source, the L2 front recovers the signed type-2
+For a newly submitted outbound source, the L2 front recovers the signed legacy or type-2
 transaction and replays its exact fees using the quote engine's bounded isolated
 state. Its effective priority payment must cover the whole projected settlement
 tariff. The comparison uses native receipt gas, never the user's gas limit, and
-accounts for clipping by `maxFeePerGas - baseFee`. Unsupported quote profiles
+accounts for clipping by `maxFeePerGas - baseFee`, or the legacy difference
+`gasPrice - baseFee`. Unsupported quote profiles
 are rejected before queue admission. A tariff failure returns JSON-RPC code
 `-32003` with `data.code = "l2_tip_underfunded"`; availability and profile errors
 retain the quote engine's stable `data.code`. Rejection neither consumes a nonce
@@ -1181,7 +1205,11 @@ the wallet's maximum execution fee with `EEZ_UI_L2_FEE_MAX_TOTAL_WEI` (default
 `100000000000000000` L2 wei). It quotes before the single ordinary wallet
 signature and preserves explicit fees for injected wallets and the disposable
 local test signer. Its `/composer/l2/eez/fees/l2-to-l1` proxy must reach the
-Composer's application endpoint. Quote failures stop submission rather than
+Composer's application endpoint for existing clients. Updated dashboards call
+`eez_quoteL2ToL1Fee` directly on the L2 Composer RPC and default to legacy quotes
+when the selected provider identifies itself as Rabby, whose custom-network
+path uses `gasPrice`. Other providers default to type 2; an explicit supported
+transaction type is preserved. Quote failures stop submission rather than
 falling back to a generic wallet tip.
 
 No protocol, genesis, wire encoding or storage migration is involved. Upgrade

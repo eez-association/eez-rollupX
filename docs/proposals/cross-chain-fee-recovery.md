@@ -373,6 +373,41 @@ criterion. L2-to-L1 transactions, including nested calls, must still satisfy
 the outbound tariff. This clarification does not change the existing
 whole-post pricing or final dispatch checks.
 
+### Sixth development increment: legacy transactions and JSON-RPC quotes
+
+Requested on 2026-10-15: support legacy wallet transactions and expose the quote
+through the Composer JSON-RPC interface. Implemented and locally validated;
+see the [audit](../audits/2026-10-15-legacy-fee-quotes/README.md) for evidence and
+remaining live-wallet/deployment limits. No protocol or fee-collection rule
+changes are required.
+
+- Add `eez_quoteL2ToL1Fee` on the L2 Composer front with positional params
+  `[intent]`, sharing the HTTP endpoint's engine, response schema, readiness,
+  work limits and cancellation. Retain the existing HTTP route for clients.
+- Admit explicit type `0x0` intents and EIP-155-protected signed legacy sources.
+  Keep type `0x2` support. Legacy quotes return `gasPrice`, calculated from the
+  simulated L2 base fee plus the required per-gas contribution; only the
+  difference from the actual base fee counts as collected priority revenue.
+  Preserve the actual envelope type in simulation and DA sizing. Reject
+  replay-unprotected legacy sources and unsupported fee-field combinations.
+- Extend the SDK and dashboard to request a legacy quote for Rabby's custom
+  network path. A dApp calls the custom quote method directly on the Composer;
+  the wallet still receives only standard transaction RPCs. Preserve the fee
+  ceiling, exact intent and one-signature flow for either transaction type.
+- Retain signed admission, cumulative composition and final receipt checks.
+  A higher base fee reduces a legacy transaction's contribution; recheck it
+  rather than counting the whole `gasPrice` or the gas limit as revenue.
+
+Acceptance: reproduce the current legacy admission rejection, then exercise
+legacy and type-2 quotes/submission, nested canonical settlement and independent
+replay; reject underfunding and replay-unprotected sources; check RPC transport,
+IDs, errors, disabled/front-only placement and shared limits; test SDK and
+dashboard fee preservation. Real wallet-extension behavior requires separate
+validation from mocked wallet requests. Upgrade the node before clients select
+legacy quotes or the new RPC; rollback clients before an older node. Historical
+transaction decoding and follower replay already support legacy transactions;
+no database or genesis migration is involved.
+
 ### Wallet transport and accepted-work behavior
 
 For the proposed integrated wallet flow, the wallet's source-chain submission

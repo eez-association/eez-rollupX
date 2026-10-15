@@ -521,11 +521,11 @@ impl SyncBlockState {
         self.evm_env.block_env.basefee
     }
 
-    /// Execute an unsigned type-2 intent only on this disposable quote draft.
+    /// Execute an unsigned legacy or type-2 intent on this disposable quote draft.
     /// Signature recovery is inapplicable; nonce, balance, fees, gas and native
     /// execution checks remain enabled. No payload or submission is produced.
     pub(crate) fn preview_unsigned(&mut self, tx: TxEnv) -> Result<TxOutcome, BuildError> {
-        if tx.tx_type != 2
+        if !matches!(tx.tx_type, 0 | 2)
             || tx.gas_limit
                 > self
                     .evm_env
@@ -1249,7 +1249,7 @@ mod tests {
 
     #[test]
     fn unsigned_quote_replay_matches_signed_receipts_and_enforces_source_checks() {
-        use alloy_consensus::{SignableTransaction, TxEip1559};
+        use alloy_consensus::{TxEip1559, TypedTransaction};
         use revm::Database;
         let f = fixture();
         // GASPRICE is state-visible: a proposed fee must actually be executed.
@@ -1257,62 +1257,77 @@ mod tests {
             STORE,
             ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("3a60005560006000f3")),
         );
-        for tip in [1_u128, 99] {
-            for to in [STORE, REVERTER] {
-                let mut tx = TxEip1559 {
-                    chain_id: 1,
-                    nonce: 0,
-                    gas_limit: 100_000,
-                    max_priority_fee_per_gas: tip,
-                    max_fee_per_gas: tip,
-                    to: TxKind::Call(to),
-                    ..Default::default()
-                };
-                let sig = test_signer().sign_transaction_sync(&mut tx).unwrap();
-                let raw = Bytes::from(tx.into_signed(sig).encoded_2718());
-                let envelope = TransactionSigned::decode_2718(&mut raw.as_ref()).unwrap();
-                let env = f
-                    .evm_config
-                    .tx_env(Recovered::new_unchecked(envelope, test_signer().address()));
-                let mut preview = f.open(&[]);
-                let actual = preview.preview_unsigned(env.clone()).unwrap();
-                let signed = f.build(&[raw]);
-                assert_eq!(actual.gas_used, signed.header.gas_used);
-                assert_eq!(actual.success, signed.tx_successes[0]);
-                assert_eq!(
-                    preview.state.storage(STORE, U256::ZERO).unwrap(),
-                    if to == STORE {
-                        U256::from(tip)
+        for legacy in [false, true] {
+            for tip in [1_u128, 99] {
+                for to in [STORE, REVERTER] {
+                    let mut tx: TypedTransaction = if legacy {
+                        TxLegacy {
+                            chain_id: Some(1),
+                            nonce: 0,
+                            gas_limit: 100_000,
+                            gas_price: tip,
+                            to: TxKind::Call(to),
+                            ..Default::default()
+                        }
+                        .into()
                     } else {
-                        U256::ZERO
-                    }
-                );
-                assert!(
-                    preview.preview_unsigned(env.clone()).is_err(),
-                    "nonce cannot be spent twice"
-                );
-                let mut unfunded = env.clone();
-                unfunded.caller = BOB;
-                assert!(
-                    f.open(&[]).preview_unsigned(unfunded).is_err(),
-                    "normal balance checks remain active"
-                );
-                let mut gapped = env;
-                gapped.nonce = 1;
-                assert!(
-                    f.open(&[]).preview_unsigned(gapped).is_err(),
-                    "normal nonce checks remain active"
-                );
-                assert_eq!(
-                    f.open(&[])
-                        .state
-                        .basic(test_signer().address())
-                        .unwrap()
-                        .unwrap()
-                        .nonce,
-                    0,
-                    "preview never changes provider state"
-                );
+                        TxEip1559 {
+                            chain_id: 1,
+                            nonce: 0,
+                            gas_limit: 100_000,
+                            max_priority_fee_per_gas: tip,
+                            max_fee_per_gas: tip,
+                            to: TxKind::Call(to),
+                            ..Default::default()
+                        }
+                        .into()
+                    };
+                    let sig = test_signer().sign_transaction_sync(&mut tx).unwrap();
+                    let raw = Bytes::from(tx.into_envelope(sig).encoded_2718());
+                    let envelope = TransactionSigned::decode_2718(&mut raw.as_ref()).unwrap();
+                    let env = f
+                        .evm_config
+                        .tx_env(Recovered::new_unchecked(envelope, test_signer().address()));
+                    let mut preview = f.open(&[]);
+                    let actual = preview.preview_unsigned(env.clone()).unwrap();
+                    let signed = f.build(&[raw]);
+                    assert_eq!(actual.gas_used, signed.header.gas_used);
+                    assert_eq!(actual.success, signed.tx_successes[0]);
+                    assert_eq!(
+                        preview.state.storage(STORE, U256::ZERO).unwrap(),
+                        if to == STORE {
+                            U256::from(tip)
+                        } else {
+                            U256::ZERO
+                        }
+                    );
+                    assert!(
+                        preview.preview_unsigned(env.clone()).is_err(),
+                        "nonce cannot be spent twice"
+                    );
+                    let mut unfunded = env.clone();
+                    unfunded.caller = BOB;
+                    assert!(
+                        f.open(&[]).preview_unsigned(unfunded).is_err(),
+                        "normal balance checks remain active"
+                    );
+                    let mut gapped = env;
+                    gapped.nonce = 1;
+                    assert!(
+                        f.open(&[]).preview_unsigned(gapped).is_err(),
+                        "normal nonce checks remain active"
+                    );
+                    assert_eq!(
+                        f.open(&[])
+                            .state
+                            .basic(test_signer().address())
+                            .unwrap()
+                            .unwrap()
+                            .nonce,
+                        0,
+                        "preview never changes provider state"
+                    );
+                }
             }
         }
     }

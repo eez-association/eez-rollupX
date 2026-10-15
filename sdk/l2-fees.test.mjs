@@ -11,6 +11,61 @@ function fixture() {
   return {intent,quote,maxTotalFee:1500000n};
 }
 
+function legacyFixture() {
+  const args = fixture();
+  args.intent.type = "0x0";
+  args.quote.intent = { ...args.intent };
+  args.quote.transaction = { ...args.intent, gasPrice: "0xf" };
+  return args;
+}
+
+test("legacy quotes count only gasPrice minus base fee and preserve the fee ceiling", async () => {
+  const args = legacyFixture();
+  assert.deepEqual(quotedTransaction(args), args.quote.transaction);
+  assert.throws(() => quotedTransaction({ ...args, maxTotalFee: 1499999n }), /app limit/);
+  for (const mutate of [
+    q => q.transaction.gasPrice = "0x9",
+    q => q.transaction.maxFeePerGas = "0xf",
+    q => q.transaction.maxPriorityFeePerGas = "0x5",
+    q => q.transaction.type = "0x2",
+    q => q.estimate.grossL2Tip = "315000", // Incorrectly includes the burned base fee.
+  ]) {
+    const bad = legacyFixture();
+    mutate(bad.quote);
+    assert.throws(() => quotedTransaction(bad));
+  }
+  let sent = 0;
+  const wallet = { request: async ({ method, params }) => {
+    if (method === "eth_sendTransaction") {
+      sent++;
+      assert.deepEqual(params, [args.quote.transaction]);
+      return "0xhash";
+    }
+    return { eth_chainId: "0x1", eth_accounts: [args.intent.from], eth_getTransactionCount: "0x0", eth_getBlockByNumber: { baseFeePerGas: "0xa" } }[method];
+  } };
+  assert.equal(await sendQuotedTransaction({ ...args, wallet }), "0xhash");
+  assert.equal(sent, 1);
+  wallet.request = async ({ method }) => {
+    assert.notEqual(method, "eth_sendTransaction");
+    return { eth_chainId: "0x1", eth_accounts: [args.intent.from], eth_getTransactionCount: "0x0", eth_getBlockByNumber: { baseFeePerGas: "0xb" } }[method];
+  };
+  await assert.rejects(sendQuotedTransaction({ ...args, wallet }), /Base fee changed/);
+});
+
+test("custom RPC quotes use the same validation and never silently fall back", async () => {
+  for (const args of [fixture(), legacyFixture()]) {
+    const rpc = async (method, params) => {
+      assert.equal(method, "eez_quoteL2ToL1Fee");
+      assert.deepEqual(params, [args.intent]);
+      return args.quote;
+    };
+    assert.equal(await requestL2FeeQuote({ ...args, rpc }), args.quote);
+    await assert.rejects(requestL2FeeQuote({ ...args, rpc, url: "https://example.invalid" }), /either/);
+    await assert.rejects(requestL2FeeQuote({ ...args, rpc: async () => { throw new Error("quotes_disabled"); } }), /quotes_disabled/);
+    await assert.rejects(requestL2FeeQuote({ ...args, rpc: async () => ({ ...args.quote, expiresAt: 0 }) }), /expired/);
+  }
+});
+
 test("returns only the exact intent and ordinary fee fields",()=>{
   const args=fixture(); const tx=quotedTransaction(args);
   assert.deepEqual(tx,args.quote.transaction); assert.notEqual(tx,args.quote.transaction);

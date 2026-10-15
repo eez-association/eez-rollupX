@@ -1,7 +1,7 @@
 //! Unsigned application quote -> one signed source -> native settlement and
 //! independent follower replay. No quoted bytes are submitted before signing.
 
-use alloy_consensus::{SignableTransaction, TxEip1559};
+use alloy_consensus::{TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::Encodable2718;
 use alloy_network::TxSignerSync;
 use alloy_primitives::{Address, Bytes, TxKind, U256};
@@ -21,15 +21,20 @@ const TIMEOUT: Duration = Duration::from_mins(3);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unsigned_nested_quote_matches_receipt_and_replays() {
-    nested_quote_roundtrip(false).await;
+    nested_quote_roundtrip(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn enforced_nested_quote_rejects_underpayment_and_replays() {
-    nested_quote_roundtrip(true).await;
+    nested_quote_roundtrip(true, false).await;
 }
 
-async fn nested_quote_roundtrip(enforced: bool) {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn legacy_rpc_quote_rejects_underpayment_settles_and_replays() {
+    nested_quote_roundtrip(true, true).await;
+}
+
+async fn nested_quote_roundtrip(enforced: bool, legacy: bool) {
     let policy = crate::settlement_policy_cost::shadow_pricing_policy();
     let world = setup_cross_chain_with_env(&[
         (
@@ -70,7 +75,7 @@ async fn nested_quote_roundtrip(enforced: bool) {
         .await
         .unwrap();
     let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(123) }.abi_encode());
-    let intent = json!({"type":"0x2","chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
+    let intent = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
         "nonce":format!("{nonce:#x}"),"gas":"0x124f80","value":"0x0","data":data});
     let client = reqwest::Client::new();
     let url = format!("{}/eez/fees/l2-to-l1", world.l2_xchain());
@@ -96,17 +101,51 @@ async fn nested_quote_roundtrip(enforced: bool) {
         .await
         .unwrap();
     assert_eq!(response.status(), 404);
+    for rpc_url in [world.l1_xchain(), world.l2_rpc()] {
+        let response: Value = client
+            .post(rpc_url)
+            .json(&json!({
+                "jsonrpc":"2.0", "id":7, "method":"eez_quoteL2ToL1Fee", "params":[intent]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            response["error"]["code"], -32601,
+            "quote method must be L2-front-only: {response}"
+        );
+    }
     // Exact-parent quotes can race a new L1 head. Retry only this documented
     // availability condition; unsupported or failed simulation is a test error.
     let last_error = std::sync::Mutex::new(Value::Null);
     let quote = wait_for(Duration::from_secs(30), || async {
-        let response = client.post(&url).json(&intent).send().await?;
+        let response =
+            if enforced {
+                client.post(world.l2_xchain()).json(&json!({
+                "jsonrpc":"2.0", "id":"quote", "method":"eez_quoteL2ToL1Fee", "params":[intent]
+            })).send().await?
+            } else {
+                client.post(&url).json(&intent).send().await?
+            };
         let status = response.status();
         let value = response.json::<Value>().await?;
-        if status.is_success() {
+        if status.is_success() && (!enforced || value.get("result").is_some()) {
+            if enforced {
+                anyhow::ensure!(value["id"] == "quote", "quote ID changed: {value}");
+                return Ok(Some(value["result"].clone()));
+            }
             return Ok(Some(value));
         }
-        if status == 409 || status == 503 {
+        if status == 409
+            || status == 503
+            || matches!(
+                value["error"]["data"]["code"].as_str(),
+                Some("stale_context" | "quote_unavailable")
+            )
+        {
             *last_error.lock().unwrap() = value;
             return Ok(None);
         }
@@ -152,78 +191,111 @@ async fn nested_quote_roundtrip(enforced: bool) {
         )
         .unwrap()
     };
-    let tip = quantity("maxPriorityFeePerGas");
-    if enforced {
-        let mut underfunded = TxEip1559 {
-            chain_id: world.l2_chain_id,
-            nonce,
-            gas_limit: 1_200_000,
-            max_priority_fee_per_gas: 0,
-            max_fee_per_gas: quantity("maxFeePerGas"),
-            to: TxKind::Call(outer),
-            input: data.clone(),
-            ..Default::default()
-        };
-        let signature = signer.sign_transaction_sync(&mut underfunded).unwrap();
-        let underfunded = underfunded.into_signed(signature);
-        let raw = alloy_primitives::hex::encode_prefixed(underfunded.encoded_2718());
-        // Availability races may defer validation; only the intended tariff
-        // rejection establishes the regression, never a timeout or bad nonce.
-        let error = wait_for(Duration::from_secs(30), || async {
-            let response: Value = client
-                .post(world.l2_xchain())
-                .json(&json!({
-                    "jsonrpc":"2.0", "id":1, "method":"eth_sendRawTransaction", "params":[raw]
-                }))
-                .send()
-                .await?
-                .json()
-                .await?;
-            let error = &response["error"];
-            match error["data"]["code"].as_str() {
-                Some("stale_context" | "quote_unavailable" | "quote_busy") => Ok(None),
-                Some("l2_tip_underfunded") => Ok(Some(error.clone())),
-                _ => anyhow::bail!("expected tariff rejection: {response}"),
-            }
-        })
-        .await
+    let base = quote["estimate"]["l2BaseFeePerGas"]
+        .as_str()
+        .unwrap()
+        .parse::<u128>()
         .unwrap();
-        assert_eq!(error["code"], -32003);
-        let status: Value = client.post(world.l2_xchain()).json(&json!({
-            "jsonrpc":"2.0", "id":2, "method":"eez_getCrossChainTransaction", "params":[underfunded.hash()]
-        })).send().await.unwrap().json().await.unwrap();
-        assert!(
-            status["error"].is_null(),
-            "queue lookup must reach the front: {status}"
-        );
-        assert!(
-            status["result"].is_null(),
-            "rejected source must not enter the queue: {status}"
-        );
-        assert_eq!(
-            onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap(),
-            nonce
-        );
-        assert_eq!(
-            l2_value(&world.l1_rpc(), world.outbound_value)
-                .await
-                .unwrap(),
-            target_before
-        );
-    }
-    let mut tx = TxEip1559 {
-        chain_id: world.l2_chain_id,
-        nonce,
-        gas_limit: 1_200_000,
-        max_priority_fee_per_gas: tip,
-        max_fee_per_gas: quantity("maxFeePerGas"),
-        to: TxKind::Call(outer),
-        input: data,
-        ..Default::default()
+    let cap = quantity(if legacy { "gasPrice" } else { "maxFeePerGas" });
+    let tip = if legacy {
+        cap - base
+    } else {
+        quantity("maxPriorityFeePerGas")
     };
-    let signature = signer.sign_transaction_sync(&mut tx).unwrap();
-    let signed = tx.into_signed(signature);
-    let hash = *signed.hash();
+    let sign = |priority, price| {
+        let mut tx: TypedTransaction = if legacy {
+            TxLegacy {
+                chain_id: Some(world.l2_chain_id),
+                nonce,
+                gas_limit: 1_200_000,
+                gas_price: price,
+                to: TxKind::Call(outer),
+                input: data.clone(),
+                ..Default::default()
+            }
+            .into()
+        } else {
+            TxEip1559 {
+                chain_id: world.l2_chain_id,
+                nonce,
+                gas_limit: 1_200_000,
+                max_priority_fee_per_gas: priority,
+                max_fee_per_gas: price,
+                to: TxKind::Call(outer),
+                input: data.clone(),
+                ..Default::default()
+            }
+            .into()
+        };
+        let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+        tx.into_envelope(signature)
+    };
+    if enforced {
+        let mut rejected_fees = vec![(0, if legacy { base } else { cap })];
+        if legacy {
+            let required = quote["estimate"]["requiredL2Tip"]
+                .as_str()
+                .unwrap()
+                .parse::<u128>()
+                .unwrap();
+            let limit_based_tip = required.div_ceil(1_200_000);
+            assert!(
+                limit_based_tip < tip,
+                "must exercise gas-limit underpayment"
+            );
+            rejected_fees.push((limit_based_tip, base + limit_based_tip));
+        }
+        for (rejected_tip, rejected_cap) in rejected_fees {
+            let underfunded = sign(rejected_tip, rejected_cap);
+            let raw = alloy_primitives::hex::encode_prefixed(underfunded.encoded_2718());
+            // Availability races may defer validation; only the intended tariff
+            // rejection establishes the regression, never a timeout or bad nonce.
+            let error = wait_for(Duration::from_secs(30), || async {
+                let response: Value = client
+                    .post(world.l2_xchain())
+                    .json(&json!({
+                        "jsonrpc":"2.0", "id":1, "method":"eth_sendRawTransaction", "params":[raw]
+                    }))
+                    .send()
+                    .await?
+                    .json()
+                    .await?;
+                let error = &response["error"];
+                match error["data"]["code"].as_str() {
+                    Some("stale_context" | "quote_unavailable" | "quote_busy") => Ok(None),
+                    Some("l2_tip_underfunded") => Ok(Some(error.clone())),
+                    _ => anyhow::bail!("expected tariff rejection: {response}"),
+                }
+            })
+            .await
+            .unwrap();
+            assert_eq!(error["code"], -32003);
+            let status: Value = client.post(world.l2_xchain()).json(&json!({
+            "jsonrpc":"2.0", "id":2, "method":"eez_getCrossChainTransaction", "params":[underfunded.tx_hash()]
+        })).send().await.unwrap().json().await.unwrap();
+            assert!(
+                status["error"].is_null(),
+                "queue lookup must reach the front: {status}"
+            );
+            assert!(
+                status["result"].is_null(),
+                "rejected source must not enter the queue: {status}"
+            );
+            assert_eq!(
+                onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap(),
+                nonce
+            );
+            assert_eq!(
+                l2_value(&world.l1_rpc(), world.outbound_value)
+                    .await
+                    .unwrap(),
+                target_before
+            );
+        }
+    }
+    let signed = sign(tip, cap);
+    assert_eq!(signed.ty(), if legacy { 0 } else { 2 });
+    let hash = *signed.tx_hash();
     let raw = alloy_primitives::hex::encode_prefixed(signed.encoded_2718());
     wait_for(Duration::from_secs(30), || async {
         let response: Value = client
@@ -287,7 +359,17 @@ async fn nested_quote_roundtrip(enforced: bool) {
         * U256::from(
             receipt.effective_gas_price - u128::from(source_block.header.base_fee_per_gas.unwrap()),
         );
-    assert_eq!(paid_tip.to_string(), quote["estimate"]["grossL2Tip"]);
+    if legacy {
+        // Legacy fixes the total gas price, so a lower inclusion base fee
+        // increases the beneficiary's share without changing the user's price.
+        assert_eq!(receipt.effective_gas_price, cap);
+        assert_eq!(
+            (U256::from(receipt.gas_used) * U256::from(cap - base)).to_string(),
+            quote["estimate"]["grossL2Tip"]
+        );
+    } else {
+        assert_eq!(paid_tip.to_string(), quote["estimate"]["grossL2Tip"]);
+    }
     assert!(
         paid_tip
             >= U256::from_str_radix(quote["estimate"]["requiredL2Tip"].as_str().unwrap(), 10)
@@ -391,7 +473,9 @@ async fn nested_quote_roundtrip(enforced: bool) {
     assert!(checked_post, "independent canonical post receipt required");
     if let Ok(dir) = std::env::var("EEZ_TEST_LOG_DIR") {
         std::fs::write(
-            std::path::Path::new(&dir).join(if enforced {
+            std::path::Path::new(&dir).join(if legacy {
+                "legacy-fee-quote.json"
+            } else if enforced {
                 "enforced-fee-quote.json"
             } else {
                 "unsigned-fee-quote.json"

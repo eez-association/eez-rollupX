@@ -10,7 +10,7 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-use alloy_consensus::{Header, SignableTransaction, TxEip1559, Typed2718};
+use alloy_consensus::{Header, Transaction, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::Encodable2718;
 use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, keccak256};
 use eez_l1::{BundleTarget, L2Endpoint};
@@ -39,7 +39,7 @@ const MAX_FRAMES: usize = 32;
 const MAX_DEPTH: usize = 8;
 const MAX_DA_BYTES: usize = 2 * 1024 * 1024;
 
-/// Stable error categories for the application HTTP API. Details are fixed
+/// Stable error categories for the application quote APIs. Details are fixed
 /// strings: backend/provider errors stay in local diagnostics.
 #[derive(Debug, thiserror::Error)]
 pub enum FeeQuoteError {
@@ -78,48 +78,55 @@ fn unavailable(context: &'static str, error: impl std::fmt::Display) -> FeeQuote
     FeeQuoteError::Unavailable(context)
 }
 
-/// Explicit type-2 call intent. No fee fields are accepted: the endpoint finds
+/// Explicit legacy or type-2 call intent. No fee fields are accepted: the service finds
 /// and replays them. The gas limit is fixed throughout this search.
 #[derive(Clone, Debug)]
 pub struct L2FeeRequest {
     sender: Address,
-    tx: TxEip1559,
+    tx: TypedTransaction,
     signed_fees: bool,
 }
 
 impl L2FeeRequest {
     /// Recover a signed source and retain its exact fees for one admission replay.
-    /// The unsigned HTTP profile also bounds signed admission; no placeholder
+    /// The unsigned quote profile also bounds signed admission; no placeholder
     /// signature is accepted as authorization or forwarded to the queue.
     pub fn from_signed(envelope: &alloy_consensus::TxEnvelope) -> Result<Self, FeeQuoteError> {
-        let alloy_consensus::TxEnvelope::Eip1559(signed) = envelope else {
-            return Err(FeeQuoteError::Unsupported(
-                "tariff admission requires type 2",
-            ));
-        };
-        let tx = signed.tx();
-        if !tx.access_list.is_empty() {
+        match envelope {
+            alloy_consensus::TxEnvelope::Legacy(_) if envelope.chain_id().is_none() => {
+                return Err(FeeQuoteError::Unsupported(
+                    "legacy source requires EIP-155 replay protection",
+                ));
+            }
+            alloy_consensus::TxEnvelope::Legacy(_) | alloy_consensus::TxEnvelope::Eip1559(_) => {}
+            _ => {
+                return Err(FeeQuoteError::Unsupported(
+                    "tariff admission requires legacy or type 2",
+                ));
+            }
+        }
+        if envelope.access_list().is_some_and(|list| !list.is_empty()) {
             return Err(FeeQuoteError::Unsupported(
                 "access lists are outside the quote profile",
             ));
         }
-        let TxKind::Call(to) = tx.to else {
+        let TxKind::Call(to) = envelope.kind() else {
             return Err(FeeQuoteError::Unsupported("contract creation"));
         };
         let sender = envelope
             .recover_signer()
             .map_err(|_| FeeQuoteError::Invalid("signature recovery"))?;
         let mut request = Self::parse(&json!({
-            "type":"0x2", "chainId":format!("0x{:x}",tx.chain_id),
-            "from":sender,"to":to,"nonce":format!("0x{:x}",tx.nonce),
-            "gas":format!("0x{:x}",tx.gas_limit),"value":format!("{:#x}",tx.value),"data":tx.input
+            "type":format!("{:#x}",envelope.ty()), "chainId":format!("{:#x}",envelope.chain_id().expect("admitted envelope is replay protected")),
+            "from":sender,"to":to,"nonce":format!("{:#x}",envelope.nonce()),
+            "gas":format!("{:#x}",envelope.gas_limit()),"value":format!("{:#x}",envelope.value()),"data":envelope.input()
         }))?;
-        request.tx = tx.clone();
+        request.tx = envelope.clone().into();
         request.signed_fees = true;
         Ok(request)
     }
 
-    /// Parse the strict HTTP intent schema. All numbers are canonical JSON-RPC
+    /// Parse the strict intent schema. All numbers are canonical JSON-RPC
     /// hex quantities, avoiding JavaScript precision loss and ambiguous defaults.
     pub fn parse(value: &Value) -> Result<Self, FeeQuoteError> {
         const FIELDS: &[&str] = &[
@@ -151,8 +158,11 @@ impl L2FeeRequest {
             u64::try_from(quantity(key)?)
                 .map_err(|_| FeeQuoteError::Invalid("quantity exceeds u64"))
         };
-        if small("type")? != 2 {
-            return Err(FeeQuoteError::Unsupported("only type 2 contract calls"));
+        let tx_type = small("type")?;
+        if !matches!(tx_type, 0 | 2) {
+            return Err(FeeQuoteError::Unsupported(
+                "only legacy or type 2 contract calls",
+            ));
         }
         let address = |key: &str| {
             value[key]
@@ -184,50 +194,77 @@ impl L2FeeRequest {
         Ok(Self {
             sender,
             signed_fees: false,
-            tx: TxEip1559 {
-                chain_id,
-                nonce: small("nonce")?,
-                gas_limit,
-                to: TxKind::Call(address("to")?),
-                value: quantity("value")?,
-                input: data,
-                ..Default::default()
+            tx: if tx_type == 0 {
+                TxLegacy {
+                    chain_id: Some(chain_id),
+                    nonce: small("nonce")?,
+                    gas_limit,
+                    to: TxKind::Call(address("to")?),
+                    value: quantity("value")?,
+                    input: data,
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                TxEip1559 {
+                    chain_id,
+                    nonce: small("nonce")?,
+                    gas_limit,
+                    to: TxKind::Call(address("to")?),
+                    value: quantity("value")?,
+                    input: data,
+                    ..Default::default()
+                }
+                .into()
             },
         })
     }
 
     fn fields(&self, tip: u128, cap: u128) -> Value {
-        json!({"type":"0x2", "chainId":format!("{:#x}",self.tx.chain_id), "from":self.sender,
-            "to":self.tx.to.to().expect("parser admits calls only"), "nonce":format!("{:#x}",self.tx.nonce),
-            "gas":format!("{:#x}",self.tx.gas_limit), "value":format!("{:#x}",self.tx.value), "data":self.tx.input,
-            "maxPriorityFeePerGas":format!("{tip:#x}"), "maxFeePerGas":format!("{cap:#x}")})
+        let mut fields = json!({"type":format!("{:#x}",self.tx.ty()), "chainId":format!("{:#x}",self.tx.chain_id().expect("parser requires chain ID")), "from":self.sender,
+            "to":self.tx.to().expect("parser admits calls only"), "nonce":format!("{:#x}",self.tx.nonce()),
+            "gas":format!("{:#x}",self.tx.gas_limit()), "value":format!("{:#x}",self.tx.value()), "data":self.tx.input()});
+        if self.tx.ty() == 0 {
+            fields["gasPrice"] = json!(format!("{cap:#x}"));
+        } else {
+            fields["maxPriorityFeePerGas"] = json!(format!("{tip:#x}"));
+            fields["maxFeePerGas"] = json!(format!("{cap:#x}"));
+        }
+        fields
     }
 
     fn env(&self, tip: u128, cap: u128) -> TxEnv {
         TxEnv {
-            tx_type: 2,
+            tx_type: self.tx.ty(),
             caller: self.sender,
-            gas_limit: self.tx.gas_limit,
+            gas_limit: self.tx.gas_limit(),
             gas_price: cap,
-            gas_priority_fee: Some(tip),
-            kind: self.tx.to,
-            value: self.tx.value,
-            data: self.tx.input.clone(),
-            nonce: self.tx.nonce,
-            chain_id: Some(self.tx.chain_id),
+            gas_priority_fee: self.tx.max_priority_fee_per_gas().map(|_| tip),
+            kind: self.tx.kind(),
+            value: self.tx.value(),
+            data: self.tx.input().clone(),
+            nonce: self.tx.nonce(),
+            chain_id: self.tx.chain_id(),
             ..Default::default()
         }
     }
 
     /// Signature bytes are solely an upper bound for DA encoding length. This
     /// envelope is never executed, recovered, proved, queued or submitted.
-    fn sizing_bytes(&self, tip: u128, cap: u128) -> Bytes {
+    fn sizing_bytes(&self, tip: u128, cap: u128) -> Result<Bytes, FeeQuoteError> {
         let mut tx = self.tx.clone();
-        tx.max_priority_fee_per_gas = tip;
-        tx.max_fee_per_gas = cap;
-        tx.into_signed(Signature::new(U256::MAX, U256::MAX, true))
+        match &mut tx {
+            TypedTransaction::Legacy(tx) => tx.gas_price = cap,
+            TypedTransaction::Eip1559(tx) => {
+                tx.max_priority_fee_per_gas = tip;
+                tx.max_fee_per_gas = cap;
+            }
+            _ => return Err(FeeQuoteError::Unsupported("unsupported sizing envelope")),
+        }
+        Ok(tx
+            .into_envelope(Signature::new(U256::MAX, U256::MAX, true))
             .encoded_2718()
-            .into()
+            .into())
     }
 }
 
@@ -266,7 +303,7 @@ where
             .shadow_fee_policy
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
-        if request.tx.chain_id != posting.ctx.l2_chain_id
+        if request.tx.chain_id() != Some(posting.ctx.l2_chain_id)
             || !self.inner.rollups.contains_key(&rollup_id)
         {
             return Err(FeeQuoteError::Invalid("wrong chain or rollup"));
@@ -403,7 +440,10 @@ where
             return Err(FeeQuoteError::Stale);
         }
         let mut tip = if request.signed_fees {
-            request.tx.max_priority_fee_per_gas
+            request
+                .tx
+                .max_priority_fee_per_gas()
+                .unwrap_or_else(|| request.tx.max_fee_per_gas())
         } else {
             0
         };
@@ -421,7 +461,7 @@ where
             .map_err(|e| unavailable("L2 draft", e))?;
             let base = draft.base_fee();
             let cap = if request.signed_fees {
-                request.tx.max_fee_per_gas
+                request.tx.max_fee_per_gas()
             } else {
                 u128::from(base)
                     .checked_add(tip)
@@ -497,7 +537,7 @@ where
             let composition = builder
                 .finalize()
                 .map_err(|e| unavailable("unsupported composition", e))?;
-            let raw_size = request.sizing_bytes(tip, cap);
+            let raw_size = request.sizing_bytes(tip, cap)?;
             let (group, l1_entries) = outbound_group(&composition, rollup_id, raw_size.clone())?;
             let withdrawal = l1_entries
                 .iter()
@@ -616,6 +656,10 @@ where
                 .as_object_mut()
                 .expect("constructed object")
                 .remove("maxPriorityFeePerGas");
+            intent
+                .as_object_mut()
+                .expect("constructed object")
+                .remove("gasPrice");
             return Ok(json!({
                 "version":1, "mode":"advisory", "intent":intent, "intentHash":keccak256(intent.to_string()), "transaction":transaction,
                 "issuedAt":issued, "expiresAt":expiry, "policy":policy.details(),

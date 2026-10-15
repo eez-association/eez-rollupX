@@ -563,6 +563,14 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
             &ctx.composer_info,
             ctx.expected_source_chain_id,
         )
+    } else if method == crate::fee_quotes::METHOD && ctx.direction == Direction::Outbound {
+        match request.get("params").and_then(Value::as_array) {
+            Some(params) if params.len() == 1 => {
+                let (status, value) = quote_response(ctx, &params[0]).await;
+                crate::fee_quotes::rpc_response(id, status, value)
+            }
+            _ => error(id, -32602, "expected one transaction intent in params"),
+        }
     } else if method.starts_with("eez_") {
         let mut call = request.clone();
         // RpcModule's numeric IDs are u64-only. Use a private ID for dispatch
@@ -593,6 +601,24 @@ async fn composer_item(ctx: &Ctx, request: &Value) -> Option<Value> {
         )
     };
     request.get("id").map(|_| response)
+}
+
+async fn quote_response(ctx: &Ctx, input: &Value) -> (StatusCode, Value) {
+    if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
+        crate::fee_quotes::error(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "starting_up",
+            STARTING_UP_MSG,
+        )
+    } else if let Some(service) = &ctx.fee_quotes {
+        service.quote(input).await
+    } else {
+        crate::fee_quotes::error(
+            StatusCode::NOT_FOUND,
+            "quotes_disabled",
+            "quotes are available only on a configured L2 front",
+        )
+    }
 }
 
 async fn handle_composer_methods(ctx: &Ctx, request: &Value) -> Response<Full<HyperBytes>> {
@@ -671,21 +697,7 @@ async fn handle(
     };
 
     if fee_quote {
-        let (status, value) = if !ctx.ready.load(std::sync::atomic::Ordering::Acquire) {
-            crate::fee_quotes::error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "starting_up",
-                STARTING_UP_MSG,
-            )
-        } else if let Some(service) = &ctx.fee_quotes {
-            service.quote(&json).await
-        } else {
-            crate::fee_quotes::error(
-                StatusCode::NOT_FOUND,
-                "quotes_disabled",
-                "quotes are available only on a configured L2 front",
-            )
-        };
+        let (status, value) = quote_response(&ctx, &json).await;
         let mut response = json_response(value.to_string());
         *response.status_mut() = status;
         response.headers_mut().insert(
@@ -1469,6 +1481,34 @@ mod tests {
             .json()
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn l2_fee_rpc_without_policy_reports_disabled_locally() {
+        let port = free_port();
+        let task = tokio::spawn(run_cross_chain_front(
+            port,
+            "http://127.0.0.1:1".into(),
+            Direction::Outbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::ZERO,
+            Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            Arc::new(serde_json::json!({})),
+            None,
+        ));
+        wait_for_front(port).await;
+        let response = post(
+            port,
+            &serde_json::json!({
+                "jsonrpc":"2.0", "id":1, "method":crate::fee_quotes::METHOD, "params":[{}]
+            }),
+        )
+        .await;
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "quotes_disabled");
+        task.abort();
     }
 
     /// Discovery is answered by the front itself: before readiness, without

@@ -1,5 +1,5 @@
-//! Application HTTP quotes. One worker, no waiting queue; its permit remains
-//! owned by blocking execution after an HTTP timeout or caller cancellation.
+//! Application quotes over HTTP and JSON-RPC. One shared worker, no waiting
+//! queue; its permit remains owned by execution after timeout or cancellation.
 
 use alloy_consensus::Header;
 use eez_composer::{
@@ -21,6 +21,7 @@ use std::{
 use tokio::sync::Semaphore;
 
 pub(crate) const PATH: &str = "/eez/fees/l2-to-l1";
+pub(crate) const METHOD: &str = "eez_quoteL2ToL1Fee";
 pub(crate) const MAX_BODY: usize = 32 * 1024;
 type Work = Box<dyn FnOnce(Arc<AtomicBool>) -> Result<Value, FeeQuoteError> + Send>;
 type Preparation = Pin<Box<dyn Future<Output = Result<Work, FeeQuoteError>> + Send>>;
@@ -74,6 +75,13 @@ impl FeeQuotes {
     }
 
     pub(crate) async fn quote(&self, input: &Value) -> (StatusCode, Value) {
+        if input.to_string().len() > MAX_BODY {
+            return error(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "quote_limit",
+                "intent exceeds 32 KiB",
+            );
+        }
         let request = match L2FeeRequest::parse(input) {
             Ok(request) => request,
             Err(error) => return failure(error),
@@ -124,6 +132,22 @@ impl FeeQuotes {
     }
 }
 
+/// Translate the shared quote result without turning operational unavailability
+/// into a JSON-RPC protocol error. Admission retains its distinct -32003 code.
+pub(crate) fn rpc_response(id: Value, status: StatusCode, value: Value) -> Value {
+    if status.is_success() {
+        json!({"jsonrpc":"2.0", "id":id, "result":value})
+    } else {
+        let code = if status == StatusCode::BAD_REQUEST {
+            -32602
+        } else {
+            -32004
+        };
+        json!({"jsonrpc":"2.0", "id":id,
+            "error":{"code":code,"message":value["error"]["message"],"data":value["error"]}})
+    }
+}
+
 pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> (StatusCode, Value) {
     (status, json!({"error":{"code":code,"message":message}}))
 }
@@ -148,6 +172,176 @@ mod tests {
 
     fn intent() -> Value {
         json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(1),"to":Address::repeat_byte(2),"gas":"0x186a0","nonce":"0x0","value":"0x0","data":"0x"})
+    }
+
+    #[tokio::test]
+    async fn rpc_front_preserves_ids_errors_readiness_and_notifications() {
+        use alloy_provider::{ProviderBuilder, mock::Asserter};
+        use eez_composer::{Direction, HeldPool};
+        let service = Arc::new(FeeQuotes {
+            enforce_tariff: false,
+            prepare: Arc::new(|_| {
+                Box::pin(async { Ok(Box::new(|_| Ok(json!({"quote":"shared"}))) as Work) })
+            }),
+            executor: TaskExecutor::test(),
+            permits: Arc::new(Semaphore::new(1)),
+            timeout: Duration::from_secs(10),
+        });
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let ready = Arc::new(AtomicBool::new(false));
+        let task = tokio::spawn(crate::ingress::run_cross_chain_front(
+            port,
+            "http://127.0.0.1:1".into(),
+            Direction::Outbound,
+            Arc::new(HeldPool::new(Default::default())),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::ZERO,
+            Arc::clone(&ready),
+            Arc::new(json!({})),
+            Some(Arc::clone(&service)),
+        ));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_err()
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let client = reqwest::Client::new();
+        let url = format!("http://127.0.0.1:{port}");
+        let call = json!({"jsonrpc":"2.0","id":-2,"method":METHOD,"params":[intent()]});
+        let response: Value = client
+            .post(&url)
+            .json(&call)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["id"], -2);
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "starting_up");
+        ready.store(true, Ordering::Release);
+        for id in [Value::Null, json!(-2), json!("quote")] {
+            let mut request = call.clone();
+            request["id"] = id.clone();
+            let response: Value = client
+                .post(&url)
+                .json(&request)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(
+                response,
+                json!({"jsonrpc":"2.0","id":id,"result":{"quote":"shared"}})
+            );
+        }
+        let http: Value = client
+            .post(format!("{url}{PATH}"))
+            .json(&intent())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(http, json!({"quote":"shared"}));
+        let batch: Value = client
+            .post(&url)
+            .json(&json!([
+                call,
+                {"jsonrpc":"2.0", "id":"info", "method":"eez_composerInfo"}
+            ]))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(batch[0]["id"], -2);
+        assert_eq!(batch[0]["result"], http);
+        assert_eq!(batch[1]["id"], "info");
+        let mut oversized = intent();
+        oversized["data"] = json!("x".repeat(MAX_BODY));
+        let response: Value = client
+            .post(&url)
+            .json(&json!({
+                "jsonrpc":"2.0", "id":1, "method":METHOD, "params":[oversized]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "quote_limit");
+        for params in [
+            Value::Null,
+            json!([]),
+            json!([intent(), intent()]),
+            json!([{}]),
+        ] {
+            let mut request = call.clone();
+            request["params"] = params;
+            let response: Value = client
+                .post(&url)
+                .json(&request)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(response["error"]["code"], -32602, "{response}");
+        }
+        // A held permit applies to both transports; switching to JSON-RPC must
+        // not create a second simulation worker.
+        let permit = service.permits.acquire().await.unwrap();
+        let response: Value = client
+            .post(&url)
+            .json(&call)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["error"]["data"]["code"], "quote_busy");
+        assert_eq!(
+            client
+                .post(format!("{url}{PATH}"))
+                .json(&intent())
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+        drop(permit);
+        let mut notification = call.clone();
+        notification.as_object_mut().unwrap().remove("id");
+        assert_eq!(
+            client
+                .post(&url)
+                .json(&notification)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            204
+        );
+        task.abort();
     }
 
     // The worker is held by a channel, not timing: an aborted HTTP task must
