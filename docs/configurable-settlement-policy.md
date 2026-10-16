@@ -86,6 +86,17 @@ blob; these are planning estimates, not consensus limits. See the
 [validation record](audits/2026-09-26-admission-throughput/README.md) for measured
 profiles and remaining limits.
 
+When native tariff validation defers a source and its speculative effects have
+been removed, its measured simulation/rollback interval is spent deadline time,
+not work that the final accepted batch must repeat. Automatic admission excludes
+only that bracketed interval from predicted finishing and next-group costs.
+The absolute deadline still charges all elapsed work. Unknown or mismatched
+brackets keep the conservative estimate, and source-deferred candidates cannot
+train the calibrated finishing ratio. A rebuilt candidate starts fresh timing
+accounting. This is an in-memory estimate correction: no configuration, queue,
+protocol or follower migration is required. Older binaries retain conservative
+overestimation on rollback; normal in-memory queue restart limits still apply.
+
 Canonical effect-prefix hashing retains one candidate-local execution
 checkpoint. Reuse requires the same raw transaction prefix, parent and block
 environment. A changed or shorter prefix discards it; any construction error

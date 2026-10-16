@@ -35,6 +35,15 @@ this backoff.
 The source gas estimate needs headroom for shared-table scans, but headroom alone
 cannot replace final ordered validation or adaptive batching.
 
+The exact-quote rerun exposed another preparation blocker: hundreds of tariff
+rejections were counted again as predicted finishing and next-group work. A
+source whose speculative effects have been removed may subtract only its
+measured, candidate-local interval from that prediction. Its full elapsed time
+still consumes the original deadline. Missing/mismatched measurements retain
+the conservative estimate; deferral cannot calibrate a cheaper finishing ratio.
+Rebuilds reset the interval accounting. FIFO eligibility, current-state tariff
+checks, gas/blob admission and final native validation remain unchanged.
+
 Explicit future L1 nonces may replay up to eight contiguous, owned signed
 predecessors under the same quote deadline and work bounds. Replay must retain
 real nonces, balances, fee fields and nested effects on both chains in disposable

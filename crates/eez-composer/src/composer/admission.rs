@@ -51,8 +51,9 @@ impl Sample {
             .map_or(u128::MAX, |n| n.div_ceil(self.groups.max(1) as u128));
         // Never learn a zero reserve or amplify fixed overhead. Missing or
         // interrupted observations retain the full-pass estimate. The current
-        // work includes setup, classification and canonical appends, while the
-        // denominator measures only accepted group simulation/prefix work.
+        // work includes setup, classification and canonical appends, excluding
+        // bracketed rollback intervals; the denominator measures only accepted
+        // group simulation/prefix work.
         let finishing = match self.group_work.map(|d| d.as_nanos()) {
             Some(measured) if variable > 0 && measured > variable => {
                 let predicted = work
@@ -274,15 +275,24 @@ struct Progress {
     started_groups: usize,
     measured_groups: usize,
     group_started: Option<(usize, Duration)>,
+    discard_started: Option<(usize, Duration)>,
+    discarded_work: Duration,
+    discarded_until: Duration,
     group_work: Duration,
     unmeasured_work: bool,
 }
 
 impl Progress {
+    fn retained_work(&self, elapsed: Duration) -> Duration {
+        elapsed
+            .saturating_sub(self.candidate_started)
+            .saturating_sub(self.discarded_work)
+    }
+
     fn sample(&self, groups: usize, elapsed: Duration) -> Sample {
         Sample {
             groups,
-            preparation: elapsed.saturating_sub(self.candidate_started),
+            preparation: self.retained_work(elapsed),
             tail: elapsed.saturating_sub(self.phase),
             blob_preparation: self.blob_preparation,
             blobs: self.blobs,
@@ -386,6 +396,35 @@ impl Attempt {
         self.progress.lock().unwrap().source_deferred |= deferred;
     }
 
+    /// Call only after removing the current group's speculative effects and
+    /// restoring the accepted prefix. Its measured interval has already spent
+    /// the deadline; neither finishing nor the next source will repeat it.
+    pub fn discarded_group(&self, accepted: usize) {
+        self.discarded_group_at(accepted, self.started.elapsed());
+    }
+
+    fn discarded_group_at(&self, accepted: usize, elapsed: Duration) {
+        let mut progress = self.progress.lock().unwrap();
+        progress.source_deferred = true;
+        // A rollback cannot calibrate the accepted groups' finishing ratio.
+        progress.unmeasured_work = true;
+        let Some((groups, started)) = progress.discard_started.take() else {
+            return;
+        };
+        if accepted.checked_add(1) != Some(groups)
+            || started < progress.candidate_started.max(progress.discarded_until)
+        {
+            return;
+        }
+        if let Some(total) = elapsed
+            .checked_sub(started)
+            .and_then(|work| progress.discarded_work.checked_add(work))
+        {
+            progress.discarded_work = total;
+            progress.discarded_until = elapsed;
+        }
+    }
+
     pub fn can_start_group(&self, accepted: usize) -> bool {
         self.can_start_at(accepted, self.started.elapsed())
     }
@@ -448,10 +487,7 @@ impl Attempt {
         let next = accepted.saturating_add(1);
         let (blobs, work) = {
             let progress = self.progress.lock().unwrap();
-            (
-                progress.blobs.max(1),
-                elapsed.saturating_sub(progress.candidate_started),
-            )
+            (progress.blobs.max(1), progress.retained_work(elapsed))
         };
         let jitter = self.jitter_reserve();
         let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
@@ -485,6 +521,7 @@ impl Attempt {
             }
             progress.unmeasured_work |= progress.group_started.is_some();
             progress.group_started = Some((next, elapsed));
+            progress.discard_started = Some((next, elapsed));
         } else if accepted == 0 && self.previous.is_some() {
             progress.estimate_blocked = true;
         }
@@ -502,7 +539,7 @@ impl Attempt {
         let remaining = self.available.saturating_sub(elapsed);
         let jitter = self.jitter_reserve();
         let mut progress = self.progress.lock().unwrap();
-        let work = elapsed.saturating_sub(progress.candidate_started);
+        let work = progress.retained_work(elapsed);
         let tail = self.previous.map_or(self.bootstrap_tail(blobs, work), |s| {
             s.tail_for(groups, blobs, work, jitter)
         });
@@ -582,6 +619,9 @@ impl Attempt {
         progress.started_groups = 0;
         progress.measured_groups = 0;
         progress.group_started = None;
+        progress.discard_started = None;
+        progress.discarded_work = Duration::ZERO;
+        progress.discarded_until = elapsed;
         progress.group_work = Duration::ZERO;
         progress.unmeasured_work = true;
         progress.accepted = 0;
@@ -605,6 +645,7 @@ impl Attempt {
             finishing_ms = sample.tail.as_millis() as u64,
             non_blob_finishing_ms = sample.tail.saturating_sub(sample.blob_preparation).as_millis() as u64,
             measured_group_work_ms = progress.group_work.as_millis() as u64,
+            discarded_group_work_ms = progress.discarded_work.as_millis() as u64,
             group_work_calibrated = sample.group_work.is_some(),
             blob_preparation_ms = progress.blob_preparation.as_millis() as u64,
             blob_count = progress.blobs,
@@ -1244,6 +1285,90 @@ mod tests {
         state.finish(&attempt(1, 1, false, Some(sample(1, 200))));
         assert!(state.sample.is_some());
         assert_eq!(state.limit(100, Duration::from_millis(500)), 100);
+    }
+
+    #[test]
+    fn discarded_fee_checks_spend_the_deadline_without_becoming_future_batch_work() {
+        let previous = Sample {
+            groups: 1,
+            preparation: Duration::from_millis(200),
+            tail: Duration::from_millis(180),
+            blob_preparation: Duration::from_millis(170),
+            blobs: 1,
+            group_work: None,
+        };
+        let mut a = attempt(870, 0, false, Some(previous));
+        a.available = Duration::from_millis(2040);
+        a.proof_estimate = Duration::from_millis(750);
+        for index in 0..300 {
+            let start = Duration::from_millis(index * 2);
+            assert!(a.can_start_at(0, start), "deferred source {index}");
+            assert!(a.can_finish_at(1, 1, start + Duration::from_millis(1)));
+            // Native tariff rejection followed by rebuilding the accepted prefix.
+            a.discarded_group_at(0, start + Duration::from_millis(2));
+        }
+        for accepted in 0..30 {
+            let start = Duration::from_millis(600 + accepted as u64);
+            assert!(a.can_start_at(accepted, start), "ready source {accepted}");
+            assert!(a.can_finish_at(accepted + 1, 1, start + Duration::from_millis(1)));
+        }
+        assert!(!a.can_start_at(30, a.available));
+        assert!(!a.can_finish_at(31, 1, a.available));
+    }
+
+    #[test]
+    fn discarded_work_requires_a_matching_disjoint_bracket_and_resets_on_rebuild() {
+        let a = attempt(30, 0, false, Some(sample(1, 100)));
+        a.discarded_group_at(0, Duration::from_millis(10));
+        assert_eq!(a.progress.lock().unwrap().discarded_work, Duration::ZERO);
+        assert!(a.can_start_at(0, Duration::from_millis(20)));
+        a.discarded_group_at(1, Duration::from_millis(30));
+        assert_eq!(a.progress.lock().unwrap().discarded_work, Duration::ZERO);
+        assert!(a.can_start_at(0, Duration::from_millis(40)));
+        assert!(a.can_finish_at(1, 1, Duration::from_millis(45)));
+        a.discarded_group_at(0, Duration::from_millis(50));
+        a.discarded_group_at(0, Duration::from_millis(60));
+        {
+            let progress = a.progress.lock().unwrap();
+            assert_eq!(progress.discarded_work, Duration::from_millis(10));
+            assert_eq!(
+                progress.retained_work(Duration::from_millis(60)),
+                Duration::from_millis(50)
+            );
+            assert!(
+                progress
+                    .sample(1, Duration::from_millis(60))
+                    .group_work
+                    .is_none()
+            );
+        }
+        // Defensive handling of a nonmonotonic or overlapping observation.
+        assert!(a.can_start_at(0, Duration::from_millis(49)));
+        a.discarded_group_at(0, Duration::from_millis(70));
+        assert_eq!(
+            a.progress.lock().unwrap().discarded_work,
+            Duration::from_millis(10)
+        );
+        assert!(a.can_start_at(0, Duration::from_millis(80)));
+        a.discarded_group_at(0, Duration::from_millis(79));
+        assert_eq!(
+            a.progress.lock().unwrap().discarded_work,
+            Duration::from_millis(10)
+        );
+        a.rebuilding_at(Duration::from_millis(100));
+        let progress = a.progress.lock().unwrap();
+        assert!(progress.discard_started.is_none());
+        assert_eq!(progress.discarded_work, Duration::ZERO);
+        assert_eq!(
+            progress.retained_work(Duration::from_millis(120)),
+            Duration::from_millis(20)
+        );
+        assert!(
+            progress
+                .sample(1, Duration::from_millis(120))
+                .group_work
+                .is_none()
+        );
     }
 
     #[test]

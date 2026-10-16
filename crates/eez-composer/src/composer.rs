@@ -3911,6 +3911,7 @@ where
                                         break;
                                     }
                                 };
+                                admission.discarded_group(survivors.len());
                                 defer_source(
                                     pool,
                                     &mut selection,
