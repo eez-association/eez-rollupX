@@ -611,13 +611,17 @@ policy and priority bounds. With L1 refund recovery enabled the Composer reads
 canonical receipts and call traces to exclude service payments from market-tip
 samples, including caught reverts whose receipt logs are absent. Verify that
 the configured submission RPC supports `eth_getBlockReceipts` with a block hash
-and `debug_traceBlockByHash` with `callTracer` before upgrading. Drain accepted
-work, pause external ingress for
-the handover, and retain consistent stopped database copies and prior images.
+and `debug_traceBlockByHash` with `callTracer` before upgrading. Pause external
+ingress, drain accepted requests, and wait until the pre-handover ordinary L2
+history is canonical too. Ordinary transactions need not appear in the held queue;
+an empty queue alone does not establish that their speculative history is safe
+to discard. Retain consistent stopped database copies and prior images.
 After startup check usable quotes in both directions, canonical settlement and
 `priority_source=filtered_receipts` observations under mixed traffic. See the
 [pricing contract](../configurable-settlement-policy.md#bounded-next-block-priority-estimation)
 for missing-data behavior, cache bounds and additive rejection/status diagnostics.
+The [qualification and handover audit](../audits/2026-10-16-posting-price-feedback/README.md)
+records the tested revision, exact images, preserved state and live checks.
 No contract, genesis or persistent-state migration is required. An older runtime
 restores unfiltered pricing and may reject/defer a lower-priced outstanding
 transaction; preserve the ordinary queue/resubmission and database rollback

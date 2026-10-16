@@ -17,8 +17,11 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ### Posting-price feedback correction authorized on 2026-10-16
 
-Status: implementation and validation in progress, authorized after the
-[historical fee review](../audits/2026-10-16-hackmd-fee-review/README.md).
+Status: implemented, qualified and deployed after the
+[historical fee review](../audits/2026-10-16-hackmd-fee-review/README.md). The
+[qualification and handover audit](../audits/2026-10-16-posting-price-feedback/README.md)
+records the exact runtime, regression/process checks, Kurtosis and live semantic
+evidence, first failures and remaining qualification limits.
 
 When L1 refund recovery is enabled, dynamic posting bids must exclude the
 configured poster and canonical transactions carrying settlement activity from
