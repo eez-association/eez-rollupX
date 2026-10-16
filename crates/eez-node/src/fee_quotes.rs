@@ -206,19 +206,78 @@ fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
         FeeQuoteError::Unsupported(_)
         | FeeQuoteError::Limit(_)
-        | FeeQuoteError::Underfunded
-        | FeeQuoteError::L1Underfunded => StatusCode::UNPROCESSABLE_ENTITY,
+        | FeeQuoteError::Underfunded(_)
+        | FeeQuoteError::L1Underfunded(_)
+        | FeeQuoteError::SourceFeeCap { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         FeeQuoteError::Stale => StatusCode::CONFLICT,
         FeeQuoteError::Disabled => StatusCode::NOT_FOUND,
         FeeQuoteError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
     };
-    error(status, err.code(), &err.to_string())
+    let (status, mut response) = error(status, err.code(), &err.to_string());
+    if let Some(details) = err.diagnostics() {
+        response["error"]["details"] = details;
+    }
+    (status, response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use alloy_primitives::Address;
+
+    fn funding_shortfall() -> Box<eez_composer::FundingDiagnostic> {
+        Box::new(eez_composer::FundingDiagnostic {
+            required: alloy_primitives::U256::from(200),
+            offered: alloy_primitives::U256::from(100),
+            payment_chain_id: 1,
+            source_gas_used: 21_000,
+            source_base_fee: 49,
+            candidate_prefix: false,
+            l1_sample: eez_l1::L1BlockRef {
+                number: 10,
+                hash: alloy_primitives::B256::repeat_byte(1),
+            },
+            l2_parent: eez_l1::L1BlockRef {
+                number: 20,
+                hash: alloy_primitives::B256::repeat_byte(2),
+            },
+            l1_priority_fee: 1_000_000_000,
+            l1_execution_price: 1_000_000_008,
+            l1_blob_price: 1,
+        })
+    }
+
+    #[test]
+    fn funding_errors_preserve_measured_amounts_and_distinguish_source_base_fee() {
+        for error in [
+            FeeQuoteError::Underfunded(funding_shortfall()),
+            FeeQuoteError::L1Underfunded(funding_shortfall()),
+        ] {
+            let code = error.code();
+            let (status, response) = failure(error);
+            assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(response["error"]["code"], code);
+            let details = &response["error"]["details"];
+            assert_eq!(details["reason"], "settlement_fee");
+            assert_eq!(details["requiredPayment"], "0xc8");
+            assert_eq!(details["offeredPayment"], "0x64");
+            assert_eq!(details["shortfall"], "0x64");
+            assert_eq!(details["l1Sample"]["number"], "0xa");
+            assert_eq!(details["sourceBaseFeePerGas"], "0x31");
+        }
+        let (_, response) = failure(FeeQuoteError::SourceFeeCap {
+            cap: 48,
+            base: 49,
+            chain_id: 1,
+        });
+        assert_eq!(response["error"]["code"], "source_fee_cap_below_base_fee");
+        assert_eq!(response["error"]["details"]["reason"], "source_base_fee");
+        assert!(
+            response["error"]["details"]
+                .get("requiredPayment")
+                .is_none()
+        );
+    }
 
     fn transaction() -> Value {
         json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(1),"to":Address::repeat_byte(2),"gas":"0x186a0","nonce":"0x0","value":"0x0","data":"0x"})
@@ -275,7 +334,7 @@ mod tests {
             enforce_tariff: true,
             prepare: Arc::new(|request| {
                 assert!(matches!(request, Request::Signed(_)));
-                Box::pin(async { Err(FeeQuoteError::L1Underfunded) })
+                Box::pin(async { Err(FeeQuoteError::L1Underfunded(funding_shortfall())) })
             }),
             executor: TaskExecutor::test(),
             quotes: Workers::new(1, 0),

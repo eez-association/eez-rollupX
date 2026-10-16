@@ -15,6 +15,43 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Posting-price feedback correction authorized on 2026-10-16
+
+Status: implementation and validation in progress, authorized after the
+[historical fee review](../audits/2026-10-16-hackmd-fee-review/README.md).
+
+When L1 refund recovery is enabled, dynamic posting bids must exclude the
+configured poster and canonical transactions carrying settlement activity from
+the configured registry. Compute the same gas-weighted per-block percentile
+over the remaining receipt payments, then the existing percentile across the
+20-block window. Retain unrelated transactions in those same blocks. Empty
+filtered blocks contribute zero; configured floors and ceilings still apply.
+Include registry calls whose logs are erased by a caught revert, using
+hash-bound canonical call traces when a paid transaction is not already
+identified by its receipt. Do not fall back to unfiltered rewards when required
+receipt or trace evidence is unavailable.
+Fixed overrides and deployments without L1 refund recovery keep their current
+pricing behavior. Final native execution and cost coverage remain mandatory.
+
+Use hash-bound canonical block/receipt/trace evidence, not in-memory refund ownership,
+so restart and reorg cannot restore the feedback. Bound the observation cache
+and share it across quote and posting callers; cancellation must release its
+request ownership, and failed/incomplete reads must never populate a sample.
+
+Separate source base-fee failures, settlement payment shortfalls and unavailable
+settlement pricing in queue/status diagnostics. Signed funding rejections must
+identify offered and required payment, source gas/base fee, L1 posting prices,
+and sampled chain references. Keep successful compact quotes unchanged. These
+observations do not change nonce ownership, retry budgets or eviction rules.
+
+Acceptance requires reproducing the recorded price spike, removing it without
+removing unrelated market-price changes, malformed/missing/reorg/cold-cache
+coverage, exact quoted nested-call admission and genuine funding rejection,
+queue-condition diagnostics, relevant native process tests, exact-image local
+PBS checks, and a drained-state Chiado upgrade with mixed-direction canaries.
+The operator authorized deployment only after the applicable checks pass.
+No protocol, genesis, database or signer-wire changes are proposed.
+
 ### Stress recovery and batching corrections authorized on 2026-10-16
 
 Recover the 231 retained test sources with the operator-approved RPC pause and

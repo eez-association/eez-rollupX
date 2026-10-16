@@ -6,6 +6,7 @@ use super::{
     required_tip, unavailable,
 };
 use crate::composer::estimate::InboundPricing;
+use eez_l1::L1BlockRef;
 
 impl<L2> Composer<L2>
 where
@@ -89,7 +90,11 @@ where
                     tip.min(cap.saturating_sub(base))
                 });
             if cap < base {
-                return Err(FeeQuoteError::L1Underfunded);
+                return Err(FeeQuoteError::SourceFeeCap {
+                    cap,
+                    base,
+                    chain_id: runtime.ctx.l1_chain_id,
+                });
             }
             let replay = estimator
                 .priced_inbound(
@@ -127,7 +132,20 @@ where
             let next_tip = required_tip(gross_required, replay.source_gas)?;
             if next_tip > effective_tip {
                 if request.signed_fees {
-                    return Err(FeeQuoteError::L1Underfunded);
+                    return Err(FeeQuoteError::L1Underfunded(Box::new(
+                        crate::FundingDiagnostic::measured(
+                            posting.quote,
+                            L1BlockRef {
+                                number: snapshot.l2_parent.number,
+                                hash: snapshot.l2_parent.hash(),
+                            },
+                            runtime.ctx.l1_chain_id,
+                            gross_required,
+                            U256::from(effective_tip) * U256::from(replay.source_gas),
+                            replay.source_gas,
+                            base,
+                        ),
+                    )));
                 }
                 tip = next_tip;
                 continue;
@@ -151,6 +169,9 @@ where
                 "estimate":{"basis":"isolated_native_l1_post_and_source","proof":"metered_assumed_valid",
                     "iterations":iteration,"sourceGasUsed":replay.source_gas,"l1Gas":post_gas,
                     "blobs":blobs,"daBytes":da_bytes,"l1BaseFeePerGas":base.to_string(),
+                    "l1PriorityFeePerGas":posting.quote.max_priority_fee_per_gas.to_string(),
+                    "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(),
+                    "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(),"l1BlobCost":cost.blobs.to_string(),
                     "l1PostingCost":cost.total.to_string(),"l1Subtotal":payment.subtotal.to_string(),
                     "l1Risk":payment.risk.to_string(),"l1Profit":payment.profit.to_string(),

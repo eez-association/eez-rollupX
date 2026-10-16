@@ -1,0 +1,986 @@
+{
+  "reportUrl": "https://hackmd.io/@Yu7RfKfWRP6MwaKqIFALjw/HJuLQvJhzx",
+  "reportSha256": "8ce4db87240faaa8d9de8012453a845ce06aa04873fef425deb72ab1de867ffd",
+  "historicalRuntime": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+  "reviewedSource": "17fe00fa9420ad3b9ddec9e003a9a9a6e35f6e04",
+  "deployedRuntime": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "postingPriceTransitions": [
+    {
+      "at": "2026-10-16T08:05:54.682638Z",
+      "profile": "CrossChain",
+      "priorityWei": "1000000000",
+      "executionBaseWei": 8,
+      "blobBaseWei": "1000000000",
+      "sampleBlock": 23544817,
+      "sampleHash": "0x3dd5b1c97d771b9e4e06b8d2d52d6517465495b9d03bf19234f93dc5c538a468",
+      "historyRawPriority": "1"
+    },
+    {
+      "at": "2026-10-16T08:06:20.761505Z",
+      "profile": "CrossChain",
+      "priorityWei": "2000000000",
+      "executionBaseWei": 8,
+      "blobBaseWei": "1000000000",
+      "sampleBlock": 23544820,
+      "sampleHash": "0x69c16e0299cfaf9badf1338d2ffa8181605b3cf9265143e7dfc24d8e62e898a8",
+      "historyRawPriority": "3316607925"
+    },
+    {
+      "at": "2026-10-16T08:06:42.256154Z",
+      "profile": "CrossChain",
+      "priorityWei": "2000000000",
+      "executionBaseWei": 7,
+      "blobBaseWei": "1000000000",
+      "sampleBlock": 23544823,
+      "sampleHash": "0x8c0c5ca589f7b7f014873c97fcb34c3bdd65eeb58dcd0628731bd0e9fb7746c2",
+      "historyRawPriority": "4167741479"
+    },
+    {
+      "at": "2026-10-16T08:08:32.256694Z",
+      "profile": "CrossChain",
+      "priorityWei": "1000000000",
+      "executionBaseWei": 7,
+      "blobBaseWei": "1000000000",
+      "sampleBlock": 23544841,
+      "sampleHash": "0x166100ff43ed1ccaae171c0c2ceb15304985366e81d997fb77c754e650fa9340",
+      "historyRawPriority": "0"
+    }
+  ],
+  "heldSources": [
+    {
+      "sourceHash": "0xbcb8e9daa80a020bad1b3c486a5b504525cb9eb4df0af7648d7123495f48ab3c",
+      "acceptedAt": "2026-10-16T08:06:13.509295Z",
+      "tariffDeferrals": 27,
+      "readyAt": "2026-10-16T08:08:32.263627Z"
+    },
+    {
+      "sourceHash": "0xbcaa06291fb744f3643681d9c83ffc292e597496bdb589579f39a521e3527108",
+      "acceptedAt": "2026-10-16T08:06:14.969775Z",
+      "tariffDeferrals": 27,
+      "readyAt": "2026-10-16T08:08:32.266577Z"
+    },
+    {
+      "sourceHash": "0x0f26be26ec4875d99f4a495a5e8c7101aedbd5376bc4813a38f13495a51a7371",
+      "acceptedAt": "2026-10-16T08:06:16.915528Z",
+      "tariffDeferrals": 27,
+      "readyAt": "2026-10-16T08:08:32.269117Z"
+    },
+    {
+      "sourceHash": "0xdb07e904c2173c1efc065b22d782d59b0f80e3ad9adb211570d251c45dbf32c4",
+      "acceptedAt": "2026-10-16T08:06:18.025083Z",
+      "tariffDeferrals": 26,
+      "readyAt": "2026-10-16T08:08:32.271639Z"
+    },
+    {
+      "sourceHash": "0xf27b4088edf4f9297b93ba8745d4bb85260bbcc2a5262742b76e7f7495af084a",
+      "acceptedAt": "2026-10-16T08:06:19.090333Z",
+      "tariffDeferrals": 26,
+      "readyAt": "2026-10-16T08:08:32.275394Z"
+    },
+    {
+      "sourceHash": "0x6617c1a089a699a6868a5627d8a24cb50e3ba1f7984558ca0660800a17c6ae47",
+      "acceptedAt": "2026-10-16T08:06:19.769181Z",
+      "tariffDeferrals": 26,
+      "readyAt": "2026-10-16T08:08:32.278307Z"
+    }
+  ],
+  "postReceipt": {
+    "postHash": "0x2ac6c486bd80bf9ef297a6a1b4bd4f5f3424446dbf608116d8f3069615b882fe",
+    "l1Block": 23544842,
+    "l1BlockHash": "0xd3b58c97b01083e50eb077e3bd91537e8550dd82203b586d7fc6066f22030c46",
+    "postCostWei": "2288480015101856",
+    "postGasUsed": 2157408,
+    "postEffectiveGasPrice": "1000000007"
+  },
+  "feeHistoryRewards": [
+    {
+      "block": 23544801,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544802,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544803,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544804,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544805,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544806,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544807,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544808,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544809,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544810,
+      "p90PriorityWei": "1000000000"
+    },
+    {
+      "block": 23544811,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544812,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544813,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544814,
+      "p90PriorityWei": "1000000000"
+    },
+    {
+      "block": 23544815,
+      "p90PriorityWei": "0"
+    },
+    {
+      "block": 23544816,
+      "p90PriorityWei": "1"
+    },
+    {
+      "block": 23544817,
+      "p90PriorityWei": "1"
+    },
+    {
+      "block": 23544818,
+      "p90PriorityWei": "3316607925"
+    },
+    {
+      "block": 23544819,
+      "p90PriorityWei": "4460534753"
+    },
+    {
+      "block": 23544820,
+      "p90PriorityWei": "4276213674"
+    }
+  ],
+  "feedback": {
+    "sampleBlocks": [
+      {
+        "block": 23544818,
+        "gasUsed": 3589537,
+        "gasLimit": 17016600,
+        "sourceCount": 7,
+        "matchedSourceCount": 7,
+        "sources": [
+          {
+            "hash": "0x16b45cbecd36c0f8f110c670e5d73a902f72c319c974c87891ed22207cc0b73e",
+            "tipWei": "4342879518",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:05:57.270634Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              },
+              {
+                "at": "2026-10-16T08:06:02.278078Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0x55153b07b8ebef9fa75c2392c01602dfee17c6ee87c51457b8df5bdfed447f24",
+            "tipWei": "2792546012",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:05:57.273847Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              },
+              {
+                "at": "2026-10-16T08:06:02.280560Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0x57f273d3e2da383dddbcaaa3c725543201ef9c29ccb2c5fe0db036ee9eb63a27",
+            "tipWei": "3836436558",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:02.280795Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0x2a360047d3fad542bedb5b88ffb5fbcfbe2b3db8578544410f910d1ef236f614",
+            "tipWei": "1600795172",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:02.283774Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0x938a69d0ce201a5a8d97f879b718980b9dcdb68045e9b1c40efe7156d6660f4b",
+            "tipWei": "3316607925",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:02.285174Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0x7bca31404794de976e42f1e9ba78ac42b6aa1f258b47c0ca3944214862b98f0a",
+            "tipWei": "2737811612",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:02.286443Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          },
+          {
+            "hash": "0xbbb2876ffbf4dd46b347b3998efe8925d4da4a1feae50ed942bc256fb032bd4a",
+            "tipWei": "2644953947",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:02.287814Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544818
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "block": 23544819,
+        "gasUsed": 1823696,
+        "gasLimit": 17033216,
+        "sourceCount": 6,
+        "matchedSourceCount": 6,
+        "sources": [
+          {
+            "hash": "0x96f9e7f698118689d58d840b3b7968f8f378ecf2761c10634e7ec4b91fa41df0",
+            "tipWei": "4305299673",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.268121Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          },
+          {
+            "hash": "0x015ecbe47662f61b35e9225cc6165c2d34611c16fd56192e83a7a9810a78a77f",
+            "tipWei": "2651241769",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.269243Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          },
+          {
+            "hash": "0xb76f456f0bb13728fb1823f879e5b6919f0098d50df89823d32699c5fb524b0a",
+            "tipWei": "4694546316",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.270359Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          },
+          {
+            "hash": "0x64a368077bca1055a285239a392e51c13ba046c256a64566e8a02f9e4005ae74",
+            "tipWei": "4460534753",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.272353Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          },
+          {
+            "hash": "0x179888bfc821c3f1111f8c507ede1e1a387e10718392a1d3fb116a721585b6a6",
+            "tipWei": "3544021509",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.273496Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          },
+          {
+            "hash": "0x7ea672b477b503f96a16c95fc368e3cdcd31612379cc3d869bdcd83a22622e57",
+            "tipWei": "4344722115",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:07.274632Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544819
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "block": 23544820,
+        "gasUsed": 925644,
+        "gasLimit": 17049849,
+        "sourceCount": 3,
+        "matchedSourceCount": 3,
+        "sources": [
+          {
+            "hash": "0xc3e411fa953223434ac5916d94a136d3a7ed7b0ddc7e1c52f2aa7ea3a569c777",
+            "tipWei": "3567310664",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:12.265621Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              },
+              {
+                "at": "2026-10-16T08:06:17.284494Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              }
+            ]
+          },
+          {
+            "hash": "0x39b5df9f5bc2ee4123db4a489e6b94b9ace6804f8c36f8193b29df3366122aa2",
+            "tipWei": "3660237298",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:12.266073Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              },
+              {
+                "at": "2026-10-16T08:06:17.284936Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              }
+            ]
+          },
+          {
+            "hash": "0xa9969740a0984920f1c66a43648a31d7b683773e217d2091d65cc504d00b77dc",
+            "tipWei": "4276213674",
+            "observedInComposer": true,
+            "acceptedEvents": [
+              {
+                "at": "2026-10-16T08:06:12.267631Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              },
+              {
+                "at": "2026-10-16T08:06:17.286614Z",
+                "kind": "source_accepted",
+                "targetBlock": 23544820
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "knownComposerSources": 16,
+    "highTipSources": 16
+  },
+  "sameBlockCheck": {
+    "jobs": 50,
+    "atLeastTwoSameBlock": 50,
+    "allThreeSameBlock": 43,
+    "records": [
+      {
+        "job": "counter-multi-tx-1",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546953,
+          23546953,
+          23546953
+        ]
+      },
+      {
+        "job": "counter-multi-tx-10",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-11",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-12",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-13",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-14",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-15",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-16",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-17",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-18",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-19",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-2",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546953,
+          23546953,
+          23546953
+        ]
+      },
+      {
+        "job": "counter-multi-tx-20",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-21",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-22",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-23",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-24",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-25",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-26",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-27",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-28",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-29",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546954,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-3",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546953,
+          23546953,
+          23546953
+        ]
+      },
+      {
+        "job": "counter-multi-tx-30",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546954,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-31",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546954,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-32",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-33",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-34",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-35",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-36",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-37",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-38",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-39",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-4",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546953,
+          23546953,
+          23546953
+        ]
+      },
+      {
+        "job": "counter-multi-tx-40",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-41",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-42",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-43",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-44",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-45",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-46",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-47",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-48",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-49",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-5",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546953,
+          23546953,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-50",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546955,
+          23546955,
+          23546955
+        ]
+      },
+      {
+        "job": "counter-multi-tx-6",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546953,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-7",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546953,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-8",
+        "sources": 3,
+        "distinctL1Blocks": 2,
+        "maxSameBlock": 2,
+        "blocks": [
+          23546953,
+          23546954,
+          23546954
+        ]
+      },
+      {
+        "job": "counter-multi-tx-9",
+        "sources": 3,
+        "distinctL1Blocks": 1,
+        "maxSameBlock": 3,
+        "blocks": [
+          23546954,
+          23546954,
+          23546954
+        ]
+      }
+    ]
+  },
+  "historicalC": "Root cause unproven; no signed-admission diagnostic with required/offered amounts and context was retained."
+}

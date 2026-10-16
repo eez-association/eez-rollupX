@@ -1064,7 +1064,7 @@ fn defer_source(
     source_state: crate::held_pool::SourceState,
     idx: usize,
     held: HeldTx,
-    condition: eez_protocol::SourceCondition,
+    condition: impl Into<crate::held_pool::BlockingCondition>,
 ) {
     pool.record_blocked(&held, condition, source_state);
     selection.block(idx);
@@ -1507,6 +1507,7 @@ where
             operator_blob_cap: blob_cap,
             costs: std::sync::Mutex::default(),
             gas_trace: gas_trace.clone(),
+            priority_history: Default::default(),
         });
         if posting.l1_refund_policy.is_some() {
             for rollup in rollups.keys() {
@@ -3819,6 +3820,7 @@ where
                         continue;
                     }
                     if let Some(history) = &tariff_history {
+                        let mut funding_shortfall = None;
                         let coverage = (|| -> Result<U256, String> {
                             let (endpoint, operations) =
                                 *history.as_ref().map_err(ToString::to_string)?;
@@ -3882,6 +3884,18 @@ where
                                 .checked_add(U256::from(gas) * U256::from(tip))
                                 .ok_or("tariff payment overflow")?;
                             if collected < required.minimum_l2 {
+                                funding_shortfall = Some(
+                                    crate::FundingDiagnostic::measured(
+                                        composition_quote.quote,
+                                        source_state.l2,
+                                        ctx.l2_chain_id,
+                                        required.minimum_l2,
+                                        collected,
+                                        gas,
+                                        u128::from(draft.base_fee()),
+                                    )
+                                    .for_prefix(),
+                                );
                                 return Err("l2_tip_underfunded".into());
                             }
                             Ok(collected)
@@ -3892,7 +3906,8 @@ where
                                 candidate.emit(
                                     "source_outcome",
                                     serde_json::json!({"source_hash":held.hash,
-                                        "reason":"tariff_deferred","detail":reason}),
+                                        "reason":"tariff_deferred","detail":reason,
+                                        "funding":funding_shortfall.as_ref().map(crate::FundingDiagnostic::json)}),
                                 );
                                 // The source's speculative L1 session is not committed
                                 // yet. Remove its native effects too, then continue
@@ -3919,7 +3934,14 @@ where
                                     source_state,
                                     idx,
                                     held,
-                                    eez_protocol::SourceCondition::Fee,
+                                    funding_shortfall.map_or(
+                                        crate::held_pool::BlockingCondition::SettlementPricing,
+                                        |detail| {
+                                            crate::held_pool::BlockingCondition::SettlementFee(
+                                                Box::new(detail),
+                                            )
+                                        },
+                                    ),
                                 );
                                 continue;
                             }

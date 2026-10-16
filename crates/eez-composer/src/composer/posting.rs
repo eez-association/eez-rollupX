@@ -38,6 +38,8 @@ use super::CrossChainExecCtx;
 use super::gas_trace;
 use crate::local::provider::ChainProvider;
 
+mod priority;
+
 #[derive(Debug, thiserror::Error)]
 pub(super) enum PostingError {
     #[error("posting inputs unavailable: {0}")]
@@ -70,6 +72,8 @@ pub(super) struct PostingRuntime {
     pub operator_blob_cap: Option<u64>,
     pub costs: std::sync::Mutex<super::costs::CostLedger>,
     pub gas_trace: Option<gas_trace::Config>,
+    /// Shared bounded canonical observations; never refund/queue ownership.
+    pub priority_history: tokio::sync::Mutex<priority::PriorityHistory>,
 }
 
 /// Price a bundle as cross-chain when any of its users executes a cross-chain
@@ -260,7 +264,7 @@ impl PostingRuntime {
                 "advisory fee sample was reorged".into(),
             ));
         }
-        let parent = head.header.inner;
+        let parent = head.header.inner.clone();
         let target =
             match target {
                 Some(target) => target,
@@ -279,7 +283,30 @@ impl PostingRuntime {
                 "target's canonical parent is not yet available".into(),
             ));
         }
-        let estimated_priority_fee = if self.fees.priority_override.is_none() {
+        let mut excluded_priority_transactions = 0;
+        let filtered_priority = self.l1_refund_policy.is_some();
+        let estimated_priority_fee = if self.fees.priority_override.is_none() && filtered_priority {
+            let (priority, excluded) =
+                tokio::time::timeout(std::time::Duration::from_secs(5), async {
+                    self.priority_history
+                        .lock()
+                        .await
+                        .estimate(
+                            provider,
+                            head,
+                            self.ctx.l1_poster_signer.address(),
+                            self.registry,
+                            percentile,
+                        )
+                        .await
+                })
+                .await
+                .map_err(|_| {
+                    PostingError::Unavailable("filtered fee history timed out".into())
+                })??;
+            excluded_priority_transactions = excluded;
+            Some(priority)
+        } else if self.fees.priority_override.is_none() {
             let history = provider
                 .get_fee_history(
                     PRIORITY_FEE_HISTORY_BLOCKS,
@@ -329,7 +356,8 @@ impl PostingRuntime {
             event_name = "eez.composer.postbatch.fee_quote", chain_id, sample_block = sample.number,
             sample_hash = %sample.hash, target = ?target, gas_budget,
             network_transaction_gas_max = env.cfg_env.tx_gas_limit_cap(), block_gas = parent.gas_limit,
-            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else { "fee_history" },
+            operator_gas_cap = self.operator_gas_cap, priority_source = if self.fees.priority_override.is_some() { "override" } else if filtered_priority { "filtered_receipts" } else { "fee_history" },
+            excluded_priority_transactions,
             priority_history_blocks = PRIORITY_FEE_HISTORY_BLOCKS,
             priority_profile = ?profile, priority_reward_percentile = percentile,
             execution_base_fee = env.block_env.basefee, blob_base_fee = quote.estimated_blob_gas_price,

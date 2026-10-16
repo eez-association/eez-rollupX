@@ -606,6 +606,23 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+For the posting-price feedback correction, retain the operator's existing fee
+policy and priority bounds. With L1 refund recovery enabled the Composer reads
+canonical receipts and call traces to exclude service payments from market-tip
+samples, including caught reverts whose receipt logs are absent. Verify that
+the configured submission RPC supports `eth_getBlockReceipts` with a block hash
+and `debug_traceBlockByHash` with `callTracer` before upgrading. Drain accepted
+work, pause external ingress for
+the handover, and retain consistent stopped database copies and prior images.
+After startup check usable quotes in both directions, canonical settlement and
+`priority_source=filtered_receipts` observations under mixed traffic. See the
+[pricing contract](../configurable-settlement-policy.md#bounded-next-block-priority-estimation)
+for missing-data behavior, cache bounds and additive rejection/status diagnostics.
+No contract, genesis or persistent-state migration is required. An older runtime
+restores unfiltered pricing and may reject/defer a lower-priced outstanding
+transaction; preserve the ordinary queue/resubmission and database rollback
+boundaries. The correction does not reserve quoted prices or guarantee inclusion.
+
 The [conditional slot scheduler](../configurable-settlement-policy.md#conditional-slot-production)
 is an implementation draft; do not upgrade a live deployment until its release
 gates pass or it is explicitly selected for a controlled canary. The new binary

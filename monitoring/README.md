@@ -61,7 +61,7 @@ range to inspect second-scale changes.
 | --- | --- | --- |
 | `reth_eez_composer_queue_requests` | `rollup_id`, `direction=inbound\|outbound`, `state=queued\|in_flight` | Current held-pool membership: four gauges per rollup, including zero for empty states. |
 | `reth_eez_composer_queue_readiness_requests` | `rollup_id`, `status=ready\|blocked\|unknown` | Queued requests classified against the last evaluated source state, summed across directions. |
-| `reth_eez_composer_queue_blocked_requests` | `rollup_id`, `reason=nonce\|fee\|balance\|escrow` | Blocked queued requests, including affected nonce successors, summed across directions. |
+| `reth_eez_composer_queue_blocked_requests` | `rollup_id`, `reason=nonce\|fee\|balance\|escrow\|settlement_fee\|settlement_pricing` | Blocked queued requests, including affected nonce successors, summed across directions. `fee` is the source base-fee condition; `settlement_fee` is a measured payment shortfall; `settlement_pricing` means cost calculation is unavailable. |
 | `reth_eez_composer_queue_oldest_pending_timestamp_seconds` | `rollup_id` | Earliest retained admission time among queued and in-flight requests; `NaN` if absent. |
 | `reth_eez_composer_queue_evaluation_timestamp_seconds` | `rollup_id` | Start time of the last source-state evaluation; `NaN` before evaluation or after source-state invalidation. |
 | `reth_eez_composer_queue_last_completion_timestamp_seconds` | `rollup_id` | Local observation time of the latest retained canonical cross-chain completion; `NaN` after restart or an invalidating reorg. |

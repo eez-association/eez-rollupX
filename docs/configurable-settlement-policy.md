@@ -542,7 +542,43 @@ Dynamic mode requests the gas-weighted reward at percentile P for each of the
 latest 20 canonical blocks with `eth_feeHistory`, selects the P-th percentile of
 those 20 samples, and clamps it to an optional relay floor and an independent
 priority ceiling. P is `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` (default 90, the
-p90 of p90 described below). On Ethereum mainnet, a 7-day replay
+p90 of p90 described below).
+
+With `EEZ_L1_FEE_REFUND_POLICY` enabled, use filtered canonical receipt payments
+instead of the unfiltered `eth_feeHistory` reward. Exclude transactions sent by
+the configured poster and transactions calling the configured registry,
+including calls whose logs were erased by a caught revert. Receipts emitting
+`BatchPosted`, `ExecutionConsumed` or `CrossChainCallExecuted` from that registry
+identify service activity without an additional trace.
+These transactions carry our posting/recovery payments; their gross tips are
+not an independent market bid. Match the registry address as well as the event
+topic. Retain unrelated transactions in the same block, use their charged
+receipt gas to weight the per-block percentile, and keep the same 20-block
+selection and configured bounds. An empty filtered block contributes zero.
+This removes service-price feedback without suppressing external competition.
+
+Read blocks and `eth_getBlockReceipts` by hash along the sampled head's ancestry.
+When a paid transaction is not already identified as service activity, obtain
+`debug_traceBlockByHash` with `callTracer`; validate transaction coverage and
+inspect nested frames, including reverted ones. An unrelated transaction still
+contributes its tip, even when another transaction in its block uses the service.
+Validate receipt count, transaction identities/order, block identity, cumulative
+gas, total gas and effective prices before accepting each sample. Missing or
+inconsistent evidence returns unavailable; it never falls back to unfiltered
+pricing or bypasses the final cost floor. The node's submission RPC must support
+hash-bound `eth_getBlockReceipts` and `debug_traceBlockByHash` with `callTracer`.
+Trace RPCs have a four-second server timeout and traversal is bounded by block
+execution gas, including the maximum gas refund. One async mutex shares a
+64-block cache across
+posting and quote requests; only validated samples enter it, keyed by block hash.
+The cache contains no queue ownership and is reconstructed after restart.
+The complete filtered read has a five-second timeout, including cache-lock
+waiting; cancellation releases the guard without leaving a background sampler.
+Fixed priority overrides bypass sampling. Without L1 refund recovery the original
+fee-history path remains unchanged. Fee selection logs identify
+`priority_source=filtered_receipts` and `excluded_priority_transactions`.
+
+On Ethereum mainnet, a 7-day replay of the original unfiltered estimator
 (2026-09-25 to 2026-10-02) of P=50 within 0.05–2 gwei averaged about 0.375 gwei:
 - it was at or above each next block's 25th-percentile tip in 97% of blocks, and
   at or above its median tip in 59%;
@@ -1608,6 +1644,35 @@ Signed admission requires the standalone `C + R`; profit is a quote target
 and may absorb drift. It uses effective priority fees and charged receipt gas,
 not gas limits or fee caps. Underpayment uses `data.code = "l1_tip_underfunded"`.
 Admission does not reserve a quote or change transaction encoding.
+
+Funding rejections retain `l1_tip_underfunded` / `l2_tip_underfunded` and add
+`error.data.details` on `eth_sendRawTransaction`: `reason=settlement_fee`,
+`scope=source`, `paymentBasis=gross_priority_payment`, `paymentChainId`,
+`requiredPayment`, `offeredPayment`, `shortfall`, `sourceGasUsed`,
+`sourceBaseFeePerGas`, L1 priority/execution/blob prices, and `l1Sample` /
+`l2Parent` number/hash references. Amounts are native base units on the payment
+chain; numeric fields are canonical hex quantities. For L1 the required gross
+payment includes the refund percentage and payout-cost allowance. An execution
+cap below the source base fee instead returns `source_fee_cap_below_base_fee`,
+with `reason=source_base_fee`, source chain ID, cap and sampled base fee. Compact
+successful quotes are unchanged; debug estimates also expose the selected
+`l1PriorityFeePerGas`.
+
+Queue status distinguishes `settlement_fee` (the same measured fields, with
+`scope=candidate_prefix` for aggregate prefix funding) and `settlement_pricing`
+(a calculation is unavailable) from the existing EVM `fee` reason. Prefix
+offered/required amounts include previously selected sources; `sourceGasUsed`
+identifies the source being evaluated, not total prefix gas. Each condition
+retains the source and its nonce successors without charging an attempt. Logs
+retain structured funding details, and RPC admission logs identify the signed
+transaction hash so quotes and rejections can be correlated.
+
+These diagnostic fields/reasons are additive; status consumers must allow
+unknown reasons and absent details in historical records. There is no storage,
+contract, signer-wire or follower-replay change. Upgrade Composer after draining
+accepted work. Old runtimes keep unfiltered pricing and less specific diagnostics;
+rollback can raise the required cost for outstanding lower-priced transactions.
+The existing in-memory queue and stopped-database rollback boundaries apply.
 
 L1-funded posts pack multiple complete source requests, including their nested
 calls, up to the existing gas/blob/timing and configured admission bounds. L1 and

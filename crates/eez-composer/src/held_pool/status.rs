@@ -54,9 +54,57 @@ impl SourceState {
 struct Blocked {
     hash: B256,
     nonce: u64,
-    condition: SourceCondition,
+    condition: BlockingCondition,
     source: SourceState,
     observed_at_ms: u64,
+}
+
+/// Runtime funding failures are distinct from EVM source-account validation.
+/// Both retain the source and its nonce suffix without charging a retry.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum BlockingCondition {
+    Source(SourceCondition),
+    SettlementFee(Box<crate::FundingDiagnostic>),
+    SettlementPricing,
+}
+
+impl From<SourceCondition> for BlockingCondition {
+    fn from(condition: SourceCondition) -> Self {
+        Self::Source(condition)
+    }
+}
+
+impl BlockingCondition {
+    fn reason(&self) -> &'static str {
+        match self {
+            Self::Source(SourceCondition::Nonce { .. }) => "nonce",
+            Self::Source(SourceCondition::Fee) => "fee",
+            Self::Source(SourceCondition::Balance { .. }) => "balance",
+            Self::Source(SourceCondition::Escrow { .. }) => "escrow",
+            Self::SettlementFee(_) => "settlement_fee",
+            Self::SettlementPricing => "settlement_pricing",
+        }
+    }
+
+    fn json(&self) -> Value {
+        match self {
+            Self::Source(condition) => json!(condition),
+            Self::SettlementFee(detail) => detail.json(),
+            Self::SettlementPricing => {
+                json!({"reason":"settlement_pricing", "code":"quote_unavailable"})
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for BlockingCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Source(condition) => condition.fmt(f),
+            Self::SettlementFee(detail) => detail.fmt(f),
+            Self::SettlementPricing => f.write_str("settlement pricing unavailable"),
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -282,9 +330,10 @@ impl HeldPool {
     pub(crate) fn record_blocked(
         &self,
         tx: &HeldTx,
-        condition: SourceCondition,
+        condition: impl Into<BlockingCondition>,
         source: SourceState,
     ) {
+        let condition = condition.into();
         let mut state = self.state.lock().expect("held_pool mutex poisoned");
         // An ineligible boundary (or its blocked predecessor) must not hide
         // independent ready sources at the next opportunity.
@@ -307,7 +356,7 @@ impl HeldPool {
             tracing::info!(name: "eez.held_pool.source_blocked",
                 event_name = "eez.held_pool.source_blocked", tx_hash = %tx.hash,
                 sender = %tx.sender, nonce = tx.nonce, direction = ?tx.direction,
-                ?owner, reason = %condition, l1_hash = %source.l1.hash, l2_hash = %source.l2.hash,
+                ?owner, reason = %condition, condition = %condition.json(), l1_hash = %source.l1.hash, l2_hash = %source.l2.hash,
                 "source deferred; independent senders remain eligible");
         }
         state.telemetry.ready.remove(&tx.hash);
@@ -400,7 +449,7 @@ impl HeldPool {
                 "nonce": nonce, "lifecycle": lifecycle, "ownerGeneration": owner.map(|u| u.owner),
                 "transactions": transactions,
                 "ownership": ownership,
-                "blocking": blocked.map(|b| json!({"condition": b.condition,
+                "blocking": blocked.map(|b| json!({"condition": b.condition.json(),
                     "predecessorHash": b.hash, "observedAtMs": b.observed_at_ms,
                     "sourceState": b.source.json(), "current": Some(b.source) == state.telemetry.current}))}))
         })
@@ -439,12 +488,7 @@ impl PoolState {
                 .filter(|b| Some(b.source) == telemetry.current && tx.nonce >= b.nonce)
             {
                 blocked += 1;
-                let reason = match condition.condition {
-                    SourceCondition::Nonce { .. } => "nonce",
-                    SourceCondition::Fee => "fee",
-                    SourceCondition::Balance { .. } => "balance",
-                    SourceCondition::Escrow { .. } => "escrow",
-                };
+                let reason = condition.condition.reason();
                 *reasons.entry(reason).or_default() += 1;
             }
         }
@@ -583,6 +627,66 @@ mod tests {
                 hash: B256::repeat_byte(20),
             },
         }
+    }
+
+    #[test]
+    fn settlement_funding_and_pricing_waits_keep_ownership_and_distinct_diagnostics() {
+        let pool = HeldPool::new(Default::default());
+        let first = request(1, Direction::Outbound);
+        let successor = HeldTx {
+            nonce: 1,
+            hash: B256::repeat_byte(2),
+            ..first.clone()
+        };
+        let independent = request(3, Direction::Outbound);
+        for user in [&first, &successor, &independent] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        let state = source();
+        pool.begin_evaluation(state);
+        let funding = crate::FundingDiagnostic {
+            required: alloy_primitives::U256::from(200),
+            offered: alloy_primitives::U256::from(100),
+            payment_chain_id: 906969,
+            source_gas_used: 80_000,
+            source_base_fee: 49,
+            candidate_prefix: true,
+            l1_sample: state.l1,
+            l2_parent: state.l2,
+            l1_priority_fee: 2_000_000_000,
+            l1_execution_price: 2_000_000_008,
+            l1_blob_price: 1,
+        };
+        pool.record_blocked(
+            &first,
+            BlockingCondition::SettlementFee(Box::new(funding)),
+            state,
+        );
+        pool.record_ready(&independent, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("settlement_fee", 2)])
+        );
+        assert_eq!(pool.queue_snapshot().ready, 1);
+        let status = pool.transaction_status(successor.hash).unwrap();
+        assert_eq!(status["blocking"]["condition"]["reason"], "settlement_fee");
+        assert_eq!(status["blocking"]["condition"]["requiredPayment"], "0xc8");
+        assert_eq!(status["blocking"]["condition"]["scope"], "candidate_prefix");
+        assert_eq!(status["blocking"]["predecessorHash"], json!(first.hash));
+        pool.record_blocked(&first, BlockingCondition::SettlementPricing, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("settlement_pricing", 2)])
+        );
+        pool.record_blocked(&first, SourceCondition::Fee, state);
+        assert_eq!(
+            pool.queue_snapshot().blocked_reasons,
+            BTreeMap::from([("fee", 2)])
+        );
+        assert!(pool.owns(first.hash) && pool.owns(successor.hash));
+        let queued = pool.pop_all();
+        assert_eq!(queued.len(), 3);
+        assert!(queued.iter().all(|tx| tx.attempts == 0));
     }
 
     #[test]

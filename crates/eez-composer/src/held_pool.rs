@@ -29,6 +29,7 @@ use crate::ingress::Direction;
 use crate::optimistic::{OptimisticallyIncluded, TerminalReason, UserLocation};
 
 mod status;
+pub(crate) use status::BlockingCondition;
 pub use status::{QueueCounts, QueueSnapshot, SourceState};
 
 /// A cross-chain transaction held between submission and Sync-slot

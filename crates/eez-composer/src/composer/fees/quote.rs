@@ -13,7 +13,7 @@ use std::{
 use alloy_consensus::{Header, Transaction, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, keccak256};
-use eez_l1::{BundleTarget, L2Endpoint};
+use eez_l1::{BundleTarget, L1BlockRef, L2Endpoint};
 use eez_payload_codec::v0::{BlockRun, PayloadSizer};
 use eez_protocol::{
     ChainClient, CompositionBuilder, ExecutorErrorKind, ExecutorResult, RollupId,
@@ -39,8 +39,8 @@ const QUOTE_LIFETIME_SECONDS: u64 = 30;
 const MAX_CONTEXT_AGE_SECONDS: u64 = 60;
 const MAX_QUOTE_PREDECESSORS: usize = 8;
 
-/// Stable error categories for the application quote APIs. Details are fixed
-/// strings: backend/provider errors stay in local diagnostics.
+/// Stable error categories and measured funding details for application quotes.
+/// Backend/provider errors stay in local diagnostics.
 #[derive(Debug, thiserror::Error)]
 pub enum FeeQuoteError {
     #[error("invalid transaction: {0}")]
@@ -56,9 +56,15 @@ pub enum FeeQuoteError {
     #[error("fee quote policy is not configured")]
     Disabled,
     #[error("signed L2 priority payment does not cover the configured settlement tariff")]
-    Underfunded,
+    Underfunded(Box<crate::FundingDiagnostic>),
     #[error("signed L1 priority payment does not cover the configured refund tariff")]
-    L1Underfunded,
+    L1Underfunded(Box<crate::FundingDiagnostic>),
+    #[error("signed source fee cap {cap} is below source base fee {base}")]
+    SourceFeeCap {
+        cap: u128,
+        base: u128,
+        chain_id: u64,
+    },
 }
 
 impl FeeQuoteError {
@@ -70,8 +76,24 @@ impl FeeQuoteError {
             Self::Limit(_) => "quote_limit",
             Self::Stale => "stale_context",
             Self::Disabled => "quotes_disabled",
-            Self::Underfunded => "l2_tip_underfunded",
-            Self::L1Underfunded => "l1_tip_underfunded",
+            Self::Underfunded(_) => "l2_tip_underfunded",
+            Self::L1Underfunded(_) => "l1_tip_underfunded",
+            Self::SourceFeeCap { .. } => "source_fee_cap_below_base_fee",
+        }
+    }
+
+    pub fn diagnostics(&self) -> Option<Value> {
+        match self {
+            Self::Underfunded(detail) | Self::L1Underfunded(detail) => Some(detail.json()),
+            Self::SourceFeeCap {
+                cap,
+                base,
+                chain_id,
+            } => Some(json!({
+                "reason":"source_base_fee", "sourceChainId":format!("{chain_id:#x}"),
+                "maxFeePerGas":format!("{cap:#x}"), "sourceBaseFeePerGas":format!("{base:#x}"),
+            })),
+            _ => None,
         }
     }
 }
@@ -742,10 +764,13 @@ where
                     .checked_add(tip)
                     .ok_or(FeeQuoteError::Limit("fee overflow"))?
             };
-            let effective_tip = tip.min(
-                cap.checked_sub(u128::from(base))
-                    .ok_or(FeeQuoteError::Underfunded)?,
-            );
+            let effective_tip = tip.min(cap.checked_sub(u128::from(base)).ok_or(
+                FeeQuoteError::SourceFeeCap {
+                    cap,
+                    base: u128::from(base),
+                    chain_id: runtime.ctx.l2_chain_id,
+                },
+            )?);
             let tx_env = request.env(tip, cap);
             let mut fork = draft
                 .fork()
@@ -928,7 +953,20 @@ where
             )?;
             if next_tip > effective_tip {
                 if request.signed_fees {
-                    return Err(FeeQuoteError::Underfunded);
+                    return Err(FeeQuoteError::Underfunded(Box::new(
+                        crate::FundingDiagnostic::measured(
+                            posting.quote,
+                            L1BlockRef {
+                                number: parent.number,
+                                hash: parent.hash(),
+                            },
+                            runtime.ctx.l2_chain_id,
+                            payment.minimum_l2,
+                            U256::from(effective_tip) * U256::from(gas),
+                            gas,
+                            u128::from(base),
+                        ),
+                    )));
                 }
                 tip = next_tip;
                 continue;
@@ -944,6 +982,7 @@ where
                 json!({"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
                     "sourceGasUsed":gas, "nativeL2GasUsed":draft.gas_used()-gas, "l2BaseFeePerGas":base.to_string(),
                     "l1Gas":l1_gas, "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
+                    "l1PriorityFeePerGas":posting.quote.max_priority_fee_per_gas.to_string(),
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),
                     "l1Subtotal":payment.subtotal.to_string(), "l1Risk":payment.risk.to_string(), "l1Profit":payment.profit.to_string(),

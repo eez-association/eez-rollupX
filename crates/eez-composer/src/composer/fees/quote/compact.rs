@@ -248,8 +248,9 @@ where
                 Err(
                     error @ (FeeQuoteError::Unsupported(_)
                     | FeeQuoteError::Invalid(_)
-                    | FeeQuoteError::Underfunded
-                    | FeeQuoteError::L1Underfunded),
+                    | FeeQuoteError::Underfunded(_)
+                    | FeeQuoteError::L1Underfunded(_)
+                    | FeeQuoteError::SourceFeeCap { .. }),
                 ) => {
                     let failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
                     options.push(failed.clone());

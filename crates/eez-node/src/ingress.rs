@@ -904,6 +904,9 @@ async fn intercept_send_raw(
         }
         let (status, result) = service.check_signed(&envelope).await;
         if !status.is_success() {
+            tracing::info!(event_name = "eez.xchain_front.funding_rejected",
+                tx_hash = %hash, direction = ?ctx.direction,
+                error = %result["error"], "signed source failed settlement admission");
             return Some(json_response(serde_json::json!({
                 "jsonrpc":"2.0", "id":id,
                 "error":{"code":-32003,"message":"settlement tariff admission failed", "data":result["error"]}

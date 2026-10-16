@@ -16,6 +16,11 @@ contract NestedSetterInner {
         completedProxyCalls++;
     }
 
+    function setViaProxyAndRevert(uint256 v) external {
+        setViaProxy(v);
+        revert("deliberate nested rollback");
+    }
+
     /// A future-nonce quote must replay both chains, not just advance the EOA nonce.
     function setAfterProxy(uint256 expectedLocal, uint256 expectedRemote, uint256 v) external {
         require(completedProxyCalls == expectedLocal, "local predecessor missing");
@@ -41,6 +46,11 @@ contract NestedSetterOuter {
     }
 
     function setViaInner(uint256 v) external {
+        NestedSetterInner(inner).setViaProxy(v);
+    }
+
+    function setViaInnerAndCatch(uint256 v) external {
+        try NestedSetterInner(inner).setViaProxyAndRevert(v + 1) {} catch {}
         NestedSetterInner(inner).setViaProxy(v);
     }
 

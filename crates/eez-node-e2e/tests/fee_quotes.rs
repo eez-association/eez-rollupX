@@ -26,45 +26,69 @@ alloy_sol_types::sol! {
     }
     interface PendingQuoteProbe {
         function setAfterInner(uint256 expectedLocal, uint256 expectedRemote, uint256 v) external;
+        function setViaInnerAndCatch(uint256 v) external;
     }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn unsigned_nested_quote_matches_receipt_and_replays() {
-    nested_quote_roundtrip(false, false, false, None).await;
+    nested_quote_roundtrip(false, false, false, None, QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn enforced_nested_quote_rejects_underpayment_and_replays() {
-    nested_quote_roundtrip(true, false, false, None).await;
+    nested_quote_roundtrip(true, false, false, None, QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn legacy_rpc_quote_rejects_underpayment_settles_and_replays() {
-    nested_quote_roundtrip(true, true, false, None).await;
+    nested_quote_roundtrip(true, true, false, None, QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compact_nested_legacy_estimates_both_types_settles_and_replays() {
-    nested_quote_roundtrip(true, true, true, None).await;
+    nested_quote_roundtrip(true, true, true, None, QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compact_nested_eip1559_estimates_both_types_settles_and_replays() {
-    nested_quote_roundtrip(true, false, true, None).await;
+    nested_quote_roundtrip(true, false, true, None, QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn simplified_five_percent_legacy_payment_settles_below_twenty_percent_quote() {
-    nested_quote_roundtrip(true, true, true, Some(500)).await;
+    nested_quote_roundtrip(true, true, true, Some(500), QuoteExercise::Normal).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quote() {
-    nested_quote_roundtrip(true, false, true, Some(100)).await;
+    nested_quote_roundtrip(true, false, true, Some(100), QuoteExercise::Normal).await;
 }
 
-async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, margin: Option<u64>) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QuoteExercise {
+    Normal,
+    CaughtRevert,
+    MarketShift,
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn exact_quote_with_caught_nested_revert_is_admitted_and_replayed() {
+    nested_quote_roundtrip(true, false, true, None, QuoteExercise::CaughtRevert).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn external_posting_price_shift_rejects_old_quote_with_measured_shortfall() {
+    nested_quote_roundtrip(true, false, true, None, QuoteExercise::MarketShift).await;
+}
+
+async fn nested_quote_roundtrip(
+    enforced: bool,
+    legacy: bool,
+    compact: bool,
+    margin: Option<u64>,
+    exercise: QuoteExercise,
+) {
     // Exercise signed tariff admission above the old 5M quote-profile ceiling.
     // This covers submitted gas limits, not the Falcon verifier's execution cost.
     let mut source_gas_limit = if !enforced {
@@ -75,11 +99,11 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
         16_777_216
     };
     let mut policy = crate::settlement_policy_cost::shadow_pricing_policy();
-    if margin.is_some() {
+    if margin.is_some() || exercise != QuoteExercise::Normal {
         policy["risk_bps"] = json!(0);
         policy["profit_bps"] = json!(2000);
     }
-    let world = setup_cross_chain_with_env(&[
+    let mut settings = vec![
         (
             "EEZ_L2_FEE_RECIPIENT",
             policy["beneficiary"].as_str().unwrap().into(),
@@ -95,9 +119,19 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
             "RUST_LOG",
             "info,eez_composer::composer::fees::quote=debug".into(),
         ),
-    ])
-    .await
-    .unwrap();
+    ];
+    if exercise != QuoteExercise::Normal {
+        settings.extend([
+            (
+                "EEZ_L1_FEE_REFUND_POLICY",
+                json!({"version":1,"recipient":Address::repeat_byte(0x97),"percent":90})
+                    .to_string(),
+            ),
+            ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000000".into()),
+            ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000".into()),
+        ]);
+    }
+    let world = setup_cross_chain_with_env(&settings).await.unwrap();
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let inner = deploy_nested_setter_inner(
@@ -117,7 +151,21 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
     let target_before = l2_value(&world.l1_rpc(), world.outbound_value)
         .await
         .unwrap();
-    let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(123) }.abi_encode());
+    let data = Bytes::from(if exercise == QuoteExercise::CaughtRevert {
+        PendingQuoteProbe::setViaInnerAndCatchCall { v: U256::from(123) }.abi_encode()
+    } else {
+        INestedSetterOuter::setViaInnerCall { v: U256::from(123) }.abi_encode()
+    });
+    if exercise == QuoteExercise::MarketShift {
+        // Clear setup transactions from the actual canonical fee window before
+        // introducing an external bid change. No oracle or receipt is mocked.
+        let after = l1.get_block_number().await.unwrap() + 20;
+        wait_for(TIMEOUT, || async {
+            Ok((l1.get_block_number().await? >= after).then_some(()))
+        })
+        .await
+        .unwrap();
+    }
     let transaction = json!({"type":if legacy {"0x0"} else {"0x2"},"chainId":format!("{:#x}",world.l2_chain_id),"from":signer.address(),"to":outer,
         "nonce":format!("{nonce:#x}"),"gas":format!("{source_gas_limit:#x}"),"value":"0x0","data":data});
     let client = reqwest::Client::new();
@@ -319,7 +367,7 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
         )
         .unwrap()
     };
-    let base = quote["estimate"]["l2BaseFeePerGas"]
+    let mut base = quote["estimate"]["l2BaseFeePerGas"]
         .as_str()
         .unwrap()
         .parse::<u128>()
@@ -378,6 +426,108 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
         let signature = signer.sign_transaction_sync(&mut tx).unwrap();
         tx.into_envelope(signature)
     };
+    if exercise == QuoteExercise::MarketShift {
+        assert_eq!(quote["estimate"]["l1PriorityFeePerGas"], "1000000000");
+        let old = sign(tip, cap);
+        let external: PrivateKeySigner = TARGET_DEPLOYER.parse().unwrap();
+        let chain_id = l1.get_chain_id().await.unwrap();
+        for _ in 0..3 {
+            let mut tx: TypedTransaction = TxEip1559 {
+                chain_id,
+                nonce: l1.get_transaction_count(external.address()).await.unwrap(),
+                gas_limit: 21_000,
+                max_priority_fee_per_gas: 5_000_000_000,
+                max_fee_per_gas: 10_000_000_000,
+                to: TxKind::Call(external.address()),
+                ..Default::default()
+            }
+            .into();
+            let signature = external.sign_transaction_sync(&mut tx).unwrap();
+            let tx = tx.into_envelope(signature);
+            let pending = l1.send_raw_transaction(&tx.encoded_2718()).await.unwrap();
+            let mined = wait_for(TIMEOUT, || async {
+                Ok(l1.get_transaction_receipt(*pending.tx_hash()).await?)
+            })
+            .await
+            .unwrap();
+            assert!(mined.status());
+        }
+        let mut refreshed = transaction.clone();
+        refreshed["gas"] = json!(format!("{source_gas_limit:#x}"));
+        quote = wait_for(TIMEOUT, || async {
+            let value = quote_rpc(
+                &client,
+                &world.l2_xchain(),
+                "eez_debugQuoteFee",
+                json!([refreshed,{"transactionTypes":["0x2"]}]),
+            )
+            .await?;
+            if quote_retry(&value) {
+                return Ok(None);
+            }
+            anyhow::ensure!(value["result"].is_object(), "{value}");
+            let detail = &value["result"]["diagnostics"]["options"][0];
+            anyhow::ensure!(detail.get("error").is_none(), "{value}");
+            if detail["estimate"]["l1PriorityFeePerGas"] != "2000000000" {
+                return Ok(None);
+            }
+            Ok(Some(detail.clone()))
+        })
+        .await
+        .unwrap();
+        let rejected = wait_for(TIMEOUT, || async {
+            let value = quote_rpc(
+                &client,
+                &world.l2_xchain(),
+                "eth_sendRawTransaction",
+                json!([alloy_primitives::hex::encode_prefixed(old.encoded_2718())]),
+            )
+            .await?;
+            Ok((!quote_retry(&value)).then_some(value))
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            rejected["error"]["data"]["code"], "l2_tip_underfunded",
+            "{rejected}"
+        );
+        let details = &rejected["error"]["data"]["details"];
+        assert_eq!(details["l1PriorityFeePerGas"], "0x77359400");
+        assert_eq!(
+            onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap(),
+            nonce
+        );
+        let ownership = quote_rpc(
+            &client,
+            &world.l2_xchain(),
+            "eez_getCrossChainTransaction",
+            json!([old.tx_hash()]),
+        )
+        .await
+        .unwrap();
+        assert!(
+            ownership["result"].is_null(),
+            "a conclusive rejection must not retain ownership"
+        );
+        let price = |key: &str| {
+            u128::from_str_radix(
+                quote["transaction"][key]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("0x"),
+                16,
+            )
+            .unwrap()
+        };
+        tip = price("maxPriorityFeePerGas");
+        cap = price("maxFeePerGas");
+        base = quote["estimate"]["l2BaseFeePerGas"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        assert_eq!(quote["estimate"]["l1PriorityFeePerGas"], "2000000000");
+    }
     if enforced {
         let mut rejected_fees = vec![(0, if legacy { base } else { cap })];
         if legacy {
@@ -418,6 +568,21 @@ async fn nested_quote_roundtrip(enforced: bool, legacy: bool, compact: bool, mar
             .await
             .unwrap();
             assert_eq!(error["code"], -32003);
+            let funding = &error["data"]["details"];
+            assert_eq!(funding["reason"], "settlement_fee", "{error}");
+            assert_eq!(funding["scope"], "source");
+            let quantity = |key: &str| {
+                U256::from_str_radix(funding[key].as_str().unwrap().trim_start_matches("0x"), 16)
+                    .unwrap()
+            };
+            let required = quantity("requiredPayment");
+            let offered = quantity("offeredPayment");
+            assert!(required > offered);
+            assert_eq!(quantity("shortfall"), required - offered);
+            assert!(quantity("sourceGasUsed") > U256::ZERO);
+            assert_eq!(quantity("paymentChainId"), U256::from(world.l2_chain_id));
+            assert!(funding["l1Sample"]["hash"].as_str().is_some());
+            assert!(funding["l2Parent"]["hash"].as_str().is_some());
             let status: Value = client.post(world.l2_xchain()).json(&json!({
             "jsonrpc":"2.0", "id":2, "method":"eez_getCrossChainTransaction", "params":[underfunded.tx_hash()]
         })).send().await.unwrap().json().await.unwrap();
@@ -793,7 +958,7 @@ async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
             .abi_encode()
         });
         let transaction = json!({"from":signer.address(),"to":outer,"nonce":format!("{:#x}",nonce+offset),"data":data});
-        let quote = wait_for(TIMEOUT, || async {
+        let mut quote = wait_for(TIMEOUT, || async {
             let response = quote_rpc(
                 &client,
                 &world.l1_xchain(),
