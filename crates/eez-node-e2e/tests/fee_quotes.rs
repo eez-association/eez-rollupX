@@ -1475,8 +1475,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
             "{response}"
         );
     }
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json");
+    let path = eez_testkit::repo_root().join("contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json");
     let artifact: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let bytecode: Bytes = artifact["bytecode"]["object"]
         .as_str()
