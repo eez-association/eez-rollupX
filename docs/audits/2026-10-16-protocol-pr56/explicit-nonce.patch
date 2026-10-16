@@ -3,20 +3,20 @@ index a61f6fb..2464c26 100644
 --- a/script/e2e/RPC.md
 +++ b/script/e2e/RPC.md
 @@ -49,11 +49,15 @@ Use discovery instead of copying deployment addresses from an older run.
- 
+
  **Params:**
  ```json
 -[{"from":"<funded sender>","to":"<deployed target>","data":"<exact calldata>","value":"0x0"}]
 +[{"from":"<funded sender>","to":"<deployed target>","data":"<exact calldata>","value":"0x0","nonce":"<prepared nonce>"}]
  ```
- 
+
  `value` is the native amount in wei as a hex quantity; replace `0x0` for a
  nonzero transfer. Quote after deployment, immediately before signing and sending.
 +Pass the prepared nonce as a hex quantity. On L1, omitting it selects the canonical
 +nonce, which can already belong to a queued trigger. The deployed composer can
 +replay its owned L1 predecessors when the next transaction supplies its nonce;
 +this preserves same-account bursts without waiting for each transaction to mine.
- 
+
  Version 1 returns `chainId`, `nonce`, `expiresAt` (Unix seconds) and `options[]`.
  Older deployments also returned `recoveryMode`. Chain ID, nonce, expiry and option
 diff --git a/script/e2e/lib/network-fees.sh b/script/e2e/lib/network-fees.sh
