@@ -17,11 +17,14 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ### Omitted L1 nonce follow-up from PR 56 feedback on 2026-10-16
 
-Status: implemented in PR 91; the
+Status: implemented in PR 91, qualified by all required CI lanes and deployed to
+the existing Chiado rollup. The
 [before/after regression](../audits/2026-10-16-pr91-merge-readiness/README.md#omitted-l1-nonce-correction)
-reproduces the failure and validates the correction. Required candidate CI
-remains the merge gate; this change is not deployed to Chiado. The previous
-API defaulted an omitted nonce to canonical source state. This rejected a second
+reproduces the failure and validates the correction. The
+[handover record](../audits/2026-10-16-pr91-nonce-chiado/README.md) binds the tested
+runtime to its deployed images and records a live omitted-nonce burst using
+unmodified PR 56, nested calls in both directions and semantic/blob checks. The
+previous API defaulted an omitted nonce to canonical source state. This rejected a second
 same-account L1 quote when the first source is already owned but unmined; the
 client did not submit a duplicate nonce. The explicit prepared-nonce change in
 the [PR 56 trial](../audits/2026-10-16-protocol-pr56/README.md) preserves the

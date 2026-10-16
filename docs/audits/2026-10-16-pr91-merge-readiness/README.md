@@ -23,6 +23,11 @@ treated as an explicit-nonce client requirement. The
 corrects that attribution and extends automatic L1 selection. The checks in
 `validation.json` do not qualify that later runtime change.
 
+The subsequent [CI qualification and Chiado handover](../2026-10-16-pr91-nonce-chiado/README.md)
+records the passing full candidate CI, exact published/runtime identities and
+live omitted-nonce burst. It supersedes the deployment status for the later
+correction without changing the earlier review's scope or evidence.
+
 ## Confirmed CI failures
 
 The lint job stopped at Gitleaks 8.30.1, before formatting, dependency checks,
