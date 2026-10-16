@@ -325,10 +325,10 @@ fn advisory_parent_keeps_ordinary_history_and_excludes_unsettled_native_effects(
             number: settled,
             hash: blocks[settled as usize].hash_slow(),
         };
-        let parent = advisory_parent(&provider, endpoint, &budget).unwrap();
+        let parent = advisory_parent(&provider, endpoint, 4, &budget).unwrap();
         assert_eq!(parent.number, expected);
         assert_eq!(parent.hash(), blocks[expected as usize].hash_slow());
-        assert!(history_size(&provider, &parent, endpoint, Address::ZERO, &budget).is_ok());
+        assert!(history_size(&provider, &parent, endpoint, Address::ZERO, 4, &budget).is_ok());
     }
     assert!(matches!(
         advisory_parent(
@@ -337,10 +337,58 @@ fn advisory_parent_keeps_ordinary_history_and_excludes_unsettled_native_effects(
                 number: 0,
                 hash: Default::default()
             },
+            4,
             &budget
         ),
         Err(FeeQuoteError::Stale)
     ));
+}
+
+#[test]
+fn quote_history_uses_the_posting_window_and_ignores_the_native_suffix() {
+    use reth_provider::test_utils::MockEthProvider;
+    let provider = MockEthProvider::<eez_primitives::EezPrimitives>::new();
+    let mut hash = alloy_primitives::B256::ZERO;
+    let mut endpoint = L2Endpoint { number: 0, hash };
+    for number in 0..=600 {
+        let mut block = eez_primitives::Block::default();
+        block.header.number = number;
+        block.header.parent_hash = hash;
+        if number == 301 {
+            block.body.transactions.push(
+                eez_primitives::SystemTransaction {
+                    chain_id: 1,
+                    nonce: 0,
+                    to: eez_protocol::EEZL2_ADDRESS,
+                    value: U256::ZERO,
+                    input: Bytes::new(),
+                }
+                .into(),
+            );
+        }
+        hash = block.header.hash_slow();
+        if number == 0 {
+            endpoint.hash = hash;
+        }
+        provider.add_block(hash, block);
+    }
+    let budget = Budget::new(Arc::new(AtomicBool::new(false)));
+    // A 301-block posting window fits 300 ordinary blocks plus the new terminal.
+    // The newer speculative suffix is irrelevant to this independent quote.
+    let parent = advisory_parent(&provider, endpoint, 300, &budget).unwrap();
+    assert_eq!(parent.number, 300);
+    assert!(history_size(&provider, &parent, endpoint, Address::ZERO, 300, &budget).is_ok());
+    for result in [
+        advisory_parent(&provider, endpoint, 299, &budget).map(|_| ()),
+        history_size(&provider, &parent, endpoint, Address::ZERO, 299, &budget).map(|_| ()),
+    ] {
+        assert!(matches!(
+            result,
+            Err(FeeQuoteError::Limit(
+                "ordinary history exceeds posting window"
+            ))
+        ));
+    }
 }
 
 #[test]
@@ -375,7 +423,7 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
     let parent = SealedHeader::seal_slow(block.header.clone());
     provider.add_block(parent.hash(), block.clone());
     let budget = Budget::new(Arc::new(AtomicBool::new(false)));
-    let measured = history_size(&provider, &parent, endpoint, beneficiary, &budget).unwrap();
+    let measured = history_size(&provider, &parent, endpoint, beneficiary, 4, &budget).unwrap();
     let expected = eez_payload_codec::v0::encode(&[
         BlockRun {
             blocks: 1,
@@ -402,6 +450,7 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
                 ..endpoint
             },
             beneficiary,
+            4,
             &budget
         ),
         Err(FeeQuoteError::Stale)
@@ -418,7 +467,7 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
     ];
     provider.add_block(parent.hash(), block);
     assert!(matches!(
-        history_size(&provider, &parent, endpoint, beneficiary, &budget),
+        history_size(&provider, &parent, endpoint, beneficiary, 4, &budget),
         Err(FeeQuoteError::Unavailable(
             "unsettled native history requires reconciliation"
         ))

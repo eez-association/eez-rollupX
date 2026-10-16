@@ -225,6 +225,111 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn queued_predecessor_requires_stateful_admission_before_ordinary_forwarding() {
+        use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
+        use alloy_network::{TxSignerSync, eip2718::Encodable2718};
+        use alloy_primitives::{B256, Bytes, TxKind};
+        use alloy_provider::{ProviderBuilder, mock::Asserter};
+        use alloy_signer_local::PrivateKeySigner;
+        use eez_composer::{Direction, HeldPool, HeldTx};
+        use jsonrpsee::{RpcModule, server::ServerBuilder};
+        use std::sync::atomic::AtomicUsize;
+
+        // Canonical state cannot see the predecessor's effects: the isolated
+        // trace reverts before dispatch, but stateful tariff admission must run.
+        let forwarded = Arc::new(AtomicUsize::new(0));
+        let upstream = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+        let upstream_url = format!("http://{}", upstream.local_addr().unwrap());
+        let mut module = RpcModule::new(Arc::clone(&forwarded));
+        module
+            .register_method(
+                "debug_traceCall",
+                |_, _, _| json!({"type":"CALL", "error":"execution reverted", "calls":[]}),
+            )
+            .unwrap();
+        module
+            .register_method("eth_sendRawTransaction", |_, count, _| {
+                count.fetch_add(1, Ordering::Relaxed);
+                json!(B256::repeat_byte(7))
+            })
+            .unwrap();
+        let upstream_handle = upstream.start(module);
+        let signer = PrivateKeySigner::from_bytes(&B256::with_last_byte(1)).unwrap();
+        let pool = Arc::new(HeldPool::new(Default::default()));
+        pool.push_contiguous(
+            HeldTx {
+                raw_tx: Bytes::new(),
+                hash: B256::repeat_byte(1),
+                attempts: 0,
+                excluded_slots: 0,
+                sender: signer.address(),
+                nonce: 0,
+                direction: Direction::Inbound,
+                max_fee_per_gas: 10,
+                priority_fee_per_gas: 1,
+            },
+            0,
+        )
+        .unwrap();
+        let service = Arc::new(FeeQuotes {
+            enforce_tariff: true,
+            prepare: Arc::new(|request| {
+                assert!(matches!(request, Request::Signed(_)));
+                Box::pin(async { Err(FeeQuoteError::L1Underfunded) })
+            }),
+            executor: TaskExecutor::test(),
+            quotes: Workers::new(1, 0),
+            admission: Workers::new(1, 0),
+            timeout: Duration::from_secs(10),
+        });
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let front = tokio::spawn(crate::ingress::run_cross_chain_front(
+            port,
+            upstream_url,
+            Direction::Inbound,
+            Arc::clone(&pool),
+            ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+            1,
+            Address::repeat_byte(9),
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(json!({})),
+            Some(service),
+        ));
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while tokio::net::TcpStream::connect(("127.0.0.1", port))
+                .await
+                .is_err()
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let mut tx = TxEip1559 {
+            chain_id: 1,
+            nonce: 1,
+            gas_limit: 100_000,
+            max_fee_per_gas: 10,
+            max_priority_fee_per_gas: 1,
+            to: TxKind::Call(Address::repeat_byte(2)),
+            ..Default::default()
+        };
+        let sig = signer.sign_transaction_sync(&mut tx).unwrap();
+        let raw = Bytes::from(TxEnvelope::from(tx.into_signed(sig)).encoded_2718());
+        let response: Value = reqwest::Client::new().post(format!("http://127.0.0.1:{port}"))
+            .json(&json!({"jsonrpc":"2.0", "id":1, "method":"eth_sendRawTransaction", "params":[raw]}))
+            .send().await.unwrap().json().await.unwrap();
+        front.abort();
+        upstream_handle.stop().unwrap();
+        assert_eq!(response["error"]["code"], -32003, "{response}");
+        assert_eq!(response["error"]["data"]["code"], "l1_tip_underfunded");
+        assert_eq!(forwarded.load(Ordering::Relaxed), 0);
+        assert_eq!(pool.len(), 1);
+    }
+
+    #[tokio::test]
     async fn rpc_front_preserves_ids_errors_readiness_and_notifications() {
         use alloy_provider::{ProviderBuilder, mock::Asserter};
         use eez_composer::{Direction, HeldPool};

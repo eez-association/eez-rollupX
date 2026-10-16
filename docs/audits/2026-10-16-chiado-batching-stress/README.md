@@ -1,9 +1,11 @@
 # Chiado batching stress and Falcon Safe validation
 
-Status: Falcon passed; the full protocol matrix failed and left 231 accepted
-test sources pending. Read-only verification of the canonical prefix completed.
-Recovery requiring a public RPC pause and Composer restart is awaiting
-explicit authorization after automatic approval review rejected that operation.
+Original run: Falcon passed; the full protocol matrix failed and left 231
+accepted test sources pending. Read-only canonical-prefix verification completed.
+The later explicitly authorized same-image recovery completed all 231 by
+07:28 UTC; see the [recovery follow-up](#authorized-same-image-recovery-follow-up-07100728-utc).
+The original failure and approval history below is preserved. A fresh matrix
+must validate the fixes separately.
 This is test evidence, not a production-readiness or security certification.
 
 | Field | Value |
@@ -300,7 +302,39 @@ interpret this report as authorization to restart or as proof of durable queue
 recovery. Pending signed transactions remain available for a separately
 authorized recovery procedure.
 
-## Unmet criteria
+## Authorized same-image recovery follow-up, 07:10–07:28 UTC
+
+The operator explicitly approved pausing public RPC and restarting the same
+Composer image. A fresh paused-ingress inventory matched all 231 outstanding
+requests to the retained test submissions and unspent source nonces. Both
+protocol wallet locks were held. The Composer stopped cleanly; its complete
+stopped L2 database was copied before restarting the identical container/image
+at 07:13:34 UTC. The signer, contracts, genesis and operator configuration did
+not change.
+
+The first replay attempt admitted zero requests: restart retained 260 valid
+ordinary L2 blocks, exceeding the separate 256-block quote bound. An ordinary
+background post then advanced canonical settlement, after which both quote
+routes succeeded. This corrects any implication that the history error is
+permanent: it is a recurrent mismatch between the quote bound and the 300-block
+ordinary settlement trigger, and restarting alone does not reliably clear it.
+
+A separate continuation replayed four sources per wave, checking each wave's
+canonical source receipts and ownership before advancing. All **231** completed
+by **07:28:31 UTC**, with no remaining queued, in-flight, blocked or unknown
+requests. Of these, 131 retained their original signed bytes. The 100 L1
+`revertCounter`/`revertFromOtherChain` requests used journalled replacements with
+the same sender, nonce and payload, doubled gas limits and fresh/replacement
+fees. [Sanitized identities and canonical evidence](recovery.json) retain that
+distinction. Public RPC configuration was restored; all four HTTP fronts
+returned the expected chain IDs. This recovers the accepted work; it does not
+turn the original incomplete stress run into a pass or validate new code.
+
+Raw journals and the stopped database remain local-only under the original
+artifact directory. Source-level batching/quote corrections and a fresh complete
+matrix are still required. The historical failure results above remain intact.
+
+## Unmet criteria at the original run's completion
 
 | Remaining item | Impact | Next concrete check |
 | --- | --- | --- |

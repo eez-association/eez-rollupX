@@ -165,49 +165,29 @@ where
         let estimator = self
             .gas_estimator(prepared.rollup_id)
             .map_err(estimate_error)?;
-        let snapshot = self.fee_snapshot(&prepared, &budget)?;
+        let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
         let direction = prepared.direction;
-        let (source, source_hash, chain) = match direction {
-            crate::Direction::Inbound => (
-                self.inner.cross_chain.local.l1_entry.chain_provider(),
-                prepared.posting.quote.sample.hash,
-                self.inner.posting.ctx.l1_chain_id,
-            ),
-            crate::Direction::Outbound => (
-                self.inner.cross_chain.local.l2_entry.chain_provider(),
-                snapshot.l2_parent.hash(),
-                self.inner.posting.ctx.l2_chain_id,
-            ),
+        let chain = match direction {
+            crate::Direction::Inbound => self.inner.posting.ctx.l1_chain_id,
+            crate::Direction::Outbound => self.inner.posting.ctx.l2_chain_id,
         };
-        let nonce = source
-            .provider
-            .state_by_block_hash(source_hash)
-            .map_err(|e| unavailable("source quote state", e))?
-            .account_nonce(&prepared.request.sender)
-            .map_err(|e| unavailable("source nonce", e))?
-            .unwrap_or_default();
-        let rollup = self
-            .inner
-            .rollups
-            .get(&prepared.rollup_id)
-            .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
+        let explicit_nonce = request
+            .transaction
+            .get("nonce")
+            .map(|_| prepared.request.tx.nonce());
+        let (nonce, predecessors) =
+            self.replay_quote_predecessors(&prepared, &mut snapshot, &budget, explicit_nonce)?;
+        let rollup_id = prepared.rollup_id;
+        let rollup = &self.inner.rollups[&rollup_id];
         let sender = prepared.request.sender;
         let check_nonce = || {
             if rollup.held_pool.owns_nonce(sender, direction, nonce) {
-                Err(FeeQuoteError::Invalid(
-                    "source nonce is already pending; queued predecessors are not simulated",
-                ))
+                Err(FeeQuoteError::Invalid("source nonce is already pending"))
             } else {
-                Ok(())
+                self.validate_quote_predecessors(rollup_id, &predecessors)
             }
         };
         check_nonce()?;
-        let initial = request.resolve(chain, nonce, MAX_SOURCE_GAS, request.types[0])?;
-        if initial.tx.nonce() != nonce {
-            return Err(FeeQuoteError::Invalid(
-                "nonce must match pinned source state; queued predecessors are not simulated",
-            ));
-        }
         let issued = unix_now()?;
         let expiry = prepared.expires_at;
         let mut options = Vec::new();

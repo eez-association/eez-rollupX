@@ -56,6 +56,7 @@ where
             &snapshot.l2_parent,
             prepared.endpoint,
             self.inner.fee_recipient,
+            self.inner.emission.max_blocks.saturating_sub(1),
             budget,
         )?;
         let maximum_blobs = self

@@ -46,6 +46,8 @@ pub(super) enum PostingError {
     Capacity(String),
     #[error("ordered L1 bundle does not complete the intended effects: {0}")]
     Effects(String),
+    #[error("ordered L1 source {hash} does not complete its intended effects: {reason}")]
+    SourceEffects { hash: B256, reason: String },
     #[error("invalid ordered L1 transaction: {0}")]
     Transaction(String),
     #[error(transparent)]
@@ -571,7 +573,9 @@ impl PostingRuntime {
             "preflight_final",
         ) {
             Ok(execution) => execution,
-            Err(PostingError::Effects(_)) if selected_gas < probe_gas => {
+            Err(PostingError::Effects(_) | PostingError::SourceEffects { .. })
+                if selected_gas < probe_gas =>
+            {
                 // EIP-150 may need more headroom than consumed gas plus margin.
                 // The larger value was validated, but changing gas invalidates
                 // the prior simulation, so execute the exact final bytes again.
@@ -678,7 +682,7 @@ where
                 .map_or(0, |hashes| hashes.len() as u64)
         })
         .collect();
-    let transaction_hashes = transactions
+    let transaction_hashes: Vec<B256> = transactions
         .iter()
         .map(|tx| {
             use alloy_consensus::transaction::TxHashRef as _;
@@ -688,11 +692,24 @@ where
     let mut final_root = None;
     for (index, transaction) in transactions.into_iter().enumerate() {
         gas_trace::set_tx_index(index);
+        // The bundle starts with our poster. Only subsequent signed companions
+        // can identify a source-local execution failure; a posting/root failure
+        // alone must never authorize a user's retry penalty.
+        let effects = |reason| {
+            if index == 0 {
+                PostingError::Effects(reason)
+            } else {
+                PostingError::SourceEffects {
+                    hash: transaction_hashes[index],
+                    reason,
+                }
+            }
+        };
         let result = executor
             .execute_transaction_without_commit(transaction)
             .map_err(|e| PostingError::Transaction(format!("transaction {index}: {e}")))?;
         if !result.result.result.is_success() {
-            return Err(PostingError::Effects(format!(
+            return Err(effects(format!(
                 "transaction {index} failed: {}",
                 result.result.result
             )));
@@ -705,7 +722,7 @@ where
             .filter(|log| log.address == registry)
         {
             if log.data.topics().first() == Some(&eez_protocol::abi::L2TxSkipped::SIGNATURE_HASH) {
-                return Err(PostingError::Effects(format!(
+                return Err(effects(format!(
                     "transaction {index} skipped an intended immediate entry"
                 )));
             }
@@ -1084,6 +1101,24 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn native_companion_failure_identifies_exact_signed_source() {
+        let companion = tx(1, REGISTRY, 21_000, Bytes::new());
+        use alloy_consensus::transaction::TxHashRef as _;
+        let hash = *companion.tx_hash();
+        assert!(matches!(execute(emit_root(false), vec![
+            tx(0, REGISTRY, 90_000, Bytes::new()), companion,
+        ], 120_000), Err(PostingError::SourceEffects { hash: failed, .. }) if failed == hash));
+        assert!(matches!(
+            execute(
+                emit_root(false),
+                vec![tx(0, REGISTRY, 21_000, Bytes::new()),],
+                120_000
+            ),
+            Err(PostingError::Effects(_))
+        ));
     }
 
     #[test]

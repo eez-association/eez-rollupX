@@ -4,7 +4,7 @@ use alloy_rpc_types_eth::state::StateOverride;
 use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::EvmStateProviderAdapter;
 use revm::{
-    Database, Inspector, Journal,
+    Inspector, Journal,
     context_interface::ContextTr,
     interpreter::{CallInputs, CallOutcome},
 };

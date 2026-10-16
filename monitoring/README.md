@@ -216,7 +216,7 @@ timestamp; there is no new service or configuration option.
 | `pure_interval_deadline_timestamp_seconds` | Anchor time plus the configured pure-L2 interval, only when pending ordinary activity exists in interval mode. Otherwise `NaN`. |
 | `target_timestamp_seconds` | Selected L1 target supplied to the evaluation; not a guaranteed dispatch/inclusion time. |
 | `evaluation_timestamp_seconds` | Local time of the successful policy evaluation, distinct from sample time. |
-| `submission{state=...}` | One active state for the lowest unresolved attempt: `none`, `prepared`, `dispatched`, `included`, `excluded`, `uncertain`. |
+| `submission{state=...}` | One active state for the lowest unresolved attempt: `none`, `prepared`, `dispatched`, `included`, `excluded`, `uncertain`, `preflight_rejected`. The last state means native execution rejected a never-dispatched candidate; canonical reconciliation still owns its users. |
 
 Policy fields become unknown when a new evaluation starts and remain unknown
 if it fails or is cancelled. An incomplete canonical scan, changed generation,

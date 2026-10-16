@@ -1956,8 +1956,14 @@ where
             .unwrap()
             .begin(pool_len_before, self.inner.emission.timing, bundle_target);
         if let Some(limit) = self.inner.max_user_txs_per_bundle {
-            automatic.selected = limit.min(pool_len_before);
-            automatic.selection_limit_reason = Some("configured_count_limit");
+            let native_limit = self.inner.automatic_admission[&rollup_id]
+                .lock().unwrap().preflight_limit();
+            automatic.selected = limit.min(pool_len_before).min(native_limit);
+            automatic.selection_limit_reason = Some(if native_limit < limit {
+                "native_preflight_backoff"
+            } else {
+                "configured_count_limit"
+            });
         }
         let max_user_txs = automatic.selected;
         let drained = if max_user_txs > 0 {
@@ -2536,8 +2542,18 @@ where
         // A landed postBatch that left users incomplete spent L1 gas and
         // counts toward the settlement bound; an excluded slot spent nothing
         // and counts only toward its own, larger bound.
+        let preflight_rejected = matches!(
+            attempt.observation,
+            SubmissionObservation::PreflightRejected { .. }
+        ) && attempt.dispatched_target.is_none()
+            && post.receipt.is_none();
         let charge = if post.receipt.is_some() {
             AttemptCharge::Settlement
+        } else if preflight_rejected
+            && attempt.txs.len() == 1
+            && matches!(attempt.observation, SubmissionObservation::PreflightRejected { source: Some(hash) } if hash == attempt.txs[0].hash)
+        {
+            AttemptCharge::Preflight
         } else if matches!(
             attempt.observation,
             SubmissionObservation::Excluded {
@@ -2554,18 +2570,43 @@ where
             at,
             &outcomes,
             charge,
-            if self.inner.max_user_txs_per_bundle.is_none() {
+            if charge == AttemptCharge::Preflight {
+                MAX_BUNDLE_ATTEMPTS
+            } else if self.inner.max_user_txs_per_bundle.is_none() {
                 admission::MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS
             } else {
                 MAX_BUNDLE_ATTEMPTS
             },
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
+        if preflight_rejected
+            && outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, SourceOutcome::Retryable { .. }))
+        {
+            let next_selection_max = self.inner.automatic_admission[&rollup_id]
+                .lock()
+                .unwrap()
+                .preflight_failed(attempt.txs.len());
+            event!(name: "eez.composer.admission.preflight_backoff", Level::WARN,
+                event_name = "eez.composer.admission.preflight_backoff", rollup_id,
+                rejected_groups = attempt.txs.len(), next_selection_max,
+                "native execution rejected the candidate; retain whole groups for a smaller retry");
+        }
+        if !outcomes.is_empty() && !submission_backoff_required(&outcomes, false) {
+            self.inner.automatic_admission[&rollup_id]
+                .lock()
+                .unwrap()
+                .preflight_completed(rollup.held_pool.is_empty());
+        }
         if self.inner.max_user_txs_per_bundle.is_none() && !outcomes.is_empty() && !skipped_slot {
             let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
             if !submission_backoff_required(&outcomes, false) {
                 automatic.submission_completed();
-            } else if charge != AttemptCharge::None {
+            } else if matches!(
+                charge,
+                AttemptCharge::Settlement | AttemptCharge::ExcludedSlot
+            ) {
                 let next_selection_max = automatic.submission_failed(attempt.txs.len());
                 event!(name: "eez.composer.admission.submission_failure", Level::INFO,
                     event_name = "eez.composer.admission.submission_failure", rollup_id,
@@ -3016,6 +3057,7 @@ where
                 parent_header,
                 endpoint,
                 suggested_fee_recipient,
+                self.inner.emission.max_blocks.saturating_sub(1),
             )
             .map(|size| (endpoint, size))
         });
@@ -7689,6 +7731,8 @@ async fn observe_bundle_outcome(
     let signing_elapsed = preparation_timing
         .proof_received_at
         .map_or(std::time::Duration::ZERO, |at| at.elapsed());
+    let mut execution_rejected = false;
+    let mut rejected_source = None;
     let preparation = async {
         if preparation_timing
             .deadline
@@ -7727,7 +7771,19 @@ async fn observe_bundle_outcome(
                 &semantics,
             )
             .await
-            .map_err(|error| ("final_pricing_failed", error.to_string()))?;
+            .map_err(|error| {
+                // Only a completed native execution/effect rejection trains
+                // the batch-size bound; transport, balance, and deadline
+                // uncertainty retain the prior policy without user penalties.
+                execution_rejected = matches!(
+                    &error,
+                    posting::PostingError::Effects(_) | posting::PostingError::SourceEffects { .. }
+                );
+                if let posting::PostingError::SourceEffects { hash, .. } = &error {
+                    rejected_source = Some(*hash);
+                }
+                ("final_pricing_failed", error.to_string())
+            })?;
         if preparation_timing
             .deadline
             .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
@@ -7868,13 +7924,19 @@ async fn observe_bundle_outcome(
             }
             event!(name: "eez.composer.postbatch.preflight_failed", Level::WARN,
                 event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
-                "unsent bundle deferred; due work retained without a user attempt penalty");
+                "unsent bundle deferred; due work retained for canonical reconciliation");
             if let BundleTarget::Exact { block, .. } = target {
                 let _ = optimistic.observe(
                     attempt_id,
-                    SubmissionObservation::Excluded {
-                        block,
-                        charge_attempt: false,
+                    if execution_rejected {
+                        SubmissionObservation::PreflightRejected {
+                            source: rejected_source,
+                        }
+                    } else {
+                        SubmissionObservation::Excluded {
+                            block,
+                            charge_attempt: false,
+                        }
                     },
                 );
             }

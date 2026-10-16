@@ -210,6 +210,26 @@ that target cannot train capacity even if some of its sources completed in a
 replacement. Source dispositions and replacement ownership still reconcile
 independently. `admission.skipped_slot` records this distinction.
 
+A completed native execution/effect rejection before dispatch has a separate
+response: mark the never-dispatched attempt `preflight_rejected`, reconcile
+canonical source ownership, and halve its whole-group selection allowance
+(minimum one). This `native_preflight_backoff` also bounds numeric admission.
+Multi-group reductions do not charge source attempts. Retain the learned bound
+across preparation and successful posts until the queue drains; preparation
+success does not prove the real shared-table execution fits. An indivisible
+L1 source whose exact signed hash is identified by a failed native companion
+execution uses the existing cumulative three-attempt execution bound, with
+dependent nonce disposition unchanged. An unattributed root/effect mismatch or
+failed poster cannot charge a singleton's retry counter.
+Transport, proof deadlines, missing balances and uncertain chain observations
+do not authorize this reduction or penalty. Final native validation always runs.
+
+This is in-memory scheduling behavior, not a protocol or storage change. Old
+Composers lack this backoff and the expanded history/pending-L1 quote profile.
+Drain accepted work before upgrade or rollback; restart does not preserve its
+ownership or learned limits. No signer, contract, genesis or historical follower
+replay migration is needed.
+
 Automatic submitted-attempt reconciliation permits six cumulative charged
 failures per source, allowing a smaller retry after the fifth failure. Numeric
 admission retains its three-failure limit. These count landed postBatches that
@@ -427,7 +447,7 @@ execution remains mandatory before submission.
 Admission telemetry keeps the finite snapshot (`selected`) separate from the
 effective `selection_limit` and its originating reason. Summary reasons identify
 gas/blob/time cuts, `configured_count_limit`,
-`submission_backoff`, `pipeline_deadline_backoff`, `preparation_probe_limit`,
+`submission_backoff`, `native_preflight_backoff`, `pipeline_deadline_backoff`, `preparation_probe_limit`,
 `snapshot_exhausted`, or `eligible_sources_exhausted`. A resource cut takes
 precedence if it occurs before reaching the count cap. Snapshot exhaustion does
 not describe arrivals after the snapshot. These observations do not change the
@@ -1021,10 +1041,25 @@ methods, not Ethereum standard methods.
 
 `from` and `to` are required; creation is unsupported. `value` defaults to `0x0`
 and `data` to `0x`. `chainId` defaults to the front's source network; a mismatch
-is rejected. `nonce` defaults to the pinned source state. An explicit nonce must
-match it, and an already-owned nonce is rejected: queued predecessors are not
-simulated. This read does not reserve a nonce or observe an ordinary mempool;
-clients must recheck the wallet's pending nonce before signing.
+is rejected. `nonce` defaults to the pinned source state. An already-owned
+requested nonce is rejected. On L1, an explicit future nonce can replay up to
+eight contiguous, owned predecessors from that sender; gaps, missing signed
+bytes and unsupported predecessors fail explicitly. Each predecessor executes
+its signed fields and complete nested effects through a conditional native
+post/source sequence at the same target, retaining both chains' disposable
+state. This sequence is an estimate, not a promise of the final shared batch
+layout. Replacement or release during quoting invalidates the prefix. L2
+future-nonce quotes and ordinary-mempool predecessors remain unsupported.
+With tariff enforcement enabled, signed calls behind an owned predecessor go
+through this stateful admission before ordinary-mempool forwarding. An isolated
+trace can revert before reaching dispatch when the predecessor has not executed.
+Unsupported successors, including ordinary calls behind privately held work,
+must wait for that predecessor to become canonical. Policy-disabled routing is
+unchanged.
+This read does not reserve a nonce; clients must recheck the wallet's pending
+nonce before signing. The SDK's automatic wallet-send guard remains
+conservative; explicit pipelining can use the quoted envelope after checking
+the caller's owned nonce sequence.
 
 `gas` is optional. Its explicit value is preserved and must fit 21,000..16,777,216
 as well as native transaction/block capacity. When absent, the existing internal
@@ -1033,6 +1068,10 @@ estimator and fee variants share one pinned L1/L2 context and exact posting targ
 The provisional gas search is followed by pricing and effect validation at the
 final gas and price. Gas/fee-sensitive code may require the high bound or fail
 explicitly; the API does not promise a minimum gas limit or universal convergence.
+The initial L1 gas candidate reserves 20% plus the call stipend for shared-table
+scans; L2 retains 5% plus the stipend. This sizes the gas limit, separately from
+the fee policy's profit margin. Only consumed gas is priced. Final native
+preflight may still need to reduce the shared batch.
 
 `transactionTypes` defaults to `["0x0", "0x2"]`. Supply one type to reduce work.
 Alternatively `transaction.type` selects one type; combining it with conflicting or
@@ -1098,6 +1137,9 @@ separate capacity; both lanes use a ten-second request budget. Per type, at most
 pricing iterations and one final validation probe run
 (maximum sixteen across both types). Each probe may compose and replay nested
 execution. Pricing retains the aggregate 32-target-frame/eight-depth limit;
+L1 pending-prefix replay adds at most eight predecessor passes under the same
+frame, DA and deadline bounds. It does not acquire another worker or mutate
+queue ownership, canonical state or the original signed envelopes.
 discovery/final validation reuse the estimator's 64-recorded-action bound and
 shared deadline. Existing calldata, DA/history, gas and blob limits remain active.
 No ordinary estimator worker is acquired. Cancellation is cooperative; a running
@@ -1220,13 +1262,18 @@ Signed admission has one reserved worker and space for eight waiting requests,
 so quote traffic cannot occupy its capacity. Each lane returns `quote_busy` only
 when its total capacity is full. The ten-second request deadline includes queue
 wait and network preparation; the simulated frame budget also remains bounded. Input is limited
-to 32 KiB, calldata to 12 KiB, retained history to 256 blocks, encoded DA to 2 MiB,
+to 32 KiB, calldata to 12 KiB, retained ordinary history to the active emission
+window minus one terminal block, encoded DA to 2 MiB,
 cross-chain target frames to 32 across all iterations, and nesting depth to eight.
 Active network/operator gas and blob limits and the negotiated emission window
 still apply. Expensive work uses Reth's blocking executor. Disconnect, timeout
 or shutdown sets cancellation; checks between frames/history/replay steps stop
 further work. A running EVM frame cannot be interrupted, and retains its
 worker and capacity permits until it exits. Frames also have existing EVM gas limits.
+History walks forward from the validated settlement endpoint and stops at the
+first unsettled native block. A long speculative suffix does not invalidate an
+otherwise usable bounded ordinary prefix. An ordinary prefix beyond the posting
+window still needs canonical settlement advancement.
 
 Malformed params/transactions use JSON-RPC `-32602`; other shared quote failures
 use `-32004`, with `{code, message}` in `error.data`. Stable application codes
@@ -1291,8 +1338,9 @@ post; composition can pool their actual receipts. Quotes do not discount shared
 batches. While this L2-only tariff is enabled, L1-origin users are settled in
 separate batches under the existing FIFO ordering, so unfunded L1 work cannot
 invalidate a paid outbound batch. Nested calls within one source remain whole.
-Quoting a future nonce whose
-predecessor has not executed is outside the isolated-transaction profile.
+Quoting a future L2 nonce whose predecessor has not executed is outside this
+outbound profile. The compact L1 route has the bounded owned-prefix replay
+described above.
 
 Immediately before dispatch, an attempt containing outbound users must also
 cover its complete newly priced L1 post, blobs, configured service costs and risk

@@ -7,7 +7,7 @@ use revm::context_interface::ContextTr;
 use revm::interpreter::{
     CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, InterpreterResult,
 };
-use revm::{Database, Inspector, Journal};
+use revm::{Inspector, Journal};
 
 alloy_sol_types::sol! {
     function verify(bytes proof, bytes32 publicInputsHash) external view returns (bool);
@@ -138,13 +138,11 @@ pub(super) fn replay(
     };
     if let Some(posting) = posting {
         setup.tx_type = 3;
-        setup.nonce = chain
-            .provider
-            .state_by_block_hash(posting.quote.sample.hash)
+        setup.nonce = state
+            .basic(estimator.poster)
             .map_err(unavailable)?
-            .account_nonce(&estimator.poster)
-            .map_err(unavailable)?
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .nonce;
         setup.gas_limit = gas_limit.unwrap_or(posting.gas_budget);
         setup.gas_price = posting.quote.max_fee_per_gas;
         setup.gas_priority_fee = Some(posting.quote.max_priority_fee_per_gas);
@@ -181,7 +179,7 @@ pub(super) fn replay(
             let context = config
                 .context_for_next_block(&$parent, snapshot.l1_attributes.clone())
                 .map_err(unavailable)?;
-            {
+            if snapshot.l1_prefix_gas == 0 {
                 let evm = config.evm_with_env(&mut state, snapshot.l1_env.clone());
                 config
                     .create_executor(evm, context)
@@ -206,7 +204,8 @@ pub(super) fn replay(
                         .l1_env
                         .block_env
                         .gas_limit
-                        .saturating_sub(output.gas_used),
+                        .saturating_sub(output.gas_used)
+                        .saturating_sub(snapshot.l1_prefix_gas),
                 );
                 limit = tx.gas_limit;
                 observe_roots(&output.logs, estimator, &mut last_root)?;
@@ -261,6 +260,9 @@ pub(super) fn replay(
         actions: composition.actions.clone(),
         settlement: posting.map(|_| (post_used, blob_hashes.len(), 0)),
         post_required,
+        retained_l1: Some(state.cache),
+        retained_l2: Vec::new(),
+        retained_root: None,
     })
 }
 

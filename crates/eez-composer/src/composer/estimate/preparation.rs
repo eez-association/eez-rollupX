@@ -20,14 +20,12 @@ fn system_context(e: &GasEstimator) -> SystemTxContext {
     }
 }
 fn system_nonce(e: &GasEstimator, s: &Snapshot) -> Result<u64, EstimateError> {
-    e.l2.chain_provider()
-        .provider
-        .state_by_block_hash(s.l2_parent.hash())
-        .map_err(unavailable)?
-        .account_nonce(&eez_primitives::SYSTEM_ADDRESS)
-        .map(Option::unwrap_or_default)
-        .map_err(unavailable)
+    Ok(
+        e.source_account(Direction::Outbound, s, eez_primitives::SYSTEM_ADDRESS)?
+            .nonce,
+    )
 }
+
 fn sidecars(c: &Composition, rid: u64) -> Result<Vec<InboundSidecar>, EstimateError> {
     c.targets
         .iter()
@@ -130,6 +128,9 @@ pub(super) fn outbound(
         actions: c.actions.clone(),
         settlement: None,
         post_required: 0,
+        retained_l1: None,
+        retained_l2: Vec::new(),
+        retained_root: None,
     })
 }
 
@@ -140,7 +141,7 @@ pub(super) fn inbound(
     s: &Snapshot,
     c: &Composition,
     blob_hashes: &[B256],
-) -> Result<(eez_protocol::EvmBatch, B256), EstimateError> {
+) -> Result<(eez_protocol::EvmBatch, B256, Vec<Bytes>, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
     let txs = build_inbound_system_txs(&sidecars, &system_context(e), system_nonce(e, s)?)
         .map_err(unsupported)?;
@@ -153,9 +154,11 @@ pub(super) fn inbound(
         s.l2_randao,
         e.recipient,
     );
-    let prefix = hashes.prefix(&[]).map_err(unavailable)?;
+    let prefix = hashes.prefix(&s.l2_prefix).map_err(unavailable)?;
+    let mut full = s.l2_prefix.clone();
+    full.extend(txs.iter().cloned());
     let checkpoints = hashes
-        .at_positions(&txs, &(0..txs.len()).collect::<Vec<_>>())
+        .at_positions(&full, &(s.l2_prefix.len()..full.len()).collect::<Vec<_>>())
         .map_err(unavailable)?;
     // Native hash construction does not by itself assert success.
     let mut draft = e.l2_draft(s)?;
@@ -290,7 +293,7 @@ pub(super) fn inbound(
     let [digest] = digests.as_slice() else {
         return Err(unsupported("single proof digest required"));
     };
-    Ok((batch, *digest))
+    Ok((batch, *digest, txs, live))
 }
 
 fn ether_delta(inflow: U256, outflow: U256) -> Result<EtherDeltaSol, EstimateError> {

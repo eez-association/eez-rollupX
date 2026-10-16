@@ -13,7 +13,7 @@ use reth_evm::{ConfigureEvm, Evm, EvmEnv, NextBlockEnvAttributes, rpc::TryIntoTx
 use reth_primitives_traits::SealedHeader;
 use reth_storage_api::StateProvider;
 use revm::{
-    DatabaseCommit,
+    Database, DatabaseCommit,
     context::{Cfg as _, TxEnv},
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
@@ -76,6 +76,11 @@ pub(super) struct Snapshot {
     pub(super) l2_randao: B256,
     settled_root: B256,
     generation: Option<u64>,
+    // Request-local, natively replayed L1 predecessors. These bytes never enter
+    // the pool or chain; final settlement still rebuilds the real shared batch.
+    l2_prefix: Vec<Bytes>,
+    l1_prefix_gas: u64,
+    prefix_semantic_bytes: usize,
 }
 #[derive(Debug)]
 pub(super) struct Probe {
@@ -86,6 +91,9 @@ pub(super) struct Probe {
     post_required: u64,
     output: Bytes,
     actions: Vec<eez_protocol::ExecutedAction>,
+    retained_l1: Option<revm::database::CacheState>,
+    retained_l2: Vec<Bytes>,
+    retained_root: Option<B256>,
 }
 
 pub(super) struct InboundPricing<'a> {
@@ -125,6 +133,68 @@ where
 }
 
 impl GasEstimator {
+    pub(super) fn source_account(
+        &self,
+        direction: Direction,
+        snapshot: &Snapshot,
+        address: Address,
+    ) -> Result<revm::state::AccountInfo, EstimateError> {
+        if direction == Direction::Inbound {
+            let (mut state, _) = snapshot.l1.fork_state(&self.l1).map_err(unavailable)?;
+            state
+                .basic(address)
+                .map(Option::unwrap_or_default)
+                .map_err(unavailable)
+        } else {
+            let mut draft = self.l2_draft(snapshot)?;
+            let mut fork = draft.fork().map_err(unavailable)?;
+            fork.state_and_env()
+                .0
+                .basic(address)
+                .map(Option::unwrap_or_default)
+                .map_err(unavailable)
+        }
+    }
+
+    /// Replay an owned L1 predecessor, including its real fee fields, source
+    /// nonce, balance changes and complete nested effects, into disposable state.
+    /// Each predecessor has its own conditional native setup at the same target;
+    /// final batching remains authoritative for shared-table gas and proof checks.
+    pub(super) fn advance_inbound(
+        &self,
+        snapshot: &mut Snapshot,
+        tx: TxEnv,
+        deadline: Instant,
+        pricing: InboundPricing<'_>,
+    ) -> Result<(), EstimateError> {
+        let mut replay = self.priced_inbound(snapshot, tx, deadline, pricing)?;
+        let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+            origin_chain: RollupId::MAINNET,
+            tx_data: Bytes::new(),
+            actions: replay.actions,
+        };
+        let overhead =
+            super::policy::semantic_overhead(self.rollup_id, &[semantic]).map_err(unavailable)?;
+        snapshot.prefix_semantic_bytes = snapshot
+            .prefix_semantic_bytes
+            .checked_add(overhead.semantic_bytes)
+            .filter(|bytes| *bytes <= 2 * 1024 * 1024)
+            .ok_or_else(|| unsupported("pending DA capacity"))?;
+        snapshot.l1_prefix_gas = snapshot
+            .l1_prefix_gas
+            .checked_add(replay.source_gas)
+            .ok_or_else(|| unsupported("pending gas overflow"))?;
+        snapshot.l1.cache = replay
+            .retained_l1
+            .take()
+            .ok_or_else(|| unavailable("missing predecessor state"))?;
+        snapshot.settled_root = replay
+            .retained_root
+            .ok_or_else(|| unavailable("missing predecessor endpoint"))?;
+        snapshot.l2_prefix.extend(replay.retained_l2);
+        Ok(())
+    }
+
     /// Blocking bounded-probe work. The RPC worker retains its concurrency permit
     /// until this returns, even if the caller's response deadline has expired.
     pub fn estimate(
@@ -162,11 +232,6 @@ impl GasEstimator {
                 "only legacy, access-list and EIP-1559 source calls are supported",
             ));
         }
-        let source = if direction == Direction::Inbound {
-            &self.l1
-        } else {
-            &self.l2
-        };
         let mut draft = self.l2_draft(snapshot)?;
         let mut fork = draft.fork().map_err(unavailable)?;
         let mut env = if direction == Direction::Inbound {
@@ -183,26 +248,14 @@ impl GasEstimator {
                 "chainId differs from the source chain".into(),
             ));
         }
-        let state_hash = if direction == Direction::Inbound {
-            snapshot.l1.anchor.hash()
-        } else {
-            snapshot.l2_parent.hash()
-        };
-        let state = source
-            .chain_provider()
-            .provider
-            .state_by_block_hash(state_hash)
-            .map_err(unavailable)?;
         let caller = request
             .from
             .ok_or_else(|| EstimateError::Invalid("from is required".into()))?;
-        let nonce = state
-            .account_nonce(&caller)
-            .map_err(unavailable)?
-            .unwrap_or_default();
+        let account = self.source_account(direction, snapshot, caller)?;
+        let nonce = account.nonce;
         if request.nonce.is_some_and(|requested| requested != nonce) {
             return Err(EstimateError::Invalid(format!(
-                "nonce must match isolated source state ({nonce}); queued predecessors are not simulated"
+                "nonce must match replayed source state ({nonce})"
             )));
         }
         let mut tx: TxEnv = request
@@ -213,10 +266,7 @@ impl GasEstimator {
         tx.tx_type = request.transaction_type.unwrap_or(tx.tx_type);
         let cap = env.cfg_env.tx_gas_limit_cap().min(env.block_env.gas_limit);
         tx.gas_limit = tx.gas_limit.min(cap);
-        let balance = state
-            .account_balance(&caller)
-            .map_err(unavailable)?
-            .unwrap_or_default();
+        let balance = account.balance;
         let available = balance
             .checked_sub(tx.value)
             .ok_or_else(|| EstimateError::Invalid("insufficient funds for value".into()))?;
@@ -229,12 +279,18 @@ impl GasEstimator {
         // Native setup consumes block capacity. Its measured remainder can
         // tighten the high bound before the user's first execution.
         let ceiling = first.limit;
-        // Five percent plus a small call-stipend allowance is a starting
-        // candidate, not a gas guarantee. Native replay must accept it.
+        // L1 companions scan a shared table whose preceding rows can increase
+        // after this isolated quote. Reserve 20% there (5% for L2), plus the
+        // call stipend. This sizes gas, not the fee tariff: native replay still
+        // prices actual consumption, and final preflight may shrink the batch.
         let candidate = first
             .required
             .saturating_add(2_300)
-            .saturating_mul(105)
+            .saturating_mul(if direction == Direction::Inbound {
+                120
+            } else {
+                105
+            })
             .div_ceil(100)
             .min(ceiling);
         let selected = if candidate == ceiling && tx.gas_limit == ceiling {
@@ -317,6 +373,9 @@ impl GasEstimator {
             l2_randao,
             settled_root: endpoint.hash,
             generation: None,
+            l2_prefix: Vec::new(),
+            l1_prefix_gas: 0,
+            prefix_semantic_bytes: 0,
         })
     }
 
@@ -422,6 +481,9 @@ impl GasEstimator {
             l2_randao,
             settled_root: endpoint.hash,
             generation: Some(anchor.generation),
+            l2_prefix: Vec::new(),
+            l1_prefix_gas: 0,
+            prefix_semantic_bytes: 0,
         })
     }
 
@@ -434,7 +496,7 @@ impl GasEstimator {
             s.l2_timestamp,
             s.l2_randao,
             self.recipient,
-            &[],
+            &s.l2_prefix,
         )
         .map_err(unavailable)
     }
@@ -583,6 +645,9 @@ impl GasEstimator {
                     actions: vec![],
                     settlement: None,
                     post_required: 0,
+                    retained_l1: None,
+                    retained_l2: Vec::new(),
+                    retained_root: None,
                 });
             }
             return Err(unsupported("request did not produce a cross-chain action"));
@@ -607,9 +672,14 @@ impl GasEstimator {
                 };
                 let overhead = super::policy::semantic_overhead(self.rollup_id, &[semantic])
                     .map_err(unavailable)?;
-                let bytes =
-                    eez_blob_codec::native_stream_len(pricing.operations, overhead.semantic_bytes)
-                        .map_err(unavailable)?;
+                let bytes = eez_blob_codec::native_stream_len(
+                    pricing.operations,
+                    overhead
+                        .semantic_bytes
+                        .checked_add(s.prefix_semantic_bytes)
+                        .ok_or_else(|| unsupported("pending semantic bytes overflow"))?,
+                )
+                .map_err(unavailable)?;
                 let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
                 if bytes > 2 * 1024 * 1024 || blobs > pricing.maximum_blobs {
                     return Err(unsupported("quote DA capacity"));
@@ -626,7 +696,8 @@ impl GasEstimator {
                     hash
                 })
                 .collect::<Vec<_>>();
-            let (batch, digest) = preparation::inbound(self, s, &composition, &hashes)?;
+            let (batch, digest, pending_txs, pending_root) =
+                preparation::inbound(self, s, &composition, &hashes)?;
             let mut replay = l1::replay(
                 self,
                 s,
@@ -676,6 +747,8 @@ impl GasEstimator {
                 let used = replay.settlement.map_or(used, |v| v.0);
                 replay.settlement = Some((used, blobs, da_bytes));
             }
+            replay.retained_l2 = pending_txs;
+            replay.retained_root = Some(pending_root);
             Ok(replay)
         } else {
             preparation::outbound(self, s, &composition, tx)

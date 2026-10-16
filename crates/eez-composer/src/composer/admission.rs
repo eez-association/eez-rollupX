@@ -78,6 +78,9 @@ impl Sample {
 pub(super) struct AutomaticAdmission {
     sample: Option<Sample>,
     retry_limit: Option<SelectionLimit>,
+    // Retain the learned native execution bound until the current queue drains.
+    // Successful preparation alone says nothing about final shared-table gas.
+    preflight_limit: Option<usize>,
     pub submission_failures: u32,
     timings: Arc<PipelineTimings>,
 }
@@ -99,6 +102,25 @@ impl SelectionLimit {
 }
 
 impl AutomaticAdmission {
+    pub fn preflight_failed(&mut self, groups: usize) -> Option<usize> {
+        if groups < 2 {
+            return self.preflight_limit;
+        }
+        let next = (groups / 2).max(1);
+        self.preflight_limit = Some(self.preflight_limit.map_or(next, |old| old.min(next)));
+        self.preflight_limit
+    }
+
+    pub fn preflight_completed(&mut self, queue_empty: bool) {
+        if queue_empty {
+            self.preflight_limit = None;
+        }
+    }
+
+    pub fn preflight_limit(&self) -> usize {
+        self.preflight_limit.unwrap_or(usize::MAX)
+    }
+
     /// Only charged, canonically confirmed incomplete settlement trains this
     /// counter. An isolated omission does not establish a capacity problem.
     /// Keep the streak across preparation/dispatch, resetting on canonical
@@ -140,6 +162,7 @@ impl AutomaticAdmission {
         let estimated = queued;
         estimated
             .min(self.retry_limit.map_or(usize::MAX, |limit| limit.count))
+            .min(self.preflight_limit())
             .min(queued)
     }
 
@@ -150,7 +173,10 @@ impl AutomaticAdmission {
             started: Instant::now(),
             available,
             selected: self.limit(queued, available),
-            selection_limit_reason: self.retry_limit.map(|limit| limit.reason),
+            selection_limit_reason: self
+                .preflight_limit
+                .map(|_| "native_preflight_backoff")
+                .or(self.retry_limit.map(|limit| limit.reason)),
             submission_failures: self.submission_failures,
             previous: self.sample,
             deadline,
@@ -785,6 +811,25 @@ mod tests {
     }
 
     #[test]
+    fn native_failure_reduces_whole_groups_and_survives_preparation_success() {
+        let mut state = AutomaticAdmission::default();
+        assert_eq!(state.preflight_failed(39), Some(19));
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 19);
+        let a = attempt(19, 19, false, None);
+        a.completed();
+        state.finish(&a);
+        state.submission_completed();
+        state.preflight_completed(false);
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 19);
+        assert_eq!(state.submission_failures, 0);
+        assert_eq!(state.preflight_failed(19), Some(9));
+        assert_eq!(state.preflight_failed(2), Some(1));
+        assert_eq!(state.preflight_failed(1), Some(1));
+        state.preflight_completed(true);
+        assert_eq!(state.limit(231, Duration::from_secs(1)), 231);
+    }
+
+    #[test]
     fn automatic_selection_learns_once_then_uses_finite_snapshot_and_actual_time() {
         let mut state = AutomaticAdmission::default();
         assert_eq!(state.limit(1000, Duration::ZERO), 0);
@@ -1002,6 +1047,7 @@ mod tests {
             for prepared in [None, Some(sample(60, 498))] {
                 for fifo_bypassed in [false, true] {
                     let mut state = AutomaticAdmission {
+                        preflight_limit: None,
                         sample: Some(sample(62, 477)),
                         retry_limit: None,
                         submission_failures: 0,
@@ -1178,6 +1224,7 @@ mod tests {
     #[test]
     fn a_stale_tail_estimate_defers_once_then_allows_one_probe_and_relearning() {
         let mut state = AutomaticAdmission {
+            preflight_limit: None,
             sample: Some(sample(1, 2000)),
             retry_limit: None,
             submission_failures: 0,
@@ -1643,6 +1690,7 @@ mod tests {
     fn source_and_transport_uncertainty_preserve_capacity_but_zero_progress_resource_cuts_back_off()
     {
         let mut state = AutomaticAdmission {
+            preflight_limit: None,
             sample: Some(sample(64, 100)),
             retry_limit: None,
             submission_failures: 0,

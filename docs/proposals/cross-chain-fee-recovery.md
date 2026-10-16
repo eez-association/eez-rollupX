@@ -15,6 +15,42 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Stress recovery and batching corrections authorized on 2026-10-16
+
+Recover the 231 retained test sources with the operator-approved RPC pause and
+same-image restart, preserving the stopped datadir, source identities and any
+explicit replacement envelopes. Canonical source evidence, not admission or a
+posting receipt alone, determines recovery. The original failed run stays failed.
+
+The follow-up implementation aligns quote history with the active posting window
+(reserving its terminal block), while retaining deadlines, byte bounds, canonical
+ancestry and exclusion of unsettled native effects. Native execution failures in
+final preflight must cause smaller whole-group retries instead of replaying the
+unchanged candidate forever. Size reduction retains ownership without charging
+users; an indivisible source that repeatedly fails native validation needs a
+bounded explicit disposition, but only a failed native companion execution bound
+to that exact signed L1 hash can charge its retry counter. Posting/root failures
+cannot attribute blame to a singleton. Infrastructure failures must not train
+this backoff.
+The source gas estimate needs headroom for shared-table scans, but headroom alone
+cannot replace final ordered validation or adaptive batching.
+
+Explicit future L1 nonces may replay up to eight contiguous, owned signed
+predecessors under the same quote deadline and work bounds. Replay must retain
+real nonces, balances, fee fields and nested effects on both chains in disposable
+state; changing a nonce in otherwise canonical state is not sufficient. Each
+predecessor uses a conditional native post at the sampled L1 target. Final
+settlement rebuilds and validates the actual shared batch. Missing bytes, gaps,
+replacements during replay, and unsupported L2 predecessor profiles fail closed.
+
+Acceptance requires the original failure mechanisms as regressions, full protocol
+semantic checks including consecutive source nonces, nested/reverting calls and
+Falcon Safe workloads, exact quote fees, canonical settlement, native DA checks,
+and independent follower replay. Record any unsupported profile explicitly.
+Protocol, signer, contracts, genesis and persistent data formats remain unchanged;
+drain the in-memory queue before upgrade or rollback. This section records the
+authorized implementation scope, not a claim that validation has passed.
+
 ### L1 batching and observation-only recovery authorized on 2026-10-16
 
 The operator accepts losses when one user's refund does not cover a shared L1
@@ -53,9 +89,9 @@ confirmed multi-source posts and largest-payer refunds, and passed all 48 Falcon
 sources. It did **not** pass the full protocol matrix: isolated gas estimates
 failed in shared candidates, queued future nonces were unsupported, and the
 256-block history bound blocked replacement admission after the resulting stall.
-The report retains the 231 pending test sources and recovery-approval status.
-Those liveness/profile gaps remain open; the earlier bounded validation does
-not establish general workload or production readiness.
+The report preserves that failure and records the later authorized recovery of
+all 231 sources. Recovery alone does not validate the fixes or establish general
+workload or production readiness; a fresh matrix remains required.
 
 ### L1 collection increment authorized on 2026-10-15
 

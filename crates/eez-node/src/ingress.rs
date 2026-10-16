@@ -851,7 +851,21 @@ async fn intercept_send_raw(
     }
     let id = json.get("id").cloned().unwrap_or(Value::Null);
     let hash: B256 = keccak256(raw.as_ref());
-    match transaction_is_cross_chain(ctx, &envelope).await {
+    // A predecessor may change whether execution reaches dispatch. Only the
+    // stateful fee path can classify such a call; an isolated trace could revert
+    // early and incorrectly release it into the ordinary mempool.
+    let requires_owned_state = ctx.fee_quotes.as_ref().is_some_and(|s| s.enforce_tariff)
+        && (ctx.held_pool.owns(hash)
+            || envelope.recover_signer().is_ok_and(|sender| {
+                ctx.held_pool
+                    .owns_predecessor(sender, ctx.direction, envelope.nonce())
+            }));
+    let classification = if requires_owned_state {
+        Ok(true)
+    } else {
+        transaction_is_cross_chain(ctx, &envelope).await
+    };
+    match classification {
         Ok(false) => {
             event!(
                 name: "eez.xchain_front.ordinary_forwarded",

@@ -11,7 +11,7 @@ use std::{
 };
 
 use alloy_consensus::{Header, Transaction, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
-use alloy_eips::Encodable2718;
+use alloy_eips::{Decodable2718, Encodable2718};
 use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, keccak256};
 use eez_l1::{BundleTarget, L2Endpoint};
 use eez_payload_codec::v0::{BlockRun, PayloadSizer};
@@ -31,13 +31,13 @@ use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBl
 
 pub(super) const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
 const MAX_CALLDATA: usize = 12 * 1024;
-const MAX_HISTORY: u64 = 256;
 const MAX_ITERATIONS: usize = 4;
 const MAX_FRAMES: usize = 32;
 const MAX_DEPTH: usize = 8;
 const MAX_DA_BYTES: usize = 2 * 1024 * 1024;
 const QUOTE_LIFETIME_SECONDS: u64 = 30;
 const MAX_CONTEXT_AGE_SECONDS: u64 = 60;
+const MAX_QUOTE_PREDECESSORS: usize = 8;
 
 /// Stable error categories for the application quote APIs. Details are fixed
 /// strings: backend/provider errors stay in local diagnostics.
@@ -382,10 +382,118 @@ where
         cancelled: Arc<AtomicBool>,
     ) -> Result<Value, FeeQuoteError> {
         let budget = Arc::new(Budget::new(cancelled));
-        let snapshot = self.fee_snapshot(&prepared, &budget)?;
+        let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
+        let (_, predecessors) = self.replay_quote_predecessors(
+            &prepared,
+            &mut snapshot,
+            &budget,
+            Some(prepared.request.tx.nonce()),
+        )?;
         let result = self.quote_in_context(&prepared, &snapshot, &budget)?;
         self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
+        self.validate_quote_predecessors(prepared.rollup_id, &predecessors)?;
         Ok(result)
+    }
+
+    fn validate_quote_predecessors(
+        &self,
+        rollup_id: u64,
+        prefix: &[crate::held_pool::HeldTx],
+    ) -> Result<(), FeeQuoteError> {
+        let pool = &self.inner.rollups[&rollup_id].held_pool;
+        if prefix.iter().any(|tx| !pool.owns(tx.hash)) {
+            return Err(FeeQuoteError::Stale);
+        }
+        Ok(())
+    }
+
+    /// Pending L1 nonces require an owned contiguous prefix and complete native
+    /// replay. No nonce or balance is fabricated to make a future source pass.
+    /// Prefix work shares the original deadline, frame budget and worker permit.
+    fn replay_quote_predecessors(
+        &self,
+        prepared: &PreparedL2FeeQuote,
+        snapshot: &mut super::super::estimate::Snapshot,
+        budget: &Arc<Budget>,
+        requested: Option<u64>,
+    ) -> Result<(u64, Vec<crate::held_pool::HeldTx>), FeeQuoteError> {
+        let estimator = self
+            .gas_estimator(prepared.rollup_id)
+            .map_err(compact::estimate_error)?;
+        let canonical = estimator
+            .source_account(prepared.direction, snapshot, prepared.request.sender)
+            .map_err(compact::estimate_error)?
+            .nonce;
+        let requested = requested.unwrap_or(canonical);
+        if requested == canonical {
+            return Ok((canonical, Vec::new()));
+        }
+        if prepared.direction != crate::Direction::Inbound {
+            return Err(FeeQuoteError::Invalid(
+                "queued L2 predecessors are outside the quote profile",
+            ));
+        }
+        let rollup = &self.inner.rollups[&prepared.rollup_id];
+        let (nonce, prefix) = rollup
+            .held_pool
+            .quote_predecessors(
+                prepared.request.sender,
+                prepared.direction,
+                canonical,
+                Some(requested),
+                MAX_QUOTE_PREDECESSORS,
+            )
+            .map_err(|error| match error {
+                crate::held_pool::QuotePrefixError::Invalid(message) => {
+                    FeeQuoteError::Invalid(message)
+                }
+                crate::held_pool::QuotePrefixError::Composing => {
+                    FeeQuoteError::Unavailable("queued predecessor is entering composition")
+                }
+            })?;
+        let operations = history_size(
+            rollup.l2_provider.as_ref(),
+            &snapshot.l2_parent,
+            prepared.endpoint,
+            self.inner.fee_recipient,
+            self.inner.emission.max_blocks.saturating_sub(1),
+            budget,
+        )?;
+        let maximum_blobs = self
+            .remaining_posting_blob_allowance(prepared.posting.quote.target, 0)
+            .map_err(|e| unavailable("blob allowance", e))?;
+        for held in &prefix {
+            budget.check()?;
+            let mut raw = held.raw_tx.as_ref();
+            let envelope = alloy_consensus::TxEnvelope::decode_2718(&mut raw)
+                .map_err(|e| unavailable("queued source envelope", e))?;
+            let request = L2FeeRequest::from_signed(&envelope)?;
+            if !raw.is_empty()
+                || keccak256(&held.raw_tx) != held.hash
+                || request.sender != held.sender
+                || request.tx.nonce() != held.nonce
+                || request.tx.chain_id() != Some(prepared.posting.quote.chain_id)
+            {
+                return Err(FeeQuoteError::Unavailable("queued source identity changed"));
+            }
+            let cap = request.tx.max_fee_per_gas();
+            let tip = request.tx.max_priority_fee_per_gas().unwrap_or(cap);
+            estimator
+                .advance_inbound(
+                    snapshot,
+                    request.env(tip, cap),
+                    budget.deadline,
+                    super::super::estimate::InboundPricing {
+                        runtime: &self.inner.posting,
+                        posting: &prepared.posting,
+                        operations,
+                        maximum_blobs,
+                        budget: Arc::clone(budget),
+                    },
+                )
+                .map_err(compact::estimate_error)?;
+        }
+        Ok((nonce, prefix))
     }
 
     fn fee_snapshot(
@@ -394,7 +502,12 @@ where
         budget: &Budget,
     ) -> Result<super::super::estimate::Snapshot, FeeQuoteError> {
         let rollup = &self.inner.rollups[&prepared.rollup_id];
-        let parent = advisory_parent(rollup.l2_provider.as_ref(), prepared.endpoint, budget)?;
+        let parent = advisory_parent(
+            rollup.l2_provider.as_ref(),
+            prepared.endpoint,
+            self.inner.emission.max_blocks.saturating_sub(1),
+            budget,
+        )?;
         self.validate_fee_context(prepared, &parent)?;
         let source = self.inner.cross_chain.local.l2_entry.chain_provider();
         let best = source
@@ -551,6 +664,7 @@ where
             &parent,
             endpoint,
             self.inner.fee_recipient,
+            self.inner.emission.max_blocks.saturating_sub(1),
             budget,
         )?;
         let (timestamp, randao) = (snapshot.l2_timestamp, snapshot.l2_randao);
@@ -856,12 +970,14 @@ pub(in crate::composer) fn tariff_history_size<L2: BlockReader<Header = Header>>
     parent: &SealedHeader<Header>,
     endpoint: L2Endpoint,
     beneficiary: Address,
+    max_history: u64,
 ) -> Result<usize, FeeQuoteError> {
     history_size(
         provider,
         parent,
         endpoint,
         beneficiary,
+        max_history,
         &Budget::new(Arc::new(AtomicBool::new(false))),
     )
 }
@@ -881,29 +997,40 @@ fn required_tip(cost: U256, gas: u64) -> Result<u128, FeeQuoteError> {
 fn advisory_parent<L2: BlockReader<Header = Header>>(
     provider: &L2,
     endpoint: L2Endpoint,
+    max_history: u64,
     budget: &Budget,
 ) -> Result<SealedHeader<Header>, FeeQuoteError> {
     let number = provider
         .best_block_number()
         .map_err(|e| unavailable("L2 head", e))?;
-    if number < endpoint.number || number - endpoint.number > MAX_HISTORY {
-        return Err(FeeQuoteError::Limit("unsettled history exceeds 256 blocks"));
-    }
     let mut parent = SealedHeader::seal_slow(
         provider
-            .header_by_number(number)
-            .map_err(|e| unavailable("L2 header", e))?
-            .ok_or(FeeQuoteError::Unavailable("L2 header"))?,
+            .header_by_number(endpoint.number)
+            .map_err(|e| unavailable("L2 endpoint", e))?
+            .ok_or(FeeQuoteError::Unavailable("L2 endpoint"))?,
     );
-    let mut hash = parent.hash();
-    let mut cutoff = hash;
-    for height in (endpoint.number + 1..=number).rev() {
+    if number < endpoint.number || parent.hash() != endpoint.hash {
+        return Err(FeeQuoteError::Stale);
+    }
+    // Walk forward and stop at the first native block. A long speculative
+    // suffix must not exhaust the budget for a short, usable ordinary prefix.
+    // Read at most max_history + 1 blocks, allowing the next block to be native.
+    while parent.number < number {
         budget.check()?;
+        let height = parent.number + 1;
+        let header = provider
+            .header_by_number(height)
+            .map_err(|e| unavailable("quote history", e))?
+            .ok_or(FeeQuoteError::Unavailable("quote history missing"))?;
+        if header.number != height || header.parent_hash != parent.hash() {
+            return Err(FeeQuoteError::Stale);
+        }
+        let hash = header.hash_slow();
         let block = provider
             .find_block_by_hash(hash, BlockSource::Any)
             .map_err(|e| unavailable("quote history", e))?
             .ok_or(FeeQuoteError::Unavailable("quote history missing"))?;
-        if block.header().number != height || block.header().hash_slow() != hash {
+        if block.header().hash_slow() != hash {
             return Err(FeeQuoteError::Stale);
         }
         for tx in block.body().transactions() {
@@ -913,24 +1040,15 @@ fn advisory_parent<L2: BlockReader<Header = Header>>(
                     .map_err(|e| unavailable("history signer", e))?
                     == eez_primitives::SYSTEM_ADDRESS
             {
-                cutoff = block.header().parent_hash;
-                break;
+                return Ok(parent);
             }
         }
-        hash = block.header().parent_hash;
-    }
-    if hash != endpoint.hash {
-        return Err(FeeQuoteError::Stale);
-    }
-    if cutoff != parent.hash() {
-        let block = provider
-            .find_block_by_hash(cutoff, BlockSource::Any)
-            .map_err(|e| unavailable("quote parent", e))?
-            .ok_or(FeeQuoteError::Unavailable("quote parent missing"))?;
-        parent = SealedHeader::seal_slow(block.header().clone());
-        if parent.hash() != cutoff {
-            return Err(FeeQuoteError::Stale);
+        if height - endpoint.number > max_history {
+            return Err(FeeQuoteError::Limit(
+                "ordinary history exceeds posting window",
+            ));
         }
+        parent = SealedHeader::new(header, hash);
     }
     Ok(parent)
 }
@@ -940,10 +1058,16 @@ fn history_size<L2: BlockReader<Header = Header>>(
     parent: &SealedHeader<Header>,
     endpoint: L2Endpoint,
     beneficiary: Address,
+    max_history: u64,
     budget: &Budget,
 ) -> Result<usize, FeeQuoteError> {
-    if endpoint.number > parent.number || parent.number - endpoint.number > MAX_HISTORY {
-        return Err(FeeQuoteError::Limit("unsettled history exceeds 256 blocks"));
+    if endpoint.number > parent.number {
+        return Err(FeeQuoteError::Stale);
+    }
+    if parent.number - endpoint.number > max_history {
+        return Err(FeeQuoteError::Limit(
+            "ordinary history exceeds posting window",
+        ));
     }
     let mut hash = parent.hash();
     let mut history = Vec::new();

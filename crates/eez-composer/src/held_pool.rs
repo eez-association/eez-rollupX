@@ -99,6 +99,13 @@ pub enum AdmissionError {
     },
 }
 
+#[derive(Debug)]
+pub(crate) enum QuotePrefixError {
+    Invalid(&'static str),
+    /// A claimed source has not yet entered its attempt's signed-byte ledger.
+    Composing,
+}
+
 /// Smallest fee a replacement must offer over `replaced`: ≥10% more,
 /// always at least +1 (bars equal-fee churn).
 fn min_replacement_fee(replaced: u128) -> u128 {
@@ -935,8 +942,22 @@ impl HeldPool {
         state.by_hash.contains(&hash) || state.in_flight.contains_key(&hash)
     }
 
-    /// Read-only quote guard: queued and composing predecessors are not part
-    /// of isolated canonical-state execution. This does not reserve a nonce.
+    /// An isolated source-chain trace cannot classify a call whose effects may
+    /// depend on an owned predecessor. This is only a routing hint; admission
+    /// still requires a contiguous, replayable prefix and validates the fees.
+    pub fn owns_predecessor(&self, sender: Address, direction: Direction, nonce: u64) -> bool {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        state
+            .txs
+            .iter()
+            .any(|tx| tx.sender == sender && tx.direction == direction && tx.nonce < nonce)
+            || state.in_flight.values().any(|&(owner, axis, previous)| {
+                owner == sender && axis == direction && previous < nonce
+            })
+    }
+
+    /// Read-only quote guard against reusing a nonce already owned by the pool.
+    /// Predecessor replay is separate and this lookup does not reserve a nonce.
     pub(crate) fn owns_nonce(&self, sender: Address, direction: Direction, nonce: u64) -> bool {
         let state = self.state.lock().expect("held_pool mutex poisoned");
         state
@@ -947,6 +968,70 @@ impl HeldPool {
                 .in_flight
                 .values()
                 .any(|owner| *owner == (sender, direction, nonce))
+    }
+
+    /// Copy a bounded, contiguous owned prefix for a disposable quote replay.
+    /// Read queued bytes and in-flight ledger bytes under the ownership lock;
+    /// a reservation without available signed bytes cannot authorize replay.
+    pub(crate) fn quote_predecessors(
+        &self,
+        sender: Address,
+        direction: Direction,
+        canonical: u64,
+        requested: Option<u64>,
+        maximum: usize,
+    ) -> Result<(u64, Vec<HeldTx>), QuotePrefixError> {
+        let state = self.state.lock().expect("held_pool mutex poisoned");
+        let nonce = requested.unwrap_or_else(|| {
+            state
+                .next_expected_nonce(sender, direction, canonical)
+                .unwrap_or(u64::MAX)
+        });
+        let count = nonce
+            .checked_sub(canonical)
+            .ok_or(QuotePrefixError::Invalid(
+                "nonce precedes canonical source state",
+            ))?;
+        if count > maximum as u64 {
+            return Err(QuotePrefixError::Invalid(
+                "queued nonce prefix exceeds quote limit",
+            ));
+        }
+        let mut prefix = Vec::with_capacity(count as usize);
+        for next in canonical..nonce {
+            let tx = state
+                .txs
+                .iter()
+                .find(|tx| tx.sender == sender && tx.direction == direction && tx.nonce == next)
+                .cloned()
+                .or_else(|| {
+                    state.ledger.read(|data| {
+                        data.users
+                            .values()
+                            .find(|user| {
+                                let tx = &user.tx;
+                                tx.sender == sender
+                                    && tx.direction == direction
+                                    && tx.nonce == next
+                                    && state.in_flight.contains_key(&tx.hash)
+                            })
+                            .map(|user| user.tx.clone())
+                    })
+                })
+                .ok_or_else(|| {
+                    if state
+                        .in_flight
+                        .values()
+                        .any(|owner| *owner == (sender, direction, next))
+                    {
+                        QuotePrefixError::Composing
+                    } else {
+                        QuotePrefixError::Invalid("queued nonce prefix has a gap")
+                    }
+                })?;
+            prefix.push(tx);
+        }
+        Ok((nonce, prefix))
     }
 
     /// Cross-chain sources must not enter ordinary L2 sequencing when Reth
@@ -969,17 +1054,61 @@ mod tests {
     use alloy_primitives::B256;
 
     #[test]
+    fn quote_prefix_requires_contiguous_owned_bytes_and_tracks_replacements() {
+        let pool = HeldPool::new(Default::default());
+        let first = tx(1);
+        let mut second = tx(2);
+        second.sender = first.sender;
+        second.nonce = first.nonce + 1;
+        pool.push_contiguous(first.clone(), first.nonce).unwrap();
+        pool.push_contiguous(second.clone(), first.nonce).unwrap();
+        let read = |requested, limit| {
+            pool.quote_predecessors(first.sender, first.direction, first.nonce, requested, limit)
+        };
+        let (next, prefix) = read(None, 8).unwrap();
+        assert_eq!(next, second.nonce + 1);
+        assert_eq!(prefix, [first.clone(), second.clone()]);
+        assert!(read(Some(next + 1), 8).is_err());
+        assert!(read(Some(next), 1).is_err());
+        let mut replacement = first.clone();
+        replacement.hash = B256::repeat_byte(3);
+        replacement.raw_tx = Bytes::from_static(b"replacement");
+        replacement.max_fee_per_gas *= 2;
+        replacement.priority_fee_per_gas *= 2;
+        pool.push_contiguous(replacement.clone(), first.nonce)
+            .unwrap();
+        assert_eq!(read(Some(next), 8).unwrap().1, [replacement, second]);
+        assert!(
+            pool.quote_predecessors(
+                first.sender,
+                Direction::Outbound,
+                first.nonce,
+                Some(next),
+                8
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn quote_nonce_guard_tracks_queued_and_in_flight_ownership() {
         let pool = HeldPool::new(Default::default());
         let tx = tx_dir(1, Direction::Outbound);
         assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
         pool.push_contiguous(tx.clone(), tx.nonce).unwrap();
+        assert!(!pool.owns_predecessor(tx.sender, tx.direction, tx.nonce));
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 3));
+        assert!(!pool.owns_predecessor(tx.sender, Direction::Inbound, tx.nonce + 1));
+        assert!(!pool.owns_predecessor(Address::ZERO, tx.direction, tx.nonce + 1));
         assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
         assert!(!pool.owns_nonce(tx.sender, Direction::Inbound, tx.nonce));
         assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce + 1));
         let claimed = pool.pop_all();
+        assert!(pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
         assert!(pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
         pool.release_in_flight_batch(&claimed);
+        assert!(!pool.owns_predecessor(tx.sender, tx.direction, tx.nonce + 1));
         assert!(!pool.owns_nonce(tx.sender, tx.direction, tx.nonce));
     }
 

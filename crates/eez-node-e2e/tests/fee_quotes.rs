@@ -24,6 +24,9 @@ alloy_sol_types::sol! {
         function gasSensitive() external view returns (uint256);
         function rejectsSettlementTip(address proxy) external;
     }
+    interface PendingQuoteProbe {
+        function setAfterInner(uint256 expectedLocal, uint256 expectedRemote, uint256 v) external;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -734,6 +737,181 @@ async fn l1_refund_quote_legacy_continues_after_missing_payment() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn l1_refund_quote_eip1559_continues_after_missing_payment() {
     l1_refund_roundtrip(false).await;
+}
+
+/// Keep predecessors unmined while quotes and signed admission replay them.
+/// Canonical refund settlement is covered by the real builder lane.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
+    let mut policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    policy["risk_bps"] = json!(0);
+    policy["profit_bps"] = json!(2000);
+    let world = setup_cross_chain_with_env(&[
+        (
+            "EEZ_L2_FEE_RECIPIENT",
+            policy["beneficiary"].as_str().unwrap().into(),
+        ),
+        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
+        (
+            "EEZ_L1_FEE_REFUND_POLICY",
+            json!({"version":1,"recipient":Address::repeat_byte(0x97),"percent":90}).to_string(),
+        ),
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+        ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
+    ])
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let chain = l1.get_chain_id().await.unwrap();
+    let inner =
+        deploy_nested_setter_inner(&world.l1_rpc(), TARGET_DEPLOYER, chain, world.setter_proxy)
+            .await
+            .unwrap();
+    let outer = deploy_nested_setter_outer(&world.l1_rpc(), TARGET_DEPLOYER, chain, inner)
+        .await
+        .unwrap();
+    let signer: PrivateKeySigner = INBOUND_USER.parse().unwrap();
+    let nonce = onchain_nonce(&world.l1_rpc(), INBOUND_USER).await.unwrap();
+    let client = reqwest::Client::new();
+    let safe_read =
+        json!([{"to":world.value_l2,"data":Bytes::from(IValue::valueCall {}.abi_encode())},"safe"]);
+    let target_before = quote_rpc(&client, &world.l2_rpc(), "eth_call", safe_read.clone())
+        .await
+        .unwrap();
+    assert!(target_before.get("error").is_none(), "{target_before}");
+    world.pause_bundles_after(0).unwrap();
+    for offset in 0..3 {
+        let data = Bytes::from(if offset == 0 {
+            INestedSetterOuter::setViaInnerCall { v: U256::from(901) }.abi_encode()
+        } else {
+            PendingQuoteProbe::setAfterInnerCall {
+                expectedLocal: U256::from(offset),
+                expectedRemote: U256::from(900 + offset),
+                v: U256::from(901 + offset),
+            }
+            .abi_encode()
+        });
+        let transaction = json!({"from":signer.address(),"to":outer,"nonce":format!("{:#x}",nonce+offset),"data":data});
+        let quote = wait_for(TIMEOUT, || async {
+            let response = quote_rpc(
+                &client,
+                &world.l1_xchain(),
+                "eez_quoteFee",
+                json!([transaction]),
+            )
+            .await?;
+            if quote_retry(&response) {
+                return Ok(None);
+            }
+            anyhow::ensure!(
+                response.get("error").is_none(),
+                "{response}{}",
+                world.settlement_diagnostics()
+            );
+            for option in response["result"]["options"].as_array().unwrap() {
+                anyhow::ensure!(
+                    option.get("error").is_none(),
+                    "{response}{}",
+                    world.settlement_diagnostics()
+                );
+            }
+            Ok(Some(response["result"].clone()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(quote["nonce"], format!("{:#x}", nonce + offset));
+        let legacy = offset % 2 == 0;
+        let option = &quote["options"][usize::from(!legacy)];
+        let quantity = |name: &str| {
+            u128::from_str_radix(option[name].as_str().unwrap().trim_start_matches("0x"), 16)
+                .unwrap()
+        };
+        let gas = quantity("gas") as u64;
+        let cap = quantity(if legacy { "gasPrice" } else { "maxFeePerGas" });
+        let tip = if legacy {
+            cap
+        } else {
+            quantity("maxPriorityFeePerGas")
+        };
+        let sign = |tip, cap| {
+            let mut tx: TypedTransaction = if legacy {
+                TxLegacy {
+                    chain_id: Some(chain),
+                    nonce: nonce + offset,
+                    gas_limit: gas,
+                    gas_price: cap,
+                    to: TxKind::Call(outer),
+                    input: data.clone(),
+                    ..Default::default()
+                }
+                .into()
+            } else {
+                TxEip1559 {
+                    chain_id: chain,
+                    nonce: nonce + offset,
+                    gas_limit: gas,
+                    max_priority_fee_per_gas: tip,
+                    max_fee_per_gas: cap,
+                    to: TxKind::Call(outer),
+                    input: data.clone(),
+                    ..Default::default()
+                }
+                .into()
+            };
+            let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+            tx.into_envelope(signature)
+        };
+        if !legacy {
+            let underpaid = sign(0, cap);
+            let rejected = quote_rpc(
+                &client,
+                &world.l1_xchain(),
+                "eth_sendRawTransaction",
+                json!([Bytes::from(underpaid.encoded_2718())]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                rejected["error"]["data"]["code"],
+                "l1_tip_underfunded",
+                "{rejected}{}",
+                world.settlement_diagnostics()
+            );
+        }
+        let paid = sign(tip, cap);
+        let admitted = quote_rpc(
+            &client,
+            &world.l1_xchain(),
+            "eth_sendRawTransaction",
+            json!([Bytes::from(paid.encoded_2718())]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            admitted["result"],
+            json!(paid.tx_hash()),
+            "{admitted}{}",
+            world.settlement_diagnostics()
+        );
+        assert_eq!(
+            onchain_nonce(&world.l1_rpc(), INBOUND_USER).await.unwrap(),
+            nonce,
+            "the predecessor must remain pending for this regression"
+        );
+    }
+    for future in [nonce + 4, nonce + 9] {
+        let response = quote_rpc(&client,&world.l1_xchain(),"eez_quoteFee",
+            json!([{"from":signer.address(),"to":outer,"nonce":format!("{future:#x}"),"data":"0x"}])).await.unwrap();
+        assert_eq!(response["error"]["code"], -32602, "{response}");
+    }
+    assert_eq!(
+        quote_rpc(&client, &world.l2_rpc(), "eth_call", safe_read)
+            .await
+            .unwrap()["result"],
+        target_before["result"],
+        "quotes must not commit their replay overlays"
+    );
 }
 
 async fn l1_refund_roundtrip(legacy: bool) {
