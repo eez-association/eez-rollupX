@@ -288,17 +288,18 @@ impl PostingRuntime {
         let estimated_priority_fee = if self.fees.priority_override.is_none() && filtered_priority {
             let (priority, excluded) =
                 tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                    self.priority_history
-                        .lock()
-                        .await
-                        .estimate(
-                            provider,
-                            head,
-                            self.ctx.l1_poster_signer.address(),
-                            self.registry,
-                            percentile,
-                        )
-                        .await
+                    let mut history = self.priority_history.lock().await;
+                    // Receipt/trace RPC state is large. Keep it out of every
+                    // enclosing scheduler/quote future while retaining the
+                    // guard and cancellation in this request.
+                    Box::pin(history.estimate(
+                        provider,
+                        head,
+                        self.ctx.l1_poster_signer.address(),
+                        self.registry,
+                        percentile,
+                    ))
+                    .await
                 })
                 .await
                 .map_err(|_| {

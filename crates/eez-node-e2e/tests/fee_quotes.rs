@@ -202,7 +202,7 @@ async fn nested_quote_roundtrip(
     // Exact-parent quotes can race a new L1 head. Retry only this documented
     // availability condition; unsupported or failed simulation is a test error.
     let last_error = std::sync::Mutex::new(Value::Null);
-    let quote = wait_for(Duration::from_secs(30), || async {
+    let mut quote = wait_for(Duration::from_secs(30), || async {
         if compact {
             let mut input = transaction.clone();
             for key in ["gas", "nonce", "chainId", "type"] {
@@ -958,7 +958,7 @@ async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
             .abi_encode()
         });
         let transaction = json!({"from":signer.address(),"to":outer,"nonce":format!("{:#x}",nonce+offset),"data":data});
-        let mut quote = wait_for(TIMEOUT, || async {
+        let quote = wait_for(TIMEOUT, || async {
             let response = quote_rpc(
                 &client,
                 &world.l1_xchain(),
