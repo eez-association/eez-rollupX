@@ -1,0 +1,13 @@
+{
+  "canonicalSetupRebroadcasts": 17,
+  "feeChanges": 0,
+  "gasChanges": 0,
+  "payloadChanges": 0,
+  "sourceTransactionsSentBeforeRecovery": 0,
+  "originalRunnerStoppedBeforeBroadcast": true,
+  "bothWalletLocksHeld": true,
+  "firstPreparationAttemptRetained": true,
+  "allSetupReceipts": 2850,
+  "predictedCodeAddressesChecked": 2830,
+  "localPublicReceiptAgreement": true
+}

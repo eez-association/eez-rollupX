@@ -1,0 +1,64 @@
+{
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "images": {
+    "node": {
+      "tag": "eez-node:batch-timing-20261016",
+      "id": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "revision": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+      "executables": {
+        "eez-composer": "a2546d41e90f4ae3c6e636b1cb75ecc43b4657498b0e4ed285ac591e3853c266",
+        "eez-follower": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:batch-timing-20261016",
+      "id": "sha256:5095ca5db298a49f3c555a265b515689589e07e6db2c189c95be4257cc03017b",
+      "revision": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+      "executables": {
+        "eez-proof-signer": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:batch-timing-20261016",
+      "id": "sha256:de25d0337c09dd8393b07664362a3445b50145aadb029b474e23910534655ddf",
+      "revision": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+      "executables": {}
+    }
+  },
+  "binaries": {
+    "eez-composer": {
+      "sha256": "a2546d41e90f4ae3c6e636b1cb75ecc43b4657498b0e4ed285ac591e3853c266",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "source": "be8477bc7ba48d3f287d33cd6c010089458885ec"
+    },
+    "eez-follower": {
+      "sha256": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "source": "be8477bc7ba48d3f287d33cd6c010089458885ec"
+    },
+    "eez-genesis-state-root": {
+      "sha256": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "source": "be8477bc7ba48d3f287d33cd6c010089458885ec"
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "source": "be8477bc7ba48d3f287d33cd6c010089458885ec"
+    },
+    "eez-proof-signer": {
+      "sha256": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93",
+      "image": "sha256:5095ca5db298a49f3c555a265b515689589e07e6db2c189c95be4257cc03017b",
+      "source": "be8477bc7ba48d3f287d33cd6c010089458885ec"
+    },
+    "verify_blob_evidence": {
+      "sha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+      "source": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+      "unchangedInputsAtCandidate": true
+    }
+  },
+  "publication": "local development images, not CI promotion"
+}

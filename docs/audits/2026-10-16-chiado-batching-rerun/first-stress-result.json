@@ -1,0 +1,41 @@
+{
+  "source": "9697b317d84597f1a6617e803cb337d7765f1451",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "jobs": 770,
+  "sources": 870,
+  "accepted": 870,
+  "admissionErrors": 0,
+  "canonicalAfterDeadline": 870,
+  "sourceSendSeconds": 5.556,
+  "canonicalSettlementSeconds": 1448.9300000667572,
+  "sourcesPerSecondDuringWave": 0.600443085559631,
+  "latencySeconds": {
+    "median": 1337.2065000534058,
+    "p95": 1413.875,
+    "max": 1443.6170001029968
+  },
+  "posts": 118,
+  "maxL1SourcesPerPost": 71,
+  "maxL2SourcesPerPost": 40,
+  "receiptWaitTimeouts": 4,
+  "feeMultiplier": "1",
+  "quoteFormatSelection": "one format per request, alternating legacy and EIP-1559 by job",
+  "status": "failed latency; all original envelopes eventually canonical",
+  "limitations": [
+    "Background builds overlapped the latter part of this wave.",
+    "Setup resumed only after independent canonical reconciliation; first setup timeout preserved.",
+    "Semantic verification still in progress."
+  ],
+  "L1": {
+    "sources": 520,
+    "cost": "127784238799474347",
+    "collected": "51245343266379714",
+    "undercoveredPosts": 105
+  },
+  "L2": {
+    "sources": 350,
+    "cost": "120431786287153520",
+    "collected": "245805901353628331",
+    "undercoveredPosts": 0
+  }
+}
