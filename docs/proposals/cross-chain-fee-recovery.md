@@ -15,6 +15,32 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Omitted L1 nonce follow-up from PR 56 feedback on 2026-10-16
+
+Status: implementation and qualification in progress for PR 91. The existing
+API defaults an omitted nonce to canonical source state. This rejects a second
+same-account L1 quote when the first source is already owned but unmined; the
+client did not submit a duplicate nonce. The explicit prepared-nonce change in
+the [PR 56 trial](../audits/2026-10-16-protocol-pr56/README.md) preserves the
+runner's intended transaction identity, but does not fix automatic selection.
+
+For L1 requests without a nonce, reuse the held pool's first available contiguous
+nonce and its signed predecessor replay. Retain the eight-predecessor bound,
+both chains' native disposable state, the original budget and the final
+ownership/context checks. Explicit nonces must remain exact: a pending duplicate
+cannot silently become a different transaction. Quotes do not reserve a nonce.
+The unsupported L2 pending-prefix and ordinary-mempool profiles remain unchanged.
+Advancing only the nonce or waiting for each source to settle would respectively
+skip required state transitions or remove the intended burst.
+
+Acceptance requires the omitted-nonce regression to fail on the prior Composer
+and pass after the change, with three unmined same-account sources, nested
+predecessor-dependent effects, both fee encodings, underpayment rejection and
+repeated compact/debug quotes without nonce reservation. Preserve explicit
+duplicates, gap/limit failures and canonical-state isolation. No protocol,
+signer-wire, storage or genesis change is needed; older Composer versions still
+require explicit prepared nonces for this burst profile.
+
 ### Posting-price feedback correction authorized on 2026-10-16
 
 Status: implemented, qualified and deployed after the

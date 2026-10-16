@@ -919,6 +919,15 @@ async fn l1_refund_quote_eip1559_continues_after_missing_payment() {
 /// Canonical refund settlement is covered by the real builder lane.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
+    queued_l1_nonce_quotes(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn omitted_l1_nonces_replay_nested_predecessors_without_reserving() {
+    queued_l1_nonce_quotes(true).await;
+}
+
+async fn queued_l1_nonce_quotes(omit_nonce: bool) {
     let mut policy = crate::settlement_policy_cost::shadow_pricing_policy();
     policy["risk_bps"] = json!(0);
     policy["profit_bps"] = json!(2000);
@@ -968,7 +977,10 @@ async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
             }
             .abi_encode()
         });
-        let transaction = json!({"from":signer.address(),"to":outer,"nonce":format!("{:#x}",nonce+offset),"data":data});
+        let mut transaction = json!({"from":signer.address(),"to":outer,"data":data});
+        if !omit_nonce {
+            transaction["nonce"] = json!(format!("{:#x}", nonce + offset));
+        }
         let quote = wait_for(TIMEOUT, || async {
             let response = quote_rpc(
                 &client,
@@ -997,6 +1009,24 @@ async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
         .await
         .unwrap();
         assert_eq!(quote["nonce"], format!("{:#x}", nonce + offset));
+        if omit_nonce {
+            let repeated = wait_for(TIMEOUT, || async {
+                let response = quote_rpc(
+                    &client,
+                    &world.l1_xchain(),
+                    "eez_debugQuoteFee",
+                    json!([transaction]),
+                )
+                .await?;
+                Ok((!quote_retry(&response)).then_some(response))
+            })
+            .await
+            .unwrap();
+            assert_eq!(repeated["result"]["nonce"], quote["nonce"], "{repeated}");
+            for option in repeated["result"]["options"].as_array().unwrap() {
+                assert!(option.get("error").is_none(), "{repeated}");
+            }
+        }
         let legacy = offset % 2 == 0;
         let option = &quote["options"][usize::from(!legacy)];
         let quantity = |name: &str| {
@@ -1075,6 +1105,26 @@ async fn queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment() {
             nonce,
             "the predecessor must remain pending for this regression"
         );
+        if omit_nonce && offset == 0 {
+            let mut duplicate = transaction.clone();
+            duplicate["nonce"] = json!(format!("{nonce:#x}"));
+            let response = quote_rpc(
+                &client,
+                &world.l1_xchain(),
+                "eez_quoteFee",
+                json!([duplicate]),
+            )
+            .await
+            .unwrap();
+            assert_eq!(response["error"]["data"]["code"], "invalid_transaction");
+            assert!(
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("source nonce is already pending"),
+                "{response}"
+            );
+        }
     }
     for future in [nonce + 4, nonce + 9] {
         let response = quote_rpc(&client,&world.l1_xchain(),"eez_quoteFee",

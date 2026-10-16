@@ -16,6 +16,13 @@ audit also identified a required TLS patch, described below. Final merge
 readiness requires all required CI lanes to pass for the proposed revision;
 older live results do not replace that gate.
 
+The review below records the CI-correction snapshot at `e1d00005`. Subsequent
+PR 56 feedback identified an omitted-nonce API limitation that this review had
+treated as an explicit-nonce client requirement. The
+[follow-up design](../../proposals/cross-chain-fee-recovery.md#omitted-l1-nonce-follow-up-from-pr-56-feedback-on-2026-10-16)
+corrects that attribution and extends automatic L1 selection. The checks in
+`validation.json` do not qualify that later runtime change.
+
 ## Confirmed CI failures
 
 The lint job stopped at Gitleaks 8.30.1, before formatting, dependency checks,
@@ -64,12 +71,19 @@ previously deployed binaries cannot qualify that dependency update.
 Cargo also reselected the macro crate's permissive `syn` dependency during
 resolution; that unrelated edge was restored. A structured comparison confirms
 that only the `rustls` version and checksum differ from the original lockfile.
+The validation identity includes the complete lockfile. Deploying or rolling
+back this TLS patch therefore requires matching Composer and signer revisions,
+as specified in the [deployment runbook](../../runbooks/chiado-deployment.md).
+A later local nonce-regression attempt with the new Composer and an older
+signer was correctly rejected at startup; it did not exercise quote behavior.
 
 Protocol PR 56 is not a dependency of these fixes. The original Kurtosis CI job
 passed on the existing pin without PR 56. Its general protocol network suite runs
 with fee policies unset, and the fee-specific native tests use fork fixtures.
-Enabling tariffs in the general protocol driver would require its
-quote-capable client, including the [explicit nonce correction](../2026-10-16-protocol-pr56/README.md).
+Enabling tariffs in the general protocol driver would require its quote-capable
+client. Prepared transactions should retain their explicit nonce; the
+[follow-up attribution](../2026-10-16-protocol-pr56/README.md#attribution-clarification-after-engineer-feedback-on-2026-10-16)
+distinguishes that client behavior from Composer's omitted-nonce limitation.
 Changing the protocol pin is outside this correction.
 
 ## Fee enforcement review

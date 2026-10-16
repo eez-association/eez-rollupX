@@ -1071,6 +1071,12 @@ mod tests {
         assert_eq!(prefix, [first.clone(), second.clone()]);
         assert!(read(Some(next + 1), 8).is_err());
         assert!(read(Some(next), 1).is_err());
+        assert!(matches!(
+            read(None, 1),
+            Err(QuotePrefixError::Invalid(
+                "queued nonce prefix exceeds quote limit"
+            ))
+        ));
         let mut replacement = first.clone();
         replacement.hash = B256::repeat_byte(3);
         replacement.raw_tx = Bytes::from_static(b"replacement");
@@ -1089,6 +1095,11 @@ mod tests {
             )
             .is_err()
         );
+        let claimed = pool.pop_all();
+        assert!(matches!(read(None, 8), Err(QuotePrefixError::Composing)));
+        assert!(claimed.iter().all(|tx| pool.owns(tx.hash)));
+        pool.release_in_flight_batch(&claimed);
+        assert_eq!(read(None, 8).unwrap(), (first.nonce, Vec::new()));
     }
 
     #[test]

@@ -22,6 +22,20 @@ in [posting-price feedback](../2026-10-16-posting-price-feedback/README.md).
 
 ## Reproduced integration gap
 
+### Attribution clarification after engineer feedback on 2026-10-16
+
+The runner did not send a duplicate nonce: it omitted the field, and Composer
+selected the canonical nonce already owned by the first source. This matches
+the then-documented default but is a Composer API limitation for same-account
+bursts without explicit nonces. Describing it solely as a protocol-client bug
+was too strong. The local client patch remains appropriate when quoting an
+already prepared transaction with a known nonce; its successful run establishes
+that explicit predecessor replay works, not that automatic selection works.
+The [PR 91 follow-up](../../proposals/cross-chain-fee-recovery.md#omitted-l1-nonce-follow-up-from-pr-56-feedback-on-2026-10-16)
+adds automatic selection using the same owned predecessor replay and separately
+qualifies that behavior. The original measurements and failure below remain
+unchanged.
+
 The PR's `network_fee_quote` sends sender, target, calldata and value, but omits
 the nonce from its prepared transaction. For the second source of
 `counter-multi-tx`, the deployed Composer selected the canonical nonce already

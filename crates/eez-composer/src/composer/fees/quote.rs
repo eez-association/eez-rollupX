@@ -446,15 +446,17 @@ where
             .source_account(prepared.direction, snapshot, prepared.request.sender)
             .map_err(compact::estimate_error)?
             .nonce;
-        let requested = requested.unwrap_or(canonical);
-        if requested == canonical {
-            return Ok((canonical, Vec::new()));
-        }
         if prepared.direction != crate::Direction::Inbound {
+            if requested.unwrap_or(canonical) == canonical {
+                return Ok((canonical, Vec::new()));
+            }
             return Err(FeeQuoteError::Invalid(
                 "queued L2 predecessors are outside the quote profile",
             ));
         }
+        // Preserve an omitted nonce so the pool can select the first available
+        // nonce and copy its owned predecessors under the same lock. Selecting
+        // the canonical nonce here would reject bursts after their first send.
         let rollup = &self.inner.rollups[&prepared.rollup_id];
         let (nonce, prefix) = rollup
             .held_pool
@@ -462,7 +464,7 @@ where
                 prepared.request.sender,
                 prepared.direction,
                 canonical,
-                Some(requested),
+                requested,
                 MAX_QUOTE_PREDECESSORS,
             )
             .map_err(|error| match error {
@@ -473,6 +475,9 @@ where
                     FeeQuoteError::Unavailable("queued predecessor is entering composition")
                 }
             })?;
+        if prefix.is_empty() {
+            return Ok((nonce, prefix));
+        }
         let operations = history_size(
             rollup.l2_provider.as_ref(),
             &snapshot.l2_parent,

@@ -1088,9 +1088,12 @@ methods, not Ethereum standard methods.
 
 `from` and `to` are required; creation is unsupported. `value` defaults to `0x0`
 and `data` to `0x`. `chainId` defaults to the front's source network; a mismatch
-is rejected. `nonce` defaults to the pinned source state. An already-owned
-requested nonce is rejected. On L1, an explicit future nonce can replay up to
-eight contiguous, owned predecessors from that sender; gaps, missing signed
+is rejected. An omitted `nonce` starts from the pinned source state. On L1,
+Composer advances across the sender's contiguous owned pending sources to quote
+the first available nonce, replaying those sources before estimation. Explicit
+nonces are never changed; an already-owned requested nonce is rejected. Both
+automatic and explicit future L1 quotes can replay up to eight contiguous, owned
+predecessors from that sender; gaps, missing signed
 bytes and unsupported predecessors fail explicitly. Each predecessor executes
 its signed fields and complete nested effects through a conditional native
 post/source sequence at the same target, retaining both chains' disposable
@@ -1107,6 +1110,14 @@ This read does not reserve a nonce; clients must recheck the wallet's pending
 nonce before signing. The SDK's automatic wallet-send guard remains
 conservative; explicit pipelining can use the quoted envelope after checking
 the caller's owned nonce sequence.
+
+Older Composers default an omitted L1 nonce to canonical state and can reject it
+as already pending. Clients quoting prepared transactions should continue to
+send their prepared nonce; that profile works before and after this change.
+Automatic selection requires the updated Composer, without a signer, follower,
+protocol, genesis or storage migration. Rolling back restores the older default;
+use explicit prepared nonces for bursts. The response schema is unchanged, and
+concurrent quotes can still return the same unreserved nonce.
 
 `gas` is optional. Its explicit value is preserved and must fit 21,000..16,777,216
 as well as native transaction/block capacity. When absent, the existing internal
