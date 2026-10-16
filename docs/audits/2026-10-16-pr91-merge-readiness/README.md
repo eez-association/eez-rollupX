@@ -139,3 +139,57 @@ and the limits of the retained evidence. Raw diagnostics are local-only under
 ignored `artifacts/pr91-merge-readiness-20261016/`; they are not available in another
 checkout and have no guaranteed retention. The original failed CI logs remain
 linked above. No live network was restarted or modified for this correction.
+
+## Omitted L1 nonce correction
+
+Engineer feedback exposed a Composer limitation in the original attribution:
+the client omitted the nonce, and Composer selected canonical state even when
+that nonce was already owned. The correction is
+`01d4fa07881fbd2deacee64eb26b36f7b08d3d6e`, against baseline
+`e1d0000579fa9a4569d393df703dccf46e521a53`, with the protocol pin unchanged.
+
+`replay_quote_predecessors` now preserves an omitted L1 nonce when reading the
+held pool. The existing pool helper selects the first available contiguous
+nonce and copies the signed predecessor bytes under its ownership lock. The
+existing native replay accounts for both chains' state, including nested calls;
+final context, ownership and funding checks remain in place. Explicit nonces
+remain exact. Quotes neither reserve nonces nor admit unsigned work. The
+eight-predecessor bound remains; future L2 nonces and predecessors from ordinary
+mempools remain unsupported.
+
+The same retained process-test executable was run before and after the change.
+On the baseline, the omitted-nonce case failed with `invalid_transaction` /
+`source nonce is already pending`, while the explicit-nonce control passed.
+On the candidate, both passed. The new case accepts three unmined same-account
+L1 sources with predecessor-dependent local and nested remote effects, requests
+both fee encodings, repeats a debug quote without reserving a nonce, rejects an
+explicit duplicate and an underpaid source, and checks canonical state isolation.
+Posting is deliberately paused in these two cases: their success establishes
+quote/admission behavior, not canonical settlement or a builder refund.
+
+The affected unit packages passed 658 tests, with the existing manual backlog
+profiling test ignored. Pool regressions also cover automatic-prefix bounds,
+replacement bytes, unavailable in-flight bytes and retained ownership. The six
+SDK tests and locked workspace Clippy passed. Exact executable identities,
+the remaining fee/Safe process results and command evidence are recorded in
+[nonce-validation.json](nonce-validation.json).
+
+The broader filter passed 15 tests with no failures or ignored cases: the 12
+remaining fee-quote tests and three Safe tests. Together with the two nonce
+cases, all 17 fee/Safe process tests passed. Roundtrip cases include canonical
+settlement and independent follower replay. The initial orchestration wrapper
+expected 12 results and rejected the count of 15; the count was checked against
+the explicit inventory and successful harness exit, without rerunning tests.
+
+These local binaries use the development profile, not the shipping release
+profile. The initial attempt reused a pre-TLS-update signer and was rejected by
+the startup identity check before exercising the regression; rebuilding the
+signer with the matching lockfile corrected that setup. A unit compilation was
+also interrupted before tests to permit its local mock RPC listeners outside
+the restricted sandbox. Both initial logs are retained. These are corrected
+test prerequisites, not retry-only passes of behavioral failures.
+
+Raw logs, datadirs and executable copies are local-only under ignored
+`artifacts/pr91-auto-nonce-20261016/`, without guaranteed retention. The
+candidate's required CI lanes remain the release qualification gate. This
+nonce correction has not been deployed to Chiado; no live service was changed.

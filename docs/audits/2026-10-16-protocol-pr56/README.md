@@ -46,9 +46,9 @@ three-transaction scenario or a tariff rejection.
 
 A read-only comparison against the same unsent candidate reproduced the error
 without a nonce and returned both quote options when `nonce: 0x67` was included.
-The current Composer supports replaying its owned contiguous L1 predecessors
-when given an explicit source nonce; no backend change or permissive fee policy
-was required. Its implementation is in
+The Composer used in that trial supports replaying its owned contiguous L1
+predecessors when given an explicit source nonce; no backend change or permissive
+fee policy was required for the patched runner. Its implementation is in
 [compact quote preparation](../../../crates/eez-composer/src/composer/fees/quote/compact.rs)
 and [predecessor replay](../../../crates/eez-composer/src/composer/fees/quote.rs).
 
