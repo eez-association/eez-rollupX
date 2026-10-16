@@ -7,6 +7,12 @@ The driver pins that runtime/image identity and local ports. Review those guards
 against verified deployment evidence before adapting it to another runtime.
 It is not a generic benchmark or a network deployment procedure.
 
+The later [full protocol/Falcon stress exercise](../audits/2026-10-16-chiado-batching-stress/README.md)
+passed its Falcon workload but exposed shared-batch gas failures, queued-nonce
+admission limits and a history-limit recovery blocker. The earlier bounded
+success does not qualify that broader matrix; review its pending-work status
+before starting another workload on the same deployment.
+
 The ordinary staged protocol runner does not issue compact quotes. This driver
 fills that gap using the fee SDK, pinned nested-counter contracts and Safe 1.4.1
 fixtures. It records offered and achieved traffic separately. The

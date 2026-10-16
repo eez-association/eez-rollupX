@@ -1,0 +1,442 @@
+{
+  "status": "protocol_matrix_failed_falcon_passed_recovery_awaiting_approval",
+  "runtimeSource": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+  "harnessCheckout": "6204796de60b338c4fdce3317ff4495ba275bcfd",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "nodeImage": "sha256:9f65a9371ae04e2c7404487527163c204e922ce5ca004a5ac8b65e75095fb785",
+  "signerImage": "sha256:4983fe207bea7e40b2dfd092fe8ad515ffbe111b1797f4745f1f9f3bb157a681",
+  "settings": {
+    "prepareParallel": 200,
+    "quoteSendWorkers": 4,
+    "quoteFormatsPerRequest": 1,
+    "stressPrefixVerifyWorkers": 16,
+    "protocolFeeMultiplier": 2,
+    "falconFeeMultiplier": 1,
+    "profitBps": 2000,
+    "l1RefundPercent": 90
+  },
+  "allAfterExplicitSourceReplacement": {
+    "jobs": 34,
+    "intendedSources": 36,
+    "accepted": 34,
+    "canonical": 34,
+    "pending": 0,
+    "canonicalScopeComplete": true,
+    "semanticPassed": 33,
+    "semanticFailed": 0,
+    "selectedNotVerifiable": 1,
+    "semanticJobsNotSelected": 0,
+    "semanticVerifierExit": 1,
+    "fullMatrixPass": false,
+    "submissionJobErrors": 1,
+    "canonicalSourceCountsByScenario": {
+      "multi-call-two-diff": 1,
+      "multi-call-two-diffL2": 1,
+      "multi-call-twice": 1,
+      "multi-call-twiceL2": 1,
+      "counter-multi-tx": 1,
+      "deepNested": 1,
+      "flash-loan": 1,
+      "multi-call-nestedL2": 1,
+      "multi-call-nested": 1,
+      "nestedCounter": 1,
+      "bridge": 1,
+      "nestedCounterL2": 1,
+      "counter": 1,
+      "bridgeL2": 1,
+      "reentrant": 1,
+      "counterL2": 1,
+      "revertCounter": 1,
+      "nestedCallRevert": 1,
+      "revertFromOtherChain": 1,
+      "nestedCallRevertL2": 1,
+      "revertCounterL2": 1,
+      "revertFromOtherChainAndCallAgainL2": 1,
+      "revertFromOtherChainL2": 1,
+      "nestedStaticCounter": 1,
+      "revertFromOtherChainNested": 1,
+      "staticReadWrite": 1,
+      "topLevelStaticCounter": 1,
+      "staticReadX2Write": 1,
+      "topLevelStaticReentrantCounter": 1,
+      "nestedStaticCounterL2": 1,
+      "staticCounterL2": 1,
+      "staticReadWriteL2": 1,
+      "staticReadX2WriteL2": 1,
+      "topLevelStaticReentrantCounterL2": 1
+    },
+    "quoteAndSendSeconds": 0.244,
+    "quoteSuccessLatencyMs": {
+      "count": 34,
+      "p50": 10.858316000000286,
+      "p95": 24.631813999999395,
+      "maximum": 25.684164999999666
+    },
+    "quoteAttempts": 34,
+    "quoteOptionsFailed": 0,
+    "quoteStartToLastObservedCanonicalPostSeconds": 299.164,
+    "endToEndThroughput": null,
+    "posts": 16,
+    "maxL1SourcesPerPost": 5,
+    "maxL2SourcesPerPost": 5,
+    "l1": {
+      "costWei": "6487223029034533",
+      "collectedWei": "9999613199183409",
+      "surplusWei": "3512390170148876",
+      "lossPosts": 0
+    },
+    "l2": {
+      "costWei": "11139228049471685",
+      "collectedWei": "23726788999244146",
+      "surplusWei": "12587560949772461",
+      "lossPosts": 0
+    }
+  },
+  "stress": {
+    "jobs": 770,
+    "intendedSources": 870,
+    "accepted": 770,
+    "canonical": 539,
+    "pending": 231,
+    "canonicalScopeComplete": false,
+    "semanticPassed": 500,
+    "semanticFailed": 0,
+    "selectedNotVerifiable": 39,
+    "semanticJobsNotSelected": 231,
+    "semanticVerifierExit": 1,
+    "fullMatrixPass": false,
+    "submissionJobErrors": 50,
+    "canonicalSourceCountsByScenario": {
+      "counter": 100,
+      "counterL2": 100,
+      "nestedCounter": 50,
+      "nestedCounterL2": 50,
+      "multi-call-nested": 50,
+      "multi-call-nestedL2": 50,
+      "multi-call-twice": 50,
+      "multi-call-twiceL2": 50,
+      "counter-multi-tx": 39
+    },
+    "quoteAndSendSeconds": 4.704,
+    "quoteSuccessLatencyMs": {
+      "count": 770,
+      "p50": 10.160739000000149,
+      "p95": 19.141189999999824,
+      "maximum": 284.2671859999998
+    },
+    "quoteAttempts": 770,
+    "quoteOptionsFailed": 0,
+    "quoteStartToLastObservedCanonicalPostSeconds": 418.227,
+    "endToEndThroughput": null,
+    "posts": 52,
+    "maxL1SourcesPerPost": 39,
+    "maxL2SourcesPerPost": 37,
+    "l1": {
+      "costWei": "81234651320623387",
+      "collectedWei": "30793202651105141",
+      "surplusWei": "-50441448669518246",
+      "lossPosts": 16
+    },
+    "l2": {
+      "costWei": "200831804736153816",
+      "collectedWei": "382109783147219260",
+      "surplusWei": "181277978411065444",
+      "lossPosts": 0
+    }
+  },
+  "falcon": {
+    "passAll": true,
+    "sources": 48,
+    "creations": 16,
+    "transfers": 32,
+    "legacy": 24,
+    "eip1559": 24,
+    "gasUsedMin": 5442219,
+    "gasUsedMax": 6003571,
+    "quoteLatencyMs": {
+      "count": 48,
+      "p50": 64.46607499998936,
+      "p95": 95.7245910000056,
+      "maximum": 109.33036000002176
+    },
+    "sourceToVerifiedMs": {
+      "count": 48,
+      "p50": 10597.5,
+      "p95": 26250,
+      "maximum": 34268
+    },
+    "posts": 13,
+    "maxSourcesPerPost": 5,
+    "economics": {
+      "costWei": "15942574096278978",
+      "collectedWei": "29950521860941479",
+      "surplusWei": "14007947764662501",
+      "lossPosts": 0
+    },
+    "waves": [
+      {
+        "round": 0,
+        "sources": 1,
+        "quoteToVerifiedSeconds": 8.022
+      },
+      {
+        "round": 0,
+        "sources": 1,
+        "quoteToVerifiedSeconds": 22.704
+      },
+      {
+        "round": 0,
+        "sources": 14,
+        "quoteToVerifiedSeconds": 14.873
+      },
+      {
+        "round": 1,
+        "sources": 16,
+        "quoteToVerifiedSeconds": 34.809
+      },
+      {
+        "round": 2,
+        "sources": 16,
+        "quoteToVerifiedSeconds": 24.443
+      }
+    ],
+    "negativeChecks": [
+      "replay InvalidNonce",
+      "altered payload InvalidSignature",
+      "unauthorized Safe caller GS025"
+    ],
+    "realBrowserCrypto": true,
+    "walletExtensionTested": false,
+    "independentPublicL1Receipts": true,
+    "sourceFileSha256": {
+      "src/lib/falcon.ts": "ffb2fa530652341994926fbf6617498a800ccd33eabd3d7ebda319e4de8ac88f",
+      "src/lib/l1Action.ts": "2025df33ee1953722792c289ff0dc163f6e4698eb450ad721724a6f178b3d7aa",
+      "src/lib/safe.ts": "e3b9645f99dee65028b30f830243f484ee20d2f5e4dff0edd8447429382027f7",
+      "contracts/deployments/eez-x-cross-chain.json": "5aae8fb5ea8912a01041d1e8c1dbcf17f0c80f0767f49818aab14408481aa36f",
+      "contracts/deployments/eez-x-safe.json": "a437017ff44cd3297c50a56fa30aff06a302fa261253617bb4bbf87b733a7758",
+      "package-lock.json": "d091dfd3cf288311f5b35e1fb5053ca34974f43f2f0081711c017a494939efd5"
+    }
+  },
+  "independentFollower": {
+    "verified": true,
+    "safeBlock": "0xaee93",
+    "hash": "0x860307f6646adc75993915c3c0474e00f7b0047fbc15f6a12c8060a4ac042d3a",
+    "stateRoot": "0xbe868b80d49196d38dc2afac6428aa3d688bf00b63fe01487fe45d621c61b4c8",
+    "receipts": 796,
+    "stateCalls": 16,
+    "sequencerOverlay": false,
+    "checkpointReplay": true,
+    "scope": "completed diagnostic runs, Falcon and canonical stress prefix"
+  },
+  "semanticPostHashBinding": {
+    "jobs": 533,
+    "mismatches": 0,
+    "printedHeightDiscrepancies": 266
+  },
+  "blobs": {
+    "protocolPosts": 72,
+    "protocolSources": 594,
+    "falconPosts": 13,
+    "falconSources": 48,
+    "originalProtocolHelperExit": 1,
+    "originalVerifiedProtocolPosts": 57,
+    "recheckAfterFileInputFixExit": 0
+  },
+  "staticRecovery": {
+    "original": "0x435440279e3568c446e373cd66d90af807b129dca9e571bc49844cdfc1d4ba75",
+    "replacement": "0x577e252ac886231593af4a85bc28e009cab3bdcb86972704a8deda18e1f1f27a",
+    "quotedGas": 143583,
+    "replacementGas": 287166,
+    "actualGas": 150461,
+    "originalTerminalReason": "PoolDiscarded"
+  },
+  "stressRecovery": {
+    "gasReplacementAttempts": 50,
+    "gasReplacementsAccepted": 0,
+    "error": "quote_limit: unsettled history exceeds 256 blocks",
+    "originalPendingPreserved": 231,
+    "restartExecuted": false,
+    "publicRpcPaused": false,
+    "restartApprovalPending": true
+  },
+  "final": {
+    "atMs": 1792111111163,
+    "queueEmpty": false,
+    "pending": 231,
+    "runtimeUnchanged": true,
+    "publicRpcAvailable": true,
+    "quotesAfterLoad": [
+      {
+        "layer": "L1",
+        "error": {
+          "code": -32004,
+          "data": {
+            "code": "quote_limit",
+            "message": "quote work limit: unsettled history exceeds 256 blocks"
+          },
+          "message": "quote work limit: unsettled history exceeds 256 blocks"
+        }
+      },
+      {
+        "layer": "L2",
+        "error": {
+          "code": -32004,
+          "data": {
+            "code": "quote_limit",
+            "message": "quote work limit: unsettled history exceeds 256 blocks"
+          },
+          "message": "quote work limit: unsettled history exceeds 256 blocks"
+        }
+      }
+    ]
+  },
+  "helperValidation": {
+    "shellSyntaxPassed": true,
+    "sameFailedLargePostNowVerified": true,
+    "failedPostReceiptCompactBytes": 162161,
+    "focusedToolingPassed": 22,
+    "fullTooling": {
+      "tests": 374,
+      "passed": 366,
+      "failed": 1,
+      "skipped": 7,
+      "failure": "transaction_references missing from native execution suite inventory",
+      "reproducedAtBaseline": "6204796de60b338c4fdce3317ff4495ba275bcfd",
+      "skippedReasons": {
+        "optInDockerKurtosisRelocationFixtures": 6,
+        "GitleaksUnavailable": 1
+      }
+    }
+  },
+  "verificationTools": {
+    "blobVerifierSha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+    "followerBinarySha256": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+    "blobHelperSha256": "93f6977362a24afebe30e78f154a8ef85d55470b3bb5bac3fe586232e5f8b635"
+  },
+  "localEvidenceAvailability": "local only; private bulk artifacts are not published",
+  "localEvidenceSha256": {
+    "baseline-inventory-evidence.json": "a59174531f08e352b2386b3655cdf370a2a20b84e1c9c64799afe93269894092",
+    "baseline-inventory-test.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "baseline-inventory-test.log": "e7c9dba69a8ac978cc7e39f8cd958b84381ccbc56a98cb3e4b4fdcd45fe6d20d",
+    "blob-consumer-tests.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "blob-consumer-tests.log": "b9b32d498f7391d8119d15da6ba23484ce989b6afe7cfde1f51f8bc1bd792608",
+    "blocked-health.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "blocked-health.json": "a63acf7e3ee302b8eab610721cc12c05d27a03b1421c44b53d24f7889f40388d",
+    "blocked-health.log": "af58cdbbf47734068feee7678193371ca877edafc94c4b22bc54136cc848e9d3",
+    "browser-install.log": "f19a92f096c3cfbf8c47d5bbbfb3ec64713459ac675cb6c2e525a49dc156ddb4",
+    "falcon-blob-result.json": "5695c4df2fcd2cc84e00f5103e7411cfbc4e1c428cc22119db6fa5f88084a2b1",
+    "falcon-blobs.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "falcon-blobs.log": "96b01847bd975bf6ab31e698ed650f6eb6cdc8708323ec514d53b817ca67fa81",
+    "falcon-costs.json": "1f0230ed0d10e8ebf8035d6dbe160e000620e3c37a869c4b24faf3c6fae7563e",
+    "falcon-negative.json": "9d6cc6481d5bf58a76caf4d4e4c1569ea0610bff5bf0ba3677111c9d5ac75f1e",
+    "falcon-public-actors.json": "205f41215fa6c4bde0bf7a5886ec39ec3781e73bc34471a61a15d063873aa8e9",
+    "falcon-result.json": "51cd6d42a1d35a7a1a985c963e9930029183ac68ced092d4c8c5d9be9c5c9641",
+    "falcon-source.json": "fca6a1ea997819fbfe2120b8cdf80ab1bcd2104917c50d4892f503f3bdbbe3be",
+    "falcon-start.json": "ef02608fb6a2b2e109985cbad40d1aae742c9b5617af8a208adab2c3d0a08359",
+    "falcon.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "falcon.log": "18eece156c0bff752faf7b509110ab95cfe3d22c1fe516c5f597e158378a9d4d",
+    "fee-replacement-results.json": "6db4f291ca16c56adbc32a8c33a2733681e89f4988ff8548ff9d9167c5cdd8a9",
+    "first-economics.log": "6a1e83da289f91033d8317115bf23da6cbb52585df01c03adb24b5257262b0e0",
+    "first-protocol-posts.json": "2ddf58fe3d3d1e625b442a11738e2eba32224673d890cd60f6322f84ac9fd9b6",
+    "first-protocol-replay-receipts.json": "8e9940f96ff3cec3b2e8a2290f0e8bc8d3ffe5cb7c9b6012b8acd0c7cd4c869b",
+    "first-protocol-summary.json": "afd94ce332b5739c1056db1d4c562ebe6914dc24e355e847e0d3f027ad8bcb60",
+    "first-run-readback-completed.log": "9eb7a858498c570fb66e496f8027b6f976a9460a59c7350e997cb780cc9f5234",
+    "first-run-readback.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "follower-process.json": "606273a03eb1f528964571a7e1e5738ed6a4474f730905e3c670b31c3e74800f",
+    "follower-result.json": "2407acc567c361142684929f1529bf595d1bad950e5e3c6cd3dadfcff6358221",
+    "follower-run.log": "1a29a9fedc574e3241db2aa4865b50e981f5ac3558166931c70cb4a059f41ecf",
+    "follower.log": "898f0cd9e30a3a6267be767a5aa41724e2f72e93cdc97a8bac1a2d5e0e673541",
+    "identity.json": "4522e0606667c8d3d43cf7aadc8d42ed699aa78626d6e6aab093497965206e9d",
+    "image-identity.json": "66cc57a22d98e1925ad0c929bc38cf733fc4da1c50fa2db9efcf5a5d951848e0",
+    "missing-correlated-posts.json": "d5d3b4e7e761c5ccb8b025a25b07eaf82ed24df61c0b36a73033adc32710501b",
+    "multi-next-nonce-readonly.json": "163c746c96beba5fc8f9abc2387d73ee592b11bad0fd2d128b6a9c9fa6c85596",
+    "observer.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "preflight.log": "995c185b6bc5f47c01bdaefd66c5773c3e2fb687f232948b2f91f235dca2cbf6",
+    "protocol-all-diagnostic.exit": "238903180cc104ec2c5d8b3f20c5bc61b389ec0a967df8cc208cdc7cd454174f",
+    "protocol-all-diagnostic.log": "4f566ec0312f6218575f25f0b4145a9ef2e66831e56839d80d41d675dbe2368d",
+    "protocol-all.exit": "9d9b18720961e9b4689fd763b85e7b6f36160ccd3a8a1c9ddc5103bb0f66c396",
+    "protocol-all.log": "fb7407c3532da932b8e7d58786a8a8c55d38f91f732e18ede1c47d031ac9630e",
+    "protocol-blob-result.json": "d264e68829b86eeb6da7488a820e25eb8356b7b892587f8c43483cc7a1ecd55c",
+    "protocol-blobs-recheck.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "protocol-blobs-recheck.log": "45fff0d7fa45f406263a76b6dcbd710c148af828a0906ab17a85036e8bb4a30e",
+    "protocol-blobs.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "protocol-blobs.log": "79af15c9ff99127529b4e8ce55b4e440efc956bf3aa1ea56ee3f329aa734b578",
+    "protocol-posts.json": "5c5ef9f1a5f0153f15ea10469094a1588770cbbaf6a7d8164765e3e7d645e027",
+    "protocol-prefix-economics-archive.log": "1e5e4e6e54fe366b7a8608494530c12b7643daf50e19038113f0ef3510099f23",
+    "protocol-prefix-economics.log": "204cdf6a7f8cdc92d8d8d7c8f9fb2a75d2149195109c6f87662ff44650a63233",
+    "protocol-public-l1.json": "3b0ad8565b6ce39f82c6e8de1714978869a8edc5e8834fa05f2d1c618e90cfae",
+    "protocol-recovered-canonical.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "protocol-recovered-canonical.log": "9e501e1ac4511636180769536970662585452f4b3a73a445991555dacd1f1689",
+    "protocol-recovered-verify.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "protocol-recovered-verify.log": "48444a4bdd606fdfd89c2f3f9a4a8d950404a3ce61f7da8790919b70796def28",
+    "protocol-replay-receipts.json": "b3f44547ead66cae30a21236abf70f15ae1dfa1082ebba3cf490095bd9f5f51a",
+    "protocol-stress.exit": "238903180cc104ec2c5d8b3f20c5bc61b389ec0a967df8cc208cdc7cd454174f",
+    "protocol-stress.log": "d147f3ada8bc6c115d41e24ed007721f51433348319690ce0e5f0381a53af8ff",
+    "protocol-summary.json": "593fd442d466c3f7e2cfa031bbaae43312d47bc6ce0dba554a50069c38c19e53",
+    "quote-after-load-blocked-L1.json": "2df5561048964b99380b042188354b4d0f56c7b7822c902d8b46fd1921ba30ec",
+    "quote-after-load-blocked-L2.json": "1b0a4c4b5927a53dcc18f336779736c7931cbf764de6643e5d3da05da064b961",
+    "quote-diagnostics.json": "f89a647f1099edcbf00d0a8c81f633f390a8fad6cbbeede550f731f9ba441060",
+    "recovered-economics.log": "357bd1bc55d932749c208f9fe02068eea3d8b2bb630d018c4642ce826311c08c",
+    "recovered-protocol-posts.json": "05c58ea812ca5a927219b342850c55e2081a47d3b330a0d18029e75b36fd2d44",
+    "recovered-protocol-replay-receipts.json": "461d509e8c75aa05b1dc1e2ed066fcab87005414804cdf4c8b953f1440cb35d3",
+    "recovered-protocol-summary.json": "0271b1c85863705329210bde6cb02d1820524724b5dd8278b395ae1d7a455cd0",
+    "recovery-run.json": "579d90aa028e493f17d13c58488a2870f948a3ff8c7d49068a878018b62cabc9",
+    "recovery.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "replay-prefix.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "replay-prefix.log": "02ad90c9c1dc4b1d502e0bf80681ec3c1af350d247833ee07cba9bd8d33f6dc9",
+    "replay-target.json": "52af5e17250b53b93798f9e337d9285b1202e13cc9dbcc9aef541ee770438b3d",
+    "restart-inventory.log": "e481c6eb24d65e0e482fb7cd3b50240863613c51d5e6e8f91b7fe7056046ef0e",
+    "runtime-after.json": "9541873948ae8f9cc61cd3a09dceafbbfebe9bafb8fc27961ab896d258a852ff",
+    "runtime-before.json": "9541873948ae8f9cc61cd3a09dceafbbfebe9bafb8fc27961ab896d258a852ff",
+    "semantic-correlation-check.json": "9b2cbe55926929d6095f9380c6a6f0eaea492c5892213d07cb04785b2494083b",
+    "static-replacement-admission.json": "fb8e4a6413351667561bc3adadd04f08fd85289f541896030262f4f5c47b360b",
+    "static-replacement-result.json": "bcf6837ea81935fa23cf6415d789f8f71fb406d356f241f38673d1a785a5a2a7",
+    "static-replacement.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+    "static-replacement.json": "709681d4e28d34bf30ceab9d95903e326a63b20fba01a900c8b05fe83dca2f97",
+    "static-replacement.log": "0aa881323ca4d8f979f06be5c929ba431268024b54013900873c569881aaddae",
+    "static-stall-stop-verifiers.json": "5d144d04649efebfdffc64a606c96da1135a3491048b37b1b876f4fa8d9000a8",
+    "static-stall-stop.json": "393156be19024fc42daf357d0a29bb9efb8ce2189de18c4d0dd491bc9b777aad",
+    "stress-prefix-selection.json": "907a01d84a668e05cd64895ce969454e941ce0010eeb6e8b99e3a84a09226af9",
+    "stress-prefix-verify.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "stress-prefix-verify.log": "5d8118d4993657134b4a42ac9b0802cf929cbf45d88a42dae15fc2a380da13ca",
+    "stress-recovery-revertCounter-admitted.json": "a99dd95db61bbb2a951c71b982dd63fd9a0d66aea224ebf0408ded9cf022f247",
+    "stress-recovery-revertCounter-plan.json": "29503d2b6c40cf4f86a89410dc56e01d5f7f1947340bc0c38f88e647457e7229",
+    "stress-recovery-revertCounter-result.json": "4e79c2ceb3945f57f6839fcedb347df355db17b2863286dcd8950dbf642fd5b4",
+    "stress-recovery-revertCounter.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "stress-recovery-revertCounter.log": "d7f36a8e6dfeebf0ca167c430e1c4428b902796e7a16b70260d32a902d4e8102",
+    "stress-stall-stop.json": "94ec11c779906abc3de4a772ef6e68cb92441a94a59b476340368a801cbaf9b2",
+    "tooling-tests.exit": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "tooling-tests.log": "14836687b61d1da471ad2ac52a63ecd944abd024379c47245b477ac34d040638"
+  },
+  "adapterSha256": {
+    "analyze.mjs": "2d468dbaba8c4426ed4cac1c2c8c25c625b5cc82d3650abfda89749cfff58065",
+    "falcon.mjs": "3939094a3cbd564a41d8d44f29759f56573c16d0fef0aca776d80ffa724cb70e",
+    "first-staged.sh": "5023f523b3979bf6077f92e78ead1a21927d804bdb1fcfb14d5c23f8c9816f9c",
+    "first-workload.mjs": "86c8d7733bcaa99f9e1444dc7e473452ec206154e63b43e3c5d0102bd9158d87",
+    "follower.py": "d5826164cfa45ae1996d66fb4710e1384ebd61b60bb2ffc5a6bc888674be489a",
+    "health-blocked.mjs": "eb190d428e0f8b66df56fb29625e4b6e166fdf53877bb3f0fe7e14f05e5b4ec5",
+    "observe.mjs": "c2880b3d247d637f606f069ba798e718b858bb4c3d90cd819592994e02d96940",
+    "postchecks.mjs": "cb74444c8e1701fedfbdeae2a656534312d5c47bfc71f39d04248f0baa728045",
+    "recover-first.mjs": "69f6f6e11727aa54afdb7a83c06dffff0404ede5c8699495d00ee9891e86e746",
+    "recover-static.mjs": "9053c8be54b564e6f41735c0e2860f5770d0eb174485d5d638fe808ccd6c3d94",
+    "recover-stress.mjs": "905a6e3abbbbaba5db8b4c10a2c6dd634b97750c5293b7c66b8da5616c335fbc",
+    "restart-inventory.mjs": "b2c674a7d25adf6e01f1c05e10cdc6ffae94b445a94870d1982c73fb5a0d95e1",
+    "restart-runtime.py": "61ed3490c21f51ad1942b15c2f2f1ce6dff1d380df9d9d258f6895086ec01774",
+    "run-blobs.original.py": "bfcc5aa394a05cfe9d7b9f5733a5ef6428cf64548c17162b8307810b6134a592",
+    "run-blobs.py": "f145fbdf5ce8ef2bc9251c51d9518f9a81f09a4e94b8123f5ff7f82d1d3a3778",
+    "staged.original.sh": "24e7aea436cef61cd45f4489be273b496413bd151948878f85e3756fab20a7db",
+    "staged.sh": "f9c9ed00f2228ed5f35e85358fdeb905d424e887a8ad6c04c27902cd9fae7246",
+    "summarize.py": "1a0514fa784b087b139e9a1cd7cdc02045a284cd3f58094ee668585f60801b79",
+    "verify-semantic-settlement-blob.original.sh": "92452df59daf7b3d04b60a2de889a7d0792b516d36e0c8c6158760ab72220750",
+    "workload.mjs": "b6d564f3f6f6b1de60027ddfb9d7b51474d0f195bdf606692da41ec1772367ee",
+    "wrapper.original.sh": "5a9113710e0e0cca1de38498f2ef1d5a30c42dfb3a7d790cadf5c93c7fffe031",
+    "wrapper.sh": "006efef1bc94d0f15ea77c605bcd6feea05664850fe3d86b15d2e3782d6855d8"
+  },
+  "limits": [
+    "No full protocol pass: queued same-sender sources rejected; shared static and reverted-call gas estimates failed.",
+    "231 accepted stress sources remain pending; fee history cap prevents ordinary replacement recovery.",
+    "Protocol stress used double quoted fees; six upstream-marked all scenarios were excluded.",
+    "Replay and semantic checks cover completed sources only; original workload failures are retained.",
+    "No baseline comparison, sustainable capacity, installed wallet extension, additional builder or durable recovery qualification."
+  ]
+}

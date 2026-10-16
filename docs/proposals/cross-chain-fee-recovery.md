@@ -48,6 +48,15 @@ Composer policy and observability only; protocol, signer and replay formats
 remain unchanged. Older Composers restore the one-source restriction and stop
 behavior, so drain accepted work before upgrading or rolling back.
 
+The [October 16 protocol/Falcon stress follow-up](../audits/2026-10-16-chiado-batching-stress/README.md)
+confirmed multi-source posts and largest-payer refunds, and passed all 48 Falcon
+sources. It did **not** pass the full protocol matrix: isolated gas estimates
+failed in shared candidates, queued future nonces were unsupported, and the
+256-block history bound blocked replacement admission after the resulting stall.
+The report retains the 231 pending test sources and recovery-approval status.
+Those liveness/profile gaps remain open; the earlier bounded validation does
+not establish general workload or production readiness.
+
 ### L1 collection increment authorized on 2026-10-15
 
 Implement the funded single-source refund profile after the
