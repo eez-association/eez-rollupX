@@ -65,8 +65,8 @@ use the operator's existing Cargo target directory; no dependency/pin upgrades.
 | Composer, L1 and node library suites | 375 + 193 + 90 passed; one manual profiling test explicitly ignored |
 | SDK `node sdk/l2-fees.test.mjs` | 6 passed |
 | Integration `forge test --root contracts` | 86 passed; no skipped tests |
-| Rust/Foundry formatting | Passed |
-| Workspace Clippy | Pending |
+| Rust/Foundry formatting | Passed after correcting pre-existing Foundry formatting in two integration files |
+| Workspace Clippy | Passed with warnings denied, including the queue metric labels |
 | Native `fee_quotes::` suite | Pending; includes exact-quote caught revert and an actual external posting-price increase |
 | Exact-image Kurtosis | Pending |
 | Drained Chiado upgrade and live canaries | Pending |
@@ -77,6 +77,29 @@ the successful unit run. A sandboxed unit invocation could not bind mock RPC
 sockets: 22 L1 tests failed with `Operation not permitted`; the same suite passed
 with local socket access. This was an environment restriction, not a retry-only
 behavioral pass. First failures are retained alongside the later results.
+
+The initial workspace Clippy run identified an oversized sampler future; boxing
+that future at its existing async boundary resolved the propagated warnings.
+Two source process-test builds exceeded the shared host's available memory. The
+source test runtime therefore uses one compiler job, disabled incremental
+compilation and `profile.dev.package.eez-node.opt-level=0`. Shipping Docker builds
+retain the existing release profile and only cap compiler concurrency.
+
+The new process fixtures also exposed assumptions requiring correction. An
+enclosing revert restores the L2 lookup cursor, so the caught-revert fixture must
+retry the same entry, as required by the pinned protocol's accepted support
+limits. Its unrelated unquoted L1 companion is omitted when refund enforcement
+is enabled; priced L1 roundtrips remain separate coverage. The market-increase
+fixture now has zero fixed operating allowances: the generic fixture's large
+allowances otherwise leave enough margin to absorb the increase, correctly
+allowing the old payment. These are fixture corrections, not relaxed admission
+or protocol checks. First failed runs remain part of the evidence.
+
+The initial Foundry formatting invocation failed on `ECDSAProofSystem.sol` and
+`DeployRollup.s.sol`; its status was initially obscured by a later successful
+command. Both files received formatting-only corrections and the full check and
+86-test integration suite were repeated successfully. Formatting can change
+metadata in future deployments; existing Chiado contracts/genesis are preserved.
 
 Raw RPC extracts, build/test logs and later runtime evidence are local-only under
 `artifacts/posting-price-feedback/` in the fee-feature checkout. They are ignored,

@@ -50,7 +50,8 @@ contract NestedSetterOuter {
     }
 
     function setViaInnerAndCatch(uint256 v) external {
-        try NestedSetterInner(inner).setViaProxyAndRevert(v + 1) {} catch {}
+        // A caught revert restores the EEZ cursor; retry the same entry.
+        try NestedSetterInner(inner).setViaProxyAndRevert(v) {} catch {}
         NestedSetterInner(inner).setViaProxy(v);
     }
 

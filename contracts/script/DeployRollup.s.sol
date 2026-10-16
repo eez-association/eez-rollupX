@@ -60,7 +60,9 @@ contract DeployRollup is Script {
         address authorizedSigner,
         address owner,
         address upgradeOwner
-    ) external {
+    )
+        external
+    {
         if (proofSystem == address(0)) revert InvalidProofSystem();
         require(eez.code.length != 0, "EEZ has no code");
         require(owner != address(0) && upgradeOwner != address(0), "Zero address");
@@ -85,7 +87,9 @@ contract DeployRollup is Script {
         vm.stopBroadcast();
         // ERC-1967 admin slot: the ProxyAdmin contract the proxy created for `upgradeOwner`.
         address proxyAdmin = address(
-            uint160(uint256(vm.load(address(rollup), 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103)))
+            uint160(
+                uint256(vm.load(address(rollup), 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103))
+            )
         );
         console.log("ROLLUP_CONTRACT=%s", address(rollup));
         console.log("ROLLUP_IMPLEMENTATION=%s", address(implementation));

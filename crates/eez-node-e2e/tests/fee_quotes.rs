@@ -103,6 +103,13 @@ async fn nested_quote_roundtrip(
         policy["risk_bps"] = json!(0);
         policy["profit_bps"] = json!(2000);
     }
+    if exercise != QuoteExercise::Normal {
+        // Isolate the posting bid: the generic fixture's fixed allowances
+        // otherwise leave enough margin to absorb a genuine gas-price increase.
+        for cost in ["proving_cost_l1", "operations_cost_l1", "treasury_cost_l1"] {
+            policy[cost] = json!("0");
+        }
+    }
     let mut settings = vec![
         (
             "EEZ_L2_FEE_RECIPIENT",
@@ -505,9 +512,10 @@ async fn nested_quote_roundtrip(
         )
         .await
         .unwrap();
-        assert!(
-            ownership["result"].is_null(),
-            "a conclusive rejection must not retain ownership"
+        assert_eq!(
+            ownership.get("result"),
+            Some(&Value::Null),
+            "a conclusive rejection must not retain ownership: {ownership}"
         );
         let price = |key: &str| {
             u128::from_str_radix(
@@ -674,7 +682,10 @@ async fn nested_quote_roundtrip(
         }
         assert_eq!(count, 8);
     }
-    let inbound = if enforced {
+    // The refund-enabled price regressions exercise one outbound source. The
+    // ordinary mixed-direction fixture below uses an unquoted L1 companion;
+    // priced L1 admission has its own refund roundtrip coverage.
+    let inbound = if enforced && exercise == QuoteExercise::Normal {
         Some(
             sign_and_send(
                 &world.l1_xchain(),
