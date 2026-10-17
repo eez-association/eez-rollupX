@@ -449,11 +449,34 @@ Use these diagnostics when startup fails or a running service stalls. Begin with
 | Signer unhealthy/rejecting | `docker compose logs --tail=100 eez-proof-signer`; check [keys/genesis](#deployment-identity), genesis mode (`stat -c '%a %n' datadir/genesis.json`, expected 644), UID 65532 readability, and L1 chain config `chiado`. |
 | Port in use/database locked | `ss -lntup`; `docker ps -a --format '{{.Names}}'`; `docker compose ps`. Identify the owning process/deployment; a worktree/project name cannot isolate this profile. Never share a writable datadir. |
 | L1/Beacon cannot catch up | Check [sync/peers and L1 agreement](#health-checks), shared JWT, checkpoint source (`LH_CHECKPOINT_URL`), snapshot backfill, and checked-in Fulu config. `configs/chiado/bootstrap_nodes.yaml` must be nonempty and match `bootnodes.yaml`. |
+| Fee quote reports `L1 fee sample is too old` | Check the embedded head timestamp against the external RPC and Beacon sync status. The quote may correctly reject a stalled upstream; do not relax its freshness check to hide that condition. See [stalled consensus client](#stalled-consensus-client). |
 | Beacon has no peers | `curl -fsS http://127.0.0.1:6152/eth/v1/node/identity \| jq '.data'`; inspect advertised `ip`/`udp`, firewall, NAT, and UDP 9205 reachability. See [discovery change](#discovery-change--recreates-lighthouse-only). |
 | Blob retrieval fails | Use the [blob diagnostic](#blob-diagnostic--read-only) with the settlement's slot and versioned hash. Check retention, sync, Fulu config, and semi-supernode mode. |
 | Builder probe fails | Check reachability and `eth_sendBundle` support of each `EEZ_L1_BUILDER_RPC_URL` entry. Startup sends an empty bundle to every listed relay and names them `builder[<index>] (<host>)`; JSON-RPC error `-32601` means the method is unavailable. Startup fails only when no relay passes; failing additional relays print a warning. Probe success does not prove inclusion. |
 | L2 advances without settlement | Check [L1 agreement](#health-checks), then [poster funding and settlement](#settlement-diagnostic). Inspect node/signer logs for builder inclusion, proof failure, policy due-work, fee ceilings, and gas/blob/timing deferrals. |
 | Simulation cannot fetch a block | Verify deployment RPC freshness. Skip-simulation bypasses that phase only; inspect prior broadcasts before retrying. |
+
+### Stalled consensus client
+
+An observed Chiado incident left Lighthouse reporting empty slots with peers
+while its execution hash stayed fixed and the public chain advanced. It later
+reported a growing sync distance. Restarting the existing Lighthouse container
+restored catch-up; no configuration, image or database replacement was needed.
+The [deployment record](../audits/2026-10-15-simplified-fees/README.md) retains
+the before/after evidence. This is a verified recovery for that incident, not a
+diagnosis of every stale-head error.
+
+After recording logs, checking L1 agreement and confirming this stalled state,
+an authorized service recovery can restart only the existing client:
+
+```bash
+docker compose restart lighthouse
+```
+
+Repeat the health checks below. Require a fresh embedded head,
+`is_syncing=false`, `is_optimistic=false` and `el_offline=false` before treating
+quotes or settlement as recovered. A running container or `eth_syncing=false`
+alone is insufficient. Preserve existing data and JWT throughout.
 
 ### Health checks
 
@@ -583,6 +606,27 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+For the posting-price feedback correction, retain the operator's existing fee
+policy and priority bounds. With L1 refund recovery enabled the Composer reads
+canonical receipts and call traces to exclude service payments from market-tip
+samples, including caught reverts whose receipt logs are absent. Verify that
+the configured submission RPC supports `eth_getBlockReceipts` with a block hash
+and `debug_traceBlockByHash` with `callTracer` before upgrading. Pause external
+ingress, drain accepted requests, and wait until the pre-handover ordinary L2
+history is canonical too. Ordinary transactions need not appear in the held queue;
+an empty queue alone does not establish that their speculative history is safe
+to discard. Retain consistent stopped database copies and prior images.
+After startup check usable quotes in both directions, canonical settlement and
+`priority_source=filtered_receipts` observations under mixed traffic. See the
+[pricing contract](../configurable-settlement-policy.md#bounded-next-block-priority-estimation)
+for missing-data behavior, cache bounds and additive rejection/status diagnostics.
+The [qualification and handover audit](../audits/2026-10-16-posting-price-feedback/README.md)
+records the tested revision, exact images, preserved state and live checks.
+No contract, genesis or persistent-state migration is required. An older runtime
+restores unfiltered pricing and may reject/defer a lower-priced outstanding
+transaction; preserve the ordinary queue/resubmission and database rollback
+boundaries. The correction does not reserve quoted prices or guarantee inclusion.
+
 The [conditional slot scheduler](../configurable-settlement-policy.md#conditional-slot-production)
 is an implementation draft; do not upgrade a live deployment until its release
 gates pass or it is explicitly selected for a controlled canary. The new binary
@@ -611,6 +655,74 @@ the augmented witness method is available on both fronts: restrict those ports
 as well. Rollback restores the previous method placement and requires reverting
 client URLs. Preserve bindings, datadirs and operator configuration, and account
 for the existing loss of in-memory unsettled work on restart.
+
+The optional [L2 tariff](../configurable-settlement-policy.md#opt-in-l2-tariff-admission)
+requires a matched quote-capable dashboard, the Composer quote API,
+and an explicit conversion/service policy before enforcement is enabled. Drain
+or explicitly account for accepted work before activation. Preserve the normal
+L1 timing, contracts and genesis; this feature adds no protocol migration. Keep
+the indexer's L2 details URL on the Composer front, since the plain node RPC does
+not serve settlement correlations. The
+[October 14 trial](../audits/2026-10-14-l2-fee-integration/README.md) records the
+tested local image IDs, isolated validation, stopped-state upgrade, canonical
+paid calls and independent replay. Its test conversion and zero service/profit
+charges are not production prices. Retain the original database copies for
+binary rollback; disabling the tariff does not undo collected tips.
+
+Measured L1 settlement pricing applies the 20% trial allowance
+to simulated receipt gas plus blobs, without the admission gas
+reserve or gas-limit margin. Preserve the existing policy, bindings and genesis.
+Drain accepted work and retain stopped database/configuration backups. Rollback
+to an older Composer restores the larger tariff and can reject newer lower-fee
+transactions; clients must requote. The signing RPC and historical replay are
+unchanged. See the [quote contract](../configurable-settlement-policy.md#unsigned-l2-fee-quotes)
+for the conditional proof assumption and compatibility details.
+The [measured settlement deployment audit](../audits/2026-10-15-measured-l1-fee-quotes/README.md)
+records the tested images and completed handover on the previous API. Current
+upgrades must follow the coordinated compact-API replacement below. During startup, a
+`starting_up` quote response means readiness has not yet been established;
+retain maintenance routing until a usable quote and canonical settlement checks
+pass. It does not require another restart or database copy.
+
+The source quote/admission gas-cap correction raises the application profile
+from 5,000,000 to the active EIP-7825 limit of 16,777,216. Upgrade Composer and
+all copied SDKs, including the dashboard, to admit the full range. This changes
+no fee formula, signing RPC, storage, contracts or genesis. Old clients/servers
+still reject limits above 5,000,000. Drain accepted work before rollback; preserve
+stopped databases as for other binary upgrades. The
+[gas-cap deployment record](../audits/2026-10-15-l2-fee-gas-cap/README.md)
+distinguishes the expedited handover from subsequent regression checks.
+
+The simplified fee policy separates the recommended markup from minimum cost
+coverage. `profit_bps` applies to quotes; admission and final dispatch require
+measured costs plus `risk_bps`. For the 20% target trial, explicitly change the
+existing policy from `risk_bps: 2000, profit_bps: 0` to
+`risk_bps: 0, profit_bps: 2000`; retain every other operator assumption and value.
+This preserves quoted target pricing while permitting lower positive margins.
+Drain accepted work before changing policy or restarting. Keep the old policy
+with the old image: rollback reinstates its hard target and can defer newly
+accepted lower-tip transactions. Ordinary L2 settlement remains subsidized.
+Quotes use recent completed canonical snapshots during reconciliation, expire
+after thirty seconds, and still reject unavailable dependencies or reorged/old
+state. Four quote workers and a bounded queue share no permits with signed
+admission. Validate concurrent quoting during settlement and the final receipt
+cost floor after upgrading; startup alone does not validate these guarantees.
+
+The [compact fee API](../configurable-settlement-policy.md#compact-fee-quotes)
+is an intentionally breaking replacement. Update the Composer, dashboard and
+other consumers together to `eez_quoteFee` / `eez_debugQuoteFee`; the old method,
+HTTP route and SDK helpers are removed. Both legacy and EIP-1559 transactions
+remain supported. The draft response cleanup uses `requestHash`, the SDK
+`transaction` argument and debug-only `diagnostics.recoveryMode`; older compact
+clients must be upgraded alongside Composer, with no alias fallback. The
+recorded earlier image does not include this cleanup. A binary rollback requires
+matching client rollback and new quotes. Preserve policy, contracts, genesis and
+stopped database copies; no data
+migration is needed. Reconcile canonical progress since any restored snapshot;
+restoring a database cannot reverse settlements already posted on L1. The
+[compact API deployment audit](../audits/2026-10-15-compact-fee-quotes/README.md#docker-deployment-follow-up-2026-10-15)
+records the matching runtime/UI upgrade, stopped-state preservation, live canary
+and exact-image qualification. Older fee-deployment records do not validate this API.
 
 The [native system transaction change](../proposals/native-system-transactions.md)
 requires a fresh L2 genesis and database, matching composer/follower/signer
@@ -777,3 +889,70 @@ upgrade or roll back both binaries together. No new genesis or database change
 is introduced by this signer simplification. See the
 [signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
 reorg behavior. This wiring has no legacy-source or offline-signing fallback.
+
+### Fee configuration upgrade
+
+Follow the [fee setting migration](../configurable-settlement-policy.md#fee-configuration-migration)
+when upgrading a Composer that uses the former JSON policies. Preserve the
+existing cost assumptions, refund percentage, beneficiary and enabled directions.
+Migrate the effective configuration, including Compose overrides; `.env` edits
+alone may not change explicit service environment entries. Never print the full
+rendered environment because it contains operator keys.
+
+Use the normal [recovery and upgrade procedure](#recovery-and-upgrades): retain
+old configuration and stopped state, drain accepted requests, then start the
+qualified new binary with the new settings. Keep the normal matching
+node/signer/deploy image selection; no fee configuration is added to the signer.
+A node that reports an obsolete
+setting must stay out of public service until that input is removed. Verify
+compact/debug quotes and signed fee rejection on each enabled direction, then
+canonical settlement and refund observations before reopening ingress. Restoring
+an old binary also requires restoring the old fee settings; otherwise its
+unrecognized new names can leave collection disabled. There is no contract,
+genesis, signer-wire or replay migration for this cleanup. This procedure is not
+a record of an executed live upgrade; record that separately with exact images.
+
+### Enabling L1 fee recovery
+
+Leave `EEZ_FEES_L1_TO_L2_ENABLED` unset or `false` for public traffic until each configured builder has passed the
+[L1 refund profile](../configurable-settlement-policy.md#l1-builder-refund-profile)
+on this network with a real native-blob post, signed source and canonical payout.
+The startup bundle API probe does not test refund support. Public builder docs
+or a successful private Kurtosis test do not qualify the Chiado route.
+
+Qualification on an existing network uses a controlled canary: pause public
+transaction ingress, drain accepted work, preserve stopped state and configure
+the candidate with the refund policy before submitting operator test sources
+through the local front. Keep public ingress paused until canonical payments and
+replay are verified. This temporary test configuration does not qualify the route
+by itself; retain failed submissions and receipts before recovery or rollback.
+
+Use a dedicated plain EOA recipient, keep the existing cost policy and L2 fee
+settings, and drain accepted work before enabling the L1 policy. Both fronts
+use `eez_quoteFee` and `eez_debugQuoteFee`; only the source chain and recovery
+mechanism differ. The SDK needs the expected L1 chain ID and `/composer/l1`.
+The matching dashboard uses `EEZ_UI_L1_FEES_ENABLED=true` and its independent
+`EEZ_UI_L1_FEE_MAX_TOTAL_WEI` reservation cap; retain the existing L2 settings.
+Older clients that omit the L1 fee quote can be rejected as underfunded after
+enforcement is enabled. The compact response format is unchanged.
+Verify both transaction formats, source/target effects, native blob evidence,
+independent follower replay and the canonical `refund_status = qualified` event.
+
+The [October 15 qualification](../audits/2026-10-15-l1-fee-refunds/README.md)
+records the isolated builder checks and the existing Chiado route's four paid
+canaries, native blob authentication, incremental follower replay and handover.
+It does not qualify additional provider URLs or durable restart recovery.
+
+L1 posts may contain several complete source groups. Only the largest measured
+external priority payment is selected for a refund, even when it cannot cover
+the combined posting cost. A missing, ambiguous or insufficient refund does not
+pause quotes or settlement. Preserve posting logs and inspect source/post/payout
+receipts when the [refund dashboard](../../monitoring/README.md#l1-refund-observations)
+shows missing payments or shortfalls. A shortfall can be the accepted batching
+subsidy rather than a builder payment failure; compare the agreed refund terms.
+
+Per-post attribution and monitoring totals remain in memory and are not restored
+by node databases. Restart does not require clearing a refund pause flag, but may
+lose pending requests and observations. Drain work before upgrades/rollback;
+older Composers restore the single-source restriction and payment-failure pause.
+Disabling the policy also disables L1 quote/admission checks and refund requests.

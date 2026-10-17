@@ -60,11 +60,12 @@ fn discovery_nonce(request: &Value) -> Result<B256, &'static str> {
     if params.len() > 2 {
         return Err("Composer discovery does not support state or block overrides");
     }
-    if params
-        .get(1)
-        .is_some_and(|block| block.as_str() != Some("latest"))
-    {
-        return Err("Composer discovery supports only the latest block tag");
+    if let Some(block) = params.get(1) {
+        // Wallet middleware can resolve `latest` to a number before forwarding.
+        // Discovery returns current process metadata, never historical state or
+        // a claim that this block exists/is canonical; only validate its shape.
+        serde_json::from_value::<alloy_eips::BlockId>(block.clone())
+            .map_err(|_| "invalid Composer discovery block selector")?;
     }
     let tx = params
         .first()
@@ -442,17 +443,41 @@ mod tests {
     }
 
     #[test]
-    fn discovery_rejects_history_overrides_value_and_invalid_wallet_fields() {
-        let mut invalid = Vec::new();
-        for tag in [
+    fn discovery_accepts_wallet_block_selectors_without_reading_chain_state() {
+        let info = serde_json::to_value(info(true)).unwrap();
+        let expected = respond_eth_call(&probe(), &info, 10201);
+        for block in [
+            json!("latest"),
             json!("pending"),
             json!("earliest"),
             json!("safe"),
             json!("finalized"),
-            json!("0x1"),
+            json!("0x0"),
+            json!("0x9ff58"),
+            json!({"blockNumber":"0x9ff58"}),
+            json!({"blockHash":B256::repeat_byte(0x42),"requireCanonical":true}),
+        ] {
+            let mut request = probe();
+            request["params"][1] = block;
+            assert_eq!(
+                respond_eth_call(&request, &info, 10201),
+                expected,
+                "{request}"
+            );
+        }
+    }
+
+    #[test]
+    fn discovery_rejects_invalid_selectors_overrides_value_and_wallet_fields() {
+        let mut invalid = Vec::new();
+        for tag in [
+            json!("not-a-block"),
+            json!("0xxyz"),
             json!(null),
-            json!({"blockHash": B256::ZERO}),
-            json!({"blockNumber":"latest"}),
+            json!({}),
+            json!({"blockHash":"0x12"}),
+            json!({"blockHash": B256::ZERO,"blockNumber":"0x1"}),
+            json!({"requireCanonical":true}),
         ] {
             let mut request = probe();
             request["params"][1] = tag;

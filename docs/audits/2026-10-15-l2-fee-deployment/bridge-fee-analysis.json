@@ -1,0 +1,131 @@
+{
+  "observed_at_utc": "2026-10-15",
+  "analysis_kind": "read-only receipt, trace, balance and quote-model reconciliation",
+  "runtime_source": "d2e0a24d043c052c77f3556670014aa988896004",
+  "protocol_gitlink": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "runtime_image_id": "sha256:90ce7c64132496aed50f52702d90a09d22e5d8001f6559db7b25f1ee794bfc38",
+  "l2_transaction": "0x3bc2940e0e3737f66384e06fd81ff5e8358fd8f07b92d194af3b7e7812b89076",
+  "l1_transaction": "0x9b8040557d45331260f40f802fab9f77c4f862a6b102fd45844ef02a33815d16",
+  "measured": {
+    "l2GasLimit": "426834",
+    "l2GasUsed": "404208",
+    "l2EffectiveGasPrice": "3462970621",
+    "l2BaseFeePerGas": "49",
+    "l2PriorityFeePerGas": "3462970572",
+    "l2FeeWei": "1399760428773168",
+    "l2BurnWei": "19806192",
+    "l2TipWei": "1399760408966976",
+    "bridgeValueWei": "1000000000000000",
+    "l2MaximumFeeWei": "1478113602043914",
+    "l1GasUsed": "182945",
+    "l1GasLimit": "192093",
+    "l1EffectiveGasPrice": "1000000007",
+    "l1ExecutionFeeWei": "182945001280615",
+    "l1BaseBurnWei": "1280615",
+    "l1PriorityFeeWei": "182945000000000",
+    "blobGasUsed": "131072",
+    "blobGasPrice": "1000000000",
+    "l1BlobFeeWei": "131072000000000",
+    "l1TotalFeeWei": "314017001280615",
+    "tipMinusL1FeeWei": "1085743407686361",
+    "actualL1CostWith20PercentRiskWei": "376820401536738",
+    "tipToL1CostRatio": "4.45759434444158697966332106235794908469437970843650799058835",
+    "l2TotalDebitWei": "2399760428773168",
+    "unusedFeeCapWei": "78353173270746"
+  },
+  "balances": [
+    {
+      "chain": "l2",
+      "account": "user",
+      "address": "0xa33598830d322a9808f5c8803d2929a573bd1bea",
+      "block": "661170",
+      "before": "1000000000000000000",
+      "after": "997600239571226832",
+      "delta": "-2399760428773168"
+    },
+    {
+      "chain": "l2",
+      "account": "poster",
+      "address": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+      "block": "661170",
+      "before": "10293753326023434",
+      "after": "11693513734990410",
+      "delta": "1399760408966976"
+    },
+    {
+      "chain": "l1",
+      "account": "user",
+      "address": "0xa33598830d322a9808f5c8803d2929a573bd1bea",
+      "block": "23530166",
+      "before": "999834172666072762",
+      "after": "1000834172666072762",
+      "delta": "1000000000000000"
+    },
+    {
+      "chain": "l1",
+      "account": "poster",
+      "address": "0x2ea2a5a1fe1ba4f4134c993e0c9a700706031e52",
+      "block": "23530166",
+      "before": "49617681193095489288",
+      "after": "49617367176094208673",
+      "delta": "-314017001280615"
+    }
+  ],
+  "policy": {
+    "version": "1",
+    "l1_chain_id": "10200",
+    "l2_chain_id": "906969",
+    "rollup_id": "1",
+    "beneficiary": "0x2eA2A5A1fe1BA4F4134c993E0c9A700706031E52",
+    "valid_until_l1_timestamp": "2000000000",
+    "l1_per_l2_numerator": "1",
+    "l1_per_l2_denominator": "1",
+    "proving_cost_l1": "0",
+    "operations_cost_l1": "0",
+    "treasury_cost_l1": "0",
+    "risk_bps": "2000",
+    "profit_bps": "0",
+    "excluded_senders": []
+  },
+  "quote_reconstruction": {
+    "projectedL1Gas": "1035395",
+    "projectedL1ExecutionWei": "1035395007247765",
+    "blobCostWei": "131072000000000",
+    "projectedL1PostingWei": "1166467007247765",
+    "riskWei": "233293401449553",
+    "requiredTipWei": "1399760408697318",
+    "quotedTipPerGasWei": "3462970572",
+    "actualPaidTipWei": "1399760408966976",
+    "roundingWei": "269658"
+  },
+  "quote_gas_components": {
+    "intrinsicGas": "21000",
+    "batchBaseReserve": "160000",
+    "anchorEntryReserve": "370000",
+    "outboundEntryReserve": "370000",
+    "sourceCalldataGas": "3664",
+    "targetSimulationGas": "32114",
+    "baseFramingGas": "26176",
+    "mutableFramingGas": "3136",
+    "preMarginGas": "986090",
+    "gasMarginBps": "500",
+    "projectedGas": "1035395"
+  },
+  "validation": {
+    "user_l2_debit_equals_value_plus_fee": true,
+    "user_l1_credit_equals_bridge_principal": true,
+    "poster_l2_credit_equals_priority_fees": true,
+    "poster_l1_debit_equals_execution_plus_blob_cost": true,
+    "receipt_cost_matches_final_native_fee_observation": true,
+    "reconstructed_tip_per_gas_equals_signed_transaction": true,
+    "base_framing_gas_independently_recomputed_with_pinned_abi": true
+  },
+  "limitations": [
+    "The original JSON quote response was not retained; quote amounts are reconstructed from pinned source and transaction-specific observations.",
+    "Income is collected on L2; the 1:1 policy comparison does not establish liquid L1 proceeds.",
+    "Proving, operations, treasury and profit pricing allowances are zero; this does not establish zero off-chain cost.",
+    "No transaction was broadcast and no runtime source or service was changed for this analysis.",
+    "No independent KZG verification or follower replay was run for these two transactions.",
+    "Full receipt/trace evidence is local-only in artifacts/bridge-fees-3bc2940e-20261015; a fresh checkout does not include it."
+  ]
+}

@@ -27,6 +27,7 @@ pub mod l1_reader;
 pub mod l1_watcher;
 pub mod posting_fees;
 pub mod reconciled_settlement;
+pub mod refund;
 pub mod scan;
 pub mod submitter;
 

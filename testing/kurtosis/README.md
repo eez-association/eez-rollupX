@@ -468,6 +468,82 @@ network must remain available.
 
 ## Generate test traffic
 
+### Exercise L1 builder refunds
+
+Use an isolated enclave with the [L1 refund profile](../../docs/configurable-settlement-policy.md#l1-builder-refund-profile)
+and its matching cost policy in `settlement_env`. The dedicated recipient must
+be a plain EOA, different from the source and poster. Keep both chain IDs and
+the L2 beneficiary consistent with the profile. Build integration fixtures with
+`forge build --root contracts`, export the intended `KURTOSIS_ENCLAVE`, source
+`testing/kurtosis/ports.sh` and load the enclave's deployment bindings as above.
+
+`scripts/verify-l1-fees.mjs` requires those endpoints, `EEZ_REGISTRY_ADDRESS`,
+an independently funded public devnet fixture key in `EEZ_TEST_FEE_KEY`, and
+`EEZ_FEE_EVIDENCE_FILE`. It refuses public chain IDs. The script exercises both
+transaction types through the shared SDK, rejects an underpaid source, checks
+nested calls and official Safe 1.4.1 creation, then independently reads the native
+blob post, source and builder payment from the canonical L1 block. The actual
+recipient balance increase must cover measured post/blob/service costs and risk.
+It then funds four deterministic private-network actors with one test ETH each,
+submits two concurrent waves of nested sources (mixed legacy/EIP-1559), and
+requires each wave to settle in one post. The measured largest total priority
+payment must produce the only refund. The first shared batch must be undercovered
+to prove the accepted subsidy. The next batch must settle after that observation;
+it may be profitable as posting fees change. A profitable first batch or a split
+batch does not establish this regression. It retains incremental evidence before
+broadcasting each source:
+
+```bash
+node testing/kurtosis/scripts/verify-l1-fees.mjs
+```
+
+This is a real builder test. The development mempool adapter does not preserve
+bundle ordering or implement refunds and cannot establish success. The script
+does not replace independent follower replay or qualify a public provider;
+run the replay procedure below and qualify each deployment's actual route.
+
+### Exercise L2 settlement fees
+
+Use a disposable enclave configured with the complete
+[fee cost model](../../docs/configurable-settlement-policy.md#cross-chain-fee-configuration),
+a nonzero `EEZ_L2_FEE_RECIPIENT`, and `EEZ_FEES_L2_TO_L1_ENABLED: "true"` in
+`settlement_env`. Chain IDs and rollup identity come from runtime wiring. Enable the UI to test
+its quote proxy as well. Build integration fixtures with `forge build --root
+contracts`, export the intended `KURTOSIS_ENCLAVE` and `KURTOSIS_ARGS_FILE`, and
+source `testing/kurtosis/ports.sh` to obtain the RPC endpoints.
+
+`scripts/verify-l2-fees.mjs` requires those L1/L2/front URLs, the deployed
+`EEZL2_ADDRESS`, a funded private-network fixture key in `EEZ_TEST_FEE_KEY`, and
+an output path in `EEZ_FEE_EVIDENCE_FILE`. Optionally set
+`EEZ_TEST_FEE_RPC_URL` to the UI's `/composer/l2` RPC URL. The exercise uses
+`eez_debugQuoteFee` for receipt comparisons and the compact SDK fields for signing.
+It refuses public chain IDs, creates two independent nested-call fixtures,
+rejects an underpaid signed transaction, sends each paid source through the
+SDK's single-signature path, and checks receipts, beneficiary, target state
+and canonical queue disposition. Run it from the repository root:
+
+```bash
+node testing/kurtosis/scripts/verify-l2-fees.mjs
+```
+
+The evidence records whether the two sources shared a native block; the
+exercise does not guarantee batching. It does not replace independent blob
+verification, follower replay or restart checks. Legacy fixed-tip workloads
+do not acquire a fee quote automatically: run their compatibility checks with
+the gate disabled, or update each submitted transaction to use the fee SDK.
+
+For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
+with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
+`EEZ_L2_BRIDGE_RECEIVER` and `EEZ_BRIDGE_FEE_EVIDENCE_FILE`. Obtain the bridge
+addresses from `demo.env` in the enclave's `eez-ui-demo` files artifact; the
+base `deployments.env` does not contain these demo contracts. This requires the
+1:1, 20% target profit, zero fixed-cost/risk-reserve trial policy. It funds escrow through a
+real inbound bridge, then verifies a first type-2 withdrawal and a repeated
+legacy withdrawal. It checks principal and fee balance changes, native source
+gas, L1 receipt gas within 1,000 of the quote, and payment within 2% above the
+actual complete posting/blob cost plus its 20% allowance. This regression catches
+excessive pricing that a lower-bound funding check alone cannot detect.
+
 The workload scripts discover the enclave ports and deployment artifact
 automatically. They also read the deterministic L1 poster key (never the proof
 signer key) as their funding account from `KURTOSIS_ARGS_FILE`, so that variable

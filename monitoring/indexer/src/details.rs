@@ -58,7 +58,7 @@ async fn worker(config: &Config, url: &str) -> Result<()> {
             let old: Value =
                 serde_json::from_str(row.get::<_, Option<String>>(6).as_deref().unwrap_or("{}"))?;
             let gas_used: u64 = row.get::<_, String>(7).parse()?;
-            let mut data = json!({"version":5});
+            let mut data = json!({"version":6});
             // Immutable transaction details and successful blob retrieval are
             // reused. Availability means retrieved at the recorded check time.
             data["transaction"] = if old["transaction"]["status"] == "available"

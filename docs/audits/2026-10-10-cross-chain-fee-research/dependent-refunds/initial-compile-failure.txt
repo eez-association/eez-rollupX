@@ -1,0 +1,14 @@
+Compiler run failed:
+Error (6275): Source "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol" not found: File not found. Searched the following locations: "/tmp/rollupx-dependent-refunds-20261010/protocol-test".
+ParserError: Source "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol" not found: File not found. Searched the following locations: "/tmp/rollupx-dependent-refunds-20261010/protocol-test".
+ --> /home/edu/Development/rollupX/eez-core-protocol/deployment/RollupDeployment.sol:5:1:
+  |
+5 | import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Error (6275): Source "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol" not found: File not found. Searched the following locations: "/tmp/rollupx-dependent-refunds-20261010/protocol-test".
+ParserError: Source "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol" not found: File not found. Searched the following locations: "/tmp/rollupx-dependent-refunds-20261010/protocol-test".
+ --> /home/edu/Development/rollupX/eez-core-protocol/src/rollupContract/Rollup.sol:6:1:
+  |
+6 | import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

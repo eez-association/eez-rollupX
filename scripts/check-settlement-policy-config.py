@@ -33,6 +33,19 @@ def main():
         "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS": "5000",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS": "2500",
         "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
+        "EEZ_FEES_L1_TO_L2_ENABLED": "true",
+        "EEZ_FEES_L2_TO_L1_ENABLED": "true",
+        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP": "2000000000",
+        "EEZ_FEES_L1_PER_L2_NUMERATOR": "2",
+        "EEZ_FEES_L1_PER_L2_DENOMINATOR": "3",
+        "EEZ_FEES_PROVING_COST_L1": "7",
+        "EEZ_FEES_OPERATIONS_COST_L1": "5",
+        "EEZ_FEES_TREASURY_COST_L1": "3",
+        "EEZ_FEES_RISK_BPS": "0",
+        "EEZ_FEES_PROFIT_BPS": "2000",
+        "EEZ_FEES_EXCLUDED_SENDERS": "",
+        "EEZ_FEES_L1_REFUND_PERCENT": "90",
+        "EEZ_FEES_L1_REFUND_RECIPIENT": "0x" + "11" * 20,
     }
     signer_l1_profile = {
         "chiado": "chiado",
@@ -117,6 +130,25 @@ def main():
                     services = json.loads(result.stdout)["services"]
                     assert services["eez-node"]["environment"].get(key) == value, (profile, key, value)
                     assert key not in services["eez-proof-signer"]["environment"], (profile, key)
+            fee_names = [name for name in policy if name.startswith("EEZ_FEES_")]
+            obsolete_names = ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_L1_FEE_REFUND_POLICY"]
+            # Transport only: preserve invalid inputs for runtime rejection,
+            # including obsolete names. Check all fields and shell precedence.
+            for name in [*fee_names, *obsolete_names]:
+                for value in ("", "invalid", "false"):
+                    result = subprocess.run(compose_command, env=dict(env, **{name: value}),
+                                            capture_output=True, text=True, check=True)
+                    services = json.loads(result.stdout)["services"]
+                    assert services["eez-node"]["environment"][name] == value, (profile, name, value)
+                    assert name not in services["eez-proof-signer"]["environment"]
+            # Omitted fields must stay omitted rather than acquire defaults.
+            for name in [*fee_names, *obsolete_names]:
+                env.pop(name, None)
+            env_file.write_text("\n".join(line for line in fixture.splitlines()
+                                         if not line.startswith(tuple(name + "=" for name in fee_names))))
+            result = subprocess.run(compose_command, env=env, capture_output=True, text=True, check=True)
+            node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+            assert all(node.get(name) is None for name in [*fee_names, *obsolete_names]), profile
             print(f"{profile}: mandatory policy configuration PASS")
 
 

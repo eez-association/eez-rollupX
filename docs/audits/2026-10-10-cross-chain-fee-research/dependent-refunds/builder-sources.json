@@ -1,0 +1,60 @@
+{
+  "revision": "6037fa728b13bf1806e16fff2586414216f6b8fa",
+  "files": [
+    {
+      "path": "crates/rbuilder/src/live_builder/simulation/sim_worker.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/live_builder/simulation/sim_worker.rs",
+      "sha256": "c84f4f584785d788fab3cbdb8fb018d9b2771376a62bd92873d6e209cbac6afb",
+      "bytes": 5708
+    },
+    {
+      "path": "crates/rbuilder/src/live_builder/simulation/simulation_job.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/live_builder/simulation/simulation_job.rs",
+      "sha256": "d743c322a8b3bee39b3adbb093b5823024fb79428fc39387a71d0fe245ee2006",
+      "bytes": 13917
+    },
+    {
+      "path": "crates/rbuilder/src/live_builder/simulation/mod.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/live_builder/simulation/mod.rs",
+      "sha256": "aa5de436db7dadbe08cf47e334502e489752ec33ebce131ee5e4fad3860097ae",
+      "bytes": 10040
+    },
+    {
+      "path": "crates/rbuilder/src/building/builders/ordering_builder.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/building/builders/ordering_builder.rs",
+      "sha256": "0cc20d39b41016aa984de56714ad028c2e9e9d9e7f24d788fde930b1a5418fb9",
+      "bytes": 23884
+    },
+    {
+      "path": "crates/rbuilder/src/live_builder/order_input/orderpool.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/live_builder/order_input/orderpool.rs",
+      "sha256": "99c606e4318883c48687f9a4835669af3b24998c502fc26f45093474cb4e6519",
+      "bytes": 11250
+    },
+    {
+      "path": "crates/rbuilder/src/building/builders/parallel_builder/conflict_resolving_pool.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/building/builders/parallel_builder/conflict_resolving_pool.rs",
+      "sha256": "b51ca5073e8040e2e7cc5f73b58322f0a0d9a29f714cf22ef6000274f4b18a82",
+      "bytes": 6706
+    },
+    {
+      "path": "crates/rbuilder/src/building/sim.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/building/sim.rs",
+      "sha256": "0fc35f2d2c73ae38df932cf13c37e50a292471b614907de4bb2ffc680e5c809d",
+      "bytes": 17773
+    },
+    {
+      "path": "crates/rbuilder/src/building/block_orders/prioritized_order_store.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/building/block_orders/prioritized_order_store.rs",
+      "sha256": "cfad856e784be4fee6cbd9bdcbb95ebec892e386b29227da8270bb72bb531923",
+      "bytes": 8872
+    },
+    {
+      "path": "crates/rbuilder/src/building/order_commit.rs",
+      "url": "https://raw.githubusercontent.com/flashbots/rbuilder/6037fa728b13bf1806e16fff2586414216f6b8fa/crates/rbuilder/src/building/order_commit.rs",
+      "sha256": "29611fe328c7fad4e023951626e99917c27834b5582ab7988ef3852a4866b70e",
+      "bytes": 41959
+    }
+  ],
+  "evidence_type": "Static review of a public source snapshot; no claim this exact revision is deployed by any provider, and not Titan source"
+}

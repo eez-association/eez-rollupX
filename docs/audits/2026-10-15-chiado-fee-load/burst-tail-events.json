@@ -1,0 +1,192 @@
+[
+  {
+    "timestamp": "2026-10-15T20:37:27.341384Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 22,
+    "deferred_count": 1,
+    "projected_gas": 14454583,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17556261,
+    "planning_margin": 100288
+  },
+  {
+    "timestamp": "2026-10-15T20:37:32.365326Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 23,
+    "deferred_count": 1,
+    "projected_gas": 15772933,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17573404,
+    "planning_margin": 103424
+  },
+  {
+    "timestamp": "2026-10-15T20:37:37.352874Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 22,
+    "deferred_count": 1,
+    "projected_gas": 15626196,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17590564,
+    "planning_margin": 99520
+  },
+  {
+    "timestamp": "2026-10-15T20:37:42.360386Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 22,
+    "deferred_count": 1,
+    "projected_gas": 15626196,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17590564,
+    "planning_margin": 99520
+  },
+  {
+    "timestamp": "2026-10-15T20:37:47.008164Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 22,
+    "target": "Some((23537546, 1792096660))"
+  },
+  {
+    "timestamp": "2026-10-15T20:37:47.371902Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 25,
+    "deferred_count": 1,
+    "projected_gas": 15659676,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17607741,
+    "planning_margin": 110464
+  },
+  {
+    "timestamp": "2026-10-15T20:37:52.348892Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 22,
+    "deferred_count": 1,
+    "projected_gas": 15803778,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17624935,
+    "planning_margin": 99520
+  },
+  {
+    "timestamp": "2026-10-15T20:37:57.358154Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 22,
+    "deferred_count": 1,
+    "projected_gas": 15803778,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17624935,
+    "planning_margin": 99520
+  },
+  {
+    "timestamp": "2026-10-15T20:38:02.003387Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 22,
+    "target": "Some((23537548, 1792096675))"
+  },
+  {
+    "timestamp": "2026-10-15T20:38:02.372137Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 23,
+    "deferred_count": 1,
+    "projected_gas": 15595231,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17642145,
+    "planning_margin": 103424
+  },
+  {
+    "timestamp": "2026-10-15T20:38:07.372114Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 23,
+    "deferred_count": 1,
+    "projected_gas": 15595231,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17642145,
+    "planning_margin": 103424
+  },
+  {
+    "timestamp": "2026-10-15T20:38:12.368118Z",
+    "event": "eez.composer.sync_slot.gas_budget_cut",
+    "accepted_count": 23,
+    "deferred_count": 1,
+    "projected_gas": 15595231,
+    "budget": 15978300,
+    "constraint": "l1_tx_gas_budget",
+    "network_transaction_gas_max": 16777216,
+    "block_gas_budget": 17642145,
+    "planning_margin": 103424
+  },
+  {
+    "timestamp": "2026-10-15T20:38:16.004067Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 23,
+    "target": "Some((23537549, 1792096685))"
+  },
+  {
+    "timestamp": "2026-10-15T20:38:16.006776Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 23,
+    "target": "Some((23537549, 1792096690))"
+  },
+  {
+    "timestamp": "2026-10-15T20:38:31.003844Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 11,
+    "target": "Some((23537550, 1792096700))"
+  },
+  {
+    "timestamp": "2026-10-15T20:38:31.006235Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 11,
+    "target": "Some((23537550, 1792096705))"
+  },
+  {
+    "timestamp": "2026-10-15T20:38:51.005795Z",
+    "event": "eez.composer.admission.submission_backoff",
+    "submitted_groups": 11,
+    "next_selection_max": 5,
+    "consecutive_failures": 5
+  },
+  {
+    "timestamp": "2026-10-15T20:38:56.004568Z",
+    "event": "eez.composer.admission.submission_backoff",
+    "submitted_groups": 5,
+    "next_selection_max": 2,
+    "consecutive_failures": 6
+  },
+  {
+    "timestamp": "2026-10-15T20:39:01.006146Z",
+    "event": "eez.composer.admission.submission_backoff",
+    "submitted_groups": 2,
+    "next_selection_max": 1,
+    "consecutive_failures": 7
+  },
+  {
+    "timestamp": "2026-10-15T20:39:06.005231Z",
+    "event": "eez.composer.admission.submission_backoff",
+    "submitted_groups": 1,
+    "next_selection_max": 1,
+    "consecutive_failures": 8
+  },
+  {
+    "timestamp": "2026-10-15T20:39:21.004436Z",
+    "event": "eez.composer.admission.skipped_slot",
+    "submitted_groups": 10,
+    "target": "Some((23537559, 1792096755))"
+  }
+]

@@ -18,6 +18,7 @@ pub struct ComposerSettings {
     /// the existing operator count limit, including the unset default of 50.
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
+    pub(super) fees: super::fees::config::FeeConfig,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
     /// Coinbase of every L2 block this node builds, Live and Sync alike, so
@@ -161,6 +162,10 @@ impl ComposerSettings {
             ),
         };
         let max_speculative_depth = policy.max_speculative_depth;
+        let fees = super::fees::config::FeeConfig::parse(|name| {
+            get(name).map_err(|error| error.to_string())
+        })
+        .map_err(PolicyError::Config)?;
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
             get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
@@ -173,6 +178,7 @@ impl ComposerSettings {
             max_blobs_per_batch,
             max_user_txs_per_bundle,
             posting_fees,
+            fees,
             gas_trace,
             emission,
             fee_recipient,
@@ -313,6 +319,15 @@ mod tests {
     #[test]
     fn operational_defaults_have_no_implicit_blob_or_gas_cap() {
         let config = settings(&[]).unwrap();
+        assert!(
+            config
+                .fees
+                .clone()
+                .bind(1, 9, [1], Address::ZERO)
+                .unwrap()
+                .pricing
+                .is_none()
+        );
         assert_eq!(config.max_blobs_per_batch, None);
         assert_eq!(config.max_speculative_depth(), 0);
         assert_eq!(config.emission.max_blocks, u64::from(u32::MAX));
@@ -322,6 +337,52 @@ mod tests {
         assert_eq!(fees.priority_max, 2_000_000_000);
         assert_eq!(fees.gas_margin_bps, 500);
         assert_eq!(fees.declared_gas(100_000, 105_000).unwrap(), 105_000);
+    }
+
+    #[test]
+    fn fee_configuration_reaches_runtime_with_independent_direction_switches() {
+        use super::super::fees::pricing::tests::{policy_json, settings as fee_settings};
+        let model = fee_settings(&policy_json());
+        let recipient = Address::repeat_byte(4).to_string();
+        let refund_recipient = Address::repeat_byte(9).to_string();
+        for l1 in [false, true] {
+            for l2 in [false, true] {
+                let mut values: Vec<_> = model.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                values.extend([
+                    ("EEZ_L2_FEE_RECIPIENT", recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_RECIPIENT", refund_recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_PERCENT", "90"),
+                    (
+                        "EEZ_FEES_L1_TO_L2_ENABLED",
+                        if l1 { "true" } else { "false" },
+                    ),
+                    (
+                        "EEZ_FEES_L2_TO_L1_ENABLED",
+                        if l2 { "true" } else { "false" },
+                    ),
+                ]);
+                let settings = settings(&values).unwrap();
+                let runtime = settings
+                    .fees
+                    .bind(10200, 906969, [7], settings.fee_recipient)
+                    .unwrap();
+                assert_eq!(runtime.l2_to_l1_enabled, l2);
+                assert_eq!(runtime.l1_refund.is_some(), l1);
+                if let Some(refund) = runtime.l1_refund {
+                    assert_eq!(refund.percent, 90);
+                    assert_eq!(refund.recipient, Address::repeat_byte(9));
+                }
+                let details = runtime.pricing.unwrap().details();
+                let assumptions = &details["assumptions"];
+                assert_eq!(assumptions["l1_chain_id"], 10200);
+                assert_eq!(assumptions["l2_chain_id"], 906969);
+                assert_eq!(assumptions["rollup_id"], 7);
+                assert_eq!(
+                    assumptions["beneficiary"],
+                    serde_json::json!(Address::repeat_byte(4))
+                );
+            }
+        }
     }
 
     #[test]

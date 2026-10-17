@@ -1,0 +1,61 @@
+{
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "dynamicAdmissionTests": 28,
+  "passed": 28,
+  "unitComposerPassed": 366,
+  "unitComposerIgnoredManual": 1,
+  "clippy": "passed",
+  "rustfmt": "passed",
+  "shippingBinariesUsed": true,
+  "evidence": {
+    "shipping-dynamic.log": {
+      "sha256": "e6bb68f5dee9d831bc30f3a2a391d1fbfe5dcc51bfa487c714a7148072fc8d77",
+      "bytes": 2866
+    },
+    "checks/eez-discarded-work-before.log": {
+      "sha256": "4e4488ec8dc74f1dd39736bcf4f2c690a62d8cc2788ca0b7f68512465dbd9c3e",
+      "bytes": 6065
+    },
+    "checks/eez-discarded-work-after.log": {
+      "sha256": "debd2aaa9e7777c384df4ca49929e1b6c01db2d723fa3a675abfbc24ca13c169",
+      "bytes": 4258
+    },
+    "checks/eez-discarded-work-composer.log": {
+      "sha256": "b2e66ef6d6a1b2075aeddede5014d2750532095bdf9d558e663e0601aff37450",
+      "bytes": 36874
+    },
+    "checks/eez-discarded-work-clippy.log": {
+      "sha256": "244363544e52eb4c12a750375b5adb0eeffae0f4f889f1191806154d292f8078",
+      "bytes": 6280
+    },
+    "runtime-images.json": {
+      "sha256": "c9a215cc31af6be4079173d17d938205f1a7225b19d3fcd54a114f17fe5ca63c",
+      "bytes": 1186
+    },
+    "runtime-binaries.json": {
+      "sha256": "5dc75b6d92213465cb748e6b7b4a23250468bd0a89df93297b0451fcebd45123",
+      "bytes": 1499
+    },
+    "docker-source.json": {
+      "sha256": "96ea406d615fcc6aa0ccfae0dc0a174543e6c5cfc09bf3f5fea09b14f44b539d",
+      "bytes": 1869
+    },
+    "shipping-process-test.json": {
+      "sha256": "22133bffbe0dc46f660c42f174d953a5a5743f47ea8ce0e7e1230190407f72cf",
+      "bytes": 4461
+    },
+    "funding-chunk-estimates.json": {
+      "sha256": "a4069e4836bbb1cdecce9b6b3a6216f59d5a276f10d3e7214c5771d3587a4e5b",
+      "bytes": 358
+    },
+    "shipping-fees.log": {
+      "sha256": "df0bee7f9f4b37e6e9fb2902e46dec79769cba44118844b77aef7489631ac4df",
+      "bytes": 1312
+    }
+  },
+  "feeAndSafeProcessPassed": 14,
+  "processTotalPassed": 42,
+  "processFailed": 0,
+  "processIgnored": 0,
+  "processCompletedAt": "2026-10-16T10:56:17.310324+00:00"
+}

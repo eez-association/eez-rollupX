@@ -13,6 +13,156 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_mins(4);
 
+sol! {
+    function setInSmallBatch(address registry, uint64 rollupId, uint256 maximum, uint256 v);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_preflight_rejection_reduces_whole_groups_and_replays() {
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
+        .await
+        .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let chain = l1.get_chain_id().await.unwrap();
+    let inner = eez_testkit::deploy_nested_setter_inner(
+        &world.l1_rpc(),
+        ANVIL_KEY_4,
+        chain,
+        world.setter_proxy,
+    )
+    .await
+    .unwrap();
+    let follower = NodeHandle::start(
+        "native-backoff-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    let idle = world.node.signal_cursor().unwrap();
+    wait_for(TIMEOUT, || async {
+        Ok(world
+            .node
+            .signals_since(idle)?
+            .iter()
+            .any(|e| e.name == "eez.composer.slot.plan" && e.fields["prepare"] == false)
+            .then_some(()))
+    })
+    .await
+    .unwrap();
+    let cursor = world.node.signal_cursor().unwrap();
+    let nonce = onchain_nonce(&world.l1_rpc(), ANVIL_KEY_2).await.unwrap();
+    let mut sources = Vec::new();
+    for offset in 0..3 {
+        sources.push(
+            sign_and_send(
+                &world.l1_xchain(),
+                ANVIL_KEY_2,
+                chain,
+                nonce + offset,
+                Some(inner),
+                U256::ZERO,
+                setInSmallBatchCall {
+                    registry: world.cfg.eez_address,
+                    rollupId: world.cfg.rollup_id,
+                    maximum: U256::from(1),
+                    v: U256::from(701 + offset),
+                }
+                .abi_encode(),
+                2_000_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let outbound = sign_and_send(
+        &world.l2_xchain(),
+        ANVIL_KEY_4,
+        world.l2_chain_id,
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
+        Some(world.outbound_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(777) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let mut source_blocks = std::collections::BTreeSet::new();
+    for hash in &sources {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l1.get_transaction_receipt(*hash).await?)
+        })
+        .await
+        .unwrap_or_else(|e| panic!("{e:#}{}", world.settlement_diagnostics()));
+        assert!(receipt.status());
+        source_blocks.insert(receipt.block_number.unwrap());
+    }
+    assert_eq!(
+        source_blocks.len(),
+        3,
+        "the source requires one L1 group per post"
+    );
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l2.get_transaction_receipt(outbound).await?)
+    })
+    .await
+    .unwrap_or_else(|e| panic!("{e:#}{}", world.settlement_diagnostics()));
+    assert!(receipt.status());
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        receipt.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        l2_value(&world.l1_rpc(), world.outbound_value)
+            .await
+            .unwrap(),
+        U256::from(777)
+    );
+    assert_eq!(
+        l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+        U256::from(703)
+    );
+    wait_for(TIMEOUT, || async {
+        Ok(
+            (l2_value(&follower.l2_rpc_url(), world.value_l2).await? == U256::from(703))
+                .then_some(()),
+        )
+    })
+    .await
+    .unwrap();
+    let events = world.node.signals_since(cursor).unwrap();
+    let reductions: Vec<_> = events
+        .iter()
+        .filter(|e| e.name == "eez.composer.admission.preflight_backoff")
+        .collect();
+    assert!(
+        !reductions.is_empty(),
+        "must exercise completed native rejection{}",
+        world.settlement_diagnostics()
+    );
+    assert!(
+        reductions
+            .iter()
+            .any(|e| e.fields["rejected_groups"].as_u64().unwrap() > 1)
+    );
+    for event in events
+        .iter()
+        .filter(|e| e.name == "eez.composer.settlement.reconciled")
+    {
+        assert_ne!(
+            event.fields["attempt_charge"], "Preflight",
+            "a reducible batch cannot penalize a source"
+        );
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn existing_proxy_multicall_estimate_reaches_final_post_and_replays() {
     use eez_testkit::ISetterWrapper;

@@ -7,7 +7,7 @@ use revm::context_interface::ContextTr;
 use revm::interpreter::{
     CallInputs, CallOutcome, CallScheme, Gas, InstructionResult, InterpreterResult,
 };
-use revm::{Database, Inspector, Journal};
+use revm::{Inspector, Journal};
 
 alloy_sol_types::sol! {
     function verify(bytes proof, bytes32 publicInputsHash) external view returns (bool);
@@ -46,30 +46,85 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
     }
 }
 
+enum SetupProof {
+    GasOnly(AssumedProof),
+    Priced(super::super::fees::settlement::MeteredProof),
+}
+impl SetupProof {
+    fn valid(&self) -> bool {
+        match self {
+            Self::GasOnly(p) => p.matches == 1,
+            Self::Priced(p) => p.valid(),
+        }
+    }
+}
+impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> for SetupProof {
+    fn call(&mut self, context: &mut C, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        match self {
+            Self::GasOnly(p) => p.call(context, inputs),
+            Self::Priced(p) => p.call(context, inputs),
+        }
+    }
+    fn call_end(&mut self, context: &mut C, inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if let Self::Priced(p) = self {
+            p.call_end(context, inputs, outcome);
+        }
+    }
+}
+
 /// Both networks execute real transactions under their native configuration.
 /// The only assumed result is scoped to setup's exact verification call.
+pub(super) struct Replay<'a> {
+    pub batch: &'a eez_protocol::EvmBatch,
+    pub composition: &'a eez_protocol::Composition,
+    pub tx: TxEnv,
+    pub digest: B256,
+    pub posting: Option<&'a super::super::posting::PostingQuote>,
+    pub blob_hashes: &'a [B256],
+    pub gas_limit: Option<u64>,
+}
+
 pub(super) fn replay(
     estimator: &GasEstimator,
     snapshot: &Snapshot,
-    batch: &eez_protocol::EvmBatch,
-    composition: &eez_protocol::Composition,
-    mut tx: revm::context::TxEnv,
-    digest: B256,
+    input: Replay<'_>,
 ) -> Result<Probe, EstimateError> {
+    let Replay {
+        batch,
+        composition,
+        mut tx,
+        digest,
+        posting,
+        blob_hashes,
+        gas_limit,
+    } = input;
     let chain = estimator.l1.chain_provider();
     let (mut state, _) = snapshot.l1.fork_state(&estimator.l1).map_err(unavailable)?;
-    let mut proof = AssumedProof {
-        registry: estimator.l1.manager_address(),
-        verifier: estimator.verifier,
-        calldata: verifyCall {
-            proof: Bytes::new(),
-            publicInputsHash: digest,
-        }
-        .abi_encode()
-        .into(),
-        matches: 0,
+    let calldata = verifyCall {
+        proof: batch.proofs[0].clone(),
+        publicInputsHash: digest,
+    }
+    .abi_encode()
+    .into();
+    let mut proof = if posting.is_some() {
+        SetupProof::Priced(
+            super::super::fees::settlement::MeteredProof::setup(
+                estimator.l1.manager_address(),
+                estimator.verifier,
+                calldata,
+                estimator.rollup_id,
+            )
+            .map_err(unavailable)?,
+        )
+    } else {
+        SetupProof::GasOnly(AssumedProof {
+            registry: estimator.l1.manager_address(),
+            verifier: estimator.verifier,
+            calldata,
+            matches: 0,
+        })
     };
-    let setup = revm::context::TxEnv {
+    let mut setup = revm::context::TxEnv {
         caller: estimator.poster,
         kind: alloy_primitives::TxKind::Call(estimator.post_batch_target),
         data: eez_protocol::abi::postAndVerifyBatchCall {
@@ -81,6 +136,19 @@ pub(super) fn replay(
         chain_id: Some(snapshot.l1_env.cfg_env.chain_id),
         ..Default::default()
     };
+    if let Some(posting) = posting {
+        setup.tx_type = 3;
+        setup.nonce = state
+            .basic(estimator.poster)
+            .map_err(unavailable)?
+            .unwrap_or_default()
+            .nonce;
+        setup.gas_limit = gas_limit.unwrap_or(posting.gas_budget);
+        setup.gas_price = posting.quote.max_fee_per_gas;
+        setup.gas_priority_fee = Some(posting.quote.max_priority_fee_per_gas);
+        setup.max_fee_per_blob_gas = posting.quote.max_fee_per_blob_gas;
+        setup.blob_hashes = blob_hashes.to_vec();
+    }
     let mut effects = super::super::posting::EffectInspector::for_actions(
         estimator.l1.manager_address(),
         0,
@@ -93,13 +161,17 @@ pub(super) fn replay(
     // transaction accounting, so setup cannot leak warm accesses or refunds.
     let mut last_root = None;
     let limit;
+    let post_used;
+    let post_required;
     let mut setup_env = snapshot.l1_env.clone();
-    setup_env.cfg_env.disable_nonce_check = true;
-    setup_env.cfg_env.disable_balance_check = true;
-    setup_env.cfg_env.disable_base_fee = true;
-    setup_env.cfg_env.disable_eip3607 = true;
-    setup_env.cfg_env.disable_fee_charge = true;
-    setup_env.cfg_env.tx_gas_limit_cap = Some(setup.gas_limit);
+    if posting.is_none() {
+        setup_env.cfg_env.disable_nonce_check = true;
+        setup_env.cfg_env.disable_balance_check = true;
+        setup_env.cfg_env.disable_base_fee = true;
+        setup_env.cfg_env.disable_eip3607 = true;
+        setup_env.cfg_env.disable_fee_charge = true;
+        setup_env.cfg_env.tx_gas_limit_cap = Some(setup.gas_limit);
+    }
 
     macro_rules! execute {
         ($config:expr, $parent:expr) => {{
@@ -107,7 +179,7 @@ pub(super) fn replay(
             let context = config
                 .context_for_next_block(&$parent, snapshot.l1_attributes.clone())
                 .map_err(unavailable)?;
-            {
+            if snapshot.l1_prefix_gas == 0 {
                 let evm = config.evm_with_env(&mut state, snapshot.l1_env.clone());
                 config
                     .create_executor(evm, context)
@@ -122,6 +194,8 @@ pub(super) fn replay(
                         "conditional L1 setup reverted".into(),
                     ));
                 }
+                post_used = output.gas_used;
+                post_required = output.gas_required;
                 if output.gas_required > snapshot.l1_env.cfg_env.tx_gas_limit_cap() {
                     return Err(unsupported("prepared L1 group exceeds native gas capacity"));
                 }
@@ -130,18 +204,19 @@ pub(super) fn replay(
                         .l1_env
                         .block_env
                         .gas_limit
-                        .saturating_sub(output.gas_used),
+                        .saturating_sub(output.gas_used)
+                        .saturating_sub(snapshot.l1_prefix_gas),
                 );
                 limit = tx.gas_limit;
                 observe_roots(&output.logs, estimator, &mut last_root)?;
-                if proof.matches != 1 {
+                if !proof.valid() {
                     return Err(EstimateError::Unsupported(
                         "conditional setup did not match exactly one proof call".into(),
                     ));
                 }
             }
             let mut user_env = snapshot.l1_env.clone();
-            user_env.cfg_env.disable_base_fee = true;
+            user_env.cfg_env.disable_base_fee = posting.is_none();
             let evm = config.evm_with_env_and_inspector(&mut state, user_env, &mut effects);
             execute_user(evm, tx)?
         }};
@@ -183,6 +258,11 @@ pub(super) fn replay(
         source_gas: result.gas_used,
         output: result.output,
         actions: composition.actions.clone(),
+        settlement: posting.map(|_| (post_used, blob_hashes.len(), 0)),
+        post_required,
+        retained_l1: Some(state.cache),
+        retained_l2: Vec::new(),
+        retained_root: None,
     })
 }
 

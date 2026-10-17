@@ -1,0 +1,331 @@
+{
+  "status": "qualified_and_deployed",
+  "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "baseline": "17fe00fa9420ad3b9ddec9e003a9a9a6e35f6e04",
+  "priorDeployedSource": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "images": {
+    "node": {
+      "tag": "eez-node:posting-feedback-aa8d8a58",
+      "id": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "revision": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+      "executables": {
+        "eez-composer": "d8cddd2897e675e713e5a259a60f68657cf278d6c50a2f21cd4a9d826546ac30",
+        "eez-follower": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+        "eez-genesis-state-root": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+        "eez-genesis-block-hash": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9"
+      }
+    },
+    "signer": {
+      "tag": "eez-proof-signer:posting-feedback-aa8d8a58",
+      "id": "sha256:e3a2454ba7f464fc3a97685856ba7e85e0ba8db8888c26e8e4f481c4307e62b5",
+      "revision": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+      "executables": {
+        "eez-proof-signer": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93"
+      }
+    },
+    "deploy": {
+      "tag": "eez-deploy:posting-feedback-aa8d8a58",
+      "id": "sha256:1aa5266860e915a7a5b16dbe91784c2d920d60c536572c099695fce50f9675d0",
+      "revision": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+      "executables": {}
+    }
+  },
+  "validation": {
+    "unitPassed": 658,
+    "unitIgnoredManualProfiling": 1,
+    "sdkPassed": 6,
+    "integrationSolidityPassed": 86,
+    "feeProcessPassed": 16,
+    "queuePolicyProcessPassed": 5,
+    "exactReleaseRegressionsPassed": 2,
+    "workspaceClippy": "passed",
+    "rustfmt": "passed",
+    "forgeFmt": "passed",
+    "kurtosis": {
+      "l1Sources": 12,
+      "l2Sources": 2,
+      "sharedL1Batches": 2,
+      "nativeBlobVerification": true,
+      "independentGenesisReplayPassed": 1,
+      "filteredPriceSamples": 78,
+      "maxExcludedServiceTransactions": 20,
+      "blobscan": "explicitly_disabled"
+    },
+    "chiadoProtocol": {
+      "enabledScenariosPassed": 34,
+      "canonicalSources": 36,
+      "l1Sources": 20,
+      "l2Sources": 16,
+      "semanticAssertions": true,
+      "pinnedExcludedScenarios": 6,
+      "quoteSubmissionErrors": 0,
+      "sourceReplacements": 0,
+      "setupRebroadcasts": 0,
+      "preparationConcurrency": 200,
+      "sourceWorkers": 4,
+      "authenticatedBlobPosts": 12,
+      "quotes": {
+        "quotes": 36,
+        "quoteErrors": 0,
+        "quoteAttempts": {
+          "1": 36
+        },
+        "admissions": 36,
+        "admissionErrors": 0,
+        "quoteMedianMs": 9.611449999996694,
+        "quoteP95Ms": 17.45372399999178,
+        "typeCounts": {
+          "0x0": 19,
+          "0x2": 17
+        }
+      },
+      "excludedScenarios": [
+        "script/e2e/scenarios/static/L1_to_L2/nestedStaticLocalWriteL2/E2ENestedStaticLocalWriteL2.s.sol",
+        "script/e2e/scenarios/static/L1_to_L2/staticLocalWrite/E2EStaticLocalWrite.s.sol",
+        "script/e2e/scenarios/static/L1_to_L2/topLevelStaticReentrantMissingProxy/E2ETopLevelStaticReentrantMissingProxy.s.sol",
+        "script/e2e/scenarios/static/L2_to_L1/nestedStaticLocalWriteL1/E2ENestedStaticLocalWriteL1.s.sol",
+        "script/e2e/scenarios/static/L2_to_L1/staticLocalWriteL2/E2EStaticLocalWriteL2.s.sol",
+        "script/e2e/scenarios/static/L2_to_L1/topLevelStaticReentrantMissingProxyL2/E2ETopLevelStaticReentrantMissingProxyL2.s.sol"
+      ]
+    },
+    "chiadoFalcon": {
+      "sources": 12,
+      "legacy": 6,
+      "eip1559": 6,
+      "minGas": 5453051,
+      "maxGas": 5999402,
+      "quotes": 12,
+      "quoteErrors": 0,
+      "quoteRetries": 0,
+      "posts": 5,
+      "costL1": "4427877026407619",
+      "tipsL2": "7438406462367597",
+      "allPostsCovered": true,
+      "creations": 4,
+      "transfers": 8,
+      "negativeAuthorizationChecks": 3,
+      "realBrowserSignatures": true,
+      "authenticatedBlobPosts": 5,
+      "summaryAssertionCorrected": {
+        "from": 48,
+        "to": 12,
+        "readOnlyCanonicalRecheck": true,
+        "sourcesResent": 0
+      }
+    },
+    "independentCheckpointReplay": {
+      "verified": true,
+      "safeBlock": "0xbb08f",
+      "hash": "0x0d4ea03fd21f02c73c02351a97556f006df7c3aee899d5fe2c9be992e4d6ff9e",
+      "stateRoot": "0x73fbd957267b213c7d708ce8bceb8d1dd4641463249ad91f5163252f2836e7d0",
+      "receipts": 50,
+      "stateCalls": 4,
+      "sequencerOverlay": false,
+      "checkpointReplay": true
+    }
+  },
+  "deployment": {
+    "completedAt": "2026-10-16T13:55:38.341666+00:00",
+    "canonicalSafePreserved": "0x31b47065bd351747aeed4c4bdbd70434e97ede29ad0ef86b43bb2b7f96aeac72",
+    "publicRpcReopened": true,
+    "feeEnvironmentUnchanged": true,
+    "originalStoppedDatabasesRetained": true,
+    "contractsAndGenesisUnchanged": true,
+    "queueEmptyAfterWorkload": true,
+    "runtimeUnchangedDuringWorkload": true,
+    "publicWebsocketChecks": [
+      {
+        "path": "/ws/l1",
+        "chainId": 10200,
+        "verified": true
+      },
+      {
+        "path": "/ws/l2",
+        "chainId": 906969,
+        "verified": true
+      }
+    ],
+    "publicFeeRpcChecks": [
+      {
+        "layer": "L1",
+        "compactTypes": [
+          "0x0",
+          "0x2"
+        ],
+        "debugVerified": true
+      },
+      {
+        "layer": "L2",
+        "compactTypes": [
+          "0x0",
+          "0x2"
+        ],
+        "debugVerified": true
+      }
+    ]
+  },
+  "limits": [
+    "Local development images, not CI-promoted artifacts",
+    "Current candidate did not rerun the earlier 770-job stress wave",
+    "No additional builder qualification",
+    "Pending queues and recovery accounting remain in memory"
+  ],
+  "protocolFees": {
+    "sources": 36,
+    "posts": 12,
+    "l1Sources": 20,
+    "l2Sources": 16,
+    "maxL1SourcesPerPost": 5,
+    "maxL2SourcesPerPost": 5,
+    "l1Cost": "4897048021991336",
+    "l1Refund": "3454276954308310",
+    "l1LossPosts": 4,
+    "l2Cost": "6848542035651794",
+    "l2Tips": "11180095261565922"
+  },
+  "fundingPreflight": {
+    "initialFalconRun": "failed_before_start_or_workload_signing",
+    "fundedL2Shortfall": "20245959922671676",
+    "targetL2Balance": "28000000000000000",
+    "bridgeHash": "0x5f1cf624c08425768e59707ad3d80facbf1c6396c047fe8a83b8abe5ef65d6dc",
+    "bothWalletLocksHeld": true
+  },
+  "livePricing": {
+    "samples": 201,
+    "maxExcludedServiceTransactionsPerWindow": 43,
+    "priorityFees": [
+      "1000000000"
+    ],
+    "fundingRejections": 0
+  },
+  "falconFees": {
+    "sources": 12,
+    "legacy": 6,
+    "eip1559": 6,
+    "minGas": 5453051,
+    "maxGas": 5999402,
+    "quotes": 12,
+    "quoteErrors": 0,
+    "quoteRetries": 0,
+    "posts": 5,
+    "costL1": "4427877026407619",
+    "tipsL2": "7438406462367597",
+    "allPostsCovered": true
+  },
+  "localOnlyEvidence": {
+    "candidate-source.json": {
+      "bytes": 3848,
+      "sha256": "ef92ab241c4265c411e26d284ab2c272a3a7623281d13b479bd1385bb733c365"
+    },
+    "build-recipes.json": {
+      "bytes": 775,
+      "sha256": "8c3ed0a668422926b45258ee167ecf86e3e90ec5a64073a3ecc353eb53bdac38"
+    },
+    "runtime-images.json": {
+      "bytes": 1198,
+      "sha256": "20246db5daeb2b5076c0e782e198d075b061506224937dfb0afb856b551fa91d"
+    },
+    "runtime-binaries.json": {
+      "bytes": 1700,
+      "sha256": "9be3c07c3ee1bcf9a8a4b3a9895cf311a7de899e919491614465116adc33f184"
+    },
+    "native-passed": {
+      "bytes": 705,
+      "sha256": "de0385c81a81965b55a9fb8b85af1f079aa5a3b3f1b9c8ad5a132a5b29bf5827"
+    },
+    "native-image.log": {
+      "bytes": 299,
+      "sha256": "d170b3c0ada35927c831193c72f68263afcd174ae9ff9a872d064935e4a74618"
+    },
+    "kurtosis-l1-fees.json": {
+      "bytes": 230197,
+      "sha256": "3ab23d1dc3f6e4c629fd090c98331147dfe5ed975104fad3207918a2d2611008"
+    },
+    "kurtosis-l2-fees.json": {
+      "bytes": 41380,
+      "sha256": "3cb3c5fa6299af96a55b43e0d76b3d8c939c1b3d359b9e45a2d6090337e497fe"
+    },
+    "kurtosis-replay.log": {
+      "bytes": 483,
+      "sha256": "5164879846b00da2a84844ed9c0f58adafb5c9889406f089e4558a4ab7699782"
+    },
+    "protocol-all.log": {
+      "bytes": 10524,
+      "sha256": "d8701a82045f437802ae7a96e1927f40c7cfef6059cefad5d526fde0e4faf280"
+    },
+    "falcon.log": {
+      "bytes": 108,
+      "sha256": "6b87d43246c65aff995b30fdb8608f1f8dfb08208ca03646dde0eaf02dd087b7"
+    },
+    "falcon-funded.log": {
+      "bytes": 1169,
+      "sha256": "a48ba5c8e5c41244aff3239d5501358d0ad24c79c0f5b27a7efe11c5c73518ad"
+    },
+    "falcon-final-recheck.log": {
+      "bytes": 136,
+      "sha256": "a25ef5b14faad878505211f48ba909de3531d9d85d8cb6a9df6c3310966b0b92"
+    },
+    "protocol-blob-result.json": {
+      "bytes": 2726,
+      "sha256": "c713e5f973e619f13555b1881793bab202ec69a97533b41fa34476629b708c3a"
+    },
+    "falcon-blob-result.json": {
+      "bytes": 1178,
+      "sha256": "dcd4e8666c2e82775a17accdae26981db4524e03094dd9d8e7ad8645d1e4f65c"
+    },
+    "follower-result.json": {
+      "bytes": 308,
+      "sha256": "4e500ddb1202351e1706eca4464143dace16f0c4fcc8e9cd5f399354730f5d3f"
+    },
+    "upgrade-health.json": {
+      "bytes": 1486,
+      "sha256": "d1c1f2a18072c7c9fe5dffae595575a16f188c0a3d20a19d379bd851003c434b"
+    },
+    "final-health.json": {
+      "bytes": 2210,
+      "sha256": "53d596b4c21fa5a72c09578bd03597210a966d4f56bd5150d6f9769d4d8a9953"
+    },
+    "chiado-pricing.json": {
+      "bytes": 59236,
+      "sha256": "0757ff591fc1de25d8925fb878e5a07945070bbef95a17937865e62ef185f36b"
+    }
+  },
+  "executables": {
+    "eez-composer": {
+      "sha256": "d8cddd2897e675e713e5a259a60f68657cf278d6c50a2f21cd4a9d826546ac30",
+      "image": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+    },
+    "eez-follower": {
+      "sha256": "f8e16eded15ceb7c64d3e83fd5d084cf5084945e53b48c91594a870e74c7910f",
+      "image": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+    },
+    "eez-genesis-state-root": {
+      "sha256": "67354b6171a7eef8d75669cbe9da77e461d56044e020195061f1d0510f8f39d6",
+      "image": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "31873e0358bdbcc057a03176aef8104edd8c2e00e1b09d470742704f5414c5c9",
+      "image": "sha256:a549891637d15e6693c77d64bd1a741a5d53434dc7fbbf759922ebe05b48fdc6",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+    },
+    "eez-proof-signer": {
+      "sha256": "412bb907a79ca17b06497933973840701d96942fe7b1606d4aba838e21a9cc93",
+      "image": "sha256:e3a2454ba7f464fc3a97685856ba7e85e0ba8db8888c26e8e4f481c4307e62b5",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+    },
+    "node_e2e": {
+      "sha256": "9329837cd046bada1492c19d70eecd3d901868b757a49c561a9ed49b3e3410b9",
+      "source": "aa8d8a5894c69502c67dcae35d5184bc9a79b036",
+      "kind": "source-built test harness"
+    },
+    "verify_blob_evidence": {
+      "sha256": "da99270dabdd0f2c8f3b28c5bfcdac91506149955fd40c27cdc0867b0e4b88af",
+      "source": "ce6574788682c54bdd3f9742870f5dbdbd9a4a9c",
+      "unchangedInputsAtCandidate": true
+    }
+  }
+}

@@ -1,4 +1,4 @@
-use alloy_primitives::{B256, U256};
+use alloy_primitives::{Address, B256, U256};
 use axum::{Json, Router, extract::State, routing::post};
 use eez_indexer::{
     l2_fees::{block_fees, collect},
@@ -11,18 +11,93 @@ use std::sync::{
 };
 
 fn header(n: u64) -> Value {
-    json!({"number":format!("0x{n:x}"),"hash":B256::with_last_byte(n as u8),"parentHash":B256::with_last_byte(n as u8-1),"timestamp":"0x1","baseFeePerGas":"0xa","gasUsed":"0x5","transactions":[B256::with_last_byte(10),B256::with_last_byte(11)]})
+    json!({"number":format!("0x{n:x}"),"hash":B256::with_last_byte(n as u8),"parentHash":B256::with_last_byte(n as u8-1),"timestamp":"0x1","miner":Address::repeat_byte(n as u8),"baseFeePerGas":"0xa","gasUsed":"0x5","transactions":[B256::with_last_byte(10),B256::with_last_byte(11)]})
 }
 fn receipts(n: u64) -> Value {
-    json!((0..2).map(|i| json!({"blockNumber":format!("0x{n:x}"),"blockHash":B256::with_last_byte(n as u8),"transactionHash":B256::with_last_byte(10+i),"transactionIndex":format!("0x{i:x}"),"status":format!("0x{i:x}"),"gasUsed":if i==0 {"0x2"} else {"0x3"},"cumulativeGasUsed":if i==0 {"0x2"} else {"0x5"},"effectiveGasPrice":if i==0 {"0xc"} else {"0xf"}})).collect::<Vec<_>>())
+    json!((0..2).map(|i| json!({"blockNumber":format!("0x{n:x}"),"blockHash":B256::with_last_byte(n as u8),"transactionHash":B256::with_last_byte(10+i),"transactionIndex":format!("0x{i:x}"),"type":if i==0 {"0x0"} else {"0x2"},"status":format!("0x{i:x}"),"gasUsed":if i==0 {"0x2"} else {"0x3"},"cumulativeGasUsed":if i==0 {"0x2"} else {"0x5"},"effectiveGasPrice":if i==0 {"0xc"} else {"0xf"}})).collect::<Vec<_>>())
 }
+#[test]
+fn native_system_receipts_meter_gas_without_charging_fees() {
+    let b = header(1);
+    let mut r = receipts(1);
+    r[0]["type"] = json!("0x76");
+    r[0]["effectiveGasPrice"] = json!("0x0");
+
+    // Both transactions contribute to cumulative/block gas. Only the ordinary
+    // transaction pays the positive base fee and the beneficiary's priority fee.
+    let fees = block_fees(&b, &r).unwrap();
+    assert_eq!(fees.burn, U256::from(30));
+    assert_eq!(fees.tip, U256::from(15));
+    assert_eq!(fees.ordinary_gas_used, 3);
+    assert_eq!(fees.native_gas_used, 2);
+    assert_eq!(fees.beneficiary, Address::repeat_byte(1));
+
+    r[0]["effectiveGasPrice"] = json!("0xc");
+    assert_eq!(
+        block_fees(&b, &r).unwrap_err().to_string(),
+        "nonzero native L2 transaction price"
+    );
+}
+
+#[test]
+fn native_only_blocks_have_gas_but_no_fee_revenue() {
+    let mut b = header(1);
+    let mut r = receipts(1);
+    for receipt in r.as_array_mut().unwrap() {
+        receipt["type"] = json!("0x76");
+        receipt["effectiveGasPrice"] = json!("0x0");
+    }
+    for base in ["0x0", "0xa"] {
+        b["baseFeePerGas"] = json!(base);
+        let fees = block_fees(&b, &r).unwrap();
+        assert_eq!(fees.ordinary_gas_used, 0);
+        assert_eq!(fees.native_gas_used, 5);
+        assert_eq!(fees.burn, U256::ZERO);
+        assert_eq!(fees.tip, U256::ZERO);
+    }
+    r[1]["cumulativeGasUsed"] = json!("0x4");
+    assert_eq!(
+        block_fees(&b, &r).unwrap_err().to_string(),
+        "L2 cumulative gas mismatch"
+    );
+}
+
+#[test]
+fn missing_or_unknown_types_cannot_claim_native_fee_exemption() {
+    let b = header(1);
+    let mut r = receipts(1);
+    r[0]["effectiveGasPrice"] = json!("0x0");
+    for (kind, message) in [
+        (json!("0x0"), "L2 effective price below base fee"),
+        (json!("0x7f"), "unsupported L2 receipt type"),
+        (json!("0x076"), "noncanonical quantity"),
+        (Value::Null, "missing hex quantity"),
+    ] {
+        r[0]["type"] = kind;
+        assert_eq!(block_fees(&b, &r).unwrap_err().to_string(), message);
+    }
+    let mut b = b;
+    b.as_object_mut().unwrap().remove("miner");
+    assert_eq!(
+        block_fees(&b, &receipts(1)).unwrap_err().to_string(),
+        "missing L2 fee beneficiary"
+    );
+}
+
 #[test]
 fn exact_fees_include_reverts_and_reject_incomplete_or_wrong_receipts() {
     let b = header(1);
     let r = receipts(1);
-    let (burn, tip) = block_fees(&b, &r).unwrap();
-    assert_eq!(burn.to_string(), "50");
-    assert_eq!(tip.to_string(), "19");
+    let fees = block_fees(&b, &r).unwrap();
+    assert_eq!(fees.burn.to_string(), "50");
+    assert_eq!(fees.tip.to_string(), "19");
+    assert_eq!(fees.ordinary_gas_used, 5);
+    assert_eq!(fees.native_gas_used, 0);
+    let mut zero_recipient = b.clone();
+    zero_recipient["miner"] = json!(Address::ZERO);
+    let fees = block_fees(&zero_recipient, &r).unwrap();
+    assert_eq!(fees.beneficiary, Address::ZERO);
+    assert_eq!(fees.tip.to_string(), "19");
     for (field, value) in [
         ("blockHash", json!(B256::ZERO)),
         ("transactionHash", json!(B256::ZERO)),
@@ -40,10 +115,10 @@ fn exact_fees_include_reverts_and_reject_incomplete_or_wrong_receipts() {
     let mut empty = b.clone();
     empty["transactions"] = json!([]);
     empty["gasUsed"] = json!("0x0");
-    assert_eq!(
-        block_fees(&empty, &json!([])).unwrap(),
-        (U256::ZERO, U256::ZERO)
-    );
+    let fees = block_fees(&empty, &json!([])).unwrap();
+    assert_eq!(fees.burn, U256::ZERO);
+    assert_eq!(fees.tip, U256::ZERO);
+    assert_eq!(fees.ordinary_gas_used + fees.native_gas_used, 0);
     empty["gasUsed"] = json!("0x1");
     assert!(block_fees(&empty, &json!([])).is_err());
     let mut huge = b;
@@ -57,6 +132,8 @@ fn exact_fees_include_reverts_and_reject_incomplete_or_wrong_receipts() {
 struct Mock {
     missing: AtomicBool,
     reorg: AtomicBool,
+    native: AtomicBool,
+    same_beneficiary: AtomicBool,
     receipts: AtomicUsize,
     requests: AtomicUsize,
 }
@@ -76,12 +153,20 @@ async fn handler(State(s): State<Arc<Mock>>, Json(request): Json<Value>) -> Json
             if s.reorg.load(Ordering::SeqCst) {
                 h["hash"] = json!(B256::ZERO);
             }
+            if s.same_beneficiary.load(Ordering::SeqCst) {
+                h["miner"] = json!(Address::repeat_byte(1));
+            }
             h
         }
         "eth_getBlockReceipts" if s.missing.load(Ordering::SeqCst) => json!([]),
         "eth_getBlockReceipts" => {
             s.receipts.fetch_add(1, Ordering::SeqCst);
-            receipts(n)
+            let mut r = receipts(n);
+            if s.native.load(Ordering::SeqCst) {
+                r[0]["type"] = json!("0x76");
+                r[0]["effectiveGasPrice"] = json!("0x0");
+            }
+            r
         }
         other => panic!("unexpected {other}"),
     };
@@ -104,6 +189,11 @@ async fn range_collection_resumes_without_double_counting_and_caches_complete_re
     assert_eq!(first["items"][0]["processed"], 1);
     // A stored checkpoint survives serialization/restart and a receipt outage.
     let saved: Value = serde_json::from_str(&first.to_string()).unwrap();
+    let mut premature = saved.clone();
+    premature["items"][0]["status"] = json!("available");
+    let incomplete = collect(&rpc, &ranges, &premature, 0).await;
+    assert_eq!(incomplete["status"], "pending");
+    assert_eq!(incomplete["items"][0]["processed"], 1);
     state.missing.store(true, Ordering::SeqCst);
     let failed = collect(&rpc, &ranges, &saved, 1).await;
     assert_eq!(failed["items"][0]["processed"], 1);
@@ -113,6 +203,12 @@ async fn range_collection_resumes_without_double_counting_and_caches_complete_re
     assert_eq!(complete["status"], "available");
     assert_eq!(complete["items"][0]["burnWei"], "100");
     assert_eq!(complete["items"][0]["tipWei"], "38");
+    assert_eq!(complete["items"][0]["ordinaryGasUsed"], "10");
+    assert_eq!(complete["items"][0]["nativeGasUsed"], "0");
+    assert_eq!(
+        complete["items"][0]["tipsByBeneficiary"],
+        json!({format!("{:#x}", Address::repeat_byte(1)):"19", format!("{:#x}", Address::repeat_byte(2)):"19"})
+    );
     let requests = state.requests.load(Ordering::SeqCst);
     assert_eq!(collect(&rpc, &ranges, &complete, 1).await, complete);
     assert_eq!(state.requests.load(Ordering::SeqCst), requests);
@@ -146,6 +242,76 @@ async fn range_collection_resumes_without_double_counting_and_caches_complete_re
     assert_eq!(
         collect(&rpc, &canonical, &ready, 1).await["status"],
         "pending"
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn native_fee_checkpoints_upgrade_resume_and_reject_unattributed_totals() {
+    let state = Arc::new(Mock::default());
+    state.native.store(true, Ordering::SeqCst);
+    state.same_beneficiary.store(true, Ordering::SeqCst);
+    let app = Router::new()
+        .route("/", post(handler))
+        .with_state(state.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let rpc = Rpc::new(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let ranges = json!({"items":[{"first":1,"last":2,"count":2,"firstHash":B256::with_last_byte(1),"lastHash":B256::with_last_byte(2),"state":"finalized"}]});
+    // Completed legacy totals cannot supply the new attribution. Even finalized
+    // history is rescanned, within the normal block budget, without mixing sums.
+    let old = json!({"status":"available","items":[{"range":ranges["items"][0],"status":"available","processed":2,"lastHash":B256::with_last_byte(2),"burnWei":"999","tipWei":"888"}]});
+    let first = collect(&rpc, &ranges, &old, 1).await;
+    assert_eq!(first["status"], "pending");
+    assert_eq!(first["items"][0]["version"], 1);
+    assert_eq!(first["items"][0]["processed"], 1);
+    assert_eq!(first["items"][0]["burnWei"], "30");
+    assert_eq!(first["items"][0]["tipWei"], "15");
+    assert_eq!(first["items"][0]["ordinaryGasUsed"], "3");
+    assert_eq!(first["items"][0]["nativeGasUsed"], "2");
+
+    let saved: Value = serde_json::from_str(&first.to_string()).unwrap();
+    state.missing.store(true, Ordering::SeqCst);
+    let failed = collect(&rpc, &ranges, &saved, 1).await;
+    assert_eq!(failed["items"][0]["processed"], 1);
+    assert_eq!(failed["items"][0]["nativeGasUsed"], "2");
+    assert_eq!(failed["items"][0]["error"], "incomplete L2 receipts");
+    state.missing.store(false, Ordering::SeqCst);
+    let complete = collect(&rpc, &ranges, &failed, 1).await;
+    assert_eq!(complete["status"], "available");
+    assert_eq!(complete["items"][0]["burnWei"], "60");
+    assert_eq!(complete["items"][0]["tipWei"], "30");
+    assert_eq!(complete["items"][0]["ordinaryGasUsed"], "6");
+    assert_eq!(complete["items"][0]["nativeGasUsed"], "4");
+    assert_eq!(
+        complete["items"][0]["tipsByBeneficiary"],
+        json!({format!("{:#x}", Address::repeat_byte(1)):"30"})
+    );
+    let requests = state.requests.load(Ordering::SeqCst);
+    assert_eq!(collect(&rpc, &ranges, &complete, 1).await, complete);
+    assert_eq!(state.requests.load(Ordering::SeqCst), requests);
+
+    let mut corrupt = complete.clone();
+    corrupt["items"][0]["tipsByBeneficiary"] = json!({});
+    let rejected = collect(&rpc, &ranges, &corrupt, 0).await;
+    assert_eq!(rejected["status"], "pending");
+    assert_eq!(
+        rejected["items"][0]["error"],
+        "L2 beneficiary tips do not match total"
+    );
+
+    let mut overflow = saved;
+    overflow["items"][0]["nativeGasUsed"] = json!(U256::MAX.to_string());
+    let rejected = collect(&rpc, &ranges, &overflow, 1).await;
+    assert_eq!(rejected["status"], "pending");
+    assert_eq!(rejected["items"][0]["processed"], 1);
+    assert_eq!(rejected["items"][0]["burnWei"], "30");
+    assert_eq!(rejected["items"][0]["tipWei"], "15");
+    assert_eq!(
+        rejected["items"][0]["error"],
+        "L2 range native gas overflow"
     );
     task.abort();
 }

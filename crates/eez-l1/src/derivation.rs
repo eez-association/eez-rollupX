@@ -385,8 +385,21 @@ impl SeedHistory {
 
     /// Exact next position and captured seed for an authenticated parent.
     pub fn next_block_context(&self, parent: &Header) -> Result<(u64, B256), DerivationError> {
+        self.next_block_context_through(parent, u64::MAX)
+    }
+
+    /// Historical advisory context, excluding anchors published after the
+    /// sampled L1 block. Actual block production uses the complete history.
+    pub fn next_block_context_through(
+        &self,
+        parent: &Header,
+        l1_number: u64,
+    ) -> Result<(u64, B256), DerivationError> {
         let (number, timestamp) = self.schedule.next(parent)?;
-        Ok((timestamp, self.seed_for(number)))
+        let end = self.anchors.partition_point(|anchor| {
+            anchor.endpoint.number < number && anchor.l1.number <= l1_number
+        });
+        Ok((timestamp, self.seed_before_partition(end)))
     }
 
     /// Select by the height being executed. Selecting just the latest accepted

@@ -1,0 +1,109 @@
+{
+  "status": "prepared_not_executed",
+  "scope": "Isolated Titan automatic native-blob sponsorship trial; pinned EEZ and the existing mock-verifier/synthetic-companion fixture, not production cross-chain E2E.",
+  "source_revision": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol_revision": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "chain_id": 560048,
+  "chain_rpc": "https://ethereum-hoodi-rpc.publicnode.com",
+  "builder_rpc": "https://rpc-hoodi.titanbuilder.xyz",
+  "observed_fee_context": {
+    "observed_at_utc": "2026-10-10T12:01:10.789869+00:00",
+    "block_number": 3789137,
+    "block_hash": "0x74ce28ebfb98c499402765171e6e34dec5f1d466df021d5613eea6f330c6ebef",
+    "base_fee_per_gas_wei": 937876124,
+    "blob_base_fee_wei": 879392855,
+    "blob_quote_note": "Separate latest RPC call, not an atomic quote bound to this header; re-quote and validate the exact target before signing."
+  },
+  "transaction_caps": {
+    "deployment_gas_each": 8000000,
+    "registration_gas": 500000,
+    "post_gas": 500000,
+    "post_blob_count": 1,
+    "user_gas_each": 100000,
+    "setup_and_post_max_fee_per_gas_wei": 2000000000,
+    "post_max_priority_fee_per_gas_wei": 0,
+    "post_max_fee_per_blob_gas_wei": 2000000000,
+    "user_max_fee_per_gas_wei": 22000000000,
+    "user_max_priority_fee_per_gas_wei": 20000000000
+  },
+  "budget": {
+    "unit": "Hoodi test ETH; no mainnet funds",
+    "hard_total_outlay_cap_wei": 60000000000000000,
+    "conservative_allocations_wei": {
+      "two_contract_deployments": 32000000000000000,
+      "rollup_registration": 1000000000000000,
+      "three_users_three_calls_each": 19800000000000000,
+      "prefunded_control_poster_cap": 1262144000000000,
+      "four_setup_transfers": 168000000000000
+    },
+    "allocation_sum_wei": 54230144000000000,
+    "unallocated_buffer_wei": 5769856000000000,
+    "note": "Counts user prefunding and control-poster prefunding as outlays, including their eventual gas, rather than charging those internal transfers and the same gas twice. Unused allocations remain in disposable accounts. No automatic cap increase or wallet refill."
+  },
+  "funding_prerequisites": [
+    "Disposable funded Hoodi wallet configuration reference; never record a private key or authentication URL.",
+    "Existing compatible isolated fixture addresses, or permission to deploy two test-only contracts within the cap.",
+    "New locally generated non-public keys for poster and three test users; local fixture keys 1 through 6 must never be used on a public chain."
+  ],
+  "cases": [
+    {
+      "name": "zero_balance_poster",
+      "poster_balance": "zero before builder processing",
+      "submitted_order": [
+        "native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3"
+      ],
+      "required_observation": "An actual builder-created funding transaction precedes the unchanged post and all three users; all receipts succeed."
+    },
+    {
+      "name": "residual_balance",
+      "poster_balance": "retain prior successful case remainder",
+      "submitted_order": [
+        "native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3"
+      ],
+      "required_observation": "Reconcile the next shortfall, any funding, actual execution/blob charges and remaining balance. No fabricated exact top-up formula is assumed."
+    },
+    {
+      "name": "prefunded_control",
+      "poster_balance": "at least full gas and blob fee-cap reserve",
+      "submitted_order": [
+        "native_blob_post",
+        "user_1",
+        "user_2",
+        "user_3"
+      ],
+      "required_observation": "Measure whether funding is absent as documented and the poster bears its own charge; this is a control, not a subsidy-recovery success."
+    }
+  ],
+  "submission_bounds": {
+    "included_batches_max": 3,
+    "target_attempts_per_case_max": 8,
+    "total_target_attempts_max": 24,
+    "source_transactions_per_batch": 3,
+    "native_blob_posts_per_batch": 1,
+    "refund_fields": "omitted to isolate sponsorship",
+    "reverting_tx_hashes": [],
+    "dropping_tx_hashes": [],
+    "rule": "Use one current nonce per sender per case. Retarget only after checking canonical nonce/receipt outcomes; stop on ambiguous ownership or any unexpected inclusion. Rebuild the post for the same new parent/timestamp validated by local preflight, target only its next block, and do not broaden the validity window."
+  },
+  "required_evidence": [
+    "Exact unsigned/signed transaction hashes, target parent/block/timestamp and bundle response; exclude keys.",
+    "Canonical block, receipts, real blob gas charge, ordered all-success post/companions, and builder funding origin before post.",
+    "Poster before/after balance, full fee-cap reserve, funding amount and residual balance; reconcile at least two consecutive batches.",
+    "User effective tips and funding cost without double counting; no proving/operations revenue claim.",
+    "Receipt/block hashes checked again at finalized state; failed or missing inclusion remains inconclusive."
+  ],
+  "limits": [
+    "No production Composer changes are required for this isolated provider test; production integration does need funding-aware composition and preflight.",
+    "A Titan Hoodi pass does not establish Titan mainnet or Quasar support, a broad builder majority, or real L2 proof/execution compatibility.",
+    "Public eth_callBundle and mev_simBundle probes returned -32601; no documented public dry run was established.",
+    "No Quasar testnet endpoint was found in its current official documentation.",
+    "Five recent Titan-relay Hoodi delivery records did not use keys from Titan builder's published key list; relay availability alone does not establish Titan builder activity or testnet identity.",
+    "No signed bundle, deployment, funding transaction, external message, operator key or wallet was used during preparation."
+  ]
+}

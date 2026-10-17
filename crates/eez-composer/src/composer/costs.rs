@@ -13,6 +13,38 @@ use eez_l1::{
 
 use super::*;
 
+const REFUND_STATUSES: [&str; 4] = ["qualified", "underfunded", "missing", "ambiguous"];
+const REFUND_AMOUNTS: [&str; 3] = ["received", "posting_cost", "shortfall"];
+
+pub(super) fn register_refund_metrics(rollup: u64, chain: u64, currency: &str) {
+    metrics::describe_gauge!(
+        "eez_composer_l1_refund_native",
+        "L1 refund observations in native currency since process start; reorg-corrected, not durable accounting"
+    );
+    metrics::describe_gauge!(
+        "eez_composer_l1_refund_reports",
+        "L1 refund report counts since process start, corrected on replacement and reorg"
+    );
+    metrics::describe_counter!(
+        "eez_composer_l1_refund_observation_errors_total",
+        "Failed receipt-observation attempts while L1 refunds are enabled; retries count again"
+    );
+    let rollup = rollup.to_string();
+    let chain = chain.to_string();
+    for kind in REFUND_AMOUNTS {
+        metrics::gauge!("eez_composer_l1_refund_native", "rollup_id" => rollup.clone(),
+            "chain_id" => chain.clone(), "currency" => currency.to_owned(), "kind" => kind)
+        .increment(0.0);
+    }
+    for status in REFUND_STATUSES {
+        metrics::gauge!("eez_composer_l1_refund_reports", "rollup_id" => rollup.clone(),
+            "chain_id" => chain.clone(), "currency" => currency.to_owned(), "status" => status)
+        .increment(0.0);
+    }
+    metrics::counter!("eez_composer_l1_refund_observation_errors_total", "rollup_id" => rollup)
+        .increment(0);
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(super) struct Coverage {
     pub blocks: u64,
@@ -49,12 +81,21 @@ impl PaidTransaction {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct RefundReport {
+    plan: super::fees::refund::Plan,
+    payment: eez_l1::refund::ObservedPayment,
+    minimum: U256,
+    qualified: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct CostReport {
     at: L1BlockRef,
     post: Option<PaidTransaction>,
     companions: Vec<PaidTransaction>,
     endpoint: Option<L2Endpoint>,
     coverage: Coverage,
+    refund: Option<RefundReport>,
 }
 
 impl CostReport {
@@ -116,6 +157,45 @@ impl CostReport {
         action: &str,
     ) -> Result<(), String> {
         let (post, companions, bundle) = self.amounts()?;
+        let (refund_status, refund_hash, refund_value) = match &self.refund {
+            None => ("not_requested", None, U256::ZERO),
+            Some(refund) => match refund.payment {
+                eez_l1::refund::ObservedPayment::Missing => ("missing", None, U256::ZERO),
+                eez_l1::refund::ObservedPayment::Ambiguous => ("ambiguous", None, U256::ZERO),
+                eez_l1::refund::ObservedPayment::Confirmed { hash, value } => (
+                    if refund.qualified {
+                        "qualified"
+                    } else {
+                        "underfunded"
+                    },
+                    Some(hash),
+                    value,
+                ),
+            },
+        };
+        let shortfall = self.refund.as_ref().map_or(U256::ZERO, |refund| {
+            refund.minimum.saturating_sub(refund_value)
+        });
+        if self.refund.is_some() {
+            // Only the idempotent ledger emits apply/retract pairs. Finalization
+            // drops tracking without subtracting the observed contribution.
+            // U256 fits in finite f64; approximation is for monitoring only.
+            let sign = if action == "retract" { -1.0 } else { 1.0 };
+            let rollup = rollup_id.to_string();
+            let chain = chain_id.to_string();
+            for (kind, amount) in
+                REFUND_AMOUNTS
+                    .into_iter()
+                    .zip([refund_value, post.total, shortfall])
+            {
+                metrics::gauge!("eez_composer_l1_refund_native", "rollup_id" => rollup.clone(),
+                    "chain_id" => chain.clone(), "currency" => currency.to_owned(), "kind" => kind)
+                .increment(sign * f64::from(amount) / 1e18);
+            }
+            metrics::gauge!("eez_composer_l1_refund_reports", "rollup_id" => rollup,
+                "chain_id" => chain, "currency" => currency.to_owned(), "status" => refund_status)
+            .increment(sign);
+        }
         let per_block =
             (self.coverage.blocks > 0).then(|| post.total / U256::from(self.coverage.blocks));
         let per_transaction = (self.coverage.transactions > 0)
@@ -134,6 +214,11 @@ impl CostReport {
             settled_l2_blocks = self.coverage.blocks, included_l2_transactions = self.coverage.transactions,
             post_cost_per_l2_block = ?per_block, post_cost_per_l2_transaction = ?per_transaction,
             applied_endpoint = ?self.endpoint, companions = ?self.companions,
+            refund_status, refund_hash = ?refund_hash, refund_value = %refund_value,
+            refund_source = ?self.refund.as_ref().map(|r|r.plan.request.source()),
+            refund_minimum = ?self.refund.as_ref().map(|r|r.minimum),
+            refund_projected = ?self.refund.as_ref().map(|r|r.plan.projected),
+            refund_shortfall = %shortfall,
             "canonical receipt charges; normalized integer costs round down and exclude zero denominators");
         Ok(())
     }
@@ -144,9 +229,38 @@ impl CostReport {
 #[derive(Default)]
 pub(super) struct CostLedger {
     reports: BTreeMap<(u64, B256), CostReport>,
+    refund_plans: BTreeMap<(u64, B256), super::fees::refund::Plan>,
 }
 
 impl CostLedger {
+    pub fn plan_refund(
+        &mut self,
+        rollup: u64,
+        hash: B256,
+        plan: super::fees::refund::Plan,
+    ) -> Result<(), &'static str> {
+        let key = (rollup, hash);
+        if self
+            .refund_plans
+            .get(&key)
+            .is_some_and(|previous| *previous != plan)
+        {
+            return Err("one post hash cannot acquire different refund terms");
+        }
+        self.refund_plans.insert(key, plan);
+        Ok(())
+    }
+
+    fn validate(&self, key: (u64, B256), report: &CostReport) -> Result<(), String> {
+        report.amounts()?;
+        if let Some(RefundReport { payment: eez_l1::refund::ObservedPayment::Confirmed { hash: payment_hash, .. }, .. }) = &report.refund
+            && self.reports.iter().any(|(other, report)| *other != key && report.refund.as_ref().is_some_and(|r|
+                matches!(r.payment, eez_l1::refund::ObservedPayment::Confirmed { hash, .. } if hash == *payment_hash))) {
+            return Err("refund payment is already attributed to another post".into());
+        }
+        Ok(())
+    }
+
     pub fn record(
         &mut self,
         rollup: u64,
@@ -155,8 +269,8 @@ impl CostLedger {
         currency: &str,
         report: CostReport,
     ) -> Result<(), String> {
-        report.amounts()?;
         let key = (rollup, hash);
+        self.validate(key, &report)?;
         if self.reports.get(&key) == Some(&report) {
             return Ok(());
         }
@@ -181,6 +295,7 @@ impl CostLedger {
 
     pub fn forget_finalized(&mut self, rollup: u64, hash: B256) {
         self.reports.remove(&(rollup, hash));
+        self.refund_plans.remove(&(rollup, hash));
     }
 }
 
@@ -268,6 +383,51 @@ where
         } else {
             Coverage::default()
         };
+        let plan = posting
+            .costs
+            .lock()
+            .unwrap()
+            .refund_plans
+            .get(&(rollup_id, attempt.id.post_batch_hash))
+            .copied();
+        let refund = if let (Some(plan), Some(post)) = (plan, &post) {
+            let source = companions.iter().find(|tx| {
+                tx.hash == plan.request.source()
+                    && tx.success
+                    && source_follows_postbatch(
+                        tx.block,
+                        tx.transaction_index,
+                        post.block,
+                        post.transaction_index,
+                        &snapshot,
+                    )
+            });
+            let payment = if let Some(source) = source {
+                submitter
+                    .refund_payment_at(post.block, source.transaction_index, plan.request)
+                    .await
+                    .map_err(|e| e.to_string())?
+            } else {
+                eez_l1::refund::ObservedPayment::Missing
+            };
+            let minimum = posting
+                .collection
+                .pricing
+                .as_ref()
+                .ok_or("refund cost policy missing")?
+                .required_l1_payment(post.cost.paid.total)?
+                .minimum_l1;
+            let qualified = post.success
+                && matches!(payment, eez_l1::refund::ObservedPayment::Confirmed { value, .. } if value >= minimum);
+            Some(RefundReport {
+                plan,
+                payment,
+                minimum,
+                qualified,
+            })
+        } else {
+            None
+        };
         let _guard = self
             .inner
             .committer
@@ -293,9 +453,12 @@ where
             companions,
             endpoint,
             coverage,
+            refund,
         };
         report.retain_bundle_companions(attempt.dispatched_target, &snapshot);
-        report.amounts()?;
+        // Invalid attribution remains unresolved rather than double-crediting
+        // revenue. Refund observations never gate quoting or source execution.
+        ledger.validate((rollup_id, attempt.id.post_batch_hash), &report)?;
         rollup.optimistic.record_cost(attempt.id, at)?;
         ledger.record(
             rollup_id,
@@ -426,6 +589,7 @@ mod tests {
             companions: vec![paid(2, 50, 1, false), paid(3, 60, 0, true)],
             endpoint: None,
             coverage: Coverage::default(),
+            refund: None,
         };
         let (post, companions, total) = report.amounts().unwrap();
         assert_eq!(post.execution, U256::from(200));
@@ -454,6 +618,7 @@ mod tests {
             companions: vec![paid(3, 50, 0, false), later_source.clone()],
             endpoint: None,
             coverage: Coverage::default(),
+            refund: None,
         };
         earlier.retain_bundle_companions(Some((10, 1000)), &snapshot);
         assert_eq!(earlier.companions.len(), 1);
@@ -468,6 +633,7 @@ mod tests {
             companions: vec![later_source.clone()],
             endpoint: None,
             coverage: Coverage::default(),
+            refund: None,
         };
         retry.retain_bundle_companions(Some((11, 1005)), &snapshot);
         assert_eq!(retry.amounts().unwrap().1.execution, U256::from(120));
@@ -508,6 +674,7 @@ mod tests {
             companions: sources.clone(),
             endpoint: None,
             coverage: Coverage::default(),
+            refund: None,
         };
         let mut second = first.clone();
         second.post = Some(paid(3, 100, 1, true));
@@ -531,6 +698,7 @@ mod tests {
                 blocks: 5,
                 transactions: 3,
             },
+            refund: None,
         };
         let mut ledger = CostLedger::default();
         for _ in 0..2 {
@@ -554,6 +722,190 @@ mod tests {
         assert_eq!(ledger.reports[&(1, hash)], replacement);
         ledger.forget_finalized(1, hash);
         assert!(ledger.reports.is_empty());
+    }
+
+    #[test]
+    fn refund_reports_bind_terms_prevent_double_credit_and_retract_on_reorg() {
+        let post = B256::repeat_byte(7);
+        let payment = B256::repeat_byte(8);
+        let plan = super::super::fees::refund::Plan {
+            request: eez_l1::refund::BundleRefund::new(
+                Address::repeat_byte(9),
+                90,
+                B256::repeat_byte(6),
+            )
+            .unwrap(),
+            minimum: U256::from(700),
+            projected: U256::from(900),
+        };
+        let report = CostReport {
+            at: block(10, 1),
+            post: Some(paid(1, 100, 0, true)),
+            companions: vec![],
+            endpoint: None,
+            coverage: Coverage::default(),
+            refund: Some(RefundReport {
+                plan,
+                payment: eez_l1::refund::ObservedPayment::Confirmed {
+                    hash: payment,
+                    value: U256::from(900),
+                },
+                minimum: plan.minimum,
+                qualified: true,
+            }),
+        };
+        let mut ledger = CostLedger::default();
+        ledger.plan_refund(1, post, plan).unwrap();
+        ledger.plan_refund(1, post, plan).unwrap();
+        let mut different = plan;
+        different.projected += U256::from(1);
+        assert!(ledger.plan_refund(1, post, different).is_err());
+        ledger.record(1, post, 1, "ETH", report.clone()).unwrap();
+        ledger.record(1, post, 1, "ETH", report.clone()).unwrap();
+        assert_eq!(ledger.reports.len(), 1);
+        assert!(
+            ledger
+                .record(1, B256::repeat_byte(5), 1, "ETH", report.clone())
+                .is_err()
+        );
+        ledger.invalidate_after(9, 1, "ETH");
+        assert!(ledger.reports.is_empty());
+        assert_eq!(
+            ledger.refund_plans[&(1, post)],
+            plan,
+            "reorg does not invent new refund terms"
+        );
+        ledger.record(1, post, 1, "ETH", report).unwrap();
+        ledger.forget_finalized(1, post);
+        assert!(ledger.refund_plans.is_empty());
+    }
+
+    #[test]
+    fn refund_metrics_correct_replacements_duplicates_reorgs_and_finalization() {
+        use eez_l1::refund::ObservedPayment;
+        use metrics_exporter_prometheus::PrometheusBuilder;
+        let recorder = PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        let value = |family: &str, label: &str, rollup: u64| -> f64 {
+            handle
+                .render()
+                .lines()
+                .find(|line| {
+                    line.starts_with(&format!("eez_composer_l1_refund_{family}{{"))
+                        && line.contains(label)
+                        && line.contains(&format!("rollup_id=\"{rollup}\""))
+                })
+                .unwrap()
+                .rsplit_once(' ')
+                .unwrap()
+                .1
+                .parse()
+                .unwrap()
+        };
+        let close = |actual: f64, expected: f64| {
+            assert!((actual - expected).abs() < 1e-28, "{actual} != {expected}");
+        };
+        metrics::with_local_recorder(&recorder, || {
+            register_refund_metrics(1, 10200, "xDAI");
+            register_refund_metrics(2, 10200, "xDAI");
+            let hash = B256::repeat_byte(7);
+            let plan = super::super::fees::refund::Plan {
+                request: eez_l1::refund::BundleRefund::new(
+                    Address::repeat_byte(9),
+                    90,
+                    B256::repeat_byte(6),
+                )
+                .unwrap(),
+                minimum: U256::from(700),
+                projected: U256::from(900),
+            };
+            let mut report = CostReport {
+                at: block(10, 1),
+                post: Some(paid(1, 100, 0, true)),
+                companions: vec![],
+                endpoint: None,
+                coverage: Coverage::default(),
+                refund: Some(RefundReport {
+                    plan,
+                    payment: ObservedPayment::Missing,
+                    minimum: plan.minimum,
+                    qualified: false,
+                }),
+            };
+            let mut ledger = CostLedger::default();
+            for _ in 0..2 {
+                ledger
+                    .record(1, hash, 10200, "xDAI", report.clone())
+                    .unwrap();
+            }
+            close(value("reports", "status=\"missing\"", 1), 1.0);
+            close(value("native", "kind=\"received\"", 1), 0.0);
+            close(value("native", "kind=\"posting_cost\"", 1), 200e-18);
+            close(value("native", "kind=\"shortfall\"", 1), 700e-18);
+            for (payment, status, received) in [
+                (ObservedPayment::Ambiguous, "ambiguous", 0),
+                (
+                    ObservedPayment::Confirmed {
+                        hash: B256::repeat_byte(8),
+                        value: U256::from(150),
+                    },
+                    "underfunded",
+                    150,
+                ),
+                (
+                    ObservedPayment::Confirmed {
+                        hash: B256::repeat_byte(8),
+                        value: U256::from(900),
+                    },
+                    "qualified",
+                    900,
+                ),
+            ] {
+                let refund = report.refund.as_mut().unwrap();
+                refund.payment = payment;
+                refund.qualified = received >= 700;
+                ledger
+                    .record(1, hash, 10200, "xDAI", report.clone())
+                    .unwrap();
+                close(
+                    value("native", "kind=\"received\"", 1),
+                    f64::from(received) / 1e18,
+                );
+                close(
+                    value("native", "kind=\"shortfall\"", 1),
+                    f64::from((700 - received).max(0)) / 1e18,
+                );
+                close(value("native", "kind=\"posting_cost\"", 1), 200e-18);
+                for candidate in REFUND_STATUSES {
+                    close(
+                        value("reports", &format!("status=\"{candidate}\""), 1),
+                        if candidate == status { 1.0 } else { 0.0 },
+                    );
+                }
+            }
+            assert!(
+                ledger
+                    .record(1, B256::repeat_byte(5), 10200, "xDAI", report.clone())
+                    .is_err()
+            );
+            close(value("native", "kind=\"received\"", 1), 900e-18);
+            ledger.invalidate_after(9, 10200, "xDAI");
+            for kind in REFUND_AMOUNTS {
+                close(value("native", &format!("kind=\"{kind}\""), 1), 0.0);
+                close(value("native", &format!("kind=\"{kind}\""), 2), 0.0);
+            }
+            ledger.record(2, hash, 10200, "xDAI", report).unwrap();
+            ledger.forget_finalized(2, hash);
+            close(value("native", "kind=\"received\"", 2), 900e-18);
+            close(value("reports", "status=\"qualified\"", 2), 1.0);
+            register_refund_metrics(2, 10200, "xDAI");
+            close(value("native", "kind=\"received\"", 2), 900e-18);
+        });
+        let text = handle.render();
+        assert!(
+            !text.contains("0x"),
+            "transaction hashes must not be metric labels"
+        );
     }
 
     #[test]

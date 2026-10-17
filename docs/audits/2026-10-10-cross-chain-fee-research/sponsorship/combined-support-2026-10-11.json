@@ -1,0 +1,119 @@
+{
+  "checked_at_utc": "2026-10-11T10:02:34.854922+00:00",
+  "scope": "Public documentation recheck for automatic builder-funded sponsorship combined with requested fixed refunds; no valid public bundles or funded tests.",
+  "source_baseline": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol_baseline": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "providers": [
+    {
+      "name": "Titan",
+      "sources": [
+        "https://docs.titanbuilder.xyz/api/eth_sendbundle",
+        "https://titanbuilder.substack.com/p/titan-tech-teatime-1"
+      ],
+      "fixed_refund": "documented",
+      "automatic_sponsorship": "gas_and_value_documented",
+      "combined_workload": "unverified",
+      "notes": "Shortfall trigger and positive builder balance required. Native blob shortfall funding, simultaneous refund, sponsored-source eligibility and gross-versus-net refund basis not established for this workload."
+    },
+    {
+      "name": "Quasar",
+      "sources": [
+        "https://docs.quasar.win/api/eth_sendbundle"
+      ],
+      "fixed_refund": "documented_one_selected_source",
+      "automatic_sponsorship": "gas_documented",
+      "combined_workload": "unverified",
+      "notes": "Do not infer transaction-value sponsorship from the gas-only wording. Aggregate payment must repay funding and any refund."
+    },
+    {
+      "name": "BuilderNet",
+      "sources": [
+        "https://buildernet.org/docs/api",
+        "https://collective.flashbots.net/t/proposal-builder-funded-gas-sponsorship-for-bundles/5820"
+      ],
+      "fixed_refund": "documented_one_selected_source",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified",
+      "notes": "The July 8, 2026 community proposal is not an accepted or deployed API contract. Its sponsorship-netting discussion does not establish Titan or Quasar behavior."
+    },
+    {
+      "name": "Beaverbuild",
+      "sources": [
+        "https://beaverbuild.org/docs.html"
+      ],
+      "fixed_refund": "documented_one_selected_source",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified"
+    },
+    {
+      "name": "Eureka",
+      "sources": [
+        "https://docs.eurekalabs.xyz/order-flow/api/eth_sendbundle.md"
+      ],
+      "fixed_refund": "documented_v2_up_to_16_selected_sources",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified"
+    },
+    {
+      "name": "Bombora",
+      "sources": [
+        "https://bombora.build/docs/eth-sendBundle/"
+      ],
+      "fixed_refund": "documented_combined_selected_profit",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified"
+    },
+    {
+      "name": "BTCS Builder+",
+      "sources": [
+        "https://www.btcs.com/builder-docs/"
+      ],
+      "fixed_refund": "fields_documented_selected_source_limits_unqualified",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified"
+    },
+    {
+      "name": "Ultra Sound",
+      "sources": [
+        "https://raw.githubusercontent.com/ultrasoundmoney/builder-docs/main/bundle-rpc.md"
+      ],
+      "fixed_refund": "documented_one_selected_source",
+      "automatic_sponsorship": "not_established",
+      "combined_workload": "unverified"
+    }
+  ],
+  "interpretation": "Not established means reviewed public documentation does not establish deployment/support. It is not proof a provider rejects the feature.",
+  "reviewed_combination_profiles": [
+    {
+      "name": "builder_funds_post_refund_selected_real_user",
+      "description": "Candidate: combined user tips fund posting and a selected real user refund covers non-gas costs and margin. Verify actual funding and refund together; do not count the same reward twice."
+    },
+    {
+      "name": "builder_funds_high_tip_post_refund_post",
+      "description": "Conditional candidate: use the sponsored post as the single refund source and pay a separate treasury. Needs sponsored-source eligibility, gross versus net formula, native blob affordability and recurring residual-balance validation."
+    },
+    {
+      "name": "operator_funds_post_refund_selected_real_user",
+      "description": "Broad documented fallback: operator supplies capital before inclusion and selected external user refund must cover all operator-funded costs plus margin. This is not automatic builder sponsorship and does not collect every user tip."
+    }
+  ],
+  "remaining_checks": [
+    "Builder-created funding and refund on the same actual native-blob workload",
+    "Gas and blob upfront affordability and cap funding",
+    "Refund source eligibility and sponsorship deductions",
+    "At least two consecutive included batches using residual poster balance",
+    "Exact target, successful canonical consumption, actual treasury payout and positive builder economics",
+    "Current Composer funding-prefix simulation/finalization integration before using an underfunded poster"
+  ],
+  "live_combined_profiles_verified": [],
+  "new_runtime_or_public_transaction_tests": false,
+  "existing_evidence_limits": "The earlier 22-case local experiment manually supplied builder funding and refunds; it does not establish any provider combination.",
+  "coverage_note": "No new market-share snapshot. Prior 2026-10-10 Titan/Quasar 73.59% sum is dated documentation-candidate coverage, not verified combined support.",
+  "eureka_fallback_retrieval": {
+    "url": "https://docs.eurekalabs.xyz/order-flow/api/eth_sendbundle.md",
+    "returncode": 0,
+    "http_metadata": "200\nhttps://docs.eurekalabs.xyz/order-flow/api/eth_sendbundle.md",
+    "sha256": "e697b5f0b6ae997945241994e4fbbbe3a51913a02bde9b39572174ba46c10565",
+    "bytes": 7451
+  }
+}

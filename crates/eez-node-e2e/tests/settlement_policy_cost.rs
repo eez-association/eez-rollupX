@@ -3,11 +3,300 @@
 use std::time::Duration;
 
 use alloy_consensus::Transaction as _;
+use alloy_primitives::{B256, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{NativeL1Profile, wait_for};
 
 const TIMEOUT: Duration = Duration::from_mins(3);
+
+/// Synthetic allowances make the candidate underfunded while exercising a
+/// non-parity conversion. This is test input, not a production tariff.
+pub(super) fn shadow_pricing_policy() -> serde_json::Value {
+    serde_json::json!({
+        "version":1, "l1_chain_id":eez_testkit::DEV_CHAIN_ID, "l2_chain_id":1, "rollup_id":1,
+        "beneficiary":alloy_primitives::Address::repeat_byte(0x44),
+        "valid_until_l1_timestamp":u64::MAX,
+        "l1_per_l2_numerator":"2", "l1_per_l2_denominator":"3",
+        "proving_cost_l1":"1000000000000000", "operations_cost_l1":"2000000000000000",
+        "treasury_cost_l1":"3000000000000000", "risk_bps":1000, "profit_bps":500,
+        "excluded_senders":[],
+    })
+}
+
+/// Supply the cost assumptions used by receipt assertions through the real
+/// scalar startup settings. Network identity comes from the test node itself.
+pub(super) fn fee_settings(
+    policy: &serde_json::Value,
+    extra: &[(&'static str, String)],
+) -> Vec<(&'static str, String)> {
+    let mut settings = vec![(
+        "EEZ_L2_FEE_RECIPIENT",
+        policy["beneficiary"].as_str().unwrap().to_owned(),
+    )];
+    for (name, field) in [
+        (
+            "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+            "valid_until_l1_timestamp",
+        ),
+        ("EEZ_FEES_L1_PER_L2_NUMERATOR", "l1_per_l2_numerator"),
+        ("EEZ_FEES_L1_PER_L2_DENOMINATOR", "l1_per_l2_denominator"),
+        ("EEZ_FEES_PROVING_COST_L1", "proving_cost_l1"),
+        ("EEZ_FEES_OPERATIONS_COST_L1", "operations_cost_l1"),
+        ("EEZ_FEES_TREASURY_COST_L1", "treasury_cost_l1"),
+        ("EEZ_FEES_RISK_BPS", "risk_bps"),
+        ("EEZ_FEES_PROFIT_BPS", "profit_bps"),
+    ] {
+        let value = &policy[field];
+        settings.push((
+            name,
+            value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string()),
+        ));
+    }
+    settings.push((
+        "EEZ_FEES_EXCLUDED_SENDERS",
+        policy["excluded_senders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(","),
+    ));
+    settings.extend_from_slice(extra);
+    settings
+}
+
+/// Compare the production shadow observation against independently fetched
+/// canonical receipts. Call after the scenario has established full settlement.
+pub(super) async fn assert_l2_shadow_receipts(
+    world: &eez_testkit::CrossChainWorld,
+    source_count: u64,
+    companion_count: u64,
+    expected_policy: Option<&serde_json::Value>,
+) {
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let events: Vec<serde_json::Value> = world
+        .node
+        .signals_since(0)
+        .unwrap()
+        .into_iter()
+        .filter(|event| event.name == "eez.composer.admission.v1")
+        .map(|event| {
+            serde_json::from_str(event.fields["admission_event"].as_str().unwrap()).unwrap()
+        })
+        .collect();
+    let mut checked = 0;
+    for event in events.iter().filter(|event| {
+        event["kind"] == "preflight"
+            && event["detail"]["fee_observation"]["l2"]["source_count"] == source_count
+    }) {
+        let report = &event["detail"]["fee_observation"];
+        let post_hash: B256 = report["l1"]["transaction_hash"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let Some(receipt) = l1.get_transaction_receipt(post_hash).await.unwrap() else {
+            continue;
+        };
+        assert!(receipt.status());
+        let post_block = l1
+            .get_block_by_hash(receipt.block_hash.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            report["l1"]["sample_hash"],
+            serde_json::json!(post_block.header.parent_hash)
+        );
+        assert_eq!(report["l1"]["target_block"], post_block.header.number);
+        assert_eq!(
+            report["l1"]["target_timestamp"],
+            post_block.header.timestamp
+        );
+        assert_eq!(report["l1"]["companion_count"], companion_count);
+        let actual = eez_l1::posting_fees::ReceiptCost::from_receipt(&receipt).unwrap();
+        assert_eq!(
+            report["l1"]["estimated_execution_cost"],
+            actual.paid.execution.to_string()
+        );
+        assert_eq!(
+            report["l1"]["estimated_blob_cost"],
+            actual.paid.blobs.to_string()
+        );
+        assert_eq!(
+            report["l1"]["estimated_post_cost"],
+            actual.paid.total.to_string()
+        );
+        assert_eq!(report["l1"]["gas_used"], receipt.gas_used);
+        assert_eq!(
+            report["l1"]["physical_blobs"].as_u64().unwrap()
+                * alloy_eips::eip4844::DATA_GAS_PER_BLOB,
+            receipt.blob_gas_used.unwrap()
+        );
+
+        let block_hash: B256 = report["l2"]["block_hash"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let block = l2.get_block_by_hash(block_hash).await.unwrap().unwrap();
+        assert_eq!(
+            l2.get_block_by_number(block.header.number.into())
+                .await
+                .unwrap()
+                .unwrap()
+                .header
+                .hash,
+            block_hash
+        );
+        assert_eq!(
+            report["l2"]["beneficiary"],
+            serde_json::json!(block.header.beneficiary)
+        );
+        assert_eq!(
+            report["l2"]["parent_hash"],
+            serde_json::json!(block.header.parent_hash)
+        );
+        assert_eq!(report["l2"]["chain_id"], world.l2_chain_id);
+        // Generic Ethereum receipt enums do not include native type 0x76.
+        let receipts: Vec<serde_json::Value> = l2
+            .raw_request("eth_getBlockReceipts".into(), [block_hash])
+            .await
+            .unwrap();
+        let quantity = |value: &serde_json::Value| {
+            U256::from_str_radix(value.as_str().unwrap().trim_start_matches("0x"), 16).unwrap()
+        };
+        let base = U256::from(block.header.base_fee_per_gas.unwrap());
+        let mut ordinary_gas = U256::ZERO;
+        let mut native_gas = U256::ZERO;
+        let mut tips = U256::ZERO;
+        let mut sources = 0;
+        for receipt in receipts {
+            let gas = quantity(&receipt["gasUsed"]);
+            if receipt["type"] == "0x76" {
+                native_gas += gas;
+                assert_eq!(quantity(&receipt["effectiveGasPrice"]), U256::ZERO);
+                continue;
+            }
+            ordinary_gas += gas;
+            sources += 1;
+            let tip = gas * (quantity(&receipt["effectiveGasPrice"]) - base);
+            tips += tip;
+            let source = events
+                .iter()
+                .find(|source| {
+                    source["candidate_id"] == event["candidate_id"]
+                        && source["kind"] == "source_preflight"
+                        && source["detail"]["source_hash"] == receipt["transactionHash"]
+                })
+                .expect("canonical L2 source has native fee evidence in its candidate");
+            assert_eq!(
+                source["detail"]["preflight_basis"],
+                "native_l2_terminal_receipt"
+            );
+            assert_eq!(source["detail"]["execution_chain_id"], world.l2_chain_id);
+            assert_eq!(
+                source["detail"]["preflight_used_gas"].as_u64().unwrap(),
+                gas.to::<u64>()
+            );
+            assert!(source["detail"]["preflight_required_gas"].is_null());
+            assert_eq!(
+                source["detail"]["fee_observation"]["gross_priority_fee"],
+                tip.to_string()
+            );
+            assert_eq!(
+                source["detail"]["fee_observation"]["base_fee_burn"],
+                (gas * base).to_string()
+            );
+        }
+        assert_eq!(sources, source_count);
+        assert!(native_gas > U256::ZERO, "exercise native loads/deliveries");
+        assert!(
+            tips > U256::ZERO,
+            "exercise real ordinary priority payments"
+        );
+        assert_eq!(
+            report["l2"]["ordinary_gas_used"].as_u64().unwrap(),
+            ordinary_gas.to::<u64>()
+        );
+        assert_eq!(
+            report["l2"]["native_gas_used"].as_u64().unwrap(),
+            native_gas.to::<u64>()
+        );
+        assert_eq!(report["l2"]["gross_priority_fees"], tips.to_string());
+        assert_eq!(
+            report["l2"]["base_fee_burn"],
+            (ordinary_gas * base).to_string()
+        );
+        assert_eq!(ordinary_gas + native_gas, U256::from(block.header.gas_used));
+        assert!(report["qualified_recovery_l1"].is_null());
+        if let Some(policy) = expected_policy {
+            assert_eq!(report["version"], 2);
+            assert_eq!(report["pricing_status"], "shadow_priced");
+            let pricing = &report["pricing"];
+            assert_eq!(pricing["assumptions"], *policy);
+            assert_eq!(
+                pricing["policy_id"],
+                serde_json::json!(alloy_primitives::keccak256(policy.to_string()))
+            );
+            assert_eq!(pricing["eligible_source_count"], source_count);
+            assert_eq!(pricing["eligible_priority_fees_l2"], tips.to_string());
+            assert_eq!(pricing["excluded_priority_fees_l2"], "0");
+            // Independent receipt-based oracle with fixture-sized u128 values.
+            let subtotal = actual.paid.total.to::<u128>() + 6_000_000_000_000_000;
+            let risk = (subtotal * 1000).div_ceil(10_000);
+            let profit = (subtotal * 500).div_ceil(10_000);
+            let required_l1 = subtotal + risk + profit;
+            let required_l2 = (required_l1 * 3).div_ceil(2);
+            let recovered = tips.to::<u128>() * 2 / 3;
+            assert!(
+                required_l1 > recovered,
+                "underfunding must not stop shadow-mode execution"
+            );
+            for (field, expected) in [
+                ("subtotal_l1", subtotal),
+                ("risk_allowance_l1", risk),
+                ("profit_allowance_l1", profit),
+                ("required_service_payment_l1", required_l1),
+                ("required_service_payment_l2", required_l2),
+                ("projected_recovery_l1", recovered),
+                ("shortfall_l1", required_l1 - recovered),
+            ] {
+                assert_eq!(pricing[field], expected.to_string(), "{field}");
+            }
+            assert_eq!(pricing["comparison"], "shortfall");
+            assert_eq!(pricing["surplus_l1"], "0");
+            if source_count == 1 && companion_count == 0 {
+                let required_tip = required_l2.div_ceil(ordinary_gas.to::<u128>());
+                assert_eq!(pricing["tip_status"], "single_source_candidate");
+                assert_eq!(report["required_tip_per_gas"], required_tip.to_string());
+                assert_eq!(
+                    pricing["minimum_max_fee_per_gas_at_current_base"],
+                    (required_tip + base.to::<u128>()).to_string()
+                );
+                assert!(required_tip * ordinary_gas.to::<u128>() * 2 / 3 >= required_l1);
+            } else {
+                assert_eq!(pricing["tip_status"], "standalone_estimate_required");
+                assert!(report["required_tip_per_gas"].is_null());
+            }
+        } else {
+            assert_eq!(report["pricing_status"], "unpriced");
+            assert_eq!(report["pricing"]["status"], "not_configured");
+            assert!(report["required_tip_per_gas"].is_null());
+        }
+        checked += 1;
+    }
+    assert_eq!(
+        checked, 1,
+        "one fully settled candidate must have receipt-backed fee evidence"
+    );
+}
 
 /// Exercise the real estimator, bounded quote, signer, bundle preflight, and
 /// canonical receipt. This native harness uses no PBS bid.

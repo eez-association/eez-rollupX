@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use alloy_primitives::{Address, B256, Bytes};
 use eez_l1::L1BlockRef;
-use eez_protocol::settlement_manifest::SettlementManifest;
+use eez_protocol::settlement_manifest::{SettlementManifest, TransactionReferences};
 use reth_primitives_traits::SealedHeader;
 
 use crate::held_pool::HeldTx;
@@ -32,6 +32,12 @@ pub enum SubmissionObservation {
     Included { block: L1BlockRef },
     /// Conclusively not included in this slot.
     Excluded { block: u64, charge_attempt: bool },
+    /// The exact, never-dispatched bundle failed local native effect validation.
+    /// Reconcile source ownership before reducing its next whole-group selection.
+    PreflightRejected {
+        /// Set only by completed native execution of this signed L1 companion.
+        source: Option<B256>,
+    },
     /// Network error or incomplete observation. Retain ownership.
     Uncertain,
 }
@@ -57,6 +63,9 @@ pub enum AttemptCharge {
     /// The postBatch landed but the user did not complete. Counts toward the
     /// caller's settlement-attempt bound, because each retry spends L1 gas.
     Settlement,
+    /// An indivisible, never-dispatched candidate failed native execution.
+    /// Shares the bounded execution-attempt counter without implying L1 spend.
+    Preflight,
 }
 
 /// Explicit terminal user outcomes. Local policy terminations have no L1
@@ -145,12 +154,14 @@ pub enum SourceOutcome {
 
 /// Terminal user whose ownership record was pruned after finality. Diagnostic
 /// only: it never authorizes execution, admission or recovery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinalizedUser {
     pub hash: B256,
     pub identity: (Address, Direction, u64),
     pub reason: TerminalReason,
     pub canonical: Option<L1BlockRef>,
+    /// Bounded RPC history retained with the existing terminal observation.
+    pub transaction_references: Option<(u64, TransactionReferences)>,
 }
 
 /// Nonce suffix that cannot progress after a retry budget is exhausted.
@@ -427,6 +438,14 @@ impl OptimisticallyIncluded {
             }
             attempt.id.post_batch_hash = post_batch_hash;
             attempt.post_batch = post_batch;
+            for source in &mut attempt.manifest.users {
+                if let Some(references) = &mut source.transaction_references {
+                    references.post_batch.hash = post_batch_hash;
+                    if source.source_rollup_id.0 != 0 {
+                        references.l1.hash = post_batch_hash;
+                    }
+                }
+            }
             Ok(attempt.id)
         })
     }
@@ -445,6 +464,23 @@ impl OptimisticallyIncluded {
             else {
                 return Ok(false);
             };
+            if matches!(observation, SubmissionObservation::PreflightRejected { .. })
+                && (attempt.observation != SubmissionObservation::Prepared
+                    || attempt.dispatched_target.is_some())
+            {
+                return Err(
+                    "native preflight rejection requires a never-dispatched prepared attempt"
+                        .into(),
+                );
+            }
+            if let SubmissionObservation::PreflightRejected { source: Some(hash) } = observation
+                && !attempt
+                    .txs
+                    .iter()
+                    .any(|tx| tx.hash == hash && tx.direction == crate::Direction::Inbound)
+            {
+                return Err("native preflight source does not belong to this attempt".into());
+            }
             if let SubmissionObservation::Dispatched { block, timestamp } = observation {
                 if attempt.dispatched_target.is_some() {
                     return Err(
@@ -483,6 +519,14 @@ impl OptimisticallyIncluded {
             if outcomes.len() != attempt.txs.len() {
                 return Err("source outcomes do not cover the complete attempt".into());
             }
+            if charge == AttemptCharge::Preflight
+                && (attempt.txs.len() != 1
+                    || !matches!(attempt.observation,
+                        SubmissionObservation::PreflightRejected { source: Some(hash) }
+                            if hash == attempt.txs[0].hash))
+            {
+                return Err("preflight penalty requires the exact singleton source failure".into());
+            }
             let mut gaps = Vec::new();
             for (tx, outcome) in attempt.txs.iter().zip(outcomes) {
                 let Some(user) = state.users.get_mut(&tx.hash).filter(|user| {
@@ -510,7 +554,7 @@ impl OptimisticallyIncluded {
                             AttemptCharge::ExcludedSlot => {
                                 user.tx.excluded_slots = user.tx.excluded_slots.saturating_add(1);
                             }
-                            AttemptCharge::Settlement => {
+                            AttemptCharge::Settlement | AttemptCharge::Preflight => {
                                 user.tx.attempts = user.tx.attempts.saturating_add(1);
                             }
                         }
@@ -638,7 +682,10 @@ impl OptimisticallyIncluded {
             if !eligible {
                 return Ok(Vec::new());
             }
-            state.attempts.remove(&id.generation);
+            let attempt = state
+                .attempts
+                .remove(&id.generation)
+                .expect("eligibility checked the exact retained attempt");
             let mut released = Vec::new();
             state.users.retain(|hash, user| {
                 if user.owner != id.generation {
@@ -650,6 +697,13 @@ impl OptimisticallyIncluded {
                         identity: (user.tx.sender, user.tx.direction, user.tx.nonce),
                         reason,
                         canonical,
+                        transaction_references: attempt
+                            .manifest
+                            .users
+                            .iter()
+                            .find(|source| source.tx_hash == *hash)
+                            .and_then(|source| source.transaction_references.clone())
+                            .map(|references| (id.generation, references)),
                     });
                 }
                 false
@@ -765,7 +819,23 @@ mod tests {
     }
 
     fn begin(ledger: &OptimisticallyIncluded, txs: Vec<HeldTx>, tag: u8) -> AttemptId {
-        let manifest = manifest(&txs);
+        use eez_protocol::settlement_manifest::ChainTransaction;
+        let mut manifest = manifest(&txs);
+        let references = (0..txs.len())
+            .map(|index| ChainTransaction {
+                chain_id: 31338,
+                hash: alloy_primitives::keccak256([tag, u8::try_from(index).unwrap()]),
+            })
+            .collect::<Vec<_>>();
+        manifest
+            .attach_transaction_references(
+                ChainTransaction {
+                    chain_id: 31337,
+                    hash: B256::repeat_byte(tag),
+                },
+                &references,
+            )
+            .unwrap();
         let parent = SealedHeader::seal_slow(alloy_consensus::Header {
             number: 9,
             ..Default::default()
@@ -935,6 +1005,7 @@ mod tests {
     #[test]
     fn deadline_replacement_retains_history_and_old_results_cannot_release_new_owner() {
         let (ledger, pool, txs, original) = setup();
+        let original_refs = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
         assert!(pool.release_for_replacement(original).is_err());
         ledger
             .observe(
@@ -952,6 +1023,14 @@ mod tests {
         let recovered = pool.pop_all();
         assert_eq!(recovered, txs);
         let replacement = begin(&ledger, recovered, 11);
+        let replacement_refs =
+            pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
+        assert_eq!(
+            replacement_refs["postBatch"]["hash"],
+            serde_json::json!(replacement.post_batch_hash)
+        );
+        assert_eq!(replacement_refs["basis"], "attempt");
+        assert_ne!(replacement_refs, original_refs);
         ledger
             .observe(
                 original,
@@ -968,6 +1047,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(ledger.pending_attempt().unwrap().id, replacement);
+        assert_eq!(
+            pool.transaction_status(txs[0].hash).unwrap()["transactions"],
+            replacement_refs
+        );
         assert!(pool.is_empty());
         assert!(txs.iter().all(|tx| pool.owns(tx.hash)));
         ledger.read(|state| {
@@ -1101,6 +1184,7 @@ mod tests {
     #[test]
     fn unsent_repricing_preserves_users_and_rejects_old_callbacks() {
         let (ledger, pool, txs, id) = setup();
+        let before = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
         let replacement = Bytes::from_static(b"replacement poster envelope");
         let next = ledger
             .replace_prepared_post_batch(id, B256::repeat_byte(42), replacement.clone())
@@ -1124,6 +1208,13 @@ mod tests {
             txs.iter().map(|tx| &tx.raw_tx).collect::<Vec<_>>()
         );
         assert_eq!(current.manifest.users.len(), txs.len());
+        let after = pool.transaction_status(txs[0].hash).unwrap()["transactions"].clone();
+        assert_eq!(after["l1"], before["l1"], "the signed source is unchanged");
+        assert_eq!(after["l2"], before["l2"]);
+        assert_eq!(
+            after["postBatch"]["hash"],
+            serde_json::json!(next.post_batch_hash)
+        );
         assert!(pool.pop_all().is_empty());
         assert!(
             ledger
@@ -1142,6 +1233,126 @@ mod tests {
                 .is_err()
         );
         assert_eq!(ledger.pending_attempt().unwrap().id, next);
+    }
+
+    #[test]
+    fn native_preflight_rejection_cannot_relabel_a_dispatched_attempt() {
+        let (ledger, pool, txs, id) = setup();
+        assert!(
+            ledger
+                .observe(
+                    id,
+                    SubmissionObservation::PreflightRejected {
+                        source: Some(B256::ZERO),
+                    }
+                )
+                .is_err()
+        );
+        ledger
+            .observe(
+                id,
+                SubmissionObservation::PreflightRejected { source: None },
+            )
+            .unwrap();
+        assert!(
+            pool.resolve_attempt(
+                id,
+                block(100),
+                &vec![SourceOutcome::Retryable { source_nonce: 0 }; txs.len()],
+                AttemptCharge::Preflight,
+                3,
+                || true,
+            )
+            .is_err()
+        );
+        pool.resolve_attempt(
+            id,
+            block(100),
+            &vec![SourceOutcome::Retryable { source_nonce: 0 }; txs.len()],
+            AttemptCharge::None,
+            3,
+            || true,
+        )
+        .unwrap();
+        assert_eq!(pool.len(), txs.len());
+        assert!(
+            pool.candidates()
+                .iter()
+                .all(|tx| tx.attempts == 0 && tx.excluded_slots == 0)
+        );
+        let (ledger, _, _, id) = setup();
+        ledger
+            .observe(
+                id,
+                SubmissionObservation::Dispatched {
+                    block: 100,
+                    timestamp: 1000,
+                },
+            )
+            .unwrap();
+        assert!(
+            ledger
+                .observe(
+                    id,
+                    SubmissionObservation::PreflightRejected { source: None }
+                )
+                .is_err()
+        );
+        assert!(matches!(
+            ledger.pending_observation(),
+            Some(SubmissionObservation::Dispatched { .. })
+        ));
+    }
+
+    #[test]
+    fn exact_singleton_preflight_failures_exhaust_only_its_nonce_chain() {
+        let ledger = Arc::new(OptimisticallyIncluded::new());
+        let pool = HeldPool::new(Arc::clone(&ledger));
+        let source = tx(1, 0);
+        let suffix = tx(1, 1);
+        let independent = tx(2, 0);
+        for user in [&source, &suffix, &independent] {
+            pool.push_contiguous(user.clone(), 0).unwrap();
+        }
+        for failure in 0..3 {
+            let current = pool
+                .candidates()
+                .into_iter()
+                .find(|tx| tx.hash == source.hash)
+                .unwrap();
+            assert_eq!(current.attempts, u32::from(failure));
+            assert!(pool.claim(&current));
+            let id = begin(&ledger, vec![current], 10 + failure);
+            ledger
+                .observe(
+                    id,
+                    SubmissionObservation::PreflightRejected {
+                        source: Some(source.hash),
+                    },
+                )
+                .unwrap();
+            for _ in 0..2 {
+                pool.resolve_attempt(
+                    id,
+                    block(100 + u64::from(failure)),
+                    &[SourceOutcome::Retryable { source_nonce: 0 }],
+                    AttemptCharge::Preflight,
+                    3,
+                    || true,
+                )
+                .unwrap();
+            }
+        }
+        let remaining = pool.candidates();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].hash, independent.hash);
+        assert_eq!(remaining[0].attempts, 0);
+        assert_eq!(remaining[0].excluded_slots, 0);
+        assert_eq!(
+            pool.transaction_status(source.hash).unwrap()["ownership"]["reason"],
+            "AttemptsExhausted"
+        );
+        assert!(!pool.owns(suffix.hash));
     }
 
     #[test]
@@ -1770,6 +1981,13 @@ mod tests {
         pool.forget_finalized(id, block(99)).unwrap();
         ledger.read(|state| assert_eq!(state.users.len(), 2));
 
+        let before_pruning =
+            pool.transaction_status(committed.hash).unwrap()["transactions"].clone();
+        assert_eq!(before_pruning["l2"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            before_pruning["postBatch"]["hash"],
+            serde_json::json!(id.post_batch_hash)
+        );
         pool.forget_finalized(id, block(100)).unwrap();
         ledger.read(|state| {
             assert!(state.users.is_empty());
@@ -1783,6 +2001,7 @@ mod tests {
         assert_eq!(status["nonce"], 0);
 
         let status = pool.transaction_status(committed.hash).unwrap();
+        assert_eq!(status["transactions"], before_pruning);
         assert_eq!(status["lifecycle"], "terminal");
         assert_eq!(status["ownership"]["reason"], "Committed");
         assert_eq!(status["ownership"]["canonical"]["number"], 100);

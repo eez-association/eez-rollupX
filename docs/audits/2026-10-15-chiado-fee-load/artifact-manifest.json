@@ -1,0 +1,359 @@
+{
+  "availability": "Local-only under artifacts/chiado-fee-load-20261015; raw material is not published. Private wallet state is deliberately excluded.",
+  "files": [
+    {
+      "run": "primary",
+      "file": "identity.json",
+      "bytes": 959,
+      "sha256": "38b6692078cacdbf2cfe597a1c0b54d0e57b4a4a38394412c58052a0cec791db"
+    },
+    {
+      "run": "primary",
+      "file": "summary.json",
+      "bytes": 13906,
+      "sha256": "0b6eb9f9ed003182bf3e32c93050913bdf1c74ec1cc18e217fd36b4ce8becd76"
+    },
+    {
+      "run": "primary",
+      "file": "accepted.json",
+      "bytes": 9470219,
+      "sha256": "dd9eeb82d76aeca878cbf5c162000feb676b56d16946765b2ec496fb5b3c0575"
+    },
+    {
+      "run": "primary",
+      "file": "canonical-sources.json",
+      "bytes": 3323500,
+      "sha256": "372f91a2571694602e26e2c84c2bef09120165bff5d07eaa45a2a5a554bb4a71"
+    },
+    {
+      "run": "primary",
+      "file": "canonical-postings.json",
+      "bytes": 3278843,
+      "sha256": "4e789ee6ae70c0d3d95b16d39c36ed436b97998651bf2bd324e8582e7185f345"
+    },
+    {
+      "run": "primary",
+      "file": "verification.json",
+      "bytes": 3681,
+      "sha256": "c08f947094b58724c3fe3815dd391fa549628e862ef03a76fcefa443e6d743ed"
+    },
+    {
+      "run": "primary",
+      "file": "blob-summary.json",
+      "bytes": 16078,
+      "sha256": "fe7c6b3c057282276f4ecdf571a35f184218d7d79081841d249405529052ed76"
+    },
+    {
+      "run": "primary",
+      "file": "quotes.jsonl",
+      "bytes": 1376465,
+      "sha256": "78f81da5b610274f4610ffd3c593faea4d5d81e3b674e48283da2c66a0b38e63"
+    },
+    {
+      "run": "primary",
+      "file": "submissions.jsonl",
+      "bytes": 118308,
+      "sha256": "b41ad3b3924602b30e47bff2a58638a8ebfd49014f4dc4bd366b0f3415538c06"
+    },
+    {
+      "run": "primary",
+      "file": "settlements.jsonl",
+      "bytes": 233652,
+      "sha256": "9512f8cce9e80e7032625d751cd534c1d1a96ab7e08a0ec345f297cb2e17a89b"
+    },
+    {
+      "run": "primary",
+      "file": "observations.jsonl",
+      "bytes": 332028,
+      "sha256": "18f00f98d36f56108c536ae859d20934804c2ac22ecfbb0232098080556070d8"
+    },
+    {
+      "run": "primary",
+      "file": "run-end.json",
+      "bytes": 123,
+      "sha256": "770ffed908cf7ef64b5037bacdcee014d07b5bea02d441db4477115505c32915"
+    },
+    {
+      "run": "primary",
+      "file": "node.log",
+      "bytes": 84458685,
+      "sha256": "083bae03141ee9fecdd190d161709a9939a66a107d8a8405773c04e529db1eda"
+    },
+    {
+      "run": "primary",
+      "file": "signer.log",
+      "bytes": 540575,
+      "sha256": "ca085fd737fb3dfeaaebab81461649aa8bb3e8fa68b8ea08abe95ed665900be5"
+    },
+    {
+      "run": "expanded",
+      "file": "identity.json",
+      "bytes": 960,
+      "sha256": "e144afcdb7fb229aeb62fd66d6aa530951d799683b9641354259216646acf58f"
+    },
+    {
+      "run": "expanded",
+      "file": "summary.json",
+      "bytes": 19378,
+      "sha256": "7cd2314c58dd5d821bacc8ed29e8aabe488e353fdcc148038ae5d5b91bd60aa5"
+    },
+    {
+      "run": "expanded",
+      "file": "accepted.json",
+      "bytes": 4000469,
+      "sha256": "cb15de380eff024068c0bfaacf310d031e006e5173e187ccf9123b005093f0c0"
+    },
+    {
+      "run": "expanded",
+      "file": "canonical-sources.json",
+      "bytes": 1383260,
+      "sha256": "5607e5d4086c668ace122e058ecd5760601c45520a472831574ab5af12268e2f"
+    },
+    {
+      "run": "expanded",
+      "file": "canonical-postings.json",
+      "bytes": 1480307,
+      "sha256": "22d5e662c65ad65340647e0967c49944eba4afb659bf5f5c7eee349a5d959649"
+    },
+    {
+      "run": "expanded",
+      "file": "verification.json",
+      "bytes": 12057,
+      "sha256": "53404385739ab94c49b2338ffcc5960f5ab2aa84a05302bcedac670a70569da1"
+    },
+    {
+      "run": "expanded",
+      "file": "blob-summary.json",
+      "bytes": 4961,
+      "sha256": "9d5a22edf7c70a250f49aca364575881f021f6e5f07bd7faedcbfbbacbcebe95"
+    },
+    {
+      "run": "expanded",
+      "file": "quotes.jsonl",
+      "bytes": 110533,
+      "sha256": "6ad1a98a3ebb559dcb584c2629da0467803e627c37e9c9567345ed8b1ac341f3"
+    },
+    {
+      "run": "expanded",
+      "file": "submissions.jsonl",
+      "bytes": 49008,
+      "sha256": "dcd3e352c3b2ea39faf0d5f2900ecde8ae5d9cb683bacdd02e9fe44cdf21850d"
+    },
+    {
+      "run": "expanded",
+      "file": "settlements.jsonl",
+      "bytes": 97060,
+      "sha256": "219d62d1039b50952572fd2cd39ede6795b67022495f40fe92235e4c81d3115d"
+    },
+    {
+      "run": "expanded",
+      "file": "observations.jsonl",
+      "bytes": 92064,
+      "sha256": "178568b60e9c2ac86cf13814475db937e1c75bc2c622e1fae9d3c991f579c5aa"
+    },
+    {
+      "run": "expanded",
+      "file": "run-end.json",
+      "bytes": 123,
+      "sha256": "026c5f9171fbe4165c4326c1def144a990519888f07187dc3f8d24787005ecbd"
+    },
+    {
+      "run": "expanded",
+      "file": "node.log",
+      "bytes": 14476481,
+      "sha256": "a314984220cd8f9816e444b9be027052c4200839aa8a266680398eb42b1811b7"
+    },
+    {
+      "run": "expanded",
+      "file": "signer.log",
+      "bytes": 96112,
+      "sha256": "9fb16a69b956148cb7c1fbcbf39629e568cc0372890c8080ae52ce44074ebade"
+    },
+    {
+      "run": "primary",
+      "file": "driver.measured.mjs",
+      "bytes": 34178,
+      "sha256": "3ecdb9a0d71cddcbc7b8f7b2375454b717b479a7d22b233ce4e5849ffbe14c4f"
+    },
+    {
+      "run": "primary",
+      "file": "driver.mjs",
+      "bytes": 34413,
+      "sha256": "17da56aa18e00e60715a9294bbc04d6fc3c71e97253b68df152b10866099cde0"
+    },
+    {
+      "run": "primary",
+      "file": "driver.sh",
+      "bytes": 1246,
+      "sha256": "a017d6f332d6b84df8392f76408c839bf64448e3a299c34cd1e0a9c4768ce4a2"
+    },
+    {
+      "run": "primary",
+      "file": "harness.sha256",
+      "bytes": 294,
+      "sha256": "77bde033433528062fe08563ef27293c63d579f38b17eb7a14f895b6170da6b0"
+    },
+    {
+      "run": "primary",
+      "file": "measurement-driver.json",
+      "bytes": 297,
+      "sha256": "e8eed0f84bc39c613ab61f23f682c830eb9f6f2fc822755e5a85bd88d2f3b8ac"
+    },
+    {
+      "run": "primary",
+      "file": "expanded-driver.mjs",
+      "bytes": 34158,
+      "sha256": "c3136feb22f22acbf8eaa5af989ffa71c01773ad9dca84829c02e28031d63a0b"
+    },
+    {
+      "run": "primary",
+      "file": "prepare-expanded.mjs",
+      "bytes": 9363,
+      "sha256": "5cee9681cc40bcd67fd8106f1652047ef047b3ea968d4f4e09a68f167240e89c"
+    },
+    {
+      "run": "primary",
+      "file": "run-expanded.sh",
+      "bytes": 1122,
+      "sha256": "771434872527edc706e37566112ef81df30d328d9e6486ca3d106689b50491fd"
+    },
+    {
+      "run": "primary",
+      "file": "verify-blobs.py",
+      "bytes": 1777,
+      "sha256": "db5118dfbb9a71d2783fff0b43a61f12c1f68c3ce6d612dcca389f292640cf35"
+    },
+    {
+      "run": "primary",
+      "file": "setup.jsonl",
+      "bytes": 25817,
+      "sha256": "02e5c44dbbc27611d48624d0e8c16f209a4730bd4e241653e1e990b0c04f8ca5"
+    },
+    {
+      "run": "primary",
+      "file": "fixtures.json",
+      "bytes": 9349,
+      "sha256": "f21dc944c7a0b4e718f11058998ee7e5ac0f74da7f64c9a49cd4ea223d6bcef1"
+    },
+    {
+      "run": "primary",
+      "file": "run.log",
+      "bytes": 2747,
+      "sha256": "b87cb72d1b9d5e7112d518a0e083bb923a14319db16c1ec7cdcbe13694059dfc"
+    },
+    {
+      "run": "primary",
+      "file": "resources.jsonl",
+      "bytes": 92908,
+      "sha256": "e497e7801c4f3d7aa8ab3b50b4f6d4e0f3ee480e5883e86a8752d08159007f63"
+    },
+    {
+      "run": "primary",
+      "file": "run.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "run": "primary",
+      "file": "stages.json",
+      "bytes": 743,
+      "sha256": "5516b0c5941ec1253020e3a69adb56c0fdc06e3cd87cdab3f4c905422f0604df"
+    },
+    {
+      "run": "primary",
+      "file": "final-health.json",
+      "bytes": 2736,
+      "sha256": "2d1d4f9b734a48182e09f8c451b8b1fb336ce24ed7a22f4437858795c2d44513"
+    },
+    {
+      "run": "expanded",
+      "file": "driver-before-verifier-wait.mjs",
+      "bytes": 34044,
+      "sha256": "b311fb25236755a5c21c6210e3927300a44b6614d0aceef81282ab40428b9a2e"
+    },
+    {
+      "run": "expanded",
+      "file": "setup.jsonl",
+      "bytes": 14088,
+      "sha256": "02a4f48c9383042d6b0509a987aba7791429340d080000cf4dfd7a427b080cca"
+    },
+    {
+      "run": "expanded",
+      "file": "fixtures.json",
+      "bytes": 36974,
+      "sha256": "6e2f8d520d2b963b756c86e66da63ebce752cdadb5da886eca8bafc6b8a0eff7"
+    },
+    {
+      "run": "expanded",
+      "file": "run.log",
+      "bytes": 1149,
+      "sha256": "da3d568aefbb2878cc7e50e7a558cc86aaad0cced48ae0a8fd152076d47b3ec3"
+    },
+    {
+      "run": "expanded",
+      "file": "run.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "run": "expanded",
+      "file": "stages.json",
+      "bytes": 149,
+      "sha256": "dd90668b4bafaefa68a362d620413b3bafb1279266c942dc500b39c75f8906af"
+    },
+    {
+      "run": "expanded",
+      "file": "initial-proxy-batch-failure.json",
+      "bytes": 470722,
+      "sha256": "3779137a2e8c2089763afb40f3f6e71bb8fcb4834a611b14b11d79262219e175"
+    },
+    {
+      "run": "expanded",
+      "file": "verify-failure.json",
+      "bytes": 461,
+      "sha256": "0769663b4e994de35acfbb2975baf2a2c19e61bc15da6c52898e7547f8405b89"
+    },
+    {
+      "run": "expanded",
+      "file": "independent-head-followup.json",
+      "bytes": 415,
+      "sha256": "ef68fdd71be0dcd54a5052e9c07df4be241972674d04b2a2421c11d7c9f0fba9"
+    },
+    {
+      "run": "expanded",
+      "file": "verification-retry.log",
+      "bytes": 183,
+      "sha256": "4bfe04ed7cb72c246419509bbba2a4446e1d0f87aeb4db41684e89488950a2e9"
+    },
+    {
+      "run": "expanded",
+      "file": "verification-retry.exit",
+      "bytes": 2,
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    },
+    {
+      "run": "expanded",
+      "file": "setup-first-failure.run.log",
+      "bytes": 895,
+      "sha256": "f1432d593b2fa6d5c077a32c3691d1b716652d847aae6887a57e858778737230"
+    },
+    {
+      "run": "expanded",
+      "file": "setup-first-failure.run.exit",
+      "bytes": 2,
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "run": "expanded",
+      "file": "setup-first-failure.node.log",
+      "bytes": 143696,
+      "sha256": "546504c956996f91e3ba67bb9083662d4995d90dd3dab62a8f1d81faaee07cc0"
+    },
+    {
+      "run": "expanded",
+      "file": "setup-first-failure.signer.log",
+      "bytes": 17345,
+      "sha256": "2ae25d9bd8e021a9a7db91bd7bb9268c8b6fc7274dd4148942cc2245881ab0e2"
+    }
+  ]
+}

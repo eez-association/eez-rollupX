@@ -854,10 +854,10 @@ impl Submitter {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
-        quote: crate::posting_fees::FeeQuote,
+        quote: impl Into<crate::refund::BundlePricing>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
     ) -> L1Result<SendOutcome> {
-        self.send_bundle_checked(raw_txs, target, Some(quote), record_dispatch, None)
+        self.send_bundle_checked(raw_txs, target, Some(quote.into()), record_dispatch, None)
             .await
     }
 
@@ -869,7 +869,7 @@ impl Submitter {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
-        quote: crate::posting_fees::FeeQuote,
+        quote: impl Into<crate::refund::BundlePricing>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
         deadline: tokio::time::Instant,
         observed: impl FnOnce(BundleDelivery) + Send + 'static,
@@ -877,7 +877,7 @@ impl Submitter {
         self.send_bundle_checked(
             raw_txs,
             target,
-            Some(quote),
+            Some(quote.into()),
             record_dispatch,
             Some(DeliveryWindow {
                 deadline,
@@ -891,7 +891,7 @@ impl Submitter {
         &self,
         raw_txs: &[alloy_primitives::Bytes],
         target: BundleTarget,
-        quote: Option<crate::posting_fees::FeeQuote>,
+        quote: Option<crate::refund::BundlePricing>,
         record_dispatch: impl FnOnce(u64, u64) -> L1Result<()> + Send,
         delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
@@ -923,7 +923,16 @@ impl Submitter {
             .get_chain_id()
             .await
             .map_err(|error| L1Error::Provider(format!("bundle source chain: {error}")))?;
-        let reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
+        let mut reverting_hashes = inbound_revert_hashes(raw_txs, chain_id, post_batch_hash)?;
+        let refund = quote.and_then(|pricing| pricing.refund);
+        if let Some(refund) = refund {
+            require_refund_source(
+                raw_txs,
+                refund,
+                self.poster_address(),
+                &mut reverting_hashes,
+            )?;
+        }
         let clock = SystemClock;
         let prepared = prepare_submission_target(
             target_provider,
@@ -952,7 +961,7 @@ impl Submitter {
                 number: head.header.number,
                 hash: head.header.hash,
             };
-            if !quote.is_current(chain_id, current, target) {
+            if !quote.quote.is_current(chain_id, current, target) {
                 return Ok(dropped(
                     post_batch_hash,
                     prepared.block,
@@ -1007,6 +1016,7 @@ impl Submitter {
                 post_batch_hash,
                 prepared,
                 &reverting_hashes,
+                refund,
                 delivery,
             )
             .await
@@ -1075,6 +1085,96 @@ impl Submitter {
             at,
         )
         .await
+    }
+
+    /// Observe a successful plain transfer from the canonical block beneficiary
+    /// after the selected source. This profile requires a dedicated recipient;
+    /// unrelated or aggregated payments cannot qualify as an attributed refund.
+    /// This read does not establish consumption or change request ownership.
+    pub async fn refund_payment_at(
+        &self,
+        block: crate::L1BlockRef,
+        source_index: u64,
+        request: crate::refund::BundleRefund,
+    ) -> L1Result<crate::refund::ObservedPayment> {
+        use crate::refund::ObservedPayment;
+        use alloy_consensus::{Transaction as _, transaction::SignerRecoverable as _};
+        use alloy_sol_types::SolCall as _;
+        let provider = &self.inner.target_provider;
+        require_canonical_block(provider, block).await?;
+        let full = provider
+            .get_block_by_hash(block.hash)
+            .full()
+            .await
+            .map_err(|e| L1Error::Provider(format!("refund block: {e}")))?
+            .ok_or_else(|| L1Error::Provider("refund block unavailable".into()))?;
+        if full.header.hash != block.hash || full.header.number != block.number {
+            return Err(L1Error::Provider("refund block identity changed".into()));
+        }
+        let txs = full
+            .transactions
+            .as_transactions()
+            .ok_or_else(|| L1Error::Provider("refund block lacks full transactions".into()))?;
+        let index = usize::try_from(source_index).map_err(|e| L1Error::Provider(e.to_string()))?;
+        if txs
+            .get(index)
+            .is_none_or(|tx| tx.inner.tx_hash() != &request.source())
+        {
+            return Err(L1Error::Provider(
+                "refund source index differs from canonical block".into(),
+            ));
+        }
+        let mut payment = ObservedPayment::Missing;
+        for (index, tx) in txs.iter().enumerate().skip(index + 1) {
+            if tx.to() == Some(self.inner.reader.eez())
+                && tx.input().get(..4)
+                    == Some(eez_protocol::abi::postAndVerifyBatchCall::SELECTOR.as_slice())
+            {
+                // A later native post starts a different funding group. An
+                // end-of-block aggregate cannot be attributed by this profile.
+                break;
+            }
+            if tx.to() != Some(request.recipient())
+                || !tx.input().is_empty()
+                || tx.value().is_zero()
+            {
+                continue;
+            }
+            let sender = tx
+                .inner
+                .inner()
+                .recover_signer()
+                .map_err(|e| L1Error::Provider(e.to_string()))?;
+            if sender != full.header.beneficiary || sender == request.recipient() {
+                continue;
+            }
+            let hash = *tx.inner.tx_hash();
+            let receipt = provider
+                .get_transaction_receipt(hash)
+                .await
+                .map_err(|e| L1Error::Provider(format!("refund receipt: {e}")))?
+                .ok_or_else(|| L1Error::Provider("refund receipt unavailable".into()))?;
+            if receipt.transaction_hash != hash
+                || receipt.block_hash != Some(block.hash)
+                || receipt.block_number != Some(block.number)
+                || receipt.transaction_index != Some(index as u64)
+            {
+                return Err(L1Error::Provider("refund receipt identity changed".into()));
+            }
+            if !receipt.status() || receipt.gas_used != 21_000 {
+                continue;
+            }
+            if payment != ObservedPayment::Missing {
+                payment = ObservedPayment::Ambiguous;
+                break;
+            }
+            payment = ObservedPayment::Confirmed {
+                hash,
+                value: tx.value(),
+            };
+        }
+        require_canonical_block(provider, block).await?;
+        Ok(payment)
     }
 
     /// `true` iff L1 currently has a receipt for `tx_hash`, regardless of
@@ -1272,6 +1372,7 @@ impl Inner {
         post_batch_hash: TxHash,
         target: PreparedTarget,
         reverting_hashes: &[B256],
+        refund: Option<crate::refund::BundleRefund>,
         delivery: Option<DeliveryWindow>,
     ) -> L1Result<SendOutcome> {
         let hexes: Vec<String> = raw_txs
@@ -1280,13 +1381,14 @@ impl Inner {
             .collect();
         let hex_refs: Vec<&str> = hexes.iter().map(String::as_str).collect();
         // Serialize once so every relay receives byte-identical requests.
-        let body = serde_json::to_vec(&bundle_request(
-            &hex_refs,
-            target.block,
-            target.timestamp,
-            reverting_hashes,
-        ))
-        .map_err(|error| L1Error::Submission(format!("encode eth_sendBundle request: {error}")))?;
+        let mut request =
+            bundle_request(&hex_refs, target.block, target.timestamp, reverting_hashes);
+        if let Some(refund) = refund {
+            refund.apply(&mut request["params"][0]);
+        }
+        let body = serde_json::to_vec(&request).map_err(|error| {
+            L1Error::Submission(format!("encode eth_sendBundle request: {error}"))
+        })?;
         // One signature over the shared bytes authenticates every relay copy.
         let signature = self
             .config
@@ -1350,24 +1452,16 @@ impl Inner {
             }
             Err(other) => Err(other),
         };
-        self.capture_bundle_attempt(
-            &hex_refs,
-            post_batch_hash,
-            target,
-            &result,
-            reverting_hashes,
-            &builders,
-        );
+        self.capture_bundle_attempt(&request, post_batch_hash, target, &result, &builders);
         result
     }
 
     fn capture_bundle_attempt(
         &self,
-        raw_tx_hexes: &[&str],
+        request: &serde_json::Value,
         post_batch_hash: TxHash,
         target: PreparedTarget,
         result: &L1Result<SendOutcome>,
-        reverting_hashes: &[B256],
         builders: &[BuilderDelivery],
     ) {
         let Some(root) = self.config.bundle_capture_dir.as_ref() else {
@@ -1379,12 +1473,6 @@ impl Inner {
             Ok(SendOutcome::Included { .. }) => return,
         };
         let attempt = root.join(format!("bundle-{}-{post_batch_hash}", target.block));
-        let request = bundle_request(
-            raw_tx_hexes,
-            target.block,
-            target.timestamp,
-            reverting_hashes,
-        );
         // Version 2 replaces v1's `builderRpcUrl` with per-relay outcomes.
         // URLs may carry credentials and are never written; replay supplies
         // the endpoint explicitly (testing/kurtosis/scripts/replay-bundle.sh).
@@ -1921,6 +2009,42 @@ fn inbound_revert_hashes(
     Ok(hashes)
 }
 
+/// A selected payer cannot be optional: a builder must reject the bundle when
+/// that source fails. Other users retain the protocol's partial-consumption
+/// permissions. This check does not attest to the builder's eventual payment.
+fn require_refund_source(
+    raw_txs: &[alloy_primitives::Bytes],
+    refund: crate::refund::BundleRefund,
+    poster: alloy_primitives::Address,
+    reverting_hashes: &mut Vec<B256>,
+) -> L1Result<()> {
+    use alloy_consensus::transaction::SignerRecoverable;
+    if !reverting_hashes.contains(&refund.source()) {
+        return Err(L1Error::Submission(
+            "refund source is not a unique L1 companion".into(),
+        ));
+    }
+    for raw in raw_txs.iter().skip(1) {
+        let tx = alloy_consensus::TxEnvelope::decode_2718(&mut raw.as_ref())
+            .map_err(|e| L1Error::Submission(format!("refund source envelope: {e}")))?;
+        if *tx.tx_hash() == refund.source() {
+            let sender = tx
+                .recover_signer()
+                .map_err(|e| L1Error::Submission(format!("refund source signature: {e}")))?;
+            if sender == poster || sender == refund.recipient() {
+                return Err(L1Error::Submission(
+                    "refund source must be externally funded".into(),
+                ));
+            }
+            reverting_hashes.retain(|hash| *hash != refund.source());
+            return Ok(());
+        }
+    }
+    Err(L1Error::Submission(
+        "refund source is absent from the signed bundle".into(),
+    ))
+}
+
 fn bundle_request(
     raw_tx_hexes: &[&str],
     target_block: u64,
@@ -2401,6 +2525,7 @@ mod tests {
                         expected_parent_hash: None,
                     },
                     &[],
+                    None,
                     Some(super::DeliveryWindow {
                         deadline: tokio::time::Instant::now() + Duration::from_millis(300),
                         observed: Box::new(move |delivery| *saved.lock().unwrap() = Some(delivery)),
@@ -2564,6 +2689,7 @@ mod tests {
                         post_hash,
                         target,
                         &[user_hash],
+                        None,
                         None,
                     ),
                 )
@@ -3051,6 +3177,7 @@ mod tests {
                     expected_parent_hash: None,
                 },
                 &[],
+                None,
                 Some(super::DeliveryWindow {
                     deadline: tokio::time::Instant::now() + Duration::from_secs(5),
                     observed: Box::new(move |delivery| *saved.lock().unwrap() = Some(delivery)),
@@ -3288,6 +3415,208 @@ mod tests {
         let signature = signer.sign_transaction_sync(&mut tx).unwrap();
         let tx = TxEnvelope::Eip1559(tx.into_signed(signature));
         (tx.encoded_2718().into(), *tx.tx_hash())
+    }
+
+    #[tokio::test]
+    async fn refund_observation_requires_canonical_unique_plain_builder_payment() {
+        use crate::refund::{BundleRefund, ObservedPayment};
+        use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
+        use alloy_network::TxSignerSync;
+        use alloy_primitives::{Address, TxKind, U256};
+        let signer: alloy_signer_local::PrivateKeySigner =
+            B256::with_last_byte(2).to_string().parse().unwrap();
+        let recipient = Address::repeat_byte(9);
+        let block_hash = B256::repeat_byte(3);
+        let make = |nonce, to, value, input| {
+            let mut tx = TxEip1559 {
+                chain_id: 1,
+                nonce,
+                gas_limit: 21_000,
+                max_fee_per_gas: 10,
+                max_priority_fee_per_gas: 1,
+                to: TxKind::Call(to),
+                value,
+                input,
+                ..Default::default()
+            };
+            let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+            let tx = TxEnvelope::Eip1559(tx.into_signed(signature));
+            let mut value = serde_json::to_value(&tx).unwrap();
+            value["from"] = serde_json::json!(signer.address());
+            value["hash"] = serde_json::json!(tx.tx_hash());
+            value["blockHash"] = serde_json::json!(block_hash);
+            value["blockNumber"] = serde_json::json!("0x2a");
+            value["transactionIndex"] = serde_json::json!(format!("{nonce:#x}"));
+            (value, *tx.tx_hash())
+        };
+        let (source, source_hash) =
+            make(0, Address::repeat_byte(1), U256::ZERO, Default::default());
+        let mut header = mock_block(42, PIN, block_hash);
+        header.header.inner.beneficiary = signer.address();
+        let header = serde_json::to_value(header).unwrap();
+        for scenario in [
+            "paid",
+            "missing",
+            "wrong_recipient",
+            "wrong_sender",
+            "reverted",
+            "code",
+            "ambiguous",
+            "reorg",
+            "later_post",
+        ] {
+            let mut full = header.clone();
+            let mut txs = vec![source.clone()];
+            if scenario == "later_post" {
+                use alloy_sol_types::SolCall as _;
+                txs.push(
+                    make(
+                        1,
+                        Address::ZERO,
+                        U256::ZERO,
+                        eez_protocol::abi::postAndVerifyBatchCall::SELECTOR
+                            .to_vec()
+                            .into(),
+                    )
+                    .0,
+                );
+            }
+            let mut receipts = vec![];
+            let count = if scenario == "missing" {
+                0
+            } else if scenario == "ambiguous" {
+                2
+            } else {
+                1
+            };
+            let mut expected_hash = B256::ZERO;
+            for index in 1..=count {
+                let index = index + u64::from(scenario == "later_post");
+                let to = if scenario == "wrong_recipient" {
+                    Address::repeat_byte(8)
+                } else {
+                    recipient
+                };
+                let (tx, hash) = make(index, to, U256::from(500), Default::default());
+                expected_hash = hash;
+                txs.push(tx);
+                if !["wrong_recipient", "wrong_sender", "later_post"].contains(&scenario) {
+                    receipts.push(serde_json::json!({"result":{
+                        "transactionHash":hash,"transactionIndex":format!("{index:#x}"),
+                        "blockHash":block_hash,"blockNumber":"0x2a","from":signer.address(),"to":to,
+                        "gasUsed":if scenario == "code" {"0x5209"} else {"0x5208"},"effectiveGasPrice":"0x1",
+                        "cumulativeGasUsed":"0xa410","type":"0x2","status":if scenario == "reverted" {"0x0"} else {"0x1"},
+                        "logs":[],"logsBloom":alloy_primitives::Bloom::ZERO
+                    }}));
+                }
+            }
+            full["transactions"] = serde_json::json!(txs);
+            if scenario == "wrong_sender" {
+                full["miner"] = serde_json::json!(Address::repeat_byte(8));
+            }
+            let mut final_header = header.clone();
+            if scenario == "reorg" {
+                final_header["hash"] = serde_json::json!(B256::repeat_byte(4));
+            }
+            let mut replies = vec![
+                serde_json::json!({"result":header}),
+                serde_json::json!({"result":full}),
+            ];
+            replies.extend(receipts);
+            replies.push(serde_json::json!({"result":final_header}));
+            let (url, server) = rpc_server(replies, true).await;
+            let result = test_submitter(url)
+                .refund_payment_at(
+                    crate::L1BlockRef {
+                        number: 42,
+                        hash: block_hash,
+                    },
+                    0,
+                    BundleRefund::new(recipient, 90, source_hash).unwrap(),
+                )
+                .await;
+            match scenario {
+                "paid" => assert_eq!(
+                    result.unwrap(),
+                    ObservedPayment::Confirmed {
+                        hash: expected_hash,
+                        value: U256::from(500)
+                    }
+                ),
+                "ambiguous" => assert_eq!(result.unwrap(), ObservedPayment::Ambiguous),
+                "reorg" => assert!(result.is_err()),
+                _ => assert_eq!(result.unwrap(), ObservedPayment::Missing, "{scenario}"),
+            }
+            server.await.unwrap();
+        }
+    }
+
+    #[test]
+    fn refund_payer_is_required_and_cannot_be_the_poster() {
+        use crate::refund::BundleRefund;
+        use alloy_consensus::transaction::SignerRecoverable;
+        use alloy_eips::Decodable2718;
+        let (first, first_hash) = signed_user(1, 0);
+        let (second, second_hash) = signed_user(1, 1);
+        let raw = vec![
+            alloy_primitives::Bytes::from_static(&[3, 0xc0]),
+            first.clone(),
+            second,
+        ];
+        let recipient = alloy_primitives::Address::repeat_byte(9);
+        let terms = BundleRefund::new(recipient, 90, first_hash).unwrap();
+        let mut allowed = vec![first_hash, second_hash];
+        super::require_refund_source(&raw, terms, alloy_primitives::Address::ZERO, &mut allowed)
+            .unwrap();
+        assert_eq!(allowed, vec![second_hash]);
+        let hexes = raw.iter().map(ToString::to_string).collect::<Vec<_>>();
+        let refs = hexes.iter().map(String::as_str).collect::<Vec<_>>();
+        let mut request = bundle_request(&refs, 42, PIN, &allowed);
+        terms.apply(&mut request["params"][0]);
+        assert_eq!(request["params"][0]["refundPercent"], 90);
+        assert_eq!(
+            request["params"][0]["refundRecipient"],
+            serde_json::json!(recipient)
+        );
+        assert_eq!(
+            request["params"][0]["refundTxHashes"],
+            serde_json::json!([first_hash])
+        );
+        assert_eq!(
+            request["params"][0]["revertingTxHashes"],
+            serde_json::json!([second_hash])
+        );
+        assert_eq!(request["params"][0]["txs"], serde_json::json!(hexes));
+        assert_eq!(request["params"][0]["minTimestamp"], PIN);
+        assert_eq!(request["params"][0]["maxTimestamp"], PIN);
+        let sender = alloy_consensus::TxEnvelope::decode_2718(&mut first.as_ref())
+            .unwrap()
+            .recover_signer()
+            .unwrap();
+        assert!(
+            super::require_refund_source(&raw, terms, sender, &mut vec![first_hash, second_hash])
+                .is_err()
+        );
+        let returned_to_sender = BundleRefund::new(sender, 90, first_hash).unwrap();
+        assert!(
+            super::require_refund_source(
+                &raw,
+                returned_to_sender,
+                recipient,
+                &mut vec![first_hash, second_hash]
+            )
+            .is_err()
+        );
+        let absent = BundleRefund::new(recipient, 90, B256::repeat_byte(7)).unwrap();
+        assert!(
+            super::require_refund_source(
+                &raw,
+                absent,
+                recipient,
+                &mut vec![first_hash, second_hash]
+            )
+            .is_err()
+        );
     }
 
     #[test]

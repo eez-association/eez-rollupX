@@ -61,7 +61,7 @@ range to inspect second-scale changes.
 | --- | --- | --- |
 | `reth_eez_composer_queue_requests` | `rollup_id`, `direction=inbound\|outbound`, `state=queued\|in_flight` | Current held-pool membership: four gauges per rollup, including zero for empty states. |
 | `reth_eez_composer_queue_readiness_requests` | `rollup_id`, `status=ready\|blocked\|unknown` | Queued requests classified against the last evaluated source state, summed across directions. |
-| `reth_eez_composer_queue_blocked_requests` | `rollup_id`, `reason=nonce\|fee\|balance\|escrow` | Blocked queued requests, including affected nonce successors, summed across directions. |
+| `reth_eez_composer_queue_blocked_requests` | `rollup_id`, `reason=nonce\|fee\|balance\|escrow\|settlement_fee\|settlement_pricing` | Blocked queued requests, including affected nonce successors, summed across directions. `fee` is the source base-fee condition; `settlement_fee` is a measured payment shortfall; `settlement_pricing` means cost calculation is unavailable. |
 | `reth_eez_composer_queue_oldest_pending_timestamp_seconds` | `rollup_id` | Earliest retained admission time among queued and in-flight requests; `NaN` if absent. |
 | `reth_eez_composer_queue_evaluation_timestamp_seconds` | `rollup_id` | Start time of the last source-state evaluation; `NaN` before evaluation or after source-state invalidation. |
 | `reth_eez_composer_queue_last_completion_timestamp_seconds` | `rollup_id` | Local observation time of the latest retained canonical cross-chain completion; `NaN` after restart or an invalidating reorg. |
@@ -156,6 +156,37 @@ missed ticks rather than accumulating a backlog.
 Grafana's datasource minimum interval is one second; global rule evaluation stays
 at 30 seconds because this stack has no alert or recording rules.
 
+### L1 refund observations
+
+**EEZ L1 fee recovery** (`/d/eez-l1-fee-recovery`) shows actual L1 refunds,
+posting execution/blob costs, on-chain surplus or loss, accumulated shortfall
+and payment status. Missing/ambiguous payments and undercovered batches never
+pause quotes or settlement. Underfunded means below the cost/risk floor, not
+necessarily below the builder's agreed percentage. The quote targets profit
+for a standalone transaction; a shared batch may intentionally lose money.
+
+All names below have the `reth_eez_composer_l1_refund_` prefix:
+
+| Suffix | Meaning |
+| --- | --- |
+| `native{kind="received\|posting_cost\|shortfall"}` | Cumulative gauges in native currency (18 decimals), with `rollup_id`, `chain_id`, `currency`. Received counts unique confirmed payouts; cost is actual post execution plus blobs; shortfall sums `max(cost/risk floor - received, 0)` per post. |
+| `reports{status="qualified\|underfunded\|missing\|ambiguous"}` | Cumulative gauges counting observed reports by status, with the same identity labels. Repeated observations do not add reports; replacements/reorgs retract the previous contribution. |
+| `observation_errors_total{rollup_id}` | Counter of failed receipt-observation attempts. Retries count again; it is not a count of distinct bad payouts. Logs retain the reason and transaction identity. |
+
+These monetary/report totals accumulate from this process's observations and
+reset on restart. They are gauges because reorg corrections can decrease them;
+do not apply Prometheus `rate`/`increase` to them. Finalizing a report retains
+its contribution while releasing its in-memory tracking. No hashes, recipients
+or free-form error messages are metric labels. Prometheus uses floating point;
+the structured cost logs retain exact integer amounts and apply/retract events.
+
+The dashboard's surplus is received minus posting costs, excluding real off-chain
+proving/infrastructure expenses and unrelated subsidized L2 posts. Observation
+errors mean totals may be incomplete, not that missing cost is zero. Retained
+logs and canonical receipts are required for financial reconciliation across
+restarts; this dashboard is not a durable accounting ledger. No alert rules or
+automatic builder switches are installed.
+
 ### Settlement: when and why
 
 Use **EEZ Composer queue** for posting timing, outcomes and trigger reasons.
@@ -185,7 +216,7 @@ timestamp; there is no new service or configuration option.
 | `pure_interval_deadline_timestamp_seconds` | Anchor time plus the configured pure-L2 interval, only when pending ordinary activity exists in interval mode. Otherwise `NaN`. |
 | `target_timestamp_seconds` | Selected L1 target supplied to the evaluation; not a guaranteed dispatch/inclusion time. |
 | `evaluation_timestamp_seconds` | Local time of the successful policy evaluation, distinct from sample time. |
-| `submission{state=...}` | One active state for the lowest unresolved attempt: `none`, `prepared`, `dispatched`, `included`, `excluded`, `uncertain`. |
+| `submission{state=...}` | One active state for the lowest unresolved attempt: `none`, `prepared`, `dispatched`, `included`, `excluded`, `uncertain`, `preflight_rejected`. The last state means native execution rejected a never-dispatched candidate; canonical reconciliation still owns its users. |
 
 Policy fields become unknown when a new evaluation starts and remain unknown
 if it fails or is cancelled. An incomplete canonical scan, changed generation,
