@@ -15,6 +15,39 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Fee configuration cleanup authorized on 2026-10-17
+
+Status: accepted for implementation; validation is pending. Replace the two
+fee-policy JSON objects and the historical L2 tariff switch with ordinary
+`EEZ_FEES_*` settings. Both directions have explicit, independent enable flags,
+defaulting to false. Supplying refund terms or cost assumptions cannot enable
+charging. A complete cost model alone continues to support advisory L2 quotes;
+this change does not introduce advisory L1 quotes.
+
+Bind the shared cost model to the Composer's existing chain IDs, owned rollup
+and L2 fee recipient. The shipping node owns one L2 rollup; ambiguous runtime
+bindings must fail rather than select an arbitrary rollup. Keep conversion,
+fixed costs, margins, expiry and sender exclusions explicit and validated.
+Refund percentage remains a startup setting in the supported 1..99 range;
+the cleanup does not change Chiado's 90% refund or 20% target profit, add
+automatic percentage selection, or qualify additional builders.
+
+Retain quote arithmetic, signed funding checks, final native validation,
+largest-payer batching and observation-only refund reconciliation. Consolidate
+fee settings and runtime wiring, update all Compose/Kurtosis consumers, and
+reject obsolete variables, including empty and mixed old/new configurations.
+Forward obsolete inputs solely so startup can report an actionable migration
+error; never interpret them as a fallback.
+
+Acceptance requires configuration boundary/precedence tests, both independent
+enable paths reaching their runtime gates, unchanged pricing/refund regressions,
+Composer/node/SDK checks and native nested/Safe fee tests. Document the coordinated
+configuration/binary upgrade and rollback: an old binary ignores the new names,
+so it must not run with the new configuration. Drain accepted in-memory work
+before restart. There is no protocol, genesis, signer-wire, storage, quote API
+or historical follower-replay migration. Preserve dated evidence and operator
+configuration until a separately qualified upgrade.
+
 ### Omitted L1 nonce follow-up from PR 56 feedback on 2026-10-16
 
 Status: implemented in PR 91, qualified by all required CI lanes and deployed to
@@ -453,7 +486,8 @@ Authorized for implementation on 2026-10-14; validation is recorded in the
 increment calculates economics for an already prepared candidate. It does not
 provide an unsigned-intent estimator, wallet quote or funding enforcement.
 
-An optional `EEZ_L2_FEE_SHADOW_POLICY` JSON object supplies explicit network,
+Historical configuration, superseded by the [accepted cleanup](#fee-configuration-cleanup-authorized-on-2026-10-17):
+an optional `EEZ_L2_FEE_SHADOW_POLICY` JSON object supplied explicit network,
 beneficiary, conversion and service-cost assumptions. Absent policy retains
 unpriced accounting; empty, incomplete or invalid configuration fails startup.
 The runtime snapshot is immutable until restart. Costs are L1 native base units;
@@ -476,7 +510,7 @@ source pricing includes the complete post's shared/history cost; it never
 assumes another customer will arrive. Aggregate comparisons do not allocate
 cost among users or guarantee recovery under partial consumption.
 
-The owning [operator contract](../configurable-settlement-policy.md#shadow-l2-fee-pricing)
+The owning [operator contract](../configurable-settlement-policy.md#cross-chain-fee-configuration)
 defines the JSON fields, compatibility and output. Production tariff calibration,
 verified treasury realization, canonical financial reconciliation and durable
 reservations remain prerequisites for enforcement.

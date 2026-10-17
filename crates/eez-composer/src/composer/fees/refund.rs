@@ -21,7 +21,7 @@ pub(in crate::composer) fn select(
     raw: &[alloy_primitives::Bytes],
     execution: &BundleExecution,
 ) -> Result<Option<Plan>, &'static str> {
-    let Some(refund) = &runtime.l1_refund_policy else {
+    let Some(refund) = &runtime.collection.l1_refund else {
         return Ok(None);
     };
     if raw.is_empty() {
@@ -31,7 +31,8 @@ pub(in crate::composer) fn select(
         return Ok(None);
     }
     let policy = runtime
-        .shadow_fee_policy
+        .collection
+        .pricing
         .as_ref()
         .ok_or("refund cost policy missing")?;
     if execution.gas_used.len() != raw.len()
@@ -123,8 +124,6 @@ fn select_payer(
     selected.map(Some).ok_or("refund external payer missing")
 }
 
-pub(crate) const SETTING: &str = "EEZ_L1_FEE_REFUND_POLICY";
-
 #[derive(Debug, Clone)]
 pub(crate) struct Policy {
     pub recipient: Address,
@@ -132,43 +131,25 @@ pub(crate) struct Policy {
 }
 
 impl Policy {
-    pub fn parse(raw: Option<String>) -> Result<Option<Self>, String> {
-        let Some(raw) = raw else { return Ok(None) };
-        let parse = || {
-            if raw.len() > 1024 {
-                return Err("JSON exceeds 1024 bytes".to_owned());
-            }
-            let value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-            let fields = value.as_object().ok_or("expected JSON object")?;
-            if fields.len() != 3
-                || fields
-                    .keys()
-                    .any(|k| !["version", "recipient", "percent"].contains(&k.as_str()))
-            {
-                return Err(
-                    "version, recipient and percent are required; unknown fields rejected"
-                        .to_owned(),
-                );
-            }
-            let recipient = value["recipient"]
-                .as_str()
-                .ok_or("recipient must be an address")?
-                .parse::<Address>()
-                .map_err(|e| e.to_string())?;
-            let percent = value["percent"]
-                .as_u64()
-                .and_then(|v| u8::try_from(v).ok())
-                .ok_or("percent must be an integer 1..99")?;
-            let policy = Self { recipient, percent };
-            if value["version"].as_u64() != Some(1)
-                || policy.recipient.is_zero()
-                || !(1..=99).contains(&policy.percent)
-            {
-                return Err("version 1 requires nonzero recipient and percent 1..99".to_owned());
-            }
-            Ok(policy)
-        };
-        parse().map(Some).map_err(|e| format!("{SETTING}: {e}"))
+    pub fn parse(
+        recipient: Option<String>,
+        percent: Option<String>,
+    ) -> Result<Option<Self>, String> {
+        if recipient.is_none() && percent.is_none() {
+            return Ok(None);
+        }
+        let recipient = recipient
+            .as_deref()
+            .and_then(|s| s.parse::<Address>().ok())
+            .filter(|address| !address.is_zero())
+            .ok_or("EEZ_FEES_L1_REFUND_RECIPIENT must be a nonzero 20-byte address")?;
+        let percent = percent
+            .as_deref()
+            .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|s| s.parse::<u8>().ok())
+            .filter(|p| (1..=99).contains(p))
+            .ok_or("EEZ_FEES_L1_REFUND_PERCENT must be an integer 1..99")?;
+        Ok(Some(Self { recipient, percent }))
     }
 
     /// This profile only supports plain EOA payouts. Charge at the posting
@@ -197,7 +178,6 @@ impl Policy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn refund_selection_uses_receipt_gas_effective_tip_and_external_money() {
@@ -237,12 +217,9 @@ mod tests {
             estimated_effective_gas_price: 3,
             estimated_blob_gas_price: 1,
         };
-        let policy = super::super::pricing::Policy::parse(
-            Some(super::super::pricing::tests::policy_json().to_string()),
-            Address::repeat_byte(4),
-        )
-        .unwrap()
-        .unwrap();
+        let policy =
+            super::super::pricing::tests::parse(super::super::pricing::tests::policy_json())
+                .unwrap();
         let refund = Policy {
             recipient: Address::repeat_byte(9),
             percent: 90,
@@ -309,30 +286,38 @@ mod tests {
     }
 
     #[test]
-    fn refund_policy_is_explicit_strict_and_optional() {
-        assert!(Policy::parse(None).unwrap().is_none());
-        let good = json!({"version":1,"recipient":Address::repeat_byte(1),"percent":90});
-        assert_eq!(
-            Policy::parse(Some(good.to_string()))
-                .unwrap()
-                .unwrap()
-                .percent,
-            90
-        );
-        for raw in ["", "null", "{}", "[]"] {
-            assert!(Policy::parse(Some(raw.into())).is_err());
+    fn refund_settings_require_both_terms_and_preserve_the_supported_range() {
+        assert!(Policy::parse(None, None).unwrap().is_none());
+        let recipient = Some(Address::repeat_byte(1).to_string());
+        for percent in ["1", "50", "90", "99"] {
+            assert_eq!(
+                Policy::parse(recipient.clone(), Some(percent.into()))
+                    .unwrap()
+                    .unwrap()
+                    .percent,
+                percent.parse::<u8>().unwrap()
+            );
         }
-        for (key, value) in [
-            ("version", json!(2)),
-            ("percent", json!(0)),
-            ("percent", json!(100)),
-            ("percent", json!("90")),
-            ("recipient", json!(Address::ZERO)),
-            ("extra", json!(true)),
+        for percent in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("100"),
+            Some("256"),
+            Some("-1"),
+            Some("+90"),
+            Some("1.5"),
+            Some(" 90"),
         ] {
-            let mut invalid = good.clone();
-            invalid[key] = value;
-            assert!(Policy::parse(Some(invalid.to_string())).is_err());
+            assert!(Policy::parse(recipient.clone(), percent.map(str::to_owned)).is_err());
+        }
+        for recipient in [
+            None,
+            Some(""),
+            Some("bad"),
+            Some("0x0000000000000000000000000000000000000000"),
+        ] {
+            assert!(Policy::parse(recipient.map(str::to_owned), Some("90".into())).is_err());
         }
     }
 }

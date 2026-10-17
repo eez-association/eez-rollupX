@@ -890,9 +890,29 @@ is introduced by this signer simplification. See the
 [signer contract](../../crates/eez-proof-signer/SPEC.md#51-header) for request and
 reorg behavior. This wiring has no legacy-source or offline-signing fallback.
 
+### Fee configuration upgrade
+
+Follow the [fee setting migration](../configurable-settlement-policy.md#fee-configuration-migration)
+when upgrading a Composer that uses the former JSON policies. Preserve the
+existing cost assumptions, refund percentage, beneficiary and enabled directions.
+Migrate the effective configuration, including Compose overrides; `.env` edits
+alone may not change explicit service environment entries. Never print the full
+rendered environment because it contains operator keys.
+
+Use the normal [recovery and upgrade procedure](#recovery-and-upgrades): retain
+old configuration and stopped state, drain accepted requests, then start the
+qualified new binary with the new settings. A node that reports an obsolete
+setting must stay out of public service until that input is removed. Verify
+compact/debug quotes and signed fee rejection on each enabled direction, then
+canonical settlement and refund observations before reopening ingress. Restoring
+an old binary also requires restoring the old fee settings; otherwise its
+unrecognized new names can leave collection disabled. There is no contract,
+genesis, signer-wire or replay migration for this cleanup. This procedure is not
+a record of an executed live upgrade; record that separately with exact images.
+
 ### Enabling L1 fee recovery
 
-Leave `EEZ_L1_FEE_REFUND_POLICY` unset for public traffic until each configured builder has passed the
+Leave `EEZ_FEES_L1_TO_L2_ENABLED` unset or `false` for public traffic until each configured builder has passed the
 [L1 refund profile](../configurable-settlement-policy.md#l1-builder-refund-profile)
 on this network with a real native-blob post, signed source and canonical payout.
 The startup bundle API probe does not test refund support. Public builder docs

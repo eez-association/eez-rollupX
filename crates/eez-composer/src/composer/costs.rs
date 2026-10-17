@@ -411,7 +411,8 @@ where
                 eez_l1::refund::ObservedPayment::Missing
             };
             let minimum = posting
-                .shadow_fee_policy
+                .collection
+                .pricing
                 .as_ref()
                 .ok_or("refund cost policy missing")?
                 .required_l1_payment(post.cost.paid.total)?

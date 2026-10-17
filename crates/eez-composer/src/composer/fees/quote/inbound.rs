@@ -24,11 +24,13 @@ where
     ) -> Result<Value, FeeQuoteError> {
         let runtime = &self.inner.posting;
         let refund = runtime
-            .l1_refund_policy
+            .collection
+            .l1_refund
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
         let policy = runtime
-            .shadow_fee_policy
+            .collection
+            .pricing
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
         let posting = &prepared.posting;

@@ -259,19 +259,17 @@ async fn funded_world(profile: NativeL1Profile) -> CrossChainWorld {
     policy["profit_bps"] = json!(0);
     setup_cross_chain_with_profile(
         profile,
-        &[
-            (
-                "EEZ_L2_FEE_RECIPIENT",
-                policy["beneficiary"].as_str().unwrap().into(),
-            ),
-            ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
-            ("EEZ_L2_FEE_ENFORCE_TARIFF", "true".into()),
-            ("EEZ_TEST_L2_DEBUG_RPC", "true".into()),
-            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-            ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
-            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
-        ],
+        &crate::settlement_policy_cost::fee_settings(
+            &policy,
+            &[
+                ("EEZ_FEES_L2_TO_L1_ENABLED", "true".into()),
+                ("EEZ_TEST_L2_DEBUG_RPC", "true".into()),
+                ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+                ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+                ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+                ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+            ],
+        ),
     )
     .await
     .unwrap()

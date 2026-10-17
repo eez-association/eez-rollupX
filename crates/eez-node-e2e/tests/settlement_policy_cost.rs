@@ -24,6 +24,52 @@ pub(super) fn shadow_pricing_policy() -> serde_json::Value {
     })
 }
 
+/// Supply the cost assumptions used by receipt assertions through the real
+/// scalar startup settings. Network identity comes from the test node itself.
+pub(super) fn fee_settings(
+    policy: &serde_json::Value,
+    extra: &[(&'static str, String)],
+) -> Vec<(&'static str, String)> {
+    let mut settings = vec![(
+        "EEZ_L2_FEE_RECIPIENT",
+        policy["beneficiary"].as_str().unwrap().to_owned(),
+    )];
+    for (name, field) in [
+        (
+            "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+            "valid_until_l1_timestamp",
+        ),
+        ("EEZ_FEES_L1_PER_L2_NUMERATOR", "l1_per_l2_numerator"),
+        ("EEZ_FEES_L1_PER_L2_DENOMINATOR", "l1_per_l2_denominator"),
+        ("EEZ_FEES_PROVING_COST_L1", "proving_cost_l1"),
+        ("EEZ_FEES_OPERATIONS_COST_L1", "operations_cost_l1"),
+        ("EEZ_FEES_TREASURY_COST_L1", "treasury_cost_l1"),
+        ("EEZ_FEES_RISK_BPS", "risk_bps"),
+        ("EEZ_FEES_PROFIT_BPS", "profit_bps"),
+    ] {
+        let value = &policy[field];
+        settings.push((
+            name,
+            value
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| value.to_string()),
+        ));
+    }
+    settings.push((
+        "EEZ_FEES_EXCLUDED_SENDERS",
+        policy["excluded_senders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join(","),
+    ));
+    settings.extend_from_slice(extra);
+    settings
+}
+
 /// Compare the production shadow observation against independently fetched
 /// canonical receipts. Call after the scenario has established full settlement.
 pub(super) async fn assert_l2_shadow_receipts(

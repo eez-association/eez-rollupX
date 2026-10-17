@@ -40,7 +40,22 @@ def settlement_environment(values):
         "EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS", "EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS",
         "EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS", "EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS",
         "EEZ_L1_POSTBATCH_GAS_MARGIN_BPS",
-        "EEZ_L2_FEE_RECIPIENT", "EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_L1_FEE_REFUND_POLICY",
+        "EEZ_L2_FEE_RECIPIENT",
+        "EEZ_FEES_L1_TO_L2_ENABLED",
+        "EEZ_FEES_L2_TO_L1_ENABLED",
+        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+        "EEZ_FEES_L1_PER_L2_NUMERATOR",
+        "EEZ_FEES_L1_PER_L2_DENOMINATOR",
+        "EEZ_FEES_PROVING_COST_L1",
+        "EEZ_FEES_OPERATIONS_COST_L1",
+        "EEZ_FEES_TREASURY_COST_L1",
+        "EEZ_FEES_RISK_BPS",
+        "EEZ_FEES_PROFIT_BPS",
+        "EEZ_FEES_EXCLUDED_SENDERS",
+        "EEZ_FEES_L1_REFUND_RECIPIENT",
+        "EEZ_FEES_L1_REFUND_PERCENT",
+        # Preserve obsolete inputs for Composer migration errors.
+        "EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_L1_FEE_REFUND_POLICY",
     ]
     result = {}
     for name, value in values.items():
@@ -423,7 +438,7 @@ def run(plan, args):
                 files=ui_files,
                 env_vars={
                     "EEZ_UI_ENCLAVE": "kurtosis",
-                    "EEZ_UI_L2_FEES_ENABLED": eez.get("settlement_env", {}).get("EEZ_L2_FEE_ENFORCE_TARIFF", "false"),
+                    "EEZ_UI_L2_FEES_ENABLED": eez.get("settlement_env", {}).get("EEZ_FEES_L2_TO_L1_ENABLED", "false"),
                     "EEZ_UI_DEMO_PRIVATE_KEY": eez.get(
                         "demo_private_key",
                         "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",

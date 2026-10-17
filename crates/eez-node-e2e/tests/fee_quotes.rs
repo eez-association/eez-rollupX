@@ -110,29 +110,28 @@ async fn nested_quote_roundtrip(
             policy[cost] = json!("0");
         }
     }
-    let mut settings = vec![
-        (
-            "EEZ_L2_FEE_RECIPIENT",
-            policy["beneficiary"].as_str().unwrap().into(),
-        ),
-        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
-        ("EEZ_L2_FEE_ENFORCE_TARIFF", enforced.to_string()),
-        // Retain real ordinary deployment history until this cross-chain call.
-        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
-        ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
-        (
-            "RUST_LOG",
-            "info,eez_composer::composer::fees::quote=debug".into(),
-        ),
-    ];
+    let mut settings = crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            ("EEZ_FEES_L2_TO_L1_ENABLED", enforced.to_string()),
+            // Retain real ordinary deployment history until this cross-chain call.
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+            ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+            (
+                "RUST_LOG",
+                "info,eez_composer::composer::fees::quote=debug".into(),
+            ),
+        ],
+    );
     if exercise != QuoteExercise::Normal {
         settings.extend([
+            ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
+            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
             (
-                "EEZ_L1_FEE_REFUND_POLICY",
-                json!({"version":1,"recipient":Address::repeat_byte(0x97),"percent":90})
-                    .to_string(),
+                "EEZ_FEES_L1_REFUND_RECIPIENT",
+                Address::repeat_byte(0x97).to_string(),
             ),
             ("EEZ_L1_POSTBATCH_MIN_PRIORITY_FEE", "1000000000".into()),
             ("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE", "2000000000".into()),
@@ -931,20 +930,20 @@ async fn queued_l1_nonce_quotes(omit_nonce: bool) {
     let mut policy = crate::settlement_policy_cost::shadow_pricing_policy();
     policy["risk_bps"] = json!(0);
     policy["profit_bps"] = json!(2000);
-    let world = setup_cross_chain_with_env(&[
-        (
-            "EEZ_L2_FEE_RECIPIENT",
-            policy["beneficiary"].as_str().unwrap().into(),
-        ),
-        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
-        (
-            "EEZ_L1_FEE_REFUND_POLICY",
-            json!({"version":1,"recipient":Address::repeat_byte(0x97),"percent":90}).to_string(),
-        ),
-        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-        ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
-    ])
+    let world = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
+            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
+            (
+                "EEZ_FEES_L1_REFUND_RECIPIENT",
+                Address::repeat_byte(0x97).to_string(),
+            ),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+            ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
+        ],
+    ))
     .await
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -1145,20 +1144,17 @@ async fn l1_refund_roundtrip(legacy: bool) {
     policy["risk_bps"] = json!(0);
     policy["profit_bps"] = json!(2000);
     let recipient = Address::repeat_byte(0x97);
-    let world = setup_cross_chain_with_env(&[
-        (
-            "EEZ_L2_FEE_RECIPIENT",
-            policy["beneficiary"].as_str().unwrap().into(),
-        ),
-        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
-        (
-            "EEZ_L1_FEE_REFUND_POLICY",
-            json!({"version":1,"recipient":recipient,"percent":90}).to_string(),
-        ),
-        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-        ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
-    ])
+    let world = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
+            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
+            ("EEZ_FEES_L1_REFUND_RECIPIENT", recipient.to_string()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+            ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
+        ],
+    ))
     .await
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -1433,16 +1429,21 @@ async fn l1_refund_roundtrip(legacy: bool) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     let policy = crate::settlement_policy_cost::shadow_pricing_policy();
-    let world = setup_cross_chain_with_env(&[
-        (
-            "EEZ_L2_FEE_RECIPIENT",
-            policy["beneficiary"].as_str().unwrap().into(),
-        ),
-        ("EEZ_L2_FEE_SHADOW_POLICY", policy.to_string()),
-        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
-    ])
+    let world = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            // Preparing valid refund terms must not enable the L1 quote route.
+            ("EEZ_FEES_L1_TO_L2_ENABLED", "false".into()),
+            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
+            (
+                "EEZ_FEES_L1_REFUND_RECIPIENT",
+                Address::repeat_byte(0x97).to_string(),
+            ),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+            ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+        ],
+    ))
     .await
     .unwrap();
     let client = reqwest::Client::new();

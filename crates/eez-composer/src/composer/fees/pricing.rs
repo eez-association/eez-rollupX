@@ -6,8 +6,6 @@ use serde_json::{Value, json};
 
 use super::{L1Fees, L2Fees};
 
-pub(crate) const SETTING: &str = "EEZ_L2_FEE_SHADOW_POLICY";
-
 /// Immutable startup policy. Explicit costs may be zero, but missing costs or
 /// conversion never acquire a default. Amounts use each chain's base units.
 #[derive(Debug, Clone)]
@@ -18,6 +16,12 @@ pub(crate) struct Policy {
     l2_chain_id: u64,
     rollup_id: u64,
     beneficiary: Address,
+    costs: Config,
+}
+
+/// Operator assumptions; network identity is supplied by runtime wiring.
+#[derive(Debug, Clone)]
+pub(crate) struct Config {
     valid_until_l1_timestamp: u64,
     numerator: U256,
     denominator: U256,
@@ -27,6 +31,149 @@ pub(crate) struct Policy {
     risk_bps: u64,
     profit_bps: u64,
     excluded_senders: Vec<Address>,
+}
+
+impl Config {
+    pub const SETTINGS: [&'static str; 9] = [
+        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+        "EEZ_FEES_L1_PER_L2_NUMERATOR",
+        "EEZ_FEES_L1_PER_L2_DENOMINATOR",
+        "EEZ_FEES_PROVING_COST_L1",
+        "EEZ_FEES_OPERATIONS_COST_L1",
+        "EEZ_FEES_TREASURY_COST_L1",
+        "EEZ_FEES_RISK_BPS",
+        "EEZ_FEES_PROFIT_BPS",
+        "EEZ_FEES_EXCLUDED_SENDERS",
+    ];
+
+    pub fn parse(
+        mut get: impl FnMut(&str) -> Result<Option<String>, String>,
+    ) -> Result<Option<Self>, String> {
+        let values = Self::SETTINGS
+            .into_iter()
+            .map(|name| get(name).map(|value| (name, value)))
+            .collect::<Result<std::collections::HashMap<_, _>, _>>()?;
+        if values.values().all(Option::is_none) {
+            return Ok(None);
+        }
+        let required = |name: &str| {
+            values
+                .get(name)
+                .and_then(|value| value.as_deref())
+                .ok_or_else(|| {
+                    format!("{name} is required when any fee cost assumption is supplied")
+                })
+        };
+        let integer = |name| -> Result<u64, String> {
+            let raw = required(name)?;
+            if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(format!("{name} must be an unsigned decimal integer"));
+            }
+            raw.parse().map_err(|_| format!("{name} exceeds u64"))
+        };
+        let amount = |name| -> Result<U256, String> {
+            let raw = required(name)?;
+            if raw.is_empty() || !raw.bytes().all(|b| b.is_ascii_digit()) {
+                return Err(format!("{name} must be an unsigned decimal integer"));
+            }
+            U256::from_str_radix(raw, 10).map_err(|_| format!("{name} exceeds U256"))
+        };
+        let valid_until_l1_timestamp = integer("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP")?;
+        if valid_until_l1_timestamp == 0 {
+            return Err("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP must be positive".into());
+        }
+        let numerator = amount("EEZ_FEES_L1_PER_L2_NUMERATOR")?;
+        let denominator = amount("EEZ_FEES_L1_PER_L2_DENOMINATOR")?;
+        if numerator.is_zero() || denominator.is_zero() {
+            return Err(
+                "EEZ_FEES_L1_PER_L2_NUMERATOR and EEZ_FEES_L1_PER_L2_DENOMINATOR must be positive"
+                    .into(),
+            );
+        }
+        let risk_bps = integer("EEZ_FEES_RISK_BPS")?;
+        let profit_bps = integer("EEZ_FEES_PROFIT_BPS")?;
+        if risk_bps > 10_000 || profit_bps > 10_000 {
+            return Err(
+                "EEZ_FEES_RISK_BPS and EEZ_FEES_PROFIT_BPS must be between 0 and 10000".into(),
+            );
+        }
+        let raw = required("EEZ_FEES_EXCLUDED_SENDERS")?;
+        // At most 64 comma-separated addresses, allowing surrounding whitespace.
+        if raw.len() > 4096 {
+            return Err("EEZ_FEES_EXCLUDED_SENDERS exceeds 4096 bytes".into());
+        }
+        let mut excluded_senders = Vec::new();
+        if !raw.is_empty() {
+            for raw in raw.split(',') {
+                let sender = raw.trim().parse::<Address>().map_err(
+                    |_| "EEZ_FEES_EXCLUDED_SENDERS must be a comma-separated address list",
+                )?;
+                if excluded_senders.contains(&sender) || excluded_senders.len() == 64 {
+                    return Err(
+                        "EEZ_FEES_EXCLUDED_SENDERS accepts at most 64 distinct addresses".into(),
+                    );
+                }
+                excluded_senders.push(sender);
+            }
+        }
+        Ok(Some(Self {
+            valid_until_l1_timestamp,
+            numerator,
+            denominator,
+            proving: amount("EEZ_FEES_PROVING_COST_L1")?,
+            operations: amount("EEZ_FEES_OPERATIONS_COST_L1")?,
+            treasury: amount("EEZ_FEES_TREASURY_COST_L1")?,
+            risk_bps,
+            profit_bps,
+            excluded_senders,
+        }))
+    }
+
+    /// The shipping node wires one L2 rollup. Do not assign one policy to an
+    /// arbitrary rollup if that wiring changes in the future.
+    pub fn bind(
+        self,
+        l1_chain_id: u64,
+        l2_chain_id: u64,
+        owned_rollups: impl IntoIterator<Item = u64>,
+        beneficiary: Address,
+    ) -> Result<Policy, String> {
+        let mut rollups = owned_rollups.into_iter();
+        let rollup_id = rollups
+            .next()
+            .filter(|id| *id > 0)
+            .ok_or("fee pricing requires an owned L2 rollup")?;
+        if rollups.next().is_some() || l1_chain_id == 0 || l2_chain_id == 0 {
+            return Err(
+                "fee pricing requires positive runtime chain IDs and exactly one owned L2 rollup"
+                    .into(),
+            );
+        }
+        if beneficiary.is_zero() {
+            return Err("fee pricing requires a nonzero EEZ_L2_FEE_RECIPIENT".into());
+        }
+        let assumptions = json!({
+            "version": 1, "l1_chain_id": l1_chain_id, "l2_chain_id": l2_chain_id,
+            "rollup_id": rollup_id, "beneficiary": beneficiary,
+            "valid_until_l1_timestamp": self.valid_until_l1_timestamp,
+            "l1_per_l2_numerator": self.numerator.to_string(),
+            "l1_per_l2_denominator": self.denominator.to_string(),
+            "proving_cost_l1": self.proving.to_string(),
+            "operations_cost_l1": self.operations.to_string(),
+            "treasury_cost_l1": self.treasury.to_string(),
+            "risk_bps": self.risk_bps, "profit_bps": self.profit_bps,
+            "excluded_senders": self.excluded_senders,
+        });
+        Ok(Policy {
+            id: keccak256(assumptions.to_string()),
+            assumptions,
+            l1_chain_id,
+            l2_chain_id,
+            rollup_id,
+            beneficiary,
+            costs: self,
+        })
+    }
 }
 
 pub(crate) struct RequiredL1Payment {
@@ -53,30 +200,35 @@ impl Policy {
     }
 
     pub(crate) fn quote_eligible(&self, sender: Address, poster: Address, target: u64) -> bool {
-        target <= self.valid_until_l1_timestamp
+        target <= self.costs.valid_until_l1_timestamp
             && sender != poster
             && sender != self.beneficiary
-            && !self.excluded_senders.contains(&sender)
+            && !self.costs.excluded_senders.contains(&sender)
     }
 
     pub(crate) fn required_l1_payment(
         &self,
         post_cost: U256,
     ) -> Result<RequiredL1Payment, &'static str> {
-        let subtotal = [post_cost, self.proving, self.operations, self.treasury]
-            .into_iter()
-            .try_fold(U256::ZERO, |sum, cost| {
-                sum.checked_add(cost).ok_or("pricing_cost_overflow")
-            })?;
+        let subtotal = [
+            post_cost,
+            self.costs.proving,
+            self.costs.operations,
+            self.costs.treasury,
+        ]
+        .into_iter()
+        .try_fold(U256::ZERO, |sum, cost| {
+            sum.checked_add(cost).ok_or("pricing_cost_overflow")
+        })?;
         let risk = mul_div(
             subtotal,
-            U256::from(self.risk_bps),
+            U256::from(self.costs.risk_bps),
             U256::from(10_000),
             true,
         )?;
         let profit = mul_div(
             subtotal,
-            U256::from(self.profit_bps),
+            U256::from(self.costs.profit_bps),
             U256::from(10_000),
             true,
         )?;
@@ -104,8 +256,13 @@ impl Policy {
             l1,
             minimum_l1,
         } = self.required_l1_payment(post_cost)?;
-        let minimum_l2 = mul_div(minimum_l1, self.denominator, self.numerator, true)?;
-        let l2 = mul_div(l1, self.denominator, self.numerator, true)?;
+        let minimum_l2 = mul_div(
+            minimum_l1,
+            self.costs.denominator,
+            self.costs.numerator,
+            true,
+        )?;
+        let l2 = mul_div(l1, self.costs.denominator, self.costs.numerator, true)?;
         Ok(RequiredPayment {
             subtotal,
             risk,
@@ -115,140 +272,6 @@ impl Policy {
             minimum_l1,
             minimum_l2,
         })
-    }
-
-    pub fn parse(raw: Option<String>, fee_recipient: Address) -> Result<Option<Self>, String> {
-        let Some(raw) = raw else { return Ok(None) };
-        let parse = || -> Result<Self, String> {
-            if raw.len() > 8_192 {
-                return Err("JSON exceeds 8192 bytes".into());
-            }
-            let value: Value = serde_json::from_str(&raw).map_err(|_| "invalid JSON object")?;
-            let fields = value.as_object().ok_or("expected a JSON object")?;
-            const FIELDS: &[&str] = &[
-                "version",
-                "l1_chain_id",
-                "l2_chain_id",
-                "rollup_id",
-                "beneficiary",
-                "valid_until_l1_timestamp",
-                "l1_per_l2_numerator",
-                "l1_per_l2_denominator",
-                "proving_cost_l1",
-                "operations_cost_l1",
-                "treasury_cost_l1",
-                "risk_bps",
-                "profit_bps",
-                "excluded_senders",
-            ];
-            if fields.len() != FIELDS.len()
-                || fields.keys().any(|key| !FIELDS.contains(&key.as_str()))
-            {
-                return Err(
-                    "all documented fields are required; unknown fields are rejected".into(),
-                );
-            }
-            let integer = |key: &str| {
-                value[key]
-                    .as_u64()
-                    .ok_or_else(|| format!("{key} must be a u64 integer"))
-            };
-            let positive = |key: &str| {
-                integer(key).and_then(|n| {
-                    if n > 0 {
-                        Ok(n)
-                    } else {
-                        Err(format!("{key} must be positive"))
-                    }
-                })
-            };
-            let amount = |key: &str| -> Result<U256, String> {
-                let s = value[key]
-                    .as_str()
-                    .ok_or_else(|| format!("{key} must be a decimal string"))?;
-                if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
-                    return Err(format!("{key} must be an unsigned decimal string"));
-                }
-                U256::from_str_radix(s, 10).map_err(|_| format!("{key} exceeds U256"))
-            };
-            if integer("version")? != 1 {
-                return Err("unsupported policy version".into());
-            }
-            let beneficiary: Address = value["beneficiary"]
-                .as_str()
-                .ok_or("invalid beneficiary")?
-                .parse()
-                .map_err(|_| "invalid beneficiary")?;
-            if beneficiary.is_zero() || beneficiary != fee_recipient {
-                return Err("beneficiary must equal the nonzero EEZ_L2_FEE_RECIPIENT".into());
-            }
-            let numerator = amount("l1_per_l2_numerator")?;
-            let denominator = amount("l1_per_l2_denominator")?;
-            if numerator.is_zero() || denominator.is_zero() {
-                return Err("conversion numerator and denominator must be positive".into());
-            }
-            let risk_bps = integer("risk_bps")?;
-            let profit_bps = integer("profit_bps")?;
-            if risk_bps > 10_000 || profit_bps > 10_000 {
-                return Err("risk_bps and profit_bps must be between 0 and 10000".into());
-            }
-            let excluded = value["excluded_senders"]
-                .as_array()
-                .ok_or("excluded_senders must be an array")?;
-            if excluded.len() > 64 {
-                return Err("at most 64 excluded_senders are supported".into());
-            }
-            let mut excluded_senders = Vec::with_capacity(excluded.len());
-            for sender in excluded {
-                let sender = sender
-                    .as_str()
-                    .ok_or("invalid excluded sender")?
-                    .parse::<Address>()
-                    .map_err(|_| "invalid excluded sender")?;
-                if excluded_senders.contains(&sender) {
-                    return Err("duplicate excluded sender".into());
-                }
-                excluded_senders.push(sender);
-            }
-            Ok(Self {
-                id: keccak256(value.to_string()),
-                l1_chain_id: positive("l1_chain_id")?,
-                l2_chain_id: positive("l2_chain_id")?,
-                rollup_id: positive("rollup_id")?,
-                beneficiary,
-                valid_until_l1_timestamp: positive("valid_until_l1_timestamp")?,
-                numerator,
-                denominator,
-                proving: amount("proving_cost_l1")?,
-                operations: amount("operations_cost_l1")?,
-                treasury: amount("treasury_cost_l1")?,
-                risk_bps,
-                profit_bps,
-                excluded_senders,
-                assumptions: value,
-            })
-        };
-        parse()
-            .map(Some)
-            .map_err(|error| format!("{SETTING}: {error}"))
-    }
-
-    /// Check the actual runtime wiring, not only environment-provided labels.
-    pub fn validate_network(
-        &self,
-        l1: u64,
-        l2: u64,
-        owned_rollups: impl IntoIterator<Item = u64>,
-    ) -> Result<(), String> {
-        if self.l1_chain_id != l1
-            || self.l2_chain_id != l2
-            || !owned_rollups.into_iter().any(|id| id == self.rollup_id)
-        {
-            return Err(format!(
-                "{SETTING}: chain/rollup identity differs from runtime"
-            ));
-        }
-        Ok(())
     }
 
     /// Preserve policy identity even when evidence is unavailable. These
@@ -308,7 +331,7 @@ impl Policy {
         {
             return Err("pricing_network_mismatch");
         }
-        if l1.target_timestamp > self.valid_until_l1_timestamp {
+        if l1.target_timestamp > self.costs.valid_until_l1_timestamp {
             return Err("pricing_policy_expired");
         }
         if l2.beneficiary != self.beneficiary {
@@ -323,7 +346,7 @@ impl Policy {
         for source in &l2.sources {
             if source.sender == poster
                 || source.sender == self.beneficiary
-                || self.excluded_senders.contains(&source.sender)
+                || self.costs.excluded_senders.contains(&source.sender)
             {
                 continue;
             }
@@ -355,7 +378,12 @@ impl Policy {
             .tip
             .checked_sub(eligible_tips)
             .ok_or("pricing_revenue_mismatch")?;
-        let recovery = mul_div(eligible_tips, self.numerator, self.denominator, false)?;
+        let recovery = mul_div(
+            eligible_tips,
+            self.costs.numerator,
+            self.costs.denominator,
+            false,
+        )?;
         let (comparison, shortfall, surplus) = if recovery < required_l1 {
             ("shortfall", required_l1 - recovery, U256::ZERO)
         } else {
@@ -447,8 +475,41 @@ pub(in crate::composer) mod tests {
         })
     }
 
-    fn parse(value: Value) -> Result<Policy, String> {
-        Policy::parse(Some(value.to_string()), Address::repeat_byte(4)).map(|p| p.unwrap())
+    pub(in crate::composer) fn settings(value: &Value) -> Vec<(&'static str, String)> {
+        Config::SETTINGS
+            .into_iter()
+            .map(|name| {
+                let key = name.strip_prefix("EEZ_FEES_").unwrap().to_ascii_lowercase();
+                let field = &value[&key];
+                let raw = if key == "excluded_senders" {
+                    field
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                } else {
+                    field
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| field.to_string())
+                };
+                (name, raw)
+            })
+            .collect()
+    }
+
+    pub(in crate::composer) fn parse(value: Value) -> Result<Policy, String> {
+        let values = settings(&value);
+        Config::parse(|name| {
+            Ok(values
+                .iter()
+                .find(|(k, _)| *k == name)
+                .map(|(_, v)| v.clone()))
+        })?
+        .unwrap()
+        .bind(1, 9, [1], Address::repeat_byte(4))
     }
 
     fn candidate() -> (L1Fees, L2Fees) {
@@ -642,16 +703,6 @@ pub(in crate::composer) mod tests {
     #[test]
     fn expired_mismatched_or_missing_evidence_never_yields_a_price() {
         let policy = parse(policy_json()).unwrap();
-        for ids in [(2, 9, 1), (1, 8, 1), (1, 9, 2)] {
-            assert!(policy.validate_network(ids.0, ids.1, [ids.2]).is_err());
-        }
-        assert!(policy.validate_network(1, 9, [1]).is_ok());
-        assert!(policy.validate_network(1, 9, []).is_err());
-        assert!(
-            policy.validate_network(1, 9, [0]).is_err(),
-            "L1 composition entry is not the owned L2 rollup"
-        );
-        assert!(policy.validate_network(1, 9, [2, 1]).is_ok());
         let (mut l1, l2) = candidate();
         l1.target_timestamp = 1001;
         assert_eq!(
@@ -724,56 +775,5 @@ pub(in crate::composer) mod tests {
             mul_div(U256::from(1), U256::from(1), U256::ZERO, true).unwrap_err(),
             "pricing_zero_divisor"
         );
-    }
-
-    #[test]
-    fn configuration_requires_explicit_bounded_assumptions() {
-        assert!(Policy::parse(None, Address::ZERO).unwrap().is_none());
-        for text in ["", "null", "[]", "{}", "{", &" ".repeat(8193)] {
-            assert!(Policy::parse(Some(text.into()), Address::repeat_byte(4)).is_err());
-        }
-        let valid = policy_json();
-        for key in valid.as_object().unwrap().keys() {
-            let mut missing = valid.clone();
-            missing.as_object_mut().unwrap().remove(key);
-            assert!(parse(missing).is_err(), "missing {key}");
-        }
-        for (key, bad) in [
-            ("version", json!(2)),
-            ("l1_chain_id", json!(0)),
-            ("l2_chain_id", json!("9")),
-            ("rollup_id", json!(0)),
-            ("valid_until_l1_timestamp", json!(0)),
-            ("risk_bps", json!(10001)),
-            ("profit_bps", json!(-1)),
-            ("l1_per_l2_numerator", json!("0")),
-            ("l1_per_l2_denominator", json!("0")),
-            ("proving_cost_l1", json!(7)),
-            ("operations_cost_l1", json!("-1")),
-            ("treasury_cost_l1", json!("0x01")),
-            ("proving_cost_l1", json!("1.2")),
-            ("beneficiary", json!(Address::ZERO)),
-            ("beneficiary", json!(Address::repeat_byte(3))),
-            ("excluded_senders", json!(null)),
-            ("excluded_senders", json!(["bad"])),
-            ("excluded_senders", json!([Address::ZERO, Address::ZERO])),
-            ("excluded_senders", json!(vec![Address::ZERO; 65])),
-            ("typo", json!(1)),
-            ("treasury_cost_l1", json!(format!("{}0", U256::MAX))),
-        ] {
-            let mut invalid = valid.clone();
-            invalid[key] = bad;
-            assert!(parse(invalid).is_err(), "{key}");
-        }
-        let parsed = parse(valid.clone()).unwrap();
-        assert_eq!(parsed.id, keccak256(valid.to_string()));
-        assert!(Policy::parse(Some(valid.to_string()), Address::ZERO).is_err());
-        let mut zeros = valid;
-        for key in ["proving_cost_l1", "operations_cost_l1", "treasury_cost_l1"] {
-            zeros[key] = json!("0");
-        }
-        zeros["risk_bps"] = json!(0);
-        zeros["profit_bps"] = json!(0);
-        assert!(parse(zeros).is_ok());
     }
 }

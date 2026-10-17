@@ -1469,9 +1469,7 @@ where
             max_blobs_per_batch: blob_cap,
             max_user_txs_per_bundle,
             posting_fees,
-            shadow_fee_policy,
-            l1_refund_policy,
-            enforce_l2_fee_tariff,
+            fees,
             gas_trace,
             emission,
             fee_recipient,
@@ -1483,22 +1481,23 @@ where
         let policy = policy::EnabledPolicy::new(policy_config, rollups.keys().copied(), blob_cap);
         let registry = cross_chain.local.l1_entry.manager_address();
         let post_batch_target = post_batch_target.unwrap_or(registry);
-        if let Some(shadow) = &shadow_fee_policy {
-            // The composition entry is L1 (rollup 0); this policy belongs to
-            // an L2 rollup owned by this Composer.
-            shadow
-                .validate_network(
-                    cross_chain.exec_ctx.l1_chain_id,
-                    cross_chain.exec_ctx.l2_chain_id,
-                    rollups.keys().copied(),
-                )
-                .map_err(PolicyError::Config)?;
-        }
+        let collection = fees
+            .bind(
+                cross_chain.exec_ctx.l1_chain_id,
+                cross_chain.exec_ctx.l2_chain_id,
+                rollups.keys().copied(),
+                fee_recipient,
+            )
+            .map_err(PolicyError::Config)?;
+        event!(name: "eez.composer.fees.configuration", Level::INFO,
+            l1_to_l2_enabled = collection.l1_refund.is_some(),
+            l2_to_l1_enabled = collection.l2_to_l1_enabled,
+            pricing_configured = collection.pricing.is_some(),
+            refund_percent = ?collection.l1_refund.as_ref().map(|refund| refund.percent),
+            "cross-chain fee settings apply until restart");
         let posting = Arc::new(posting::PostingRuntime {
             fees: posting_fees,
-            shadow_fee_policy,
-            l1_refund_policy,
-            enforce_l2_fee_tariff,
+            collection,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
             registry,
@@ -1509,7 +1508,7 @@ where
             gas_trace: gas_trace.clone(),
             priority_history: Default::default(),
         });
-        if posting.l1_refund_policy.is_some() {
+        if posting.collection.l1_refund.is_some() {
             for rollup in rollups.keys() {
                 costs::register_refund_metrics(
                     *rollup,
@@ -2075,7 +2074,7 @@ where
             }
         }
         if let Err(error) = self.observe_settlement_cost(rollup_id, rollup).await {
-            if self.inner.posting.l1_refund_policy.is_some() {
+            if self.inner.posting.collection.l1_refund.is_some() {
                 metrics::counter!("eez_composer_l1_refund_observation_errors_total",
                     "rollup_id" => rollup_id.to_string())
                 .increment(1);
@@ -3049,7 +3048,7 @@ where
             ),
             draft.base_fee(),
         );
-        let tariff_history = self.inner.posting.enforce_l2_fee_tariff.then(|| {
+        let tariff_history = self.inner.posting.collection.l2_to_l1_enabled.then(|| {
             let endpoint = rollup.l1_head.policy_anchor_snapshot().endpoint.ok_or(
                 fees::quote::FeeQuoteError::Unavailable("validated settlement anchor"),
             )?;
@@ -3827,7 +3826,8 @@ where
                             let policy = self
                                 .inner
                                 .posting
-                                .shadow_fee_policy
+                                .collection
+                                .pricing
                                 .as_ref()
                                 .ok_or("tariff policy unavailable")?;
                             let BundleTarget::Exact { timestamp, .. } = bundle_target else {
@@ -4102,8 +4102,8 @@ where
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
             }
-            if (self.inner.posting.enforce_l2_fee_tariff
-                || self.inner.posting.l1_refund_policy.is_some())
+            if (self.inner.posting.collection.l2_to_l1_enabled
+                || self.inner.posting.collection.l1_refund.is_some())
                 && !pending_out.is_empty()
             {
                 // Each direction has its own collection mechanism and coverage.
@@ -7818,14 +7818,14 @@ async fn observe_bundle_outcome(
         }
         let hash = post_batch_blob_transaction_hash(&prepared[0])
             .map_err(|error| ("invalid_envelope", error))?;
-        if posting.enforce_l2_fee_tariff
+        if posting.collection.l2_to_l1_enabled
             && attempt
                 .manifest
                 .users
                 .iter()
                 .any(|user| user.source_rollup_id.0 == rollup_id)
         {
-            let policy = posting.shadow_fee_policy.as_ref().ok_or_else(|| {
+            let policy = posting.collection.pricing.as_ref().ok_or_else(|| {
                 (
                     "l2_tariff_unavailable",
                     "configured tariff is missing".to_owned(),
@@ -7889,7 +7889,7 @@ async fn observe_bundle_outcome(
                 "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0,
                 "refund":refund.map(|p|serde_json::json!({"source":p.request.source(),"recipient":p.request.recipient(),"percent":p.request.percent(),"minimumL1":p.minimum.to_string(),"projectedL1":p.projected.to_string()})),
                 "fee_observation": fees::observation(quote, &execution, id.post_batch_hash,
-                    posting.native_currency(), l2_fees.as_ref(), posting.shadow_fee_policy.as_ref(),
+                    posting.native_currency(), l2_fees.as_ref(), posting.collection.pricing.as_ref(),
                     posting.ctx.l1_poster_signer.address())});
             if let Some(candidate) = &preparation_timing.candidate {
                 let mut detail = detail.clone();

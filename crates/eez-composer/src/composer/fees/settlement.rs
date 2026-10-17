@@ -69,7 +69,8 @@ pub(in crate::composer) fn measured_payment(
         .estimate(gas, input.blobs as u64)
         .map_err(unavailable)?;
     let payment = runtime
-        .shadow_fee_policy
+        .collection
+        .pricing
         .as_ref()
         .ok_or(FeeQuoteError::Disabled)?
         .required_payment(cost.total)

@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 use super::posting::BundleExecution;
 use crate::local::BuiltSyncBlock;
 
+pub(super) mod config;
 pub(super) mod pricing;
 pub(crate) mod quote;
 pub(super) mod refund;
@@ -575,12 +576,7 @@ mod tests {
 
     #[test]
     fn configured_shadow_comparison_uses_final_clipped_tips_and_keeps_income_unqualified() {
-        let policy = pricing::Policy::parse(
-            Some(pricing::tests::policy_json().to_string()),
-            Address::repeat_byte(4),
-        )
-        .unwrap()
-        .unwrap();
+        let policy = pricing::tests::parse(pricing::tests::policy_json()).unwrap();
         let (quote, execution, hash) = preflight();
         let (built, manifest) = fixture();
         let l2 = L2Fees::measure(9, 1, &built, &manifest);

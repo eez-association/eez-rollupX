@@ -544,7 +544,7 @@ those 20 samples, and clamps it to an optional relay floor and an independent
 priority ceiling. P is `EEZ_L1_POSTBATCH_PRIORITY_PERCENTILE` (default 90, the
 p90 of p90 described below).
 
-With `EEZ_L1_FEE_REFUND_POLICY` enabled, use filtered canonical receipt payments
+With `EEZ_FEES_L1_TO_L2_ENABLED=true`, use filtered canonical receipt payments
 instead of the unfiltered `eth_feeHistory` reward. Exclude transactions sent by
 the configured poster and transactions calling the configured registry,
 including calls whose logs were erased by a caught revert. Receipts emitting
@@ -926,7 +926,7 @@ postBatch's measured gas and physical blob cost with gross ordinary tips from
 the final L2 terminal-block receipts, keeping native system gas separate at
 zero price. The L2 source set is checked against the settlement manifest. Costs
 and tips retain their own chain units and exact candidate context. Without the
-optional [shadow pricing policy](#shadow-l2-fee-pricing), realization,
+optional [fee cost model](#cross-chain-fee-configuration), realization,
 proving/operations, risk and profit remain unpriced. Missing or inconsistent
 accounting is reported as unavailable and does not alter dispatch, scheduling,
 accepted-work ownership, retries or canonical reconciliation. These observations
@@ -979,43 +979,111 @@ peers from which to recover lost history. Operational policy-change tests must
 use graceful shutdown; deliberate crash tests must establish any required durable
 fixture state before killing the process.
 
-## Shadow L2 fee pricing
+<a id="shadow-l2-fee-pricing"></a>
 
-`EEZ_L2_FEE_SHADOW_POLICY` optionally prices the already prepared candidate using
-explicit operator assumptions. It never changes transaction fees, admission,
-dispatch, execution, queue ownership or financial reservations. An absent value
-keeps existing unpriced accounting. Empty or invalid values fail startup; there
-are no implicit monetary defaults. Read once by `ComposerSettings`, with process
-environment before `.env` before `deployments.env`; restart is required to
-change it. There is no CLI override. Chiado and external Kurtosis Compose pass
-it only to the Composer. Kurtosis `eez.settlement_env` accepts its JSON string
-and `EEZ_L2_FEE_RECIPIENT`; neither reaches the proof signer or follower.
+## Cross-chain fee configuration
 
-The value is one JSON object, at most 8192 bytes, with all the following fields
-required and unknown fields rejected:
+Fee collection is independently enabled with `EEZ_FEES_L1_TO_L2_ENABLED=true`
+and `EEZ_FEES_L2_TO_L1_ENABLED=true`. Both default to false. Only literal `true`
+and `false` are accepted; empty and malformed flags fail startup. Supplying
+costs or refund terms alone never enables collection. A complete cost model
+with L2 collection disabled still permits advisory L2 quotes. L1 quotes require
+L1 collection to be enabled; this profile has no advisory-only L1 mode.
 
-| Field | Type and meaning |
+`ComposerSettings` reads an immutable startup snapshot. Process environment
+precedes `.env`, which precedes `deployments.env`; restart is required for changes,
+with no CLI override. Compose overlays can override the rendered service
+configuration, so inspect the effective node environment before deployment.
+Chiado, Ethereum and external Kurtosis Compose forward the settings only to the
+node. Kurtosis `eez.settlement_env` accepts the same names as quoted strings;
+the signer and follower do not receive them. Its UI fee flag follows the L2
+collection switch. Unknown `settlement_env` names are rejected; arbitrary unknown
+process environment variables are not a supported configuration interface.
+
+The shared cost model consists of **all nine** settings below. All absent means
+no model; supplying any one requires all nine. Monetary assumptions have no
+implicit defaults, including zero costs, parity conversion and profit. All
+numbers are unsigned decimal integers; signs, whitespace, fractions, hex and
+overflow are rejected. The exclusion list is the only cost field accepting an
+empty value.
+
+| Setting | Meaning and bound |
 | --- | --- |
-| `version` | Integer `1`. |
-| `l1_chain_id`, `l2_chain_id`, `rollup_id` | Positive u64 integers matching the actual Composer wiring. |
-| `beneficiary` | Nonzero 20-byte address equal to `EEZ_L2_FEE_RECIPIENT`; rechecked against the measured block. Configuring it asserts expected control but does not verify possession of a key. |
-| `valid_until_l1_timestamp` | Positive u64 Unix seconds; the exact candidate target must be at or before this timestamp. Expiry makes pricing unavailable, without blocking execution. |
-| `l1_per_l2_numerator`, `l1_per_l2_denominator` | Positive U256 decimal strings: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
-| `proving_cost_l1`, `operations_cost_l1`, `treasury_cost_l1` | Nonnegative U256 decimal strings charged once per complete post. Explicit zero is allowed. Treasury cost includes the allocated fixed cost of realizing/sweeping L2 income. These are configured allowances, not measured compute expenses. |
-| `risk_bps`, `profit_bps` | Integers from 0 to 10000, each independently applied to posting plus the three fixed costs. Risk is a mandatory reserve; profit is the additional quote target and may be consumed by later cost changes. |
-| `excluded_senders` | Array of at most 64 distinct 20-byte operator addresses. The current L1 poster and beneficiary are always excluded too. An empty list is explicit; senders outside it are only assumed external. |
+| `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` | Positive u64 Unix seconds. The candidate L1 target must be at or before this timestamp. Expiry makes pricing unavailable; enabled funding checks cannot treat it as free execution. |
+| `EEZ_FEES_L1_PER_L2_NUMERATOR`, `EEZ_FEES_L1_PER_L2_DENOMINATOR` | Positive U256 values: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
+| `EEZ_FEES_PROVING_COST_L1`, `EEZ_FEES_OPERATIONS_COST_L1`, `EEZ_FEES_TREASURY_COST_L1` | Nonnegative U256 native L1 base units charged once per complete post. Explicit zero is allowed. These are configured allowances; treasury includes the fixed realization/sweep cost. |
+| `EEZ_FEES_RISK_BPS`, `EEZ_FEES_PROFIT_BPS` | Integers 0..10000, independently applied to posting plus the three fixed costs. Risk is mandatory; profit is the additional quote target and may absorb later cost changes. |
+| `EEZ_FEES_EXCLUDED_SENDERS` | Comma-separated distinct 20-byte addresses, at most 64 and 4096 bytes. Empty means none; surrounding address whitespace is allowed. The poster and L2 beneficiary are always excluded too. |
+
+The model derives chain IDs, the owned L2 rollup and its beneficiary from runtime
+wiring. The shipping node owns one L2 rollup; a configured fee model rejects zero
+chain IDs, zero/multiple owned L2 rollups, and a zero `EEZ_L2_FEE_RECIPIENT`.
+There are no separate fee-specific chain or rollup ID settings. Measured chain
+and beneficiary identities remain checked before using receipts as revenue.
+
+L1 collection also requires `EEZ_FEES_L1_REFUND_RECIPIENT` (nonzero plain EOA)
+and `EEZ_FEES_L1_REFUND_PERCENT` (integer **1..99**). Either supplied term requires
+the other, even when L1 collection is disabled. Both may be prepared while the
+flag is false without requesting refunds or enabling L1 quotes. The percentage
+is fixed for that startup snapshot and shared across configured builder relays;
+it is not the profit margin and is not dynamically selected per transaction.
+Every relay still requires qualification for the [refund profile](#l1-builder-refund-profile).
 
 Amounts always carry their chain's base-unit denomination; token symbols do not
-define a conversion. The policy identifier is Keccak-256 of the parsed object's
-JSON serialization, and the complete assumptions accompany each comparison.
-It identifies assumptions, not an authorization or a treasury price certificate.
+define conversion. Debug output retains the normalized `assumptions` object with
+runtime-derived identities, and its identifier is Keccak-256 of that object's
+JSON serialization. Equivalent normalized assumptions retain the identifier.
+It is not an authorization or treasury price certificate. The historical
+observation labels `mode: shadow` and `pricing_status: shadow_priced` remain
+readable; they describe projected revenue, not configuration or enforcement modes.
 
-For example, the following **synthetic fixture** illustrates JSON quoting and
-explicit units, not production prices or an instruction to enable this policy:
+This **synthetic fixture** illustrates scalar syntax and explicit assumptions,
+not production prices or an instruction to enable collection:
 
 ```bash
-export EEZ_L2_FEE_SHADOW_POLICY='{"version":1,"l1_chain_id":1337,"l2_chain_id":1,"rollup_id":1,"beneficiary":"0x4444444444444444444444444444444444444444","valid_until_l1_timestamp":2000000000,"l1_per_l2_numerator":"2","l1_per_l2_denominator":"3","proving_cost_l1":"7","operations_cost_l1":"5","treasury_cost_l1":"3","risk_bps":1000,"profit_bps":500,"excluded_senders":[]}'
+export EEZ_FEES_L1_TO_L2_ENABLED=false
+export EEZ_FEES_L2_TO_L1_ENABLED=false
+export EEZ_L2_FEE_RECIPIENT=0x4444444444444444444444444444444444444444
+export EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP=2000000000
+export EEZ_FEES_L1_PER_L2_NUMERATOR=2
+export EEZ_FEES_L1_PER_L2_DENOMINATOR=3
+export EEZ_FEES_PROVING_COST_L1=7
+export EEZ_FEES_OPERATIONS_COST_L1=5
+export EEZ_FEES_TREASURY_COST_L1=3
+export EEZ_FEES_RISK_BPS=1000
+export EEZ_FEES_PROFIT_BPS=500
+export EEZ_FEES_EXCLUDED_SENDERS=
 ```
+
+### Fee configuration migration
+
+The former `EEZ_L2_FEE_SHADOW_POLICY`, `EEZ_L2_FEE_ENFORCE_TARIFF` and
+`EEZ_L1_FEE_REFUND_POLICY` are removed. Their presence, including an empty value,
+fails startup with migration instructions. Mixed old/new settings are rejected;
+there is no compatibility parser. Compose and Kurtosis forward obsolete names
+only so the runtime can reject them rather than silently disable fees.
+
+Map each old cost JSON field to its uppercase `EEZ_FEES_` name above. Join the
+excluded address array with commas; an empty array becomes an explicit empty
+value. Remove `version`, chain IDs, rollup ID and `beneficiary` after verifying
+they match the runtime bindings and `EEZ_L2_FEE_RECIPIENT`. Map the old L2 switch
+to `EEZ_FEES_L2_TO_L1_ENABLED`. If the old refund policy was configured, set
+`EEZ_FEES_L1_TO_L2_ENABLED=true` and copy its recipient and percentage into the
+two scalar terms. Preserve numeric assumptions, expiry and exclusions; renaming
+settings does not authorize changing fee economics.
+
+Upgrade configuration and Composer together after draining accepted work. Remove
+old names from shell, `.env`, `deployments.env` and every effective Compose
+overlay; assigning an empty string does not remove a setting. Check the rendered
+node configuration without exposing secrets. **Old binaries ignore the new
+names**, so restore both the old binary and old configuration on rollback.
+There is no mixed-version compatibility guarantee for these settings. No
+protocol, genesis, signer-wire, persistent storage or follower-replay changes
+are required; compact/debug RPC schemas and refund arithmetic are unchanged.
+In-memory pending work and refund attribution still require the existing
+[upgrade procedure](runbooks/chiado-deployment.md#recovery-and-upgrades).
+
+### Fee pricing arithmetic
 
 Let `P` be final native L1 post execution plus physical blob cost, `F` the sum of
 the three fixed costs, and `n/d` the configured conversion:
@@ -1277,7 +1345,7 @@ a newly deployed contract) still needs reconciliation; its dependencies are not
 guessed. The quote charges this single transaction the complete estimated post
 and retained ordinary history; it assumes no future batch participants.
 
-The [shadow pricing arithmetic](#shadow-l2-fee-pricing) adds service costs,
+The [fee pricing arithmetic](#fee-pricing-arithmetic) adds service costs,
 risk/profit and conversion. Starting at a zero priority fee, the backend raises
 the tip to `ceil(required_L2 / native_source_gas)`, then repeats composition,
 native replay and sizing with those actual fee fields. It returns only when the
@@ -1356,11 +1424,11 @@ source-based process regressions are selected with `fee_quotes::`.
 
 ### Opt-in L2 tariff admission
 
-`EEZ_L2_FEE_ENFORCE_TARIFF=true` requires a complete, runtime-matching
-`EEZ_L2_FEE_SHADOW_POLICY`. Absent or `false` preserves existing admission;
-empty and other values fail startup. This is a testnet tariff, separate from
-the production strict-funding design's durable reserves and treasury realization.
-Chiado, Ethereum and Kurtosis configuration pass it to the Composer only.
+`EEZ_FEES_L2_TO_L1_ENABLED=true` requires the complete, runtime-bound
+[cost model](#cross-chain-fee-configuration). Absent or `false` preserves existing
+admission; empty and other values fail startup. This is a testnet tariff, separate
+from the production strict-funding design's durable reserves and treasury
+realization. Chiado, Ethereum and Kurtosis pass it to the Composer only.
 
 For a newly submitted outbound source, the L2 front recovers the signed legacy or type-2
 transaction and replays its exact fees using the quote engine's bounded isolated
@@ -1604,14 +1672,12 @@ capture readers must handle version 2 metadata.
 
 ## L1 builder refund profile
 
-`EEZ_L1_FEE_REFUND_POLICY` is optional and absent by default. When supplied it
-must be a JSON object with exactly `version: 1`, a nonzero `recipient` address,
-and integer `percent` from 1 to 99. Empty, invalid and unknown fields fail startup.
-It requires `EEZ_L2_FEE_SHADOW_POLICY` for the existing chain/rollup identities,
-explicit service costs, risk and profit. L1 calculations use its L1-denominated
-costs directly, without conversion to L2. The L2 conversion assumption remains
-independent. Setting this policy enables L1 quotes, signed admission and refund
-selection together; it does not enable L2 tariff enforcement.
+`EEZ_FEES_L1_TO_L2_ENABLED=true` enables L1 quotes, signed admission and refund
+selection together, independently of L2 collection. It requires the complete
+[shared cost model](#cross-chain-fee-configuration), `EEZ_FEES_L1_REFUND_RECIPIENT`
+and `EEZ_FEES_L1_REFUND_PERCENT`. Preparing those terms while the flag is absent
+or false leaves collection disabled. L1 calculations use L1-denominated costs
+directly; the L2 conversion assumption remains independent.
 
 The operator must first qualify **every** configured builder relay for the same
 immediate native-blob refund profile. Generic `eth_sendBundle` support or an ACK
@@ -1715,7 +1781,7 @@ follow-up. They never authorize execution or source resubmission.
 
 There is no protocol, genesis, protobuf, DA or historical replay migration.
 Upgrade Composer before using its L1 fee API; older Composers neither enforce the
-L1 tariff nor request these refunds. Keep the policy unset during a mixed-version
+L1 tariff nor request these refunds. Keep L1 collection disabled during a mixed-version
 rollout, drain outstanding work, qualify the actual builder path, then enable it.
 Disabling it or rolling back restores subsidized L1 admission. The financial
 plans are **in memory**, like accepted requests: a restart can lose unsettled

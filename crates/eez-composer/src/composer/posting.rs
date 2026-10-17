@@ -58,9 +58,7 @@ pub(super) enum PostingError {
 
 pub(super) struct PostingRuntime {
     pub fees: PostingFeeConfig,
-    pub enforce_l2_fee_tariff: bool,
-    pub l1_refund_policy: Option<super::fees::refund::Policy>,
-    pub shadow_fee_policy: Option<super::fees::pricing::Policy>,
+    pub collection: super::fees::config::RuntimeFees,
     pub chain: ChainProvider,
     pub ctx: Arc<CrossChainExecCtx>,
     pub registry: Address,
@@ -284,7 +282,7 @@ impl PostingRuntime {
             ));
         }
         let mut excluded_priority_transactions = 0;
-        let filtered_priority = self.l1_refund_policy.is_some();
+        let filtered_priority = self.collection.l1_refund.is_some();
         let estimated_priority_fee = if self.fees.priority_override.is_none() && filtered_priority {
             let (priority, excluded) =
                 tokio::time::timeout(std::time::Duration::from_secs(5), async {

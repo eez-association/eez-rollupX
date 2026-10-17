@@ -687,7 +687,7 @@ bound; it does not create a durable financial reservation.
 Missing or inconsistent evidence is `unavailable`, not zero. Without a pricing
 policy, `pricing_status: unpriced` retains null recovery/tip fields. Version 2
 can report `shadow_priced` under explicit
-[operator assumptions](../../docs/configurable-settlement-policy.md#shadow-l2-fee-pricing):
+[operator assumptions](../../docs/configurable-settlement-policy.md#cross-chain-fee-configuration):
 full cost, eligible/excluded tips, projected recovery and shortfall/surplus.
 With simplified fee pricing, `comparison` and its shortfall/surplus still refer
 to the desired profit target. `minimum_service_payment_l1`,

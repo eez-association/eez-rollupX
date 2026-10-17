@@ -18,9 +18,7 @@ pub struct ComposerSettings {
     /// the existing operator count limit, including the unset default of 50.
     pub(super) max_user_txs_per_bundle: Option<usize>,
     pub(super) posting_fees: PostingFeeConfig,
-    pub(super) enforce_l2_fee_tariff: bool,
-    pub(super) l1_refund_policy: Option<super::fees::refund::Policy>,
-    pub(super) shadow_fee_policy: Option<super::fees::pricing::Policy>,
+    pub(super) fees: super::fees::config::FeeConfig,
     pub(super) gas_trace: Option<super::gas_trace::Config>,
     pub(super) emission: super::EmissionLimits,
     /// Coinbase of every L2 block this node builds, Live and Sync alike, so
@@ -164,31 +162,10 @@ impl ComposerSettings {
             ),
         };
         let max_speculative_depth = policy.max_speculative_depth;
-        let shadow_fee_policy =
-            super::fees::pricing::Policy::parse(get(super::fees::pricing::SETTING)?, fee_recipient)
-                .map_err(PolicyError::Config)?;
-        let enforce_l2_fee_tariff = match get("EEZ_L2_FEE_ENFORCE_TARIFF")?.as_deref() {
-            None | Some("false") => false,
-            Some("true") if shadow_fee_policy.is_some() => true,
-            Some("true") => {
-                return Err(PolicyError::Config(
-                    "tariff enforcement requires EEZ_L2_FEE_SHADOW_POLICY".into(),
-                ));
-            }
-            Some(_) => {
-                return Err(PolicyError::Config(
-                    "EEZ_L2_FEE_ENFORCE_TARIFF must be true or false".into(),
-                ));
-            }
-        };
-        let l1_refund_policy =
-            super::fees::refund::Policy::parse(get(super::fees::refund::SETTING)?)
-                .map_err(PolicyError::Config)?;
-        if l1_refund_policy.is_some() && shadow_fee_policy.is_none() {
-            return Err(PolicyError::Config(
-                "L1 refunds require EEZ_L2_FEE_SHADOW_POLICY cost assumptions".into(),
-            ));
-        }
+        let fees = super::fees::config::FeeConfig::parse(|name| {
+            get(name).map_err(|error| error.to_string())
+        })
+        .map_err(PolicyError::Config)?;
         let gas_trace = super::gas_trace::Config::parse_with_address(
             get("EEZ_COMPOSER_GAS_TRACE_TX_HASH")?,
             get("EEZ_COMPOSER_GAS_TRACE_ADDRESS")?,
@@ -201,9 +178,7 @@ impl ComposerSettings {
             max_blobs_per_batch,
             max_user_txs_per_bundle,
             posting_fees,
-            enforce_l2_fee_tariff,
-            l1_refund_policy,
-            shadow_fee_policy,
+            fees,
             gas_trace,
             emission,
             fee_recipient,
@@ -344,7 +319,15 @@ mod tests {
     #[test]
     fn operational_defaults_have_no_implicit_blob_or_gas_cap() {
         let config = settings(&[]).unwrap();
-        assert!(config.shadow_fee_policy.is_none());
+        assert!(
+            config
+                .fees
+                .clone()
+                .bind(1, 9, [1], Address::ZERO)
+                .unwrap()
+                .pricing
+                .is_none()
+        );
         assert_eq!(config.max_blobs_per_batch, None);
         assert_eq!(config.max_speculative_depth(), 0);
         assert_eq!(config.emission.max_blocks, u64::from(u32::MAX));
@@ -357,84 +340,48 @@ mod tests {
     }
 
     #[test]
-    fn tariff_enforcement_is_explicit_and_requires_complete_policy() {
-        assert!(!settings(&[]).unwrap().enforce_l2_fee_tariff);
-        assert!(
-            !settings(&[("EEZ_L2_FEE_ENFORCE_TARIFF", "false")])
-                .unwrap()
-                .enforce_l2_fee_tariff
-        );
-        for value in ["", "0", "1", "TRUE", "bad", "true"] {
-            assert!(settings(&[("EEZ_L2_FEE_ENFORCE_TARIFF", value)]).is_err());
-        }
-        let policy = super::super::fees::pricing::tests::policy_json().to_string();
-        let beneficiary = Address::repeat_byte(4).to_string();
-        assert!(
-            settings(&[
-                ("EEZ_L2_FEE_ENFORCE_TARIFF", "true"),
-                ("EEZ_L2_FEE_SHADOW_POLICY", &policy),
-                ("EEZ_L2_FEE_RECIPIENT", &beneficiary)
-            ])
-            .unwrap()
-            .enforce_l2_fee_tariff
-        );
-    }
-
-    #[test]
-    fn l1_refund_policy_requires_costs_and_reaches_runtime_settings() {
-        assert!(settings(&[]).unwrap().l1_refund_policy.is_none());
-        let refund =
-            serde_json::json!({"version":1,"recipient":Address::repeat_byte(9),"percent":90})
-                .to_string();
-        assert!(settings(&[("EEZ_L1_FEE_REFUND_POLICY", &refund)]).is_err());
-        let cost = super::super::fees::pricing::tests::policy_json().to_string();
-        let beneficiary = Address::repeat_byte(4).to_string();
-        for raw in ["", "{}", "null", "bad"] {
-            assert!(
-                settings(&[
-                    ("EEZ_L1_FEE_REFUND_POLICY", raw),
-                    ("EEZ_L2_FEE_SHADOW_POLICY", &cost),
-                    ("EEZ_L2_FEE_RECIPIENT", &beneficiary)
-                ])
-                .is_err()
-            );
-        }
-        let parsed = settings(&[
-            ("EEZ_L1_FEE_REFUND_POLICY", &refund),
-            ("EEZ_L2_FEE_SHADOW_POLICY", &cost),
-            ("EEZ_L2_FEE_RECIPIENT", &beneficiary),
-        ])
-        .unwrap();
-        assert_eq!(
-            parsed.l1_refund_policy.unwrap().recipient,
-            Address::repeat_byte(9)
-        );
-        assert!(
-            !parsed.enforce_l2_fee_tariff,
-            "each direction is independently enabled"
-        );
-    }
-
-    #[test]
-    fn shadow_pricing_policy_is_an_optional_validated_startup_snapshot() {
-        let raw = super::super::fees::pricing::tests::policy_json().to_string();
-        let beneficiary = Address::repeat_byte(4).to_string();
-        let config = settings(&[
-            (super::super::fees::pricing::SETTING, &raw),
-            ("EEZ_L2_FEE_RECIPIENT", &beneficiary),
-        ])
-        .unwrap();
-        assert!(
-            config
-                .shadow_fee_policy
-                .unwrap()
-                .validate_network(1, 9, [1])
-                .is_ok()
-        );
-        // A pricing policy cannot silently redirect the sequencer's beneficiary.
-        assert!(settings(&[(super::super::fees::pricing::SETTING, &raw)]).is_err());
-        for raw in ["", "null", "{}", "bad"] {
-            assert!(settings(&[(super::super::fees::pricing::SETTING, raw)]).is_err());
+    fn fee_configuration_reaches_runtime_with_independent_direction_switches() {
+        use super::super::fees::pricing::tests::{policy_json, settings as fee_settings};
+        let model = fee_settings(&policy_json());
+        let recipient = Address::repeat_byte(4).to_string();
+        let refund_recipient = Address::repeat_byte(9).to_string();
+        for l1 in [false, true] {
+            for l2 in [false, true] {
+                let mut values: Vec<_> = model.iter().map(|(k, v)| (*k, v.as_str())).collect();
+                values.extend([
+                    ("EEZ_L2_FEE_RECIPIENT", recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_RECIPIENT", refund_recipient.as_str()),
+                    ("EEZ_FEES_L1_REFUND_PERCENT", "90"),
+                    (
+                        "EEZ_FEES_L1_TO_L2_ENABLED",
+                        if l1 { "true" } else { "false" },
+                    ),
+                    (
+                        "EEZ_FEES_L2_TO_L1_ENABLED",
+                        if l2 { "true" } else { "false" },
+                    ),
+                ]);
+                let settings = settings(&values).unwrap();
+                let runtime = settings
+                    .fees
+                    .bind(10200, 906969, [7], settings.fee_recipient)
+                    .unwrap();
+                assert_eq!(runtime.l2_to_l1_enabled, l2);
+                assert_eq!(runtime.l1_refund.is_some(), l1);
+                if let Some(refund) = runtime.l1_refund {
+                    assert_eq!(refund.percent, 90);
+                    assert_eq!(refund.recipient, Address::repeat_byte(9));
+                }
+                let details = runtime.pricing.unwrap().details();
+                let assumptions = &details["assumptions"];
+                assert_eq!(assumptions["l1_chain_id"], 10200);
+                assert_eq!(assumptions["l2_chain_id"], 906969);
+                assert_eq!(assumptions["rollup_id"], 7);
+                assert_eq!(
+                    assumptions["beneficiary"],
+                    serde_json::json!(Address::repeat_byte(4))
+                );
+            }
         }
     }
 

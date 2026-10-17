@@ -317,12 +317,12 @@ where
     /// Whether new outbound admission and final dispatch enforce the tariff.
     /// This does not attest to treasury realization of the configured conversion.
     pub fn enforces_l2_fee_tariff(&self) -> bool {
-        self.inner.posting.enforce_l2_fee_tariff
+        self.inner.posting.collection.l2_to_l1_enabled
     }
 
     pub fn enforces_fee_tariff(&self, direction: crate::Direction) -> bool {
         match direction {
-            crate::Direction::Inbound => self.inner.posting.l1_refund_policy.is_some(),
+            crate::Direction::Inbound => self.inner.posting.collection.l1_refund.is_some(),
             crate::Direction::Outbound => self.enforces_l2_fee_tariff(),
         }
     }
@@ -336,13 +336,15 @@ where
     ) -> Result<PreparedL2FeeQuote, FeeQuoteError> {
         let posting = &self.inner.posting;
         let policy = posting
-            .shadow_fee_policy
+            .collection
+            .pricing
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
         let chain_id = match direction {
             crate::Direction::Inbound => {
                 let refund = posting
-                    .l1_refund_policy
+                    .collection
+                    .l1_refund
                     .as_ref()
                     .ok_or(FeeQuoteError::Disabled)?;
                 if request.sender == refund.recipient {
@@ -667,7 +669,8 @@ where
         let endpoint = *endpoint;
         let runtime = &self.inner.posting;
         let policy = runtime
-            .shadow_fee_policy
+            .collection
+            .pricing
             .as_ref()
             .ok_or(FeeQuoteError::Disabled)?;
         let rollup = self

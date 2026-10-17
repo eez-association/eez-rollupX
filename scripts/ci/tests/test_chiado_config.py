@@ -140,39 +140,41 @@ class ChiadoConfigTest(unittest.TestCase):
                                  "1500" if override is None else override)
                 self.assertNotIn(key, services["eez-proof-signer"]["environment"])
 
-    def test_shadow_fee_policy_preserves_absence_and_shell_precedence(self):
-        key = "EEZ_L2_FEE_SHADOW_POLICY"
+    def test_fee_settings_preserve_absence_and_shell_precedence(self):
+        keys = [
+            'EEZ_FEES_L1_TO_L2_ENABLED',
+            'EEZ_FEES_L2_TO_L1_ENABLED',
+            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
+            'EEZ_FEES_L1_PER_L2_NUMERATOR',
+            'EEZ_FEES_L1_PER_L2_DENOMINATOR',
+            'EEZ_FEES_PROVING_COST_L1',
+            'EEZ_FEES_OPERATIONS_COST_L1',
+            'EEZ_FEES_TREASURY_COST_L1',
+            'EEZ_FEES_RISK_BPS',
+            'EEZ_FEES_PROFIT_BPS',
+            'EEZ_FEES_EXCLUDED_SENDERS',
+            'EEZ_FEES_L1_REFUND_RECIPIENT',
+            'EEZ_FEES_L1_REFUND_PERCENT',
+        ]
+        # Obsolete names still reach the node so it rejects them explicitly.
+        keys += ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L1_FEE_REFUND_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF"]
         result = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNone(json.loads(result.stdout)["services"]["eez-node"]["environment"].get(key))
-        fixture = '{"version":1,"proving_cost_l1":"7"}'
+        node = json.loads(result.stdout)["services"]["eez-node"]["environment"]
+        for key in keys:
+            self.assertIsNone(node.get(key), key)
         with (self.repo / ".env").open("a") as stream:
-            stream.write(f"\n{key}='{fixture}'\n")
-        # Transport retains invalid/empty values too; Rust owns schema validation.
-        for override in (None, "", "bad", '{"version":2}'):
+            for key in keys:
+                stream.write(f"\n{key}=fixture\n")
+        # Scalar transport, not acceptance: runtime tests validate the values.
+        for override in (None, "", "bad", "false", "true", "90"):
             with self.subTest(override=override):
-                result = self.render({} if override is None else {key: override})
+                result = self.render({} if override is None else dict.fromkeys(keys, override))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 services = json.loads(result.stdout)["services"]
-                self.assertEqual(services["eez-node"]["environment"][key], fixture if override is None else override)
-                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
-
-    def test_l1_refund_policy_preserves_absence_and_shell_precedence(self):
-        key = "EEZ_L1_FEE_REFUND_POLICY"
-        result = self.render()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIsNone(json.loads(result.stdout)["services"]["eez-node"]["environment"].get(key))
-        fixture = '{"version":1,"recipient":"0x1111111111111111111111111111111111111111","percent":90}'
-        with (self.repo / ".env").open("a") as stream:
-            stream.write(f"\n{key}='{fixture}'\n")
-        # Transport retains invalid/empty values too; Rust owns schema validation.
-        for override in (None, "", "bad", '{"version":2}'):
-            with self.subTest(override=override):
-                result = self.render({} if override is None else {key: override})
-                self.assertEqual(result.returncode, 0, result.stderr)
-                services = json.loads(result.stdout)["services"]
-                self.assertEqual(services["eez-node"]["environment"][key], fixture if override is None else override)
-                self.assertNotIn(key, services["eez-proof-signer"]["environment"])
+                for key in keys:
+                    self.assertEqual(services["eez-node"]["environment"][key], "fixture" if override is None else override)
+                    self.assertNotIn(key, services["eez-proof-signer"]["environment"])
 
     def test_posting_logging_survives_normal_startup_and_legacy_overlay(self):
         for configured in (None, "", str(self.root / "posting-history")):

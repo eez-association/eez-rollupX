@@ -504,9 +504,10 @@ run the replay procedure below and qualify each deployment's actual route.
 
 ### Exercise L2 settlement fees
 
-Use a disposable enclave configured with `EEZ_L2_FEE_SHADOW_POLICY` and
-`EEZ_L2_FEE_ENFORCE_TARIFF: "true"` in `settlement_env`. The policy must match
-that enclave's chain IDs, rollup and L2 fee beneficiary. Enable the UI to test
+Use a disposable enclave configured with the complete
+[fee cost model](../../docs/configurable-settlement-policy.md#cross-chain-fee-configuration),
+a nonzero `EEZ_L2_FEE_RECIPIENT`, and `EEZ_FEES_L2_TO_L1_ENABLED: "true"` in
+`settlement_env`. Chain IDs and rollup identity come from runtime wiring. Enable the UI to test
 its quote proxy as well. Build integration fixtures with `forge build --root
 contracts`, export the intended `KURTOSIS_ENCLAVE` and `KURTOSIS_ARGS_FILE`, and
 source `testing/kurtosis/ports.sh` to obtain the RPC endpoints.

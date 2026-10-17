@@ -263,18 +263,31 @@ class SettlementEnvironmentTest(unittest.TestCase):
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_PRIORITY_PERCENTILE="90",
                            EEZ_L1_POSTBATCH_CROSS_CHAIN_MAX_PRIORITY_FEE="3500000000")
         self.assertEqual(configure(cross_chain), cross_chain)
-        for policy in ("", "bad", '{"version":1}'):
-            explicit = dict(values, EEZ_L2_FEE_SHADOW_POLICY=policy,
-                            EEZ_L2_FEE_RECIPIENT="0x" + "44" * 20)
-            self.assertEqual(configure(explicit), explicit)
-        with self.assertRaises(ValueError):
-            configure(dict(values, EEZ_L2_FEE_SHADOW_POLICY={"version": 1}))
-        self.assertNotIn("EEZ_L2_FEE_ENFORCE_TARIFF", configure(values))
-        for enforcement in ("true", "false", "", "invalid"):
-            explicit = dict(values, EEZ_L2_FEE_ENFORCE_TARIFF=enforcement)
-            self.assertEqual(configure(explicit), explicit)
-        with self.assertRaises(ValueError):
-            configure(dict(values, EEZ_L2_FEE_ENFORCE_TARIFF=True))
+        for name in [
+            'EEZ_FEES_L1_TO_L2_ENABLED',
+            'EEZ_FEES_L2_TO_L1_ENABLED',
+            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
+            'EEZ_FEES_L1_PER_L2_NUMERATOR',
+            'EEZ_FEES_L1_PER_L2_DENOMINATOR',
+            'EEZ_FEES_PROVING_COST_L1',
+            'EEZ_FEES_OPERATIONS_COST_L1',
+            'EEZ_FEES_TREASURY_COST_L1',
+            'EEZ_FEES_RISK_BPS',
+            'EEZ_FEES_PROFIT_BPS',
+            'EEZ_FEES_EXCLUDED_SENDERS',
+            'EEZ_FEES_L1_REFUND_RECIPIENT',
+            'EEZ_FEES_L1_REFUND_PERCENT',
+            'EEZ_L2_FEE_SHADOW_POLICY',
+            'EEZ_L1_FEE_REFUND_POLICY',
+            'EEZ_L2_FEE_ENFORCE_TARIFF',
+        ]:
+            self.assertNotIn(name, configure(values))
+            for value in ("true", "false", "", "invalid", "90"):
+                explicit = dict(values, **{name: value})
+                self.assertEqual(configure(explicit), explicit)
+            with self.assertRaises(ValueError):
+                configure(dict(values, **{name: True}))
+        self.assertIn('get("EEZ_FEES_L2_TO_L1_ENABLED", "false")', (REPO / "testing/kurtosis/main.star").read_text())
         without_priority_bound = dict(values)
         without_priority_bound.pop("EEZ_L1_POSTBATCH_MAX_PRIORITY_FEE")
         with self.assertRaises(ValueError):
