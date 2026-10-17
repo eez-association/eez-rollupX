@@ -990,10 +990,15 @@ costs or refund terms alone never enables collection. A complete cost model
 with L2 collection disabled still permits advisory L2 quotes. L1 quotes require
 L1 collection to be enabled; this profile has no advisory-only L1 mode.
 
-`ComposerSettings` reads an immutable startup snapshot. Process environment
-precedes `.env`, which precedes `deployments.env`; restart is required for changes,
-with no CLI override. Compose overlays can override the rendered service
-configuration, so inspect the effective node environment before deployment.
+`ComposerSettings` reads an immutable startup snapshot. The native launcher
+loads process environment before `.env` before `deployments.env`; restart is
+required for changes, with no CLI override. Direct Compose interpolation gives
+shell variables precedence over `.env`; explicit service environment overlays
+can override the rendered values. The existing `chiado-up.sh` wrapper first
+sources `.env` and later `deployments.env`, replacing inherited values at those
+steps. Keep operator fee settings in `.env` or deliberate service overrides,
+and deployment bindings in `deployments.env`. Inspect the effective node
+environment for the actual launch path before deployment.
 Chiado, Ethereum and external Kurtosis Compose forward the settings only to the
 node. Kurtosis `eez.settlement_env` accepts the same names as quoted strings;
 the signer and follower do not receive them. Its UI fee flag follows the L2

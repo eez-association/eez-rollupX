@@ -901,7 +901,9 @@ rendered environment because it contains operator keys.
 
 Use the normal [recovery and upgrade procedure](#recovery-and-upgrades): retain
 old configuration and stopped state, drain accepted requests, then start the
-qualified new binary with the new settings. A node that reports an obsolete
+qualified new binary with the new settings. Keep the normal matching
+node/signer/deploy image selection; no fee configuration is added to the signer.
+A node that reports an obsolete
 setting must stay out of public service until that input is removed. Verify
 compact/debug quotes and signed fee rejection on each enabled direction, then
 canonical settlement and refund observations before reopening ingress. Restoring

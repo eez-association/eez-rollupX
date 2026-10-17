@@ -17,7 +17,9 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ### Fee configuration cleanup authorized on 2026-10-17
 
-Status: accepted for implementation; validation is pending. Replace the two
+Status: implemented and locally validated; release-artifact CI qualification
+and deployment remain pending. The [validation record](../audits/2026-10-17-fee-configuration/README.md)
+records source identities, process evidence and exclusions. Replace the two
 fee-policy JSON objects and the historical L2 tariff switch with ordinary
 `EEZ_FEES_*` settings. Both directions have explicit, independent enable flags,
 defaulting to false. Supplying refund terms or cost assumptions cannot enable
