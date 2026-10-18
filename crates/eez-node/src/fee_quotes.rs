@@ -205,6 +205,7 @@ fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
     let status = match err {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
         FeeQuoteError::Unsupported(_)
+        | FeeQuoteError::InsufficientFunds(_)
         | FeeQuoteError::Limit(_)
         | FeeQuoteError::Underfunded(_)
         | FeeQuoteError::L1Underfunded(_)
@@ -276,6 +277,29 @@ mod tests {
             response["error"]["details"]
                 .get("requiredPayment")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn source_balance_failure_keeps_amounts_in_rpc_error_data() {
+        let (status, value) = failure(FeeQuoteError::InsufficientFunds(
+            eez_composer::SourceBalanceError {
+                available: alloy_primitives::U256::from(100),
+                required: alloy_primitives::U256::from(200),
+                chain_id: 906969,
+            },
+        ));
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let response = rpc_response(json!("balance"), status, value);
+        assert_eq!(response["id"], "balance");
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "insufficient_funds");
+        assert_eq!(
+            response["error"]["data"]["details"],
+            json!({
+                "reason":"source_balance", "sourceChainId":"0xdd6d9",
+                "availableBalance":"0x64", "requiredBalance":"0xc8", "shortfall":"0x64"
+            })
         );
     }
 

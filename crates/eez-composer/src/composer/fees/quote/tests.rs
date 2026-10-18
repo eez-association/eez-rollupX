@@ -7,6 +7,47 @@ fn transaction() -> Value {
 }
 
 #[test]
+fn source_balance_errors_survive_priced_and_estimation_paths() {
+    let balance = crate::SourceBalanceError {
+        available: U256::from(999_999_946_856_400u64),
+        required: U256::from(1_204_265_508_506_016u64),
+        chain_id: 906969,
+    };
+    let error =
+        eez_protocol::ExecutorErrorKind::SourceBlocked(eez_protocol::SourceCondition::Balance {
+            required: balance.required,
+            available: balance.available,
+        })
+        .into();
+    for error in [
+        source_simulation_error(balance.chain_id, error),
+        compact::estimate_error(
+            super::super::super::estimate::EstimateError::InsufficientFunds(balance.clone()),
+        ),
+    ] {
+        assert_eq!(error.code(), "insufficient_funds");
+        let details = error.diagnostics().unwrap();
+        assert_eq!(details["reason"], "source_balance");
+        assert_eq!(details["sourceChainId"], "0xdd6d9");
+        assert_eq!(details["availableBalance"], json!(balance.available));
+        assert_eq!(details["requiredBalance"], json!(balance.required));
+        assert_eq!(
+            details["shortfall"],
+            json!(U256::from(204_265_561_649_616u64))
+        );
+        assert!(details.get("requiredPayment").is_none());
+    }
+    let provider_error = eez_protocol::ExecutorErrorKind::Unavailable(
+        "insufficient funds in backend error text".into(),
+    )
+    .into();
+    assert!(matches!(
+        source_simulation_error(balance.chain_id, provider_error),
+        FeeQuoteError::Unavailable("source simulation")
+    ));
+}
+
+#[test]
 fn transaction_profile_is_explicit_and_bounded() {
     let parsed = L2FeeRequest::parse(&transaction()).unwrap();
     assert_eq!(parsed.tx.gas_limit(), 100_000);

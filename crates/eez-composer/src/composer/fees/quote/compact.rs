@@ -109,9 +109,8 @@ pub(super) fn estimate_error(error: EstimateError) -> FeeQuoteError {
             FeeQuoteError::Unavailable("settlement reconciliation pending")
         }
         EstimateError::Timeout => FeeQuoteError::Limit("gas estimation deadline"),
-        EstimateError::Invalid(_) => {
-            FeeQuoteError::Invalid("gas estimation input or insufficient balance")
-        }
+        EstimateError::Invalid(_) => FeeQuoteError::Invalid("gas estimation input"),
+        EstimateError::InsufficientFunds(balance) => FeeQuoteError::InsufficientFunds(balance),
         EstimateError::Unsupported(_) | EstimateError::Revert(_) | EstimateError::Effects(_) => {
             FeeQuoteError::Unsupported("gas estimation or final effect validation failed")
         }
@@ -248,11 +247,15 @@ where
                 Err(
                     error @ (FeeQuoteError::Unsupported(_)
                     | FeeQuoteError::Invalid(_)
+                    | FeeQuoteError::InsufficientFunds(_)
                     | FeeQuoteError::Underfunded(_)
                     | FeeQuoteError::L1Underfunded(_)
                     | FeeQuoteError::SourceFeeCap { .. }),
                 ) => {
-                    let failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
+                    let mut failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
+                    if let Some(details) = error.diagnostics() {
+                        failed["error"]["details"] = details;
+                    }
                     options.push(failed.clone());
                     diagnostics.push(failed);
                 }

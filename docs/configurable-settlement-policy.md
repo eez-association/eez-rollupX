@@ -1245,8 +1245,31 @@ unknown L1 direction never becomes a zero-cost cross-chain quote.
 
 Every requested type has one ordered entry. A variant that cannot execute returns
 `{"type":"0x2","error":{"code":"unsupported_transaction","message":"…"}}` instead
-of wallet fields. Bad balance/input for a variant uses `invalid_transaction`. No variant
-may be signed when it contains an error. Shared unavailability, stale state, expiry
+of wallet fields. Invalid input for a variant uses `invalid_transaction`. An
+insufficient source balance uses `insufficient_funds`, with `error.details`:
+
+```json
+{
+  "reason": "source_balance",
+  "sourceChainId": "0xdd6d9",
+  "availableBalance": "0x64",
+  "requiredBalance": "0xc8",
+  "shortfall": "0x64"
+}
+```
+
+These amounts are source-chain native base units from the failing validation.
+Priced execution requires the transaction value plus the maximum gas reservation
+(`gas * maxFeePerGas`, or `gas * gasPrice` for legacy). This is not an estimated
+charge. If gas discovery stops because the balance cannot cover the value alone,
+`requiredBalance` is that value; fees have not yet been calculated. The same
+details appear in compact and debug failed options, and in `error.data.details`
+for signed tariff admission. This error is distinct from `l2_tip_underfunded` or
+`l1_tip_underfunded`, which compare the offered settlement contribution to the
+tariff. Gas estimation also preserves the source balance failure as JSON-RPC
+`-32000` with `error.data.code = "insufficient_funds"` and these details.
+
+No variant may be signed when it contains an error. Shared unavailability, stale state, expiry
 or exhausted work fails the whole RPC with the existing quote error envelope;
 there are no partial successful options after those errors. Invalid request syntax,
 chain/nonce or selection fails with `-32602`. Transient errors never trigger a
@@ -1300,6 +1323,15 @@ input errors to `invalid_transaction` / `unsupported_transaction`.
 `recoveryMode` moves from the compact result to `diagnostics.recoveryMode`.
 No aliases are retained; the normalized eight-field binding bytes are unchanged.
 Keep final signed native settlement validation enabled.
+
+The source-balance diagnostic is an additive error-contract correction. Older
+Composers can report the same failure as `unsupported_transaction`,
+`invalid_transaction` or `quote_unavailable` without balance details. Clients
+must reject any failed option, including an unknown error code; they may display
+the new details when available. Successful quote fields and request bindings are
+unchanged. Composer can be upgraded or rolled back independently for this
+correction; no protocol, signer, storage, configuration or historical-replay
+migration is needed. Rollback loses the improved diagnostics, not fee enforcement.
 
 ## Unsigned L2 fee quotes
 
@@ -1409,7 +1441,7 @@ window still needs canonical settlement advancement.
 Malformed params/transactions use JSON-RPC `-32602`; other shared quote failures
 use `-32004`, with `{code, message}` in `error.data`. Stable application codes
 include `invalid_transaction`, `unsupported_transaction`, `quote_limit`, `stale_context`,
-`quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
+`insufficient_funds`, `quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
 Per-variant execution/input errors are represented as described above; shared
 errors never return a usable option. IDs, mixed batches and notifications follow
 the front's existing semantics. Members execute sequentially under the shared

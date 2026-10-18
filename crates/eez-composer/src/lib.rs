@@ -66,4 +66,4 @@ pub use rollup::{RollupConfig, RollupState};
 mod admission_events;
 mod fee_diagnostics;
 mod posting_events;
-pub use fee_diagnostics::FundingDiagnostic;
+pub use fee_diagnostics::{FundingDiagnostic, SourceBalanceError};

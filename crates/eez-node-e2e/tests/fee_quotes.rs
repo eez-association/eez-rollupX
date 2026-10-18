@@ -78,6 +78,193 @@ async fn exact_quote_with_caught_nested_revert_is_admitted_and_replayed() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn insufficient_source_balance_after_pricing_preserves_quote_diagnostics() {
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let settings = crate::settlement_policy_cost::fee_settings(
+        &policy,
+        &[
+            ("EEZ_FEES_L2_TO_L1_ENABLED", "true".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+            ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+            ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+        ],
+    );
+    let world = setup_cross_chain_with_env(&settings).await.unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let inner = deploy_nested_setter_inner(
+        &world.l2_rpc(),
+        TARGET_DEPLOYER,
+        world.l2_chain_id,
+        world.outbound_proxy,
+    )
+    .await
+    .unwrap();
+    let outer =
+        deploy_nested_setter_outer(&world.l2_rpc(), TARGET_DEPLOYER, world.l2_chain_id, inner)
+            .await
+            .unwrap();
+    let sender = Address::repeat_byte(0x19);
+    // Enough for the initial zero-tip simulation, but below the fixture's
+    // measured settlement tariff. Fund through ordinary execution, not overrides.
+    let balance = U256::from(1_000_000_000_000_000u64);
+    let fund = |amount| {
+        let world = &world;
+        let l2 = &l2;
+        async move {
+            let hash = sign_and_send(
+                &world.l2_rpc(),
+                TARGET_DEPLOYER,
+                world.l2_chain_id,
+                onchain_nonce(&world.l2_rpc(), TARGET_DEPLOYER)
+                    .await
+                    .unwrap(),
+                Some(sender),
+                amount,
+                vec![],
+                21_000,
+            )
+            .await
+            .unwrap();
+            let receipt = wait_for(TIMEOUT, || async {
+                Ok(l2.get_transaction_receipt(hash).await?)
+            })
+            .await
+            .unwrap();
+            assert!(receipt.status());
+        }
+    };
+    fund(balance).await;
+    let client = reqwest::Client::new();
+    let record = |name: &str, response: &Value| {
+        if let Some(directory) = std::env::var_os("EEZ_TEST_LOG_DIR") {
+            std::fs::write(
+                std::path::PathBuf::from(directory).join(name),
+                serde_json::to_vec_pretty(response).unwrap(),
+            )
+            .unwrap();
+        }
+    };
+    let transaction = json!({"from":sender,"to":outer,"value":"0x0",
+        "data":Bytes::from(PendingQuoteProbe::setViaInnerAndCatchCall { v: U256::from(123) }.abi_encode())});
+    let estimated = wait_for(TIMEOUT, || async {
+        let response = quote_rpc(
+            &client,
+            &world.l2_xchain(),
+            "eth_estimateGas",
+            json!([transaction]),
+        )
+        .await?;
+        if matches!(
+            response["error"]["data"]["code"].as_str(),
+            Some("settlement_reconciliation_pending" | "estimation_context_changed")
+        ) {
+            return Ok(None);
+        }
+        assert!(response.get("result").is_some(), "{response}");
+        Ok(Some(response["result"].clone()))
+    })
+    .await
+    .unwrap();
+    let block = quote_rpc(
+        &client,
+        &world.l2_rpc(),
+        "eth_getBlockByNumber",
+        json!(["latest", false]),
+    )
+    .await
+    .unwrap();
+    let base: U256 = serde_json::from_value(block["result"]["baseFeePerGas"].clone()).unwrap();
+    let gas: U256 = serde_json::from_value(estimated.clone()).unwrap();
+    assert!(
+        balance > gas * base * U256::from(2),
+        "fixture must afford the zero-tip pass"
+    );
+    let before = l2_value(&world.l1_rpc(), world.outbound_value)
+        .await
+        .unwrap();
+    for explicit_gas in [false, true] {
+        let mut transaction = transaction.clone();
+        if explicit_gas {
+            transaction["gas"] = estimated.clone();
+        }
+        for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
+            let response = wait_for(TIMEOUT, || async {
+                let response =
+                    quote_rpc(&client, &world.l2_xchain(), method, json!([transaction])).await?;
+                if quote_retry(&response) {
+                    return Ok(None);
+                }
+                Ok(Some(response))
+            })
+            .await
+            .unwrap();
+            record(
+                &format!("source-balance-{method}-explicit-gas-{explicit_gas}.json"),
+                &response,
+            );
+            let options = response["result"]["options"].as_array().unwrap();
+            assert_eq!(options.len(), 2, "{response}");
+            for (option, ty) in options.iter().zip(["0x0", "0x2"]) {
+                assert_eq!(option["type"], ty);
+                assert_eq!(option["error"]["code"], "insufficient_funds", "{response}");
+                assert!(option.get("gas").is_none(), "failed quote is not signable");
+                let details = &option["error"]["details"];
+                assert_eq!(details["reason"], "source_balance");
+                assert_eq!(
+                    details["sourceChainId"],
+                    format!("{:#x}", world.l2_chain_id)
+                );
+                assert_eq!(details["availableBalance"], json!(balance));
+                let required: U256 =
+                    serde_json::from_value(details["requiredBalance"].clone()).unwrap();
+                let shortfall: U256 = serde_json::from_value(details["shortfall"].clone()).unwrap();
+                assert!(required > balance);
+                assert_eq!(shortfall, required - balance);
+            }
+            if method == "eez_debugQuoteFee" {
+                assert_eq!(response["result"]["diagnostics"]["options"], json!(options));
+            }
+        }
+    }
+    assert_eq!(l2.get_balance(sender).await.unwrap(), balance);
+    assert_eq!(l2.get_transaction_count(sender).await.unwrap(), 0);
+    assert_eq!(
+        l2_value(&world.l1_rpc(), world.outbound_value)
+            .await
+            .unwrap(),
+        before
+    );
+
+    // The same sender, nonce and call become quotable once funded. This proves
+    // the rejection did not classify the caught nested revert as unsupported.
+    fund(U256::from(1_000_000_000_000_000_000u64)).await;
+    let response = wait_for(TIMEOUT, || async {
+        let response = quote_rpc(
+            &client,
+            &world.l2_xchain(),
+            "eez_debugQuoteFee",
+            json!([transaction]),
+        )
+        .await?;
+        if quote_retry(&response) {
+            return Ok(None);
+        }
+        Ok(Some(response))
+    })
+    .await
+    .unwrap();
+    record("source-balance-funded.json", &response);
+    assert_eq!(response["result"]["nonce"], "0x0", "{response}");
+    let options = response["result"]["options"].as_array().unwrap();
+    assert_eq!(options.len(), 2);
+    for option in options {
+        assert!(option.get("error").is_none(), "{response}");
+        assert!(option["estimatedFee"].as_str().is_some());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn external_posting_price_shift_rejects_old_quote_with_measured_shortfall() {
     nested_quote_roundtrip(true, false, true, None, QuoteExercise::MarketShift).await;
 }
@@ -1512,7 +1699,10 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         .as_array()
         .expect("per-variant funding error")
     {
-        assert_eq!(option["error"]["code"], "invalid_transaction", "{response}");
+        assert_eq!(option["error"]["code"], "insufficient_funds", "{response}");
+        assert_eq!(option["error"]["details"]["availableBalance"], "0x0");
+        assert_eq!(option["error"]["details"]["requiredBalance"], "0x1");
+        assert_eq!(option["error"]["details"]["shortfall"], "0x1");
     }
     let mut short = transaction.clone();
     short["gas"] = json!("0x5208");

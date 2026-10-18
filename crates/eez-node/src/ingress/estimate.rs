@@ -56,6 +56,11 @@ fn error(id: Value, error: EstimateError) -> Value {
     };
     let mut response = serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":code,"message":error.to_string()}});
     match error {
+        EstimateError::InsufficientFunds(balance) => {
+            response["error"]["data"] = serde_json::json!({
+                "code":"insufficient_funds", "details":balance.json()
+            });
+        }
         EstimateError::Revert(data) => response["error"]["data"] = serde_json::json!(data),
         EstimateError::SettlementPending | EstimateError::ContextChanged => {
             let reason = if matches!(error, EstimateError::SettlementPending) {
@@ -303,5 +308,28 @@ mod tests {
         assert_eq!(response["id"], id);
         assert_eq!(response["error"]["code"], 3);
         assert_eq!(response["error"]["data"], "0xdead");
+    }
+
+    #[test]
+    fn source_balance_error_is_not_a_revert_or_a_retry_hint() {
+        let response = error(
+            serde_json::json!("balance"),
+            EstimateError::InsufficientFunds(eez_composer::SourceBalanceError {
+                available: alloy_primitives::U256::ZERO,
+                required: alloy_primitives::U256::from(7),
+                chain_id: 1,
+            }),
+        );
+        assert_eq!(response["id"], "balance");
+        assert_eq!(response["error"]["code"], -32000);
+        assert_eq!(
+            response["error"]["data"],
+            serde_json::json!({
+                "code":"insufficient_funds", "details": {
+                    "reason":"source_balance", "sourceChainId":"0x1",
+                    "availableBalance":"0x0", "requiredBalance":"0x7", "shortfall":"0x7"
+                }
+            })
+        );
     }
 }

@@ -79,6 +79,28 @@ Falcon signature workloads is separate.
 The full protocol staged/stress matrix and live deployment are separate evidence;
 unit or process success alone must not be described as either.
 
+## Source balance diagnostics (accepted correction, 2026-10-18)
+
+The [rollback-and-call-again investigation](../audits/2026-10-18-revert-fee-quote-report/README.md)
+found that gas discovery and zero-tip execution succeeded, but selecting the
+settlement tip exceeded the sender's balance. The source simulator retained a
+typed balance condition for retry-aware callers; the quote path discarded it.
+The user requested correcting this Composer error and adding regressions.
+
+Preserve the typed balance failure through gas discovery, priced simulation and
+compact/debug projection. Report `insufficient_funds` with the source chain,
+available and required balances, and shortfall. Keep normal EVM balance checks,
+settlement tariff enforcement, immutable quote state and queue ownership intact.
+Returning a quote before funding or changing the tariff is outside this fix.
+
+Acceptance: reproduce the priced-pass failure before the fix, check both legacy
+and EIP-1559 options with omitted and supplied gas, verify that compact/debug
+errors retain the same amounts, and show that funding the same sender makes
+the caught-revert call quotable. Check that true execution reverts and underpaid
+settlement tips retain their distinct errors. The owning
+[API contract](../configurable-settlement-policy.md#compact-fee-quotes) describes
+the additive error fields and mixed-version behavior.
+
 ## Simplified pricing and availability (accepted scope, 2026-10-15)
 
 The operator requested implementation, testing and deployment of the following

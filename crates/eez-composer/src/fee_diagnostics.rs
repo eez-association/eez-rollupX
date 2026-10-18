@@ -1,9 +1,51 @@
-//! Measured payment shortfalls. These diagnostics convey a calculation; they
-//! neither reserve a price nor authorize queue disposition.
+//! Source balance and measured payment shortfalls. These diagnostics convey a
+//! calculation; they neither reserve a price nor authorize queue disposition.
 
 use alloy_primitives::U256;
 use eez_l1::{L1BlockRef, posting_fees::FeeQuote};
 use serde_json::{Value, json};
+
+/// Failed source-chain balance validation, distinct from settlement-tip coverage.
+/// `required` includes value and the maximum fee reservation when provided by
+/// the EVM; a pre-execution value check can report value alone before pricing.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "insufficient funds for transaction: balance {available}, required {required} on chain {chain_id}"
+)]
+pub struct SourceBalanceError {
+    pub available: U256,
+    pub required: U256,
+    pub chain_id: u64,
+}
+
+impl SourceBalanceError {
+    pub(crate) fn from_executor(
+        chain_id: u64,
+        error: &eez_protocol::ExecutorError,
+    ) -> Option<Self> {
+        match error.kind() {
+            eez_protocol::ExecutorErrorKind::SourceBlocked(
+                eez_protocol::SourceCondition::Balance {
+                    required,
+                    available,
+                },
+            ) => Some(Self {
+                available: *available,
+                required: *required,
+                chain_id,
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn json(&self) -> Value {
+        json!({
+            "reason":"source_balance", "sourceChainId":format!("{:#x}",self.chain_id),
+            "availableBalance":self.available, "requiredBalance":self.required,
+            "shortfall":self.required.saturating_sub(self.available),
+        })
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FundingDiagnostic {

@@ -45,6 +45,8 @@ const MAX_QUOTE_PREDECESSORS: usize = 8;
 pub enum FeeQuoteError {
     #[error("invalid transaction: {0}")]
     Invalid(&'static str),
+    #[error(transparent)]
+    InsufficientFunds(crate::SourceBalanceError),
     #[error("unsupported quote: {0}")]
     Unsupported(&'static str),
     #[error("quote unavailable: {0}")]
@@ -71,6 +73,7 @@ impl FeeQuoteError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::Invalid(_) => "invalid_transaction",
+            Self::InsufficientFunds(_) => "insufficient_funds",
             Self::Unsupported(_) => "unsupported_transaction",
             Self::Unavailable(_) => "quote_unavailable",
             Self::Limit(_) => "quote_limit",
@@ -84,6 +87,7 @@ impl FeeQuoteError {
 
     pub fn diagnostics(&self) -> Option<Value> {
         match self {
+            Self::InsufficientFunds(balance) => Some(balance.json()),
             Self::Underfunded(detail) | Self::L1Underfunded(detail) => Some(detail.json()),
             Self::SourceFeeCap {
                 cap,
@@ -101,6 +105,16 @@ impl FeeQuoteError {
 fn unavailable(context: &'static str, error: impl std::fmt::Display) -> FeeQuoteError {
     tracing::debug!(%error, context, "advisory fee quote unavailable");
     FeeQuoteError::Unavailable(context)
+}
+
+fn source_simulation_error(chain_id: u64, error: eez_protocol::ExecutorError) -> FeeQuoteError {
+    if let Some(balance) = crate::SourceBalanceError::from_executor(chain_id, &error) {
+        FeeQuoteError::InsufficientFunds(balance)
+    } else if matches!(error.kind(), ExecutorErrorKind::SourceBlocked(_)) {
+        FeeQuoteError::Unsupported("source validation failed")
+    } else {
+        unavailable("source simulation", error)
+    }
 }
 
 /// Explicit legacy or type-2 call request. No fee fields are accepted: the service finds
@@ -831,11 +845,13 @@ where
                     }) as Box<dyn TargetExecutionSession + Send>,
                 )]),
             );
+            // Retain typed balance conditions from validation. This isolated
+            // quote reports them to its caller; it never queues or retries work.
             let simulated =
-                l2.simulate_source_env_on(tx_env.clone(), &mut builder, sim_state, sim_env, false);
+                l2.simulate_source_env_on(tx_env.clone(), &mut builder, sim_state, sim_env, true);
             budget.check()?;
             if !simulated
-                .map_err(|e| unavailable("source simulation", e))?
+                .map_err(|e| source_simulation_error(runtime.ctx.l2_chain_id, e))?
                 .success
             {
                 return Err(FeeQuoteError::Unsupported(

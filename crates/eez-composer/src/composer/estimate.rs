@@ -29,6 +29,8 @@ mod preparation;
 pub enum EstimateError {
     #[error("invalid estimation request: {0}")]
     Invalid(String),
+    #[error(transparent)]
+    InsufficientFunds(crate::SourceBalanceError),
     #[error("cross-chain estimation unavailable: {0}")]
     Unavailable(String),
     #[error("cross-chain estimation unavailable: settlement reconciliation pending")]
@@ -46,6 +48,12 @@ pub enum EstimateError {
 }
 fn unavailable(e: impl std::fmt::Display) -> EstimateError {
     EstimateError::Unavailable(e.to_string())
+}
+fn source_error(chain_id: u64, error: eez_protocol::ExecutorError) -> EstimateError {
+    match crate::SourceBalanceError::from_executor(chain_id, &error) {
+        Some(balance) => EstimateError::InsufficientFunds(balance),
+        None => unavailable(error),
+    }
 }
 fn unsupported(e: impl std::fmt::Display) -> EstimateError {
     EstimateError::Unsupported(e.to_string())
@@ -269,7 +277,13 @@ impl GasEstimator {
         let balance = account.balance;
         let available = balance
             .checked_sub(tx.value)
-            .ok_or_else(|| EstimateError::Invalid("insufficient funds for value".into()))?;
+            .ok_or(EstimateError::InsufficientFunds(
+                crate::SourceBalanceError {
+                    available: balance,
+                    required: tx.value,
+                    chain_id: env.cfg_env.chain_id,
+                },
+            ))?;
         if tx.gas_price != 0 {
             tx.gas_limit = tx
                 .gas_limit
@@ -595,9 +609,10 @@ impl GasEstimator {
             let (mut state, _) = s.l1.fork_state(&l1).map_err(unavailable)?;
             let mut source_env = s.l1_env.clone();
             source_env.cfg_env.disable_base_fee = true;
+            let chain_id = source_env.cfg_env.chain_id;
             let source = l1
                 .simulate_source_env_on(tx.clone(), &mut builder, &mut state, source_env, true)
-                .map_err(unavailable)?;
+                .map_err(|error| source_error(chain_id, error))?;
             (RollupId::MAINNET, builder, source)
         } else {
             let session = L1TargetSession::new(&s.l1, l1).map_err(unavailable)?;
@@ -609,9 +624,10 @@ impl GasEstimator {
             let (state, env) = fork.state_and_env();
             let mut source_env = env.clone();
             source_env.cfg_env.disable_base_fee = true;
+            let chain_id = source_env.cfg_env.chain_id;
             let source = l2
                 .simulate_source_env_on(tx.clone(), &mut builder, state, source_env, true)
-                .map_err(unavailable)?;
+                .map_err(|error| source_error(chain_id, error))?;
             (RollupId(self.rollup_id), builder, source)
         };
         if !source.success {

@@ -924,5 +924,12 @@ mod tests {
         }
         assert!(simulate(funded, 1, true, RECIPIENT).unwrap().success);
         assert!(!simulate(funded, 1, true, REVERTER).unwrap().success);
+        let error = simulate(U256::from(123), 1, true, RECIPIENT).unwrap_err();
+        let balance = crate::SourceBalanceError::from_executor(1, &error).unwrap();
+        assert_eq!(balance.available, U256::from(123));
+        // EVM validation reserves the signed limit, not the 21,000 gas that
+        // this transfer would consume if it were affordable.
+        assert_eq!(balance.required, U256::from(100_000));
+        assert_eq!(balance.chain_id, 1);
     }
 }
