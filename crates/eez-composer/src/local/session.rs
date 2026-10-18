@@ -465,6 +465,11 @@ impl TargetExecutionSession for LocalExecutionSession {
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<eez_protocol::SessionSnapshot> {
+        // A retained callback session may predate writes made by the resumed
+        // source. Refresh before saving the rollback point, while preserving
+        // cumulative sibling-callback state within the same dispatch frame.
+        self.overlay_channel
+            .refresh_before_reentry(&mut self.state.cache);
         // Synthetic target execution reads and writes through the cache. Keep
         // the exact pre-call cache so a source-frame revert can rewind this
         // chain before a later sibling dispatch observes it. Transition and

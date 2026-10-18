@@ -1,5 +1,7 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod nested_creation;
+
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
 use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
