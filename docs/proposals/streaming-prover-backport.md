@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implementation in progress, within the requested #198/#205/#206 semantic backport; upstream open PRs are references, not accepted fork contracts |
+| Design status | Implemented within the requested #198/#205/#206 semantic backport; local validation and its limits are recorded in the audit. Upstream open PRs remain references, not accepted fork contracts |
 | Date | 2026-10-19 |
 | Source baseline | Fork `origin/main`, `51ef1ba08d5c506c8909bc8be2e16e8d25c0a7a8` |
 | Protocol baseline | `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774`, unchanged |
@@ -84,6 +84,9 @@ or release accepted requests. Existing in-memory queue recovery limits remain.
 
 ## Validation status
 
-Implementation and validation are in progress. See the audit for executed
-checks, source identities, exclusions and unmet criteria. No deployment or
-performance claim is made by this design record.
+The applicable requirements are implemented. Unit, conformance, protocol,
+production feature-selection and selected native process checks have completed;
+the audit records their exact commands and results, including the combined
+process command's unexplained exit status after all 45 cases passed. It also
+records source identities, the fresh correctness review, exclusions and live/CI
+checks not run. No deployment or performance claim is made by this design record.

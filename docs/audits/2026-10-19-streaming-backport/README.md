@@ -2,13 +2,15 @@
 
 | Field | Value |
 | --- | --- |
-| Date and status | 2026-10-19; investigation and implementation in progress |
+| Date and status | 2026-10-19; implemented and locally validated, with the limits recorded below |
 | Scope | Rollup0 #198/#205/#206 behavior adapted to the current fork |
 | Source | Fork main `51ef1ba08d5c506c8909bc8be2e16e8d25c0a7a8` |
 | Protocol | `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774`; isolated submodule initialized recursively |
 | Branch / worktree | `backport/upstream-206-205-198`; `/tmp/rollupx-backport-206-205-198` |
 | Initial status | Clean new worktree; protocol initially uninitialized. Original `feat/l2-fee-recovery` checkout at `fa916b13254a36423cad130080dde367bb18a7d6` contained extensive existing tracked/untracked work, left untouched |
 | Dependency | Existing fork #89 `759ae5f5cbf87c16b52cedfecc05aae737e90a87` merged into latest main before runtime changes |
+| Dependency merge | `06c9291da2f2f4c8eb85bff4a2a3cc6ce26ce515`, with fork main and #89 as parents |
+| Implementation | `d59c03d1c9d323bf93a931ef7006d7a2e79fccf3`; the following validation record changes documentation only |
 | Related record | [Requirements and design](../../proposals/streaming-prover-backport.md) |
 
 ## Source identity and review
@@ -69,7 +71,7 @@ ignored. A first sandboxed run could not bind TCP listeners; the same command
 outside that socket restriction passed. This environmental failure is retained,
 not counted as a passing test or a timing flake.
 
-Completed intermediate checks (final checks are recorded below when complete):
+Intermediate checks (final results follow):
 
 | Command / check | Result and limits |
 | --- | --- |
@@ -97,7 +99,7 @@ a controlled stub whose zero pre-state root disagreed with its empty-trie header
 the fixture was corrected, preserving the positive execution assertions. This
 was a test construction failure, not a retry-only pass.
 
-Final validation completed so far:
+Final validation:
 
 | Command | Result |
 | --- | --- |
@@ -106,9 +108,21 @@ Final validation completed so far:
 | `cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings` | Passed after the final mirror and regression changes |
 | `cargo +1.95.0 clippy --locked --offline -p eez-proof-signer --all-targets --all-features -- -D warnings` | Passed |
 | `RUSTDOCFLAGS='-D warnings' cargo +1.95.0 doc --locked --offline -p eez-proof-signer --no-deps` | Passed |
+| `Dockerfile.runtime` package/target/feature selection, command below | Passed in 5m 22s; debug profile, not a release-image build |
 | `forge build --root eez-core-protocol`; core test command below | Build passed at the unchanged pin; 778 tests passed across 63 suites, three mainnet-fork tests skipped |
-| Pinned Gitleaks scan of final changed/new files | 93 files / 36.90 MB; no findings |
-| Final scoped Markdown and shell checks | 30 added/edited local links and 12 anchors resolved; all 28 shell snippets in changed documents passed `bash -n` |
+| Pinned Gitleaks scan of final changed/new files | 94 files / 36.91 MB; no findings |
+| Final scoped Markdown and shell checks | 32 added/edited local links and 13 anchors resolved; all 29 shell snippets in changed documents passed `bash -n` |
+
+The production feature-selection build used the same packages and targets as
+`Dockerfile.runtime`, without adding test-only or all-feature selections:
+
+```bash
+cargo +1.95.0 build --locked --offline \
+  -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 \
+  --bin eez-composer --bin eez-follower --bin eez-proof-signer \
+  --example genesis_state_root --example genesis_block_hash \
+  --example e2e-causal-verify --example verify_blob_evidence
+```
 
 Core tests retained the required exclusions:
 
@@ -126,11 +140,15 @@ requires a configured fork RPC. Neither these skips, the named exclusions nor
 the excluded `script/*` paths count as coverage. Core build lint warnings are
 retained in the local log; the protocol checkout itself remains clean.
 
-The broader documentation scan resolved all 230 local paths and 87 of 88
-anchors. The remaining `chiado-deployment.md:163` link to
-`configurable-settlement-policy.md#migration` is already broken at the target
-base and is unchanged; it is outside the edited links. This limitation is not
-reported as a passing full-document anchor check.
+The broader documentation scan resolved 248 of 249 local paths and 88 of 89
+anchors. The `chiado-deployment.md:163` link to
+`configurable-settlement-policy.md#migration` and the signer documentation
+index's link to `src/validate/stateless/chain_config/tests.rs` are already broken
+at the target base and unchanged. Neither is among the edited links. The
+first completion scan retained the newly noticed path failure in
+`documentation-completion-first.log`; its absence at the base was then checked
+with `git ls-tree`. These limitations are not reported as a passing check of
+every link in the full documents.
 
 The fresh review further strengthened the client malformed-response regression
 to require the exact session-binding, state-root or public-input mismatch error.
@@ -205,12 +223,17 @@ rebuilt signer passed the exact pruned-history restart test and exited 0
 `1a4b1fc54d4d9296ee4c7696cffd5637a248013170abf90d8e28aa210ad5802d`.
 This diagnostic does not establish the cause of the earlier command status.
 
-Native executable SHA-256 identities (rechecked after rebuilds):
+Native executable SHA-256 identities (rechecked after rebuilds and the final
+restart diagnostic, before the later production feature-selection build):
 
 | Executable | SHA-256 |
 | --- | --- |
 | `target/debug/deps/node_e2e-fee25cec27d6df60` | `ff901c03ad269e7cce189608d9872a7f01b8d0b2c278634140e2539d8bd9db45` |
 | `target/debug/eez-proof-signer` | `fb209480bf96d88954b932755da006dd9ec67c89d4528f03e8a3b175e67f2659` |
+
+These hashes identify the tested bytes. The subsequent feature-selection build
+replaced the signer at that path; its successful compilation is separate
+evidence and does not turn the source process checks into release-artifact tests.
 
 Dependency package identities (name/version/source/checksum) are identical to
 fork main. Cargo.lock adds four direct runtime dependency edges, plus the four wire-tool
@@ -350,8 +373,8 @@ Composer restarts. That comment-only edit did not change the tested behavior.
   unproven; unavailable evidence fails closed. The pruned restart test covers
   v1 compatibility, not a bypass of v2 provenance requirements.
 - Existing dependency advisories and the unchanged baseline documentation
-  anchor defect remain outside scope, as listed above. The initial shared-
-  Composer fixture failure retains logs but lacks its datadirs and separately
+  defects remain outside scope, as listed above. The initial fixture failure
+  with two Composers retains logs but lacks its datadirs and separately
   captured executable digest.
 
 Historical vector-generation results from fork #89 are provenance only. The
