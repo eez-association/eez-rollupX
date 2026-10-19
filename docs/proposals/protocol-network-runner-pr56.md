@@ -1,10 +1,11 @@
 # Protocol PR 56 network runner integration
 
-Status: implementation authorized on 2026-10-19; validation and publication pending.
+Status: implementation authorized and locally validated on 2026-10-19;
+hosted CI on the final PR head remains required before merge.
 Baseline: RollupX `e5e1d97ff49e69821ba403a9ae723ab4afa2db21`, protocol
 `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. Adopt protocol PR 56 at
 `bcd77d8b0d23ed9086f12ac8a0c2e65c6a2c2688` with the focused runner corrections
-described in the [review](../audits/2026-10-19-protocol-pr56-readiness/README.md).
+described in the [integration record](../audits/2026-10-19-protocol-pr56-integration/README.md).
 
 ## Scope and invariants
 
@@ -22,8 +23,8 @@ must keep its diagnostic and must not sign, send or fall back to node prices.
 Adopt PR 56's canonical receipt refresh and exact transaction links. The RollupX
 collector must consume the changed outputs while retaining complete transactions,
 canonical receipt checks, independent semantic/causal verification, blob KZG
-authentication and follower replay. Summary labels or link-complete flags alone
-cannot establish successful execution. Keep the same enabled scenario inventory;
+authentication and the lookup collector's execution-prefix replay. Summary labels
+or link-complete flags alone cannot establish successful execution. Keep the same enabled scenario inventory;
 PR 54's excluded scenarios remain excluded.
 
 ## Alternatives and compatibility

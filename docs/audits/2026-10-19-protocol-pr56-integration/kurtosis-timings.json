@@ -1,0 +1,62 @@
+[
+  {
+    "phase": "protocol-build",
+    "seconds": 401,
+    "exit_code": 0
+  },
+  {
+    "phase": "integration-build",
+    "seconds": 5,
+    "exit_code": 0
+  },
+  {
+    "phase": "network-start",
+    "seconds": 106,
+    "exit_code": 0
+  },
+  {
+    "phase": "settlement-readiness",
+    "seconds": 247,
+    "exit_code": 0
+  },
+  {
+    "phase": "cross-chain-wave-inbound",
+    "seconds": 86,
+    "exit_code": 0
+  },
+  {
+    "phase": "cross-chain-wave-outbound",
+    "seconds": 70,
+    "exit_code": 0
+  },
+  {
+    "phase": "cross-chain-wave-mixed",
+    "seconds": 127,
+    "exit_code": 0
+  },
+  {
+    "phase": "cross-chain-wave-mixed-pure",
+    "seconds": 189,
+    "exit_code": 0
+  },
+  {
+    "phase": "state-chaining",
+    "seconds": 332,
+    "exit_code": 0
+  },
+  {
+    "phase": "waves-and-state-chaining",
+    "seconds": 804,
+    "exit_code": 0
+  },
+  {
+    "phase": "network-checks",
+    "seconds": 1157,
+    "exit_code": 0
+  },
+  {
+    "phase": "protocol-suite",
+    "seconds": 855,
+    "exit_code": 0
+  }
+]
