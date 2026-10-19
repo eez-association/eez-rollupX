@@ -1,0 +1,167 @@
+{
+  "runtimeSource": "d2e0a24d043c052c77f3556670014aa988896004",
+  "dashboardSource": "4957a1c9cba1a3ad6bbc94d70d85cfd4574c0b82",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "images": {
+    "node": {
+      "tag": "eez-node:l2-fees-d2e0a24d",
+      "id": "sha256:90ce7c64132496aed50f52702d90a09d22e5d8001f6559db7b25f1ee794bfc38",
+      "source": "d2e0a24d043c052c77f3556670014aa988896004",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "binarySha256": [
+        "caf58ed5601adf2bd8cc3d76e288a0a8bd1858abb9c38201cb3e33e620da3143  /usr/local/bin/eez-composer",
+        "0ab2cc04629b35307180bafba84c34091228f6181aec67174ee6320a8691ba1b  /usr/local/bin/eez-follower"
+      ]
+    },
+    "signer": {
+      "tag": "eez-proof-signer:l2-fees-d2e0a24d",
+      "id": "sha256:429164a1d815ad6a1aa4a496713ee8a0b806bcb914f31f76cc48e6ada38191be",
+      "source": "d2e0a24d043c052c77f3556670014aa988896004",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+      "binarySha256": [
+        "06a6b51cf90fc7fb36550249fd125171bcf60517577cb77476987f9a36aab9a2  /usr/local/bin/eez-proof-signer"
+      ]
+    },
+    "deploy": {
+      "tag": "eez-deploy:l2-fees-d2e0a24d",
+      "id": "sha256:d3295fc15ae6b93c9caa246f78e2b54b7ea112d7f80600582836b1a21ba43630",
+      "source": "d2e0a24d043c052c77f3556670014aa988896004",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    },
+    "ui": {
+      "tag": "eez-rollup-ui:l2-fees-4957a1c",
+      "id": "sha256:0d73c5eeea53a2b8e1d1644c0e7b22e1980f6599424236b42ade0264cbfba851",
+      "source": "4957a1c9cba1a3ad6bbc94d70d85cfd4574c0b82",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    }
+  },
+  "kurtosis": {
+    "enclave": "eez-l2-fees-20261015-d2e0",
+    "types": [
+      "0x0",
+      "0x2"
+    ],
+    "sameNativeBlock": true,
+    "underpaymentCode": "l2_tip_underfunded",
+    "postings": [
+      {
+        "hash": "0xe28dd6a82addc441b4ac8ebf05fc94f218ed8f191eb4253a8b18053676e4ead7",
+        "actualPostingCostL1": "837752203318142",
+        "requiredL2": "1005302643981771",
+        "paidL2": "2549270373617800"
+      }
+    ],
+    "browserSources": [
+      {
+        "type": "type2",
+        "hash": "0x15132a77eeda73781d0fd820ee6c977244fbf0feb622930ad1fdcc156eb1a7d1"
+      },
+      {
+        "type": "legacy",
+        "hash": "0x9f79033bfc698d704b0945ded7178003d1f50d3fcb47416633e6071e6168eae9"
+      }
+    ],
+    "blobPostings": 3,
+    "blobSources": 4,
+    "independentReplay": {
+      "checked_blocks": 72,
+      "checked_derived_blocks": 72,
+      "checked_receipts": 4,
+      "safe_l2_block": 276,
+      "safe_l2_block_hash": "0x20e5af77408d8b606bcc1480d85e2ee25503ffc9eaf0bf7604a9c25ee7696dc5",
+      "source": "canonical_l1_only",
+      "verified": true
+    }
+  },
+  "chiado": {
+    "verifiedAt": "2026-10-15T08:20:34.852995+00:00",
+    "services": [
+      {
+        "name": "eez-node-chiado",
+        "image": "sha256:90ce7c64132496aed50f52702d90a09d22e5d8001f6559db7b25f1ee794bfc38",
+        "startedAt": "2026-10-15T08:15:58.493120839Z",
+        "restarts": 0,
+        "health": null
+      },
+      {
+        "name": "eez-proof-signer-chiado",
+        "image": "sha256:429164a1d815ad6a1aa4a496713ee8a0b806bcb914f31f76cc48e6ada38191be",
+        "startedAt": "2026-10-15T08:15:52.906224047Z",
+        "restarts": 0,
+        "health": "healthy"
+      },
+      {
+        "name": "eez-rollup-ui-ui-1",
+        "image": "sha256:0d73c5eeea53a2b8e1d1644c0e7b22e1980f6599424236b42ade0264cbfba851",
+        "startedAt": "2026-10-15T08:16:25.08052525Z",
+        "restarts": 0,
+        "health": "healthy"
+      }
+    ],
+    "queueEmpty": true,
+    "maintenance": false,
+    "genesisPreserved": true,
+    "bindingsPreserved": true,
+    "discoverySelectors": [
+      "latest",
+      "pending",
+      "0x1"
+    ],
+    "quoteRpc": "eez_quoteL2ToL1Fee",
+    "source": "0xcc4df28a520c3cd8e6d01d5c2097eeafd8ea585a445b8f229da91124aaa19159",
+    "type": "0x0",
+    "underpaymentCode": "l2_tip_underfunded",
+    "postings": [
+      {
+        "hash": "0x8864d738579147662620c3ea6a5998b4f1cebc615a683e32f3c148f57af03423",
+        "actualPostingCostL1": "304767001215865",
+        "requiredL2": "365720401459038",
+        "paidL2": "1400774408758711"
+      }
+    ],
+    "independentReplay": {
+      "verified": true,
+      "source": "canonical_l1_after_pre_upgrade_checkpoint",
+      "transaction": "0xcc4df28a520c3cd8e6d01d5c2097eeafd8ea585a445b8f229da91124aaa19159",
+      "type": "0x0",
+      "blockHash": "0x128cb9e8936f9561e1b463f685b0a622722769c5da5d803fccbf5368556c25fc",
+      "blockNumber": 658675,
+      "stateRoot": "0xe3ecc9654ec5437c12adff913670958a418df741bd0a5cfeed0bce7215d3b2fd",
+      "receiptsRoot": "0x17c69534ff40ae76fc79efdc09d0b5afdbd49acacefdc53da80e313bdc31c580",
+      "gasUsed": 99149,
+      "grossL2Tip": "1400774408758711",
+      "nestedCalls": 3
+    },
+    "dashboard": {
+      "rendered": true,
+      "scriptErrors": [],
+      "feesEnabled": true,
+      "readOnly": true
+    },
+    "websocket": [
+      {
+        "layer": "l1",
+        "chainId": "0x27d8",
+        "verified": true
+      },
+      {
+        "layer": "l2",
+        "chainId": "0xdd6d9",
+        "verified": true
+      }
+    ],
+    "stoppedOriginalDatabasesRetained": true,
+    "trialPolicy": {
+      "nativeConversion": "1:1",
+      "riskBps": 2000,
+      "serviceAndProfitCharges": 0
+    }
+  },
+  "limits": [
+    "local development images; not CI artifact promotion",
+    "fixture wallet adapters; real browser extensions not tested",
+    "public follower starts at complete pre-upgrade checkpoint; not full historical replay",
+    "ordinary L2 settlement subsidy remains intentional",
+    "L2 quote gas limit remains at most 5000000"
+  ]
+}

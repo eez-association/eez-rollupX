@@ -1,0 +1,109 @@
+{
+  "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+  "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "baseline_runtime_source": "110f952143853d0edbc51d6d8c2cb67be4d828f3",
+  "baseline_node_image": "sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+  "checks": {
+    "composer-regression": {
+      "log": "artifacts/nonce-snapshot-fix/composer-regression.log",
+      "sha256": "b4998e6303923d15bbbd924f1d50825a2890ecbb26782b9ff26b446f8b69f694",
+      "artifact_scope": "local only"
+    },
+    "unit": {
+      "log": "artifacts/nonce-snapshot-fix/unit.log",
+      "sha256": "dca452d4a1cdb4d0ebf8e1e8fba0750f49994e01c60c3b73965461aece2b12bc",
+      "artifact_scope": "local only"
+    },
+    "unit-with-sockets": {
+      "log": "artifacts/nonce-snapshot-fix/unit-with-sockets.log",
+      "sha256": "078534b4a82e56ef12fdddbe14e664facc9d8d9ab318b296fe92c7765c37c611",
+      "artifact_scope": "local only"
+    },
+    "sdk": {
+      "log": "artifacts/nonce-snapshot-fix/sdk.log",
+      "sha256": "44d7f5470bed1aa70e6270273b4c7c8218a6dae5cdf7b07a518fa9dd4b3c5e99",
+      "artifact_scope": "local only"
+    },
+    "clippy": {
+      "log": "artifacts/nonce-snapshot-fix/clippy.log",
+      "sha256": "2757a541da0a7216f5d32eea3424d09548ef2806095238b4c1e92edbf3defb63",
+      "artifact_scope": "local only"
+    },
+    "native-fee-quotes": {
+      "log": "artifacts/nonce-snapshot-fix/native-fee-quotes.log",
+      "sha256": "a52e76052bc5b155273e301283f43e35c012968e62ef42d40aa3513707d0e2c9",
+      "artifact_scope": "local only"
+    },
+    "release-producer-with-identity": {
+      "log": "artifacts/nonce-snapshot-fix/release-producer-with-identity.log",
+      "sha256": "1fc8a86eb3605c686b1376dbb0f8a904047fa283043e463dc8faae04c73fa5ea",
+      "artifact_scope": "local only"
+    },
+    "candidate-regression": {
+      "log": "artifacts/nonce-snapshot-fix/candidate-regression.log",
+      "sha256": "2c4801c36e92665d429a8defa80ff93e4b314ae2bc6043e079ca2b13b5e1561c",
+      "artifact_scope": "local only"
+    },
+    "candidate-deployment-check": {
+      "log": "artifacts/nonce-snapshot-fix/candidate-deployment-check.log",
+      "sha256": "2eb3ef9621b7ab8c5965f987204f6bc67637ef77443385d0cdeb5beab088d4a5",
+      "artifact_scope": "local only"
+    },
+    "candidate-l1-fees": {
+      "log": "artifacts/nonce-snapshot-fix/candidate-l1-fees.log",
+      "sha256": "0d79af5de5940fea78528bafbd3278b992ceb91112946c49bbd2fc330ab5588b",
+      "artifact_scope": "local only"
+    },
+    "candidate-l2-fees": {
+      "log": "artifacts/nonce-snapshot-fix/candidate-l2-fees.log",
+      "sha256": "07b9070c0ec6aa7c963b75aed2c319e1b85141e8cdc210c3008cc366a18bd041",
+      "artifact_scope": "local only"
+    }
+  },
+  "results": {
+    "composer_unit": {
+      "passed": 381,
+      "ignored": 1,
+      "ignored_reason": "manual held-pool timing profile"
+    },
+    "node_unit": {
+      "passed": 93
+    },
+    "sdk": {
+      "passed": 6
+    },
+    "workspace_clippy": "passed",
+    "initial_unit_failure": "10 HTTP socket tests blocked by filesystem/network sandbox; repeated with localhost access, all passed",
+    "kurtosis": {
+      "passed": true,
+      "nonce_rounds": 6,
+      "race_quotes": 24,
+      "l1_sources": 12,
+      "l2_sources": 2,
+      "fee_collection": "both directions",
+      "safe": "1.4.1 one EOA owner, not Falcon",
+      "canonical_effects_asserted": true,
+      "independent_follower_replay": "native process tests; not this Kurtosis run"
+    },
+    "deployment": {
+      "passed": true,
+      "source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+      "canonical_progress": true,
+      "public_quote_calls": 8,
+      "public_fee_options": 16,
+      "both_directions": true
+    },
+    "native_fee_quotes": {
+      "passed": 15,
+      "failures": 0,
+      "filtered_other_tests": 146,
+      "selected_filter": "package(=eez-node-e2e) & binary(=node_e2e) & test(/^fee_quotes::/)",
+      "runtime": "verified frozen release artifacts",
+      "retries": 0
+    },
+    "sealed_release_protocol_vectors_blobs": {
+      "passed": 30,
+      "retries": 0
+    }
+  }
+}

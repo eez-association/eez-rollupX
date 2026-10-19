@@ -46,23 +46,31 @@ patterns). Its live `State` is mutably borrowed by the paused EVM, so the
 re-entered session cannot touch it directly. The overlay channel bridges that
 gap with cache snapshots:
 
-1. Before every dispatch the inspector opens a frame holding a
-   journal-refreshed snapshot of its rollup's cache.
+1. Before every dispatch the inspector opens a frame holding a snapshot of its
+   rollup's cache with the journal's live account changes applied. This includes
+   newly created code and constructor storage that have not reached the DB cache.
 2. A session that re-enters the rollup opens preloaded with the innermost
-   frame's snapshot, so it sees the in-flight state.
+   frame's snapshot, so it sees the in-flight state. A retained session refreshes
+   from a new dispatch's snapshot before saving its rollback checkpoint. Within
+   one dispatch, sibling callbacks keep their cumulative session state and any
+   rollback already applied by the composition builder.
 3. The re-entered session publishes its post-execution cache into that frame;
    a later sibling callback replaces it with its own cumulative cache.
 4. When the dispatch returns, the inspector closes its frame. If the dispatched
    call succeeded and the frame has a result, the inspector applies the
-   per-account, per-slot difference onto the live state as journal entries —
-   so an outer revert unwinds the applied changes together with the source's
-   own writes. A dispatch that did not re-enter the rollup has no result, and
-   a failed one discards its result.
+   per-account, per-slot difference onto the live state as journal entries.
+   Code, nonces, balances, storage and account creation are included, so the
+   original caller can use a contract created in the callback. An outer revert
+   unwinds those changes together with the source's own writes. A dispatch that
+   did not re-enter the rollup has no result, and a failed one discards its result.
 
 Frames are nested, so recursive re-entry stays paired with its dispatch and a
-result is never applied by another dispatch. Mutations the diff cannot
-represent (SELFDESTRUCT) fail loudly instead of miscomposing; code installation
-and nonce changes are not propagated.
+result is never applied by another dispatch. New or changed SELFDESTRUCT states
+in a returned cache remain unsupported and fail explicitly. Missing or
+inconsistent newly installed code also aborts composition. Transient storage is
+not represented by this cache exchange. See the
+[account-state fix](../../docs/proposals/nested-created-account-visibility.md)
+for scope and acceptance checks.
 
 ## Exports
 
@@ -76,9 +84,10 @@ and nonce changes are not propagated.
 ## Tests
 
 ```bash
-cargo test --package eez-evm-inspector
+cargo +1.95.0 test --locked --package eez-evm-inspector
 ```
 
-The tests cover proxy lookup against live EVM state and overlay snapshot
-handling. Dispatch behavior is exercised by `eez-protocol`'s composition tests
-and `eez-node`'s cross-chain E2E suite.
+The tests cover proxy lookup against live EVM state, snapshot completeness,
+created code and factory nonces, cold-account updates, and journal rollback.
+Dispatch behavior is exercised by `eez-protocol`'s composition tests and the
+`eez-node-e2e` `cross_chain` process module, including `nested_creation`.

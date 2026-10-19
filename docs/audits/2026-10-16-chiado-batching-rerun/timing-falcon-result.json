@@ -1,0 +1,104 @@
+{
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "pass": true,
+  "creations": 16,
+  "transfers": 32,
+  "sources": 48,
+  "types": {
+    "0x0": 24,
+    "0x2": 24
+  },
+  "quoteCalls": 48,
+  "quoteErrors": 0,
+  "maximumQuoteAttempts": 1,
+  "quoteMs": {
+    "median": 63.185639999996056,
+    "p95": 99.97359700000379,
+    "max": 145.9335050000227
+  },
+  "gasUsed": {
+    "minimum": 5443117,
+    "maximum": 6001392
+  },
+  "quotedGasLimit": {
+    "minimum": 5738583,
+    "maximum": 6324772
+  },
+  "gasLimitsAndFeeFieldsMatchSignedQuotes": true,
+  "sourceFeeMultiplier": "1",
+  "sourceReplacements": 0,
+  "semantics": {
+    "safeVersion": "1.4.1",
+    "ownersThresholdModulesGuardFallback": true,
+    "controllerAndSafeNonces": true,
+    "exactEventsAndRecipientValues": true,
+    "negativeChecks": [
+      "replayed controller nonce rejected",
+      "unauthorized Safe caller rejected with GS025",
+      "changed Falcon-signed calldata rejected"
+    ]
+  },
+  "realBrowserFalcon": true,
+  "walletExtensionExercised": false,
+  "posts": 13,
+  "maxSourcesPerPost": 5,
+  "tipsWei": "29753798665806581",
+  "postExecutionAndBlobCostWei": "15926106099555190",
+  "onchainSurplusWei": "13827692566251391",
+  "undercoveredPosts": 0,
+  "costExcludes": "ordinary setup, proving and operating costs",
+  "independentL1ReceiptAgreement": true,
+  "waves": [
+    {
+      "round": 0,
+      "count": 1,
+      "accepted": 1,
+      "started": 1792151697750,
+      "ended": 1792151709730,
+      "failures": [],
+      "verifyErrors": []
+    },
+    {
+      "round": 0,
+      "count": 1,
+      "accepted": 1,
+      "started": 1792151709730,
+      "ended": 1792151717734,
+      "failures": [],
+      "verifyErrors": []
+    },
+    {
+      "round": 0,
+      "count": 14,
+      "accepted": 14,
+      "started": 1792151717734,
+      "ended": 1792151737276,
+      "failures": [],
+      "verifyErrors": []
+    },
+    {
+      "round": 1,
+      "count": 16,
+      "accepted": 16,
+      "started": 1792151840703,
+      "ended": 1792151867746,
+      "failures": [],
+      "verifyErrors": []
+    },
+    {
+      "round": 2,
+      "count": 16,
+      "accepted": 16,
+      "started": 1792151867746,
+      "ended": 1792151906105,
+      "failures": [],
+      "verifyErrors": []
+    }
+  ],
+  "logSha256": "27703097bf6d9e59ff87e122eed2e1d8cf4e86c2e07e6690e85004dc9012efd5",
+  "setupCorrections": "falcon-setup-correction.json",
+  "nativeBlobPostsVerified": 13,
+  "nativeBlobSourceBindings": 48,
+  "independentFollowerReplay": true
+}

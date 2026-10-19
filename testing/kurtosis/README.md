@@ -20,7 +20,7 @@ The local network requires:
 - The [Kurtosis CLI](https://docs.kurtosis.com/install/).
 - [Foundry](https://getfoundry.sh/introduction/installation/) v1.7.1 (`cast` and
   `forge`).
-- Bash, Git, GNU `timeout`, `jq`, `curl`, and `openssl`.
+- Bash, Git, GNU `timeout`, `bc`, `jq`, `curl`, and `openssl`.
 - The `eez-core-protocol` submodule at the commit pinned by this checkout.
 - The standalone `eez-rollup-ui` repository cloned beside this repository, or
   its path exported as `EEZ_UI_REPO`. A prebuilt image can be used instead.
@@ -67,6 +67,49 @@ minutes, subject to L1 inclusion. Empty Sync opportunities do not trigger a
 post. Valid cross-chain work posts at the next eligible opportunity. Aggregate
 blob fullness is disabled in this profile so it cannot shorten the idle period.
 The fee floor is explicit for this local PBS fixture.
+
+The default `ci-args.yaml` and interactive `devnet-args.yaml` enable fee
+collection in both directions. Their private-network cost model uses 1:1 native
+token conversion, zero off-chain service/risk allowances and a 20% quote margin.
+L2 tips go to `0x4444444444444444444444444444444444444444`; the builder refunds
+90% of the selected L1 source reward, less payout cost, to the separate plain EOA
+`0x5555555555555555555555555555555555555555`. The refund percentage is not the
+profit margin. Assumptions expire on 2100-01-01; these are synthetic test values,
+not production pricing. Ordinary L2 settlement remains subsidized.
+
+Start a fresh enclave to test these defaults; editing an args file does not
+change a running Composer's startup snapshot. The specialized blob, settlement
+policy, partial-consumption and cross-chain-limit profiles keep fee collection
+disabled so their independent policy assertions retain their original inputs.
+To exercise disabled behavior in a custom profile, set both collection flags
+to `"false"`; to disable advisory L2 quotes too, remove the complete cost model.
+The protocol network runner requires successful quotes and cannot run against
+that fee-disabled profile.
+
+The source snapshot regression is
+[`verify-nonce-snapshot.mjs`](scripts/verify-nonce-snapshot.mjs). It interleaves
+ordinary L1 transactions with native cross-chain settlement, then checks explicit
+and omitted nonces through both quote methods and both fee encodings. It also
+requires a genuine future nonce gap to fail and checks canonical destination
+effects. Use an owned fee-enabled enclave with chain IDs 7331/696990, built
+`contracts/out/Value.sol/Value.json`, and two distinct funded fixture accounts:
+
+```bash
+export KURTOSIS_ENCLAVE=eez-nonce-snapshot
+# Set this enclave's EEZ_DEVNET_L1_RPC, EEZ_DEVNET_L2_RPC,
+# EEZ_DEVNET_L1_FRONT and EEZ_REGISTRY_ADDRESS from its service bindings.
+# Set EEZ_TEST_FEE_KEY and EEZ_COMPANION_TEST_KEY to its public fixture keys.
+mkdir -p artifacts/nonce-snapshot
+export EEZ_NONCE_SNAPSHOT_EVIDENCE="$PWD/artifacts/nonce-snapshot/result.json"
+node testing/kurtosis/scripts/verify-nonce-snapshot.mjs
+```
+
+The script requires an ordinary transaction and a cross-chain source to settle
+in the same L1 block. It first sends a zero-value L2 warmup and waits for its
+canonical settlement (up to ten minutes on a fresh PBS relay awaiting validator
+registrations). Retain Composer logs as well: `refreshing fee quote source
+snapshot` at debug level establishes that the stale-snapshot branch was reached;
+successful receipts alone do not establish that coverage.
 
 Measure idle cadence after the first canonical settlement: a fresh local MEV
 relay must receive validator registrations before it can include bundles.
@@ -468,6 +511,108 @@ network must remain available.
 
 ## Generate test traffic
 
+### Exercise L1 builder refunds
+
+Use an isolated enclave with the [L1 refund profile](../../docs/configurable-settlement-policy.md#l1-builder-refund-profile)
+and its matching cost policy in `settlement_env`. The dedicated recipient must
+be a plain EOA, different from the source and poster. Keep both chain IDs and
+the L2 beneficiary consistent with the profile. Build integration fixtures with
+`forge build --root contracts`, export the intended `KURTOSIS_ENCLAVE`, source
+`testing/kurtosis/ports.sh` and load the enclave's deployment bindings as above.
+
+`scripts/verify-l1-fees.mjs` requires those endpoints, `EEZ_REGISTRY_ADDRESS`,
+an independently funded public devnet fixture key in `EEZ_TEST_FEE_KEY`, and
+`EEZ_FEE_EVIDENCE_FILE`. It refuses public chain IDs. The script exercises both
+transaction types through the shared SDK, rejects an underpaid source, checks
+nested calls and official Safe 1.4.1 creation, then independently reads the native
+blob post, source and builder payment from the canonical L1 block. The actual
+recipient balance increase must cover measured post/blob/service costs and risk.
+It then funds four deterministic private-network actors with one test ETH each,
+submits two concurrent waves of nested sources (mixed legacy/EIP-1559), and
+requires each wave to settle in one post. The measured largest total priority
+payment must produce the only refund. The first shared batch must be undercovered
+to prove the accepted subsidy. The next batch must settle after that observation;
+it may be profitable as posting fees change. A profitable first batch or a split
+batch does not establish this regression. It retains incremental evidence before
+broadcasting each source:
+
+```bash
+node testing/kurtosis/scripts/verify-l1-fees.mjs
+```
+
+This is a real builder test. The development mempool adapter does not preserve
+bundle ordering or implement refunds and cannot establish success. The script
+does not replace independent follower replay or qualify a public provider;
+run the replay procedure below and qualify each deployment's actual route.
+
+### Exercise L2 settlement fees
+
+Use a disposable enclave configured with the complete
+[fee cost model](../../docs/configurable-settlement-policy.md#cross-chain-fee-configuration),
+a nonzero `EEZ_L2_FEE_RECIPIENT`, and `EEZ_FEES_L2_TO_L1_ENABLED: "true"` in
+`settlement_env`. Chain IDs and rollup identity come from runtime wiring. Enable the UI to test
+its quote proxy as well. Build integration fixtures with `forge build --root
+contracts`, export the intended `KURTOSIS_ENCLAVE` and `KURTOSIS_ARGS_FILE`, and
+source `testing/kurtosis/ports.sh` to obtain the RPC endpoints.
+
+`scripts/verify-l2-fees.mjs` requires those L1/L2/front URLs, the deployed
+`EEZL2_ADDRESS`, a funded private-network fixture key in `EEZ_TEST_FEE_KEY`, and
+an output path in `EEZ_FEE_EVIDENCE_FILE`. Optionally set
+`EEZ_TEST_FEE_RPC_URL` to the UI's `/composer/l2` RPC URL. The exercise uses
+`eez_debugQuoteFee` for receipt comparisons and the compact SDK fields for signing.
+It refuses public chain IDs, creates two independent nested-call fixtures,
+rejects an underpaid signed transaction, sends each paid source through the
+SDK's single-signature path, and checks receipts, beneficiary, target state
+and canonical queue disposition. Run it from the repository root:
+
+```bash
+node testing/kurtosis/scripts/verify-l2-fees.mjs
+```
+
+The evidence records whether the two sources shared a native block; the
+exercise does not guarantee batching. It does not replace independent blob
+verification, follower replay or restart checks. The pinned protocol network
+runner requests quotes for cross-chain triggers with their prepared nonces; see
+its [fee and retry rules](../../eez-core-protocol/script/e2e/RPC.md#eez_quotefee).
+The standard CI profile collects fees in both directions. Cross-chain waves
+reuse that checked quote/signing client and retain quote evidence alongside
+their logs. Submission retries explicitly recognized temporary admission
+refusals for at most 120 seconds using identical signed bytes. Underpayment,
+unsupported profiles, transport ambiguity and changed response hashes fail the
+test. L2 waves wait for the preceding source nonce to settle before
+quoting its successor; held future L2 nonces and source nonces changed by
+unsettled execution are outside the quote profile. Funding, deployments and pure
+L2 fillers retain ordinary node fees.
+
+The state-chaining test prepares its burst before one Sync boundary, with an
+explicit 100 gwei priority bid when fees are enabled
+(`EEZ_TEST_PRIORITY_GAS_PRICE_WEI` can override it), against the local profile's
+2 gwei maximum posting tip. This is an execution-order test under funding
+enforcement, not a quote-margin test. With L2 fees enabled it uses three source
+accounts to preserve the same-block contract state dependency: signed admission
+also rejects held future L2 nonces. Disabled profiles retain the original
+single-sender L2 burst; L1 keeps its single-sender burst in both modes.
+Invalid calls are signed directly: enabled profiles assert the specific fee
+admission rejection and absence of queue ownership/receipts, while disabled
+profiles retain the poison-eviction assertion. Neither path has an automatic
+fallback from a rejected quote.
+The mixed-direction case asserts separate posts in FIFO order when either fee
+route is enabled, and verifies proofs for both Sync heights. Disabled profiles
+retain the original shared-Sync assertion. Root and contract-state convergence
+remain required in both cases.
+
+For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
+with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
+`EEZ_L2_BRIDGE_RECEIVER` and `EEZ_BRIDGE_FEE_EVIDENCE_FILE`. Obtain the bridge
+addresses from `demo.env` in the enclave's `eez-ui-demo` files artifact; the
+base `deployments.env` does not contain these demo contracts. This requires the
+1:1, 20% target profit, zero fixed-cost/risk-reserve trial policy. It funds escrow through a
+real inbound bridge, then verifies a first type-2 withdrawal and a repeated
+legacy withdrawal. It checks principal and fee balance changes, native source
+gas, L1 receipt gas within 1,000 of the quote, and payment within 2% above the
+actual complete posting/blob cost plus its 20% allowance. This regression catches
+excessive pricing that a lower-bound funding check alone cannot detect.
+
 The workload scripts discover the enclave ports and deployment artifact
 automatically. They also read the deterministic L1 poster key (never the proof
 signer key) as their funding account from `KURTOSIS_ARGS_FILE`, so that variable
@@ -701,17 +846,19 @@ Nested phase durations must not be added together as wall time.
 The protocol wrapper streams phase boundaries and 30-second progress messages
 while retaining the raw logs. Scenario output/accounting remains unchanged.
 
-Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `0.005`),
+Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `1` test ETH),
 which the wrapper passes to upstream as `FUND_ETH` and which therefore overrides
-an ambient `FUND_ETH`. Upstream's own default of 0.001 ETH does not cover a
-scenario's deployments plus its trigger's upfront cost (a 1,000,000 gas limit at
-the L1 node's suggested fee) when that fee includes a 1 gwei tip. The fronts
-then refuse the trigger for insufficient balance.
+an ambient `FUND_ETH`. Upstream's own default is 0.003 ETH. The private-network
+allowance covers multiple deployments and quoted triggers, including elevated
+ordinary fee suggestions after the state-chaining test's 100 gwei source bids.
+Override it for a custom workload. Funding transfers are not measured settlement
+fees or production pricing assumptions.
 
 The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
-expanding the default `all` target. The current pin marks six scenarios as not
-ready for live network runs: four static reads around local writes and the two
-missing-callback-proxy static round trips. The summary lists all
+expanding the default `all` target. The current pin discovers 62 scenarios and
+marks 28 as excluded: 22 call-pattern probes, four static reads around local
+writes and two missing-callback-proxy static round trips. The default live suite
+therefore contains 34 scenarios. The summary lists all
 discovered scenarios, the live eligible count, and the excluded names;
 `suite.complete` means every eligible scenario was selected. Explicit names
 can still run excluded scenarios during development, but those runs do not
@@ -734,6 +881,10 @@ hide the scenario error.
 Parallel scenarios can share settlement and delivery blocks. The collector
 therefore selects table transactions by runtime entry hashes recomputed from
 canonical L2 calldata, not the upstream summary's first load/all-calls hints.
+PR #56 summaries distinguish `L2 system table load` from
+`L2 delivery (load+execute)` and can list several `L1 postBatch` transactions.
+The collector accepts those discovery hints and independently validates the
+canonical transactions; summary roles alone do not establish correct execution.
 Missing or duplicate occurrences fail, and full selected receipts/calldata
 still go through the causal verifier. Job-local `*.causal-input.json` files
 allow those checks to be reproduced offline from retained failure diagnostics.

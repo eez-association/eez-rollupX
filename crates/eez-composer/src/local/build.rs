@@ -116,6 +116,10 @@ pub struct BuiltSyncBlock {
     /// dispatch on every system tx and outbound user tx having succeeded — a
     /// reverted delivery means the block's claims contradict its execution.
     pub tx_successes: Vec<bool>,
+    /// Cumulative native receipt gas in transaction order, including zero-price
+    /// system transactions. Fee observations use differences between receipts,
+    /// never the intercepted composition gas or signed gas limits.
+    pub tx_cumulative_gas_used: Vec<u64>,
 }
 
 /// Fixed-profile attributes for one candidate. The caller captures RANDAO from
@@ -239,6 +243,12 @@ where
         .iter()
         .map(|receipt| receipt.success)
         .collect();
+    let tx_cumulative_gas_used = outcome
+        .execution_result
+        .receipts
+        .iter()
+        .map(|receipt| receipt.cumulative_gas_used)
+        .collect();
     let block = outcome.block;
     let sealed_block = block.sealed_block().clone();
     let header = sealed_block.sealed_header().clone();
@@ -248,6 +258,7 @@ where
         header,
         block,
         tx_successes,
+        tx_cumulative_gas_used,
     })
 }
 
@@ -508,6 +519,36 @@ impl SyncBlockState {
     #[must_use]
     pub const fn base_fee(&self) -> u64 {
         self.evm_env.block_env.basefee
+    }
+
+    /// Execute an unsigned legacy or type-2 intent on this disposable quote draft.
+    /// Signature recovery is inapplicable; nonce, balance, fees, gas and native
+    /// execution checks remain enabled. No payload or submission is produced.
+    pub(crate) fn preview_unsigned(&mut self, tx: TxEnv) -> Result<TxOutcome, BuildError> {
+        if !matches!(tx.tx_type, 0 | 2)
+            || tx.gas_limit
+                > self
+                    .evm_env
+                    .block_env
+                    .gas_limit
+                    .saturating_sub(self.gas_used)
+        {
+            return Err(BuildError::Builder(
+                "invalid unsigned quote gas/type".into(),
+            ));
+        }
+        let mut evm = self
+            .evm_config
+            .evm_with_env(&mut self.state, self.evm_env.clone());
+        let result = evm.transact(tx).map_err(|error| BuildError::ExecuteTx {
+            idx: self.applied,
+            msg: error.to_string(),
+        })?;
+        let outcome = exec_outcome(&result.result);
+        evm.db_mut().commit(result.state);
+        self.applied += 1;
+        self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
+        Ok(outcome)
     }
 
     /// Execute one raw EIP-2718 tx with full real-STF semantics and commit it,
@@ -1144,6 +1185,18 @@ mod tests {
             "receipt statuses, including the reverting tx",
         );
         let builder_gas = f.builder_gas();
+        let mut cumulative = 0_u64;
+        assert_eq!(
+            full.tx_cumulative_gas_used,
+            builder_gas
+                .iter()
+                .map(|gas| {
+                    cumulative += gas;
+                    cumulative
+                })
+                .collect::<Vec<_>>(),
+            "retained native receipt gas agrees with independently built prefixes",
+        );
         // Ground truth, so the comparisons below can't pass on empty numbers.
         assert_eq!(builder_gas[0], 21_000, "plain transfer");
 
@@ -1191,6 +1244,91 @@ mod tests {
             let outcome = f.open(&f.txs[..k]).execute_tx(raw).expect("execute tx k");
             assert_eq!(outcome.success, full.tx_successes[k], "tx #{k} status");
             assert_eq!(outcome.gas_used, builder_gas[k], "tx #{k} gas");
+        }
+    }
+
+    #[test]
+    fn unsigned_quote_replay_matches_signed_receipts_and_enforces_source_checks() {
+        use alloy_consensus::{TxEip1559, TypedTransaction};
+        use revm::Database;
+        let f = fixture();
+        // GASPRICE is state-visible: a proposed fee must actually be executed.
+        f.provider.add_account(
+            STORE,
+            ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("3a60005560006000f3")),
+        );
+        for legacy in [false, true] {
+            for tip in [1_u128, 99] {
+                for to in [STORE, REVERTER] {
+                    let mut tx: TypedTransaction = if legacy {
+                        TxLegacy {
+                            chain_id: Some(1),
+                            nonce: 0,
+                            gas_limit: 100_000,
+                            gas_price: tip,
+                            to: TxKind::Call(to),
+                            ..Default::default()
+                        }
+                        .into()
+                    } else {
+                        TxEip1559 {
+                            chain_id: 1,
+                            nonce: 0,
+                            gas_limit: 100_000,
+                            max_priority_fee_per_gas: tip,
+                            max_fee_per_gas: tip,
+                            to: TxKind::Call(to),
+                            ..Default::default()
+                        }
+                        .into()
+                    };
+                    let sig = test_signer().sign_transaction_sync(&mut tx).unwrap();
+                    let raw = Bytes::from(tx.into_envelope(sig).encoded_2718());
+                    let envelope = TransactionSigned::decode_2718(&mut raw.as_ref()).unwrap();
+                    let env = f
+                        .evm_config
+                        .tx_env(Recovered::new_unchecked(envelope, test_signer().address()));
+                    let mut preview = f.open(&[]);
+                    let actual = preview.preview_unsigned(env.clone()).unwrap();
+                    let signed = f.build(&[raw]);
+                    assert_eq!(actual.gas_used, signed.header.gas_used);
+                    assert_eq!(actual.success, signed.tx_successes[0]);
+                    assert_eq!(
+                        preview.state.storage(STORE, U256::ZERO).unwrap(),
+                        if to == STORE {
+                            U256::from(tip)
+                        } else {
+                            U256::ZERO
+                        }
+                    );
+                    assert!(
+                        preview.preview_unsigned(env.clone()).is_err(),
+                        "nonce cannot be spent twice"
+                    );
+                    let mut unfunded = env.clone();
+                    unfunded.caller = BOB;
+                    assert!(
+                        f.open(&[]).preview_unsigned(unfunded).is_err(),
+                        "normal balance checks remain active"
+                    );
+                    let mut gapped = env;
+                    gapped.nonce = 1;
+                    assert!(
+                        f.open(&[]).preview_unsigned(gapped).is_err(),
+                        "normal nonce checks remain active"
+                    );
+                    assert_eq!(
+                        f.open(&[])
+                            .state
+                            .basic(test_signer().address())
+                            .unwrap()
+                            .unwrap()
+                            .nonce,
+                        0,
+                        "preview never changes provider state"
+                    );
+                }
+            }
         }
     }
 
@@ -1544,6 +1682,10 @@ mod tests {
         assert!(delivered.success);
         let built = f.build(&txs);
         assert_eq!(built.tx_successes, vec![false, true]);
+        assert_eq!(
+            built.tx_cumulative_gas_used,
+            vec![burned.gas_used, draft.gas_used()]
+        );
         assert_eq!(draft.gas_used(), built.header.gas_used());
     }
 

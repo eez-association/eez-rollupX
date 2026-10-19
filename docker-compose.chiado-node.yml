@@ -54,6 +54,24 @@ services:
       # Coinbase of every L2 block (priority fees). Required so the operator
       # chooses it explicitly; the zero address is allowed if set deliberately.
       EEZ_L2_FEE_RECIPIENT: "${EEZ_L2_FEE_RECIPIENT:?set EEZ_L2_FEE_RECIPIENT (L2 coinbase address)}"
+      # Explicit collection switches and shared cost assumptions; no defaults.
+      EEZ_FEES_L1_TO_L2_ENABLED:
+      EEZ_FEES_L2_TO_L1_ENABLED:
+      EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP:
+      EEZ_FEES_L1_PER_L2_NUMERATOR:
+      EEZ_FEES_L1_PER_L2_DENOMINATOR:
+      EEZ_FEES_PROVING_COST_L1:
+      EEZ_FEES_OPERATIONS_COST_L1:
+      EEZ_FEES_TREASURY_COST_L1:
+      EEZ_FEES_RISK_BPS:
+      EEZ_FEES_PROFIT_BPS:
+      EEZ_FEES_EXCLUDED_SENDERS:
+      EEZ_FEES_L1_REFUND_RECIPIENT:
+      EEZ_FEES_L1_REFUND_PERCENT:
+      # Forward obsolete inputs only for actionable startup rejection.
+      EEZ_L2_FEE_SHADOW_POLICY:
+      EEZ_L1_FEE_REFUND_POLICY:
+      EEZ_L2_FEE_ENFORCE_TARIFF:
       # One relay URL or a comma-separated list; forwarded unchanged.
       EEZ_L1_BUILDER_RPC_URL: "${EEZ_L1_BUILDER_RPC_URL:?set EEZ_L1_BUILDER_RPC_URL}"
       # Optional X-Flashbots-Signature key for builders that authenticate

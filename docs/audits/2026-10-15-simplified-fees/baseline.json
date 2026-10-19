@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-15",
+  "source_baseline": "83f12825d831d6ce60a8f967b6c1be89a0b6ce1e",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "deployed_baseline": "a9313f9ad4eb54e79d628172381866accb3f7da7",
+  "baseline_quote_bursts": {
+    "requests": 24,
+    "concurrency": 8,
+    "outcomes": {
+      "quote_busy": 21,
+      "ok": 3
+    }
+  },
+  "artifacts": {
+    "baseline-margin-test.log": {
+      "sha256": "b635b36a63cef13c8988d54bc32853f56f6a5cc33ab58f0e5b371866737fc7bd",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "baseline-availability.json": {
+      "sha256": "093623b0558a41e1a4a73a4f853c60cb1163db1d82a1e69865018392db1ac169",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "unit-tests.log": {
+      "sha256": "433ffc53f6e0595046049e8a5c0af7c4c82ab3c1a92da541032e1ed434627734",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "node-fees-iteration.log": {
+      "sha256": "563a3b7a05793de5618ceafecf66fdc0f9af4d95a91dbf8ea79602e8c9a85817",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "clippy.log": {
+      "sha256": "3e165ec22d1dbece24aa3f0f552e3964033e9029dd89b2db787ac69fcde94d0c",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "sdk-tests.log": {
+      "sha256": "75b7d64cb5a6e450355f55a36ee8a2491ca477feabafc8f137bdd6cb56afa79c",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "chiado-config-tests.log": {
+      "sha256": "84b867b55c97cfac4808aa53f973b568d01a7a2a83e31a6f4b552b7bc27851c6",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    },
+    "policy-config-check.log": {
+      "sha256": "222753303f6808349cdaced42dea80b19b22024b81d353a5634662b3653e430a",
+      "availability": "local only; ignored artifacts/simplified-fees-20261015"
+    }
+  }
+}

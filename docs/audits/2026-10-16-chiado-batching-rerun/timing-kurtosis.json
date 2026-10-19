@@ -1,0 +1,44 @@
+{
+  "source": "be8477bc7ba48d3f287d33cd6c010089458885ec",
+  "enclave": "eez-batch-timing-20261016",
+  "l1SingleSources": 4,
+  "l1SharedBatches": [
+    {
+      "sources": 4,
+      "cost": "1840805343917156",
+      "refund": "516919186073570",
+      "shortfall": "1323886157843586"
+    },
+    {
+      "sources": 4,
+      "cost": "684452992708204",
+      "refund": "462294818213980",
+      "shortfall": "222158174494224"
+    }
+  ],
+  "l2Sources": 2,
+  "nativeBlobTransactions": 3,
+  "independentReplay": {
+    "testPassed": 1,
+    "safeBlock": 390,
+    "source": "canonical L1 from genesis",
+    "matchingSmokeReceipts": 3
+  },
+  "blobscan": "explicitly excluded",
+  "startup": "waited for fresh relay proposer registration; no runtime restart",
+  "toolchainCorrection": "Default helper used Rust 1.96.1; same native blob evidence was reauthenticated with the verified Rust 1.95 helper and identical output. Default replay compilation was interrupted before test launch; the exact Rust 1.95 test executable and shipping follower then passed.",
+  "runtimeImages": [
+    {
+      "role": "node",
+      "container": "0e3f062175566bc29e4a9fd3d2267ef125b61b2a21cff4f4d140c835d30d5529",
+      "image": "sha256:59dad838cfc6a8d349e668f4a0d63d89d74327e5abb82676ec7d8271ddf69e2f",
+      "started": "2026-10-16T10:57:04.518102585Z"
+    },
+    {
+      "role": "signer",
+      "container": "a828ca471688685f0c1350156e4509924910cceca7e901ef0da273463627550f",
+      "image": "sha256:5095ca5db298a49f3c555a265b515689589e07e6db2c189c95be4257cc03017b",
+      "started": "2026-10-16T10:57:01.357539994Z"
+    }
+  ]
+}

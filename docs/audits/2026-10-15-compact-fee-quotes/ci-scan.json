@@ -1,0 +1,61 @@
+{
+  "date": "2026-10-15",
+  "source_before_fix": "ee2b778cb36528245a5823a4989d581fffa9bf0c",
+  "pr_merge_scanned_locally": "ef9a05ac763839954e6c9498ff583556dd093c2a",
+  "ci_job": "https://github.com/eez-association/eez-rollupX/actions/runs/38775551469/job/116562128393",
+  "scanner_version": "8.30.1",
+  "scanner_archive_sha256": "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb",
+  "candidate_config_sha256": "1f1d3d7c385b6097eacddf1e49b843903073b1523854edd1d9bee12443f5ace0",
+  "reproduction": {
+    "command": "gitleaks git . --config .gitleaks.toml --log-opts='--all -m' --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+    "before_findings": 8,
+    "after_findings": 0,
+    "merge_duplicates": true
+  },
+  "classification": [
+    {
+      "kind": "public environment-variable name",
+      "file": "scripts/ci/tests/test_chiado_config.py",
+      "value": "EEZ_L2_FEE_SHADOW_POLICY"
+    },
+    {
+      "kind": "verified Git commit object ID",
+      "file": "docs/audits/2026-10-15-transaction-references/results.json",
+      "field": "fee_api_evaluation_commit"
+    },
+    {
+      "kind": "SHA-256 digests matched against retained RPC evidence files",
+      "file": "docs/audits/2026-10-15-compact-fee-quotes/deployment.json",
+      "fields": [
+        "local-api.json",
+        "public-api.json"
+      ]
+    }
+  ],
+  "exception_scope": "exact values AND exact paths; default rules and history/merge scanning retained",
+  "negative_control": {
+    "files_checked": 3,
+    "synthetic_credentials_detected": 3,
+    "known_nonsecret_values_ignored": true,
+    "purpose": "confirm new credentials in the same paths are still rejected",
+    "credentials": "deterministic synthetic scanner fixtures, never issued credentials"
+  },
+  "evidence": {
+    "availability": "local only; ignored artifacts are not available in another checkout",
+    "root": "artifacts/compact-fee-api-polish-20261015",
+    "sha256": {
+      "ci-lint.log": "2d11a7b9c9ac4b19823b1db71ca14f7c1d8a741ab66df05fc09280a3cb0c41e5",
+      "gitleaks-merge-before.redacted.json": "c8ee64e3ef0073e0cea25cc49be2fc8371019af43a5e674b645012f536d3107a",
+      "gitleaks-merge-before.log": "a805cc9715f394cbd38a9be3bb2d494c866998aa0b5e4abf7c9f337a793ebce6",
+      "gitleaks-after.redacted.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "gitleaks-after.log": "20dbda40b1192a8702541aa0772fc9fb946201e77296a026611b432a9842ef72",
+      "gitleaks-negative-control.redacted.json": "3dfc168900115ec525449a9c21e61b90c82ee4f3816be225de0d13c5414b5414",
+      "gitleaks-negative-control.log": "68da6ba8462520a165a0c15eab0fa1dc11d46c8ef662d52f3a43149c0e8650db"
+    }
+  },
+  "limits": [
+    "full CI rerun remains separate",
+    "no application code changed after the preceding runtime validation",
+    "no Docker build or deployment for this follow-up"
+  ]
+}

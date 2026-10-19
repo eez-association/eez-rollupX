@@ -32,10 +32,11 @@
 
 use std::sync::{Arc, Mutex};
 
+use revm::bytecode::Bytecode;
 use revm::context_interface::journaled_state::account::JournaledAccountTr;
-use revm::context_interface::{ContextTr, Host, JournalTr};
+use revm::context_interface::{Cfg, ContextTr, Host, JournalTr};
 use revm::database::{AccountStatus, CacheState, states::CacheAccount};
-use revm::primitives::Address;
+use revm::primitives::{Address, B256, KECCAK_EMPTY, U256};
 
 /// Cache exchange for nested dispatches that re-enter a suspended rollup.
 ///
@@ -112,6 +113,23 @@ impl OverlayChannel {
             .map(|frame| frame.pre_dispatch.clone())
     }
 
+    /// Refresh a retained target session before its next re-entry checkpoint.
+    ///
+    /// A new dispatch can follow local writes by the resumed source, so a
+    /// session left over from an earlier dispatch must use the new snapshot.
+    /// After a callback publishes in this frame, keep the session's cumulative
+    /// cache instead: sibling callbacks share it, including queued rollbacks
+    /// already applied by the composition builder. Reapplying the original
+    /// snapshot, or the last published result, would undo those changes.
+    /// With no suspended frame this leaves ordinary target-session state intact.
+    pub fn refresh_before_reentry(&self, cache: &mut CacheState) {
+        if let Some(frame) = self.frames.lock().expect(POISONED).last()
+            && frame.result.is_none()
+        {
+            *cache = frame.pre_dispatch.clone();
+        }
+    }
+
     /// Record a re-entered session's cumulative cache as the innermost open
     /// frame's result, replacing any earlier result of that frame.
     ///
@@ -142,35 +160,11 @@ pub fn new_overlay_channel() -> OverlayChannelHandle {
     Arc::new(OverlayChannel::default())
 }
 
-// Note on trait choice:
-//
-// Reads on the OTHER direction of the overlay flow (source-sim
-// inspector snapshotting cache before dispatch) go through `Host::sload`
-// / `Host::load_account_info_skip_cold_load` so they pick up mid-tx
-// journal writes. The natural symmetry would be `Host::sstore` here.
-//
-// We can't use it: `Host::sstore_skip_cold_load` delegates to
-// `JournalImpl::sstore_skip_cold_load` which calls
-// `inner.sstore_assume_account_present(...)`. The "assume present"
-// check is stricter than `JournalTr::load_account`'s warm-up — even
-// after explicitly loading the account, the journal returns
-// `ColdLoadSkipped`. The plain `JournalTr::sstore(addr, key, value)`
-// path (which calls `load_account_mut` internally and panics on cold
-// load via `unwrap_db_error`) is the only one that actually works
-// for our explicitly-warmed flow.
-//
-// Balance writes go through `JournaledAccountTr::set_balance` —
-// `Host` exposes `balance(addr)` for reads but no public setter.
-
 /// Errors surfaced by the overlay diff-apply path.
 ///
-/// SELFDESTRUCT is explicitly out of scope: revm's `JournalInner`
-/// exposes no public method to mark an account destroyed from
-/// outside, and the in-tree fixtures (`flash-loan`,
-/// `reentrantCrossChainCalls`) don't destroy accounts. If the nested
-/// state's cache shows a destroyed account that the source state
-/// does not, the apply path surfaces this loud error rather than
-/// silently miscomposing.
+/// Destruction remains unsupported by this account-state exchange. A returned
+/// cache that introduces or changes a destroyed account is rejected; only an
+/// unchanged destruction already in the source snapshot can pass through.
 #[derive(Debug, thiserror::Error)]
 pub enum OverlayError {
     /// The nested state shows an account in `SelfDestructed` state
@@ -188,6 +182,33 @@ pub enum OverlayError {
         /// Address whose load failed.
         address: Address,
         /// Underlying database error rendered via Display.
+        message: String,
+    },
+    /// The returned cache must carry newly installed bytecode: it cannot be
+    /// recovered from the source chain's pre-execution database.
+    #[error("overlay bytecode {hash} is missing for {address}")]
+    MissingCode {
+        /// Account receiving code.
+        address: Address,
+        /// Expected runtime code hash.
+        hash: B256,
+    },
+    /// A returned code object does not match the account's code hash.
+    #[error("overlay bytecode hash mismatch for {address}: expected {expected}, got {actual}")]
+    CodeHashMismatch {
+        /// Account receiving code.
+        address: Address,
+        /// Hash recorded in the returned account.
+        expected: B256,
+        /// Hash of the returned runtime code.
+        actual: B256,
+    },
+    /// REVM rejected the journaled creation transition.
+    #[error("source state creation checkpoint for {address} failed: {message}")]
+    SourceCreation {
+        /// New contract address.
+        address: Address,
+        /// Underlying journal error.
         message: String,
     },
     /// `journal.sstore` failed during diff-apply.
@@ -234,27 +255,22 @@ fn has_unsupported_destruction(
 ///   gives revert-safety (a user-tx revert in source-sim unwinds the
 ///   diff-applied entries together with source-sim's own writes).
 ///
-/// - **Balance changes:** for each account whose balance differs,
-///   emit `ctx.journal_mut().load_account_mut(addr).set_balance(...)`.
-///   `set_balance` is the load-bearing primitive — `balance_incr` on
-///   `JournalTr` is increment-only (`U256` no-wrap on decrease), and
-///   overlay flows commonly involve net decreases on one side and
-///   increases on the other. Going through `load_account_mut` reaches
-///   `JournaledAccountTr::set_balance` which mutates the journaled
-///   account directly.
+/// - **Balance, nonce and code:** apply changed values through journaled
+///   account setters. Use the source journal as the baseline when the callback
+///   first loaded an account, rather than treating an absent cache entry as an
+///   empty account. Newly installed code must be present in the returned cache.
+/// - **Creation:** an ordinary contract created in the callback is marked
+///   created through a REVM creation checkpoint before its state is applied.
+///   Installing code alone loses transaction-local creation and rollback rules.
 ///
 /// Out of scope — surfaced as `Err(OverlayError::*)` or skipped:
 ///
-/// - **SELFDESTRUCT:** loud failure via [`OverlayError::Selfdestruct`].
-///   No public revm API to mark an account destroyed from outside, and
-///   `flash-loan` / `reentrantCrossChainCalls` don't destroy accounts.
+/// - **SELFDESTRUCT:** new or changed destruction states are rejected via
+///   [`OverlayError::Selfdestruct`]; this overlay does not reconstruct their
+///   transaction-local destruction history from the returned cache.
 ///
-/// - **Code installation, nonce changes:** rare in overlay-relevant
-///   patterns (`flash-loan`, `reentrant`); deferred. A future commit
-///   can extend the function with `set_code` / `set_nonce` calls.
-///
-/// - **Transient storage:** EIP-1153 auto-clears at end of transaction;
-///   no diff-apply needed.
+/// - **Transient storage:** not represented by `CacheState`; exchanging it
+///   across synthetic target sessions is outside this account-state overlay.
 ///
 /// # Idempotency
 ///
@@ -267,9 +283,8 @@ fn has_unsupported_destruction(
 ///
 /// - [`OverlayError::Selfdestruct`] if the overlay's cache shows an
 ///   account whose status flipped to destroyed during overlay execution.
-/// - [`OverlayError::SourceLoad`] / [`OverlayError::SourceSstore`] if
-///   the source state's database or journal surfaces an error during
-///   apply.
+/// - Missing or inconsistent bytecode, or a source database/journal failure.
+///   Errors abort composition; callers must not commit a partially applied diff.
 pub fn apply_overlay_diff<CTX>(
     ctx: &mut CTX,
     before: &CacheState,
@@ -306,46 +321,88 @@ where
         };
         let before_plain = before.accounts.get(addr).and_then(|a| a.account.as_ref());
 
-        // Per-account warming. Both sstore and set_balance assume the
-        // account is already journaled; outside the EVM's normal CALL/
-        // SLOAD path we do the load explicitly. `load_account_mut`
-        // also gives us a `JournaledAccount` for the balance set; we
-        // bind it for the balance branch and let it drop before sstore.
-        // (`load_account` is the lighter-weight version — used here
-        // for the storage-only branch to avoid pulling code.)
-        let balance_changed =
-            before_plain.is_some_and(|b| b.info.balance != after_plain.info.balance);
+        let source_info = ctx
+            .journal_mut()
+            .load_account(*addr)
+            .map_err(|e| OverlayError::SourceLoad {
+                address: *addr,
+                message: format!("{e:?}"),
+            })?
+            .data
+            .info
+            .clone();
+        let new_code = if source_info.code_hash == after_plain.info.code_hash {
+            None
+        } else {
+            let hash = after_plain.info.code_hash;
+            let code = if hash == KECCAK_EMPTY {
+                Bytecode::default()
+            } else {
+                after_plain
+                    .info
+                    .code
+                    .clone()
+                    .or_else(|| after.contracts.get(&hash).cloned())
+                    .ok_or(OverlayError::MissingCode {
+                        address: *addr,
+                        hash,
+                    })?
+            };
+            let actual = code.hash_slow();
+            if actual != hash {
+                return Err(OverlayError::CodeHashMismatch {
+                    address: *addr,
+                    expected: hash,
+                    actual,
+                });
+            }
+            Some(code)
+        };
 
-        if balance_changed {
+        if source_info.has_no_code_and_nonce()
+            && after_acc.status == AccountStatus::InMemoryChange
+            && after_plain.info.nonce != 0
+        {
+            // Target sessions execute ordinary CALLs without authorization
+            // lists: a new nonce-bearing account here comes from CREATE/CREATE2.
+            // Zero value makes the checkpoint's caller unused; balances are
+            // applied separately below. Commit this inner checkpoint while
+            // retaining its creation entry for an enclosing source-frame revert.
+            let spec = ctx.cfg().spec().into();
+            ctx.journal_mut()
+                .create_account_checkpoint(*addr, *addr, U256::ZERO, spec)
+                .map_err(|e| OverlayError::SourceCreation {
+                    address: *addr,
+                    message: format!("{e:?}"),
+                })?;
+            ctx.journal_mut().checkpoint_commit();
+        }
+
+        {
             let mut loaded = ctx.journal_mut().load_account_mut(*addr).map_err(|e| {
                 OverlayError::SourceLoad {
                     address: *addr,
                     message: format!("{e:?}"),
                 }
             })?;
-            loaded.data.set_balance(after_plain.info.balance);
-            // `loaded` borrow ends here so the `sstore` calls below
-            // can re-borrow `ctx.journal_mut()`.
-        } else {
-            // Warm the account so the subsequent `sstore` calls don't
-            // hit `JournalLoadError::ColdLoadSkipped` (which the
-            // public `sstore` method panics on via
-            // `unwrap_db_error`).
-            ctx.journal_mut()
-                .load_account(*addr)
-                .map_err(|e| OverlayError::SourceLoad {
-                    address: *addr,
-                    message: format!("{e:?}"),
-                })?;
+            if *loaded.data.balance() != after_plain.info.balance {
+                loaded.data.set_balance(after_plain.info.balance);
+            }
+            if loaded.data.nonce() != after_plain.info.nonce {
+                loaded.data.set_nonce(after_plain.info.nonce);
+            }
+            if let Some(code) = new_code {
+                loaded.data.set_code(after_plain.info.code_hash, code);
+            }
         }
 
         // Iterate after's storage; emit sstore for every slot whose
         // value differs from before.
         for (key, after_val) in &after_plain.storage {
-            let before_val = before_plain
-                .and_then(|b| b.storage.get(key).copied())
-                .unwrap_or_default();
-            if before_val == *after_val {
+            let before_val = before_plain.and_then(|b| b.storage.get(key).copied());
+            // A slot absent from `before` may be nonzero in the database.
+            // The callback can clear it, so an unknown value is not zero.
+            if before_val == Some(*after_val) {
                 continue;
             }
             ctx.journal_mut()
@@ -364,13 +421,312 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use revm::MainContext;
+    use revm::context::Context;
+    use revm::database::CacheDB;
     use revm::database::{EmptyDB, State};
+    use revm::primitives::bytes;
+    use revm::state::AccountInfo;
+
+    #[test]
+    fn issue208_nested_return_preserves_created_contract_code() {
+        let child = Address::with_last_byte(0x42);
+        let code = Bytecode::new_raw(bytes!("602a60005260206000f3"));
+        let expected = AccountInfo::default().with_code(code.clone()).with_nonce(1);
+        let before = CacheState::default();
+        let mut after = before.clone();
+        after.contracts.insert(expected.code_hash, code);
+        after.accounts.insert(
+            child,
+            CacheAccount::new_newly_created(
+                expected.clone(),
+                [(U256::ZERO, U256::from(42))].into_iter().collect(),
+            ),
+        );
+        let mut context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+        apply_overlay_diff(&mut context, &before, &after).unwrap();
+        // Prove the production apply path ran and carried the same child's
+        // storage before checking that resumed execution can see its code.
+        assert_eq!(
+            context.sload(child, U256::ZERO).unwrap().data,
+            U256::from(42)
+        );
+        let actual = &context.journal_mut().load_account(child).unwrap().data.info;
+        assert_eq!(
+            actual.code_hash, expected.code_hash,
+            "new code was lost on nested return"
+        );
+        assert_eq!(actual.nonce, 1);
+    }
+
+    #[test]
+    fn issue208_nested_return_preserves_factory_create_nonce() {
+        let factory = Address::with_last_byte(0x43);
+        let initial = AccountInfo::default().with_nonce(1);
+        let mut database = CacheDB::<EmptyDB>::default();
+        database.insert_account_info(factory, initial.clone());
+        let mut before = CacheState::default();
+        before.insert_account(factory, initial.clone());
+        let mut after = before.clone();
+        after.accounts.insert(
+            factory,
+            CacheAccount::new_changed(initial.with_nonce(2), Default::default()),
+        );
+        let mut context = Context::mainnet().with_db(database);
+        apply_overlay_diff(&mut context, &before, &after).unwrap();
+        let actual = context
+            .journal_mut()
+            .load_account(factory)
+            .unwrap()
+            .data
+            .info
+            .nonce;
+        assert_eq!(actual, 2, "factory nonce was lost on nested return");
+    }
+
+    #[test]
+    fn created_account_code_balance_storage_and_flags_revert_together() {
+        // Include a source that already observed empty code, and a prefunded
+        // CREATE address. Reverting creation must preserve the prior balance.
+        for (warm, balance) in [(false, 0), (true, 0), (true, 11)] {
+            let child = Address::with_last_byte(0x44);
+            let initial = AccountInfo::default().with_balance(U256::from(balance));
+            let mut db = CacheDB::<EmptyDB>::default();
+            if balance != 0 {
+                db.insert_account_info(child, initial.clone());
+            }
+            let mut context = Context::mainnet().with_db(db);
+            let mut before = CacheState::default();
+            if warm {
+                context.journal_mut().load_account(child).unwrap();
+                before.insert_account(child, initial);
+            }
+            let checkpoint = context.journal_mut().checkpoint();
+            let code = Bytecode::new_raw(bytes!("602a60005260206000f3"));
+            let mut expected = AccountInfo::default()
+                .with_code(code.clone())
+                .with_nonce(2)
+                .with_balance(U256::from(17));
+            // The code may live in CacheState::contracts rather than in info.
+            expected.code = None;
+            let mut after = before.clone();
+            after.contracts.insert(expected.code_hash, code.clone());
+            after.accounts.insert(
+                child,
+                CacheAccount::new_newly_created(
+                    expected.clone(),
+                    [(U256::ZERO, U256::from(42))].into_iter().collect(),
+                ),
+            );
+
+            apply_overlay_diff(&mut context, &before, &after).unwrap();
+            let account = context.journal_mut().load_account(child).unwrap().data;
+            assert!(account.is_created_locally());
+            assert!(account.is_created());
+            assert_eq!(account.info.nonce, 2);
+            assert_eq!(account.info.balance, U256::from(17));
+            assert_eq!(account.info.code.as_ref(), Some(&code));
+            assert_eq!(
+                context.sload(child, U256::ZERO).unwrap().data,
+                U256::from(42)
+            );
+
+            context.journal_mut().checkpoint_revert(checkpoint);
+            let account = context.journal_mut().load_account(child).unwrap().data;
+            assert!(!account.is_created_locally());
+            assert!(!account.is_created());
+            assert_eq!(account.info.code_hash, KECCAK_EMPTY);
+            assert_eq!(account.info.nonce, 0);
+            assert_eq!(account.info.balance, U256::from(balance));
+            assert_eq!(context.sload(child, U256::ZERO).unwrap().data, U256::ZERO);
+            assert!(context.journal_mut().code(child).unwrap().data.is_empty());
+        }
+    }
+
+    #[test]
+    fn factory_nonce_updates_accumulate_and_revert() {
+        let factory = Address::with_last_byte(0x45);
+        let initial = AccountInfo::default().with_nonce(1);
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(factory, initial.clone());
+        let mut context = Context::mainnet().with_db(db);
+        let mut before = CacheState::default();
+        before.insert_account(factory, initial.clone());
+        let checkpoint = context.journal_mut().checkpoint();
+        for nonce in [3, 4] {
+            let mut after = before.clone();
+            after.accounts.insert(
+                factory,
+                CacheAccount::new_changed(initial.clone().with_nonce(nonce), Default::default()),
+            );
+            apply_overlay_diff(&mut context, &before, &after).unwrap();
+            let account = context.journal_mut().load_account(factory).unwrap().data;
+            assert_eq!(account.info.nonce, nonce);
+            assert!(!account.is_created_locally());
+            before = after;
+        }
+        context.journal_mut().checkpoint_revert(checkpoint);
+        assert_eq!(
+            context
+                .journal_mut()
+                .load_account(factory)
+                .unwrap()
+                .data
+                .info
+                .nonce,
+            1
+        );
+    }
+
+    #[test]
+    fn callback_can_clear_cold_storage_and_change_a_cold_account_balance() {
+        let address = Address::with_last_byte(0x46);
+        let initial = AccountInfo::default()
+            .with_nonce(1)
+            .with_balance(U256::from(10));
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(address, initial.clone());
+        db.insert_account_storage(address, U256::ZERO, U256::from(7))
+            .unwrap();
+        let mut context = Context::mainnet().with_db(db);
+        let before = CacheState::default();
+        let mut after = before.clone();
+        after.accounts.insert(
+            address,
+            CacheAccount::new_changed(
+                initial.with_nonce(2).with_balance(U256::from(4)),
+                [(U256::ZERO, U256::ZERO)].into_iter().collect(),
+            ),
+        );
+        let checkpoint = context.journal_mut().checkpoint();
+        apply_overlay_diff(&mut context, &before, &after).unwrap();
+        assert_eq!(context.sload(address, U256::ZERO).unwrap().data, U256::ZERO);
+        let account = context.journal_mut().load_account(address).unwrap().data;
+        assert_eq!(account.info.balance, U256::from(4));
+        assert_eq!(account.info.nonce, 2);
+        assert!(!account.is_created());
+        context.journal_mut().checkpoint_revert(checkpoint);
+        assert_eq!(
+            context.sload(address, U256::ZERO).unwrap().data,
+            U256::from(7)
+        );
+        let account = context.journal_mut().load_account(address).unwrap().data;
+        assert_eq!(account.info.balance, U256::from(10));
+        assert_eq!(account.info.nonce, 1);
+    }
+
+    #[test]
+    fn read_only_cache_entries_do_not_replace_live_source_state() {
+        let address = Address::with_last_byte(0x47);
+        let mut context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+        context
+            .journal_mut()
+            .load_account_mut(address)
+            .unwrap()
+            .data
+            .set_balance(U256::from(99));
+        let before = CacheState::default();
+        let mut after = before.clone();
+        after.insert_account(address, AccountInfo::default().with_balance(U256::from(10)));
+        apply_overlay_diff(&mut context, &before, &after).unwrap();
+        assert_eq!(
+            context
+                .journal_mut()
+                .load_account(address)
+                .unwrap()
+                .data
+                .info
+                .balance,
+            U256::from(99)
+        );
+    }
+
+    #[test]
+    fn newly_installed_bytecode_must_be_present_and_match_its_hash() {
+        let address = Address::with_last_byte(0x48);
+        let code = Bytecode::new_raw(bytes!("00"));
+        let mut expected = AccountInfo::default().with_code(code).with_nonce(1);
+        let hash = expected.code_hash;
+        expected.code = None;
+        let before = CacheState::default();
+        let mut after = before.clone();
+        after.accounts.insert(
+            address,
+            CacheAccount::new_newly_created(expected, Default::default()),
+        );
+        let mut context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+        assert!(
+            matches!(apply_overlay_diff(&mut context, &before, &after), Err(OverlayError::MissingCode { address: found, hash: missing }) if found == address && missing == hash)
+        );
+        after.contracts.insert(hash, Bytecode::default());
+        assert!(
+            matches!(apply_overlay_diff(&mut context, &before, &after), Err(OverlayError::CodeHashMismatch { address: found, .. }) if found == address)
+        );
+    }
+
+    #[test]
+    fn callback_selfdestruction_is_rejected_by_the_apply_path() {
+        let address = Address::with_last_byte(0x49);
+        let before = CacheState::default();
+        let mut after = before.clone();
+        after
+            .accounts
+            .insert(address, CacheAccount::new_destroyed());
+        let mut context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+        assert!(
+            matches!(apply_overlay_diff(&mut context, &before, &after), Err(OverlayError::Selfdestruct { address: found }) if found == address)
+        );
+    }
 
     /// A cache distinguishable from others by one marker account.
     fn marked(byte: u8) -> CacheState {
         let mut cache = CacheState::default();
         cache.insert_not_existing(Address::with_last_byte(byte));
         cache
+    }
+
+    #[test]
+    fn retained_session_refreshes_for_a_new_dispatch_but_preserves_siblings_and_rollbacks() {
+        let channel = OverlayChannel::default();
+        let mut cache = marked(1);
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(cache, marked(1), "ordinary session has no suspended source");
+
+        channel.open_frame(marked(2));
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(cache, marked(2));
+        cache = marked(3);
+        assert!(channel.publish(cache.clone()));
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(cache, marked(3), "sibling callback keeps cumulative state");
+
+        // The builder applies a queued rollback before taking the next
+        // checkpoint. Neither the old prestate nor the last result can replace it.
+        cache = marked(4);
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(cache, marked(4));
+        channel.close_frame().unwrap();
+
+        // The original source resumes, writes locally, and dispatches again.
+        channel.open_frame(marked(5));
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(
+            cache,
+            marked(5),
+            "new source writes replace stale session state"
+        );
+        assert!(channel.publish(cache.clone()));
+        channel.open_frame(marked(6));
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(cache, marked(6), "recursive reentry uses its own frame");
+        channel.close_frame().unwrap();
+        cache = marked(7);
+        channel.refresh_before_reentry(&mut cache);
+        assert_eq!(
+            cache,
+            marked(7),
+            "outer frame still has its own published result"
+        );
     }
 
     #[test]

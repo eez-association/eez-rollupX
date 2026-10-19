@@ -1,0 +1,44 @@
+{
+  "schema": 2,
+  "root_commit": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+  "protocol_commit": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "cargo_lock_sha256": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39",
+  "platform": "linux/amd64",
+  "profile": "release",
+  "rustflags": "-C link-arg=-fuse-ld=mold",
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+  "base_images": {
+    "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+    "runtime": "debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587"
+  },
+  "published": false,
+  "images": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-de4209a5e956b432db7a7d37517d9d44d68dfaa4-local-nonce-20261019-1",
+      "image_id": "sha256:76f072e0af67cebcb5e3b031d9128ecfd2ae657ab2dbff6bb23f854c79ce29a7"
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-de4209a5e956b432db7a7d37517d9d44d68dfaa4-local-nonce-20261019-1",
+      "image_id": "sha256:012f151a6d1bdbdd5cc20cb4f1677fcc0b0dbb63b9a1b0189791eef9a97d16be"
+    },
+    "deploy": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-de4209a5e956b432db7a7d37517d9d44d68dfaa4-local-nonce-20261019-1",
+      "image_id": "sha256:fb535899f49d2428c192a3640c1a24c9246502dcf3553e051d12983b85d45b1e"
+    }
+  },
+  "binaries_sha256": "108908cb83e72f534bec77bf96b448461671b78236e07c0854089db996aed280",
+  "runtime_binary_sha256": {
+    "eez-composer": "ad7d835cc2cee8749b3ec95241c7281b58f18e49c7e9af5271347060fb81329b",
+    "eez-follower": "d53e5cd8e1cd192dae09abe6e178ff7fc351aacf94dfec0bcb954b39bcd1a919",
+    "eez-proof-signer": "db929fe09c610117ce6b264b7d7aa0744ee31a73329bb048957bb83a7965a843"
+  },
+  "native_archive_sha256": {
+    "native-tests.tar.zst": "4456adadd1818f713514c4e87b8f20cb8deb1ceffc8e326c8ef9155f59c2e6da"
+  },
+  "producer_release_checks": {
+    "passed": 30,
+    "skipped": 0
+  },
+  "source_provenance": "Local standard producer, publication disabled; exact image IDs and archives verified by prepare-runtime-artifacts.sh."
+}

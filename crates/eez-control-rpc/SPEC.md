@@ -463,6 +463,24 @@ insufficient escrow) do not charge this counter. Repeated funding checks cannot
 exhaust a user's settlement-attempt budget; the queue retains the request while
 independent eligible source chains continue.
 
+Local native finalization distinguishes execution/effect rejection from
+infrastructure uncertainty. A never-dispatched candidate with a completed native
+rejection is recorded as `PreflightRejected`, bound to its exact attempt identity.
+After canonical source reconciliation, candidates with multiple groups reduce
+the next selection to at most half their group count without a user charge.
+Whole groups and nonce chains remain owned. The learned limit survives successful
+preparation and clears when canonical completion drains the queue. Numeric
+admission also respects this smaller bound. A failed native companion execution
+may carry its exact signed source hash; Composer validates that it belongs to
+this attempt. Only a singleton with that matching attribution uses the shared
+execution-attempt counter with the three-failure bound. A poster failure or
+unattributed root/effect mismatch cannot penalize a singleton. This does not
+charge the excluded-slot counter or imply any L1 gas spend. Exhaustion retains
+the existing explicit disposition and dependent-suffix behavior. Transport,
+deadline, unavailable state and funding failures do not train this native bound.
+Only the typed local execution/effect error selects this path; error text and
+unvalidated external hints cannot authorize it.
+
 ### 6.2 Actionable failed preconditions
 
 A `FAILED_PRECONDITION` status MAY carry a protobuf-encoded

@@ -381,6 +381,33 @@ impl L1CanonicalHead {
         }
     }
 
+    /// Last completely scanned L1/L2 pair for disposable advisory estimation.
+    /// A new scan may be in progress. This does not authorize scheduling,
+    /// execution or ownership changes: callers must bound its age and recheck
+    /// both canonical hashes. Reorg invalidation clears the endpoint.
+    pub fn estimation_anchor(&self) -> Option<(L1BlockRef, L2Endpoint)> {
+        let state = self.state.lock().unwrap();
+        state.last_scanned.zip(state.evidence.endpoint)
+    }
+
+    /// Derive disposable next-block context using only the sampled L1 history.
+    /// Later completed scans must not change an in-progress fee simulation.
+    pub fn estimation_block_context(
+        &self,
+        parent: &alloy_consensus::Header,
+        through: L1BlockRef,
+    ) -> Result<(u64, B256), crate::derivation::DerivationError> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "seed provenance not initialized",
+            ))?
+            .next_block_context_through(parent, through.number)
+    }
+
     /// Recheck immediately before changing ownership under the engine
     /// reconciliation lock. RPC reads made against an older snapshot are
     /// inconclusive after publication or reorg.
@@ -463,6 +490,32 @@ mod tests {
             }),
             selection: crate::ReplaySelection::default(),
         }
+    }
+
+    #[test]
+    fn estimation_retains_only_the_last_complete_pair_and_clears_on_reorg() {
+        let head = L1CanonicalHead::default();
+        let first = evidence(100, 1, Some(50));
+        assert!(head.estimation_anchor().is_none());
+        head.publish(first.clone());
+        assert!(head.estimation_anchor().is_none());
+        head.mark_scanned(first.l1_block, first.endpoint.unwrap());
+        let pair = Some((first.l1_block, first.endpoint.unwrap()));
+        assert_eq!(head.estimation_anchor(), pair);
+        let next = evidence(101, 2, Some(51));
+        head.publish(next.clone());
+        assert!(head.policy_anchor_snapshot().through.is_none());
+        assert_eq!(head.estimation_anchor(), pair);
+        head.invalidate_scan();
+        assert_eq!(head.estimation_anchor(), pair);
+        head.mark_scanned(next.l1_block, next.endpoint.unwrap());
+        assert_eq!(
+            head.estimation_anchor(),
+            Some((next.l1_block, next.endpoint.unwrap()))
+        );
+        head.retreat_on_l1_reorg(100);
+        assert!(head.estimation_anchor().is_none());
+        assert!(head.policy_anchor_snapshot().through.is_none());
     }
 
     #[test]

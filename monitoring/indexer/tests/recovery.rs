@@ -273,7 +273,7 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     assert_eq!(row.get::<_, i64>(0), 2);
     assert_eq!(row.get::<_, String>(1), "40");
     assert_eq!(row.get::<_, String>(2), "24");
-    admin.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) SELECT block_hash,transaction_hash,CASE WHEN transaction_index=0 THEN '{\"version\":2}'::jsonb ELSE '{\"version\":5}'::jsonb END,'infinity'::timestamptz FROM eez_indexer.transactions", &[]).await.unwrap();
+    admin.execute("INSERT INTO eez_indexer.details(block_hash,transaction_hash,data,retry_at) SELECT block_hash,transaction_hash,CASE WHEN transaction_index=0 THEN '{\"version\":5}'::jsonb ELSE '{\"version\":6}'::jsonb END,'infinity'::timestamptz FROM eez_indexer.transactions", &[]).await.unwrap();
     // Exercise database rollback after insertion has begun (missing receipt FK).
     let mut bad = eez_indexer::model::Event::parse(&log(0, 0), &cfg).unwrap();
     let b = eez_indexer::model::Block::parse(&block(3, 0)).unwrap();
@@ -294,7 +294,7 @@ async fn postgres_restart_atomicity_duplicates_reorg_and_identity() {
     .await
     .unwrap();
     assert_eq!(db.cursor().await.unwrap().unwrap().0, 2);
-    let upgrade = admin.query_one("SELECT count(*) FILTER(WHERE retry_at < 'infinity'), count(*) FILTER(WHERE data->>'version'='5' AND retry_at='infinity') FROM eez_indexer.details", &[]).await.unwrap();
+    let upgrade = admin.query_one("SELECT count(*) FILTER(WHERE retry_at < 'infinity'), count(*) FILTER(WHERE data->>'version'='6' AND retry_at='infinity') FROM eez_indexer.details", &[]).await.unwrap();
     assert_eq!(
         upgrade.get::<_, i64>(0),
         1,

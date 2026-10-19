@@ -1,0 +1,985 @@
+{
+  "schema_version": 5,
+  "protocol_commit": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "targets": [
+    "all"
+  ],
+  "execution": {
+    "runner": "network-parallel",
+    "max_parallel": 2,
+    "suite_timeout_seconds": 2400,
+    "phases": [
+      {
+        "phase": "bridge-prerequisite",
+        "scenarios": [
+          "bridge"
+        ],
+        "exit_code": 1,
+        "seconds": 42.74,
+        "results": [
+          [
+            "bridge",
+            "FAIL"
+          ]
+        ]
+      },
+      {
+        "phase": "parallel",
+        "scenarios": [
+          "multi-call-twice",
+          "multi-call-two-diff",
+          "multi-call-twiceL2",
+          "multi-call-two-diffL2",
+          "counter-multi-tx",
+          "deepNested",
+          "flash-loan",
+          "multi-call-nested",
+          "nestedCounter",
+          "multi-call-nestedL2",
+          "nestedCounterL2",
+          "counter",
+          "counterL2",
+          "reentrant",
+          "nestedCallRevert",
+          "revertCounter",
+          "revertFromOtherChain",
+          "nestedCallRevertL2",
+          "revertCounterL2",
+          "revertFromOtherChainAndCallAgainL2",
+          "revertFromOtherChainL2",
+          "revertFromOtherChainNested",
+          "nestedStaticCounter",
+          "staticReadWrite",
+          "staticReadX2Write",
+          "topLevelStaticCounter",
+          "topLevelStaticReentrantCounter",
+          "nestedStaticCounterL2",
+          "staticCounterL2",
+          "staticReadWriteL2",
+          "staticReadX2WriteL2",
+          "topLevelStaticReentrantCounterL2"
+        ],
+        "exit_code": 1,
+        "seconds": 526.15,
+        "results": [
+          [
+            "multi-call-twice",
+            "PASS"
+          ],
+          [
+            "multi-call-two-diff",
+            "PASS"
+          ],
+          [
+            "multi-call-twiceL2",
+            "PASS"
+          ],
+          [
+            "multi-call-two-diffL2",
+            "PASS"
+          ],
+          [
+            "counter-multi-tx",
+            "PASS"
+          ],
+          [
+            "deepNested",
+            "PASS"
+          ],
+          [
+            "flash-loan",
+            "FAIL"
+          ],
+          [
+            "multi-call-nested",
+            "PASS"
+          ],
+          [
+            "nestedCounter",
+            "FAIL"
+          ],
+          [
+            "multi-call-nestedL2",
+            "PASS"
+          ],
+          [
+            "nestedCounterL2",
+            "PASS"
+          ],
+          [
+            "counter",
+            "PASS"
+          ],
+          [
+            "counterL2",
+            "PASS"
+          ],
+          [
+            "reentrant",
+            "PASS"
+          ],
+          [
+            "nestedCallRevert",
+            "PASS"
+          ],
+          [
+            "revertCounter",
+            "PASS"
+          ],
+          [
+            "revertFromOtherChain",
+            "PASS"
+          ],
+          [
+            "nestedCallRevertL2",
+            "PASS"
+          ],
+          [
+            "revertCounterL2",
+            "PASS"
+          ],
+          [
+            "revertFromOtherChainAndCallAgainL2",
+            "PASS"
+          ],
+          [
+            "revertFromOtherChainL2",
+            "PASS"
+          ],
+          [
+            "revertFromOtherChainNested",
+            "PASS"
+          ],
+          [
+            "nestedStaticCounter",
+            "PASS"
+          ],
+          [
+            "staticReadWrite",
+            "PASS"
+          ],
+          [
+            "staticReadX2Write",
+            "PASS"
+          ],
+          [
+            "topLevelStaticCounter",
+            "PASS"
+          ],
+          [
+            "topLevelStaticReentrantCounter",
+            "PASS"
+          ],
+          [
+            "nestedStaticCounterL2",
+            "PASS"
+          ],
+          [
+            "staticCounterL2",
+            "PASS"
+          ],
+          [
+            "staticReadWriteL2",
+            "PASS"
+          ],
+          [
+            "staticReadX2WriteL2",
+            "PASS"
+          ],
+          [
+            "topLevelStaticReentrantCounterL2",
+            "PASS"
+          ]
+        ]
+      }
+    ],
+    "blocked": {
+      "bridgeL2": "bridge prerequisite did not pass"
+    }
+  },
+  "suite": {
+    "discovered": 62,
+    "eligible": 34,
+    "selected": 34,
+    "excluded_from_all": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "complete": true
+  },
+  "accounting": {
+    "valid": true,
+    "missing": [],
+    "duplicates": [],
+    "unexpected": []
+  },
+  "upstream_exit_status": 1,
+  "evidence_complete": false,
+  "causal_coverage": {
+    "complete": false,
+    "missing": [
+      "flash-loan",
+      "nestedCounter",
+      "bridge",
+      "bridgeL2"
+    ],
+    "paired": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "multi-call-nested",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "counter",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ],
+    "no_destination_required": [
+      "revertCounter",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter"
+    ]
+  },
+  "semantic_blob_coverage": {
+    "complete": false,
+    "missing": [
+      "flash-loan",
+      "nestedCounter",
+      "bridge",
+      "bridgeL2"
+    ],
+    "authenticated": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "multi-call-nested",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "counter",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertCounter",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ]
+  },
+  "passed": [
+    "multi-call-twice",
+    "multi-call-two-diff",
+    "multi-call-twiceL2",
+    "multi-call-two-diffL2",
+    "counter-multi-tx",
+    "deepNested",
+    "multi-call-nested",
+    "multi-call-nestedL2",
+    "nestedCounterL2",
+    "counter",
+    "counterL2",
+    "reentrant",
+    "nestedCallRevert",
+    "revertCounter",
+    "revertFromOtherChain",
+    "nestedCallRevertL2",
+    "revertCounterL2",
+    "revertFromOtherChainAndCallAgainL2",
+    "revertFromOtherChainL2",
+    "revertFromOtherChainNested",
+    "nestedStaticCounter",
+    "staticReadWrite",
+    "staticReadX2Write",
+    "topLevelStaticCounter",
+    "topLevelStaticReentrantCounter",
+    "nestedStaticCounterL2",
+    "staticCounterL2",
+    "staticReadWriteL2",
+    "staticReadX2WriteL2",
+    "topLevelStaticReentrantCounterL2"
+  ],
+  "failed": [
+    "flash-loan",
+    "nestedCounter",
+    "bridge"
+  ],
+  "skipped": [
+    "bridgeL2"
+  ],
+  "scenarios": [
+    {
+      "scenario": "multi-call-twice",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "multi-call-two-diff",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "multi-call-twiceL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "multi-call-two-diffL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "counter-multi-tx",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "deepNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "flash-loan",
+      "result": "FAIL",
+      "verification_mode": "upstream-failed",
+      "error": "scenario did not produce a complete passing evidence bundle"
+    },
+    {
+      "scenario": "multi-call-nested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedCounter",
+      "result": "FAIL",
+      "verification_mode": "upstream-failed",
+      "error": "scenario did not produce a complete passing evidence bundle"
+    },
+    {
+      "scenario": "multi-call-nestedL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "bridge",
+      "result": "FAIL",
+      "verification_mode": "upstream-failed",
+      "error": "scenario did not produce a complete passing evidence bundle"
+    },
+    {
+      "scenario": "counter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "bridgeL2",
+      "result": "SKIP",
+      "verification_mode": "upstream-skipped",
+      "error": "scenario did not produce a complete passing evidence bundle"
+    },
+    {
+      "scenario": "counterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "reentrant",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedCallRevert",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "revertCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      }
+    },
+    {
+      "scenario": "revertFromOtherChain",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedCallRevertL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "revertCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": false
+      }
+    },
+    {
+      "scenario": "revertFromOtherChainAndCallAgainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "revertFromOtherChainL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": false
+      }
+    },
+    {
+      "scenario": "revertFromOtherChainNested",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "nestedStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "staticReadWrite",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "staticReadX2Write",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "topLevelStaticCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      }
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounter",
+      "result": "PASS",
+      "verification_mode": "upstream-lookup-only",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "post_batch_preceded_trigger": true,
+        "no_destination_delivery_required": true,
+        "l2_absence_verified": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "actual_lookup_result_traced": true,
+        "lookup_root_bound": true
+      }
+    },
+    {
+      "scenario": "nestedStaticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "staticCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "exact_same_block_static_table_decoded": true,
+        "table_load_preceded_trigger": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "producer_remained_read_only": true
+      }
+    },
+    {
+      "scenario": "staticReadWriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "staticReadX2WriteL2",
+      "result": "PASS",
+      "verification_mode": "upstream-direct",
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      }
+    },
+    {
+      "scenario": "topLevelStaticReentrantCounterL2",
+      "result": "PASS",
+      "verification_mode": "upstream-static-pool",
+      "claims": {
+        "upstream_pass_required": true,
+        "receipts_revalidated": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "exact_same_block_static_table_decoded": true,
+        "table_load_preceded_trigger": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "producer_remained_read_only": true
+      }
+    }
+  ],
+  "full_summary_local_only": "artifacts/pr54-fees-final/kurtosis/protocol-e2e/summary.json",
+  "full_summary_sha256": "3f3387c66bac629787e496a35cbd056fc8e2bbce938ba222a083bbbd107cdb49"
+}

@@ -70,52 +70,26 @@ fn lookup_authorized_proxy_live<CTX: ContextTr + Host>(
 
 /// Clone this rollup's in-flight cache with journal-live values.
 ///
-/// revm keeps mid-transaction writes in its journal, while loaded cache
-/// entries can still contain their pre-write values. Refresh every loaded
-/// account and slot through `Host` before sharing the cache. An `SSTORE`
-/// first loads its slot, so the cache already identifies every storage key
-/// that needs refreshing.
+/// The DB cache still contains pre-transaction values. In particular, a new
+/// contract's constructor storage may exist only in the journal: CREATE does
+/// not load those slots from the DB. Apply the full live account changes to a
+/// cloned cache using REVM's own conversion, including code and creation state.
+/// Neither the source DB nor its rollback journal is committed here.
 fn live_cache_snapshot<'db, DB, CTX>(context: &mut CTX) -> CacheState
 where
     CTX: ContextTr<Db = &'db mut State<DB>> + Host,
+    CTX::Journal: JournalTr<State = revm::state::EvmState>,
     DB: 'db,
 {
     let mut cache = context.db_mut().cache.clone();
-    // Collect keys first: the refresh loops below mutate `cache` while
-    // reading live values through `context`.
-    let mut addrs: Vec<Address> = Vec::new();
-    let mut slots: Vec<(Address, alloy_primitives::U256)> = Vec::new();
-    for (addr, acc) in &cache.accounts {
-        addrs.push(*addr);
-        if let Some(plain) = acc.account.as_ref() {
-            for slot in plain.storage.keys() {
-                slots.push((*addr, *slot));
-            }
-        }
-    }
-    // Read live storage values through the journal-aware host.
-    for (addr, slot) in slots {
-        if let Some(load) = context.sload(addr, slot)
-            && let Some(plain) = cache
-                .accounts
-                .get_mut(&addr)
-                .and_then(|a| a.account.as_mut())
-        {
-            plain.storage.insert(slot, load.data);
-        }
-    }
-    // Read live balances and nonces through the host.
-    for addr in addrs {
-        if let Ok(info) = context.load_account_info_skip_cold_load(addr, false, true)
-            && let Some(plain) = cache
-                .accounts
-                .get_mut(&addr)
-                .and_then(|a| a.account.as_mut())
-        {
-            plain.info.balance = info.balance;
-            plain.info.nonce = info.nonce;
-        }
-    }
+    let _ = cache.apply_evm_state(
+        context
+            .journal_ref()
+            .evm_state()
+            .iter()
+            .map(|(address, account)| (*address, account.clone())),
+        |_, _| {},
+    );
     cache
 }
 
@@ -278,6 +252,7 @@ impl SessionInspector<'_> {
 impl<'db, DB, CTX> Inspector<CTX> for SessionInspector<'_>
 where
     CTX: ContextTr<Db = &'db mut State<DB>> + Host,
+    CTX::Journal: JournalTr<State = revm::state::EvmState>,
     DB: 'db,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
@@ -477,6 +452,65 @@ mod tests {
     use revm::MainContext;
     use revm::context::Context;
     use revm::database::{CacheDB, EmptyDB};
+
+    #[test]
+    fn live_snapshot_includes_created_code_and_constructor_storage_without_committing() {
+        use revm::bytecode::Bytecode;
+        use revm::context_interface::journaled_state::account::JournaledAccountTr;
+        use revm::primitives::{bytes, hardfork::SpecId};
+
+        let child = Address::with_last_byte(0x42);
+        let code = Bytecode::new_raw(bytes!("602a60005260206000f3"));
+        let mut db = State::builder().with_database(EmptyDB::default()).build();
+        let mut context = Context::mainnet().with_db(&mut db);
+        let outer = context.journal_mut().checkpoint();
+        context.journal_mut().load_account(child).unwrap();
+        context
+            .journal_mut()
+            .create_account_checkpoint(child, child, U256::ZERO, SpecId::PRAGUE)
+            .unwrap();
+        context.journal_mut().checkpoint_commit();
+        {
+            let mut account = context.journal_mut().load_account_mut(child).unwrap();
+            account.data.set_code_and_hash_slow(code.clone());
+            account.data.set_balance(U256::from(17));
+            account.data.set_nonce(2);
+        }
+        context
+            .journal_mut()
+            .sstore(child, U256::ZERO, U256::from(41))
+            .unwrap();
+        let original_cache = context.db_mut().cache.clone();
+        let original_journal = context.journal_ref().evm_state().clone();
+        assert!(original_cache.accounts[&child].account.is_none());
+
+        let snapshot = live_cache_snapshot(&mut context);
+        let account = snapshot.accounts[&child].account.as_ref().unwrap();
+        assert_eq!(account.info.code_hash, code.hash_slow());
+        assert_eq!(account.info.code.as_ref(), Some(&code));
+        assert_eq!(account.info.nonce, 2);
+        assert_eq!(account.info.balance, U256::from(17));
+        assert_eq!(account.storage[&U256::ZERO], U256::from(41));
+        assert_eq!(snapshot.contracts[&code.hash_slow()], code);
+        assert_eq!(context.db_mut().cache, original_cache);
+        assert_eq!(context.journal_ref().evm_state(), &original_journal);
+
+        // Another dispatch must see the source's later write, and an enclosing
+        // revert must leave no created code in any subsequent snapshot.
+        context
+            .journal_mut()
+            .sstore(child, U256::ZERO, U256::from(42))
+            .unwrap();
+        let snapshot = live_cache_snapshot(&mut context);
+        assert_eq!(
+            snapshot.accounts[&child].account.as_ref().unwrap().storage[&U256::ZERO],
+            U256::from(42)
+        );
+        context.journal_mut().checkpoint_revert(outer);
+        let snapshot = live_cache_snapshot(&mut context);
+        assert!(snapshot.accounts[&child].account.is_none());
+        assert!(!snapshot.contracts.contains_key(&code.hash_slow()));
+    }
 
     const EEZ_ADDRESS: Address = address!("0x1111111111111111111111111111111111111111");
     const EEZL2_ADDRESS: Address = address!("0x4444444444444444444444444444444444444444");

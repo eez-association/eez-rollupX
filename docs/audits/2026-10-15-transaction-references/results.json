@@ -1,0 +1,123 @@
+{
+  "date": "2026-10-15",
+  "implementation": "465cef299ce22ac9541ccfa3ba53d3fb7fca4490",
+  "baseline": "227b24d90a059a5af4a81b7a9fe29104bebd385e",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "runtime_source_patch_sha256": "dbde46fd08e204e9a398627fa0ef4c69b2a8c1fbbadb844c74cd3c33d8eb2abe",
+  "runtime_source_note": "Built before commit from the baseline plus recorded patch. Later Rust changes affect tests and API comments only; production executable logic matches the implementation commit.",
+  "runtime_sha256": {
+    "eez-composer": "f69eb71fe916851b29eb9113f0a6c552d41731b91db60cee4fc1f868f866a837",
+    "eez-follower": "9d07c7ac7fb182b835986dac5b7912f5fafdc7523ca7e32082a0009cddb9aa12",
+    "eez-proof-signer": "56cb7edfaec95340a0690a46064c9827c41c8cbd62860a7fa0587799b8607545"
+  },
+  "initial_harness_sha256": {
+    "node_e2e": "558cd9b3602df0e7adb01519b6ea3478cee3d50fe98386f84fc7db6097071927"
+  },
+  "baseline_runtime": {
+    "source": "14d9eac364d92d316da4f00a4cb44154d9c28661",
+    "composer_sha256": "7a84fbdc8182b7afa7e2cf935340ab03237e94b32017664caf00b87a51fca52b",
+    "outcome": "Expected failure: settled source response lacks transactions; missing transaction references assertion."
+  },
+  "checks": {
+    "rust_unit_passed": 656,
+    "rust_unit_ignored": 1,
+    "ignored_reason": "Existing manual backlog timing profile",
+    "protocol_repeat_passed": 188,
+    "sdk_passed": 13,
+    "clippy": "passed; --locked --workspace --all-targets -- -D warnings",
+    "format": "passed",
+    "native_selected": 19,
+    "native_results": {
+      "runs": [
+        {
+          "log": "candidate.log",
+          "passed": 15,
+          "failed": 4,
+          "ignored": 0,
+          "filtered": 127,
+          "cases": {
+            "chained_interstate::identical_outbound_calls_in_separate_transactions_chain_state": true,
+            "chained_interstate::mixed_direction_state_chain_in_one_slot": false,
+            "chained_interstate::poison_mid_bundle_leaves_survivors_correct": true,
+            "chained_interstate::same_sender_outbound_chain": true,
+            "chained_interstate::three_order_dependent_inbound_calls_in_one_bundle": false,
+            "fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays": true,
+            "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays": true,
+            "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays": true,
+            "partial_consumption::first_source_omission_keeps_the_registration_anchor": true,
+            "partial_consumption::last_source_omission_keeps_two_user_prefix": true,
+            "partial_consumption::partial_prefix_keeps_unconsumed_users_and_receipt_costs": true,
+            "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent": true,
+            "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block": true,
+            "queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order": true,
+            "safe_fee_quotes::entirely_l2_safe_keeps_ordinary_gas_rules": true,
+            "safe_fee_quotes::gnosis_safe_factory_nested_initialization_is_funded_and_replays": true,
+            "safe_fee_quotes::safe_factory_nested_initialization_is_funded_and_replays": true,
+            "transaction_references::nested_inbound_references_include_both_deliveries": false,
+            "transaction_references::nested_outbound_references_include_source_and_callbacks": false
+          }
+        },
+        {
+          "log": "corrected.log",
+          "passed": 3,
+          "failed": 1,
+          "ignored": 0,
+          "filtered": 142,
+          "cases": {
+            "chained_interstate::mixed_direction_state_chain_in_one_slot": true,
+            "chained_interstate::three_order_dependent_inbound_calls_in_one_bundle": true,
+            "transaction_references::nested_inbound_references_include_both_deliveries": true,
+            "transaction_references::nested_outbound_references_include_source_and_callbacks": false
+          }
+        },
+        {
+          "log": "final.log",
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0,
+          "filtered": 145,
+          "cases": {
+            "transaction_references::nested_outbound_references_keep_inline_callbacks_in_the_source_transaction": true
+          }
+        }
+      ],
+      "distinct_passing_cases": 19,
+      "unexplained_retry_only_passes": 0,
+      "semantic_assertions": true,
+      "independent_follower_replay": true
+    }
+  },
+  "build_notes": [
+    "First harness build: compiler SIGKILL under memory pressure; logs retained.",
+    "Two-job optimized retry: explicitly stopped during prolonged node-library optimization.",
+    "Successful harness and node unit builds: CARGO_BUILD_JOBS=2 and profile.dev.package.eez-node.opt-level=0. Process tests use frozen normally optimized development runtime binaries.",
+    "Initial compilation missing-docs and missing-trait errors were fixed before successful runtime/unit builds.",
+    "New test count expectations were corrected: inbound delivery self-loads in one transaction. Clippy singleton-slice finding fixed.",
+    "Both new nested tests initially used Ethereum receipt decoding, which rejected native type 0x76. Corrected to Alloy AnyNetwork without runtime changes.",
+    "The corrected outbound case then exposed an incorrect physical count: its reentrant callbacks execute inline. Corrected to exact load/source hashes and added the completed-source assertion; focused test passed."
+  ],
+  "deployment": "not performed",
+  "evidence_availability": "Raw logs, datadirs, binaries and patch are local-only in the ignored operator artifacts/fee-api-issue90-20261015 directory.",
+  "native_receipt_test_commit": "0dad223acb63780a6d28eb48904667549e345249",
+  "inline_callback_test_commit": "5313d575a3d126cc892ecacbd89754d55ab8f4a8",
+  "intermediate_harness_sha256": {
+    "node_e2e-verified": "8baa33c12f366060a931317e6966d810b4db2faeb86510a1bbf6a64737de5bd1"
+  },
+  "corrected_harness_sha256": {
+    "node_e2e-complete": "ee0587dc5f3fc1abb17552f547ae47fb4287c79739fae2c9e6918b7401c27219"
+  },
+  "final_harness_sha256": {
+    "node_e2e-final": "f2f6949e7d53f6683e35b869cf06836975e69d51e4c1819c81aa64b4cb7c494e"
+  },
+  "evidence_sha256": {
+    "baseline.log": "735327bcc9a4229ceb7322efe0f390494828e068ecff66b7fd6de3d34f1fe23a",
+    "candidate.log": "77346da64fbefecc24e119f337beee9ef4e1b14e715a3a21d4f9be5e9d576945",
+    "corrected.log": "2a1515071f0e6a6608216f8764ef2cfb47530f49c85b0c617f0b3e224528716e",
+    "final.log": "dfcfaabf24add13e9ae99c522365a185673b0c1925cd286def938f5b59d418fd",
+    "unit-final.log": "95a06dda7d5a259558ceeeab8f89889a52bce629035762f479e26d3e826b5af2",
+    "protocol-final.log": "e9689973f93c1b9827a5dd51cebf67802a30d9399677d74dace47b70e2a89f4a",
+    "sdk-tests.log": "599f0d012532ace64560106296f82072285ac1a52d0ce58bbede670e1e054f12",
+    "clippy-final-verified.log": "fb0f2001458c7440c1e64a7d1850ded47937d3bd10cf537b3d8286c65d8a489d"
+  },
+  "fee_api_evaluation_commit": "12fa33a7a51fdd2649fbd9107b52f1f892e4fb5c"
+}

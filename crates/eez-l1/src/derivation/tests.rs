@@ -510,6 +510,14 @@ async fn live_seed_starts_after_terminal_height_partial_resume_catchup_reorg_and
         assert_eq!(history.seed_for(number), B256::with_last_byte(seed));
     }
     assert_eq!(history.anchors()[1].kind(), AnchorKind::CatchUp);
+    // Advisory snapshots must not pick up seeds from later accepted L1
+    // blocks, even though their retained L2 parent remains canonical.
+    for (through, seed) in [(10, 7), (11, 8), (12, 8), (13, 10)] {
+        let (_, actual) = history
+            .next_block_context_through(&endpoint(12, 8, 0), through)
+            .unwrap();
+        assert_eq!(actual, B256::with_last_byte(seed));
+    }
 
     // A fresh process starts from genesis and reauthenticates/replays accepted
     // occurrences. The last L2 header's mixHash (8) is not the child seed (10).

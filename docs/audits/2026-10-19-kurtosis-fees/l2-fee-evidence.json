@@ -1,0 +1,90 @@
+{
+  "enclave": "eez-pr54-fees-20261019",
+  "script": "testing/kurtosis/scripts/verify-l2-fees.mjs",
+  "result": "pass",
+  "full_evidence_local_only": "artifacts/pr54-fees/fee-exercises/l2.json",
+  "full_evidence_sha256": "456474fac0e83cd72fcc6aa79b02654b22e1ade0caf04577daadca61d517cd56",
+  "underpayment_rejection": {
+    "error": {
+      "code": -32003,
+      "data": {
+        "code": "l2_tip_underfunded",
+        "details": {
+          "l1BlobPrice": "0x1",
+          "l1ExecutionPrice": "0x3b9e5ef3",
+          "l1PriorityFeePerGas": "0x3b9aca00",
+          "l1Sample": {
+            "hash": "0x7d1a1b03f04c46e32d6d33657560b149e62ef77b547982712ed7f10207bcd26f",
+            "number": "0x3e"
+          },
+          "l2Parent": {
+            "hash": "0x70f0511bc0f969b492065f8f916a833bca7d9eab3bb7cf2d8815545d0ae68f10",
+            "number": "0x174"
+          },
+          "offeredPayment": "0x0",
+          "paymentBasis": "gross_priority_payment",
+          "paymentChainId": "0xaa29e",
+          "reason": "settlement_fee",
+          "requiredPayment": "0x1b0aa1c62d008",
+          "scope": "source",
+          "shortfall": "0x1b0aa1c62d008",
+          "sourceBaseFeePerGas": "0x833fb",
+          "sourceGasUsed": "0x1c6b6"
+        },
+        "message": "signed L2 priority payment does not cover the configured settlement tariff"
+      },
+      "message": "settlement tariff admission failed"
+    },
+    "id": 83,
+    "jsonrpc": "2.0"
+  },
+  "same_native_block": true,
+  "sources": [
+    {
+      "hash": "0x3835635ff6e47eb3ec349c5fa402bb37e0d87131c0f3b53d4a99224787b918c1",
+      "actual_tip_l2_wei": "570863572740234",
+      "quoted_required_tip_l2_wei": "570863572652861",
+      "quoted_l1_posting_cost_wei": "475719643877384",
+      "quoted_profit_bps": 2000,
+      "beneficiary": "0x4444444444444444444444444444444444444444",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x68ecbd2edf6459c9a3e4ff9ac5198b9c7f78472a530d98b30876fd86f6477751",
+          "number": 63
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      },
+      "target": "0x6cffa31dd31cf649fb24ac7cefe87579324bd89c",
+      "expected_target_value": "123"
+    },
+    {
+      "hash": "0x8cd8e172382ee73aa0f5439f41546b693185a755957c9118cb4156a386c29df6",
+      "actual_tip_l2_wei": "570863572740234",
+      "quoted_required_tip_l2_wei": "570863572652861",
+      "quoted_l1_posting_cost_wei": "475719643877384",
+      "quoted_profit_bps": 2000,
+      "beneficiary": "0x4444444444444444444444444444444444444444",
+      "canonical_disposition": {
+        "canonical": {
+          "hash": "0x68ecbd2edf6459c9a3e4ff9ac5198b9c7f78472a530d98b30876fd86f6477751",
+          "number": 63
+        },
+        "reason": "Committed",
+        "state": "terminal"
+      },
+      "target": "0x0124189fc71496f8660db5189f296055ed757632",
+      "expected_target_value": "124"
+    }
+  ],
+  "postings": [
+    {
+      "hash": "0x6a569b7b40e5e0c2e5552dd551c53318ff5754f2e693b074fe54a44497667d75",
+      "actual_post_and_blob_cost_l1_wei": "832452363306995",
+      "actual_total_tip_l2_wei": "1141727145480468",
+      "required_tip_including_twenty_percent_l2_wei": "998942835968394",
+      "surplus_at_parity_wei": "309274782173473",
+      "observed_surplus_bps_rounded_down": 3715
+    }
+  ]
+}

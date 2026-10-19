@@ -1,0 +1,40 @@
+{
+  "sources": 906,
+  "posts": 68,
+  "l1Sources": 540,
+  "l2Sources": 366,
+  "maxL1SourcesPerPost": 70,
+  "maxL2SourcesPerPost": 14,
+  "l1Cost": "119547305566791861",
+  "l1Refund": "14837922357200322",
+  "l1LossPosts": 25,
+  "l2Cost": "133396081840973591",
+  "l2Tips": "257300180559014171",
+  "nativeBlobPostsVerified": 68,
+  "nativeBlobSourceBindings": 906,
+  "semanticStatus": {
+    "all": {
+      "passed": 34,
+      "failed": 0,
+      "unverifiable": 0
+    },
+    "stress": {
+      "passed": 770,
+      "failed": 0,
+      "unverifiable": 0
+    }
+  },
+  "independentFinalReplay": "Passed: combined 1,056 L2 receipts and 16 Falcon state calls; see final-verification.json",
+  "stressSemanticVerification": {
+    "passed": 770,
+    "failed": 0,
+    "unverifiable": 0,
+    "skipped": 0,
+    "allJobDoneMarkers": 770,
+    "verifyWorkers": 16,
+    "pinnedAssertionsUnmodified": true,
+    "absenceCheckSeconds": 60,
+    "logSha256": "daeb4ba708ec9d6562eb86e9c3be87ffe97fbdf5c63d1003bf02fdaa06892231",
+    "completedAt": "2026-10-16T11:46:43.707999+00:00"
+  }
+}

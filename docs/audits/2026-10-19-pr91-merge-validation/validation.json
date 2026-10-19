@@ -1,0 +1,1073 @@
+{
+  "status": "all_local_checks_passed",
+  "tested_source": "2362dbd256275a6d97ec3bfeeee30e94fdbf7635",
+  "protocol": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+  "runtime": {
+    "schema": 2,
+    "root_commit": "2362dbd256275a6d97ec3bfeeee30e94fdbf7635",
+    "protocol_commit": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+    "cargo_lock_sha256": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2\n",
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)\n",
+    "base_images": {
+      "rust": "rust@sha256:6258907abe69656e41cd992e0b705cdcfabcbbe3db374f92ed2d47121282d4a1",
+      "runtime": "debian@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587"
+    },
+    "published": false,
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-node:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+        "image_id": "sha256:f58a35864758c4dc31493df969a9e4da324a8fe1914f3ad0ba090abb2fd88ae7"
+      },
+      "signer": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+        "image_id": "sha256:02180b09dd41e97142c12701c6a9068a421d40015f50045cb15a2ac01963337a"
+      },
+      "deploy": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-deploy:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+        "image_id": "sha256:d2f45cb5c1319ac60ecfbdd4764753f1f4004330a37748bfed849fe1df823928"
+      }
+    },
+    "binaries_sha256": "108908cb83e72f534bec77bf96b448461671b78236e07c0854089db996aed280"
+  },
+  "native": {
+    "schema": 4,
+    "cargo_lock_sha256": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39",
+    "platform": "linux/amd64",
+    "profile": "release",
+    "rustflags": "-C link-arg=-fuse-ld=mold",
+    "nextest": "0.9.143",
+    "rust": "1.95.0",
+    "archives_sha256": {
+      "native-tests.tar.zst": "4456adadd1818f713514c4e87b8f20cb8deb1ceffc8e326c8ef9155f59c2e6da"
+    },
+    "runtime_sha256": {
+      "eez-composer": "ad7d835cc2cee8749b3ec95241c7281b58f18e49c7e9af5271347060fb81329b",
+      "eez-follower": "d53e5cd8e1cd192dae09abe6e178ff7fc351aacf94dfec0bcb954b39bcd1a919",
+      "eez-proof-signer": "db929fe09c610117ce6b264b7d7aa0744ee31a73329bb048957bb83a7965a843"
+    },
+    "glibc": "glibc 2.36",
+    "root_commit": "2362dbd256275a6d97ec3bfeeee30e94fdbf7635",
+    "protocol_commit": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+    "runtime_archive_sha256": "108908cb83e72f534bec77bf96b448461671b78236e07c0854089db996aed280"
+  },
+  "runtime_binary_equality": {
+    "previous_source": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+    "equal": true
+  },
+  "checks": {
+    "protocol-core": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/protocol-core.log",
+      "log_sha256": "575afa7d2b70d04a4ac876beb73437acee4e06c873c2b08e90000be3f7068556"
+    },
+    "protocol-anvil": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/protocol-anvil.log",
+      "log_sha256": "a5c52cad80723ea04e08e96a1bd642ad76f19a261a14705349b2cee250b0f23a"
+    },
+    "tooling-tests": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/tooling-tests.log",
+      "log_sha256": "85fc5571ac585420d3d97e748cc5c62bfa02e4d83e1403e0d4f951eebb3d66f6"
+    },
+    "sdk-tests": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/sdk-tests.log",
+      "log_sha256": "a01a20e0169023f3c832a43665c39e1dc2b6125f27fe211bf28b5b6a6ec401b2"
+    },
+    "secret-scanner-tests": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/secret-scanner-tests.log",
+      "log_sha256": "0ddb2969fda14a68b5d03432682a806d8d2c893089f50fd4a9cef74fccca85f7"
+    },
+    "secret-scan": {
+      "exit_code": 0,
+      "log_local_only": "artifacts/pr91-merge-20261019/secret-scan.log",
+      "log_sha256": "f265016697b43fa8478eaec87ba9807ab45917db6979f237528b63677c5c21ae"
+    }
+  },
+  "anvil": {
+    "selected": 62,
+    "passed": 62,
+    "failed": 0,
+    "results": [
+      {
+        "scenario": "multi-call-twice",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 9
+      },
+      {
+        "scenario": "multi-call-two-diff",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "multi-call-twiceL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "multi-call-two-diffL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "counter-multi-tx",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 9
+      },
+      {
+        "scenario": "deepNested",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "flash-loan",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "multi-call-nested",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 9
+      },
+      {
+        "scenario": "nestedCounter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "multi-call-nestedL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "nestedCounterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "bridge",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "counter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "bridgeL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "counterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "reentrant",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "catchNestedRevertAfterCallback",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 12
+      },
+      {
+        "scenario": "catchRemoteRevertAfterCallback",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 7
+      },
+      {
+        "scenario": "nestedCallRevert",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "revertCounter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 8
+      },
+      {
+        "scenario": "revertFromOtherChain",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "catchNestedRevertAfterCallbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "catchRemoteRevertAfterCallbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "nestedCallRevertL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "nestedRollbackRestoresInnerThenOuterStateL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "revertCounterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 9
+      },
+      {
+        "scenario": "revertFromOtherChainAndCallAgainL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "revertFromOtherChainL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "revertFromOtherChainNested",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "rollbackGroupWithStaticReadThenWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "mutableCallMakesReadThatCallsBack",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "nestedStaticCounter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "nestedStaticLocalWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticLocalWrite",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 8
+      },
+      {
+        "scenario": "staticReadCallsBackAndReadsAgain",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 7
+      },
+      {
+        "scenario": "staticReadWrite",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticReadX2Write",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "topLevelStaticCounter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 8
+      },
+      {
+        "scenario": "topLevelStaticReentrantCounter",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 8
+      },
+      {
+        "scenario": "topLevelStaticReentrantMissingProxy",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 8
+      },
+      {
+        "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "mutableCallMakesReadThatCallsBackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "nestedStaticCounterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "nestedStaticLocalWriteL1",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticCounterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticLocalWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadCallsBackAndReadsAgainL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticReadHandlesFailedCallbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticReadPropagatesFailedCallbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadThenCatchFailedWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticReadThenRollbackWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadThenWriteWithCallbackL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      },
+      {
+        "scenario": "staticReadWriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "staticReadX2WriteL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "topLevelStaticReentrantCounterL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 10
+      },
+      {
+        "scenario": "topLevelStaticReentrantMissingProxyL2",
+        "status": "PASS",
+        "exit_code": 0,
+        "seconds": 11
+      }
+    ]
+  },
+  "fee_environment": {
+    "enclave": "eez-pr91-merge-20261019",
+    "enclave_uuid": "b83e0c65b3434283804363f5819f92be",
+    "container": "/eez-node--51eb6914267e48538ea9cf7bfe25dd25",
+    "image": "sha256:f58a35864758c4dc31493df969a9e4da324a8fe1914f3ad0ba090abb2fd88ae7",
+    "fees": {
+      "EEZ_FEES_PROFIT_BPS": "2000",
+      "EEZ_FEES_L1_PER_L2_DENOMINATOR": "1",
+      "EEZ_FEES_PROVING_COST_L1": "0",
+      "EEZ_FEES_L1_TO_L2_ENABLED": "true",
+      "EEZ_L2_FEE_RECIPIENT": "0x4444444444444444444444444444444444444444",
+      "EEZ_FEES_RISK_BPS": "0",
+      "EEZ_FEES_OPERATIONS_COST_L1": "0",
+      "EEZ_FEES_L2_TO_L1_ENABLED": "true",
+      "EEZ_FEES_L1_REFUND_RECIPIENT": "0x5555555555555555555555555555555555555555",
+      "EEZ_FEES_L1_REFUND_PERCENT": "90",
+      "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP": "4102444800",
+      "EEZ_FEES_L1_PER_L2_NUMERATOR": "1",
+      "EEZ_FEES_EXCLUDED_SENDERS": "",
+      "EEZ_FEES_TREASURY_COST_L1": "0"
+    }
+  },
+  "kurtosis": {
+    "result": {
+      "result": "pass",
+      "exit_code": 0,
+      "candidate_image": "ghcr.io/eez-association/eez-rollupx-node:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+      "commits": {
+        "root": "2362dbd256275a6d97ec3bfeeee30e94fdbf7635",
+        "protocol": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774"
+      },
+      "images": {
+        "node": "ghcr.io/eez-association/eez-rollupx-node:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+        "proof_signer": "ghcr.io/eez-association/eez-rollupx-proof-signer:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1",
+        "deploy": "ghcr.io/eez-association/eez-rollupx-deploy:sha-2362dbd256275a6d97ec3bfeeee30e94fdbf7635-local-pr91-20261019-1"
+      },
+      "proof_flow": {
+        "signed_windows": 82,
+        "remote_attestations": 82
+      },
+      "modes": [
+        "inbound",
+        "outbound",
+        "mixed",
+        "mixed-pure"
+      ],
+      "cross_chain_convergence": "pass",
+      "state_chaining": "pass",
+      "l1_l2_root_divergence": 0,
+      "safe_head_convergence": "pass"
+    },
+    "protocol": {
+      "schema_version": 5,
+      "protocol_commit": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+      "targets": [
+        "all"
+      ],
+      "suite": {
+        "discovered": 62,
+        "eligible": 34,
+        "selected": 34,
+        "excluded_from_all": [
+          "catchNestedRevertAfterCallback",
+          "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+          "catchRemoteRevertAfterCallback",
+          "catchNestedRevertAfterCallbackL2",
+          "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+          "catchRemoteRevertAfterCallbackL2",
+          "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+          "nestedRollbackRestoresInnerThenOuterStateL2",
+          "rollbackGroupWithStaticReadThenWriteL2",
+          "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+          "mutableCallMakesReadThatCallsBack",
+          "nestedStaticLocalWriteL2",
+          "staticLocalWrite",
+          "staticReadCallsBackAndReadsAgain",
+          "topLevelStaticReentrantMissingProxy",
+          "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+          "mutableCallMakesReadThatCallsBackL2",
+          "nestedStaticLocalWriteL1",
+          "staticLocalWriteL2",
+          "staticReadCallsBackAndReadsAgainL2",
+          "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+          "staticReadHandlesFailedCallbackL2",
+          "staticReadPropagatesFailedCallbackL2",
+          "staticReadThenCatchFailedWriteL2",
+          "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+          "staticReadThenRollbackWriteL2",
+          "staticReadThenWriteWithCallbackL2",
+          "topLevelStaticReentrantMissingProxyL2"
+        ],
+        "complete": true
+      },
+      "accounting": {
+        "valid": true,
+        "missing": [],
+        "duplicates": [],
+        "unexpected": []
+      },
+      "upstream_exit_status": 0,
+      "evidence_complete": true,
+      "causal_coverage": {
+        "complete": true,
+        "missing": [],
+        "paired": [
+          "multi-call-twice",
+          "multi-call-two-diff",
+          "multi-call-twiceL2",
+          "multi-call-two-diffL2",
+          "counter-multi-tx",
+          "deepNested",
+          "flash-loan",
+          "multi-call-nested",
+          "nestedCounter",
+          "multi-call-nestedL2",
+          "nestedCounterL2",
+          "bridge",
+          "counter",
+          "bridgeL2",
+          "counterL2",
+          "reentrant",
+          "nestedCallRevert",
+          "revertFromOtherChain",
+          "nestedCallRevertL2",
+          "revertCounterL2",
+          "revertFromOtherChainAndCallAgainL2",
+          "revertFromOtherChainL2",
+          "revertFromOtherChainNested",
+          "nestedStaticCounter",
+          "staticReadWrite",
+          "staticReadX2Write",
+          "nestedStaticCounterL2",
+          "staticCounterL2",
+          "staticReadWriteL2",
+          "staticReadX2WriteL2",
+          "topLevelStaticReentrantCounterL2"
+        ],
+        "no_destination_required": [
+          "revertCounter",
+          "topLevelStaticCounter",
+          "topLevelStaticReentrantCounter"
+        ]
+      },
+      "semantic_blob_coverage": {
+        "complete": true,
+        "missing": [],
+        "authenticated": [
+          "multi-call-twice",
+          "multi-call-two-diff",
+          "multi-call-twiceL2",
+          "multi-call-two-diffL2",
+          "counter-multi-tx",
+          "deepNested",
+          "flash-loan",
+          "multi-call-nested",
+          "nestedCounter",
+          "multi-call-nestedL2",
+          "nestedCounterL2",
+          "bridge",
+          "counter",
+          "bridgeL2",
+          "counterL2",
+          "reentrant",
+          "nestedCallRevert",
+          "revertCounter",
+          "revertFromOtherChain",
+          "nestedCallRevertL2",
+          "revertCounterL2",
+          "revertFromOtherChainAndCallAgainL2",
+          "revertFromOtherChainL2",
+          "revertFromOtherChainNested",
+          "nestedStaticCounter",
+          "staticReadWrite",
+          "staticReadX2Write",
+          "topLevelStaticCounter",
+          "topLevelStaticReentrantCounter",
+          "nestedStaticCounterL2",
+          "staticCounterL2",
+          "staticReadWriteL2",
+          "staticReadX2WriteL2",
+          "topLevelStaticReentrantCounterL2"
+        ]
+      },
+      "passed": [
+        "multi-call-twice",
+        "multi-call-two-diff",
+        "multi-call-twiceL2",
+        "multi-call-two-diffL2",
+        "counter-multi-tx",
+        "deepNested",
+        "flash-loan",
+        "multi-call-nested",
+        "nestedCounter",
+        "multi-call-nestedL2",
+        "nestedCounterL2",
+        "bridge",
+        "counter",
+        "bridgeL2",
+        "counterL2",
+        "reentrant",
+        "nestedCallRevert",
+        "revertCounter",
+        "revertFromOtherChain",
+        "nestedCallRevertL2",
+        "revertCounterL2",
+        "revertFromOtherChainAndCallAgainL2",
+        "revertFromOtherChainL2",
+        "revertFromOtherChainNested",
+        "nestedStaticCounter",
+        "staticReadWrite",
+        "staticReadX2Write",
+        "topLevelStaticCounter",
+        "topLevelStaticReentrantCounter",
+        "nestedStaticCounterL2",
+        "staticCounterL2",
+        "staticReadWriteL2",
+        "staticReadX2WriteL2",
+        "topLevelStaticReentrantCounterL2"
+      ],
+      "failed": [],
+      "skipped": []
+    },
+    "true_claim_counts": {
+      "upstream_completed": 29,
+      "receipts_revalidated": 34,
+      "scenario_tables_selected_from_canonical_calldata": 29,
+      "upstream_summary_blocks_match_receipts": 29,
+      "causal_graph_bijection": 31,
+      "blob_kzg_authenticated": 34,
+      "native_semantics_decoded": 34,
+      "semantic_trigger_bound": 34,
+      "l1_settlement_verified": 31,
+      "posted_table_field_match": 31,
+      "rolling_hashes_replayed": 31,
+      "l2_table_field_match": 29,
+      "l2_calls_verified": 27,
+      "upstream_pass_required": 5,
+      "post_batch_preceded_trigger": 3,
+      "no_destination_delivery_required": 3,
+      "l2_absence_verified": 3,
+      "actual_lookup_result_traced": 3,
+      "lookup_root_bound": 3,
+      "exact_same_block_static_table_decoded": 2,
+      "table_load_preceded_trigger": 2,
+      "producer_remained_read_only": 2
+    },
+    "full_payload_execution_replay_count": 0,
+    "timings": [
+      {
+        "phase": "protocol-build",
+        "seconds": 1,
+        "exit_code": 0
+      },
+      {
+        "phase": "integration-build",
+        "seconds": 0,
+        "exit_code": 0
+      },
+      {
+        "phase": "network-start",
+        "seconds": 105,
+        "exit_code": 0
+      },
+      {
+        "phase": "settlement-readiness",
+        "seconds": 248,
+        "exit_code": 0
+      },
+      {
+        "phase": "cross-chain-wave-inbound",
+        "seconds": 102,
+        "exit_code": 0
+      },
+      {
+        "phase": "cross-chain-wave-outbound",
+        "seconds": 115,
+        "exit_code": 0
+      },
+      {
+        "phase": "cross-chain-wave-mixed",
+        "seconds": 203,
+        "exit_code": 0
+      },
+      {
+        "phase": "cross-chain-wave-mixed-pure",
+        "seconds": 398,
+        "exit_code": 0
+      },
+      {
+        "phase": "state-chaining",
+        "seconds": 384,
+        "exit_code": 0
+      },
+      {
+        "phase": "waves-and-state-chaining",
+        "seconds": 1202,
+        "exit_code": 0
+      },
+      {
+        "phase": "network-checks",
+        "seconds": 1555,
+        "exit_code": 0
+      },
+      {
+        "phase": "protocol-suite",
+        "seconds": 658,
+        "exit_code": 0
+      }
+    ]
+  },
+  "evidence": {
+    "kurtosis.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/kurtosis.log",
+      "sha256": "73b0f574c9d007f084a2625714d3331fcfdc7d796ad52e6761a08b8b1380d199"
+    },
+    "kurtosis/result.json": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/kurtosis/result.json",
+      "sha256": "25046cf15e3586800824d011eaea5ac7920a1fbf56527c577664f6c2809658b0"
+    },
+    "kurtosis/protocol-e2e/summary.json": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/kurtosis/protocol-e2e/summary.json",
+      "sha256": "9a875fccbe8fb8115e80625fd7b0d2974ecdd9a514e35a19ff9cee27924d4c9b"
+    },
+    "kurtosis/eez-node.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/kurtosis/eez-node.log",
+      "sha256": "669277994921aafee0f94f599024a44144df3437912b338fb1499e6c85261ac8"
+    },
+    "kurtosis/eez-proof-signer.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/kurtosis/eez-proof-signer.log",
+      "sha256": "824809b2b30170e36e62f25c990ba698f98cbb8c09ed35b036e2f1beaff754be"
+    },
+    "anvil-results.json": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/anvil-results.json",
+      "sha256": "e3e3e2bcaeec07118ab8e5d5820bce0db136934c5095fe67b5cbb91f7f829251"
+    },
+    "producer-tests.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/producer-tests.log",
+      "sha256": "25a88e2b668ad91a9266849c7110f4e604294f500d2576f210e42077b36fd521"
+    },
+    "l1-fees.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/l1-fees.log",
+      "sha256": "80f4dd2c80966573686cb732a83135faeaa86022a945626db48120ff6be73079"
+    },
+    "l1-fee-evidence.json": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/l1-fee-evidence.json",
+      "sha256": "2f3085ba263c980281503c2bb564af802ed57f2acd9ef05dfe36a7621c87346b"
+    },
+    "runtime.env": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/runtime.env",
+      "sha256": "5e8f172359ca1e43176ce11170f2d103392bb950d2d1da1bd77b4669a75b42df"
+    },
+    "runtime.path": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/runtime.path",
+      "sha256": "d4e1d50a3216a600fcc9513a178b014c7ca852355c35a7a14e466b46a6f8e5c3"
+    },
+    "l2-fees.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/l2-fees.log",
+      "sha256": "07b9070c0ec6aa7c963b75aed2c319e1b85141e8cdc210c3008cc366a18bd041"
+    },
+    "l2-fee-evidence.json": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/l2-fee-evidence.json",
+      "sha256": "bb74b5793b244bc11c20a99388db5457f6761106202cbbb87bb15100307913be"
+    },
+    "post-fees-node.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/post-fees-node.log",
+      "sha256": "36e6376d4b2705ddd56454a51fd7e2fa925d3819c27a8b210491a10c076fbe10"
+    },
+    "post-fees-signer.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/post-fees-signer.log",
+      "sha256": "34bf1001ef7b8d1586fe9807848c20ad1959389d42b4de8ee2c6c5e1d93a8229"
+    },
+    "enclave-final.txt": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/enclave-final.txt",
+      "sha256": "c7bb04728bfdd743b4ef0389fc2c3ccb6f3a58c5d75b5022ccdaffe0f94df759"
+    },
+    "enclave-stopped.txt": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/enclave-stopped.txt",
+      "sha256": "4e17c6a6a69b81398dbc1855ad544f9b0d014d448af2d1341742a5b670437261"
+    },
+    "enclave-stop.log": {
+      "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr91-merge-20261019/enclave-stop.log",
+      "sha256": "19f269cb177b2402c4ebd933a16d6eeba9ffecae74491076e30e6b6511074483"
+    }
+  },
+  "completed_check_counts": {
+    "core_contracts": {
+      "passed": 778,
+      "skipped": 3,
+      "excluded_paths": [
+        "script/*"
+      ],
+      "excluded_tests": [
+        "test_Doc_OriginalValue_SeedInSetup",
+        "test_PostCost_Incremental"
+      ]
+    },
+    "anvil": {
+      "selected": 62,
+      "passed": 62,
+      "failed": 0
+    },
+    "producer": {
+      "passed": 30,
+      "skipped": 0
+    },
+    "tooling": {
+      "selected": 387,
+      "initial_passed": 379,
+      "initial_skipped": 8,
+      "scanner_regressions_passed_separately": 2,
+      "distinct_passed": 381,
+      "remaining_optional_infrastructure_skips": 6
+    },
+    "sdk": {
+      "passed": 6
+    },
+    "secret_scan": {
+      "version": "8.30.1",
+      "result": "pass",
+      "scanned_commits": 779
+    }
+  },
+  "l1_fee_exercise": {
+    "passed": true,
+    "underpaid_error": "l1_tip_underfunded",
+    "sources": [
+      {
+        "name": "nested-0x0",
+        "type": "0x0",
+        "hash": "0x1c08f596708fb51fafe0a74146b64c9e5ccc2f8fc49fd1c519f2c6324ea1a639",
+        "postHash": "0x4bf1245a37afa8555d0fd189730734e87fb13b87a1216d8ac0366f54bb26e394",
+        "payoutHash": "0xf4f1dd2f8d43dbebf2c43dfecada5acb65e1fead17f14082e414928cebe84eaa",
+        "refundRecipient": "0x5555555555555555555555555555555555555555",
+        "actualPostingCostL1": "194878001495218",
+        "minimumL1": "194878001495218",
+        "receivedRefundL1": "254868001823274",
+        "grossUserTipL1": "283186668855860"
+      },
+      {
+        "name": "nested-0x2",
+        "type": "0x2",
+        "hash": "0xb6a72342e6d803076dace5d82dafbd5d264c732097f99c4a4aef89de669987b6",
+        "postHash": "0x26033099cd79dea63d6afb4b036494537e2f593448af197bfaf838a5efe5f349",
+        "payoutHash": "0x7897864625c987160da7c89d9b837933620e835069f79360fb3badaabcd754d0",
+        "refundRecipient": "0x5555555555555555555555555555555555555555",
+        "actualPostingCostL1": "175002001356086",
+        "minimumL1": "175002001356086",
+        "receivedRefundL1": "231016801686180",
+        "grossUserTipL1": "256685335370200"
+      },
+      {
+        "name": "safe-create-0x0",
+        "type": "0x0",
+        "hash": "0x1e04dbd06eba12f911b1acd4a4769bfe3a02551841e616bbe5188bbe71494dc6",
+        "postHash": "0xe2081593268c1c4ec49bac8a06f587ee7c519170db3ad2ed7e109e9596b87e28",
+        "payoutHash": "0x49105d3b500293b4306a30443ac9c94077546317dd07897bde7095a30c85ce52",
+        "refundRecipient": "0x5555555555555555555555555555555555555555",
+        "actualPostingCostL1": "175984001362960",
+        "minimumL1": "175984001362960",
+        "receivedRefundL1": "232152001697830",
+        "grossUserTipL1": "257946668716478"
+      },
+      {
+        "name": "safe-create-0x2",
+        "type": "0x2",
+        "hash": "0x621cbd0896af049031a4de6a202bb8c970d291472c59c04988b38e97c4eb9c7d",
+        "postHash": "0x5544d9f62a36a1ece1459283b9168dc9cdd668f5f1954d9ce4bf64232de092f3",
+        "payoutHash": "0xaef3259df4b1b011f3cc7a352f3926d522fa95dd0944e5686e114c849634a3fa",
+        "refundRecipient": "0x5555555555555555555555555555555555555555",
+        "actualPostingCostL1": "172777001340511",
+        "minimumL1": "172777001340511",
+        "receivedRefundL1": "228346801645426",
+        "grossUserTipL1": "253718668658252"
+      }
+    ],
+    "batches": [
+      {
+        "postHash": "0x28d0e1225c4cd6dda3d6cb55f9746f70f13f09e94afd66b8d26175200329d76a",
+        "payoutHash": "0xb91eb3efc2ce37afe9de6745e9f67949d276000e5c23ed9980ddd21df31a85e8",
+        "selectedPayer": "0x23b6e4c09988d44de479445005f1461f37cf9aac8aa773ec531919d637477902",
+        "actualPostingCostL1": "462660003369692",
+        "receivedRefundL1": "258256801902768",
+        "shortfallL1": "204403201466924",
+        "surplusL1": "-204403201466924",
+        "expectedL2Value": "901",
+        "source_hashes": [
+          "0xc9cca207f0c5fcc983c403cf27e950c0c560baee8769f7068dd708ad5ec7d428",
+          "0x23b6e4c09988d44de479445005f1461f37cf9aac8aa773ec531919d637477902",
+          "0x9998dbe70261fa5d904ea1520ee2ffdefddbefaa038e4db770bf6ccd24f7e5e1",
+          "0x14f0849c376d1432b890d383cc6af8d67519a69b8b1f30fcc2d733e50a629750"
+        ]
+      },
+      {
+        "postHash": "0xb00bb17d26bc73e6a8384154a7591306f886c259779e11b7279181abf5c3a90f",
+        "payoutHash": "0x4d2685a586b39cbdd09850858f85898750b144f37583eb51ed6daddd1e9e28e0",
+        "selectedPayer": "0xb9c3925520552c5fad7c33b7dca906d86219999a7cfbb38f560c74424a5e60bc",
+        "actualPostingCostL1": "342028002525268",
+        "receivedRefundL1": "230988001679902",
+        "shortfallL1": "111040000845366",
+        "surplusL1": "-111040000845366",
+        "expectedL2Value": "905",
+        "source_hashes": [
+          "0xb9c3925520552c5fad7c33b7dca906d86219999a7cfbb38f560c74424a5e60bc",
+          "0x62a4bfd244a2d01803d8a856e44923e5a3d43d789e0b9b0d1e9adefa13c4ca19",
+          "0x84f095e071d6d9032b78b0a8425f39d73556395e7f681c77ad432d91d5f2cefb",
+          "0x1f0a8d4afac18cfc285306b22329bce3e5c2d158c67941bb168540043d7639ad"
+        ]
+      }
+    ]
+  },
+  "remote_refs_before_publish": {
+    "protocol_pr54": {
+      "base": "143d87e62cade98bfc122d612638dcaaf1c85633",
+      "head": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+      "state": "open"
+    },
+    "rollupx_pr91": {
+      "base": "2c19e36bed2720c00f89841ccfca47ec7c921e06",
+      "draft": true,
+      "head": "e5e1d97ff49e69821ba403a9ae723ab4afa2db21",
+      "mergeable": true,
+      "mergeable_state": "unstable",
+      "state": "open"
+    }
+  },
+  "retained_kurtosis_driver": {
+    "local_only": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr54-fees/run-ci-retain.sh",
+    "sha256": "e57fef761239259b4bcccd169393742497c34f0b68de51c798911ccf5fadc3d4",
+    "changes": [
+      "Fixed HERE to the tested checkout testing/kurtosis directory.",
+      "Replaced final stop.sh removal with retention of the owned enclave."
+    ],
+    "assertions_and_selection_changed": false
+  },
+  "l2_fee_exercise": {
+    "passed": true,
+    "underpaid_error": "l2_tip_underfunded",
+    "same_native_block": true,
+    "sources": [
+      {
+        "hash": "0x7b6297d854554ef5f79857080c8d4ffdc0b0aefd023dee57383815f254b35197",
+        "target": "0xa631beb88abb91e32a2a6c5d338113acca158baa",
+        "expected": "123",
+        "grossL2Tip": "570758404226256",
+        "ownership_reason": "Committed",
+        "l1_transaction_hash": "0xf2333745d1a0e758c9186f9ae90ce445f0c2c17be0f93b78db38e2cf4b8582bf",
+        "l2_block_hash": "0x34f5b0209dd60d2e3c77bcea664471e80e47646e2a3f84860d5ac26534d1e905"
+      },
+      {
+        "hash": "0xf97252a44ca3e73dcc1a24e76d1259352630ff472c665678fb46d79f04f79f17",
+        "target": "0x9467d25da30beb222c31d218830a8c87335f3f50",
+        "expected": "124",
+        "grossL2Tip": "570744004222026",
+        "ownership_reason": "Committed",
+        "l1_transaction_hash": "0xf2333745d1a0e758c9186f9ae90ce445f0c2c17be0f93b78db38e2cf4b8582bf",
+        "l2_block_hash": "0x34f5b0209dd60d2e3c77bcea664471e80e47646e2a3f84860d5ac26534d1e905"
+      }
+    ],
+    "postings": [
+      {
+        "hash": "0xf2333745d1a0e758c9186f9ae90ce445f0c2c17be0f93b78db38e2cf4b8582bf",
+        "actualPostingCostL1": "832245005956787",
+        "requiredL2": "998694007148145",
+        "paidL2": "1141502408448282"
+      }
+    ]
+  },
+  "final_runtime_identity": [
+    {
+      "role": "eez-node",
+      "image_id": "sha256:f58a35864758c4dc31493df969a9e4da324a8fe1914f3ad0ba090abb2fd88ae7",
+      "container_id": "95cef0e6b14489cb8bbc131afba64d6ba275e786ced5486067d8aa30684edbba",
+      "restart_count": 0,
+      "started_at": "2026-10-19T12:45:41.788575977Z",
+      "status": "running"
+    },
+    {
+      "role": "eez-proof-signer",
+      "image_id": "sha256:02180b09dd41e97142c12701c6a9068a421d40015f50045cb15a2ac01963337a",
+      "container_id": "b5a6b2d40897ee508f5b0817ee5d8b6824b77cf8489cf519efddfebbedfc5a79",
+      "restart_count": 0,
+      "started_at": "2026-10-19T12:45:38.654822256Z",
+      "status": "running"
+    }
+  ],
+  "operations": {
+    "enclave": "eez-pr91-merge-20261019",
+    "stopped": true,
+    "data_retained": true,
+    "public_deployment_changed": false,
+    "image_publication": false,
+    "image_promotion": false
+  },
+  "limits": [
+    "28 protocol scenarios excluded from the live all selection; all 62 passed separately in Anvil.",
+    "Six optional infrastructure fixture tests not run.",
+    "No new Falcon owner workload or 770-job stress run.",
+    "No new full independent follower execution replay; native blob authenticity/semantics and lookup bindings were verified.",
+    "No qualification of additional public builders or durable queue recovery.",
+    "Hosted CI not awaited before merging by explicit user request."
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "observed_at_utc": "2026-10-10T20:54:16.907121+00:00",
+  "source": "fa916b13254a36423cad130080dde367bb18a7d6",
+  "protocol": "855fe0602484750861b4c31502a1a91355d33ed6",
+  "protocol_gitlink": "160000 commit 855fe0602484750861b4c31502a1a91355d33ed6\teez-core-protocol",
+  "protocol_dirty": false,
+  "forge": {
+    "version": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist",
+    "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+  },
+  "compiler_settings": {
+    "solc": "0.8.34",
+    "optimizer": true,
+    "optimizer_runs": 1,
+    "via_ir": true,
+    "evm_version": "osaka"
+  },
+  "command": "forge test --root /tmp/rollupx-dependent-refunds-20261010/protocol-test --offline --no-match-path 'script/*' --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental' --match-contract DependentRefundProtocolTest --json",
+  "results": {
+    "passed": 6,
+    "failed": 0,
+    "tests": [
+      "test_AnotherPostReplacesUnconsumedChildInSameBlock()",
+      "test_ChildWithoutPostFailsSameBlockGate()",
+      "test_IndependentMatchingChildCanSkipFirstEntry()",
+      "test_OnlyFirstUserCanConsumeWithoutCompletingBatch()",
+      "test_PostAloneDoesNotSatisfyChildRootDependency()",
+      "test_UnconsumedChildExpiresNextBlock()"
+    ]
+  },
+  "initial_failure": "Temporary research project omitted the pinned OpenZeppelin remappings. Initial compilation failed before running tests. Copied all pinned remappings into temporary configuration, without dependency upgrades or fixture behavior changes.",
+  "limits": [
+    "Foundry unit calls with pranked distinct users and real nonempty EEZ entries; core MockProofSystem, no cryptographic L2 proof.",
+    "No native blob transaction, signed L1 transaction, transaction-fee accounting, production Composer, signer, live builder or independent follower replay in this fixture.",
+    "All tests are in the one isolated research contract; no claim of running the full protocol suite.",
+    "Required exclusions script/*, test_Doc_OriginalValue_SeedInSetup, test_PostCost_Incremental retained.",
+    "No public valid bundle, wallet funding, service restart or deployment performed."
+  ],
+  "local_only_workspace": "/tmp/rollupx-dependent-refunds-20261010",
+  "artifacts": {
+    "Dependency.t.sol": "660f80a9162d26c56275e2e2bafcb6dc7fc0930d936dbe59094a496416441bca",
+    "builder-sources.json": "0d8528acb59653ddd1559fc5e3e2579abde447111458c82ce458bd73bbc2c6be",
+    "economics.json": "0e558a0f61521bec9fb960731d0dd935190dc61016f119ca012b7c0025119406",
+    "initial-compile-failure.txt": "a2ba6b54b29e17e07f5e3e6979e0a40d1348f09a5808a8cd41339077f6f0d5fc",
+    "protocol-results.json": "8d8b57e454738352566858d5d5aa80bf4cc1b3f00e584e86e8cf4c55b05b7df4"
+  },
+  "compiled_artifact": {
+    "sha256": "e8712753d21ac93c089c725ac15bff8509c1360de528dc2dab01501dfb94ab2d",
+    "metadata_sources_verified": 52,
+    "compiler": "0.8.34+commit.80d5c536",
+    "evm_version": "osaka"
+  },
+  "metadata_check_initial_error": "First hash-check invocation passed source bytes as argv and hit the operating-system argument-size limit. Reran the source checks with stdin, without rebuilding or changing sources."
+}

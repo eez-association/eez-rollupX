@@ -1,0 +1,28 @@
+{
+  "result": "pass",
+  "exit_code": 0,
+  "candidate_image": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+  "commits": {
+    "root": "f8d6eb0343d8d6616a42319581c03ae67d06a51b",
+    "protocol": "c4b9885aa7e1a38cae0a2f6d718c022aa96c821c"
+  },
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+    "proof_signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:61e3b3581b4f010310f8558d250eeb91b9491f9cb1929363587c86aff4a2d201",
+    "deploy": "eez-deploy:pr56-f8d6eb03"
+  },
+  "proof_flow": {
+    "signed_windows": 51,
+    "remote_attestations": 51
+  },
+  "modes": [
+    "inbound",
+    "outbound",
+    "mixed",
+    "mixed-pure"
+  ],
+  "cross_chain_convergence": "pass",
+  "state_chaining": "pass",
+  "l1_l2_root_divergence": 0,
+  "safe_head_convergence": "pass"
+}

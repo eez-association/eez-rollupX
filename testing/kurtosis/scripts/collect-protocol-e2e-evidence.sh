@@ -63,19 +63,17 @@ mapfile -t user_rows < <(
 )
 (( ${#user_rows[@]} > 0 )) || die "no user transaction was reported in the summary"
 
-post_row="$(
+mapfile -t post_rows < <(
     sed -n -E 's/^L1 postBatch:[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\1 \2/p' \
         "$SCENARIO_LOG"
-)"
-[[ "$(wc -l <<<"$post_row" | tr -d '[:space:]')" == "1" && -n "$post_row" ]] \
-    || die "expected exactly one L1 postBatch summary row"
+)
+(( ${#post_rows[@]} > 0 )) || die "no L1 postBatch summary row"
 
-load_row="$(
-    sed -n -E 's/^L2 loadTable:[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\1 \2/p' \
+mapfile -t load_rows < <(
+    sed -n -E 's/^L2 (loadTable|system table load|delivery \(load\+execute\)):[[:space:]]*(0x[[:xdigit:]]{64})[[:space:]]+\(block ([0-9]+)\).*/\2 \3/p' \
         "$SCENARIO_LOG"
-)"
-[[ "$(wc -l <<<"$load_row" | tr -d '[:space:]')" == "1" && -n "$load_row" ]] \
-    || die "expected exactly one L2 loadTable summary row"
+)
+(( ${#load_rows[@]} > 0 )) || die "no L2 table load or delivery summary row"
 
 causal_tmp="$(mktemp -d /tmp/eez-causal-evidence.XXXXXX)"
 trap 'rm -rf "$causal_tmp"' EXIT
@@ -169,19 +167,25 @@ for row in "${user_rows[@]}"; do
 done
 user_receipts_json="$(printf '%s\n' "${user_receipts[@]}" | jq -s .)"
 
-read -r post_hash post_block <<<"$post_row"
-# The summary names only the first batch, even when the upstream runner matched
-# a multi-transaction scenario across several settlements. Retain every match,
-# then order the canonical transactions independently of the log's scan order.
+# PR 56 reports every post and names table loads/deliveries by role. Older
+# content-scan output can also list matches outside the summary. These are
+# discovery hints only; validate whole canonical transactions independently.
 mapfile -t post_hashes < <(
-    { printf '%s\n' "$post_hash";
+    { printf '%s\n' "${post_rows[@]}" | awk '{print $1}';
       sed -n -E 's/^Matched settlement tx (0x[[:xdigit:]]{64})[[:space:]]*$/\1/p' "$SCENARIO_LOG";
     } | awk '!seen[$0]++'
 )
 post_receipts=()
 for hash in "${post_hashes[@]}"; do
     expected_block=""
-    [[ "$hash" == "$post_hash" ]] && expected_block="$post_block"
+    for row in "${post_rows[@]}"; do
+        read -r post_hash post_block <<<"$row"
+        if [[ "$hash" == "$post_hash" ]]; then
+            [[ -z "$expected_block" || "$expected_block" == "$post_block" ]] \
+                || die "conflicting settlement summary blocks for $hash"
+            expected_block="$post_block"
+        fi
+    done
     evidence="$(transaction_evidence "$L1_RPC" L1 settlement "$hash" "$expected_block")"
     [[ "$(jq -r '.to | ascii_downcase' <<<"$evidence")" == "${ROLLUPS,,}" ]] \
         || die "postBatch transaction target differs from registry $ROLLUPS"
@@ -205,7 +209,7 @@ if (( ${#post_hashes[@]} > 1 )); then
         ' >/dev/null || die "settlements do not uniquely cover trigger blocks"
 fi
 
-read -r load_hash load_block <<<"$load_row"
+read -r load_hash load_block <<<"${load_rows[0]}"
 hashes_from_line() {
     local label="$1"
     sed -n "s/^${label}:[[:space:]]*//p" "$SCENARIO_LOG" \

@@ -484,12 +484,12 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual((self.root / "prepared").read_text(), wallet)
 
-    def test_wrapper_funds_workers_for_the_suggested_l1_fee(self):
+    def test_wrapper_funds_fee_enabled_workers_and_preserves_explicit_override(self):
         self.add_scenarios("one")
         wrapper = self.set_up_outer_wrapper()
         trace = self.root / "fund-eth"
         self.env["FUND_TRACE"] = str(trace)
-        for index, (override, expected) in enumerate(((None, "0.005"), ("0.02", "0.02"))):
+        for index, (override, expected) in enumerate(((None, "1"), ("0.02", "0.02"))):
             with self.subTest(override=override):
                 if override is None:
                     self.env.pop("EEZ_PROTOCOL_FUND_ETH", None)

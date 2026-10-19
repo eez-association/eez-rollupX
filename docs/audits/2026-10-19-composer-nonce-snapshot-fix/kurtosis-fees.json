@@ -1,0 +1,109 @@
+{
+  "l1": {
+    "passed": true,
+    "sources": [
+      {
+        "name": "nested-0x0",
+        "type": "0x0",
+        "hash": "0x6b12db197b90090e1917c9139f25ae280908a13612be489ba9377d3ffe12155d",
+        "postHash": "0xc9b13b000e16f67b2794e096adccb28851f4f39411ef06d379c5bb7fb4848cb2",
+        "payoutHash": "0x913a0212de6fbb1aa5f165074b98810deadd833da6faa0870a10f281a4ee0dca",
+        "actualPostingCostL1": "175157808436718",
+        "receivedRefundL1": "231189370210459",
+        "grossUserTipL1": "256897852214955"
+      },
+      {
+        "name": "nested-0x2",
+        "type": "0x2",
+        "hash": "0xbaad63da05c3c9285fad9dcee0327104c65c291c030971c90245a699b1e949ff",
+        "postHash": "0xca79da6899148f6293fe7bcffbc11c9cd6bfdb811f901941d95ec26516d1845e",
+        "payoutHash": "0xc5a1e0007aac3bd956687508060bfa35a78c2d3653e23c9a9c315e55da604c83",
+        "actualPostingCostL1": "175150566705524",
+        "receivedRefundL1": "231180680077263",
+        "grossUserTipL1": "256885629728070"
+      },
+      {
+        "name": "safe-create-0x0",
+        "type": "0x0",
+        "hash": "0xaf1ec65399f5237c7e86d94e1ae6699c6f514fcd400cc0e57d776b91e1930c73",
+        "postHash": "0x874c55b7ad0be993c75b573c8378372a00f151ffe8729753a01820f8f44074f8",
+        "payoutHash": "0x5ad1c2b34ac59a7a2d2967545dcffd373d63068deb192a69ab25a7a14049d2fe",
+        "actualPostingCostL1": "176101484565644",
+        "receivedRefundL1": "232292964226108",
+        "grossUserTipL1": "258117278581232"
+      },
+      {
+        "name": "safe-create-0x2",
+        "type": "0x2",
+        "hash": "0x54bbc9567641bf92f4a73687c7649ad156f67abbc0b4b5a91712a91e0aa7be34",
+        "postHash": "0x242594b1b51cd6cf4e6dd3af66c0d24b375acd659bfa47c1780838e3fe83da53",
+        "payoutHash": "0x856d9d45e88cb2d3777a097966356dddcb14c9a6bd3783bb5116dbe89699a4be",
+        "actualPostingCostL1": "172855743392437",
+        "receivedRefundL1": "228426892138958",
+        "grossUserTipL1": "253819913555509"
+      }
+    ],
+    "batches": [
+      {
+        "sources": [
+          "0x52191f50d5df564f5a915af0ab0abc4782e4278adca98f16fa1669a9b739c43e",
+          "0xb04a5ed4b8baacca9130ec1c5ea11fbd4edaa42e1932817dd00d2ef96633148c",
+          "0x48f0d12600dc659e412095c482c266928e8108cabba7a626bef0fac4edf2de87",
+          "0xe1e45bb5929e22e842cb5ed067e639267338345ec31c431c103798ef5a4fec6c"
+        ],
+        "postHash": "0xa16d0775b9af2b11dee159216f356b866e9286c9057dc5e1229ec5744195a796",
+        "payoutHash": "0xe4ff2e50e06b9fde20e96db6a056a189a08c0a05fd78e62b6ac1755d76cb86e1",
+        "selectedPayer": "0x48f0d12600dc659e412095c482c266928e8108cabba7a626bef0fac4edf2de87",
+        "actualPostingCostL1": "919948224038114",
+        "receivedRefundL1": "258310217700397",
+        "shortfallL1": "661638006337717",
+        "surplusL1": "-661638006337717",
+        "expectedL2Value": "903"
+      },
+      {
+        "sources": [
+          "0x967286f16c1c43938f4ff7c6ff61ebc866eb788623cd8220eefabad50b4b6efb",
+          "0x0b42e879878c7945634a5ba64da861556cbf6d974c7d6d31dcd1a71c280b77da",
+          "0x996f643959dda091ee787c9d97a767c4d6bb8b576ba8dd82421ae87d4536f459",
+          "0x18f91901053e12146ab0b1312925b15dff3b9bb397ce8f695ef40f31b33546dd"
+        ],
+        "postHash": "0x3a9040385ad4431a2830aba2c9a8f244f186ff7ce26239f7d59f6bda1a0a8ce7",
+        "payoutHash": "0xa819b29c5dbe9abf5d0a9f329153fee61f9f7ffd8f73f6ccd3dc08c073266f91",
+        "selectedPayer": "0x967286f16c1c43938f4ff7c6ff61ebc866eb788623cd8220eefabad50b4b6efb",
+        "actualPostingCostL1": "342106484567996",
+        "receivedRefundL1": "231057581731783",
+        "shortfallL1": "111048902836213",
+        "surplusL1": "-111048902836213",
+        "expectedL2Value": "907"
+      }
+    ],
+    "safe_fixture": "Safe 1.4.1 with one EOA owner; not Falcon",
+    "evidence_sha256": "8694e69a801e2312d8e60e245ea188634c9112cd7bb077c10467601a842cd332"
+  },
+  "l2": {
+    "passed": true,
+    "sources": [
+      {
+        "hash": "0xe477a6d2851ec31c2a389ad6f0f8b71dc3a96dae5b078eb0ab3b17cd65af0e8f",
+        "grossL2Tip": "570789824417370",
+        "expected": "123"
+      },
+      {
+        "hash": "0xe672fa5e5ab7ce4cb705a31fae03d50e336b609754d69f15ab0bc3be20600359",
+        "grossL2Tip": "570789824417370",
+        "expected": "124"
+      }
+    ],
+    "postings": [
+      {
+        "hash": "0x5ae6cb4d96caac332c22f2845e5a49195eb5582c3c6ee746653ef7f97ba0c3ea",
+        "actualPostingCostL1": "832314822365405",
+        "requiredL2": "998777786838486",
+        "paidL2": "1141579648834740"
+      }
+    ],
+    "same_native_block": true,
+    "underpayment_rejection": "l2_tip_underfunded",
+    "evidence_sha256": "50e994bb64b771b94e8c0c808fcd73999fcc71468572e33694f202295b494622"
+  }
+}

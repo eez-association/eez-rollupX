@@ -1,0 +1,530 @@
+{
+  "status": "deployed_and_verified",
+  "source": {
+    "head": "bfae82bf08bc18a59a584d941f3b846ad45c3128",
+    "ciMerge": "646c3f9042014939a1283ea9c45f6cacebce0c1c",
+    "base": "2c19e36bed2720c00f89841ccfca47ec7c921e06",
+    "tree": "385f7b3a7272a3a3b460561d776dfb9343d39728",
+    "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+    "priorRuntime": "aa8d8a5894c69502c67dcae35d5184bc9a79b036"
+  },
+  "ci": {
+    "run": 38933052555,
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/38933052555",
+    "status": "passed",
+    "unit": {
+      "workspace": {
+        "passed": 1480,
+        "skipped": 3,
+        "explicitlyIgnored": [
+          "eez_composer::held_pool::tests::profile_blocked_backlog_discovery",
+          "eez_proof_signer::service::tests::derivation::cold_span_feasibility",
+          "eez_proof_signer::service::tests::derivation::captured::inventory_native_proving_fixtures"
+        ],
+        "ignoredScope": "Manual profiling, long-span feasibility, and local fixture inventory; no passing coverage claimed."
+      },
+      "shutdownRegression": {
+        "passed": 1,
+        "filteredOut": 206
+      },
+      "rawSummaries": [
+        "2026-10-16T17:02:13.0874558Z      Summary [ 107.740s] 1480 tests run: 1480 passed, 3 skipped",
+        "2026-10-16T17:08:14.9980242Z      Summary [   3.157s] 1 test run: 1 passed, 206 skipped"
+      ],
+      "skipLines": []
+    },
+    "embedded": {
+      "passed": 42,
+      "shards": [
+        {
+          "shard": 1,
+          "passed": 11,
+          "summary": "2026-10-16T17:39:34.2735661Z      Summary [ 918.925s] 11 tests run: 11 passed (5 slow), 147 skipped"
+        },
+        {
+          "shard": 2,
+          "passed": 11,
+          "summary": "2026-10-16T17:36:22.2811317Z      Summary [ 706.713s] 11 tests run: 11 passed (4 slow), 147 skipped"
+        },
+        {
+          "shard": 3,
+          "passed": 10,
+          "summary": "2026-10-16T17:32:43.3705674Z      Summary [ 490.430s] 10 tests run: 10 passed (2 slow), 148 skipped"
+        },
+        {
+          "shard": 4,
+          "passed": 10,
+          "summary": "2026-10-16T17:35:51.7514962Z      Summary [ 673.520s] 10 tests run: 10 passed (6 slow), 148 skipped"
+        }
+      ]
+    },
+    "crossChain": {
+      "passed": 112,
+      "shards": [
+        {
+          "shard": 1,
+          "passed": 28,
+          "summary": "2026-10-16T17:48:03.8512682Z      Summary [1436.661s] 28 tests run: 28 passed (4 slow), 130 skipped"
+        },
+        {
+          "shard": 2,
+          "passed": 28,
+          "summary": "2026-10-16T17:47:59.8764902Z      Summary [1428.686s] 28 tests run: 28 passed (4 slow), 130 skipped"
+        },
+        {
+          "shard": 3,
+          "passed": 28,
+          "summary": "2026-10-16T17:48:34.1897158Z      Summary [1451.977s] 28 tests run: 28 passed (6 slow), 130 skipped"
+        },
+        {
+          "shard": 4,
+          "passed": 28,
+          "summary": "2026-10-16T17:50:07.0781336Z      Summary [1531.851s] 28 tests run: 28 passed (9 slow), 130 skipped"
+        }
+      ],
+      "feeAndSafePassed": 17,
+      "feeAndSafeResults": [
+        "2026-10-16T17:39:21.5986268Z         PASS [  41.723s] (20/28) eez-node-e2e::node_e2e fee_quotes::compact_nested_legacy_estimates_both_types_settles_and_replays",
+        "2026-10-16T17:41:55.1098404Z         PASS [ 153.511s] (21/28) eez-node-e2e::node_e2e fee_quotes::external_posting_price_shift_rejects_old_quote_with_measured_shortfall",
+        "2026-10-16T17:42:35.1765786Z         PASS [  40.067s] (22/28) eez-node-e2e::node_e2e fee_quotes::omitted_l1_nonces_replay_nested_predecessors_without_reserving",
+        "2026-10-16T17:43:14.1677617Z         PASS [  38.991s] (23/28) eez-node-e2e::node_e2e fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+        "2026-10-16T17:46:12.5405481Z         PASS [  57.458s] (26/28) eez-node-e2e::node_e2e safe_fee_quotes::gnosis_safe_factory_nested_initialization_is_funded_and_replays",
+        "2026-10-16T17:40:22.3544594Z         PASS [  30.858s] (20/28) eez-node-e2e::node_e2e fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection",
+        "2026-10-16T17:41:19.0333513Z         PASS [  56.679s] (21/28) eez-node-e2e::node_e2e fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+        "2026-10-16T17:41:59.5114791Z         PASS [  40.478s] (22/28) eez-node-e2e::node_e2e fee_quotes::queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment",
+        "2026-10-16T17:46:08.1448801Z         PASS [  59.093s] (26/28) eez-node-e2e::node_e2e safe_fee_quotes::safe_factory_nested_initialization_is_funded_and_replays",
+        "2026-10-16T17:41:14.0164382Z         PASS [  43.174s] (20/28) eez-node-e2e::node_e2e fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays",
+        "2026-10-16T17:42:11.0236902Z         PASS [  57.007s] (21/28) eez-node-e2e::node_e2e fee_quotes::l1_refund_quote_legacy_continues_after_missing_payment",
+        "2026-10-16T17:42:55.0608927Z         PASS [  44.037s] (22/28) eez-node-e2e::node_e2e fee_quotes::simplified_five_percent_legacy_payment_settles_below_twenty_percent_quote",
+        "2026-10-16T17:42:02.0553436Z         PASS [  43.672s] (19/28) eez-node-e2e::node_e2e fee_quotes::compact_nested_eip1559_estimates_both_types_settles_and_replays",
+        "2026-10-16T17:42:44.4025761Z         PASS [  42.347s] (20/28) eez-node-e2e::node_e2e fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+        "2026-10-16T17:43:28.0594388Z         PASS [  43.657s] (21/28) eez-node-e2e::node_e2e fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays",
+        "2026-10-16T17:44:11.9674340Z         PASS [  43.908s] (22/28) eez-node-e2e::node_e2e fee_quotes::simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quote",
+        "2026-10-16T17:46:44.2392404Z         PASS [  32.694s] (25/28) eez-node-e2e::node_e2e safe_fee_quotes::entirely_l2_safe_keeps_ordinary_gas_rules"
+      ]
+    },
+    "producerTestsPassed": 30,
+    "jobs": [
+      {
+        "id": 117082112288,
+        "name": "Debug Unit Tests",
+        "conclusion": "success",
+        "started_at": "2026-10-16T16:36:00Z",
+        "completed_at": "2026-10-16T17:08:19Z"
+      },
+      {
+        "id": 117082112768,
+        "name": "Lint",
+        "conclusion": "success",
+        "started_at": "2026-10-16T16:36:00Z",
+        "completed_at": "2026-10-16T16:49:21Z"
+      },
+      {
+        "id": 117082112939,
+        "name": "Build runtime artifacts / build",
+        "conclusion": "success",
+        "started_at": "2026-10-16T16:36:00Z",
+        "completed_at": "2026-10-16T17:22:57Z"
+      },
+      {
+        "id": 117102424948,
+        "name": "Embedded E2E Tests (slice:4/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T17:35:55Z"
+      },
+      {
+        "id": 117102424964,
+        "name": "Embedded E2E Tests (slice:2/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:01Z",
+        "completed_at": "2026-10-16T17:36:25Z"
+      },
+      {
+        "id": 117102425020,
+        "name": "Cross-Chain E2E Tests (slice:4/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T17:50:10Z"
+      },
+      {
+        "id": 117102425025,
+        "name": "Embedded E2E Tests (slice:3/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:01Z",
+        "completed_at": "2026-10-16T17:32:47Z"
+      },
+      {
+        "id": 117102425032,
+        "name": "Embedded E2E Tests (slice:1/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T17:39:36Z"
+      },
+      {
+        "id": 117102425075,
+        "name": "Cross-Chain E2E Tests (slice:1/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T17:48:06Z"
+      },
+      {
+        "id": 117102425087,
+        "name": "Kurtosis E2E / Kurtosis E2E",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T18:05:47Z"
+      },
+      {
+        "id": 117102425146,
+        "name": "Cross-Chain E2E Tests (slice:2/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:00Z",
+        "completed_at": "2026-10-16T17:48:02Z"
+      },
+      {
+        "id": 117102425186,
+        "name": "Cross-Chain E2E Tests (slice:3/4)",
+        "conclusion": "success",
+        "started_at": "2026-10-16T17:23:01Z",
+        "completed_at": "2026-10-16T17:48:38Z"
+      },
+      {
+        "id": 117120710081,
+        "name": "CI Result",
+        "conclusion": "success",
+        "started_at": "2026-10-16T18:05:51Z",
+        "completed_at": "2026-10-16T18:05:54Z"
+      }
+    ],
+    "kurtosis": {
+      "passed": 34,
+      "failed": 0,
+      "skippedSelected": 0,
+      "causalCoverage": true,
+      "semanticBlobEvidence": true,
+      "excludedFromDefaultAll": [
+        "staticLocalWrite",
+        "staticLocalWriteL2",
+        "nestedStaticLocalWriteL1",
+        "nestedStaticLocalWriteL2",
+        "topLevelStaticReentrantMissingProxy",
+        "topLevelStaticReentrantMissingProxyL2"
+      ],
+      "feeProfile": "general protocol profile with fee policies unset; fee enforcement covered separately"
+    }
+  },
+  "verifiedImages": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:8c060aca271c3a49bd4a5cc8e81bb9fe73aaa4a685e43804cbed37d56674ea1f",
+      "id": "sha256:8c060aca271c3a49bd4a5cc8e81bb9fe73aaa4a685e43804cbed37d56674ea1f",
+      "source": "646c3f9042014939a1283ea9c45f6cacebce0c1c",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:8c05accbe609cdb6975ac307c6d89818aed64335df3424db4d61b6df08ce5920",
+      "id": "sha256:8c05accbe609cdb6975ac307c6d89818aed64335df3424db4d61b6df08ce5920",
+      "source": "646c3f9042014939a1283ea9c45f6cacebce0c1c",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    },
+    "deploy": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:8bbf1a0b26b5c1aab48dfde8cb337c5deb938274898e08b1fc209c54b684860f",
+      "id": "sha256:8bbf1a0b26b5c1aab48dfde8cb337c5deb938274898e08b1fc209c54b684860f",
+      "source": "646c3f9042014939a1283ea9c45f6cacebce0c1c",
+      "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f"
+    }
+  },
+  "artifactVerification": {
+    "exitStatus": 0,
+    "runtimePayload": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:326e49988ff26d6ad2f3d98f13bf0c1d8c28c59891f3871df559f4cef34d3397",
+    "producerLogSha256": "c2b0723f23dfc8944de0be323e4239ced6a774253e0f928a32e576ea92db4555",
+    "runningBinaries": {
+      "eez-composer": {
+        "sha256": "d08a76e47023c879da315f57fb2a2ef39a9b16338a43e7540e16d10938d076f1",
+        "matchesVerifiedCiPayload": true
+      },
+      "eez-proof-signer": {
+        "sha256": "c91dc363aa8901ddc0d42f419fafb3a4e792bd9e9a9da56477d37b9d79a800dc",
+        "matchesVerifiedCiPayload": true
+      }
+    }
+  },
+  "canary": {
+    "status": "passed",
+    "protocolSource": "bcd77d8b0d23ed9086f12ac8a0c2e65c6a2c2688",
+    "feeClient": "unmodified PR56; nonce omitted",
+    "feeClientSha256": "9485986eb59b6436d3658298cd032a9c1c71e9004ea442147575570b66bcdf60",
+    "scenarios": [
+      "counter-multi-tx",
+      "nestedCounter",
+      "nestedCounterL2"
+    ],
+    "expectedJobs": 3,
+    "expectedSources": 5,
+    "semanticVerification": true,
+    "transactionLinks": "required",
+    "execution": {
+      "startedAt": "2026-10-16T18:10:00.195243+00:00",
+      "semanticVerification": true,
+      "expectedJobs": 3,
+      "expectedSources": 5,
+      "finishedAt": "2026-10-16T18:10:32.911942+00:00",
+      "exitStatus": 0
+    },
+    "results": {
+      "passed": true,
+      "jobsPassed": 3,
+      "sourcesSettled": 5,
+      "feeFallbacks": 0,
+      "tariffRejections": 0,
+      "semanticAssertions": true,
+      "transactionLinksVerified": true,
+      "burstSameL1Block": 23551204,
+      "burstNonces": [
+        369,
+        370,
+        371
+      ],
+      "sources": [
+        {
+          "job": "counter-multi-tx-1",
+          "chain": "L1",
+          "sourceHash": "0x7405fd4791ab4f268f20f9fb63f9c62ab6f1017d02f08056dfbc25130204f093",
+          "sender": "0xe8eb46da05b45bab02e2d60bb1f00a01dcc2594f",
+          "nonce": 369,
+          "sourceBlock": 23551204,
+          "postHash": "0x9b5304fe914911bd1f4f56bf881ac88f54616749f4869a25c82f6b5a0076beba",
+          "postBlock": 23551204
+        },
+        {
+          "job": "counter-multi-tx-1",
+          "chain": "L1",
+          "sourceHash": "0x707084d236f5d33d09f8b548da2fbe040624c24705da5861bf6f1a76e13033a9",
+          "sender": "0xe8eb46da05b45bab02e2d60bb1f00a01dcc2594f",
+          "nonce": 370,
+          "sourceBlock": 23551204,
+          "postHash": "0x9b5304fe914911bd1f4f56bf881ac88f54616749f4869a25c82f6b5a0076beba",
+          "postBlock": 23551204
+        },
+        {
+          "job": "counter-multi-tx-1",
+          "chain": "L1",
+          "sourceHash": "0x37a93bc2073d64f96086b481d8642d6d76f895f9e7f78805b2f2990df0e7ef08",
+          "sender": "0xe8eb46da05b45bab02e2d60bb1f00a01dcc2594f",
+          "nonce": 371,
+          "sourceBlock": 23551204,
+          "postHash": "0x9b5304fe914911bd1f4f56bf881ac88f54616749f4869a25c82f6b5a0076beba",
+          "postBlock": 23551204
+        },
+        {
+          "job": "nestedCounter-1",
+          "chain": "L1",
+          "sourceHash": "0x71dbee29c3dcf4a1e964dcef9e8c38a8fdbc082752b6f3bb9ed8ded3f17ec46b",
+          "sender": "0x3f8bf37520c333f0f799fd7bb388a9325dad6ddf",
+          "nonce": 104,
+          "sourceBlock": 23551204,
+          "postHash": "0x9b5304fe914911bd1f4f56bf881ac88f54616749f4869a25c82f6b5a0076beba",
+          "postBlock": 23551204
+        },
+        {
+          "job": "nestedCounterL2-1",
+          "chain": "L2",
+          "sourceHash": "0x5f8d5266e4beffafa63fdf50dc940acb9134a8cb6030e6ff114f5ac07f97b627",
+          "sender": "0x21e7aceec15e6cd40b68ef6a18dd4e559edfacfa",
+          "nonce": 22,
+          "sourceBlock": 780635,
+          "postHash": "0x68270df996a37f7282e6a839675b7ffa31d94455ff1be4b743474f7042eb8859",
+          "postBlock": 23551203
+        }
+      ],
+      "quotes": [
+        {
+          "job": "counter-multi-tx-1",
+          "sourceHash": "0x7405fd4791ab4f268f20f9fb63f9c62ab6f1017d02f08056dfbc25130204f093",
+          "nonce": 369,
+          "requestOmittedNonce": true,
+          "feeSource": "composer",
+          "selectedType": "0x2",
+          "quotedTypes": [
+            "0x0",
+            "0x2"
+          ],
+          "sha256": "de881cca869049a57a2a47e966f891441ff1cdf3c8e4dc9979ee168672654603"
+        },
+        {
+          "job": "counter-multi-tx-1",
+          "sourceHash": "0x707084d236f5d33d09f8b548da2fbe040624c24705da5861bf6f1a76e13033a9",
+          "nonce": 370,
+          "requestOmittedNonce": true,
+          "feeSource": "composer",
+          "selectedType": "0x2",
+          "quotedTypes": [
+            "0x0",
+            "0x2"
+          ],
+          "sha256": "8251c656fa2e37f4210d3e845c3d6f315e5b5487eb5c54ff05293dfbd1b8b2b6"
+        },
+        {
+          "job": "counter-multi-tx-1",
+          "sourceHash": "0x37a93bc2073d64f96086b481d8642d6d76f895f9e7f78805b2f2990df0e7ef08",
+          "nonce": 371,
+          "requestOmittedNonce": true,
+          "feeSource": "composer",
+          "selectedType": "0x2",
+          "quotedTypes": [
+            "0x0",
+            "0x2"
+          ],
+          "sha256": "dd0963b4c53c442da5261a1849b292877c4814638b027f2354ff051a407322b7"
+        },
+        {
+          "job": "nestedCounter-1",
+          "sourceHash": "0x71dbee29c3dcf4a1e964dcef9e8c38a8fdbc082752b6f3bb9ed8ded3f17ec46b",
+          "nonce": 104,
+          "requestOmittedNonce": true,
+          "feeSource": "composer",
+          "selectedType": "0x2",
+          "quotedTypes": [
+            "0x0",
+            "0x2"
+          ],
+          "sha256": "351ac1522b2c51c86b8bfffa0ff95ade5a8b19a6662ba57240eb4580c8601067"
+        },
+        {
+          "job": "nestedCounterL2-1",
+          "sourceHash": "0x5f8d5266e4beffafa63fdf50dc940acb9134a8cb6030e6ff114f5ac07f97b627",
+          "nonce": 22,
+          "requestOmittedNonce": true,
+          "feeSource": "composer",
+          "selectedType": "0x2",
+          "quotedTypes": [
+            "0x0",
+            "0x2"
+          ],
+          "sha256": "0d09978d76ceb7697a75b1993115bfb9f851e6c5d38a33ff39ee4f5df8540ccc"
+        }
+      ]
+    },
+    "nativeBlobs": {
+      "passed": true,
+      "posts": [
+        {
+          "chain": "L1",
+          "postHash": "0x9b5304fe914911bd1f4f56bf881ac88f54616749f4869a25c82f6b5a0076beba",
+          "sources": [
+            "0x7405fd4791ab4f268f20f9fb63f9c62ab6f1017d02f08056dfbc25130204f093",
+            "0x707084d236f5d33d09f8b548da2fbe040624c24705da5861bf6f1a76e13033a9",
+            "0x37a93bc2073d64f96086b481d8642d6d76f895f9e7f78805b2f2990df0e7ef08",
+            "0x71dbee29c3dcf4a1e964dcef9e8c38a8fdbc082752b6f3bb9ed8ded3f17ec46b"
+          ],
+          "verified": true,
+          "semanticTransactions": 4,
+          "semanticActions": 5,
+          "triggerBinding": "settlement_table",
+          "evidenceSha256": "0504cf45a2cfa0f314bf7af01854b92d2ccb07698ee6d3a9c7253591daae13ad"
+        },
+        {
+          "chain": "L2",
+          "postHash": "0x68270df996a37f7282e6a839675b7ffa31d94455ff1be4b743474f7042eb8859",
+          "sources": [
+            "0x5f8d5266e4beffafa63fdf50dc940acb9134a8cb6030e6ff114f5ac07f97b627"
+          ],
+          "verified": true,
+          "semanticTransactions": 1,
+          "semanticActions": 2,
+          "triggerBinding": "exact_tx_data",
+          "evidenceSha256": "61eaf0451814d5249d11cd4c5a11b40e29edd90b54bcb15157b9585ff6a1ff72"
+        }
+      ]
+    }
+  },
+  "localEvidence": {
+    "operatorRelativeDirectory": "artifacts/pr91-chiado-deploy-20261016.bou0ize2",
+    "availability": "Local-only ignored files; not available in another checkout; retention not guaranteed",
+    "filesSha256": {
+      "ci-runtime-build.log": "c2b0723f23dfc8944de0be323e4239ced6a774253e0f928a32e576ea92db4555",
+      "ci-kurtosis.log": "59707efe992194439e8b01c8d40dda53ebcf51b021d5293d9d1708d094171491",
+      "runtime-verification.log": "053ca3626b7499e32355aa354ec7200e111681e97895ae00401cd4aea36dc840",
+      "upgrade.log": "4d0f82e84bafa414f4c1b0a050f368f5487017e841201070a9a88cab93129c4f",
+      "live-canary.log": "e88d0b566b2f56d1ee259bc9a19e2bd62e2a25ac93de9015a73513f5a86ad727",
+      "running-binary-hashes.json": "b961035f041998b6a66c890e7579c7481235827b8bb8d4bf76a315bba784833d"
+    }
+  },
+  "limits": [
+    "No full Chiado stress matrix or live Falcon rerun in this bounded upgrade check",
+    "In-memory queue/recovery observations are not durable",
+    "Ready-pool drain excludes future gapped transactions in Reth queued subpool",
+    "No fresh independent Chiado follower replay; candidate native process tests include follower replay"
+  ],
+  "deployment": {
+    "execution": {
+      "startedAt": "2026-10-16T18:06:56.800975+00:00",
+      "finishedAt": "2026-10-16T18:08:03.660246+00:00",
+      "exitStatus": 0
+    },
+    "publicReopen": {
+      "startedAt": "2026-10-16T18:11:47.775857+00:00",
+      "finishedAt": "2026-10-16T18:11:52.845941+00:00",
+      "passed": true,
+      "gatewayBytesRestored": true
+    },
+    "images": {
+      "node": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:8c060aca271c3a49bd4a5cc8e81bb9fe73aaa4a685e43804cbed37d56674ea1f",
+        "imageId": "sha256:8c060aca271c3a49bd4a5cc8e81bb9fe73aaa4a685e43804cbed37d56674ea1f",
+        "startedAt": "2026-10-16T18:08:03.530206481Z",
+        "restartCount": 0
+      },
+      "signer": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:8c05accbe609cdb6975ac307c6d89818aed64335df3424db4d61b6df08ce5920",
+        "imageId": "sha256:8c05accbe609cdb6975ac307c6d89818aed64335df3424db4d61b6df08ce5920",
+        "startedAt": "2026-10-16T18:07:57.938383148Z",
+        "restartCount": 0
+      }
+    },
+    "genesisSha256": "ec2ca22f45a8801ca4e955c4ab4dd6f2cea268bd85a63a85a22d755cf48cc7bf",
+    "genesisAndBindingsPreserved": true,
+    "effectiveEnvironmentPreserved": true,
+    "stoppedOriginalDatabasesRetained": true,
+    "rollbackExecuted": false,
+    "priorSafeAndWatermarkRetained": true,
+    "canonicalProgress": true,
+    "safeAfterCanaries": {
+      "number": "0xbe960",
+      "hash": "0xf40f15f8764791b08bb6b373a021e22ceb0e96afb6ea464ef2a15f082f1ce05f",
+      "stateRoot": "0x3c6f198b67877803c6a8729f05c49c6935b808742353d1ac9fff489c7e5d55b7",
+      "timestamp": "0x6ad2688c"
+    },
+    "queuesEmptyAfterCanaries": true,
+    "publicHttp": {
+      "passed": true,
+      "routes": [
+        "/rpc/l1",
+        "/rpc/l2",
+        "/composer/l1",
+        "/composer/l2"
+      ],
+      "bothQuoteFormats": true,
+      "compactAndDebug": true
+    },
+    "publicWebSocket": {
+      "passed": true,
+      "results": [
+        {
+          "path": "/ws/l1",
+          "chainId": 10200,
+          "passed": true
+        },
+        {
+          "path": "/ws/l2",
+          "chainId": 906969,
+          "passed": true
+        }
+      ]
+    },
+    "stopExitCodes": {
+      "node": 0,
+      "signer": 0
+    }
+  }
+}

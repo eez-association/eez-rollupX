@@ -41,3 +41,34 @@ condition = "AND"
 paths = ['''^testing/(kurtosis/blob-args\.yaml|explorers/compose\.yaml)$''']
 regexTarget = "secret"
 regexes = ['''^1\.40\.3-(chain7332|chiado)$''']
+
+[[allowlists]]
+description = "Public fee-policy environment variable names in configuration tests"
+condition = "AND"
+paths = ['''^scripts/ci/tests/test_chiado_config\.py$''']
+regexTarget = "secret"
+regexes = ['''^EEZ_L2_FEE_SHADOW_POLICY$''', '''^EEZ_L1_FEE_REFUND_POLICY$''']
+
+[[allowlists]]
+description = "Exact Git commit ID recorded by the transaction-reference audit"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-transaction-references/results\.json$''']
+regexTarget = "secret"
+regexes = ['''^12fa33a7a51fdd2649fbd9107b52f1f892e4fb5c$''']
+
+[[allowlists]]
+description = "Verified SHA-256 digests of local and public fee API evidence"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-compact-fee-quotes/deployment\.json$''']
+regexTarget = "secret"
+regexes = [
+  '''^e09b3ab8057a69663260fb5066476559dd1ed0a23e6f9ec8101a0d9e9f778b46$''',
+  '''^0dfb182e89bae1374b60e0c11d7a896e8d103bd8eb328dc741428dd3c2050ddf$''',
+]
+
+[[allowlists]]
+description = "Verified SHA-256 digest of simplified-fee API check logs"
+condition = "AND"
+paths = ['''^docs/audits/2026-10-15-simplified-fees/result\.json$''']
+regexTarget = "secret"
+regexes = ['''^e65d5eab9947fe18dc5275dfe1be9310db0fef44af222acefd85164aeffa7833$''']

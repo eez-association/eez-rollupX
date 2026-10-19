@@ -651,9 +651,8 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.log.write_text(f"""READER_L2={SOURCE}
 COUNTER_L1={DESTINATION}
 tx: {USER}
-block: 0x10 (status: 0x1)
+block: 0xa (status: 0x1)
 Matched settlement tx {POST}
-PASS: 1 settlement tx(s) with BatchPosted in range
 PASS: posted batch calldata matches expected table
 PASS: posted rolling hashes reproduced from posted roots
 VERIFY_PASS reader.lastRead=1 reader.counter=1

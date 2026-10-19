@@ -63,6 +63,10 @@ mod admission;
 mod config;
 mod costs;
 pub mod estimate;
+mod fees;
+pub use fees::quote::{
+    CompactFeeRequest, FeeQuoteError, L2FeeRequest, PreparedCompactFeeQuote, PreparedL2FeeQuote,
+};
 mod gas;
 pub(crate) mod gas_trace;
 mod policy;
@@ -1060,7 +1064,7 @@ fn defer_source(
     source_state: crate::held_pool::SourceState,
     idx: usize,
     held: HeldTx,
-    condition: eez_protocol::SourceCondition,
+    condition: impl Into<crate::held_pool::BlockingCondition>,
 ) {
     pool.record_blocked(&held, condition, source_state);
     selection.block(idx);
@@ -1273,20 +1277,28 @@ fn requeue_unprocessed(
     pool.requeue_composing(requeue);
 }
 
-/// Append `txs` to the Sync block under construction, stopping at the first one
-/// that will not land. `Some((position, why))` means the block is half-extended
-/// and must be reopened on the accepted list. `why` carries its class, so the
-/// caller can tell a rejected tx from an unreachable backing store.
-/// Append `txs` to the block and execute them. `Ok` carries their logs, so the
-/// caller can check what a tx actually did against what it composed.
+struct AppendedGroup {
+    logs: Vec<alloy_primitives::Log>,
+    gas_used: Vec<u64>,
+}
+
+/// Execute a native group, retaining its logs and charged receipt gas.
+/// On failure the prefix may be half-extended and must be reopened on the
+/// accepted list. Provider failures defer work rather than blaming the source.
 fn append_and_execute(
     prefix: &mut SyncBlockState,
     txs: &[Bytes],
-) -> Result<Vec<alloy_primitives::Log>, (usize, BuildError)> {
-    let mut logs = Vec::new();
+) -> Result<AppendedGroup, (usize, BuildError)> {
+    let mut group = AppendedGroup {
+        logs: Vec::new(),
+        gas_used: Vec::with_capacity(txs.len()),
+    };
     for (at, tx) in txs.iter().enumerate() {
         match prefix.execute_tx(tx) {
-            Ok(outcome) if outcome.success => logs.extend(outcome.logs),
+            Ok(outcome) if outcome.success => {
+                group.logs.extend(outcome.logs);
+                group.gas_used.push(outcome.gas_used);
+            }
             Ok(outcome) => {
                 return Err((
                     at,
@@ -1299,7 +1311,7 @@ fn append_and_execute(
             Err(e) => return Err((at, e)),
         }
     }
-    Ok(logs)
+    Ok(group)
 }
 
 /// Take the L1 session's accumulated effects for commit into the slot's state.
@@ -1426,6 +1438,8 @@ where
     ///
     /// Returns [`ComposerConfigError::SubmissionIdentityMismatch`] when the
     /// cross-chain postBatch signer does not match the Submitter's poster.
+    /// Returns a policy error when shadow pricing names different chains or
+    /// an L2 rollup that this Composer does not own.
     pub fn new(
         rollups: HashMap<u64, RollupState<L2>>,
         prover: Arc<dyn Prover>,
@@ -1455,6 +1469,7 @@ where
             max_blobs_per_batch: blob_cap,
             max_user_txs_per_bundle,
             posting_fees,
+            fees,
             gas_trace,
             emission,
             fee_recipient,
@@ -1466,8 +1481,23 @@ where
         let policy = policy::EnabledPolicy::new(policy_config, rollups.keys().copied(), blob_cap);
         let registry = cross_chain.local.l1_entry.manager_address();
         let post_batch_target = post_batch_target.unwrap_or(registry);
+        let collection = fees
+            .bind(
+                cross_chain.exec_ctx.l1_chain_id,
+                cross_chain.exec_ctx.l2_chain_id,
+                rollups.keys().copied(),
+                fee_recipient,
+            )
+            .map_err(PolicyError::Config)?;
+        event!(name: "eez.composer.fees.configuration", Level::INFO,
+            l1_to_l2_enabled = collection.l1_refund.is_some(),
+            l2_to_l1_enabled = collection.l2_to_l1_enabled,
+            pricing_configured = collection.pricing.is_some(),
+            refund_percent = ?collection.l1_refund.as_ref().map(|refund| refund.percent),
+            "cross-chain fee settings apply until restart");
         let posting = Arc::new(posting::PostingRuntime {
             fees: posting_fees,
+            collection,
             chain: cross_chain.local.l1_entry.chain_provider().clone(),
             ctx: Arc::clone(&cross_chain.exec_ctx),
             registry,
@@ -1476,7 +1506,17 @@ where
             operator_blob_cap: blob_cap,
             costs: std::sync::Mutex::default(),
             gas_trace: gas_trace.clone(),
+            priority_history: Default::default(),
         });
+        if posting.collection.l1_refund.is_some() {
+            for rollup in rollups.keys() {
+                costs::register_refund_metrics(
+                    *rollup,
+                    posting.ctx.l1_chain_id,
+                    posting.native_currency(),
+                );
+            }
+        }
         event!(name: "eez.composer.emission.limits", Level::INFO,
             max_blocks = emission.max_blocks, configured_gas_cap = emission.max_gas,
             max_user_txs_per_bundle = ?max_user_txs_per_bundle,
@@ -1916,8 +1956,14 @@ where
             .unwrap()
             .begin(pool_len_before, self.inner.emission.timing, bundle_target);
         if let Some(limit) = self.inner.max_user_txs_per_bundle {
-            automatic.selected = limit.min(pool_len_before);
-            automatic.selection_limit_reason = Some("configured_count_limit");
+            let native_limit = self.inner.automatic_admission[&rollup_id]
+                .lock().unwrap().preflight_limit();
+            automatic.selected = limit.min(pool_len_before).min(native_limit);
+            automatic.selection_limit_reason = Some(if native_limit < limit {
+                "native_preflight_backoff"
+            } else {
+                "configured_count_limit"
+            });
         }
         let max_user_txs = automatic.selected;
         let drained = if max_user_txs > 0 {
@@ -2028,6 +2074,11 @@ where
             }
         }
         if let Err(error) = self.observe_settlement_cost(rollup_id, rollup).await {
+            if self.inner.posting.collection.l1_refund.is_some() {
+                metrics::counter!("eez_composer_l1_refund_observation_errors_total",
+                    "rollup_id" => rollup_id.to_string())
+                .increment(1);
+            }
             event!(Level::WARN, rollup_id, %error, "canonical receipt cost unavailable; retaining observability retry");
         }
     }
@@ -2491,8 +2542,18 @@ where
         // A landed postBatch that left users incomplete spent L1 gas and
         // counts toward the settlement bound; an excluded slot spent nothing
         // and counts only toward its own, larger bound.
+        let preflight_rejected = matches!(
+            attempt.observation,
+            SubmissionObservation::PreflightRejected { .. }
+        ) && attempt.dispatched_target.is_none()
+            && post.receipt.is_none();
         let charge = if post.receipt.is_some() {
             AttemptCharge::Settlement
+        } else if preflight_rejected
+            && attempt.txs.len() == 1
+            && matches!(attempt.observation, SubmissionObservation::PreflightRejected { source: Some(hash) } if hash == attempt.txs[0].hash)
+        {
+            AttemptCharge::Preflight
         } else if matches!(
             attempt.observation,
             SubmissionObservation::Excluded {
@@ -2509,18 +2570,43 @@ where
             at,
             &outcomes,
             charge,
-            if self.inner.max_user_txs_per_bundle.is_none() {
+            if charge == AttemptCharge::Preflight {
+                MAX_BUNDLE_ATTEMPTS
+            } else if self.inner.max_user_txs_per_bundle.is_none() {
                 admission::MAX_AUTOMATIC_SETTLEMENT_ATTEMPTS
             } else {
                 MAX_BUNDLE_ATTEMPTS
             },
             || rollup.l1_head.generation_is(snapshot.generation),
         )?;
+        if preflight_rejected
+            && outcomes
+                .iter()
+                .any(|outcome| matches!(outcome, SourceOutcome::Retryable { .. }))
+        {
+            let next_selection_max = self.inner.automatic_admission[&rollup_id]
+                .lock()
+                .unwrap()
+                .preflight_failed(attempt.txs.len());
+            event!(name: "eez.composer.admission.preflight_backoff", Level::WARN,
+                event_name = "eez.composer.admission.preflight_backoff", rollup_id,
+                rejected_groups = attempt.txs.len(), next_selection_max,
+                "native execution rejected the candidate; retain whole groups for a smaller retry");
+        }
+        if !outcomes.is_empty() && !submission_backoff_required(&outcomes, false) {
+            self.inner.automatic_admission[&rollup_id]
+                .lock()
+                .unwrap()
+                .preflight_completed(rollup.held_pool.is_empty());
+        }
         if self.inner.max_user_txs_per_bundle.is_none() && !outcomes.is_empty() && !skipped_slot {
             let mut automatic = self.inner.automatic_admission[&rollup_id].lock().unwrap();
             if !submission_backoff_required(&outcomes, false) {
                 automatic.submission_completed();
-            } else if charge != AttemptCharge::None {
+            } else if matches!(
+                charge,
+                AttemptCharge::Settlement | AttemptCharge::ExcludedSlot
+            ) {
                 let next_selection_max = automatic.submission_failed(attempt.txs.len());
                 event!(name: "eez.composer.admission.submission_failure", Level::INFO,
                     event_name = "eez.composer.admission.submission_failure", rollup_id,
@@ -2771,7 +2857,7 @@ where
                     );
                 }
                 state.posting = Some((
-                    composition_quote.env,
+                    composition_quote.env.clone(),
                     ctx.l1_poster_signer.address(),
                     composition_quote.quote.estimated_effective_gas_price,
                 ));
@@ -2852,6 +2938,7 @@ where
         // Probed gas of the accepted outbound target calls; they re-execute
         // inside postAndVerifyBatch, so its gas limit must cover them.
         let mut outbound_target_gas: u64 = 0;
+        let mut tariff_tips = U256::ZERO;
         // Escrow drawn down per outbound withdrawal (read once, lazily) so several
         // in one slot can't collectively over-drain. `None` = not yet read.
         let mut escrow_remaining: Option<U256> = None;
@@ -2961,6 +3048,19 @@ where
             ),
             draft.base_fee(),
         );
+        let tariff_history = self.inner.posting.collection.l2_to_l1_enabled.then(|| {
+            let endpoint = rollup.l1_head.policy_anchor_snapshot().endpoint.ok_or(
+                fees::quote::FeeQuoteError::Unavailable("validated settlement anchor"),
+            )?;
+            fees::quote::tariff_history_size(
+                rollup.l2_provider.as_ref(),
+                parent_header,
+                endpoint,
+                suggested_fee_recipient,
+                self.inner.emission.max_blocks.saturating_sub(1),
+            )
+            .map(|size| (endpoint, size))
+        });
         let mut source_nonces = HashMap::new();
         let l1_anchor_hash = l1_state.anchor.hash();
         let mut source_nonce = |held: &HeldTx| -> Result<u64, String> {
@@ -3585,7 +3685,7 @@ where
                         );
                         break;
                     }
-                    let pair_logs = match append_and_execute(&mut draft, &pair_txs) {
+                    let appended = match append_and_execute(&mut draft, &pair_txs) {
                         Ok(logs) => logs,
                         Err((at, why)) => {
                             // A backing-store failure says nothing about the tx —
@@ -3687,7 +3787,7 @@ where
                     // preceding load tx, so re-check it against what the user tx
                     // actually did here (`docs/issues/outbound-sim-divergence.md`).
                     let observed = eez_protocol::outbound_gate::observations_from_logs(
-                        &pair_logs,
+                        &appended.logs,
                         stf_cfg.eezl2_address,
                     );
                     if let Err(e) = eez_protocol::outbound_gate::verify_expected_outbound_hashes(
@@ -3717,6 +3817,135 @@ where
                             }
                         };
                         continue;
+                    }
+                    if let Some(history) = &tariff_history {
+                        let mut funding_shortfall = None;
+                        let coverage = (|| -> Result<U256, String> {
+                            let (endpoint, operations) =
+                                *history.as_ref().map_err(ToString::to_string)?;
+                            let policy = self
+                                .inner
+                                .posting
+                                .collection
+                                .pricing
+                                .as_ref()
+                                .ok_or("tariff policy unavailable")?;
+                            let BundleTarget::Exact { timestamp, .. } = bundle_target else {
+                                return Err("tariff target unresolved".into());
+                            };
+                            if !policy.quote_eligible(
+                                held.sender,
+                                ctx.l1_poster_signer.address(),
+                                timestamp,
+                            ) {
+                                return Err("tariff policy expired or sender excluded".into());
+                            }
+                            let mut prefix_semantics = semantic_transactions.clone();
+                            prefix_semantics.push(semantic.clone());
+                            let semantic_bytes =
+                                Self::cross_chain_da_overhead(rollup_id, &prefix_semantics)
+                                    .map_err(|e| e.to_string())?
+                                    .semantic_bytes;
+                            let bytes =
+                                eez_blob_codec::native_stream_len(operations, semantic_bytes)
+                                    .map_err(|e| e.to_string())?;
+                            let blobs = bytes.div_ceil(eez_blob_codec::DATA_BYTES_PER_BLOB).max(1);
+                            let mut prefix_entries = outbound_entries.clone();
+                            prefix_entries.extend(l1_entries.iter().cloned());
+                            let mut prefix_traces = outbound_entry_traces.clone();
+                            prefix_traces.extend(l1_target.entry_traces.iter().cloned());
+                            let mut prefix_groups = pending_out.clone();
+                            prefix_groups.push(outbound_group.clone());
+                            let (_, _, required) = fees::settlement::measured_payment(
+                                &self.inner.posting,
+                                &composition_quote,
+                                fees::settlement::SettlementInput {
+                                    rollup_id,
+                                    settled_root: endpoint.hash,
+                                    entries: &prefix_entries,
+                                    traces: &prefix_traces,
+                                    groups: &prefix_groups,
+                                    semantics: &prefix_semantics,
+                                    blobs,
+                                },
+                            )
+                            .map_err(|e| e.to_string())?;
+                            let gas = pair_txs
+                                .iter()
+                                .zip(&appended.gas_used)
+                                .find_map(|(raw, gas)| (raw == &held.raw_tx).then_some(*gas))
+                                .ok_or("native source receipt missing")?;
+                            let tip = held.priority_fee_per_gas.min(
+                                held.max_fee_per_gas
+                                    .checked_sub(u128::from(draft.base_fee()))
+                                    .ok_or("source fee below base")?,
+                            );
+                            let collected = tariff_tips
+                                .checked_add(U256::from(gas) * U256::from(tip))
+                                .ok_or("tariff payment overflow")?;
+                            if collected < required.minimum_l2 {
+                                funding_shortfall = Some(
+                                    crate::FundingDiagnostic::measured(
+                                        composition_quote.quote,
+                                        source_state.l2,
+                                        ctx.l2_chain_id,
+                                        required.minimum_l2,
+                                        collected,
+                                        gas,
+                                        u128::from(draft.base_fee()),
+                                    )
+                                    .for_prefix(),
+                                );
+                                return Err("l2_tip_underfunded".into());
+                            }
+                            Ok(collected)
+                        })();
+                        tariff_tips = match coverage {
+                            Ok(collected) => collected,
+                            Err(reason) => {
+                                candidate.emit(
+                                    "source_outcome",
+                                    serde_json::json!({"source_hash":held.hash,
+                                        "reason":"tariff_deferred","detail":reason,
+                                        "funding":funding_shortfall.as_ref().map(crate::FundingDiagnostic::json)}),
+                                );
+                                // The source's speculative L1 session is not committed
+                                // yet. Remove its native effects too, then continue
+                                // with independent nonce chains in this same slot.
+                                draft = match reopen(&sync_txs) {
+                                    Ok(rebuilt) => rebuilt,
+                                    Err(error) => {
+                                        transient = Some((
+                                            format!("tariff prefix rebuild: {error}"),
+                                            abort_rest(
+                                                Some((idx, held)),
+                                                &mut out_iter,
+                                                std::mem::take(&mut inbounds),
+                                            ),
+                                        ));
+                                        break;
+                                    }
+                                };
+                                admission.discarded_group(survivors.len());
+                                defer_source(
+                                    pool,
+                                    &mut selection,
+                                    &mut source_deferred,
+                                    source_state,
+                                    idx,
+                                    held,
+                                    funding_shortfall.map_or(
+                                        crate::held_pool::BlockingCondition::SettlementPricing,
+                                        |detail| {
+                                            crate::held_pool::BlockingCondition::SettlementFee(
+                                                Box::new(detail),
+                                            )
+                                        },
+                                    ),
+                                );
+                                continue;
+                            }
+                        };
                     }
                     budget = next_budget;
                     blob_budget = next_blob;
@@ -3872,6 +4101,16 @@ where
                 admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
+            }
+            if (self.inner.posting.collection.l2_to_l1_enabled
+                || self.inner.posting.collection.l1_refund.is_some())
+                && !pending_out.is_empty()
+            {
+                // Each direction has its own collection mechanism and coverage.
+                // Keep costs separate. The normal FIFO rebuild
+                // still puts an older eligible inbound ahead of younger users.
+                capacity.defer(&mut selection, &candidate, idx, held, "l2_tariff_direction");
+                continue;
             }
             if let Some(gap_at) = poison_gap_for(&poison_gaps, &held) {
                 event!(
@@ -5263,6 +5502,7 @@ where
         };
         let total_entries: usize = comp_refs.iter().map(|c| c.source.batch.entries.len()).sum();
 
+        let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let manifest = match SettlementManifest::build(ManifestInput {
             rollup_id,
             sync_number: built.header.number(),
@@ -5284,6 +5524,28 @@ where
             outbound_hosts: &outbound_entries,
             checkpoint_positions: &effect_end_positions,
             checkpoint_hashes: &pair_hashes,
+        })
+        .and_then(|mut manifest| {
+            use alloy_consensus::transaction::TxHashRef;
+            use eez_protocol::settlement_manifest::ChainTransaction;
+            let transactions = built
+                .block
+                .body()
+                .transactions
+                .iter()
+                .map(|tx| ChainTransaction {
+                    chain_id: ctx.l2_chain_id,
+                    hash: *tx.tx_hash(),
+                })
+                .collect::<Vec<_>>();
+            manifest.attach_transaction_references(
+                ChainTransaction {
+                    chain_id: ctx.l1_chain_id,
+                    hash: post_batch_hash,
+                },
+                &transactions,
+            )?;
+            Ok(manifest)
         }) {
             Ok(manifest) => manifest,
             Err(error) => {
@@ -5303,9 +5565,12 @@ where
             }
         };
 
+        // Receipt accounting observes this exact candidate, including every
+        // outbound group's loads/callbacks. Failure is diagnostic in shadow mode.
+        let l2_fees = fees::L2Fees::measure(ctx.l2_chain_id, rollup_id, &built, &manifest);
+
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
-        let post_batch_hash = post_batch_blob_transaction_hash(&prepared_postbatch)?;
         let mut bundle: Vec<Bytes> = Vec::with_capacity(1 + survivors.len());
         bundle.push(prepared_postbatch.clone());
         // Only INBOUND survivors ride the L1 bundle (L1-signed, execute on L1).
@@ -5363,6 +5628,7 @@ where
             bundle_target,
             &semantic_transactions,
             preparation_timing,
+            Some(l2_fees),
         );
         Ok(Some(SyncSlotBlock {
             payload: built.payload,
@@ -5573,6 +5839,7 @@ where
             bundle_target,
             &[],
             preparation_timing,
+            None,
         );
         Ok(Some(SyncSlotBlock {
             payload: empty_built.payload,
@@ -5762,6 +6029,7 @@ where
                 bundle_target,
                 &[],
                 preparation_timing,
+                None,
             );
             return Ok(());
         }
@@ -5834,6 +6102,7 @@ where
         target: BundleTarget,
         semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
         preparation_timing: crate::posting_events::PreparationTiming,
+        l2_fees: Option<Result<fees::L2Fees, &'static str>>,
     ) {
         let submitter = ctx.submitter.clone();
         if let Some(counts) = optimistic.attempt_user_counts(attempt_id) {
@@ -5881,6 +6150,7 @@ where
             semantics.to_vec(),
             events,
             preparation_timing,
+            l2_fees,
         ));
     }
 
@@ -7468,6 +7738,7 @@ async fn observe_bundle_outcome(
     semantics: Vec<eez_protocol::blob_semantics::SemanticTransaction>,
     events: Option<Arc<crate::posting_events::PostingEvents>>,
     preparation_timing: crate::posting_events::PreparationTiming,
+    l2_fees: Option<Result<fees::L2Fees, &'static str>>,
 ) {
     use crate::optimistic::SubmissionObservation;
     let measurements = Arc::new(crate::submission_metrics::SubmissionMetrics::new(rollup_id));
@@ -7483,6 +7754,8 @@ async fn observe_bundle_outcome(
     let signing_elapsed = preparation_timing
         .proof_received_at
         .map_or(std::time::Duration::ZERO, |at| at.elapsed());
+    let mut execution_rejected = false;
+    let mut rejected_source = None;
     let preparation = async {
         if preparation_timing
             .deadline
@@ -7521,7 +7794,19 @@ async fn observe_bundle_outcome(
                 &semantics,
             )
             .await
-            .map_err(|error| ("final_pricing_failed", error.to_string()))?;
+            .map_err(|error| {
+                // Only a completed native execution/effect rejection trains
+                // the batch-size bound; transport, balance, and deadline
+                // uncertainty retain the prior policy without user penalties.
+                execution_rejected = matches!(
+                    &error,
+                    posting::PostingError::Effects(_) | posting::PostingError::SourceEffects { .. }
+                );
+                if let posting::PostingError::SourceEffects { hash, .. } = &error {
+                    rejected_source = Some(*hash);
+                }
+                ("final_pricing_failed", error.to_string())
+            })?;
         if preparation_timing
             .deadline
             .is_some_and(|d| d.remaining() <= crate::prover_retry::DELIVERY_RESERVE)
@@ -7533,10 +7818,43 @@ async fn observe_bundle_outcome(
         }
         let hash = post_batch_blob_transaction_hash(&prepared[0])
             .map_err(|error| ("invalid_envelope", error))?;
+        if posting.collection.l2_to_l1_enabled
+            && attempt
+                .manifest
+                .users
+                .iter()
+                .any(|user| user.source_rollup_id.0 == rollup_id)
+        {
+            let policy = posting.collection.pricing.as_ref().ok_or_else(|| {
+                (
+                    "l2_tariff_unavailable",
+                    "configured tariff is missing".to_owned(),
+                )
+            })?;
+            fees::check_tariff(
+                policy,
+                quote,
+                &execution,
+                hash,
+                l2_fees.as_ref(),
+                posting.ctx.l1_poster_signer.address(),
+            )
+            .map_err(|reason| ("l2_tariff_blocked", reason.to_owned()))?;
+        }
+        let refund = fees::refund::select(&posting, quote, &prepared, &execution)
+            .map_err(|reason| ("l1_refund_blocked", reason.to_owned()))?;
         let id = optimistic
             .replace_prepared_post_batch(attempt_id, hash, prepared[0].clone())
             .map_err(|error| ("ledger_update_failed", error))?;
-        Ok::<_, (&str, String)>((prepared, quote, id, execution))
+        if let Some(refund) = refund {
+            posting
+                .costs
+                .lock()
+                .unwrap()
+                .plan_refund(rollup_id, hash, refund)
+                .map_err(|error| ("refund_identity_changed", error.to_owned()))?;
+        }
+        Ok::<_, (&str, String)>((prepared, quote, id, execution, refund))
     };
     let preparation = if let Some(deadline) = preparation_timing.deadline {
         tokio::time::timeout(
@@ -7561,14 +7879,18 @@ async fn observe_bundle_outcome(
         candidate.duration("finalization", finalization_elapsed);
     }
     let fee_quote = match preparation {
-        Ok((prepared, quote, id, execution)) => {
+        Ok((prepared, quote, id, execution, refund)) => {
             if let Some(timings) = &preparation_timing.timings {
                 timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
             }
             let detail = serde_json::json!({"candidate_id":preparation_timing.candidate.as_ref().map(|c|&c.id),
                 "preflight_gas_used":execution.gas_used.get(..1),"preflight_gas_required":execution.gas_required.get(..1),
                 "signed_gas_limits":execution.gas_limits.get(..1),"finalization_ms":finalization_elapsed.as_secs_f64()*1000.0,
-                "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0});
+                "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0,
+                "refund":refund.map(|p|serde_json::json!({"source":p.request.source(),"recipient":p.request.recipient(),"percent":p.request.percent(),"minimumL1":p.minimum.to_string(),"projectedL1":p.projected.to_string()})),
+                "fee_observation": fees::observation(quote, &execution, id.post_batch_hash,
+                    posting.native_currency(), l2_fees.as_ref(), posting.collection.pricing.as_ref(),
+                    posting.ctx.l1_poster_signer.address())});
             if let Some(candidate) = &preparation_timing.candidate {
                 let mut detail = detail.clone();
                 detail["transaction_hash"] = serde_json::json!(id.post_batch_hash);
@@ -7579,10 +7901,19 @@ async fn observe_bundle_outcome(
                     candidate.emit(
                         "source_preflight",
                         serde_json::json!({"source_hash":hash,
+                        "execution_chain_id":quote.chain_id,"preflight_basis":"native_l1_companion",
                         "preflight_used_gas":execution.gas_used.get(index),
                         "preflight_required_gas":execution.gas_required.get(index),
                         "signed_limit_gas":execution.gas_limits.get(index)}),
                     );
+                }
+                if let Some(Ok(fees)) = &l2_fees {
+                    for source in &fees.sources {
+                        candidate.emit(
+                            "source_preflight",
+                            source.detail(fees.chain_id, fees.block_hash),
+                        );
+                    }
                 }
             }
             bundle = prepared;
@@ -7590,7 +7921,10 @@ async fn observe_bundle_outcome(
             if let Some(events) = &events {
                 events.emit("repriced", id.post_batch_hash, detail);
             }
-            quote
+            eez_l1::refund::BundlePricing {
+                quote,
+                refund: refund.map(|p| p.request),
+            }
         }
         Err((reason, error)) => {
             if reason == "pipeline_deadline"
@@ -7613,13 +7947,19 @@ async fn observe_bundle_outcome(
             }
             event!(name: "eez.composer.postbatch.preflight_failed", Level::WARN,
                 event_name = "eez.composer.postbatch.preflight_failed", rollup_id, %error,
-                "unsent bundle deferred; due work retained without a user attempt penalty");
+                "unsent bundle deferred; due work retained for canonical reconciliation");
             if let BundleTarget::Exact { block, .. } = target {
                 let _ = optimistic.observe(
                     attempt_id,
-                    SubmissionObservation::Excluded {
-                        block,
-                        charge_attempt: false,
+                    if execution_rejected {
+                        SubmissionObservation::PreflightRejected {
+                            source: rejected_source,
+                        }
+                    } else {
+                        SubmissionObservation::Excluded {
+                            block,
+                            charge_attempt: false,
+                        }
                     },
                 );
             }
@@ -7678,8 +8018,9 @@ async fn observe_bundle_outcome(
                         // derived-parent guard. The quote was checked against
                         // the canonical head immediately before dispatch.
                         let expected_parent_hash = delivery.expected_parent_hash.or_else(|| {
-                            (fee_quote.sample.number.checked_add(1) == Some(delivery.target_block))
-                                .then_some(fee_quote.sample.hash)
+                            (fee_quote.quote.sample.number.checked_add(1)
+                                == Some(delivery.target_block))
+                            .then_some(fee_quote.quote.sample.hash)
                         });
                         candidate.duration("delivery", delivery.elapsed);
                         candidate.emit(

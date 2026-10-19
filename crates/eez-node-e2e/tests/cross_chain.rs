@@ -1,5 +1,7 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod nested_creation;
+
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
 use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue};
@@ -1476,7 +1478,10 @@ async fn inbound_nested_contract_to_contract_to_proxy_preserves_source_attributi
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution() {
     // The L1 destination must see the inner contract's source proxy.
-    let w = setup_cross_chain().await.unwrap();
+    let policy = crate::settlement_policy_cost::shadow_pricing_policy();
+    let w = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(&policy, &[]))
+        .await
+        .unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
     let inner =
@@ -1540,6 +1545,7 @@ async fn outbound_nested_contract_to_contract_to_proxy_preserves_source_attribut
         "nested outbound proxy call",
     )
     .await;
+    crate::settlement_policy_cost::assert_l2_shadow_receipts(&w, 1, 0, Some(&policy)).await;
 }
 
 // Round trips in which L1 calls back into a suspended L2 execution. The probe's
@@ -2443,12 +2449,11 @@ async fn wallet_estimate_rpc(front: &str, request: serde_json::Value) -> serde_j
             &response
         };
         let context_wait = estimate["error"]["code"] == -32000
-            && estimate["error"]["message"]
-                .as_str()
-                .is_some_and(|message| {
-                    message.contains("settlement reconciliation pending")
-                        || message.contains("chain context changed during estimation")
-                });
+            && estimate["error"]["data"]["retryable"] == true
+            && matches!(
+                estimate["error"]["data"]["code"].as_str(),
+                Some("settlement_reconciliation_pending" | "estimation_context_changed")
+            );
         if context_wait {
             eprintln!("wallet context retry: {}", estimate["error"]);
             return Ok(None);

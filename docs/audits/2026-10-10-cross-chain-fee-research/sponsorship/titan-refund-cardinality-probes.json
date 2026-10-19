@@ -1,0 +1,388 @@
+{
+  "observed_at_utc": "2026-10-10T20:02:44.274984+00:00",
+  "scope": "Bounded public JSON-RPC queries and non-executable malformed bundle validation probes. No wallet, key, valid signed transaction, replacement UUID, or executable bundle. Every eth_sendBundle request uses invalid tx byte 0x00 and already-past block 0x1. Responses do not prove payout semantics.",
+  "results": [
+    {
+      "name": "tracing_docs",
+      "url": "https://docs.titanbuilder.xyz/bundle-tracing.md",
+      "request": null,
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "8587db08a903fbb5476c122c7a9c79ecbd048874915f0fe7b6ec4ada6c487c72",
+      "response_text": "> For the complete documentation index, see [llms.txt](https://docs.titanbuilder.xyz/llms.txt). Markdown versions of documentation pages are available by appending `.md` to page URLs; this page is available as [Markdown](https://docs.titanbuilder.xyz/bundle-tracing.md).\n\n# Bundle Tracing\n\n### Introduction\n\nThis feature aims to provide MEV searchers with in-depth insights into why their bundles were or were not included in blocks. This is an early version of the feature, and we welcome your feedback on additional data points you'd find useful.\n\n> **Note**: The bundle trace will be ready approximately 5 minutes after your bundle has been sent.&#x20;\n>\n> Rate limit: 50 requests/sec.\n\n### Using `titan_getBundleStats` Endpoint\n\nTo get the status of your bundle, use the `titan_getBundleStats` API endpoint. Below is an example request and response:\n\n#### Example Request\n\n```bash\ncurl -X POST -H 'content-type: application/json' -d '{\"method\": \"titan_getBundleStats\", \"params\": [{\"bundleHash\": \""
+    },
+    {
+      "name": "mainnet_simulation",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_callBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "stateBlockNumber": "0x0"
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "75e0bb273c496d4e723d781bb28b7d5107123bc7f9969f15732c9fab94df5d96",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "mainnet_baseline",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001"
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "1b24941d3c1d657644355a2bdce146504241a8add28609bfeeab0ee62eaade80",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "error": {
+          "code": -32602,
+          "message": "rlp offset overflow"
+        }
+      }
+    },
+    {
+      "name": "mainnet_one_hash",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": [
+              "0x1111111111111111111111111111111111111111111111111111111111111111"
+            ]
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "4b4ea740b0e93d28064db059b89f261e1b73b0b6d0ba465bd4a3efb5e37eca4d",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "error": {
+          "code": -32602,
+          "message": "rlp offset overflow"
+        }
+      }
+    },
+    {
+      "name": "mainnet_two_hashes",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": [
+              "0x1111111111111111111111111111111111111111111111111111111111111111",
+              "0x2222222222222222222222222222222222222222222222222222222222222222"
+            ]
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "9520467c105289f667aab1dba250625a96849db235a11d1dd9a0077b095e33c8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+          "code": -32600,
+          "message": "bundle 'refund_tx_hashes' count cannot exceed 1"
+        }
+      }
+    },
+    {
+      "name": "mainnet_wrong_type",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": 42
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "6f6aba674505e323a7ee295abdb3465d17f22ebdc1974bced961abfb81efccb8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "error": {
+          "code": -32700,
+          "message": "ErrorObject { code: InvalidParams, message: \"Invalid params\", data: Some(RawValue(\"invalid type: integer `42`, expected a sequence at line 1 column 147\")) }"
+        }
+      }
+    },
+    {
+      "name": "mainnet_snake_wrong_type",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refund_tx_hashes": 42
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "3a923f2a021833e07255134b1a3faabb92ef5e314e0fb5334313b1d62bda19df",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "error": {
+          "code": -32602,
+          "message": "rlp offset overflow"
+        }
+      }
+    },
+    {
+      "name": "hoodi_simulation",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_callBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "stateBlockNumber": "0x0"
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "75e0bb273c496d4e723d781bb28b7d5107123bc7f9969f15732c9fab94df5d96",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      }
+    },
+    {
+      "name": "hoodi_baseline",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001"
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "7f2a308369d4287c29d3b03329816fad58c7a10868fdf2f20fe19fdd9ddf8519",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "bundleHash": "0x3a1a19119ca40ecf687f9b420c721ce5afbba4b733d4c15c223dbfd5797cd385"
+        }
+      }
+    },
+    {
+      "name": "hoodi_one_hash",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": [
+              "0x1111111111111111111111111111111111111111111111111111111111111111"
+            ]
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "d0b5fb18ab3f2d402d3a7c2497a778da9a38b0a00440cc7f65deaac81a37f67b",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "result": {
+          "bundleHash": "0xa90ff9944b0fe62cb84670c06198673752791ef28f6189ec295ab6f9ed2a6c5a"
+        }
+      }
+    },
+    {
+      "name": "hoodi_two_hashes",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": [
+              "0x1111111111111111111111111111111111111111111111111111111111111111",
+              "0x2222222222222222222222222222222222222222222222222222222222222222"
+            ]
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "9520467c105289f667aab1dba250625a96849db235a11d1dd9a0077b095e33c8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "error": {
+          "code": -32600,
+          "message": "bundle 'refund_tx_hashes' count cannot exceed 1"
+        }
+      }
+    },
+    {
+      "name": "hoodi_wrong_type",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refundTxHashes": 42
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "6f6aba674505e323a7ee295abdb3465d17f22ebdc1974bced961abfb81efccb8",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 5,
+        "error": {
+          "code": -32700,
+          "message": "ErrorObject { code: InvalidParams, message: \"Invalid params\", data: Some(RawValue(\"invalid type: integer `42`, expected a sequence at line 1 column 147\")) }"
+        }
+      }
+    },
+    {
+      "name": "hoodi_snake_wrong_type",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "method": "eth_sendBundle",
+        "params": [
+          {
+            "txs": [
+              "0x00"
+            ],
+            "blockNumber": "0x1",
+            "refundPercent": 90,
+            "refundRecipient": "0x0000000000000000000000000000000000000001",
+            "refund_tx_hashes": 42
+          }
+        ]
+      },
+      "curl_exit": 0,
+      "http_status": "200",
+      "response_sha256": "5a8db5d538fd1d391c5dd0b9f7025dbc84fe4994c4adc8944873434b6e341ad0",
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 6,
+        "result": {
+          "bundleHash": "0x3a1a19119ca40ecf687f9b420c721ce5afbba4b733d4c15c223dbfd5797cd385"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,112 @@
+{
+  "core-tests.log": {
+    "sha256": "199c57a7e6231d2f8c3daded143ea3f4846bef4ce64e8ff0cb0a9abbe565f686",
+    "bytes": 59129,
+    "availability": "local-only; no retention guarantee"
+  },
+  "network-tests-after.log": {
+    "sha256": "416143bb2d03f8346d01d05bfc4a6c5dc9dd3007f3b40d3cb07fa33219144d9c",
+    "bytes": 15406,
+    "availability": "local-only; no retention guarantee"
+  },
+  "other-protocol-runner-tests.log": {
+    "sha256": "eb5a3e9a14573fb280e616b1df38a6736d5b4c05e58ff4265567aaae962fcacd",
+    "bytes": 12009,
+    "availability": "local-only; no retention guarantee"
+  },
+  "fee-regression-before.log": {
+    "sha256": "ec05163c9bcfaf45e0ec4475564780c77c4aa2f57deae0ede9a0e3f689f923e2",
+    "bytes": 12880,
+    "availability": "local-only; no retention guarantee"
+  },
+  "preparation-regression-before.log": {
+    "sha256": "b9302e8dd90e376d21d2e3f6dbba9568936e7c27ef0abba336e46f09e12ce389",
+    "bytes": 10329,
+    "availability": "local-only; no retention guarantee"
+  },
+  "collector-regression-before.log": {
+    "sha256": "21b0c3e1604c45c77d66f1693549323c657b827f4b1f90693ab7c8a5e4388441",
+    "bytes": 5068,
+    "availability": "local-only; no retention guarantee"
+  },
+  "collector-regression-after.log": {
+    "sha256": "c95df7ccd00e40205c2a4634bc912c131b8b5c0d9b7a8b5e5c30bf6962bff8c2",
+    "bytes": 1734,
+    "availability": "local-only; no retention guarantee"
+  },
+  "lookup-tests-after.log": {
+    "sha256": "003b5de9f6e9beea87173d762fb34d0fd3fa6c67ef46f0db656f9d3d4d1a884b",
+    "bytes": 4232,
+    "availability": "local-only; no retention guarantee"
+  },
+  "tooling-tests.log": {
+    "sha256": "1cb7b47d4a54fb8f227d2d2bcc7e0f6629706758967d9f2528af79cf31df0935",
+    "bytes": 63782,
+    "availability": "local-only; no retention guarantee"
+  },
+  "protocol-anvil.log": {
+    "sha256": "777a4ceb401820871c4e65c92ab509a898e7bbee7c681fcb169290b1eef68880",
+    "bytes": 4924,
+    "availability": "local-only; no retention guarantee"
+  },
+  "genesis-check.log": {
+    "sha256": "46e1af1241d76e3eb1faf83ead8ef060baa6a2bfcb543611eb977c564455ef01",
+    "bytes": 116,
+    "availability": "local-only; no retention guarantee"
+  },
+  "deploy-image-build.log": {
+    "sha256": "81df523ed6d73278dbab4d9eec87db75db9ed1740e5295a0d18862e67d429d1e",
+    "bytes": 3099,
+    "availability": "local-only; no retention guarantee"
+  },
+  "reorg-signing-regression-before.log": {
+    "sha256": "2a3a0611cd3a084aeebdfc762a00df899820f4194f993bbf0c9fd156244ab7d9",
+    "bytes": 914,
+    "availability": "local-only; no retention guarantee"
+  },
+  "manifest-regression-before.log": {
+    "sha256": "2d9151e93743187a0cf4104555b7235dfdfdf6343fff65a75e6f37802bcbde86",
+    "bytes": 2075,
+    "availability": "local-only; no retention guarantee"
+  },
+  "preparation-final.log": {
+    "sha256": "3b8ec97cc7c1676fbd248539a413b752892e05281a9f8db4d777bcb7085c1e74",
+    "bytes": 1426,
+    "availability": "local-only; no retention guarantee"
+  },
+  "sdk-fees.log": {
+    "sha256": "5095593f4918416d606ffd92361022672b800876d47050352c02ce05204ee1eb",
+    "bytes": 717,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/kurtosis.log": {
+    "sha256": "c27f112bce738f70f0386f0ab6eaee41f8a2320d99897e14219e0b46a21dbf19",
+    "bytes": 77603,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/kurtosis/protocol-e2e/summary.json": {
+    "sha256": "aa9ce0e6dc5a6dcd277d324b837bc8b6b2e21b3ac1d4eefeba42eede6629d8be",
+    "bytes": 804029,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/run-ci-retain.sh": {
+    "sha256": "175a39112f5c41033a072c1ef8e1a3fdb1862598b12d9204991b3727f03001b3",
+    "bytes": 14555,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/final-guard/network.log": {
+    "sha256": "bd064314f65c970bf6d501cf033dcd0b99eadc88b9da3ce644055687d61a268c",
+    "bytes": 2710,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/final-guard/preparation-unit.log": {
+    "sha256": "33b91c05cd5f97b3723bd4fbb0f2288c777b3768d1244de5dc8139d2f674ea28",
+    "bytes": 1426,
+    "availability": "local-only; no retention guarantee"
+  },
+  "artifacts/pr56-local-validation/final-guard/protocol-e2e/summary.json": {
+    "sha256": "032dd1bab433f5595f22ff5d72c6ca78d81c4ed31097f0a53ab7a11017bb0534",
+    "bytes": 77272,
+    "availability": "local-only; no retention guarantee"
+  }
+}

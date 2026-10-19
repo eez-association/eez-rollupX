@@ -55,8 +55,22 @@ fn error(id: Value, error: EstimateError) -> Value {
         _ => -32000,
     };
     let mut response = serde_json::json!({"jsonrpc":"2.0", "id":id, "error":{"code":code,"message":error.to_string()}});
-    if let EstimateError::Revert(data) = error {
-        response["error"]["data"] = serde_json::json!(data);
+    match error {
+        EstimateError::InsufficientFunds(balance) => {
+            response["error"]["data"] = serde_json::json!({
+                "code":"insufficient_funds", "details":balance.json()
+            });
+        }
+        EstimateError::Revert(data) => response["error"]["data"] = serde_json::json!(data),
+        EstimateError::SettlementPending | EstimateError::ContextChanged => {
+            let reason = if matches!(error, EstimateError::SettlementPending) {
+                "settlement_reconciliation_pending"
+            } else {
+                "estimation_context_changed"
+            };
+            response["error"]["data"] = serde_json::json!({"code":reason,"retryable":true});
+        }
+        _ => {}
     }
     response
 }
@@ -253,6 +267,38 @@ mod tests {
     }
 
     #[test]
+    fn only_reconciliation_and_context_changes_have_retry_hints() {
+        for (failure, reason) in [
+            (
+                EstimateError::SettlementPending,
+                "settlement_reconciliation_pending",
+            ),
+            (EstimateError::ContextChanged, "estimation_context_changed"),
+        ] {
+            let response = error(serde_json::json!("estimate"), failure);
+            assert_eq!(response["id"], "estimate");
+            assert_eq!(response["error"]["code"], -32000);
+            assert_eq!(
+                response["error"]["data"],
+                serde_json::json!({"code":reason,"retryable":true})
+            );
+        }
+        for failure in [
+            EstimateError::Unavailable("settlement reconciliation pending".into()),
+            EstimateError::Invalid("bad request".into()),
+            EstimateError::Unsupported("shape".into()),
+            EstimateError::Effects("mismatch".into()),
+            EstimateError::Timeout,
+        ] {
+            assert!(
+                error(serde_json::json!(1), failure)["error"]
+                    .get("data")
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
     fn revert_payload_and_request_identity_survive_mapping() {
         let id = serde_json::json!("wallet:42");
         let response = error(
@@ -262,5 +308,28 @@ mod tests {
         assert_eq!(response["id"], id);
         assert_eq!(response["error"]["code"], 3);
         assert_eq!(response["error"]["data"], "0xdead");
+    }
+
+    #[test]
+    fn source_balance_error_is_not_a_revert_or_a_retry_hint() {
+        let response = error(
+            serde_json::json!("balance"),
+            EstimateError::InsufficientFunds(eez_composer::SourceBalanceError {
+                available: alloy_primitives::U256::ZERO,
+                required: alloy_primitives::U256::from(7),
+                chain_id: 1,
+            }),
+        );
+        assert_eq!(response["id"], "balance");
+        assert_eq!(response["error"]["code"], -32000);
+        assert_eq!(
+            response["error"]["data"],
+            serde_json::json!({
+                "code":"insufficient_funds", "details": {
+                    "reason":"source_balance", "sourceChainId":"0x1",
+                    "availableBalance":"0x0", "requiredBalance":"0x7", "shortfall":"0x7"
+                }
+            })
+        );
     }
 }

@@ -64,4 +64,6 @@ pub use optimistic::OptimisticallyIncluded;
 pub use rollup::{RollupConfig, RollupState};
 
 mod admission_events;
+mod fee_diagnostics;
 mod posting_events;
+pub use fee_diagnostics::{FundingDiagnostic, SourceBalanceError};

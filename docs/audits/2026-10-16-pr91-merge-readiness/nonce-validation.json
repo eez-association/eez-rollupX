@@ -1,0 +1,243 @@
+{
+  "date": "2026-10-16",
+  "repository": "eez-association/eez-rollupX",
+  "pr": 91,
+  "baseline_runtime_source": "e1d0000579fa9a4569d393df703dccf46e521a53",
+  "implementation_commit": "01d4fa07881fbd2deacee64eb26b36f7b08d3d6e",
+  "protocol": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "candidate_source_files": {
+    "crates/eez-composer/src/composer/fees/quote.rs": "2810a0eab2681f642a3dff430ff8865c88b7ec74c9c935f94d7e0fbe57641b0b",
+    "crates/eez-composer/src/held_pool.rs": "dcac1fc3d53413794a985855511752c788421d17c5094c839ffb3dc564e51836",
+    "crates/eez-node-e2e/tests/fee_quotes.rs": "50b1cc3a6ca39ec54181a7ba4de4985f06ad77ffe940d76f8e2a5f4f2d203aac",
+    "Cargo.lock": "d9267d9747e252b41514b3805932ff1101ca0d1855197b97e0a193b929c3fa39"
+  },
+  "build": {
+    "toolchains": "Rust 1.95.0; Foundry 1.7.1; Solidity 0.8.34",
+    "environment": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22"
+    },
+    "runtime_profile": "dev; eez-node and eez-follower opt-level=0; remaining packages use repository defaults",
+    "baseline_command": "cargo +1.95.0 build --locked -p eez-node -p eez-node-e2e --bin eez-composer --test node_e2e --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-follower.opt-level=0' --message-format=json-render-diagnostics",
+    "candidate_command": "cargo +1.95.0 build --locked -p eez-node -p eez-node-e2e -p eez-follower --bin eez-composer --bin eez-follower --test node_e2e --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-follower.opt-level=0' --message-format=json-render-diagnostics",
+    "signer_command": "cargo +1.95.0 build --locked -p eez-proof-signer --bin eez-proof-signer --message-format=json-render-diagnostics",
+    "source_note": "Candidate binaries were compiled from the working tree with Rust source and dependency inputs matching the implementation commit. Committing while compilation completed did not alter those inputs.",
+    "shipping_qualification": "Required PR CI, not these development-profile executables"
+  },
+  "executables": {
+    "baseline_composer": {
+      "path": "artifacts/pr91-auto-nonce-20261016/baseline-eez-composer",
+      "sha256": "cb7b7844b97042e98ddc3c5ff5ed2890c9deddc4dc69983ceb5fe678469e49d4"
+    },
+    "unchanged_test_oracle": {
+      "path": "artifacts/pr91-auto-nonce-20261016/baseline-node_e2e",
+      "sha256": "baad89e7c889b4f7bc208456e0624130b1e33b8bd67b8e3c531072527c7e17e0"
+    },
+    "candidate_composer": {
+      "path": "artifacts/pr91-auto-nonce-20261016/runtime-after/eez-composer",
+      "sha256": "1e7e611f7fc4cdd75a1572813f2cdc55b9b019b659d299343fc8319e4a6bea04",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "candidate_follower": {
+      "path": "artifacts/pr91-auto-nonce-20261016/runtime-after/eez-follower",
+      "sha256": "fcda2c1f6ba57cfdee80fed597f1ed063d89d780fb763042cb9817e1cfabc1be",
+      "profile": {
+        "opt_level": "0",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "candidate_harness": {
+      "path": "artifacts/pr91-auto-nonce-20261016/candidate-node_e2e",
+      "sha256": "a178154f385b3e386c24b0407bd79fafa213caf6c0c5712322ff740f8e3f7627",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": true
+      }
+    },
+    "matching_signer": {
+      "path": "artifacts/pr91-auto-nonce-20261016/baseline-eez-proof-signer",
+      "sha256": "70de7cbd1101908bae693cfefc986c31465e191f4b51b89db3bdc8fc87e971f7",
+      "profile": {
+        "opt_level": "1",
+        "debuginfo": "line-tables-only",
+        "debug_assertions": true,
+        "overflow_checks": true,
+        "test": false
+      }
+    },
+    "role_note": "Both nonce runs use the same retained test executable and matching signer; these cases do not start a follower. The broader suite uses the fresh candidate follower."
+  },
+  "regression": {
+    "command": "baseline-node_e2e l1_nonces_ --test-threads=1",
+    "before": {
+      "exit_code": 101,
+      "passed": 1,
+      "failed": 1,
+      "ignored": 0,
+      "seconds": 260.44,
+      "failure": "invalid_transaction: source nonce is already pending"
+    },
+    "after": {
+      "exit_code": 0,
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "seconds": 80.16
+    },
+    "assertions": [
+      "three unmined same-account L1 sources",
+      "nested local and remote predecessor state",
+      "legacy and EIP-1559 quotes and signed admission",
+      "repeat debug quote without nonce reservation",
+      "explicit duplicate rejection",
+      "underpayment rejection",
+      "gap/limit rejection",
+      "canonical state isolation"
+    ],
+    "limit": "Posting is paused; these two cases do not establish canonical settlement or builder refunds."
+  },
+  "unit_tests": {
+    "command": "cargo +1.95.0 test --locked -p eez-composer -p eez-l1 -p eez-node --lib --config 'profile.dev.package.eez-node.opt-level=0' --config 'profile.dev.package.eez-follower.opt-level=0'",
+    "passed": 658,
+    "failed": 0,
+    "ignored": "held_pool::tests::profile_blocked_backlog_discovery (manual timing profile)",
+    "packages": {
+      "eez-composer": {
+        "passed": 375,
+        "ignored": 1
+      },
+      "eez-l1": {
+        "passed": 193
+      },
+      "eez-node": {
+        "passed": 90
+      }
+    }
+  },
+  "other_checks": [
+    {
+      "command": "node sdk/l2-fees.test.mjs",
+      "result": "6 passed; 0 skipped"
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "result": "pass"
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "pass"
+    },
+    {
+      "command": "git diff --check",
+      "result": "pass"
+    },
+    {
+      "command": "gitleaks git . --config .gitleaks.toml --log-opts='--all -m' --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+      "result": "765 implementation-history commits; 0 findings"
+    }
+  ],
+  "fee_process_selection": {
+    "tests": [
+      "fee_quotes::compact_nested_eip1559_estimates_both_types_settles_and_replays",
+      "fee_quotes::compact_nested_legacy_estimates_both_types_settles_and_replays",
+      "fee_quotes::compact_ordinary_calls_boundaries_and_fee_sensitive_rejection",
+      "fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays",
+      "fee_quotes::exact_quote_with_caught_nested_revert_is_admitted_and_replayed",
+      "fee_quotes::external_posting_price_shift_rejects_old_quote_with_measured_shortfall",
+      "fee_quotes::l1_refund_quote_eip1559_continues_after_missing_payment",
+      "fee_quotes::l1_refund_quote_legacy_continues_after_missing_payment",
+      "fee_quotes::legacy_rpc_quote_rejects_underpayment_settles_and_replays",
+      "fee_quotes::simplified_five_percent_legacy_payment_settles_below_twenty_percent_quote",
+      "fee_quotes::simplified_one_percent_eip1559_payment_settles_below_twenty_percent_quote",
+      "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+      "safe_fee_quotes::entirely_l2_safe_keeps_ordinary_gas_rules",
+      "safe_fee_quotes::gnosis_safe_factory_nested_initialization_is_funded_and_replays",
+      "safe_fee_quotes::safe_factory_nested_initialization_is_funded_and_replays"
+    ],
+    "selected": 15,
+    "fee_quotes": 12,
+    "safe_fee_quotes": 3
+  },
+  "corrected_prerequisites": [
+    "Initial process attempt used a pre-TLS-update signer and failed the lockfile-based validation identity check before either nonce test reached quotation. Matching signer was built and retained.",
+    "Initial unit compilation was interrupted before test execution because local mock RPC listeners require execution outside the restricted sandbox; the task-owned compiler was stopped before restarting with sockets enabled."
+  ],
+  "operations": "No Chiado or Kurtosis services changed; no contract, genesis or protocol upgrade; nonce correction not deployed.",
+  "limits": [
+    "Development-profile process evidence is not release-artifact qualification.",
+    "The nonce regression deliberately pauses posting.",
+    "No new public-network stress run or real-builder refund exercise in this follow-up.",
+    "Ignored artifacts are local-only and have no guaranteed retention."
+  ],
+  "artifact_directory": "artifacts/pr91-auto-nonce-20261016",
+  "artifacts": [
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/before-regression.log",
+      "sha256": "1e974af2c84c992e25a4fae658eb987c08fba2bf00d39e50e870ba942ef66dfd"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/before-compatible-regression.log",
+      "sha256": "45507131bcf7806aa6e93f4b0f59adc26fbaab85c41d6df532d019b524171e68"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/after-regression.log",
+      "sha256": "1f23d0b7e9e38b6bcae7e5739c85085c69ddb7a003c317c3f2988d40e78984fa"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/unit-tests.log",
+      "sha256": "e31f0484e276e59ebc44a114ed3eb61b07e00932a3a0e1410910bd5bf74af5ae"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/unit-tests-with-sockets.log",
+      "sha256": "c44ae4ea112e6220ec6d4f0098e2adfef93f059c4f4fbd3cc4ca817ab8a82b84"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/sdk.log",
+      "sha256": "659838c992e95df3b8b8f506734e4aab3085738e48b8b7264158a85617160b6c"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/clippy.log",
+      "sha256": "3731faeda787e7c3d480e3d3d64e980bcd3c1f726c6e9b8da2f18ea577a3fdfb"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/implementation-secrets.log",
+      "sha256": "fb6a7b265fbc4b34ffc5a472eb2eaf635b5b933d4d9ff0f6bb41b55ca78a6ada"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/fee-module.log",
+      "sha256": "10f12add43029a1e889446810f8345eed5bfbc5421f4430801bf846585169450"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/fee-module-result.json",
+      "sha256": "e89df0eae5ec7db81135aed16463968955c578bcc4f2ec43172eff351f080c17"
+    },
+    {
+      "path": "artifacts/pr91-auto-nonce-20261016/fee-module-selection.json",
+      "sha256": "9f83cef42c3519617c3408ac534d09403f000f81c25b962b0cb3114274648af7"
+    }
+  ],
+  "fee_process_result": {
+    "command": "candidate-node_e2e fee_quotes:: --skip l1_nonces_ --test-threads=1",
+    "exit_code": 0,
+    "passed": 15,
+    "failed": 0,
+    "ignored": 0,
+    "seconds": 767.41,
+    "total_with_separate_nonce_cases": 17,
+    "selection_note": "The substring filter also selects three Safe tests. The initial orchestration count assertion expected 12; its count was corrected against the explicit 15-test inventory and the successful harness result without rerunning any test.",
+    "coverage": "Includes semantic assertions, canonical settlement and independent follower replay in the roundtrip cases; no real-builder refund payment is exercised."
+  }
+}

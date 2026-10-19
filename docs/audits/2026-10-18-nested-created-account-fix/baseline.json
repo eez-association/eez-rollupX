@@ -1,0 +1,158 @@
+{
+  "sourceHead": "0bb1396d9cb660738b17d43a6cdbf9a564177823",
+  "protocolHead": "9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f",
+  "runtimeChanges": false,
+  "fixturePatchSha256": "3078cf875cade0245046dc4b8926d15082fcc70243783c81a08b328c798967f6",
+  "processRun": {
+    "passed": 0,
+    "failed": 2,
+    "ignored": 0,
+    "filteredOut": 158,
+    "seconds": 230.37,
+    "exitCode": 101,
+    "retries": 0
+  },
+  "executables": {
+    "eez-composer": {
+      "bytes": 852464160,
+      "sha256": "bf0b5190d3421cd28ea31cf07511715327649fbd948f09deb099796932c1b7cb"
+    },
+    "eez-follower": {
+      "bytes": 711863080,
+      "sha256": "7be7d884f34677cd1b1e653ba7e87d6e0c502358588bf1b3ff5b965746c0df79"
+    },
+    "node_e2e-1e3ad82bc8bdefb9": {
+      "bytes": 606503864,
+      "sha256": "295c8c3ac76ccf8db8987afaf8a088bfc5b6e79848d96b44c6524a57ea386e4f"
+    },
+    "eez-proof-signer": {
+      "bytes": 480734936,
+      "sha256": "d8fa1525e402eeba048196537536f4708ad058a7da57f5a0143cef630d6973dc"
+    }
+  },
+  "cases": {
+    "create": {
+      "profile": "GnosisPrague",
+      "existingControl": {
+        "hash": "0x5edc4d9c353834ea14cedfbad2576d2b2d964f0894b0089f5bfe2c0fb01d5d79",
+        "ownership": {
+          "canonical": {
+            "hash": "0xf0f11c9ee5afeb11caf4e8bcd94a6784e3f972ce354e80f2d1f9de31708bc347",
+            "number": 9
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "freshSource": {
+        "hash": "0xeff4d13cb7e8f602e465c5181d2b556d58c2aea873b8e7a7c88d976da580916a",
+        "ownership": {
+          "canonical": null,
+          "observedAtMs": 1792336729016,
+          "reason": "SimulationFailed",
+          "rejection": {
+            "calls": [
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30408,
+                "returnData": "0x000000000000000000000000ca1721da09e0aa30d185f934e7b46287f1fe1c88",
+                "returnLength": 32,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": true,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 120683,
+                "returnData": "0x000000000000000000000000ca1721da09e0aa30d185f934e7b46287f1fe1c88",
+                "returnLength": 32,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": true,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              }
+            ],
+            "error": "protocol: source transaction does not execute successfully",
+            "omittedCalls": 0,
+            "source": {
+              "gasUsed": 26081,
+              "output": "0xd5a802b0000000000000000000000000ca1721da09e0aa30d185f934e7b46287f1fe1c88",
+              "outputLength": 36
+            }
+          },
+          "replacementHash": null,
+          "state": "terminal"
+        }
+      }
+    },
+    "create2": {
+      "profile": "GnosisPrague",
+      "existingControl": {
+        "hash": "0xe835512ce338e7f8fd1ba4a34bc8c10b80728c3182f68785bf40ba97fdec4ade",
+        "ownership": {
+          "canonical": {
+            "hash": "0x78f3cd8b183572e2c18f8a1650bb445d74dab8e2c808b98c6eef642fb20a1c12",
+            "number": 9
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      "freshSource": {
+        "hash": "0x37942e08fa1070469d4823003dcee4ed81d7c589995f962ce130da1d4ca6789e",
+        "ownership": {
+          "canonical": null,
+          "observedAtMs": 1792336681020,
+          "reason": "SimulationFailed",
+          "rejection": {
+            "calls": [
+              {
+                "caller": "0x6179fbb91b239b574a4565e2c55a6fd38c3372d3",
+                "depth": 1,
+                "gasUsed": 30420,
+                "returnData": "0x000000000000000000000000e5bd81356a20ad3853891e82748e203580551791",
+                "returnLength": 32,
+                "selector": "0x0512b73a",
+                "sourceRollupId": 1,
+                "static": false,
+                "success": true,
+                "target": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "targetRollupId": 0
+              },
+              {
+                "caller": "0xcba6b9a951749b8735c603e7ffc5151849248772",
+                "depth": 2,
+                "gasUsed": 120755,
+                "returnData": "0x000000000000000000000000e5bd81356a20ad3853891e82748e203580551791",
+                "returnLength": 32,
+                "selector": "0x27f4e1d6",
+                "sourceRollupId": 0,
+                "static": false,
+                "success": true,
+                "target": "0x673cd70fa883394a1f3deb3221937ceb7c2618d7",
+                "targetRollupId": 1
+              }
+            ],
+            "error": "protocol: source transaction does not execute successfully",
+            "omittedCalls": 0,
+            "source": {
+              "gasUsed": 26093,
+              "output": "0xd5a802b0000000000000000000000000e5bd81356a20ad3853891e82748e203580551791",
+              "outputLength": 36
+            }
+          },
+          "replacementHash": null,
+          "state": "terminal"
+        }
+      }
+    }
+  },
+  "availability": "Compact observations retained here. Original fixture patch, full process logs and datadirs are local-only; see README for the artifact identifiers."
+}

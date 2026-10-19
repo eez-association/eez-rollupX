@@ -1,0 +1,84 @@
+{
+  "observed_at_utc": "2026-10-10T11:21:45.799611+00:00",
+  "scope": "Public documentation and invalid-parameter read-only simulation probes; no signed transaction, eth_sendBundle request, credential or wallet operation. A method error does not establish sponsorship support.",
+  "results": [
+    {
+      "name": "titan_docs",
+      "url": "https://docs.titanbuilder.xyz/llms.txt",
+      "request": null,
+      "http_status": 200,
+      "elapsed_seconds": 0.424,
+      "response_sha256": "dff820ecf8d0feee5ca2081d76ccab064595c3369d5e34522722e338190c9272",
+      "response_bytes": 1312
+    },
+    {
+      "name": "quasar_docs",
+      "url": "https://docs.quasar.win/llms.txt",
+      "request": null,
+      "http_status": 200,
+      "elapsed_seconds": 0.411,
+      "response_sha256": "85c4845c995e08c68b5b0b758de7c6db94fe6387a831ce5b5c1f11dbb1352b6a",
+      "response_bytes": 847
+    },
+    {
+      "name": "titan_mainnet_simulation",
+      "url": "https://rpc.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_callBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      },
+      "elapsed_seconds": 1.229
+    },
+    {
+      "name": "titan_hoodi_simulation",
+      "url": "https://rpc-hoodi.titanbuilder.xyz",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_callBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      },
+      "elapsed_seconds": 0.431
+    },
+    {
+      "name": "quasar_mainnet_simulation",
+      "url": "https://rpc.quasar.win",
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_callBundle",
+        "params": []
+      },
+      "http_status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32601,
+          "message": "Method not found"
+        }
+      },
+      "elapsed_seconds": 0.519
+    }
+  ]
+}

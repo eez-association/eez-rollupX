@@ -15,7 +15,7 @@ const SAMPLE_INTERVAL: Duration = Duration::from_secs(1);
 struct QueueMetrics {
     counts: [(Direction, Gauge, Gauge); 2],
     readiness: [Gauge; 3],
-    blocked: [(&'static str, Gauge); 4],
+    blocked: [(&'static str, Gauge); 6],
     oldest_pending_at: Gauge,
     evaluated_at: Gauge,
     last_completion_at: Gauge,
@@ -79,7 +79,7 @@ impl QueueMetrics {
                     metrics::gauge!("eez_composer_queue_requests", "rollup_id" => rollup.clone(), "direction" => name, "state" => "in_flight"))),
             readiness: ["ready", "blocked", "unknown"].map(|status|
                 metrics::gauge!("eez_composer_queue_readiness_requests", "rollup_id" => rollup.clone(), "status" => status)),
-            blocked: ["nonce", "fee", "balance", "escrow"].map(|reason|
+            blocked: ["nonce", "fee", "balance", "escrow", "settlement_fee", "settlement_pricing"].map(|reason|
                 (reason, metrics::gauge!("eez_composer_queue_blocked_requests", "rollup_id" => rollup.clone(), "reason" => reason))),
             oldest_pending_at: metrics::gauge!("eez_composer_queue_oldest_pending_timestamp_seconds", "rollup_id" => rollup.clone()),
             evaluated_at: metrics::gauge!("eez_composer_queue_evaluation_timestamp_seconds", "rollup_id" => rollup.clone()),
@@ -210,11 +210,19 @@ mod tests {
         let metrics = metrics::with_local_recorder(&recorder, || QueueMetrics::new(7));
         let pool = HeldPool::new(Default::default());
         let mut snapshot = pool.queue_snapshot();
-        snapshot.counts[0].1.queued = 7;
+        snapshot.counts[0].1.queued = 12;
         snapshot.ready = 1;
-        snapshot.blocked = 5;
+        snapshot.blocked = 10;
         snapshot.unknown = 1;
-        snapshot.blocked_reasons = [("fee", 2), ("nonce", 1), ("balance", 1), ("escrow", 1)].into();
+        snapshot.blocked_reasons = [
+            ("fee", 2),
+            ("nonce", 1),
+            ("balance", 1),
+            ("escrow", 1),
+            ("settlement_fee", 2),
+            ("settlement_pricing", 3),
+        ]
+        .into();
         snapshot.oldest_pending_at_ms = Some(1_250);
         snapshot.evaluated_at_ms = Some(2_500);
         snapshot.last_completion_at_ms = Some(1_500);
@@ -255,13 +263,20 @@ mod tests {
                 .map(|line| line.rsplit_once(' ').unwrap().1.parse::<usize>().unwrap())
                 .collect::<Vec<_>>()
         };
-        assert_eq!(reason_values(&output).iter().sum::<usize>(), 5);
+        assert_eq!(reason_values(&output).iter().sum::<usize>(), 10);
+        for (reason, count) in [("settlement_fee", 2), ("settlement_pricing", 3)] {
+            assert!(output.lines().any(|line| {
+                line.starts_with("reth_eez_composer_queue_blocked_requests{")
+                    && line.contains(&format!("reason=\"{reason}\""))
+                    && line.ends_with(&format!(" {count}"))
+            }));
+        }
         metrics.record(pool.queue_snapshot(), 4.0);
         let empty = handle.render();
         assert!(
             empty.contains("reth_eez_composer_queue_last_completion_l1_block{rollup_id=\"7\"} NaN")
         );
-        assert_eq!(reason_values(&empty), vec![0; 4]);
+        assert_eq!(reason_values(&empty), vec![0; 6]);
         for family in ["evaluation", "oldest_pending", "last_completion"] {
             assert!(empty.contains(&format!(
                 "reth_eez_composer_queue_{family}_timestamp_seconds{{rollup_id=\"7\"}} NaN"
@@ -275,7 +290,7 @@ mod tests {
                 .lines()
                 .filter(|line| line.starts_with("reth_eez_composer_queue_"))
                 .count(),
-            18
+            20
         );
     }
 

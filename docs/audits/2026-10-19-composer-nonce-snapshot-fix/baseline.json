@@ -1,0 +1,59 @@
+{
+  "baselineNodeImage": "sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+  "harnessSource": "de4209a5e956b432db7a7d37517d9d44d68dfaa4",
+  "canonicalNonce": "0x4",
+  "ordinaryTransaction": "0xacd3727558d63b2ebdecdee8e016b0e60ab5590c01a00c3829429df7fabdac32",
+  "companionTransaction": "0xcfa0203b8ed43de5afb6bcd7170657944e9a11ee1eeff630685f7570e904ef8a",
+  "canonicalBlock": {
+    "number": "0x25",
+    "hash": "0x22685cdc7545af1c19f9f36255f3594bd45cb57a4e064c9be9d2d090075e3477"
+  },
+  "sameL1Block": true,
+  "observations": [
+    {
+      "call": "eez_quoteFee explicit",
+      "started": "2026-10-19T11:58:10.712Z",
+      "milliseconds": 20.252290999997058,
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "returnedNonce": null
+    },
+    {
+      "call": "eez_quoteFee omitted",
+      "started": "2026-10-19T11:58:10.713Z",
+      "milliseconds": 55.00444299999799,
+      "error": null,
+      "returnedNonce": "0x3"
+    },
+    {
+      "call": "eez_debugQuoteFee explicit",
+      "started": "2026-10-19T11:58:10.713Z",
+      "milliseconds": 19.96009400000912,
+      "error": {
+        "code": -32602,
+        "data": {
+          "code": "invalid_transaction",
+          "message": "invalid transaction: queued nonce prefix has a gap"
+        },
+        "message": "invalid transaction: queued nonce prefix has a gap"
+      },
+      "returnedNonce": null
+    },
+    {
+      "call": "eez_debugQuoteFee omitted",
+      "started": "2026-10-19T11:58:10.714Z",
+      "milliseconds": 53.757127999997465,
+      "error": null,
+      "returnedNonce": "0x3"
+    }
+  ],
+  "sameExplicitAfterCatchup": "0x4",
+  "fullEvidenceSha256": "3e58d0e08f8f700c2047bc24a867c032bd3ae6289d08a745f40446b407aa45c3",
+  "initialAttempt": "Stopped before nonce-race coverage: no PBS relay validator registrations; companion inclusion timeout. Canonical readiness added to the harness; both attempts retained."
+}

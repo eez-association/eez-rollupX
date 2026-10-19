@@ -88,13 +88,16 @@ impl LocalExecutionSession {
     /// `cache` preloads in-flight state captured before a nested dispatch;
     /// `None` opens a fresh revm state. `overlay_channel` publishes cumulative
     /// state after execution so a suspended inspector can apply the diff.
+    /// A quote context pins both cold state reads and block opcodes. Reentrant
+    /// frames must not open `latest` after their source has begun. Normal
+    /// composition supplies no override and keeps its existing latest-state path.
     ///
     /// # Errors
     ///
     /// Returns [`ExecutorErrorKind::Provider`] if reading the latest
     /// block number or header fails, or if opening the state provider
     /// fails.
-    pub fn new(
+    pub(crate) fn new(
         provider: &ChainProvider,
         manager_address: Address,
         inspector_factory: Option<SessionInspectorFactory>,
@@ -462,6 +465,11 @@ impl TargetExecutionSession for LocalExecutionSession {
     }
 
     fn checkpoint(&mut self) -> ExecutorResult<eez_protocol::SessionSnapshot> {
+        // A retained callback session may predate writes made by the resumed
+        // source. Refresh before saving the rollback point, while preserving
+        // cumulative sibling-callback state within the same dispatch frame.
+        self.overlay_channel
+            .refresh_before_reentry(&mut self.state.cache);
         // Synthetic target execution reads and writes through the cache. Keep
         // the exact pre-call cache so a source-frame revert can rewind this
         // chain before a later sibling dispatch observes it. Transition and

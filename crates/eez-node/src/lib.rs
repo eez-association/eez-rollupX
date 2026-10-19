@@ -7,6 +7,7 @@
 //!
 mod bundle_rpc;
 mod composer_rpc;
+mod fee_quotes;
 mod ingress;
 mod l1_embedded;
 mod l1_runtime;
@@ -805,7 +806,11 @@ async fn launch_composer(
     // One shared module (and witness permit budget) for both fronts. None of
     // these methods is registered on Reth's HTTP, WS, IPC or auth transports.
     let mut composer_methods = jsonrpsee::RpcModule::new(());
-    composer_methods.merge(queue_rpc::module(Arc::clone(&held_pool))?)?;
+    composer_methods.merge(queue_rpc::module(
+        Arc::clone(&held_pool),
+        l1_source_chain_id,
+        chain_spec.chain().id(),
+    )?)?;
     composer_methods.merge(correlation_rpc::module(
         Arc::clone(&correlations),
         Arc::clone(&l1_head),
@@ -1234,6 +1239,12 @@ async fn launch_composer(
         let ready = Arc::clone(&xchain_ready);
         let composer_info = Arc::clone(&composer_info);
         let composer_methods = composer_methods.clone();
+        let quotes = Some(fee_quotes::FeeQuotes::new(
+            composer.clone(),
+            rollup_config.rollup_id,
+            spec.direction,
+            task_executor.clone(),
+        ));
         task_executor.spawn_critical_task(spec.task, async move {
             ingress::run_cross_chain_front_with_estimator(
                 port,
@@ -1247,6 +1258,7 @@ async fn launch_composer(
                 composer_info,
                 composer_methods,
                 Some(gas_estimator),
+                quotes,
             )
             .await
             .unwrap_or_else(|e| panic!("configured cross-chain front exited: {e:#}"));

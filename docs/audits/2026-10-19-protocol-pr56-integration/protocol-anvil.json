@@ -1,0 +1,385 @@
+{
+  "root_commit": "f8d6eb0343d8d6616a42319581c03ae67d06a51b",
+  "protocol_commit": "c4b9885aa7e1a38cae0a2f6d718c022aa96c821c",
+  "selected": 62,
+  "passed": 62,
+  "failed": 0,
+  "timed_out": 0,
+  "not_run": 0,
+  "base_port": 28545,
+  "base_chain_id": 51337,
+  "scenarios": [
+    {
+      "name": "multi-call-twice",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 16
+    },
+    {
+      "name": "multi-call-two-diff",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "multi-call-twiceL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "multi-call-two-diffL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "counter-multi-tx",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "deepNested",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "flash-loan",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "multi-call-nested",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "nestedCounter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "multi-call-nestedL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "nestedCounterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "bridge",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 10
+    },
+    {
+      "name": "counter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 10
+    },
+    {
+      "name": "bridgeL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "counterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "reentrant",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "catchNestedRevertAfterCallback",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "catchRemoteRevertAfterCallback",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 9
+    },
+    {
+      "name": "nestedCallRevert",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "revertCounter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 8
+    },
+    {
+      "name": "revertFromOtherChain",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "catchNestedRevertAfterCallbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "catchRemoteRevertAfterCallbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "nestedCallRevertL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "nestedRollbackRestoresInnerThenOuterStateL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "revertCounterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 10
+    },
+    {
+      "name": "revertFromOtherChainAndCallAgainL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "revertFromOtherChainL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 10
+    },
+    {
+      "name": "revertFromOtherChainNested",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "rollbackGroupWithStaticReadThenWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "mutableCallMakesReadThatCallsBack",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 24
+    },
+    {
+      "name": "nestedStaticCounter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "nestedStaticLocalWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "staticLocalWrite",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 9
+    },
+    {
+      "name": "staticReadCallsBackAndReadsAgain",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 9
+    },
+    {
+      "name": "staticReadWrite",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "staticReadX2Write",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "topLevelStaticCounter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 9
+    },
+    {
+      "name": "topLevelStaticReentrantCounter",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 10
+    },
+    {
+      "name": "topLevelStaticReentrantMissingProxy",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 8
+    },
+    {
+      "name": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "mutableCallMakesReadThatCallsBackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "nestedStaticCounterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "nestedStaticLocalWriteL1",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "staticCounterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "staticLocalWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 11
+    },
+    {
+      "name": "staticReadCallsBackAndReadsAgainL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "staticReadHandlesFailedCallbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 15
+    },
+    {
+      "name": "staticReadPropagatesFailedCallbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "staticReadThenCatchFailedWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "staticReadThenRollbackWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 13
+    },
+    {
+      "name": "staticReadThenWriteWithCallbackL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 14
+    },
+    {
+      "name": "staticReadWriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "staticReadX2WriteL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "topLevelStaticReentrantCounterL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    },
+    {
+      "name": "topLevelStaticReentrantMissingProxyL2",
+      "result": "PASS",
+      "exit_code": 0,
+      "seconds": 12
+    }
+  ]
+}

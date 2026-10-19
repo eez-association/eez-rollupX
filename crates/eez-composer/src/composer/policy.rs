@@ -440,25 +440,7 @@ where
         rollup_id: u64,
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
     ) -> Result<DaOverhead, PolicyError> {
-        let messages = transactions
-            .iter()
-            .map(eez_protocol::blob_semantics::encode_semantic_transaction)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?
-            .into_iter()
-            .flatten()
-            .collect();
-        let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
-            .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
-        let semantic_bytes = encoded
-            .blob_portion
-            .len()
-            .checked_sub(
-                eez_blob_codec::native_stream_len(0, 0)
-                    .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
-            )
-            .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
-        Ok(DaOverhead { semantic_bytes })
+        semantic_overhead(rollup_id, transactions)
     }
 
     pub(super) fn record_final_encoding(
@@ -1127,6 +1109,32 @@ fn validate_retained_byte_segments(
         };
     }
     Ok(())
+}
+
+/// Exact native semantic encoding, shared by admission and fee estimation.
+pub(super) fn semantic_overhead(
+    rollup_id: u64,
+    transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
+) -> Result<DaOverhead, PolicyError> {
+    let messages = transactions
+        .iter()
+        .map(eez_protocol::blob_semantics::encode_semantic_transaction)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?
+        .into_iter()
+        .flatten()
+        .collect();
+    let encoded = eez_blob_codec::encode_native_stream(rollup_id, Bytes::new(), messages)
+        .map_err(|error| PolicyError::Unavailable(error.to_string()))?;
+    let semantic_bytes = encoded
+        .blob_portion
+        .len()
+        .checked_sub(
+            eez_blob_codec::native_stream_len(0, 0)
+                .map_err(|error| PolicyError::Unavailable(error.to_string()))?,
+        )
+        .ok_or(PolicyError::Arithmetic("semantic stream overhead"))?;
+    Ok(DaOverhead { semantic_bytes })
 }
 
 #[cfg(test)]
