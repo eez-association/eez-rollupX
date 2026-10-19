@@ -1,0 +1,252 @@
+{
+  "authority": "synthetic fixture L1 authority; real Stateless execution, native blobs, observation validation and ECDSA signing",
+  "case": "stream-capacity",
+  "category": "RollupX resource profile with optional session controls",
+  "events": [
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 0
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 0
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 1
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20020202020202020202020202020202020202020202020202020202020202020210011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 1
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 2
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20030303030303030303030303030303030303030303030303030303030303030310011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 2
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 3
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20040404040404040404040404040404040404040404040404040404040404040410011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 3
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 4
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20050505050505050505050505050505050505050505050505050505050505050510011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 4
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 5
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20060606060606060606060606060606060606060606060606060606060606060610011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 5
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 6
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20070707070707070707070707070707070707070707070707070707070707070710011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 6
+    },
+    {
+      "check": "Begin exact fixture anchor",
+      "direction": "client",
+      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "transport": 7
+    },
+    {
+      "check": "Ready exact anchor",
+      "direction": "server",
+      "protobuf_hex": "0a20080808080808080808080808080808080808080808080808080808080808080810011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "transport": 7
+    },
+    {
+      "check": "ninth transport exceeds fixed eight-stream capacity",
+      "code": 8,
+      "direction": "rpc_open_error",
+      "transport": 8
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100218014a00",
+      "transport": 0
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100218013a00",
+      "transport": 0
+    },
+    {
+      "direction": "eof",
+      "transport": 0
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100218014a00",
+      "transport": 1
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100218013a00",
+      "transport": 1
+    },
+    {
+      "direction": "eof",
+      "transport": 1
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100218014a00",
+      "transport": 2
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100218013a00",
+      "transport": 2
+    },
+    {
+      "direction": "eof",
+      "transport": 2
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100218014a00",
+      "transport": 3
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100218013a00",
+      "transport": 3
+    },
+    {
+      "direction": "eof",
+      "transport": 3
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100218014a00",
+      "transport": 4
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100218013a00",
+      "transport": 4
+    },
+    {
+      "direction": "eof",
+      "transport": 4
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100218014a00",
+      "transport": 5
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100218013a00",
+      "transport": 5
+    },
+    {
+      "direction": "eof",
+      "transport": 5
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100218014a00",
+      "transport": 6
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100218013a00",
+      "transport": 6
+    },
+    {
+      "direction": "eof",
+      "transport": 6
+    },
+    {
+      "check": "Cancel only bound session",
+      "direction": "client",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808100218014a00",
+      "transport": 7
+    },
+    {
+      "check": "Cancelled acknowledges retirement",
+      "direction": "server",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808100218013a00",
+      "transport": 7
+    },
+    {
+      "direction": "eof",
+      "transport": 7
+    }
+  ],
+  "expected_proofs": 0,
+  "fixture": "native-osaka-lookup",
+  "format": 2,
+  "normalization": "issued IDs become distinct 32-byte repeated tokens; epochs rebound per session; diagnostic wording/reused omitted",
+  "oracle": {
+    "attester": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
+    "full_fixture_public_inputs_hash": "0x43773380711514f8b7e4ed30d4cc6bd41e2132c4ecd3c9ecba7d7bd0043f700f"
+  },
+  "server_profile": {
+    "max_window_blocks": 128,
+    "max_window_bytes": 16777216,
+    "max_window_witness_items": 100000,
+    "request_timeout_secs": 60,
+    "stream_idle_timeout_secs": 30
+  }
+}
