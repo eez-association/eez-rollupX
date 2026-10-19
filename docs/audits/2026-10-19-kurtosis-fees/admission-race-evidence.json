@@ -1,0 +1,16 @@
+{
+  "rejected_source": "0x49c0df95f371fe79b1ef81e3ba7022c4e00aa0a58308a0bd8295a2d182eedfa7",
+  "queue_status": null,
+  "receipt": null,
+  "preceding_accepted_source": "0x2c56842192fe70b2850f8dd27f69ef7b20028e770612b89209983178e3cf413c",
+  "preceding_ownership": {
+    "canonical": {
+      "hash": "0x4d12aa3d5c60bb0ac6343666eb822afd6523e2c308e9ae615c26c5949c88ab65",
+      "number": 77
+    },
+    "reason": "Committed",
+    "state": "terminal"
+  },
+  "failure": "quote unavailable: queued predecessor is entering composition",
+  "enclave": "eez-pr54-fees-20261019-v2"
+}

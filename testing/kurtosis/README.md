@@ -20,7 +20,7 @@ The local network requires:
 - The [Kurtosis CLI](https://docs.kurtosis.com/install/).
 - [Foundry](https://getfoundry.sh/introduction/installation/) v1.7.1 (`cast` and
   `forge`).
-- Bash, Git, GNU `timeout`, `jq`, `curl`, and `openssl`.
+- Bash, Git, GNU `timeout`, `bc`, `jq`, `curl`, and `openssl`.
 - The `eez-core-protocol` submodule at the commit pinned by this checkout.
 - The standalone `eez-rollup-ui` repository cloned beside this repository, or
   its path exported as `EEZ_UI_REPO`. A prebuilt image can be used instead.
@@ -67,6 +67,24 @@ minutes, subject to L1 inclusion. Empty Sync opportunities do not trigger a
 post. Valid cross-chain work posts at the next eligible opportunity. Aggregate
 blob fullness is disabled in this profile so it cannot shorten the idle period.
 The fee floor is explicit for this local PBS fixture.
+
+The default `ci-args.yaml` and interactive `devnet-args.yaml` enable fee
+collection in both directions. Their private-network cost model uses 1:1 native
+token conversion, zero off-chain service/risk allowances and a 20% quote margin.
+L2 tips go to `0x4444444444444444444444444444444444444444`; the builder refunds
+90% of the selected L1 source reward, less payout cost, to the separate plain EOA
+`0x5555555555555555555555555555555555555555`. The refund percentage is not the
+profit margin. Assumptions expire on 2100-01-01; these are synthetic test values,
+not production pricing. Ordinary L2 settlement remains subsidized.
+
+Start a fresh enclave to test these defaults; editing an args file does not
+change a running Composer's startup snapshot. The specialized blob, settlement
+policy, partial-consumption and cross-chain-limit profiles keep fee collection
+disabled so their independent policy assertions retain their original inputs.
+To exercise disabled behavior in a custom profile, set both collection flags
+to `"false"`; to disable advisory L2 quotes too, remove the complete cost model.
+The protocol network runner requires successful quotes and cannot run against
+that fee-disabled profile.
 
 Measure idle cadence after the first canonical settlement: a fresh local MEV
 relay must receive validator registrations before it can include bundles.
@@ -530,11 +548,33 @@ The evidence records whether the two sources shared a native block; the
 exercise does not guarantee batching. It does not replace independent blob
 verification, follower replay or restart checks. The pinned protocol network
 runner requests quotes for cross-chain triggers with their prepared nonces; see
-its [fee and fallback rules](../../eez-core-protocol/script/e2e/RPC.md#eez_quotefee).
-The standard CI profile leaves fees unconfigured, so its protocol result does
-not qualify enabled-fee behavior. Other legacy fixed-tip workloads do not
-acquire quotes automatically: run their compatibility checks with the gate
-disabled, or update each submitted transaction to use the fee SDK.
+its [fee and retry rules](../../eez-core-protocol/script/e2e/RPC.md#eez_quotefee).
+The standard CI profile collects fees in both directions. Cross-chain waves
+reuse that checked quote/signing client and retain quote evidence alongside
+their logs. Submission retries explicitly recognized temporary admission
+refusals for at most 120 seconds using identical signed bytes. Underpayment,
+unsupported profiles, transport ambiguity and changed response hashes fail the
+test. L2 waves wait for the preceding source nonce to settle before
+quoting its successor; held future L2 nonces and source nonces changed by
+unsettled execution are outside the quote profile. Funding, deployments and pure
+L2 fillers retain ordinary node fees.
+
+The state-chaining test prepares its burst before one Sync boundary, with an
+explicit 100 gwei priority bid when fees are enabled
+(`EEZ_TEST_PRIORITY_GAS_PRICE_WEI` can override it), against the local profile's
+2 gwei maximum posting tip. This is an execution-order test under funding
+enforcement, not a quote-margin test. With L2 fees enabled it uses three source
+accounts to preserve the same-block contract state dependency: signed admission
+also rejects held future L2 nonces. Disabled profiles retain the original
+single-sender L2 burst; L1 keeps its single-sender burst in both modes.
+Invalid calls are signed directly: enabled profiles assert the specific fee
+admission rejection and absence of queue ownership/receipts, while disabled
+profiles retain the poison-eviction assertion. Neither path has an automatic
+fallback from a rejected quote.
+The mixed-direction case asserts separate posts in FIFO order when either fee
+route is enabled, and verifies proofs for both Sync heights. Disabled profiles
+retain the original shared-Sync assertion. Root and contract-state convergence
+remain required in both cases.
 
 For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
 with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
@@ -781,17 +821,19 @@ Nested phase durations must not be added together as wall time.
 The protocol wrapper streams phase boundaries and 30-second progress messages
 while retaining the raw logs. Scenario output/accounting remains unchanged.
 
-Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `0.005`),
+Each worker is funded with `EEZ_PROTOCOL_FUND_ETH` per chain (default `1` test ETH),
 which the wrapper passes to upstream as `FUND_ETH` and which therefore overrides
-an ambient `FUND_ETH`. Upstream's own default of 0.001 ETH does not cover a
-scenario's deployments plus its trigger's upfront cost (a 1,000,000 gas limit at
-the L1 node's suggested fee) when that fee includes a 1 gwei tip. The fronts
-then refuse the trigger for insufficient balance.
+an ambient `FUND_ETH`. Upstream's own default is 0.003 ETH. The private-network
+allowance covers multiple deployments and quoted triggers, including elevated
+ordinary fee suggestions after the state-chaining test's 100 gwei source bids.
+Override it for a custom workload. Funding transfers are not measured settlement
+fees or production pricing assumptions.
 
 The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
-expanding the default `all` target. The current pin marks six scenarios as not
-ready for live network runs: four static reads around local writes and the two
-missing-callback-proxy static round trips. The summary lists all
+expanding the default `all` target. The current pin discovers 62 scenarios and
+marks 28 as excluded: 22 call-pattern probes, four static reads around local
+writes and two missing-callback-proxy static round trips. The default live suite
+therefore contains 34 scenarios. The summary lists all
 discovered scenarios, the live eligible count, and the excluded names;
 `suite.complete` means every eligible scenario was selected. Explicit names
 can still run excluded scenarios during development, but those runs do not

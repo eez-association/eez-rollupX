@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Verify that separate cross-chain transactions composed into one Sync block
 # observe state left by their accepted predecessors on both participating chains.
+# Fee-enabled mixed-direction traffic must instead retain separate funded posts.
 
 set -euo pipefail
 export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
@@ -17,8 +18,16 @@ done
 
 # shellcheck disable=SC1091
 source "$K/ports.sh" >/dev/null
+# Prepare the burst before its Sync boundary, with an explicit 100 gwei test
+# bid against the profile's <=2 gwei posting tip. This tests ordered execution
+# under funding enforcement, not quote accuracy or margins.
 # shellcheck disable=SC1091
 source "$K/scripts/lib.sh"
+BURST_PRIORITY_GAS_PRICE="$PRIORITY_GAS_PRICE"
+if fee_collection_enabled in || fee_collection_enabled out; then
+    # Keep ordinary Forge setup transactions on the node's normal fee path.
+    BURST_PRIORITY_GAS_PRICE="${EEZ_TEST_PRIORITY_GAS_PRICE_WEI:-100000000000}"
+fi
 : "${L1:=$EEZ_DEVNET_L1_RPC}"
 : "${L2:=$EEZ_DEVNET_L2_RPC}"
 : "${L1F:=$EEZ_DEVNET_L1_FRONT}"
@@ -41,6 +50,13 @@ INBOUND_KEY="${EEZ_STATE_CHAINING_IN_KEY:-0x$(openssl rand -hex 32)}"
 INBOUND_SENDER=$(cast wallet address --private-key "$INBOUND_KEY")
 OUTBOUND_KEY="${EEZ_STATE_CHAINING_OUT_KEY:-0x$(openssl rand -hex 32)}"
 OUTBOUND_SENDER=$(cast wallet address --private-key "$OUTBOUND_KEY")
+OUTBOUND_KEYS=("$OUTBOUND_KEY")
+if fee_collection_enabled out; then
+    # Signed admission, like quotes, cannot replay held future L2 nonces. Use
+    # independent actors to retain the same-Sync contract state dependency.
+    # Disabled profiles retain the original single-sender nonce chain.
+    OUTBOUND_KEYS+=("0x$(openssl rand -hex 32)" "0x$(openssl rand -hex 32)")
+fi
 POISON_KEY="${EEZ_STATE_CHAINING_POISON_KEY:-0x$(openssl rand -hex 32)}"
 POISON_SENDER=$(cast wallet address --private-key "$POISON_KEY")
 EEZL2_ADDRESS="${EEZL2_ADDRESS:-0x4b2760f84b83d6b3829e30a7573b0172b6d6402c}"
@@ -209,7 +225,7 @@ run_scenario() {
     echo
     chain_id=$(cast chain-id --rpc-url "$source_rpc")
     nonce=$(retry cast nonce "$sender" --rpc-url "$source_rpc")
-    gas_price=$(gas_price_for "$source_rpc")
+    gas_price=$(PRIORITY_GAS_PRICE="$BURST_PRIORITY_GAS_PRICE" gas_price_for "$source_rpc")
     completed_before=$(retry cast call "$wrapper" 'completedProxyCalls()(uint256)' --rpc-url "$source_rpc")
     target_before=$(retry cast call "$target" 'value()(uint256)' --rpc-url "$target_rpc")
     local target_from_block=0
@@ -259,16 +275,20 @@ run_scenario() {
 
     echo "==> $direction $scenario-state chaining: preparing three separate transactions"
     for step in 1 2 3; do
+        if [[ "$direction" == outbound ]] && fee_collection_enabled out; then
+            key="${OUTBOUND_KEYS[$((step - 1))]}"
+            nonce=$(retry cast nonce "$(cast wallet address --private-key "$key")" --rpc-url "$source_rpc")
+        fi
         if [[ "$scenario" == "destination" || ( "$scenario" == "mixed" && "$step" == "2" ) ]]; then
             value=1
             [[ "$scenario" == "mixed" ]] && value=7
             raw=$(cast mktx --chain-id "$chain_id" --private-key "$key" --nonce "$nonce" \
-                --gas-limit 800000 --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+                --gas-limit 800000 --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" \
                 --rpc-url "$source_rpc" \
                 "$wrapper" 'setViaProxy(uint256)' "$value")
         else
             raw=$(cast mktx --chain-id "$chain_id" --private-key "$key" --nonce "$nonce" \
-                --gas-limit 800000 --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+                --gas-limit 800000 --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" \
                 --rpc-url "$source_rpc" \
                 "$wrapper" 'setNextValueViaProxy()')
         fi
@@ -351,19 +371,19 @@ run_mixed_direction_scenario() {
 
     inbound_nonce=$(retry cast nonce "$INBOUND_SENDER" --rpc-url "$L1")
     outbound_nonce=$(retry cast nonce "$OUTBOUND_SENDER" --rpc-url "$L2")
-    l1_gas_price=$(gas_price_for "$L1")
-    l2_gas_price=$(gas_price_for "$L2")
+    l1_gas_price=$(PRIORITY_GAS_PRICE="$BURST_PRIORITY_GAS_PRICE" gas_price_for "$L1")
+    l2_gas_price=$(PRIORITY_GAS_PRICE="$BURST_PRIORITY_GAS_PRICE" gas_price_for "$L2")
     l2_events=$(retry cast logs --address "$L2_VALUE" --from-block 0 --to-block safe \
         'ValueSet(address,uint256)' --rpc-url "$L2" --json)
     l2_events_before=$(jq -r 'length' <<<"$l2_events")
 
     inbound_raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L1")" \
         --private-key "$INBOUND_KEY" --nonce "$inbound_nonce" --gas-limit 800000 \
-        --gas-price "$l1_gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" --rpc-url "$L1" \
+        --gas-price "$l1_gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" --rpc-url "$L1" \
         "$INBOUND_WRAPPER" 'setViaProxy(uint256)' 11)
     outbound_raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L2")" \
         --private-key "$OUTBOUND_KEY" --nonce "$outbound_nonce" --gas-limit 800000 \
-        --gas-price "$l2_gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" --rpc-url "$L2" \
+        --gas-price "$l2_gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" --rpc-url "$L2" \
         "$OUTBOUND_WRAPPER" 'setViaProxy(uint256)' 13)
     [[ "$inbound_raw" =~ ^0x[0-9a-fA-F]+$ && "$outbound_raw" =~ ^0x[0-9a-fA-F]+$ ]] \
         || { echo "could not build mixed-direction transactions" >&2; return 1; }
@@ -400,14 +420,23 @@ run_mixed_direction_scenario() {
         || { echo "mixed inbound destination effect was not unique" >&2; return 1; }
     inbound_block=$(jq -er '.[-1].blockNumber' <<<"$l2_events")
     outbound_block=$(receipt_json "$outbound_hash" "$L2" | jq -er '.result.blockNumber')
-    # Pin the canonical mixed-direction order from the Rust regression.
-    [[ "${inbound_block,,}" == "${outbound_block,,}" ]] \
-        || { echo "mixed-direction calls split across L2 blocks: inbound=$inbound_block outbound=$outbound_block" >&2; return 1; }
+    if fee_collection_enabled in || fee_collection_enabled out; then
+        (( inbound_block < outbound_block )) || {
+            echo "fee-funded directions did not settle separately in FIFO order: inbound=$inbound_block outbound=$outbound_block" >&2
+            return 1
+        }
+        assert_proof_for_height "$(cast to-dec "$inbound_block")" "$node_baseline" "$signer_baseline"
+        sync_height=$(cast to-dec "$outbound_block")
+        echo "    ✓ fee-funded directions have separate ordered Sync heights: $inbound_block / $outbound_block"
+    else
+        [[ "${inbound_block,,}" == "${outbound_block,,}" ]] \
+            || { echo "mixed-direction calls split across L2 blocks: inbound=$inbound_block outbound=$outbound_block" >&2; return 1; }
+        sync_height=$(cast to-dec "$inbound_block")
+        echo "    ✓ inbound delivery and outbound source transaction share Sync height $sync_height"
+    fi
 
     [[ $(retry cast call "$L2_VALUE" 'value()(uint256)' --rpc-url "$L2") == "11" ]]
     [[ $(retry cast call "$L1_VALUE" 'value()(uint256)' --rpc-url "$L1") == "13" ]]
-    sync_height=$(cast to-dec "$inbound_block")
-    echo "    ✓ inbound delivery and outbound source transaction share Sync height $sync_height"
     assert_proof_for_height "$sync_height" "$node_baseline" "$signer_baseline"
     assert_root_convergence "$sync_height"
 }
@@ -432,20 +461,20 @@ run_poison_mid_bundle_scenario() {
 
     survivor_nonce=$(retry cast nonce "$INBOUND_SENDER" --rpc-url "$L1")
     poison_nonce=$(retry cast nonce "$POISON_SENDER" --rpc-url "$L1")
-    gas_price=$(gas_price_for "$L1")
+    gas_price=$(PRIORITY_GAS_PRICE="$BURST_PRIORITY_GAS_PRICE" gas_price_for "$L1")
     poison_target_before=$(retry cast call "$L1_VALUE" 'value()(uint256)' --rpc-url "$L1")
 
     first_raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L1")" \
         --private-key "$INBOUND_KEY" --nonce "$survivor_nonce" --gas-limit 800000 \
-        --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+        --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" \
         "$wrapper" 'setNextValueViaProxy()')
     poison_raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L1")" \
         --private-key "$POISON_KEY" --nonce "$poison_nonce" --gas-limit 600000 \
-        --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+        --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" \
         "$EEZ_REGISTRY_ADDRESS" 'executeCrossChainCall(address,bytes)' "$POISON_SENDER" 0x)
     second_raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L1")" \
         --private-key "$INBOUND_KEY" --nonce "$((survivor_nonce + 1))" --gas-limit 800000 \
-        --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" \
+        --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" \
         "$wrapper" 'setNextValueViaProxy()')
     [[ "$first_raw" =~ ^0x[0-9a-fA-F]+$ && "$poison_raw" =~ ^0x[0-9a-fA-F]+$ \
         && "$second_raw" =~ ^0x[0-9a-fA-F]+$ ]] \
@@ -462,7 +491,12 @@ run_poison_mid_bundle_scenario() {
     node_baseline=$(wc -l <"$NODE_LOG")
     signer_baseline=$(wc -l <"$SIGNER_LOG")
     send_front "$L1F" "$first_raw" "$first_hash"
-    send_front "$L1F" "$poison_raw" "$poison_hash"
+    if fee_collection_enabled in; then
+        expect_fee_admission_rejection "$L1F" "$L1" "$poison_raw" "$poison_hash" \
+            "${EEZ_CI_RESULT_DIR:-$LOG_DIR}/fee-quotes/state-chaining-poison-rejection.json"
+    else
+        send_front "$L1F" "$poison_raw" "$poison_hash"
+    fi
     send_front "$L1F" "$second_raw" "$second_hash"
 
     wait_for_receipts "$L1" "$first_hash" "$second_hash"
@@ -476,7 +510,10 @@ run_poison_mid_bundle_scenario() {
 
     deadline=$((SECONDS + RECEIPT_WAIT_SECS))
     evidence=""
-    while (( SECONDS < deadline )); do
+    if fee_collection_enabled in; then
+        evidence=admission_rejected
+    fi
+    while [[ -z "$evidence" ]] && (( SECONDS < deadline )); do
         refresh_node_log
         evidence=$(sed -n "$((node_baseline + 1)),\$p" "$NODE_LOG" | strip_ansi \
             | grep -F '"event_name":"eez.composer.cc_compose.poison_eviction_completed"' \
@@ -486,7 +523,7 @@ run_poison_mid_bundle_scenario() {
         sleep 2
     done
     [[ -n "$evidence" && "$(receipt_status "$poison_hash" "$L1")" == "missing" ]] \
-        || { echo "unauthorized direct dispatcher call was not poison-evicted" >&2; return 1; }
+        || { echo "unauthorized direct dispatcher call was not disposed without a receipt" >&2; return 1; }
     [[ $(retry cast call "$L1_VALUE" 'value()(uint256)' --rpc-url "$L1") == "$poison_target_before" ]] \
         || { echo "poison transaction changed its source target" >&2; return 1; }
 
@@ -507,7 +544,7 @@ run_poison_mid_bundle_scenario() {
         || { echo "poison survivor chain did not converge to value 2" >&2; return 1; }
 
     sync_height=$(cast to-dec "$target_blocks")
-    echo "    ✓ poison evicted; both ordered survivors settled in Sync height $sync_height"
+    echo "    ✓ invalid call disposed; both ordered survivors settled in Sync height $sync_height"
     assert_proof_for_height "$sync_height" "$node_baseline" "$signer_baseline"
     assert_root_convergence "$sync_height"
 }
@@ -530,10 +567,10 @@ run_repeated_inbound_source_transaction_scenario() {
         || { echo "repeated-inbound deployment failed" >&2; return 1; }
 
     nonce=$(retry cast nonce "$INBOUND_SENDER" --rpc-url "$L1")
-    gas_price=$(gas_price_for "$L1")
+    gas_price=$(PRIORITY_GAS_PRICE="$BURST_PRIORITY_GAS_PRICE" gas_price_for "$L1")
     raw=$(cast mktx --chain-id "$(cast chain-id --rpc-url "$L1")" \
         --private-key "$INBOUND_KEY" --nonce "$nonce" --gas-limit 1200000 \
-        --gas-price "$gas_price" --priority-gas-price "$PRIORITY_GAS_PRICE" --rpc-url "$L1" \
+        --gas-price "$gas_price" --priority-gas-price "$BURST_PRIORITY_GAS_PRICE" --rpc-url "$L1" \
         "$wrapper" 'setSameValueTwice(uint256)' 73)
     [[ "$raw" =~ ^0x[0-9a-fA-F]+$ ]] \
         || { echo "could not build repeated-inbound transaction" >&2; return 1; }
@@ -605,6 +642,9 @@ cast block-number --rpc-url "$L2" >/dev/null || { echo "L2 RPC is not reachable"
 echo "==> funding fresh source accounts"
 fund "$L1" "$FUNDING_KEY" "$INBOUND_SENDER"
 fund "$L2" "$L2_DEPLOY_KEY" "$OUTBOUND_SENDER"
+for key in "${OUTBOUND_KEYS[@]:1}"; do
+    fund "$L2" "$L2_DEPLOY_KEY" "$(cast wallet address --private-key "$key")"
+done
 fund "$L1" "$FUNDING_KEY" "$POISON_SENDER"
 
 echo "==> deploying stateful targets and source-side wrappers"

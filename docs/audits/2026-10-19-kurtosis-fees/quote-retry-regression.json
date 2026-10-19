@@ -1,0 +1,119 @@
+{
+  "protocol": "5321d24464328899acbed9c85cf7fc43ece15f14",
+  "producer": "crates/eez-node/src/fee_quotes.rs::rpc_response",
+  "cases": [
+    {
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32004,
+          "message": "quote request capacity is full",
+          "data": {
+            "code": "quote_busy",
+            "message": "quote request capacity is full"
+          }
+        }
+      },
+      "observed": "terminal",
+      "expected": "retry"
+    },
+    {
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32004,
+          "message": "quote context expired or changed",
+          "data": {
+            "code": "stale_context",
+            "message": "quote context expired or changed"
+          }
+        }
+      },
+      "observed": "terminal",
+      "expected": "retry"
+    },
+    {
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32004,
+          "message": "quote unavailable: settlement reconciliation pending",
+          "data": {
+            "code": "quote_unavailable",
+            "message": "quote unavailable: settlement reconciliation pending"
+          }
+        }
+      },
+      "observed": "terminal",
+      "expected": "retry"
+    },
+    {
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32004,
+          "message": "fee quote policy is not configured",
+          "data": {
+            "code": "quotes_disabled",
+            "message": "fee quote policy is not configured"
+          }
+        }
+      },
+      "observed": "terminal",
+      "expected": "terminal"
+    }
+  ],
+  "followup": {
+    "protocol": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+    "quote_cases": [
+      {
+        "code": "quote_busy",
+        "observed": "terminal",
+        "expected": "retry"
+      },
+      {
+        "code": "stale_context",
+        "observed": "terminal",
+        "expected": "retry"
+      },
+      {
+        "code": "quote_unavailable",
+        "observed": "terminal",
+        "expected": "retry"
+      },
+      {
+        "code": "quotes_disabled",
+        "observed": "terminal",
+        "expected": "terminal"
+      }
+    ],
+    "submission_case": {
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "error": {
+          "code": -32003,
+          "message": "settlement tariff admission failed",
+          "data": {
+            "code": "quote_unavailable",
+            "message": "quote unavailable: queued predecessor is entering composition"
+          }
+        }
+      },
+      "exit_code": 4,
+      "observed": "",
+      "expected": "bounded retry without advancing the nonce"
+    },
+    "live_quote_failure": {
+      "scenario": "mixed-pure wave 3, L1 origin",
+      "response": "eez_quoteFee failed: Error: server returned an error response: error code -32004: quote unavailable: queued predecessor is entering composition, data: {\"code\":\"quote_unavailable\",\"message\":\"quote unavailable: queued predecessor is entering composition\"}",
+      "log_local_only": "artifacts/pr54-fees-final/mixed-pure.log",
+      "log_sha256": "7248be360202056297a3085547aa61e9bb5c197a0136ed1eeec74f4df0cb89fe",
+      "result": "terminal failure before submission of the next source"
+    }
+  }
+}

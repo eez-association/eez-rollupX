@@ -26,7 +26,7 @@ mkdir -p "$LOG_DIR"
 MODE="${EEZ_WAVE_MODE:-mixed}"
 WAVES="${EEZ_WAVE_COUNT:-3}"
 
-for t in cast forge jq curl kurtosis openssl python3; do command -v "$t" >/dev/null || { echo "$t not in PATH"; exit 1; }; done
+for t in cast forge jq curl kurtosis openssl python3 bc; do command -v "$t" >/dev/null || { echo "$t not in PATH"; exit 1; }; done
 
 # L1 is the canonical shared chain; fronts are published by eez-node.
 # shellcheck disable=SC1091
@@ -274,6 +274,7 @@ run_waves() {
     local IN_HASHES=() OUT_HASHES=()
     local REV_IN_HASHES=() REV_OUT_HASHES=()
     local REV_IN_NONCE=0 REV_OUT_NONCE=0
+    local REV_REJECTED=0
 
     # mk_and_send <side> <kind> <arg>
     #   in  set/noret/wrap/dep → L1-signed tx via the L1 front
@@ -317,6 +318,24 @@ run_waves() {
             *) echo "cross-chain wave: bad op $side:$kind"; exit 1 ;;
         esac
         [[ "$raw" =~ ^0x[0-9a-fA-F]+$ ]] || { echo "    ✗ mktx failed ($side:$kind): $raw"; exit 1; }
+        if fee_collection_enabled "$side"; then
+            local front rpc key nonce
+            if [[ "$side" == out ]]; then
+                front="$L2F"; rpc="$L2"; key="$HH_KEY_OUT"; nonce="$OUT_NONCE"
+            else
+                front="$L1F"; rpc="$L1"; key="$HH_KEY_IN"; nonce="$IN_NONCE"
+            fi
+            if [[ "$kind" == rev ]]; then
+                hash=$(cast keccak "$raw")
+                expect_fee_admission_rejection "$front" "$rpc" "$raw" "$hash" \
+                    "${EEZ_CI_RESULT_DIR:-$LOG_DIR}/fee-quotes/wave-$MODE-$side-rejection.json" || exit 1
+                REV_REJECTED=$((REV_REJECTED + 1))
+                echo "    ✓ $side reverting call rejected before queue admission: $hash"
+                return 0
+            fi
+            raw=$(sign_fee_quoted "$front" "$rpc" "$key" "$raw" \
+                "${EEZ_CI_RESULT_DIR:-$LOG_DIR}/fee-quotes/wave-$MODE-$side-$nonce.json") || exit 1
+        fi
         hash=$(cast keccak "$raw")
         echo "    tx side=$side kind=$kind arg=$arg hash=$hash"
         if [[ "$side" == in ]]; then
@@ -505,10 +524,10 @@ run_waves() {
     done
     (( effects_ready )) || { echo "    ✗ cross-chain effects did not converge"; ok_all=0; }
 
-    # A deterministic destination failure must be evicted before source-chain
-    # execution, leaving no receipt and releasing the sender nonce.
+    # Fee-enabled fronts reject invalid execution before accepting queue
+    # ownership. Disabled profiles still exercise later poison eviction.
     if (( INCLUDE_REVERTS )); then
-        local rh rev_total=0 rev_ok=0
+        local rh rev_total="$REV_REJECTED" rev_ok="$REV_REJECTED"
         for rh in "${REV_IN_HASHES[@]:-}"; do
             [[ -n "$rh" ]] || continue
             rev_total=$((rev_total+1))
@@ -524,7 +543,7 @@ run_waves() {
             fi
         done
         if (( rev_total > 0 && rev_ok == rev_total )); then
-            echo "    ✓ reverting cross-chain calls were poison-evicted: $rev_ok/$rev_total"
+            echo "    ✓ reverting calls disposed without source receipts: $rev_ok/$rev_total ($REV_REJECTED rejected at admission)"
         else
             echo "    ✗ reverting-call handling: $rev_ok/$rev_total behaved correctly"; ok_all=0
         fi

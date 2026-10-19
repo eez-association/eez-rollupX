@@ -1,0 +1,18 @@
+{
+  "result": "fail",
+  "exit_code": 1,
+  "candidate_image": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+  "commits": {
+    "root": "46d694faf88ae06941764b1858373b7c13987635",
+    "protocol": "5321d24464328899acbed9c85cf7fc43ece15f14"
+  },
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:2fc8c6e121d1bd2116a0f78766ebd7c99b305e8e01720a2c91e693b21908a0b6",
+    "proof_signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:61e3b3581b4f010310f8558d250eeb91b9491f9cb1929363587c86aff4a2d201",
+    "deploy": "eez-deploy:pr54-fees-5321d244-20261019"
+  },
+  "proof_flow": {
+    "signed_windows": 27,
+    "remote_attestations": 27
+  }
+}

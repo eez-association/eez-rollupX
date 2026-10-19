@@ -130,6 +130,84 @@ class CiTimingTest(unittest.TestCase):
         self.assertGreaterEqual(trigger_lead - proof - slack - 150, 1350)
 
 
+@unittest.skipIf(yaml is None, "PyYAML not installed")
+class FeeProfileTest(unittest.TestCase):
+    def runtime_services(self, args):
+        """Evaluate the package until all three runtime services are wired."""
+        class RuntimeReached(Exception):
+            pass
+
+        services = {}
+
+        def add_service(name, config):
+            services[name] = config
+            if name == "eez-follower":
+                raise RuntimeReached
+
+        participant = SimpleNamespace(
+            el_context=SimpleNamespace(service_name="el-1-reth-lighthouse",
+                                       rpc_http_url="http://l1:8545", enode="enode"),
+            cl_context=SimpleNamespace(enr="enr", multiaddr="peer", peer_id="id",
+                                       beacon_http_url="http://beacon:5052"))
+        ethereum = SimpleNamespace(run=lambda *_: SimpleNamespace(all_participants=[participant]))
+        resources = SimpleNamespace(configure_mev_relay_cpu=lambda *_: None,
+                                    relay_startup_plan=lambda plan: plan)
+        namespace = {
+            "import_module": lambda name: ethereum if "ethereum-package" in name else resources,
+            "ServiceConfig": dict, "StoreSpec": dict, "PortSpec": dict,
+            "PostHttpRequestRecipe": dict, "fail": fail,
+            "type": lambda value: "string" if isinstance(value, str) else type(value).__name__,
+        }
+        source = REPO / "testing/kurtosis/main.star"
+        exec(compile(source.read_text(), str(source), "exec"), namespace)
+        args["eez"].update(enable_explorers=False, enable_blobscan=False, enable_ui=False,
+                           builder_rpc_url="http://builder:8645")
+        plan = SimpleNamespace(add_service=add_service, wait=lambda **_: None,
+                               run_sh=lambda **_: SimpleNamespace(files_artifacts=["fixture"]))
+        with self.assertRaises(RuntimeReached):
+            namespace["run"](plan, args)
+        return services
+
+    def test_default_profiles_collect_both_directions_on_the_node_only(self):
+        for filename in ("ci-args.yaml", "devnet-args.yaml"):
+            with self.subTest(filename=filename):
+                args = yaml.safe_load((REPO / "testing/kurtosis" / filename).read_text())
+                fees = args["eez"]["settlement_env"]
+                self.assertEqual(fees["EEZ_FEES_L1_TO_L2_ENABLED"], "true")
+                self.assertEqual(fees["EEZ_FEES_L2_TO_L1_ENABLED"], "true")
+                self.assertEqual(fees["EEZ_FEES_PROFIT_BPS"], "2000")
+                self.assertEqual(fees["EEZ_FEES_RISK_BPS"], "0")
+                self.assertEqual(fees["EEZ_FEES_L1_PER_L2_NUMERATOR"], "1")
+                self.assertEqual(fees["EEZ_FEES_L1_PER_L2_DENOMINATOR"], "1")
+                for cost in ("PROVING", "OPERATIONS", "TREASURY"):
+                    self.assertEqual(fees[f"EEZ_FEES_{cost}_COST_L1"], "0")
+                self.assertEqual(fees["EEZ_FEES_EXCLUDED_SENDERS"], "")
+                self.assertGreater(int(fees["EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"]), 2_000_000_000)
+                self.assertTrue(1 <= int(fees["EEZ_FEES_L1_REFUND_PERCENT"]) <= 99)
+                recipient = fees["EEZ_L2_FEE_RECIPIENT"]
+                self.assertNotEqual(int(recipient, 16), 0)
+                self.assertNotEqual(int(fees["EEZ_FEES_L1_REFUND_RECIPIENT"], 16), 0)
+                self.assertNotEqual(recipient, fees["EEZ_FEES_L1_REFUND_RECIPIENT"])
+                services = self.runtime_services(args)
+                node_env = services["eez-node"]["env_vars"]
+                for key, value in fees.items():
+                    self.assertEqual(node_env[key], value)
+                self.assertIn("--suggested-fee-recipient=" + recipient,
+                              services["eez-follower"]["cmd"])
+                for role in ("eez-proof-signer", "eez-follower"):
+                    self.assertFalse(any(key.startswith("EEZ_FEES_") for key in
+                                         services[role].get("env_vars", {})))
+
+    def test_specialized_policy_profiles_keep_collection_opt_in(self):
+        for filename in ("blob-args.yaml", "crosschain-limit-args.yaml",
+                         "partial-consumption-args.yaml", "settlement-policy-args.yaml"):
+            with self.subTest(filename=filename):
+                args = yaml.safe_load((REPO / "testing/kurtosis" / filename).read_text())
+                services = self.runtime_services(args)
+                for flag in ("EEZ_FEES_L1_TO_L2_ENABLED", "EEZ_FEES_L2_TO_L1_ENABLED"):
+                    self.assertNotIn(flag, services["eez-node"]["env_vars"])
+
+
 class RelayReadinessTest(unittest.TestCase):
     def test_housekeeper_completion_gates_the_next_relay_service(self):
         namespace = {"ExecRecipe": dict, "struct": lambda **kwargs: SimpleNamespace(**kwargs)}

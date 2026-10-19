@@ -73,12 +73,28 @@ eez:
   # Fulu is active at genesis, so pooled blob transactions use EIP-7594.
   blob_sidecar_encoding: eip7594
 
-  fee_recipient: "0x0000000000000000000000000000000000000000"
+  fee_recipient: "0x4444444444444444444444444444444444444444"
 
   # Keep the mandatory new-network policy explicit in the CI deployment. The
   # interval is short enough to establish canonical readiness even before a
   # workload, while accepted cross-chain work remains immediately eligible.
   settlement_env:
+    # Private-network economics: parity conversion, 20% quote margin, no
+    # off-chain service allowance. The expiry is 2100-01-01, not a live price feed.
+    EEZ_FEES_L1_TO_L2_ENABLED: "true"
+    EEZ_FEES_L2_TO_L1_ENABLED: "true"
+    EEZ_L2_FEE_RECIPIENT: "0x4444444444444444444444444444444444444444"
+    EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP: "4102444800"
+    EEZ_FEES_L1_PER_L2_NUMERATOR: "1"
+    EEZ_FEES_L1_PER_L2_DENOMINATOR: "1"
+    EEZ_FEES_PROVING_COST_L1: "0"
+    EEZ_FEES_OPERATIONS_COST_L1: "0"
+    EEZ_FEES_TREASURY_COST_L1: "0"
+    EEZ_FEES_RISK_BPS: "0"
+    EEZ_FEES_PROFIT_BPS: "2000"
+    EEZ_FEES_EXCLUDED_SENDERS: ""
+    EEZ_FEES_L1_REFUND_RECIPIENT: "0x5555555555555555555555555555555555555555"
+    EEZ_FEES_L1_REFUND_PERCENT: "90"
     # K=6: P=3 leaves 6s for preparation, proof, slack and the 150ms reserve.
     EEZ_SETTLEMENT_START_AFTER_BLOCK: "3"
     EEZ_SETTLEMENT_PURE_L2_MODE: "interval"

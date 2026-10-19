@@ -94,7 +94,7 @@ jobs:
         if: ${{ runner.environment == 'github-hosted' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
+          sudo apt-get install -y bc jq libclang-dev pkg-config libssl-dev cmake protobuf-compiler
       - name: Install LLVM 22 for upstream Reth
         run: |
           sudo bash scripts/ci/install-llvm.sh
