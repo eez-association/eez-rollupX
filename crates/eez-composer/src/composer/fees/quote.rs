@@ -55,6 +55,18 @@ pub enum FeeQuoteError {
     Limit(&'static str),
     #[error("quote context expired or changed")]
     Stale,
+    #[error(
+        "completed L1 snapshot has source nonce {sampled_nonce}, current source nonce is {current_nonce}"
+    )]
+    SourceSnapshot {
+        sampled: L1BlockRef,
+        current: L1BlockRef,
+        sampled_nonce: u64,
+        current_nonce: u64,
+        /// Internal refresh is allowed only before native replay has spent any
+        /// of the request's execution/frame budget.
+        before_execution: bool,
+    },
     #[error("fee quote policy is not configured")]
     Disabled,
     #[error("signed L2 priority payment does not cover the configured settlement tariff")]
@@ -77,7 +89,7 @@ impl FeeQuoteError {
             Self::Unsupported(_) => "unsupported_transaction",
             Self::Unavailable(_) => "quote_unavailable",
             Self::Limit(_) => "quote_limit",
-            Self::Stale => "stale_context",
+            Self::Stale | Self::SourceSnapshot { .. } => "stale_context",
             Self::Disabled => "quotes_disabled",
             Self::Underfunded(_) => "l2_tip_underfunded",
             Self::L1Underfunded(_) => "l1_tip_underfunded",
@@ -87,6 +99,19 @@ impl FeeQuoteError {
 
     pub fn diagnostics(&self) -> Option<Value> {
         match self {
+            Self::SourceSnapshot {
+                sampled,
+                current,
+                sampled_nonce,
+                current_nonce,
+                ..
+            } => Some(json!({
+                "reason":"source_nonce_changed",
+                "sampledBlock":{"number":format!("{:#x}",sampled.number),"hash":sampled.hash},
+                "currentBlock":{"number":format!("{:#x}",current.number),"hash":current.hash},
+                "sampledNonce":format!("{sampled_nonce:#x}"),
+                "currentNonce":format!("{current_nonce:#x}"),
+            })),
             Self::InsufficientFunds(balance) => Some(balance.json()),
             Self::Underfunded(detail) | Self::L1Underfunded(detail) => Some(detail.json()),
             Self::SourceFeeCap {
@@ -421,16 +446,21 @@ where
     ) -> Result<Value, FeeQuoteError> {
         let budget = Arc::new(Budget::new(cancelled));
         let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
-        let (_, predecessors) = self.replay_quote_predecessors(
-            &prepared,
-            &mut snapshot,
-            &budget,
-            Some(prepared.request.tx.nonce()),
-        )?;
-        let result = self.quote_in_context(&prepared, &snapshot, &budget)?;
+        let result = (|| {
+            let (_, predecessors) = self.replay_quote_predecessors(
+                &prepared,
+                &mut snapshot,
+                &budget,
+                Some(prepared.request.tx.nonce()),
+            )?;
+            let result = self.quote_in_context(&prepared, &snapshot, &budget)?;
+            self.validate_quote_predecessors(prepared.rollup_id, &predecessors)?;
+            Ok(result)
+        })();
+        // A source mined during calculation can also cause a misleading error.
+        // Revalidate failures as well as successful quotes before publishing them.
         self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
-        self.validate_quote_predecessors(prepared.rollup_id, &predecessors)?;
-        Ok(result)
+        result
     }
 
     fn validate_quote_predecessors(
@@ -551,7 +581,16 @@ where
             self.inner.emission.max_blocks.saturating_sub(1),
             budget,
         )?;
-        self.validate_fee_context(prepared, &parent)?;
+        self.validate_fee_context(prepared, &parent)
+            .map_err(|mut error| {
+                if let FeeQuoteError::SourceSnapshot {
+                    before_execution, ..
+                } = &mut error
+                {
+                    *before_execution = true;
+                }
+                error
+            })?;
         let source = self.inner.cross_chain.local.l2_entry.chain_provider();
         let best = source
             .headers
@@ -615,14 +654,15 @@ where
     ) -> Result<(), FeeQuoteError> {
         let l1 = self.inner.cross_chain.local.l1_entry.chain_provider();
         let l2 = self.inner.cross_chain.local.l2_entry.chain_provider();
-        for (chain, number, hash, timestamp) in [
+        for (inbound_source, chain, number, hash, timestamp) in [
             (
+                true,
                 &l1,
                 prepared.posting.parent.number,
                 prepared.posting.quote.sample.hash,
                 prepared.posting.parent.timestamp,
             ),
-            (&l2, parent.number, parent.hash(), parent.timestamp),
+            (false, &l2, parent.number, parent.hash(), parent.timestamp),
         ] {
             if chain
                 .headers
@@ -641,6 +681,17 @@ where
                 .header_by_number(best)
                 .map_err(|e| unavailable("snapshot age", e))?
                 .ok_or(FeeQuoteError::Unavailable("snapshot head missing"))?;
+            if inbound_source && prepared.direction == crate::Direction::Inbound {
+                validate_source_nonce(
+                    chain.provider.as_ref(),
+                    prepared.request.sender,
+                    L1BlockRef { number, hash },
+                    L1BlockRef {
+                        number: best,
+                        hash: latest.hash_slow(),
+                    },
+                )?;
+            }
             if latest.timestamp.saturating_sub(timestamp) > MAX_CONTEXT_AGE_SECONDS {
                 return Err(FeeQuoteError::Unavailable("completed snapshot is too old"));
             }
@@ -1019,6 +1070,39 @@ where
             "fee-dependent execution did not converge in four simulations",
         ))
     }
+}
+
+/// Head advancement alone is harmless for an advisory quote. A consumed source
+/// nonce is different: prefix selection and EVM execution must move together to
+/// a new completed snapshot. Read both accounts by hash, never by a moving tag.
+fn validate_source_nonce(
+    provider: &dyn crate::local::provider::StateSnapshotProvider,
+    sender: Address,
+    sampled: L1BlockRef,
+    current: L1BlockRef,
+) -> Result<(), FeeQuoteError> {
+    if sampled == current {
+        return Ok(());
+    }
+    let nonce = |block: L1BlockRef| {
+        provider
+            .state_by_block_hash(block.hash)
+            .and_then(|state| state.account_nonce(&sender))
+            .map(Option::unwrap_or_default)
+            .map_err(|e| unavailable("L1 source nonce freshness", e))
+    };
+    let sampled_nonce = nonce(sampled)?;
+    let current_nonce = nonce(current)?;
+    if sampled_nonce != current_nonce {
+        return Err(FeeQuoteError::SourceSnapshot {
+            sampled,
+            current,
+            sampled_nonce,
+            current_nonce,
+            before_execution: false,
+        });
+    }
+    Ok(())
 }
 
 fn unix_now() -> Result<u64, FeeQuoteError> {

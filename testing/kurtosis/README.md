@@ -86,6 +86,29 @@ to `"false"`; to disable advisory L2 quotes too, remove the complete cost model.
 The protocol network runner requires successful quotes and cannot run against
 that fee-disabled profile.
 
+The source snapshot regression is
+[`verify-nonce-snapshot.mjs`](scripts/verify-nonce-snapshot.mjs). It interleaves
+ordinary L1 transactions with native cross-chain settlement, then checks explicit
+and omitted nonces through both quote methods and both fee encodings. It also
+requires a genuine future nonce gap to fail and checks canonical destination
+effects. Use an owned fee-enabled enclave with chain IDs 7331/696990, built
+`contracts/out/Value.sol/Value.json`, and two distinct funded fixture accounts:
+
+```bash
+export KURTOSIS_ENCLAVE=eez-nonce-snapshot
+# Set this enclave's EEZ_DEVNET_L1_RPC, EEZ_DEVNET_L2_RPC,
+# EEZ_DEVNET_L1_FRONT and EEZ_REGISTRY_ADDRESS from its service bindings.
+# Set EEZ_TEST_FEE_KEY and EEZ_COMPANION_TEST_KEY to its public fixture keys.
+mkdir -p artifacts/nonce-snapshot
+export EEZ_NONCE_SNAPSHOT_EVIDENCE="$PWD/artifacts/nonce-snapshot/result.json"
+node testing/kurtosis/scripts/verify-nonce-snapshot.mjs
+```
+
+The script requires an ordinary transaction and a cross-chain source to settle
+in the same L1 block. Retain Composer logs as well: `refreshing fee quote source
+snapshot` at debug level establishes that the stale-snapshot branch was reached;
+successful receipts alone do not establish that coverage.
+
 Measure idle cadence after the first canonical settlement: a fresh local MEV
 relay must receive validator registrations before it can include bundles.
 

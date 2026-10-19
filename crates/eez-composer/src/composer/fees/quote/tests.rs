@@ -1,6 +1,102 @@
 use super::*;
 use alloy_consensus::SignableTransaction;
 
+struct NonceSnapshots {
+    sender: Address,
+    sampled: L1BlockRef,
+    current: L1BlockRef,
+    current_nonce: u64,
+}
+
+impl crate::local::provider::StateSnapshotProvider for NonceSnapshots {
+    fn latest(
+        &self,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>
+    {
+        panic!("nonce freshness must use hash-bound states")
+    }
+
+    fn state_by_block_hash(
+        &self,
+        hash: alloy_primitives::B256,
+    ) -> reth_storage_api::errors::provider::ProviderResult<reth_storage_api::StateProviderBox>
+    {
+        use reth_provider::test_utils::{ExtendedAccount, MockEthProvider};
+        let nonce = if hash == self.sampled.hash {
+            9
+        } else {
+            assert_eq!(hash, self.current.hash);
+            self.current_nonce
+        };
+        let provider: MockEthProvider = MockEthProvider::new();
+        provider.add_account(self.sender, ExtendedAccount::new(nonce, U256::ZERO));
+        StateProviderFactory::latest(&provider)
+    }
+}
+
+fn source_nonce_snapshot_regression(requested: Option<u64>) {
+    let mut states = NonceSnapshots {
+        sender: Address::repeat_byte(1),
+        sampled: L1BlockRef {
+            number: 39,
+            hash: alloy_primitives::B256::repeat_byte(39),
+        },
+        current: L1BlockRef {
+            number: 40,
+            hash: alloy_primitives::B256::repeat_byte(40),
+        },
+        current_nonce: 10,
+    };
+    let pool = crate::held_pool::HeldPool::new(Default::default());
+    // Ordinary nonce 9 has mined, so it is correctly absent from the held pool.
+    // Explicit 10 must not be a permanent gap; omission must not select spent 9.
+    let error =
+        validate_source_nonce(&states, states.sender, states.sampled, states.current).unwrap_err();
+    assert!(matches!(
+        error,
+        FeeQuoteError::SourceSnapshot {
+            sampled_nonce: 9,
+            current_nonce: 10,
+            ..
+        }
+    ));
+    assert_eq!(error.code(), "stale_context");
+    assert_eq!(error.diagnostics().unwrap()["currentNonce"], "0xa");
+    // Only after the completed context advances may the pool select nonce 10.
+    validate_source_nonce(&states, states.sender, states.current, states.current).unwrap();
+    assert_eq!(
+        pool.quote_predecessors(states.sender, crate::Direction::Inbound, 10, requested, 8)
+            .unwrap()
+            .0,
+        10
+    );
+    assert!(matches!(
+        pool.quote_predecessors(states.sender, crate::Direction::Inbound, 10, Some(11), 8),
+        Err(crate::held_pool::QuotePrefixError::Invalid(
+            "queued nonce prefix has a gap"
+        ))
+    ));
+    // Unrelated head advancement is still allowed. A later source consumption
+    // must be caught by the same check at the end of calculation, including errors.
+    states.current_nonce = 9;
+    validate_source_nonce(&states, states.sender, states.sampled, states.current).unwrap();
+    states.current_nonce = 10;
+    assert!(matches!(
+        validate_source_nonce(&states, states.sender, states.sampled, states.current),
+        Err(FeeQuoteError::SourceSnapshot { .. })
+    ));
+}
+
+#[test]
+fn explicit_nonce_rejects_obsolete_snapshot_before_prefix_selection() {
+    source_nonce_snapshot_regression(Some(10));
+}
+
+#[test]
+fn omitted_nonce_rejects_obsolete_snapshot_before_prefix_selection() {
+    source_nonce_snapshot_regression(None);
+}
+
 fn transaction() -> Value {
     json!({"type":"0x2","chainId":"0x1","from":Address::repeat_byte(0x11),
         "to":Address::repeat_byte(0x22),"nonce":"0x0","gas":"0x186a0","value":"0x0","data":"0x1234"})

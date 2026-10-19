@@ -26,6 +26,7 @@ pub(crate) const MAX_BODY: usize = 32 * 1024;
 type Work = Box<dyn FnOnce(Arc<AtomicBool>) -> Result<Value, FeeQuoteError> + Send>;
 type Preparation = Pin<Box<dyn Future<Output = Result<Work, FeeQuoteError>> + Send>>;
 
+#[derive(Clone)]
 enum Request {
     Signed(Box<L2FeeRequest>),
     Compact(CompactFeeRequest, bool),
@@ -159,16 +160,40 @@ impl FeeQuotes {
                 .acquire_owned()
                 .await
                 .map_err(|_| FeeQuoteError::Unavailable("quote service stopped"))?;
-            let work = (self.prepare)(request).await?;
-            self.executor
-                .spawn_blocking(move || {
-                    // Dropping the JoinHandle does not stop synchronous EVM work.
-                    // Keep the permit inside that work until all its frames exit.
-                    let _permits = (slot, permit);
-                    work(cancelled)
-                })
-                .await
-                .map_err(|_| FeeQuoteError::Unavailable("quote worker failed"))?
+            let mut permits = (slot, permit);
+            for refresh in 0..=8 {
+                let work = (self.prepare)(request.clone()).await?;
+                let cancelled = Arc::clone(&cancelled);
+                let (result, returned_permits) = self
+                    .executor
+                    .spawn_blocking(move || {
+                        // Cancellation cannot release capacity while synchronous
+                        // execution is running, including a refreshed attempt.
+                        let result = work(cancelled);
+                        (result, permits)
+                    })
+                    .await
+                    .map_err(|_| FeeQuoteError::Unavailable("quote worker failed"))?;
+                permits = returned_permits;
+                if refresh == 8
+                    || !matches!(
+                        &result,
+                        Err(FeeQuoteError::SourceSnapshot {
+                            before_execution: true,
+                            ..
+                        })
+                    )
+                {
+                    return result;
+                }
+                // Refresh the complete prepared L1/L2 context, not just a nonce.
+                // This cheap pre-execution condition normally clears when the
+                // settlement scan catches up. Keep capacity and the original
+                // request timeout; persistent lag returns its typed diagnostic.
+                tracing::debug!(refresh, error = ?result.as_ref().err(), "refreshing fee quote source snapshot");
+                tokio::time::sleep(Duration::from_millis(250)).await;
+            }
+            unreachable!("bounded refresh loop returns on its last iteration")
         };
         tokio::select! {
             _=self.executor.on_shutdown_signal().clone()=>error(StatusCode::SERVICE_UNAVAILABLE,"shutting_down","quote service is shutting down"),
@@ -210,7 +235,7 @@ fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
         | FeeQuoteError::Underfunded(_)
         | FeeQuoteError::L1Underfunded(_)
         | FeeQuoteError::SourceFeeCap { .. } => StatusCode::UNPROCESSABLE_ENTITY,
-        FeeQuoteError::Stale => StatusCode::CONFLICT,
+        FeeQuoteError::Stale | FeeQuoteError::SourceSnapshot { .. } => StatusCode::CONFLICT,
         FeeQuoteError::Disabled => StatusCode::NOT_FOUND,
         FeeQuoteError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
     };
@@ -598,6 +623,92 @@ mod tests {
         }
     }
 
+    fn source_snapshot_error() -> FeeQuoteError {
+        FeeQuoteError::SourceSnapshot {
+            sampled: eez_l1::L1BlockRef {
+                number: 39,
+                hash: alloy_primitives::B256::repeat_byte(39),
+            },
+            current: eez_l1::L1BlockRef {
+                number: 40,
+                hash: alloy_primitives::B256::repeat_byte(40),
+            },
+            sampled_nonce: 9,
+            current_nonce: 10,
+            before_execution: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn snapshot_refresh_is_bounded_and_does_not_retry_real_nonce_gaps() {
+        use std::sync::atomic::AtomicUsize;
+        for compact in [true, false] {
+            for failures in [0, 1, 2, 9] {
+                let preparations = Arc::new(AtomicUsize::new(0));
+                let counter = Arc::clone(&preparations);
+                let service = FeeQuotes {
+                    enforce_tariff: true,
+                    prepare: Arc::new(move |_| {
+                        let attempt = counter.fetch_add(1, Ordering::Relaxed);
+                        Box::pin(async move {
+                            Ok(Box::new(move |_| {
+                                if failures == 0 {
+                                    Err(FeeQuoteError::Invalid("queued nonce prefix has a gap"))
+                                } else if attempt < failures {
+                                    let mut error = source_snapshot_error();
+                                    if failures == 2 {
+                                        // State changed after execution; do not
+                                        // reset its frame budget in this request.
+                                        if let FeeQuoteError::SourceSnapshot {
+                                            before_execution,
+                                            ..
+                                        } = &mut error
+                                        {
+                                            *before_execution = false;
+                                        }
+                                    }
+                                    Err(error)
+                                } else {
+                                    Ok(json!({"nonce":"0xa"}))
+                                }
+                            }) as Work)
+                        })
+                    }),
+                    executor: TaskExecutor::test(),
+                    quotes: Workers::new(1, 0),
+                    admission: Workers::new(1, 0),
+                    timeout: Duration::from_secs(10),
+                };
+                let (status, body) = run_test_request(&service, compact).await;
+                let expected = match failures {
+                    0 => {
+                        assert_eq!(body["error"]["code"], "invalid_transaction");
+                        StatusCode::BAD_REQUEST
+                    }
+                    1 => {
+                        assert_eq!(body["nonce"], "0xa");
+                        StatusCode::OK
+                    }
+                    _ => {
+                        assert_eq!(body["error"]["details"]["currentNonce"], "0xa");
+                        StatusCode::CONFLICT
+                    }
+                };
+                assert_eq!(status, expected);
+                assert_eq!(
+                    preparations.load(Ordering::Relaxed),
+                    match failures {
+                        1 => 2,
+                        9 => 9,
+                        _ => 1,
+                    }
+                );
+                assert_eq!(service.quotes.active.available_permits(), 1);
+                assert_eq!(service.admission.active.available_permits(), 1);
+            }
+        }
+    }
+
     #[tokio::test]
     async fn bounded_queue_waits_without_blocking_signed_admission() {
         let (started, mut starts) = tokio::sync::mpsc::unbounded_channel();
@@ -682,13 +793,28 @@ mod tests {
     // not make its slot available until this worker is explicitly released.
     #[tokio::test]
     async fn cancelled_or_timed_out_request_keeps_worker_permit_until_exit() {
-        for (timeout, compact) in [(false, false), (true, false), (false, true), (true, true)] {
+        for (timeout, compact, refresh) in [
+            (false, false, false),
+            (true, false, false),
+            (false, true, false),
+            (true, true, false),
+            (false, false, true),
+            (true, false, true),
+            (false, true, true),
+            (true, true, true),
+        ] {
             let (started_tx, started_rx) = tokio::sync::oneshot::channel();
             let (finish_tx, finish_rx) = std::sync::mpsc::channel();
             let channels = std::sync::Mutex::new(Some((started_tx, finish_rx)));
+            let refresh_pending = AtomicBool::new(refresh);
             let service = Arc::new(FeeQuotes {
                 enforce_tariff: false,
                 prepare: Arc::new(move |_| {
+                    if refresh_pending.swap(false, Ordering::Relaxed) {
+                        return Box::pin(async {
+                            Ok(Box::new(|_| Err(source_snapshot_error())) as Work)
+                        });
+                    }
                     let (started, finish) = channels.lock().unwrap().take().unwrap();
                     Box::pin(async move {
                         Ok(Box::new(move |cancelled: Arc<AtomicBool>| {
@@ -702,7 +828,11 @@ mod tests {
                 executor: TaskExecutor::test(),
                 quotes: Workers::new(1, 0),
                 admission: Workers::new(1, 0),
-                timeout: Duration::from_millis(if timeout { 200 } else { 30_000 }),
+                timeout: Duration::from_millis(if timeout {
+                    if refresh { 500 } else { 200 }
+                } else {
+                    30_000
+                }),
             });
             let workers = if compact {
                 &service.quotes

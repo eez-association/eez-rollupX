@@ -606,6 +606,16 @@ blob; this diagnostic checks one retrieval, not KZG proofs or replay.
 
 ## Recovery and upgrades
 
+The L1 quote nonce/snapshot correction is a Composer-only binary change. It adds
+hash-bound source-nonce freshness checks and bounded pre-execution refreshes;
+compact success responses, fees, protocol, signer wire, genesis and storage are
+unchanged. Preserve the existing configuration and drain accepted requests before
+upgrading. After startup check both explicit and omitted L1 quotes against the
+current source nonce, and retain `stale_context` details/logs if settlement scanning
+lags. Rollback restores the false-gap/spent-nonce quote risk. See the
+[quote contract](../configurable-settlement-policy.md#compact-fee-quotes) and
+[baseline reproduction](../audits/2026-10-19-composer-quote-nonce-gap/README.md).
+
 For the posting-price feedback correction, retain the operator's existing fee
 policy and priority bounds. With L1 refund recovery enabled the Composer reads
 canonical receipts and call traces to exclude service payments from market-tip

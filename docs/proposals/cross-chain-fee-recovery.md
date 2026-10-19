@@ -15,6 +15,30 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### L1 source snapshot correction authorized on 2026-10-19
+
+Status: implementation and qualification in progress. The
+[reproduction](../audits/2026-10-19-composer-quote-nonce-gap/README.md)
+shows an already-mined ordinary L1 predecessor incorrectly reported as a queue
+gap, and an omitted nonce quoted from obsolete state during settlement scanning.
+
+Compare the sender's nonce at the completed L1 snapshot with hash-bound current
+L1 state before selecting predecessors and after calculation, including failed
+calculations. A mismatch requires a fresh complete L1/L2 context; never copy a
+new nonce into an older execution state. Retain genuine gap/duplicate rejection,
+owned pending-prefix replay, canonical checks and advisory tolerance of unrelated
+head advancement. Return structured `stale_context` details if scanning has not
+caught up. The RPC may refresh only this typed condition, with bounded retries
+inside its existing deadline and worker ownership. Do not retry arbitrary
+transaction errors or change signed transaction bytes.
+
+Acceptance requires explicit and omitted nonce regressions, current/future nonce
+controls, unchanged pending-prefix tests, worker cancellation/timeout checks and
+the fee-enabled Kurtosis reproduction with the candidate image. Deploy only after
+applicable checks pass and accepted work is drained. This is a Composer-only
+correction: no protocol, signer-wire, genesis or storage migration. Older nodes
+retain the bug; new diagnostics are additive to the existing error category.
+
 ### Fee configuration cleanup authorized on 2026-10-17
 
 Status: implemented and locally validated; release-artifact CI qualification

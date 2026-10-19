@@ -7,7 +7,7 @@ use super::{
 };
 use crate::composer::estimate::EstimateError;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct CompactFeeRequest {
     transaction: Value,
     types: Vec<u8>,
@@ -165,120 +165,130 @@ where
             .gas_estimator(prepared.rollup_id)
             .map_err(estimate_error)?;
         let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
-        let direction = prepared.direction;
-        let chain = match direction {
-            crate::Direction::Inbound => self.inner.posting.ctx.l1_chain_id,
-            crate::Direction::Outbound => self.inner.posting.ctx.l2_chain_id,
-        };
-        let explicit_nonce = request
-            .transaction
-            .get("nonce")
-            .map(|_| prepared.request.tx.nonce());
-        let (nonce, predecessors) =
-            self.replay_quote_predecessors(&prepared, &mut snapshot, &budget, explicit_nonce)?;
-        let rollup_id = prepared.rollup_id;
-        let rollup = &self.inner.rollups[&rollup_id];
-        let sender = prepared.request.sender;
-        let check_nonce = || {
-            if rollup.held_pool.owns_nonce(sender, direction, nonce) {
-                Err(FeeQuoteError::Invalid("source nonce is already pending"))
-            } else {
-                self.validate_quote_predecessors(rollup_id, &predecessors)
-            }
-        };
-        check_nonce()?;
-        let issued = unix_now()?;
-        let expiry = prepared.expires_at;
-        let mut options = Vec::new();
-        let mut diagnostics = Vec::new();
-        for &ty in &request.types {
-            budget.check()?;
-            let result = (|| {
-                let mut transaction = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
-                if request.transaction.get("gas").is_none() {
-                    let fields = transaction.fields(0, 0);
-                    let gas = estimator
-                        .estimate_on_snapshot(
-                            direction,
-                            serde_json::from_value(fields)
-                                .map_err(|e| unavailable("estimation transaction", e))?,
-                            budget.deadline,
-                            &snapshot,
-                        )
-                        .map_err(estimate_error)?;
-                    budget.check()?;
-                    transaction = request.resolve(chain, nonce, gas, ty)?;
+        let parent = snapshot.l2_parent.clone();
+        let result = (|| {
+            let direction = prepared.direction;
+            let chain = match direction {
+                crate::Direction::Inbound => self.inner.posting.ctx.l1_chain_id,
+                crate::Direction::Outbound => self.inner.posting.ctx.l2_chain_id,
+            };
+            let explicit_nonce = request
+                .transaction
+                .get("nonce")
+                .map(|_| prepared.request.tx.nonce());
+            let (nonce, predecessors) =
+                self.replay_quote_predecessors(&prepared, &mut snapshot, &budget, explicit_nonce)?;
+            let rollup_id = prepared.rollup_id;
+            let rollup = &self.inner.rollups[&rollup_id];
+            let sender = prepared.request.sender;
+            let check_nonce = || {
+                if rollup.held_pool.owns_nonce(sender, direction, nonce) {
+                    Err(FeeQuoteError::Invalid("source nonce is already pending"))
+                } else {
+                    self.validate_quote_predecessors(rollup_id, &predecessors)
                 }
-                prepared.request = transaction;
-                let mut detail = self.quote_in_context(&prepared, &snapshot, &budget)?;
+            };
+            check_nonce()?;
+            let issued = unix_now()?;
+            let expiry = prepared.expires_at;
+            let mut options = Vec::new();
+            let mut diagnostics = Vec::new();
+            for &ty in &request.types {
                 budget.check()?;
-                let tx = &detail["transaction"];
-                let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
-                let tip = if ty == 0 {
-                    cap
-                } else {
-                    price(tx, "maxPriorityFeePerGas")?
-                };
-                let validated_gas = if direction == crate::Direction::Outbound {
-                    estimator
-                        .validate_quote(&snapshot, prepared.request.env(tip, cap), budget.deadline)
-                        .map_err(estimate_error)?
-                } else {
-                    detail["estimate"]["sourceGasUsed"]
-                        .as_u64()
-                        .ok_or(FeeQuoteError::Unavailable("L1 receipt gas"))?
-                };
-                if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
-                    return Err(FeeQuoteError::Unsupported(
-                        "final native gas differs from priced execution",
-                    ));
-                }
-                detail["issuedAt"] = json!(issued);
-                detail["expiresAt"] = json!(expiry);
-                compact_option(&detail).map(|option| (option, detail))
-            })();
-            match result {
-                Ok((option, detail)) => {
-                    options.push(option);
-                    diagnostics.push(detail);
-                }
-                // Execution can support one encoding but not the other. Never
-                // return a successful option after infrastructure/context failure.
-                Err(
-                    error @ (FeeQuoteError::Unsupported(_)
-                    | FeeQuoteError::Invalid(_)
-                    | FeeQuoteError::InsufficientFunds(_)
-                    | FeeQuoteError::Underfunded(_)
-                    | FeeQuoteError::L1Underfunded(_)
-                    | FeeQuoteError::SourceFeeCap { .. }),
-                ) => {
-                    let mut failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
-                    if let Some(details) = error.diagnostics() {
-                        failed["error"]["details"] = details;
+                let result = (|| {
+                    let mut transaction = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
+                    if request.transaction.get("gas").is_none() {
+                        let fields = transaction.fields(0, 0);
+                        let gas = estimator
+                            .estimate_on_snapshot(
+                                direction,
+                                serde_json::from_value(fields)
+                                    .map_err(|e| unavailable("estimation transaction", e))?,
+                                budget.deadline,
+                                &snapshot,
+                            )
+                            .map_err(estimate_error)?;
+                        budget.check()?;
+                        transaction = request.resolve(chain, nonce, gas, ty)?;
                     }
-                    options.push(failed.clone());
-                    diagnostics.push(failed);
+                    prepared.request = transaction;
+                    let mut detail = self.quote_in_context(&prepared, &snapshot, &budget)?;
+                    budget.check()?;
+                    let tx = &detail["transaction"];
+                    let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
+                    let tip = if ty == 0 {
+                        cap
+                    } else {
+                        price(tx, "maxPriorityFeePerGas")?
+                    };
+                    let validated_gas = if direction == crate::Direction::Outbound {
+                        estimator
+                            .validate_quote(
+                                &snapshot,
+                                prepared.request.env(tip, cap),
+                                budget.deadline,
+                            )
+                            .map_err(estimate_error)?
+                    } else {
+                        detail["estimate"]["sourceGasUsed"]
+                            .as_u64()
+                            .ok_or(FeeQuoteError::Unavailable("L1 receipt gas"))?
+                    };
+                    if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
+                        return Err(FeeQuoteError::Unsupported(
+                            "final native gas differs from priced execution",
+                        ));
+                    }
+                    detail["issuedAt"] = json!(issued);
+                    detail["expiresAt"] = json!(expiry);
+                    compact_option(&detail).map(|option| (option, detail))
+                })();
+                match result {
+                    Ok((option, detail)) => {
+                        options.push(option);
+                        diagnostics.push(detail);
+                    }
+                    // Execution can support one encoding but not the other. Never
+                    // return a successful option after infrastructure/context failure.
+                    Err(
+                        error @ (FeeQuoteError::Unsupported(_)
+                        | FeeQuoteError::Invalid(_)
+                        | FeeQuoteError::InsufficientFunds(_)
+                        | FeeQuoteError::Underfunded(_)
+                        | FeeQuoteError::L1Underfunded(_)
+                        | FeeQuoteError::SourceFeeCap { .. }),
+                    ) => {
+                        let mut failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
+                        if let Some(details) = error.diagnostics() {
+                            failed["error"]["details"] = details;
+                        }
+                        options.push(failed.clone());
+                        diagnostics.push(failed);
+                    }
+                    Err(error) => return Err(error),
                 }
-                Err(error) => return Err(error),
             }
-        }
-        budget.check()?;
-        // Recheck canonical identity and bounded age after ALL variants.
-        // Advancing heads do not invalidate an advisory simulation.
-        self.validate_fee_context(&prepared, &snapshot.l2_parent)?;
-        check_nonce()?;
-        if unix_now()? >= expiry {
-            return Err(FeeQuoteError::Stale);
-        }
-        let mut response = json!({"version":1, "chainId":format!("{chain:#x}"), "nonce":format!("{nonce:#x}"),
+            budget.check()?;
+            // Recheck canonical identity and bounded age after ALL variants.
+            // Advancing heads do not invalidate an advisory simulation.
+            check_nonce()?;
+            if unix_now()? >= expiry {
+                return Err(FeeQuoteError::Stale);
+            }
+            let mut response = json!({"version":1, "chainId":format!("{chain:#x}"), "nonce":format!("{nonce:#x}"),
             "expiresAt":format!("{expiry:#x}"), "options":options});
-        if debug {
-            response["diagnostics"] = json!({
-                "recoveryMode":if direction == crate::Direction::Inbound {"builder_refund"} else if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
-                "options":diagnostics
-            });
-        }
-        Ok(response)
+            if debug {
+                response["diagnostics"] = json!({
+                    "recoveryMode":if direction == crate::Direction::Inbound {"builder_refund"} else if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
+                    "options":diagnostics
+                });
+            }
+            Ok(response)
+        })();
+        // Also recheck failures: canonical source progress can make an old
+        // prefix look invalid while this request is calculating its quote.
+        self.validate_fee_context(&prepared, &parent)?;
+        result
     }
 }
 

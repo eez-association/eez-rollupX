@@ -1192,6 +1192,25 @@ protocol, genesis or storage migration. Rolling back restores the older default;
 use explicit prepared nonces for bursts. The response schema is unchanged, and
 concurrent quotes can still return the same unreserved nonce.
 
+Before nonce selection and after calculation (including errors), L1 quotes compare
+the sender's nonce in the completed snapshot with current hash-bound L1 state.
+If it changed, the response is `stale_context` (`-32004`) with
+`details.reason = "source_nonce_changed"`, `sampledBlock`, `currentBlock`,
+`sampledNonce` and `currentNonce`. Block numbers and nonces are hex quantities.
+An already-mined ordinary predecessor must not be reported as a permanent queue
+gap, and an omitted nonce must not return a spent nonce. Unrelated head advancement
+remains valid within the existing context-age bound. A true future gap still fails.
+
+Only this condition detected **before execution** is refreshed internally: at most
+eight refreshes, 250 ms apart, rebuild the complete prepared L1/L2 context within
+the original ten-second deadline and held worker/capacity permits. If state changes
+after execution starts, return the same retryable diagnostic without resetting the
+execution/frame budget. Persistent pre-execution lag also returns that diagnostic;
+the overall request deadline may instead return `quote_timeout`. No signed bytes
+or pending ownership change. This Composer-only correction changes no protocol,
+signer wire, genesis, database or follower replay. Mixed versions retain the same
+successful schema; old Composer versions retain the nonce/snapshot bug.
+
 `gas` is optional. Its explicit value is preserved and must fit 21,000..16,777,216
 as well as native transaction/block capacity. When absent, the existing internal
 cross-chain estimator discovers and verifies it, including nested calls. The
