@@ -168,7 +168,7 @@ class FeeProfileTest(unittest.TestCase):
             namespace["run"](plan, args)
         return services
 
-    def test_optional_fee_expiry_overrides_reach_only_the_node(self):
+    def test_removed_fee_expiry_reaches_node_for_startup_rejection(self):
         for value in ("2000000000", "", "0", "invalid"):
             with self.subTest(value=value):
                 args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
@@ -356,7 +356,6 @@ class SettlementEnvironmentTest(unittest.TestCase):
         for name in [
             'EEZ_FEES_L1_TO_L2_ENABLED',
             'EEZ_FEES_L2_TO_L1_ENABLED',
-            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
             'EEZ_FEES_L1_PER_L2_NUMERATOR',
             'EEZ_FEES_L1_PER_L2_DENOMINATOR',
             'EEZ_FEES_PROVING_COST_L1',
@@ -367,6 +366,7 @@ class SettlementEnvironmentTest(unittest.TestCase):
             'EEZ_FEES_EXCLUDED_SENDERS',
             'EEZ_FEES_L1_REFUND_RECIPIENT',
             'EEZ_FEES_L1_REFUND_PERCENT',
+            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
             'EEZ_L2_FEE_SHADOW_POLICY',
             'EEZ_L1_FEE_REFUND_POLICY',
             'EEZ_L2_FEE_ENFORCE_TARIFF',

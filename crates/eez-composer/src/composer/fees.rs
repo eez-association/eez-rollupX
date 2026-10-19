@@ -189,7 +189,6 @@ impl L2Fees {
 #[derive(Debug)]
 struct L1Fees {
     chain_id: u64,
-    target_timestamp: u64,
     companion_count: usize,
     post_cost: U256,
     detail: Value,
@@ -243,7 +242,6 @@ fn l1_summary(
     });
     Ok(L1Fees {
         chain_id: quote.chain_id,
-        target_timestamp: timestamp,
         companion_count: execution.transaction_hashes.len() - 1,
         post_cost: estimate.total,
         detail,
@@ -463,7 +461,7 @@ mod tests {
         check(&built, &manifest, "l2_source_receipt_missing");
     }
 
-    fn preflight() -> (FeeQuote, BundleExecution, B256) {
+    pub(super) fn preflight() -> (FeeQuote, BundleExecution, B256) {
         let post = B256::repeat_byte(1);
         (
             FeeQuote {

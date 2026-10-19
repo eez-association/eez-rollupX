@@ -144,7 +144,6 @@ class ChiadoConfigTest(unittest.TestCase):
         keys = [
             'EEZ_FEES_L1_TO_L2_ENABLED',
             'EEZ_FEES_L2_TO_L1_ENABLED',
-            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
             'EEZ_FEES_L1_PER_L2_NUMERATOR',
             'EEZ_FEES_L1_PER_L2_DENOMINATOR',
             'EEZ_FEES_PROVING_COST_L1',
@@ -157,7 +156,8 @@ class ChiadoConfigTest(unittest.TestCase):
             'EEZ_FEES_L1_REFUND_PERCENT',
         ]
         # Obsolete names still reach the node so it rejects them explicitly.
-        keys += ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L1_FEE_REFUND_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF"]
+        keys += ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L1_FEE_REFUND_POLICY",
+                 "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"]
         result = self.render()
         self.assertEqual(result.returncode, 0, result.stderr)
         node = json.loads(result.stdout)["services"]["eez-node"]["environment"]

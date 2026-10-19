@@ -3830,15 +3830,11 @@ where
                                 .pricing
                                 .as_ref()
                                 .ok_or("tariff policy unavailable")?;
-                            let BundleTarget::Exact { timestamp, .. } = bundle_target else {
+                            let BundleTarget::Exact { .. } = bundle_target else {
                                 return Err("tariff target unresolved".into());
                             };
-                            if !policy.quote_eligible(
-                                held.sender,
-                                ctx.l1_poster_signer.address(),
-                                timestamp,
-                            ) {
-                                return Err("tariff policy expired or sender excluded".into());
+                            if !policy.quote_eligible(held.sender, ctx.l1_poster_signer.address()) {
+                                return Err("tariff sender excluded".into());
                             }
                             let mut prefix_semantics = semantic_transactions.clone();
                             prefix_semantics.push(semantic.clone());

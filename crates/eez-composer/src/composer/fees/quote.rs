@@ -405,14 +405,8 @@ where
                 "completed settlement snapshot unavailable",
             ))?;
         let issued = unix_now()?;
-        if !policy.quote_eligible(
-            request.sender,
-            posting.ctx.l1_poster_signer.address(),
-            issued.saturating_add(QUOTE_LIFETIME_SECONDS),
-        ) {
-            return Err(FeeQuoteError::Unsupported(
-                "expired policy or excluded sender",
-            ));
+        if !policy.quote_eligible(request.sender, posting.ctx.l1_poster_signer.address()) {
+            return Err(FeeQuoteError::Unsupported("excluded sender"));
         }
         let quote = posting
             .advisory_quote(sample, self.inner.emission.timing.l1_block_time().as_secs())

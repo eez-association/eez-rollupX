@@ -35,7 +35,6 @@ def main():
         "EEZ_MAX_USER_TXS_PER_BUNDLE": "auto",
         "EEZ_FEES_L1_TO_L2_ENABLED": "true",
         "EEZ_FEES_L2_TO_L1_ENABLED": "true",
-        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP": "2000000000",
         "EEZ_FEES_L1_PER_L2_NUMERATOR": "2",
         "EEZ_FEES_L1_PER_L2_DENOMINATOR": "3",
         "EEZ_FEES_PROVING_COST_L1": "7",
@@ -68,7 +67,7 @@ def main():
             env = os.environ.copy()
             for key in (*policy, "EEZ_PREPARATION_TIME_MS", "EEZ_L1_POSTBATCH_PRIORITY_FEE",
                         "EEZ_MAX_BLOCKS_PER_BATCH", "EEZ_MAX_POSTBATCH_GAS",
-                        "EEZ_MAX_SPECULATIVE_DEPTH"):
+                        "EEZ_MAX_SPECULATIVE_DEPTH", "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"):
                 env.pop(key, None)
             env.update(policy)
             compose_command = [
@@ -108,22 +107,10 @@ def main():
                 assert node["EEZ_L1_CHAIN_ID"] == node["EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS"] == "1"
                 assert node.get("EEZ_L1_CHAIN_PATH") is None
                 assert "--network=mainnet" in services["lighthouse"]["command"]
-            # Removing only the optional deadline must retain the complete
-            # enabled cost model and must not synthesize an empty timestamp.
+            # The supported cost model must not synthesize the removed setting.
             expiry = "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"
-            env_without_expiry = {key: value for key, value in env.items() if key != expiry}
-            env_file.write_text("\n".join(line for line in fixture.splitlines()
-                                         if not line.startswith(expiry + "=")))
-            result = subprocess.run(compose_command, env=env_without_expiry,
-                                    capture_output=True, text=True, check=True)
-            services = json.loads(result.stdout)["services"]
-            node = services["eez-node"]["environment"]
             assert node.get(expiry) is None, profile
             assert expiry not in services["eez-proof-signer"]["environment"], profile
-            for key, value in policy.items():
-                if key != expiry:
-                    assert node[key] == value, (profile, key)
-            env_file.write_text(fixture)
             # These are transport checks, not runtime acceptance: missing P,
             # malformed values and every obsolete preparation value must reach
             # the node unchanged so startup rejects them, never selects legacy.
@@ -147,11 +134,13 @@ def main():
                     assert services["eez-node"]["environment"].get(key) == value, (profile, key, value)
                     assert key not in services["eez-proof-signer"]["environment"], (profile, key)
             fee_names = [name for name in policy if name.startswith("EEZ_FEES_")]
-            obsolete_names = ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF", "EEZ_L1_FEE_REFUND_POLICY"]
+            obsolete_names = ["EEZ_L2_FEE_SHADOW_POLICY", "EEZ_L2_FEE_ENFORCE_TARIFF",
+                              "EEZ_L1_FEE_REFUND_POLICY", expiry]
             # Transport only: preserve invalid inputs for runtime rejection,
             # including obsolete names. Check all fields and shell precedence.
             for name in [*fee_names, *obsolete_names]:
-                for value in ("", "invalid", "false"):
+                for value in (("", "0", "invalid", "2000000000") if name == expiry
+                              else ("", "invalid", "false")):
                     result = subprocess.run(compose_command, env=dict(env, **{name: value}),
                                             capture_output=True, text=True, check=True)
                     services = json.loads(result.stdout)["services"]
