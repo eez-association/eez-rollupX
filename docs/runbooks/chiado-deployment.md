@@ -615,6 +615,9 @@ current source nonce, and retain `stale_context` details/logs if settlement scan
 lags. Rollback restores the false-gap/spent-nonce quote risk. See the
 [quote contract](../configurable-settlement-policy.md#compact-fee-quotes) and
 [baseline reproduction](../audits/2026-10-19-composer-quote-nonce-gap/README.md).
+The [2026-10-19 validation and handover](../audits/2026-10-19-composer-nonce-snapshot-fix/README.md)
+records the fee-enabled Kurtosis comparison and verified Chiado deployment,
+including the local-image restart and rollback boundaries.
 
 For the posting-price feedback correction, retain the operator's existing fee
 policy and priority bounds. With L1 refund recovery enabled the Composer reads

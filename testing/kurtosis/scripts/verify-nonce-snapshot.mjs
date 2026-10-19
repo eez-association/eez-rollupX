@@ -65,7 +65,17 @@ async function quote(transaction, method = 'eez_debugQuoteFee') {
 const usable = q => q.response.result?.options?.every(option => !option.error);
 assert.equal(await rpc(l1, 'eth_chainId'), hex(7331));
 assert.equal(await rpc(l2, 'eth_chainId'), hex(696990));
-await until('L2 started', async () => BigInt((await rpc(l2, 'eth_getBlockByNumber', ['latest', false])).number) > 0n, 120000, 500);
+// Fresh PBS fixtures have no relay validator registrations yet. Establish real
+// native inclusion before measuring the snapshot race; RPC readiness is weaker.
+const warmup = await ordinary(l2, from);
+await until('native PBS readiness', async () => {
+  const safe = await rpc(l2, 'eth_getBlockByNumber', ['safe', false]);
+  if (!safe || BigInt(safe.number) < BigInt(warmup.blockNumber)) return false;
+  const canonical = await rpc(l2, 'eth_getBlockByNumber', [warmup.blockNumber, false]);
+  assert.equal(canonical.hash, warmup.blockHash);
+  return true;
+}, 600000, 500);
+evidence.readiness = { warmup, observedAt: new Date().toISOString() }; save();
 const bytecode = JSON.parse(readFileSync('contracts/out/Value.sol/Value.json')).bytecode.object;
 const created = await ordinary(l2, null, bytecode + cast('abi-encode', 'f(uint256)', '0').slice(2), 3000000);
 const target = created.contractAddress;

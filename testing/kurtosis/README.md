@@ -105,7 +105,9 @@ node testing/kurtosis/scripts/verify-nonce-snapshot.mjs
 ```
 
 The script requires an ordinary transaction and a cross-chain source to settle
-in the same L1 block. Retain Composer logs as well: `refreshing fee quote source
+in the same L1 block. It first sends a zero-value L2 warmup and waits for its
+canonical settlement (up to ten minutes on a fresh PBS relay awaiting validator
+registrations). Retain Composer logs as well: `refreshing fee quote source
 snapshot` at debug level establishes that the stale-snapshot branch was reached;
 successful receipts alone do not establish that coverage.
 
