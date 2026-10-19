@@ -229,6 +229,11 @@ public deployment, protocol source edit or remote publication occurred.
   was not captured, so a Composer context race versus preparation/reorg handling
   remains unattributed. See [nonce-gap evidence](nonce-gap-evidence.json). Do not
   treat a later pass as proof that the earlier canonical-setup gap caused it.
+  A subsequent [focused investigation](../2026-10-19-composer-quote-nonce-gap/README.md)
+  reproduced a Composer snapshot-freshness bug and correlated the original scan
+  lag. It also reproduced a successful omitted-nonce quote using an already-spent
+  nonce. This supersedes the uncertainty about whether Composer has a defect;
+  the original request lacks a directly correlated snapshot trace.
 - After the setup-bid and worker-funding corrections, `bridge`, `bridgeL2`,
   `flash-loan` and `nestedCounter` all passed. Independent receipt, causality and
   native blob semantic checks passed for all four. See the
@@ -248,9 +253,10 @@ formatted output; `quotes_disabled` and unsupported requests must stay terminal.
 The canonical setup guard and deterministic timeout-test clock also remain
 outstanding. No protocol source changes were made in this worktree.
 
-Investigate the separate intermittent nonce-gap rejection with the quote's
-original L1 snapshot recorded. Do not turn all `invalid_transaction` failures
-into retries. After the upstream corrections, rerun the complete fee-enabled
+Fix the now-reproduced Composer nonce/snapshot mismatch described in the
+[follow-up investigation](../2026-10-19-composer-quote-nonce-gap/README.md).
+Do not turn all `invalid_transaction` failures into retries. After both the
+Composer and upstream corrections, rerun the complete fee-enabled
 lane, including mixed-plus-pure waves and all 34 eligible protocol scenarios.
 
 Fresh Rust/native release lanes and standalone follower replay are not covered
