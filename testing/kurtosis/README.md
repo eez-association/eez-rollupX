@@ -528,9 +528,13 @@ node testing/kurtosis/scripts/verify-l2-fees.mjs
 
 The evidence records whether the two sources shared a native block; the
 exercise does not guarantee batching. It does not replace independent blob
-verification, follower replay or restart checks. Legacy fixed-tip workloads
-do not acquire a fee quote automatically: run their compatibility checks with
-the gate disabled, or update each submitted transaction to use the fee SDK.
+verification, follower replay or restart checks. The pinned protocol network
+runner requests quotes for cross-chain triggers with their prepared nonces; see
+its [fee and fallback rules](../../eez-core-protocol/script/e2e/RPC.md#eez_quotefee).
+The standard CI profile leaves fees unconfigured, so its protocol result does
+not qualify enabled-fee behavior. Other legacy fixed-tip workloads do not
+acquire quotes automatically: run their compatibility checks with the gate
+disabled, or update each submitted transaction to use the fee SDK.
 
 For receipt-cost calibration, run `node testing/kurtosis/scripts/verify-l2-bridge-fees.mjs`
 with the same private-network endpoints/key and the deployed `EEZ_L1_BRIDGE_SENDER`,
