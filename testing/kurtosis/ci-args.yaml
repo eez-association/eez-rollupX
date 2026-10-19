@@ -80,11 +80,10 @@ eez:
   # workload, while accepted cross-chain work remains immediately eligible.
   settlement_env:
     # Private-network economics: parity conversion, 20% quote margin, no
-    # off-chain service allowance. The expiry is 2100-01-01, not a live price feed.
+    # off-chain service allowance and no policy expiration.
     EEZ_FEES_L1_TO_L2_ENABLED: "true"
     EEZ_FEES_L2_TO_L1_ENABLED: "true"
     EEZ_L2_FEE_RECIPIENT: "0x4444444444444444444444444444444444444444"
-    EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP: "4102444800"
     EEZ_FEES_L1_PER_L2_NUMERATOR: "1"
     EEZ_FEES_L1_PER_L2_DENOMINATOR: "1"
     EEZ_FEES_PROVING_COST_L1: "0"

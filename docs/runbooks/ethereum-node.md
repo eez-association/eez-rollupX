@@ -59,6 +59,12 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    Confirm proof time for a full window and the timing budgets in the rehearsal. The
    poster balance is the only total spending limit.
 
+Cross-chain fee collection uses the shared [fee configuration](../configurable-settlement-policy.md#cross-chain-fee-configuration).
+Policy expiration is optional: omit `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` for no
+deadline, or retain a positive timestamp for an explicit cutoff. Empty and zero
+are invalid. Follow the [expiration migration](../configurable-settlement-policy.md#optional-fee-policy-expiration)
+before removing it from an existing deployment or rolling back Composer.
+
 ## First start
 
 From the repository root, in a shell that has not exported another profile's

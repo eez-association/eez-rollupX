@@ -108,6 +108,22 @@ def main():
                 assert node["EEZ_L1_CHAIN_ID"] == node["EEZ_CROSS_CHAIN_SOURCE_CHAIN_IDS"] == "1"
                 assert node.get("EEZ_L1_CHAIN_PATH") is None
                 assert "--network=mainnet" in services["lighthouse"]["command"]
+            # Removing only the optional deadline must retain the complete
+            # enabled cost model and must not synthesize an empty timestamp.
+            expiry = "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"
+            env_without_expiry = {key: value for key, value in env.items() if key != expiry}
+            env_file.write_text("\n".join(line for line in fixture.splitlines()
+                                         if not line.startswith(expiry + "=")))
+            result = subprocess.run(compose_command, env=env_without_expiry,
+                                    capture_output=True, text=True, check=True)
+            services = json.loads(result.stdout)["services"]
+            node = services["eez-node"]["environment"]
+            assert node.get(expiry) is None, profile
+            assert expiry not in services["eez-proof-signer"]["environment"], profile
+            for key, value in policy.items():
+                if key != expiry:
+                    assert node[key] == value, (profile, key)
+            env_file.write_text(fixture)
             # These are transport checks, not runtime acceptance: missing P,
             # malformed values and every obsolete preparation value must reach
             # the node unchanged so startup rejects them, never selects legacy.

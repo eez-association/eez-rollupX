@@ -22,7 +22,7 @@ pub(crate) struct Policy {
 /// Operator assumptions; network identity is supplied by runtime wiring.
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
-    valid_until_l1_timestamp: u64,
+    valid_until_l1_timestamp: Option<u64>,
     numerator: U256,
     denominator: U256,
     proving: U256,
@@ -78,8 +78,11 @@ impl Config {
             }
             U256::from_str_radix(raw, 10).map_err(|_| format!("{name} exceeds U256"))
         };
-        let valid_until_l1_timestamp = integer("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP")?;
-        if valid_until_l1_timestamp == 0 {
+        let valid_until_l1_timestamp = values["EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"]
+            .as_ref()
+            .map(|_| integer("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"))
+            .transpose()?;
+        if valid_until_l1_timestamp == Some(0) {
             return Err("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP must be positive".into());
         }
         let numerator = amount("EEZ_FEES_L1_PER_L2_NUMERATOR")?;
@@ -200,7 +203,9 @@ impl Policy {
     }
 
     pub(crate) fn quote_eligible(&self, sender: Address, poster: Address, target: u64) -> bool {
-        target <= self.costs.valid_until_l1_timestamp
+        self.costs
+            .valid_until_l1_timestamp
+            .is_none_or(|until| target <= until)
             && sender != poster
             && sender != self.beneficiary
             && !self.costs.excluded_senders.contains(&sender)
@@ -331,7 +336,11 @@ impl Policy {
         {
             return Err("pricing_network_mismatch");
         }
-        if l1.target_timestamp > self.costs.valid_until_l1_timestamp {
+        if self
+            .costs
+            .valid_until_l1_timestamp
+            .is_some_and(|until| l1.target_timestamp > until)
+        {
             return Err("pricing_policy_expired");
         }
         if l2.beneficiary != self.beneficiary {
@@ -478,6 +487,10 @@ pub(in crate::composer) mod tests {
     pub(in crate::composer) fn settings(value: &Value) -> Vec<(&'static str, String)> {
         Config::SETTINGS
             .into_iter()
+            .filter(|name| {
+                *name != "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"
+                    || !value["valid_until_l1_timestamp"].is_null()
+            })
             .map(|name| {
                 let key = name.strip_prefix("EEZ_FEES_").unwrap().to_ascii_lowercase();
                 let field = &value[&key];
@@ -579,6 +592,54 @@ pub(in crate::composer) mod tests {
             l2.tip = U256::from(payment);
             assert_eq!(policy.check_tariff(&l1, &l2, Address::ZERO), expected);
         }
+    }
+
+    #[test]
+    fn policy_expiry_is_optional_and_explicit_cutoffs_are_inclusive() {
+        let mut assumptions = policy_json();
+        assumptions["valid_until_l1_timestamp"] = Value::Null;
+        let non_expiring = parse(assumptions.clone()).unwrap();
+        let expiring = parse(policy_json()).unwrap();
+        let (mut l1, mut l2) = candidate();
+        l2.sources[0].tip = U256::from(192);
+        l2.tip = U256::from(192);
+        assert_eq!(non_expiring.details()["assumptions"], assumptions);
+        assert_ne!(non_expiring.id, expiring.id);
+        for target in [999, 1000, 1001, u64::MAX] {
+            l1.target_timestamp = target;
+            assert!(non_expiring.quote_eligible(l2.sources[0].sender, Address::ZERO, target));
+            assert!(non_expiring.calculate(&l1, &l2, Address::ZERO).is_ok());
+            assert!(non_expiring.check_tariff(&l1, &l2, Address::ZERO).is_ok());
+            assert_eq!(
+                expiring.quote_eligible(l2.sources[0].sender, Address::ZERO, target),
+                target <= 1000
+            );
+            if target <= 1000 {
+                assert!(expiring.calculate(&l1, &l2, Address::ZERO).is_ok());
+                assert!(expiring.check_tariff(&l1, &l2, Address::ZERO).is_ok());
+            } else {
+                assert_eq!(
+                    expiring.calculate(&l1, &l2, Address::ZERO).unwrap_err(),
+                    "pricing_policy_expired"
+                );
+                assert_eq!(
+                    expiring.check_tariff(&l1, &l2, Address::ZERO),
+                    Err("pricing_policy_expired")
+                );
+            }
+        }
+        l2.sources[0].tip -= U256::from(1);
+        l2.tip -= U256::from(1);
+        assert_eq!(
+            non_expiring.check_tariff(&l1, &l2, Address::ZERO),
+            Err("l2_tip_underfunded"),
+            "no deadline does not waive the cost-coverage floor"
+        );
+        l2.beneficiary = Address::ZERO;
+        assert_eq!(
+            non_expiring.check_tariff(&l1, &l2, Address::ZERO),
+            Err("pricing_beneficiary_mismatch")
+        );
     }
 
     #[test]

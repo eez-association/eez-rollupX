@@ -163,6 +163,32 @@ mod tests {
     }
 
     #[test]
+    fn omitted_policy_expiry_binds_both_fee_directions_without_a_deadline() {
+        for l1_enabled in [false, true] {
+            for l2_enabled in [false, true] {
+                let mut values = model();
+                values.remove("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP");
+                values.insert("EEZ_FEES_L1_TO_L2_ENABLED", l1_enabled.to_string());
+                values.insert("EEZ_FEES_L2_TO_L1_ENABLED", l2_enabled.to_string());
+                values.insert("EEZ_FEES_L1_REFUND_PERCENT", "90".into());
+                values.insert(
+                    "EEZ_FEES_L1_REFUND_RECIPIENT",
+                    Address::repeat_byte(9).to_string(),
+                );
+                let runtime = bind(parse(&values).unwrap()).unwrap();
+                assert_eq!(runtime.l2_to_l1_enabled, l2_enabled);
+                assert_eq!(runtime.l1_refund.is_some(), l1_enabled);
+                let policy = runtime.pricing.unwrap();
+                assert!(policy.quote_eligible(Address::repeat_byte(5), Address::ZERO, u64::MAX));
+                assert_eq!(
+                    policy.details()["assumptions"].get("valid_until_l1_timestamp"),
+                    Some(&serde_json::Value::Null)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn obsolete_settings_are_rejected_even_empty_disabled_or_mixed() {
         for name in [
             "EEZ_L2_FEE_SHADOW_POLICY",
@@ -184,7 +210,11 @@ mod tests {
         for name in pricing::Config::SETTINGS {
             let mut values = model();
             values.remove(name);
-            assert!(parse(&values).unwrap_err().contains(name), "missing {name}");
+            if name == "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP" {
+                assert!(parse(&values).is_ok());
+            } else {
+                assert!(parse(&values).unwrap_err().contains(name), "missing {name}");
+            }
             if name != "EEZ_FEES_EXCLUDED_SENDERS" {
                 for invalid in [
                     "",
@@ -238,6 +268,29 @@ mod tests {
                 .l1,
             alloy_primitives::U256::from(100)
         );
+    }
+
+    #[test]
+    fn explicit_expiry_requires_complete_costs_and_fits_positive_u64() {
+        let name = "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP";
+        let values = HashMap::from([(name, "1000".into())]);
+        assert!(
+            parse(&values)
+                .unwrap_err()
+                .contains("EEZ_FEES_L1_PER_L2_NUMERATOR")
+        );
+
+        let mut values = model();
+        values.insert(name, u64::MAX.to_string());
+        assert!(
+            bind(parse(&values).unwrap())
+                .unwrap()
+                .pricing
+                .unwrap()
+                .quote_eligible(Address::repeat_byte(5), Address::ZERO, u64::MAX)
+        );
+        values.insert(name, (u128::from(u64::MAX) + 1).to_string());
+        assert!(parse(&values).unwrap_err().contains("exceeds u64"));
     }
 
     #[test]

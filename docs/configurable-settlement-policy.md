@@ -1005,16 +1005,17 @@ the signer and follower do not receive them. Its UI fee flag follows the L2
 collection switch. Unknown `settlement_env` names are rejected; arbitrary unknown
 process environment variables are not a supported configuration interface.
 
-The shared cost model consists of **all nine** settings below. All absent means
-no model; supplying any one requires all nine. Monetary assumptions have no
-implicit defaults, including zero costs, parity conversion and profit. All
+The shared cost model requires **eight settings** below; the policy expiration
+timestamp is optional. All absent means no model; supplying any setting, including
+only an expiration timestamp, requires the eight cost settings. Monetary
+assumptions have no implicit defaults, including zero costs, parity conversion and profit. All
 numbers are unsigned decimal integers; signs, whitespace, fractions, hex and
 overflow are rejected. The exclusion list is the only cost field accepting an
 empty value.
 
 | Setting | Meaning and bound |
 | --- | --- |
-| `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` | Positive u64 Unix seconds. The candidate L1 target must be at or before this timestamp. Expiry makes pricing unavailable; enabled funding checks cannot treat it as free execution. |
+| `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` | Optional positive u64 Unix seconds. Omit it for no policy expiration. When supplied, the candidate L1 target must be at or before this timestamp. Expiry makes pricing unavailable; enabled funding checks cannot treat it as free execution. Empty, zero and malformed values are rejected. |
 | `EEZ_FEES_L1_PER_L2_NUMERATOR`, `EEZ_FEES_L1_PER_L2_DENOMINATOR` | Positive U256 values: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
 | `EEZ_FEES_PROVING_COST_L1`, `EEZ_FEES_OPERATIONS_COST_L1`, `EEZ_FEES_TREASURY_COST_L1` | Nonnegative U256 native L1 base units charged once per complete post. Explicit zero is allowed. These are configured allowances; treasury includes the fixed realization/sweep cost. |
 | `EEZ_FEES_RISK_BPS`, `EEZ_FEES_PROFIT_BPS` | Integers 0..10000, independently applied to posting plus the three fixed costs. Risk is mandatory; profit is the additional quote target and may absorb later cost changes. |
@@ -1049,7 +1050,6 @@ not production prices or an instruction to enable collection:
 export EEZ_FEES_L1_TO_L2_ENABLED=false
 export EEZ_FEES_L2_TO_L1_ENABLED=false
 export EEZ_L2_FEE_RECIPIENT=0x4444444444444444444444444444444444444444
-export EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP=2000000000
 export EEZ_FEES_L1_PER_L2_NUMERATOR=2
 export EEZ_FEES_L1_PER_L2_DENOMINATOR=3
 export EEZ_FEES_PROVING_COST_L1=7
@@ -1059,6 +1059,28 @@ export EEZ_FEES_RISK_BPS=1000
 export EEZ_FEES_PROFIT_BPS=500
 export EEZ_FEES_EXCLUDED_SENDERS=
 ```
+
+### Optional fee-policy expiration
+
+Omitting `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` keeps the configured cost assumptions
+valid without a calendar cutoff. Gas-price sampling, individual quote freshness,
+source/context checks, signed funding admission and final native settlement
+validation still apply. No conversion or cost assumption is refreshed automatically.
+An explicit timestamp retains the inclusive cutoff and existing expired-policy
+rejection. Set it only when an operator needs a fixed review deadline.
+
+The debug/observation `assumptions.valid_until_l1_timestamp` is `null` when
+expiration is omitted and remains a number when configured. Readers must accept
+both. Explicitly configured policies retain their existing assumptions and policy
+identifier; removing the timestamp changes that identifier. The compact quote
+response and per-quote expiry are unchanged.
+
+Only omit the timestamp when starting a Composer that supports optional expiration.
+Recreate it with the updated environment after draining accepted work.
+Older Composers require a timestamp and reject the non-expiring
+configuration; restore a valid explicit timestamp before rolling back to them.
+Configuration is still read once at startup. There is no protocol, signer-wire,
+genesis, storage or historical follower-replay migration for this change.
 
 ### Fee configuration migration
 
