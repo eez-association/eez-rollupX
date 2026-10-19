@@ -169,6 +169,7 @@ The CLI value takes precedence.
 | `--listen-addr` | `EEZ_PROOF_SIGNER_ADDR` | `127.0.0.1:50061` | Valid socket address. |
 | `--chain-config` | `EEZ_CHAIN_CONFIG` | none | Path to the complete, strict L2 `Genesis` document. |
 | `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required trusted L1 profile: `mainnet`, `hoodi`, `sepolia`, `chiado`, or a Genesis/ChainConfig path. |
+| `--l2-rpc-url` | `EEZ_PROOF_SIGNER_L2_RPC_URL` | absent | Optional operator-selected HTTP(S) L2 header source enabling v2; absent retains v1, empty/invalid fails startup. |
 | `--l1-rpc-url` | `EEZ_L1_RPC_URL` | none | Required operator-trusted HTTP(S) canonical L1 source; credentials are redacted. |
 | `--registry-address` | `EEZ_REGISTRY_ADDRESS` | none | Required nonzero deployed EEZ registry. |
 | `--rollup-id` | `EEZ_ROLLUP_ID` | none | Nonzero L1 registry rollup ID. This is not the L2 EIP-155 chain ID. |
@@ -270,6 +271,22 @@ nodes are unsupported, and no in-place database migration is provided. See the
 [operator compatibility contract](../../docs/runbooks/chiado-deployment.md#recovery-and-upgrades).
 
 ## 4. Service and RPC behavior
+
+The following single-window ingestion rules describe v1. The implemented
+[v2 session profile](../eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile)
+is additionally normative for incremental validation and session ownership.
+V2 MUST use the same checked backend output and settlement/observation gates as
+v1. Its retained execution proves execution only: every Finalize MUST freshly
+authenticate its selected parent, live-slot seed, registry state and L1 target
+before constructing signing authority. Prover-owned header retrieval replaces
+v1's caller-supplied provenance hints; neither is trusted without canonical L1
+authentication. Intermediate prevalidation may occur before that authentication.
+
+Ordinary and empty terminals need no intermediate transaction checkpoints: their
+validated full block hash is the ordinary-prefix commitment. Native effect
+terminals still derive every required prefix hash, including the post-system-call
+B[0] state. Retained terminal witnesses remain available for independent lookup
+and static-observation replay on every Finalize.
 
 The service exposes capability discovery, preparation/retention control, and
 the final proving stream:

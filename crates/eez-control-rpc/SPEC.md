@@ -22,6 +22,11 @@ It does not specify how a prover validates or proves a request. See the
 reference implementation's architecture and validation pipeline.
 [`prove.proto`](proto/prove.proto) is the canonical wire schema.
 
+The [v2 streaming profile](STREAMING_SPEC.md#6-rollupx-runtime-profile) adds
+incremental validation and session recovery. This document's exact settlement,
+response validation, retry cutoff, failure attribution and canonical ownership
+rules apply to both transports. The window framing below describes v1.
+
 ## 1. Composer flow
 
 For each settlement interval, the Composer MUST:

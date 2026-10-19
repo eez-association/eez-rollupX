@@ -969,3 +969,19 @@ by node databases. Restart does not require clearing a refund pause flag, but ma
 lose pending requests and observations. Drain work before upgrades/rollback;
 older Composers restore the single-source restriction and payment-failure pause.
 Disabling the policy also disables L1 quote/admission checks and refund requests.
+
+## Streaming prover source
+
+The packaged signer uses `EEZ_PROOF_SIGNER_L2_RPC_URL`, defaulting to the local
+L2 RPC at `http://127.0.0.1:18688`, to retrieve exact-hash headers for v2 proof
+provenance. Set an explicit HTTP(S) override in existing operator configuration
+when using another source; empty values fail signer startup. The source can
+start after the signer, but proof finalization requires it to be available.
+The signer still authenticates L1 acceptance independently at the exact posting
+parent. This setting is mapped only into the signer service.
+
+For upgrade order, limits, volatile-session loss and rollback, follow the
+[signer operations guide](../../crates/eez-proof-signer/docs/operations.md#streaming-source-and-upgrades).
+This backport requires no contract/genesis or database migration relative to its
+current fork baseline. Existing feature/events deployment boundaries still apply.
+No live deployment/restart rehearsal is established by source or fixture checks.

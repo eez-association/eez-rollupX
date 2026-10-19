@@ -758,6 +758,8 @@ fn proof_signer_binary() -> Result<PathBuf> {
 /// Launch configuration for real-signer native and retained-history tests.
 pub struct ProofSignerConfig<'a> {
     pub l1_rpc_url: String,
+    /// Enable v2 with an independently configured L2 header source.
+    pub l2_rpc_url: Option<String>,
     pub registry_address: Address,
     pub chain_config: &'a std::path::Path,
     pub l1_chain_config: Option<String>,
@@ -848,6 +850,10 @@ impl ProofSignerHandle {
             .env("RUST_LOG", "info")
             .stdout(Stdio::from(log))
             .stderr(Stdio::from(err_log));
+        command.env_remove("EEZ_PROOF_SIGNER_L2_RPC_URL");
+        if let Some(url) = &cfg.l2_rpc_url {
+            command.arg("--l2-rpc-url").arg(url);
+        }
         if let Some(blocks) = cfg.max_request_blocks {
             command.env("EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS", blocks.to_string());
         }
@@ -895,6 +901,18 @@ impl ProofSignerHandle {
             .lines()
             .filter_map(signals::parse)
             .filter(|signal| signal.name == "eez.proof_signer.window_signed")
+            .count())
+    }
+
+    /// Count actual v2 signing events; startup or block ACKs cannot satisfy it.
+    pub fn streaming_attestations(&self) -> Result<usize> {
+        let contents = std::fs::read_to_string(&self.log_path)?;
+        Ok(contents
+            .lines()
+            .filter_map(signals::parse)
+            .filter(|s| {
+                s.name == "eez.proof_signer.window_signed" && s.u64("rpc_version").ok() == Some(2)
+            })
             .count())
     }
 
@@ -1677,6 +1695,7 @@ impl Harness {
             let attester = signer_address(signer_key)?;
             let signer = ProofSignerHandle::spawn(&ProofSignerConfig {
                 l1_rpc_url: self.anvil.rpc_url.clone(),
+                l2_rpc_url: None,
                 registry_address: self.dep.eez_address,
                 l1_chain_config: None,
                 chain_config: genesis,
@@ -2129,7 +2148,7 @@ impl NodeHandle {
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new())
+        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new(), None)
     }
 
     fn spawn_with_reservations(
@@ -2138,13 +2157,14 @@ impl NodeHandle {
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
         mut port_leases: Vec<PortLease>,
+        http_lease: Option<PortLease>,
     ) -> Result<Self> {
         let (log_path, log_tempdir) = test_log_destination(&format!("eez-node-{name}"))?;
         let f = std::fs::File::create(&log_path).context("create log file")?;
         let f2 = f.try_clone().context("clone log file")?;
         let (stdout, stderr) = (Stdio::from(f), Stdio::from(f2));
         let authrpc_lease = PortLease::tcp();
-        let http_lease = PortLease::tcp();
+        let http_lease = http_lease.unwrap_or_else(PortLease::tcp);
         let ws_lease = PortLease::tcp();
         let p2p_lease = PortLease::tcp();
         let l1_http_lease = PortLease::http_pair();
@@ -5090,13 +5110,21 @@ impl CrossChainWorld {
     }
 
     async fn reopen_composer(&mut self) -> Result<()> {
-        self.node = NodeHandle::start_with_datadir(
+        // The independent signer retains this configured header-source URL.
+        // The old process has already exited; reacquire only its owned port.
+        let http_lease = PortLease::reacquire_tcp(self.node.http_port)
+            .context("reserve restarted L2 header source")?;
+        self.node = NodeHandle::spawn_with_reservations(
             "restarted-composer",
             self.datadir.path(),
             &NodeConfig::default(),
             &self.env,
-        )
-        .await?;
+            Vec::new(),
+            Some(http_lease),
+        )?;
+        self.node
+            .wait_for_rpc(&self.node.l2_rpc_url(), SETUP_TIMEOUT, "restarted L2")
+            .await?;
         self.node
             .wait_for_rpc(&self.l1_rpc(), SETUP_TIMEOUT, "restarted embedded L1")
             .await
@@ -6733,8 +6761,10 @@ async fn setup_cross_chain_inner(
             })
         })
         .transpose()?;
+    let l2_http_lease = PortLease::tcp();
     let proof_signer = ProofSignerHandle::spawn(&ProofSignerConfig {
         l1_rpc_url: cfg.l1_rpc_url(),
+        l2_rpc_url: Some(format!("http://127.0.0.1:{}", l2_http_lease.port())),
         registry_address: cfg.eez_address,
         chain_config: &cfg.l2_genesis.0,
         l1_chain_config: Some(cfg.l1_chain_config()),
@@ -6827,6 +6857,7 @@ async fn setup_cross_chain_inner(
         &NodeConfig::default(),
         &env,
         cfg.take_port_leases(),
+        Some(l2_http_lease),
     )?;
     let mut setup_diagnostics = FixtureSetupDiagnostics {
         node: &node,

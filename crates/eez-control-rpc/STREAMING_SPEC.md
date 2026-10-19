@@ -2,10 +2,9 @@
 
 Status: shared wire contract adopted from
 [Rollup0 PR #198](https://github.com/eez-association/eez-rollup0/pull/198).
-This checkout includes the schema and [recorded conformance vectors](conformance/README.md).
-It does not install a v2 runtime endpoint; the generator and Composer/signer
-implementation are separate work.
-The existing [v1 window specification](SPEC.md) describes the legacy endpoint.
+This checkout implements the RollupX stateless profile described in
+[section 6](#6-rollupx-runtime-profile), with [recorded conformance vectors](conformance/README.md).
+The existing [v1 window specification](SPEC.md) describes the compatibility endpoint.
 [prove_stream.proto](proto/prove_stream.proto) is the canonical schema.
 
 The contract separates three things: required streaming behavior, optional
@@ -200,7 +199,7 @@ Resolve the active per-transaction/per-block allowance from the independently
 configured L1 chain profile and target timestamp, not a client-supplied limit.
 
 The draft delegates physical packing and framing to
-[EEZ Core's blob format](https://github.com/eez-association/eez-core-protocol/blob/9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f/docs/blobs/BLOB_FORMAT_SPEC.md),
+[EEZ Core's blob format](https://github.com/eez-association/eez-core-protocol/blob/abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774/docs/blobs/BLOB_FORMAT_SPEC.md),
 shown here at RollupX's pinned Core revision. Each field element carries 31
 logical bytes: serialized offset 0 is zero and offsets 31 down to 1 recover
 the logical bytes in order. Concatenate elements and blobs in order; messages
@@ -278,8 +277,8 @@ For the RollupX profile, authenticate the configured genesis or the selected
 parent's accepted endpoint on canonical L1. Obtain the complete ordered live-slot
 endpoint set and its L2 headers, verify them against canonical settlement, and
 derive the descendant seed. Every selected block must extend the parent and
-satisfy the authenticated seed and timing rules. Registry state at the named L1
-target must equal the accepted predecessor or a terminal prefix independently
+satisfy the authenticated seed and timing rules. Registry state at the authenticated
+parent of the named L1 target must equal the accepted predecessor or a terminal prefix independently
 justified by execution and settlement checks. A matching registry root alone
 does not establish parent authorization. These are the obligations enforced by
 RollupX's [authorization implementation](https://github.com/eduadiez/rollupX/blob/e15bb412420b36bfa40a0e2a73233ac4f213441d/crates/eez-l1/src/derivation/proof.rs);
@@ -296,11 +295,10 @@ settled cursor. Do not apply RollupX's terminal-prefix allowance merely because
 both use the same blob transport. Supporting subrange selection never bypasses
 the configured rollup's parent-acceptance rules.
 
-This profile aligns the inputs and verification obligations with the pinned
-RollupX source. It does not mandate that implementation's worker/cache layout or
-assert live v2 interoperability. Its ABI, native codec and chain rules must be
-configured together; this proposal does not upgrade this repository's protocol
-submodule or runtime to RollupX's deployment.
+This common profile does not mandate a worker/cache layout. Its ABI, native
+codec and chain rules must be configured together. The RollupX runtime below
+uses this checkout's unchanged protocol pin; the Rollup0 draft discussion does
+not extend its supported settlement profile.
 
 ### Separate delivery-validation gap
 
@@ -323,8 +321,8 @@ inputs. Never strip required blobs or context to retry as a weaker request.
 Calldata-only Rollup0 can use the same settlement message with its optional inputs
 absent, then populate the existing blob/context fields when its profile migrates.
 
-This design-only change neither changes the existing runtime nor claims full
-Rollup0-draft or live RollupX conformance.
+The common wire contract alone establishes neither full Rollup0-draft nor live
+RollupX conformance. Runtime validation evidence is recorded separately below.
 
 ## 4. Optional advanced session controls
 
@@ -389,3 +387,96 @@ vectors pin field numbers and request/response encoding; they are not substitute
 for executed-block and on-chain proof oracles. Recorded live request/response
 transcripts belong with each runtime implementation. Keep vector fixtures and
 their test harness separate from this protocol proposal.
+
+## 6. RollupX runtime profile
+
+The signer serves v1 and v2 from the same listener. Configuring
+`--l2-rpc-url` / `EEZ_PROOF_SIGNER_L2_RPC_URL` enables v2. This optional,
+operator-selected HTTP(S) source supplies exact-hash L2 headers; it cannot
+establish canonical acceptance. Absence returns RPC-level UNIMPLEMENTED and
+leaves v1 available. Empty or invalid values fail startup; CLI takes precedence
+over the environment. Endpoints and credentials are redacted from diagnostics.
+
+Every Finalize retrieves the selected predecessor and complete live-slot
+endpoint headers, locates its canonical acceptance in bounded 2,048-block L1
+log pages, and applies the existing v1 canonical authorization gates. Logs only
+locate candidates: complete same-block batch attribution authenticates an
+accepted endpoint. Header count is bounded by the configured witness-item limit;
+the whole retrieval shares the operation deadline. Source RPC failures and
+missing headers return UNAVAILABLE, never an assumed acceptance. Registry state is read at
+`posting_context.parent_hash`. A canonical target recheck fences a reorg during
+retrieval. No L2 source or retained cursor authorizes signing by itself.
+
+This profile implements Resume, Rewind, Cancel and subrange Finalize. Finalize
+may select a terminal below the tip. Success promotes the selected predecessor
+and prunes older retained blocks; it does not claim canonical settlement.
+Identical duplicate blocks and witnesses are idempotent. Changed duplicate
+witnesses, gaps, conflicting positions, unretained Rewind ancestors and invalid
+Finalize ranges/terminal identities return FAILED_PRECONDITION without advancing
+progress. Malformed wire structure returns INVALID_ARGUMENT. Unauthorized or
+retired attachment epochs return PERMISSION_DENIED with no cursor disclosure.
+
+| Resource | Bound and owner |
+| --- | --- |
+| Active RPC streams / retained sessions | 8 / 8 per daemon; only detached sessions may be evicted, oldest first |
+| Retained blocks, bytes, witness items | Existing `MAX_REQUEST_*` settings, per session; bytes include Begin and accepted full Block frames; Finalize must fit with retained bytes |
+| Pending dependent frames | At most block limit + 1, twice byte limit and one witness-item limit per stream |
+| Output channel / client pipeline | 8 frames / at most 8 outstanding operations; both directions drain concurrently |
+| CPU work | One shared validation worker across v1 proofs, v1 preparation and v2; v2 finalizations queue on the shared final-proof permit |
+| Deadline | Absolute configured request timeout from each ordered Block or Finalize operation's start, including shared-worker admission and L1 retrieval; the frame queue has the bounds above, and idle timeout also bounds input silence and output backpressure |
+
+Known-field protobuf accounting is distinct from the per-message decode ceiling.
+Detached blocking workers retain their worker/request permits until actual exit.
+Cancellation, Resume and Rewind fence publication; half-close drains accepted
+work. Duplicate outstanding request IDs terminate the ambiguous transport.
+Successful Finalize returns exactly one Proof and EOF. Sessions and all retained
+execution are volatile; restarting requires witness backfill. There is no new
+database or durable queue ownership.
+
+The fork client retains its v1 capabilities/validation-identity handshake and
+sends `eez-validation-identity-bin` metadata on each v2 RPC. The signer rejects a
+supplied mismatch before accepting frames. Generic v2 clients may omit this
+fork-specific metadata but remain responsible for matching deployment rules;
+all execution and settlement checks still apply. Identity never supplies
+signing authority.
+
+Fork clients require their configured v2 peer to accept bounded pipelining
+(up to eight outstanding frames), as upstream #206 does; support for baseline
+operations alone does not establish this deployment profile.
+
+Composer uses its existing bounded durable-witness preparation worker. V2
+prevalidation uses chunks no larger than the negotiated v1 preparation cap
+(at most 64); it releases the exchange lock between chunks. Failure defers
+optional prevalidation without marking execution successful or blocking durable
+capture. Complete proving backfills missing blocks. Each exchange opens a fresh
+transport and Resumes retained progress, so an idle-expired stream is not reused.
+Unsupported controls Begin/backfill the same complete request; an unavailable
+v2 service falls back to v1. One fresh-Begin repair handles retained quota or
+pruned-anchor/subrange rejection under the same deadline. Actionable settlement
+rejections are never converted into that repair. The 5-second client exchange
+bound includes lock acquisition, transport, all frames and EOF; Composer's
+original settlement cutoff remains authoritative and may cancel earlier.
+
+Only the existing closed retry statuses escape as transient failures. Session
+loss repair and optional prevalidation do not each charge a settlement attempt.
+The client independently checks block ACK number, hash and state root, response
+correlation, exact native public inputs (including every physical blob and the
+same L1 target), and canonical registered-attester signature.
+
+### Upgrade and rollback
+
+The v2 schema is additive and v1 field numbers/behavior remain available. For
+this backport, upgrade the signer with its L2 source, then Composer; an old
+Composer continues using v1 and a new Composer can use an old matching-identity
+signer through v1. Rollback loses volatile sessions and may require complete
+backfill, but needs no schema/data migration. Remove the new CLI flag before
+running a binary that does not recognize it. Existing validation-identity and
+protocol deployment compatibility requirements still apply across unrelated
+revisions. This transport change alters no on-chain ABI, transaction encoding,
+blob payload, genesis, historical follower replay or witness database schema.
+Clients remember an unavailable v2 service for their lifetime; restart Composer
+after enabling v2 on a previously v1-only signer to select streaming.
+
+The native transcript suite uses synthetic L1 authority; it proves neither live
+source availability nor a latency guarantee. Source and process validation are
+recorded in the [backport audit](../../docs/audits/2026-10-19-streaming-backport/README.md).

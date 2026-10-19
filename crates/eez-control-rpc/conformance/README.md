@@ -90,10 +90,17 @@ CARGO_INCREMENTAL=0 cargo +1.95.0 run --locked -p eez-control-rpc \
 
 Run each case against a fresh server configured for its declared fixture and
 `server_profile`. The same command accepts any of the 29 JSON files. The schema,
-Rust wire exports and replay client are included here; this branch does not
-provide a v2 signer, Composer integration or fixture-server launcher. Existing
-v1 production endpoints are unchanged. Rollback removes only unused v2 wire
-exports and development tools; no migration or deployment order is required.
+Rust wire exports and replay client are included here. The signer's
+`service::sessions::tests` launches a fresh synthetic-authority server with each
+recorded profile and replays all 29 cases without regenerating expectations:
+
+```bash
+cargo +1.95.0 test --locked -p eez-proof-signer -- service::sessions::tests
+```
+
+Production serves the [RollupX runtime profile](../STREAMING_SPEC.md#6-rollupx-runtime-profile),
+including native settlement and independently retrieved provenance. Its upgrade
+and rollback requirements are specified there.
 
 Verify the saved bytes and the existing fixture/schema inputs without contacting
 a server:
@@ -150,8 +157,10 @@ Generation used a separate uncommitted RollupX implementation based on
 `4f58341cef307b95dbf6ac46ffc33220c8789b0c`, with protocol pin
 `9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f`. The manifest's `source_sha256` map
 identifies that generating source snapshot, not the source of this vector-only
-branch. Its generator/runtime are not included or yet addressable by a published
-implementation commit. The vector and fixture digests are independently
+branch. That original generator/runtime snapshot is not included or yet
+addressable by a published implementation commit; this backport supplies a
+separately adapted runtime, with validation recorded in the
+[backport audit](../../../docs/audits/2026-10-19-streaming-backport/README.md). The vector and fixture digests are independently
 verifiable here; generation cannot be rerun from this branch alone.
 
 The original generator independently checked expected behavior, then replayed

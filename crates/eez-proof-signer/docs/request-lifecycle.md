@@ -3,7 +3,7 @@
 > This is an implementation guide. [`SPEC.md`](../SPEC.md) is authoritative for
 > protocol behavior and compatibility requirements.
 
-The service deliberately admits one final `Prove` request at a time. This keeps peak
+The v1 endpoint deliberately admits one final `Prove` request at a time. This keeps peak
 validation memory and blocking work predictable and makes shutdown semantics
 explicit. An overlapping `Prove` RPC is rejected immediately rather than
 waiting with an open client stream, even when both RPCs share one connection.
@@ -137,10 +137,30 @@ request is never sent through the transient retry loop.
 
 ## Graceful shutdown
 
-On Ctrl-C, and on SIGTERM on Unix, tonic stops accepting connections and drains
-request futures without cancelling them. An admitted RPC may therefore run to
-completion or its request deadline. The process then waits for
-`active_request_slot` to become idle; detached validation is not terminated
-halfway through a block or settlement gate.
+On Ctrl-C, and on SIGTERM on Unix, tonic stops accepting connections. V1 requests
+drain to completion or their deadline. The service closes v2 attachments,
+including clients that keep sending input or stop reading responses, and cancels
+their async operations. It then waits for every admitted or detached blocking
+worker; validation is not terminated halfway through a block or settlement gate.
 
 For operator-facing implications, see [Operations](operations.md).
+
+## Streaming sessions
+
+The [v2 runtime](../../eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile)
+retains checked block artifacts per session and performs execution incrementally.
+`ValidatedStreamBlock` retains the accepted header, receipt/effect evidence and
+terminal observation witness. `ValidatedWindow::from_streamed_prefix` checks
+continuity before the shared `settle_validated` pipeline authenticates and binds
+the selected facts. No cursor or cached block creates signing authority.
+
+One stream operation runs at a time. A bounded queue holds dependent Block and
+Finalize frames while the reader accepts Rewind/Cancel. Resume, Rewind and Cancel
+fence the old attachment, and publication checks the current epoch again after
+worker completion and after output backpressure. A client disconnect aborts the
+async operation; its worker guard cancels queued work and signals running work.
+Half-close instead drains accepted operations. All blocking workers share v1's
+validation semaphore; a timed-out block keeps that permit until execution exits.
+Finalize additionally transfers the final-proof permit to its settlement worker
+and back through signing. Shutdown closes streams and then waits for both shared
+permits. Session loss never constitutes canonical completion or request eviction.

@@ -85,6 +85,14 @@ struct Args {
     /// Operator-trusted canonical L1 source, independent from Composer claims.
     #[arg(long = "l1-rpc-url", env = "EEZ_L1_RPC_URL", hide_env_values = true)]
     l1_rpc_url: RpcUrlArg,
+    /// Operator-selected L2 header source for v2 provenance retrieval.
+    /// Absence keeps v1 available and reports v2 as unimplemented.
+    #[arg(
+        long = "l2-rpc-url",
+        env = "EEZ_PROOF_SIGNER_L2_RPC_URL",
+        hide_env_values = true
+    )]
+    l2_rpc_url: Option<RpcUrlArg>,
     /// Deployed L1 EEZ registry whose accepted endpoints authorize this signer.
     #[arg(long = "registry-address", env = "EEZ_REGISTRY_ADDRESS")]
     registry_address: Address,
@@ -174,6 +182,7 @@ pub(crate) struct Config {
     pub(crate) chain_document_path: PathBuf,
     pub(crate) l1_chain_document_path: PathBuf,
     pub(crate) l1_rpc_url: url::Url,
+    pub(crate) l2_rpc_url: Option<url::Url>,
     pub(crate) registry_address: Address,
     /// Expected L1 rollup-registry ID, distinct from the L2 EIP-155 chain ID.
     pub(crate) expected_rollup_id: NonZeroU64,
@@ -213,6 +222,13 @@ impl Config {
             .l1_rpc_url
             .0
             .ok_or_else(|| eyre::eyre!("L1 RPC URL must be an absolute HTTP(S) endpoint"))?;
+        let l2_rpc_url = args
+            .l2_rpc_url
+            .map(|arg| {
+                arg.0
+                    .ok_or_else(|| eyre::eyre!("L2 RPC URL must be an absolute HTTP(S) endpoint"))
+            })
+            .transpose()?;
         let attestation_private_key = args.attestation_key.into_key("attestation")?;
         let attester = Attester::new(
             attestation_private_key,
@@ -228,6 +244,7 @@ impl Config {
         Ok(Self {
             listen_addr: args.listen_addr,
             l1_rpc_url,
+            l2_rpc_url,
             registry_address: args.registry_address,
             chain_document_path: args.chain_document_path,
             l1_chain_document_path: args.l1_chain_document_path,

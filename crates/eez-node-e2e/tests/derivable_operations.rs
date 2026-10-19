@@ -889,6 +889,7 @@ async fn retained_native_history_cold_checkpoint() {
     };
     let l1_rpc = std::env::var("EEZ_TEST_L1_RPC_URL").expect("canonical fixture L1 RPC required");
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
+        l2_rpc_url: None,
         // Offline fixtures must now supply a canonical L1 source explicitly.
         l1_rpc_url: l1_rpc.clone(),
         registry_address: metadata["registry_address"]

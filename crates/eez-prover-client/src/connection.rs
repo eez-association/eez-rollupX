@@ -11,6 +11,7 @@ use super::RemoteProver;
 
 #[derive(Debug)]
 pub(super) struct Connection {
+    pub(super) channel: Channel,
     pub(super) client: ProverClient<Channel>,
     pub(super) capabilities: CapabilitiesResponse,
 }
@@ -34,7 +35,7 @@ impl RemoteProver {
             .connect()
             .await
             .map_err(|error| unavailable(error.to_string()))?;
-        let mut client = ProverClient::new(channel)
+        let mut client = ProverClient::new(channel.clone())
             .max_encoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES)
             .max_decoding_message_size(1024);
         let capabilities = tokio::time::timeout(
@@ -64,6 +65,7 @@ impl RemoteProver {
             ProverError::Backend("prover message limit exceeds platform capacity".into())
         })?;
         let connection = Arc::new(Connection {
+            channel,
             client: client.max_encoding_message_size(maximum),
             capabilities,
         });

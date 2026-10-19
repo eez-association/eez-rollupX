@@ -19,6 +19,24 @@ pub(crate) struct PortLease {
 }
 
 impl PortLease {
+    /// Reacquire a fixture-owned port after its subprocess has exited.
+    pub(crate) fn reacquire_tcp(port: u16) -> std::io::Result<Self> {
+        assert!(
+            ASSIGNED
+                .lock()
+                .expect("assigned ports lock")
+                .contains(&port),
+            "only fixture-owned ports may be reused"
+        );
+        let listener = TcpListener::bind(("127.0.0.1", port))?;
+        Ok(Self {
+            port,
+            _tcp: Some(listener),
+            _tcp_secondary: None,
+            _udp: None,
+        })
+    }
+
     pub(crate) fn tcp() -> Self {
         let mut used = ASSIGNED.lock().expect("assigned ports lock");
         loop {

@@ -3546,6 +3546,7 @@ dependencies = [
  "alloy-eips",
  "alloy-genesis",
  "alloy-primitives",
+ "alloy-provider",
  "alloy-rlp",
  "alloy-rpc-types-debug",
  "alloy-signer-local",
@@ -3560,6 +3561,7 @@ dependencies = [
  "eez-primitives",
  "eez-protocol",
  "eyre",
+ "getrandom 0.3.4",
  "hex",
  "prost",
  "reth-chainspec",
@@ -3620,6 +3622,7 @@ dependencies = [
 name = "eez-prover-client"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
  "alloy-rlp",
  "alloy-signer",
@@ -3628,6 +3631,7 @@ dependencies = [
  "async-trait",
  "eez-blob-codec",
  "eez-control-rpc",
+ "eez-primitives",
  "eez-protocol",
  "eez-prover",
  "prost",

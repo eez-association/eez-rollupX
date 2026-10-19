@@ -110,6 +110,71 @@ fn checkpoint_fixture() -> (AdmittedBlock, Genesis, Vec<usize>) {
     (input, genesis, vec![1])
 }
 
+#[test]
+fn nonempty_ordinary_terminal_skips_checkpoints_without_changing_execution() {
+    use eez_control_rpc::v1::{ProveChunk, prove_chunk};
+    use prost::Message as _;
+    let directory = crate::testkit::manifest_dir().join("tests/fixtures/native-osaka-lookup");
+    let bytes = std::fs::read(directory.join("cold-request.protobuf")).unwrap();
+    let mut remaining = bytes.as_slice();
+    let _header = ProveChunk::decode_length_delimited(&mut remaining).unwrap();
+    let Some(prove_chunk::Kind::Block(block)) = ProveChunk::decode_length_delimited(&mut remaining)
+        .unwrap()
+        .kind
+    else {
+        panic!("capture must begin with a deployment block");
+    };
+    let input = AdmittedBlock::from_wire(
+        block,
+        &mut 0,
+        crate::window::WindowLimits {
+            blocks: 1,
+            payload_bytes: 1024 * 1024,
+            witness_items: 100_000,
+        },
+    )
+    .unwrap();
+    let genesis =
+        serde_json::from_slice(&std::fs::read(directory.join("l2-genesis.json")).unwrap()).unwrap();
+    let backend = Backend::new(genesis, TEST_SYSTEM_ADDRESS);
+    let decoded = decode_match_and_recover_signers(&input, &backend.chain_spec).unwrap();
+    assert!(
+        !decoded.body().transactions.is_empty(),
+        "empty blocks would not expose the regression"
+    );
+    let independent = stateless_validation_recovered(
+        decoded,
+        input.witness.clone(),
+        Arc::clone(&backend.chain_spec),
+        backend.evm_config.clone(),
+    )
+    .unwrap();
+    let output = backend.validate(&[input]).unwrap();
+    assert_eq!(
+        backend
+            .checkpoint_replays
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "ordinary execution must not invoke the expensive checkpoint backend"
+    );
+    assert_eq!(output.blocks.len(), 1);
+    let block = &output.blocks[0];
+    assert!(block.transaction_state_checkpoints.is_empty());
+    assert!(
+        block
+            .settlement_evidence
+            .system_sender_flags
+            .iter()
+            .all(|&system| !system)
+    );
+    assert_eq!(block.post_state_root, independent.post_state_root);
+    assert_eq!(block.computed_hash, independent.block_hash);
+    assert_eq!(
+        block.settlement_evidence.ordinary_prefix_hash,
+        independent.block_hash
+    );
+}
+
 fn observation_fixture() -> (AdmittedBlock, Genesis) {
     let (genesis, input, _) = crate::testkit::native_capture("native-osaka-lookup");
     (input, genesis)
