@@ -244,7 +244,7 @@ L2 call exec: {other["hash"]}
             original_log = log.read_text()
             successes = {"pass", "outbound-without-call-search", "outbound-replayed",
                          "settlement-summary-hint", "outbound-receipt-snapshot", "split",
-                         "oversize-evidence"}
+                         "oversize-evidence", "linked-delivery", "outbound-linked-load", "split-linked"}
             failures = {
                 "orphan": "differs from the canonical block",
                 "causal_failure": "independent trigger/table/event causal verification failed",
@@ -304,6 +304,12 @@ L2 call exec: {other["hash"]}
                         split_log = split_log.replace('L2 blocks to verify: [16]', 'L2 blocks to verify: [16, 17]')
                         split_log += f'User tx[2]: {trigger2["hash"]} (block 16)\nUser tx[3]: {trigger3["hash"]} (block 17)\n'
                         split_log += ''.join(f'Matched settlement tx {h}\n' for h in matches)
+                        if case == "split-linked":
+                            split_log = split_log.replace('L2 loadTable:', 'L2 delivery (load+execute):')
+                            split_log += f'L1 postBatch: {post2["hash"]} (block 17)\n'
+                            split_log += f'L2 delivery (load+execute): {wanted3["hash"]} (block 17)\n'
+                            split_log = '\n'.join(line for line in split_log.splitlines()
+                                                  if not line.startswith('Matched settlement tx ')) + '\n'
                         log.write_text(split_log)
                         if case == "split-orphan": current["receipts"][post2["hash"]]["blockHash"] = word(999)
                         if case == "split-wrong-registry": post2["to"] = "0x" + "88" * 20
@@ -326,6 +332,10 @@ L2 call exec: {other["hash"]}
                             blockHash=block["hash"], transactionIndex="0x2")
                     if case == "outbound-without-call-search":
                         log.write_text(original_log.replace("L2 blocks to verify: [16]\n", ""))
+                    if case == "linked-delivery":
+                        log.write_text(original_log.replace('L2 loadTable:', 'L2 delivery (load+execute):'))
+                    if case == "outbound-linked-load":
+                        log.write_text(original_log.replace('L2 loadTable:', 'L2 system table load:'))
                     if case == "outbound-receipt-snapshot":
                         current["single_receipt_read"] = True
                     if case in ("outbound-replayed", "l1-trigger-moved"):
@@ -373,7 +383,7 @@ L2 call exec: {other["hash"]}
                         self.assertEqual([t["hash"] for t in evidence["system_transactions"]],
                                          [t["hash"] for t in current.get("wanted_txs", [wanted])])
                         self.assertEqual(evidence["source_log"]["upstream_first_table_hash"], other["hash"])
-                        if case == "split":
+                        if case in ("split", "split-linked"):
                             self.assertEqual([t["hash"] for t in evidence["settlement_transactions"]], current["post_hashes"])
                             blobs = evidence["blob_da"]["settlements"]
                             self.assertTrue(evidence["blob_da"]["verified"])

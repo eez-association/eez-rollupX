@@ -810,6 +810,10 @@ hide the scenario error.
 Parallel scenarios can share settlement and delivery blocks. The collector
 therefore selects table transactions by runtime entry hashes recomputed from
 canonical L2 calldata, not the upstream summary's first load/all-calls hints.
+PR #56 summaries distinguish `L2 system table load` from
+`L2 delivery (load+execute)` and can list several `L1 postBatch` transactions.
+The collector accepts those discovery hints and independently validates the
+canonical transactions; summary roles alone do not establish correct execution.
 Missing or duplicate occurrences fail, and full selected receipts/calldata
 still go through the causal verifier. Job-local `*.causal-input.json` files
 allow those checks to be reproduced offline from retained failure diagnostics.
