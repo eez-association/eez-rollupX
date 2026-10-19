@@ -10,6 +10,16 @@ were not retained, so a stale read, speculative reorg or swallowed RPC failure
 remains a possible cause. The deterministic regression proves the swallowed-error
 path; it does not establish which cause occurred in that historical run.
 
+Publication is now an engineer handoff: the user directed that the protocol
+engineer make the protocol changes. No protocol or RollupX commit was pushed;
+direct publication and a fork attempt were rejected by GitHub with HTTP 403.
+Keep this implementation as a local reference until the engineer supplies the
+canonical commit, then update and verify the RollupX pin before publication.
+The local two-commit patch is `/tmp/rollupx-pr56-readiness-20261019/protocol-runner-fixes.patch`
+(SHA-256 `2d2188bd61e129fd6f1917dd6ff470ae9e22d839cef415f903700c567ceaf4e4`).
+The owned enclave was dumped under the local validation artifact directory and
+removed after the final checks; other enclaves and Chiado were untouched.
+
 | Identity | Revision |
 | --- | --- |
 | RollupX baseline | `e5e1d97ff49e69821ba403a9ae723ab4afa2db21` |
