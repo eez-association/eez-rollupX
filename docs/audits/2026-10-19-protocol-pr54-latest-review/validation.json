@@ -1,0 +1,242 @@
+{
+  "reviewed_at_utc": "2026-10-19T12:39:30.493082+00:00",
+  "rollupx_source": "6442b908a521dc64216c88916be2365bc7c8b9f5",
+  "protocol_base": "143d87e62cade98bfc122d612638dcaaf1c85633",
+  "protocol_previously_pinned": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+  "protocol_candidate": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+  "protocol_worktree_clean": true,
+  "github_ci": {
+    "run": "https://github.com/eez-association/eez-core-protocol/actions/runs/39248296533",
+    "contract_pass": 780,
+    "contract_skip": 3,
+    "anvil_selected_pass": 34,
+    "new_call_pattern_scenarios_excluded_from_default": 22,
+    "python_and_decoder_tests_in_ci": false
+  },
+  "local_checks": {
+    "forge_build_exit": 0,
+    "runner_initial": {
+      "selected": 187,
+      "passed": 178,
+      "failed": 9,
+      "reason": "missing generated EEZ ABI"
+    },
+    "runner_after_build": {
+      "selected": 9,
+      "passed": 9,
+      "failed": 0,
+      "test_ids": [
+        "test_network_evidence.NetworkEvidenceTests.test_diagnostic_ownership_updates_do_not_repeat_verification",
+        "test_network_evidence.NetworkEvidenceTests.test_large_linked_calldata_uses_file_instead_of_environment_or_arguments",
+        "test_network_evidence.NetworkEvidenceTests.test_link_multicall_preserves_two_distinct_deliveries",
+        "test_network_evidence.NetworkEvidenceTests.test_link_quantities_accept_padding_uppercase_and_json_numbers",
+        "test_network_evidence.NetworkEvidenceTests.test_link_static_only_source_still_checks_and_reports_loader",
+        "test_network_evidence.NetworkEvidenceTests.test_linked_reorg_discards_pass_and_refreshes_receipts",
+        "test_network_evidence.NetworkEvidenceTests.test_links_both_directions_are_exact_and_skip_range_scans",
+        "test_network_evidence.NetworkEvidenceTests.test_pending_links_and_changed_attempt_refresh_within_deadline",
+        "test_network_evidence.NetworkEvidenceTests.test_source_only_links_do_not_invent_deliveries"
+      ]
+    },
+    "runner_unique_tests_with_passing_results": 187,
+    "fee_client_tests_passed": 57,
+    "decoder_after_build": {
+      "passed": 240,
+      "failed": 0,
+      "skipped": 0
+    },
+    "full_fee_enabled_kurtosis_at_new_pin_run": false
+  },
+  "retained_errors": {
+    "source": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+    "passed": true,
+    "cases": [
+      {
+        "type": "quote_busy",
+        "submission": false,
+        "form": "json",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "quote_busy",
+        "submission": false,
+        "form": "cast",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "stale_context",
+        "submission": false,
+        "form": "json",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "stale_context",
+        "submission": false,
+        "form": "cast",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "quote_unavailable",
+        "submission": false,
+        "form": "json",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "quote_unavailable",
+        "submission": false,
+        "form": "cast",
+        "expected": "retry",
+        "actual": "retry"
+      },
+      {
+        "type": "quotes_disabled",
+        "submission": false,
+        "form": "json",
+        "expected": "terminal",
+        "actual": "terminal"
+      },
+      {
+        "type": "quotes_disabled",
+        "submission": false,
+        "form": "cast",
+        "expected": "terminal",
+        "actual": "terminal"
+      },
+      {
+        "type": "quote_unavailable",
+        "submission": true,
+        "form": "json",
+        "expected": "reconciliation",
+        "actual": "reconciliation"
+      },
+      {
+        "type": "quote_unavailable",
+        "submission": true,
+        "form": "cast",
+        "expected": "reconciliation",
+        "actual": "reconciliation"
+      },
+      {
+        "type": "captured mixed-pure wave 3 Cast error",
+        "expected": "retry",
+        "actual": "retry"
+      }
+    ]
+  },
+  "baseline_candidate_comparison": {
+    "case": {
+      "code": -32004,
+      "message": "Failed to quote cross-chain fee",
+      "data": {
+        "code": "quote_unavailable",
+        "message": "quote unavailable: queued predecessor is entering composition"
+      }
+    },
+    "results": [
+      {
+        "revision": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+        "form": "JSON-RPC",
+        "classification": "terminal"
+      },
+      {
+        "revision": "f46af7c9833ac12a54f14d52f4da1f318a0f6525",
+        "form": "Cast",
+        "classification": "terminal"
+      },
+      {
+        "revision": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+        "form": "JSON-RPC",
+        "classification": "retry"
+      },
+      {
+        "revision": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+        "form": "Cast",
+        "classification": "retry"
+      }
+    ]
+  },
+  "classic_setup_guard_regression": {
+    "protocol": "abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774",
+    "kind": "controlled classic-runner regression; mocked RPC and signing; no broadcast",
+    "setup_nonce": 1,
+    "required_next_nonce": 2,
+    "node_nonce": 0,
+    "front_nonce": 0,
+    "runner_exit": 0,
+    "stdout": "target: 0x1111111111111111111111111111111111111111\ncalldata: 0x1234\nvalue: 0\ngas limit: 1000000\nnonce: 0 (rpc=0 front=0)\n",
+    "stderr": "",
+    "observed_signing_nonce": 0
+  },
+  "executables": {
+    "forge": {
+      "path": "/home/edu/.foundry/bin/forge",
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+    },
+    "cast": {
+      "path": "/home/edu/.foundry/bin/cast",
+      "sha256": "ccd95a4607ca3ebfcb88bb90e7235cdb7f0564f5f1afa17478d5fccabbb222cb"
+    },
+    "node": {
+      "path": "/home/edu/.nvm/versions/node/v26.7.0/bin/node",
+      "sha256": "ad19784f7e90ba789a099eccba77ede8dc90a778c424f1c10a70fed3ff903fdc"
+    },
+    "python3": {
+      "path": "/usr/bin/python3",
+      "sha256": "52e0a13e60a981d8c4b6478be2ba5176f69da07948a056bf49cf6f077e30cb41"
+    }
+  },
+  "raw_log_location": "/tmp/rollupx-pr54-fees-20261019/artifacts/pr54-latest-review-20261019",
+  "raw_log_availability": "local only; not available from a fresh clone",
+  "logs": {
+    "latest.diff": {
+      "sha256": "3ba360042e43de11ca2f707dae33b7cbccc5b179a2990915ee136f13a01eeed9",
+      "bytes": 45221
+    },
+    "protocol-build.log": {
+      "sha256": "e560b8f09aa19174806191dcdebaf0b76e22dfcf52e6fa3518d6be1384bd958a",
+      "bytes": 75906
+    },
+    "runner-tests.log": {
+      "sha256": "246d49194dc7b67a182f806057858ac257619e017b2d9d5cf4047e29f2b52b3a",
+      "bytes": 39411
+    },
+    "runner-abi-rerun.log": {
+      "sha256": "52b6cc9a9040f99d929d13168bbc6e2a651b9d35b3925c0cbead489897f843e6",
+      "bytes": 1639
+    },
+    "decoder-tests.log": {
+      "sha256": "798c412a3759eace7ea18f31d54a04902d77290e1e55f3d8c56edb2d545362b8",
+      "bytes": 20514
+    },
+    "decoder-tests-built.log": {
+      "sha256": "6588422f69c4997c0529700720e3f297c1238d8de22339d9ba8de1bcca718597",
+      "bytes": 20767
+    },
+    "retained-errors.json": {
+      "sha256": "bf8000f8176e3a6a5d632b3e59dbd3fc8961b5b2adf1519e6ba610fee9bfa58a",
+      "bytes": 1713
+    },
+    "setup-regression-latest.json": {
+      "sha256": "c8891ba765eacb1c92ca1e8548c3832543e74f9fcc6342b768002e236f5ecb18",
+      "bytes": 641
+    },
+    "classifier-baseline-candidate.json": {
+      "sha256": "733743791766790df3e846c3d89334cae0afc6f85255fb95a7cacd08058e66aa",
+      "bytes": 775
+    },
+    "github-ci.log": {
+      "sha256": "556b670ebf9690095de767dda242210b7408c0fb351a531d729cf4fcb6d99043",
+      "bytes": 651299
+    }
+  },
+  "rollupx_pr91": {
+    "head": "e5e1d97ff49e69821ba403a9ae723ab4afa2db21",
+    "draft": true,
+    "kurtosis_ci": "FAILURE"
+  },
+  "operational_changes": []
+}
