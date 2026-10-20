@@ -31,6 +31,8 @@ pub enum EstimateError {
     Invalid(String),
     #[error(transparent)]
     InsufficientFunds(crate::SourceBalanceError),
+    #[error(transparent)]
+    PosterFunds(Box<crate::PosterBalanceError>),
     #[error("cross-chain estimation unavailable: {0}")]
     Unavailable(String),
     #[error("cross-chain estimation unavailable: settlement reconciliation pending")]
@@ -97,6 +99,8 @@ pub(super) struct Probe {
     pub(super) source_gas: u64,
     pub(super) settlement: Option<(u64, usize, usize)>,
     post_required: u64,
+    post_limit: u64,
+    post_funding: Option<crate::PosterBalanceError>,
     output: Bytes,
     actions: Vec<eez_protocol::ExecutedAction>,
     retained_l1: Option<revm::database::CacheState>,
@@ -661,6 +665,8 @@ impl GasEstimator {
                     actions: vec![],
                     settlement: None,
                     post_required: 0,
+                    post_limit: 0,
+                    post_funding: None,
                     retained_l1: None,
                     retained_l2: Vec::new(),
                     retained_root: None,
@@ -735,9 +741,14 @@ impl GasEstimator {
                 let gas_limit = pricing
                     .runtime
                     .fees
-                    .declared_gas(replay.post_required, pricing.posting.gas_budget)
-                    .map_err(unavailable)?;
-                if gas_limit != pricing.posting.gas_budget {
+                    .declared_gas(replay.post_required, replay.post_limit)
+                    .map_err(|error| match &replay.post_funding {
+                        Some(funding) if funding.limits_probe() => {
+                            EstimateError::PosterFunds(Box::new(funding.clone()))
+                        }
+                        _ => unavailable(error),
+                    })?;
+                if gas_limit != replay.post_limit {
                     match l1::replay(
                         self,
                         s,
@@ -781,11 +792,34 @@ impl GasEstimator {
     }
 }
 
-fn execute_user<E: Evm<Tx = TxEnv>>(mut evm: E, tx: TxEnv) -> Result<TxOutcome, EstimateError>
+fn execute_user<E: Evm<Tx = TxEnv, HaltReason = revm::context_interface::result::HaltReason>>(
+    mut evm: E,
+    tx: TxEnv,
+    funding: Option<&crate::PosterBalanceError>,
+) -> Result<TxOutcome, EstimateError>
 where
     E::DB: DatabaseCommit,
 {
-    let result = evm.transact(tx).map_err(unavailable)?;
+    let gas_limit = tx.gas_limit;
+    let result = evm.transact(tx).map_err(|error| match funding {
+        Some(funding) if funding.explains(gas_limit, &error) => {
+            EstimateError::PosterFunds(Box::new(funding.clone()))
+        }
+        _ => unavailable(error),
+    })?;
+    if let Some(funding) = funding
+        && funding.limits_probe()
+        && gas_limit == funding.affordable_gas
+        && matches!(
+            result.result,
+            revm::context_interface::result::ExecutionResult::Halt {
+                reason: revm::context_interface::result::HaltReason::OutOfGas(_),
+                ..
+            }
+        )
+    {
+        return Err(EstimateError::PosterFunds(Box::new(funding.clone())));
+    }
     let gas = result.result.gas();
     let output = TxOutcome {
         success: result.result.is_success(),

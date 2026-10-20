@@ -51,12 +51,25 @@ test("imports local JSON, navigates nested failures and exports without network 
     await page.locator('[data-frame="0"]').click();
     assert.match(await page.locator("#frame-detail").textContent(), /Succeeded in simulation/);
 
+    const partial = fixture().result.diagnostics.trace;
+    partial.partial = true;
+    partial.failure = { code: "poster_insufficient_funds", message: "Posting wallet cannot fund settlement" };
+    const failed = { jsonrpc: "2.0", error: { code: -32004, message: partial.failure.message,
+      data: { ...partial.failure, trace: partial } } };
+    await page.locator("#file").setInputFiles({ name: "funding-failure.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(failed)) });
+    await page.waitForFunction(() => document.getElementById("quote-errors").textContent.includes("poster_insufficient_funds"));
+    assert.equal(await page.locator("#quote-status").textContent(), "Quote failed");
+    assert.match(await page.locator("#warning").textContent(), /do not establish a valid fee quote/);
+    assert((await page.locator('[role="treeitem"]').count()) > 0);
+
     // When supplied, validate real process-test exports with the same UI.
     const directory = process.env.EEZ_TEST_LOG_DIR && path.join(process.env.EEZ_TEST_LOG_DIR, "quote-traces");
     if (directory) {
       const names = (await fs.readdir(directory)).filter(name => name.endsWith(".json"));
       assert(names.length > 0, "expected actual quote process-test exports");
       for (const name of names) {
+        // Wait for this import, rather than the previous file's visible tree.
+        await page.reload();
         await page.locator("#file").setInputFiles(path.join(directory, name));
         await page.locator("#workspace").waitFor({ state: "visible" });
         assert.equal(await page.locator("#error").isVisible(), false, name);

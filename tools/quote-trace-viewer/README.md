@@ -11,7 +11,10 @@ python3 -m http.server 8000 --bind 127.0.0.1 --directory tools/quote-trace-viewe
 ```
 
 Then visit `http://127.0.0.1:8000`. The file picker accepts either the entire
-JSON-RPC response, its `result`, or the `diagnostics.trace` object alone. The last
+JSON-RPC response, its `result`, or the `diagnostics.trace` object alone. Failed
+quotes can retain a partial export at `error.data.trace`; import that error
+response or the trace object alone. The viewer displays the quote failure and
+the calls observed before it, without treating them as a successful quote. The last
 form has no quote outcome; the viewer explicitly says so. Imports are limited
 to 8 MiB and require trace version 1.
 
@@ -118,6 +121,13 @@ has `status: "incomplete"` and may have no output/result/gas-used fields. Run
 `complete` means all observed frames ended; it does not override global
 truncation or imply success. Context and IDs use JSON integers where bounded;
 chain IDs, transaction quantities, values and gas use hex strings.
+
+An operational failure after capture begins adds `partial: true` and `failure`
+with the safe error code, message and available details. This is distinct from
+`truncated`, which describes capture limits. Error exports contain no usable fee
+options. Timeouts, cancellation or errors before capture begins may still lack
+a trace. Older viewers can import the extracted `error.data.trace` object, but
+need this version to display the new overall failure status and warning.
 
 The collector keeps at most 128 runs, 4096 frames, 1 MiB of raw captured data
 and 4096 bytes per field. It continues the quote when capture is full. No

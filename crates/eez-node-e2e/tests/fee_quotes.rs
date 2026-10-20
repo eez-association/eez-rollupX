@@ -2,6 +2,7 @@
 //! independent follower replay. No quoted bytes are submitted before signing.
 
 mod calldata;
+mod poster_funding;
 mod tracing;
 
 use alloy_consensus::{Transaction as _, TxEip1559, TxLegacy, Typed2718, TypedTransaction};

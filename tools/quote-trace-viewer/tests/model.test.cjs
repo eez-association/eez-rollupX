@@ -4,6 +4,23 @@ const api = require("../model.js");
 const { fixture, bytes, revert } = require("./fixture.cjs");
 const parse = doc => api.parse(JSON.stringify(doc));
 
+test("imports partial traces from operational RPC failures and standalone exports", () => {
+  const trace = fixture().result.diagnostics.trace;
+  trace.partial = true;
+  trace.failure = { code: "poster_insufficient_funds", message: "Posting wallet cannot fund settlement" };
+  const doc = { jsonrpc: "2.0", error: { code: -32004, message: trace.failure.message,
+    data: { ...trace.failure, trace } } };
+  for (const value of [doc, trace]) {
+    const model = parse(value);
+    assert.equal(model.trace.partial, true);
+    assert.equal(model.trace.failure.code, "poster_insufficient_funds");
+    assert.equal(api.chooseRun(model), 0);
+    assert.equal(model.result.options, undefined);
+  }
+  trace.failure.message = { unexpected: "object" };
+  assert.throws(() => parse(doc), /Invalid trace failure/);
+});
+
 test("imports the recorded Composer nested revert without conflating quote and execution failure", () => {
   const model = parse(require("../examples/nested-revert.json"));
   assert.equal(model.result.options[0].error.code, "unsupported_transaction");

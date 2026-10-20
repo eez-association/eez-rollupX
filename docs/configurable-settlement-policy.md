@@ -1317,6 +1317,23 @@ there are no partial successful options after those errors. Invalid request synt
 chain/nonce or selection fails with `-32602`. Transient errors never trigger a
 silent unquoted send.
 
+Both priced directions bound the initial posting-gas probe by the poster's
+balance at the sampled L1 state, after reserving physical blobs at their fee
+cap. They use the same affordability calculation as final signed posting.
+The network/operator gas limit remains an upper bound; it is not a required
+reservation for a smaller settlement. Complete native execution, the gas margin
+and replay at the selected limit remain mandatory. Native balance checks are
+not disabled. Pending L1 predecessors use the replayed account balance.
+
+If the poster cannot fund the probe, the whole quote fails with `-32004` and
+`error.data.code = "poster_insufficient_funds"`. Its `details` contain
+`reason: "poster_balance"`, `scope: "poster"`, the posting address, L1 `chainId`,
+`availableBalance`, `blobFeeReservation`, `maxAffordableGas`, `gasBudget`, and
+the sampled L1 block identity. Quantities are canonical hex. This is an operator
+funding condition, separate from source balance or insufficient source tips.
+The affordable gas bound is not a measured gas requirement or a top-up quote;
+the response does not invent an exact shortfall when execution could not finish.
+
 The debug method accepts identical params and returns the compact result plus
 `diagnostics.recoveryMode` and `diagnostics.options`. `recoveryMode` is
 `enforced_tariff` when signed ingress and final dispatch enforce the configured
@@ -1362,8 +1379,22 @@ the request, with at most 4096 bytes per captured field. Lengths and truncation
 flags preserve the distinction between empty and omitted bytes. Capture limits
 do not stop execution or change a fee decision. Incomplete EVM runs retain
 unfinished frames. RPC-level context, provider or deadline failures can prevent
-the calculation from returning a trace; no durable trace ID or server storage
-is provided.
+the calculation from completing. When the blocking calculation returns an error
+after capture began, the error remains a whole-request failure and retains
+`error.data.trace`. That export has `partial: true` and a bounded `failure`
+containing the safe error code, message and available diagnostic details. No
+successful wallet options are returned with that failure. Provider error text
+and credentials remain private. Failures before capture begins, RPC timeout,
+cancellation, shutdown and worker panic can still return no trace; no durable
+trace ID or server storage is provided.
+
+This correction is a binary/API upgrade with no protocol, storage or genesis
+migration. The added funding code and optional trace fields retain existing
+JSON-RPC error semantics and trace schema version 1. Upgrade Composer to fix
+both quote directions; older SDKs must continue rejecting error responses.
+Upgrade the viewer to import error envelopes directly, or extract
+`error.data.trace` for an older viewer. Rolling back restores the maximum-probe
+failure and generic diagnostics; it requires no chain-state rollback.
 
 Frames preserve CALL, STATICCALL, DELEGATECALL, CALLCODE, CREATE and CREATE2,
 caller, target/storage and code addresses, value, static context, return bytes,
@@ -1577,7 +1608,7 @@ window still needs canonical settlement advancement.
 Malformed params/transactions use JSON-RPC `-32602`; other shared quote failures
 use `-32004`, with `{code, message}` in `error.data`. Stable application codes
 include `invalid_transaction`, `unsupported_transaction`, `quote_limit`, `stale_context`,
-`insufficient_funds`, `quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
+`insufficient_funds`, `poster_insufficient_funds`, `quotes_disabled`, `quote_unavailable`, `quote_busy` and `quote_timeout`.
 Per-variant execution/input errors are represented as described above; shared
 errors never return a usable option. IDs, mixed batches and notifications follow
 the front's existing semantics. Members execute sequentially under the shared

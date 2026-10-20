@@ -103,6 +103,28 @@ the additive error fields and mixed-version behavior.
 
 ## Execution failure diagnostics (accepted correction, 2026-10-20)
 
+### Affordable posting probes and partial failure exports (accepted, 2026-10-20)
+
+The operator authorized fixing both priced routes after the
+[mainnet investigation](../audits/2026-10-20-mainnet-quote-reservation/README.md)
+found that their maximum-gas probes could exceed the poster's balance even when
+the actual settlement was affordable. Use final posting's existing
+balance-minus-blob-reservation calculation for the initial probe, retain native
+execution and the validated final gas margin, and distinguish genuine poster
+funding failures from source-wallet failures. Preserve partial debug traces
+when a blocking calculation fails after capture begins. Infrastructure failures
+still invalidate every quote option; provider credentials must not enter exports.
+
+Acceptance includes reproducing the old failure, nested calls in both
+directions, legacy/EIP-1559 and explicit/omitted gas, blob/cap arithmetic,
+unfunded-posting errors, unchanged canonical state, RPC error projection, viewer
+imports and existing fee/settlement regressions. This correction does not change
+fee policy, queue ownership, consensus or signing authorization. The
+[API contract](../configurable-settlement-policy.md#compact-fee-quotes) owns the
+additive error and trace fields and mixed-version behavior.
+
+### Earlier execution-revert correction
+
 The [issue #93](https://github.com/eez-association/eez-rollupX/issues/93) review
 confirmed that quote error conversion discarded estimator reverts, effect
 mismatches and unsupported-execution reasons. An isolated process regression

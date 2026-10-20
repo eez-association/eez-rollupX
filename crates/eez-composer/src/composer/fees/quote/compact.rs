@@ -125,6 +125,7 @@ pub(super) fn estimate_error_at(stage: &'static str, error: EstimateError) -> Fe
         EstimateError::Timeout => FeeQuoteError::Limit("gas estimation deadline"),
         EstimateError::Invalid(_) => FeeQuoteError::Invalid("gas estimation input"),
         EstimateError::InsufficientFunds(balance) => FeeQuoteError::InsufficientFunds(balance),
+        EstimateError::PosterFunds(balance) => FeeQuoteError::PosterFunds(balance),
         EstimateError::Unsupported(_) | EstimateError::Revert(_) | EstimateError::Effects(_) => {
             FeeQuoteError::execution(
                 "gas estimation or final effect validation failed",
@@ -189,6 +190,7 @@ where
             .map_err(estimate_error)?;
         let mut snapshot = self.fee_snapshot(&prepared, &budget)?;
         let parent = snapshot.l2_parent.clone();
+        let mut trace = None;
         let result = (|| {
             let direction = prepared.direction;
             let chain = match direction {
@@ -214,7 +216,7 @@ where
             check_nonce()?;
             // Predecessors establish this request's state but their private
             // pending transaction bodies do not belong in its debug export.
-            let trace = if request.trace_calls {
+            trace = if request.trace_calls {
                 let eez_l1::BundleTarget::Exact { block, timestamp } =
                     prepared.posting.quote.target
                 else {
@@ -340,16 +342,22 @@ where
                     "recoveryMode":if direction == crate::Direction::Inbound {"builder_refund"} else if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
                     "options":diagnostics
                 });
-                if let Some(trace) = trace {
-                    response["diagnostics"]["trace"] = trace.finish();
-                }
             }
             Ok(response)
         })();
         // Also recheck failures: canonical source progress can make an old
         // prefix look invalid while this request is calculating its quote.
-        self.validate_fee_context(&prepared, &parent)?;
-        result
+        let result = self.validate_fee_context(&prepared, &parent).and(result);
+        // Even an infrastructure/funding/context failure must finalize the
+        // request-local collector. It still invalidates ALL quote options.
+        match (result, trace) {
+            (Ok(mut response), Some(trace)) => {
+                response["diagnostics"]["trace"] = trace.finish();
+                Ok(response)
+            }
+            (Err(error), Some(trace)) => Err(error.with_trace(trace.finish())),
+            (result, None) => result,
+        }
     }
 }
 
@@ -402,6 +410,24 @@ mod tests {
 
     fn transaction() -> Value {
         json!({"from":Address::repeat_byte(0x11), "to":Address::repeat_byte(0x22)})
+    }
+
+    #[test]
+    fn operational_failure_retains_bounded_trace_without_exposing_provider_errors() {
+        let trace = json!({"format":"eez-quote-call-trace","runs":[{"id":0,"frames":[]} ]});
+        let error = estimate_error(EstimateError::Unavailable(
+            "https://private.example/?token=secret".into(),
+        ))
+        .with_trace(trace.clone());
+        assert_eq!(error.code(), "quote_unavailable");
+        assert!(matches!(error.untraced(), FeeQuoteError::Unavailable(_)));
+        let captured = error.trace().unwrap();
+        assert_eq!(captured["runs"], trace["runs"]);
+        assert_eq!(captured["partial"], true);
+        assert_eq!(captured["failure"]["code"], "quote_unavailable");
+        assert!(!captured.to_string().contains("secret"));
+        assert!(!captured.to_string().contains("private.example"));
+        assert!(error.diagnostics().is_none());
     }
 
     #[test]
