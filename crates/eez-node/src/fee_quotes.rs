@@ -120,6 +120,11 @@ impl FeeQuotes {
         options: &Value,
         debug: bool,
     ) -> (StatusCode, Value) {
+        if !debug && options.get("trace").is_some() {
+            return failure(FeeQuoteError::Invalid(
+                "trace is available only in eez_debugQuoteFee",
+            ));
+        }
         if transaction.to_string().len() + options.to_string().len() > MAX_BODY {
             return error(
                 StatusCode::PAYLOAD_TOO_LARGE,
@@ -336,6 +341,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn compact_trace_option_is_rejected_before_preparation() {
+        let service = FeeQuotes {
+            prepare: Arc::new(|_| panic!("compact trace must not acquire a worker")),
+            executor: TaskExecutor::test(),
+            quotes: Workers::new(1, 0),
+            admission: Workers::new(1, 0),
+            timeout: Duration::from_secs(1),
+            enforce_tariff: false,
+        };
+        let (status, response) = service
+            .compact(&transaction(), &json!({"trace":"calls"}), false)
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(response["error"]["code"], "invalid_transaction");
+        assert!(
+            response["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("eez_debugQuoteFee")
+        );
+    }
+    #[tokio::test]
     async fn queued_predecessor_requires_stateful_admission_before_ordinary_forwarding() {
         use alloy_consensus::{SignableTransaction, TxEip1559, TxEnvelope};
         use alloy_network::{TxSignerSync, eip2718::Encodable2718};
@@ -451,6 +478,61 @@ mod tests {
             admission: Workers::new(1, 0),
             timeout: Duration::from_secs(10),
         })
+    }
+
+    #[tokio::test]
+    async fn front_rejects_trace_batches_before_executing_any_member() {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = calls.clone();
+        let service = Arc::new(FeeQuotes {
+            enforce_tariff: false,
+            prepare: Arc::new(move |_| {
+                observed.fetch_add(1, Ordering::Relaxed);
+                Box::pin(async { Ok(Box::new(|_| Ok(json!({"quote":"single"}))) as Work) })
+            }),
+            executor: TaskExecutor::test(),
+            quotes: Workers::new(1, 0),
+            admission: Workers::new(1, 0),
+            timeout: Duration::from_secs(10),
+        });
+        let (url, task) = start_quote_front(service, Arc::new(AtomicBool::new(true))).await;
+        let client = reqwest::Client::new();
+        let traced = json!({"jsonrpc":"2.0","id":2,"method":DEBUG_METHOD,
+            "params":[transaction(),{"trace":"calls"}]});
+        for batch in [
+            json!([traced]),
+            json!([{"jsonrpc":"2.0","id":1,"method":METHOD,"params":[transaction()]},traced]),
+        ] {
+            let response: Value = client
+                .post(&url)
+                .json(&batch)
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            assert_eq!(response["error"]["code"], -32600, "{response}");
+            assert!(
+                response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("individually")
+            );
+            assert_eq!(calls.load(Ordering::Relaxed), 0);
+        }
+        let response: Value = client
+            .post(&url)
+            .json(&traced)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["result"]["quote"], "single");
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        task.abort();
     }
 
     async fn start_quote_front(

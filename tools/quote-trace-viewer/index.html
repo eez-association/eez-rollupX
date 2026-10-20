@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>EEZ · Quote trace viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="model.js" defer></script>
+  <script src="viewer.js" defer></script>
+</head>
+<body>
+  <header><div class="brand">EEZ <span>/</span> EXECUTION LAB</div><span class="local">● Local file · no uploads</span></header>
+  <main>
+    <div class="intro"><div><p class="eyebrow">CROSS-CHAIN DEBUGGER</p><h1>Follow the call.</h1>
+      <p>Inspect a fee simulation across L1 and L2, down to the call that reverted.</p></div>
+      <button id="download" hidden>Export JSON ↓</button></div>
+    <section class="import" aria-label="Import trace">
+      <div><h2>Open a debug quote</h2><p>Import the JSON response from <code>eez_debugQuoteFee</code> with <code>{"trace":"calls"}</code>.</p>
+        <label class="file-button">Choose JSON file<input id="file" type="file" accept=".json,application/json"></label>
+        <span class="muted">or drop a file here · up to 8 MiB</span></div>
+      <details><summary>Paste JSON instead</summary><textarea id="json" maxlength="8388608" aria-label="Trace JSON" placeholder="Paste the complete JSON-RPC response or result"></textarea><button id="load">Inspect trace →</button></details>
+    </section>
+    <p id="error" class="notice error" role="alert" hidden></p>
+    <div id="workspace" hidden>
+      <div class="summary-grid">
+        <section><p class="eyebrow">QUOTE RESULT</p><strong id="quote-status"></strong><p id="quote-detail"></p></section>
+        <section><p class="eyebrow">NETWORKS</p><strong id="networks"></strong><p>Simulated execution · not a mined transaction</p></section>
+        <section><p class="eyebrow">CAPTURE</p><strong id="capture"></strong><p id="capture-detail"></p></section>
+      </div>
+      <p id="quote-errors" class="notice error" hidden></p>
+      <p id="warning" class="notice" hidden></p>
+      <div class="toolbar"><label>Simulation run<select id="runs"></select></label>
+        <label>Find a call<input id="search" type="search" placeholder="Address, selector, error…"></label>
+        <button id="expand">Expand all</button><button id="collapse">Collapse all</button></div>
+      <p id="run-info" class="muted"></p>
+      <div class="inspector">
+        <section class="calls"><div class="section-title"><h2>Call tree</h2><span>L1 ↔ L2</span></div>
+          <div id="tree" role="tree" aria-label="Execution call tree"></div></section>
+        <section class="details"><div class="section-title"><h2>Call details</h2><span id="frame-id"></span></div>
+          <div id="frame-detail"><p class="muted">Select a call to inspect it.</p></div></section>
+      </div>
+      <details class="context"><summary>Selected execution transaction</summary><pre id="execution"></pre></details>
+      <details class="context"><summary>Simulation context and original request</summary><pre id="context"></pre></details>
+      <p class="footnote">Frame gas is inclusive execution gas, excluding transaction overhead. Do not sum nested frames or simulation runs. L1 and L2 gas have different prices. Unknown custom errors retain their raw bytes; source maps and ABI import are not included in this version.</p>
+    </div>
+  </main>
+</body>
+</html>

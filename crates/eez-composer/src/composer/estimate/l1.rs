@@ -187,7 +187,13 @@ pub(super) fn replay(
                     .map_err(unavailable)?;
             }
             {
-                let evm = config.evm_with_env_and_inspector(&mut state, setup_env, &mut proof);
+                let inspector = crate::composer::quote_trace::inspect(
+                    &mut proof,
+                    setup_env.cfg_env.chain_id,
+                    "conditional_setup",
+                    &setup,
+                );
+                let evm = config.evm_with_env_and_inspector(&mut state, setup_env, inspector);
                 let output = execute_user(evm, setup)?;
                 if !output.success {
                     return Err(EstimateError::Unsupported(
@@ -217,7 +223,13 @@ pub(super) fn replay(
             }
             let mut user_env = snapshot.l1_env.clone();
             user_env.cfg_env.disable_base_fee = posting.is_none();
-            let evm = config.evm_with_env_and_inspector(&mut state, user_env, &mut effects);
+            let inspector = crate::composer::quote_trace::inspect(
+                &mut effects,
+                user_env.cfg_env.chain_id,
+                "native_source",
+                &tx,
+            );
+            let evm = config.evm_with_env_and_inspector(&mut state, user_env, inspector);
             execute_user(evm, tx)?
         }};
     }
