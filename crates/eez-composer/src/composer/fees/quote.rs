@@ -33,7 +33,7 @@ use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBl
 mod diagnostics;
 
 pub(super) const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
-const MAX_CALLDATA: usize = 12 * 1024;
+const MAX_CALLDATA: usize = 64 * 1024;
 const MAX_ITERATIONS: usize = 4;
 const MAX_FRAMES: usize = 32;
 const MAX_DEPTH: usize = 8;
@@ -277,7 +277,7 @@ impl L2FeeRequest {
             .as_str()
             .filter(|s| s.starts_with("0x") && s.len() <= 2 + 2 * MAX_CALLDATA)
             .ok_or(FeeQuoteError::Invalid(
-                "calldata must be hex and at most 12 KiB",
+                "calldata must be hex and at most 64 KiB",
             ))?
             .parse::<Bytes>()
             .map_err(|_| FeeQuoteError::Invalid("invalid calldata"))?;

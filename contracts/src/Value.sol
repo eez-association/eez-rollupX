@@ -23,6 +23,14 @@ contract Value {
         return marker;
     }
 
+    /// Commits to every calldata byte, including trailing bytes, so cross-chain
+    /// tests can detect truncation or corruption of large payloads.
+    function setCalldataHash() external returns (uint256) {
+        value = uint256(keccak256(msg.data));
+        emit ValueSet(msg.sender, value);
+        return value;
+    }
+
     /// Sets `value` and returns the result the cross-chain caller sees
     /// synchronously on L1: whether the value actually changed, and the
     /// new value. The composer captures this return tuple from the L2

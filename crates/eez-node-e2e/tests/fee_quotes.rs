@@ -1,6 +1,8 @@
 //! Unsigned application quote -> one signed source -> native settlement and
 //! independent follower replay. No quoted bytes are submitted before signing.
 
+mod calldata;
+
 use alloy_consensus::{Transaction as _, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::Encodable2718;
 use alloy_network::TxSignerSync;
@@ -369,7 +371,7 @@ async fn nested_quote_roundtrip(
         .await
         .unwrap();
     assert_eq!(response["error"]["code"], -32602);
-    let oversized = json!({"from":signer.address(),"to":outer,"data":"x".repeat(32 * 1024)});
+    let oversized = json!({"from":signer.address(),"to":outer,"data":"x".repeat(160 * 1024)});
     let response = quote_rpc(
         &client,
         &world.l2_xchain(),

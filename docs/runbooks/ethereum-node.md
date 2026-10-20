@@ -60,6 +60,10 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    poster balance is the only total spending limit.
 
 Cross-chain fee collection uses the shared [fee configuration](../configurable-settlement-policy.md#cross-chain-fee-configuration).
+For the 64 KiB calldata profile, upgrade all Composer fronts before enabling
+larger payloads in copied SDKs and applications; follow the
+[calldata compatibility contract](../configurable-settlement-policy.md#calldata-limit-compatibility)
+for mixed versions and rollback.
 Fee policies have no expiration. Remove the obsolete
 `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` setting before upgrading; its presence,
 including empty, prevents startup. Follow the

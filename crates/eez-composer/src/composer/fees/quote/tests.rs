@@ -231,6 +231,60 @@ fn quote_and_signed_admission_accept_the_full_source_transaction_gas_range() {
 }
 
 #[test]
+fn quote_and_signed_admission_enforce_64_kib_calldata_boundary() {
+    use alloy_network::TxSignerSync;
+    let signer = alloy_signer_local::PrivateKeySigner::from_bytes(
+        &alloy_primitives::B256::with_last_byte(7),
+    )
+    .unwrap();
+    for tx_type in [0, 2] {
+        for length in [0, 12_288, 13_000, 65_535, 65_536, 65_537] {
+            let data = Bytes::from(vec![0xff; length]);
+            let mut input = transaction();
+            input["type"] = json!(format!("{tx_type:#x}"));
+            input["gas"] = json!("0x1000000");
+            let mut tx = L2FeeRequest::parse(&input).unwrap().tx;
+            match &mut tx {
+                TypedTransaction::Legacy(tx) => tx.input = data.clone(),
+                TypedTransaction::Eip1559(tx) => tx.input = data.clone(),
+                _ => unreachable!(),
+            }
+            let signature = signer.sign_transaction_sync(&mut tx).unwrap();
+            let envelope = tx.into_envelope(signature);
+            input["data"] = json!(data);
+            for result in [
+                L2FeeRequest::parse(&input),
+                L2FeeRequest::from_signed(&envelope),
+            ] {
+                if length <= 65_536 {
+                    assert_eq!(
+                        result.unwrap().tx.input(),
+                        &data,
+                        "type {tx_type}, {length}"
+                    );
+                } else {
+                    assert!(
+                        matches!(result, Err(FeeQuoteError::Invalid(message))
+                            if message == "calldata must be hex and at most 64 KiB"),
+                        "type {tx_type}, {length}: {result:?}"
+                    );
+                }
+            }
+            let compact = CompactFeeRequest::parse(&input, &json!({}));
+            assert_eq!(compact.is_ok(), length <= 65_536, "{compact:?}");
+        }
+    }
+    for data in ["0x0", "0xzz", "ff"] {
+        let mut input = transaction();
+        input["data"] = json!(data);
+        assert!(matches!(
+            L2FeeRequest::parse(&input),
+            Err(FeeQuoteError::Invalid(_))
+        ));
+    }
+}
+
+#[test]
 fn signed_admission_recovers_sender_and_preserves_fee_caps() {
     use alloy_network::TxSignerSync;
     let signer = alloy_signer_local::PrivateKeySigner::from_bytes(

@@ -706,6 +706,14 @@ stopped databases as for other binary upgrades. The
 [gas-cap deployment record](../audits/2026-10-15-l2-fee-gas-cap/README.md)
 distinguishes the expedited handover from subsequent regression checks.
 
+The source calldata limit is now 64 KiB (65,536 bytes including ABI encoding),
+with a 160 KiB serialized transaction/options allowance for fee quotes. Upgrade
+all Composer fronts before enabling larger payloads in copied SDKs and
+applications; drain accepted large requests before rollback. Follow the
+[calldata compatibility contract](../configurable-settlement-policy.md#calldata-limit-compatibility)
+for mixed versions, replay and rollback limits. This requires no contract,
+genesis or database migration; local regression evidence is not a live upgrade.
+
 The simplified fee policy separates the recommended markup from minimum cost
 coverage. `profit_bps` applies to quotes; admission and final dispatch require
 measured costs plus `risk_bps`. For the 20% target trial, explicitly change the

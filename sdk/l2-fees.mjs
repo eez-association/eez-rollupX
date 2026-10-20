@@ -32,7 +32,7 @@ function validateTransaction(transaction) {
   for (const key of ["from", "to"]) {
     if (!/^0x[0-9a-f]{40}$/i.test(transaction[key])) throw new Error("Invalid address");
   }
-  if (typeof transaction.data !== "string" || !/^0x(?:[0-9a-f]{2})*$/i.test(transaction.data) || transaction.data.length > 2 + 24 * 1024) throw new Error("Invalid calldata");
+  if (typeof transaction.data !== "string" || !/^0x(?:[0-9a-f]{2})*$/i.test(transaction.data) || transaction.data.length > 2 + 2 * 64 * 1024) throw new Error("Invalid calldata");
   if (quantity(transaction.gas) < 21000n || quantity(transaction.gas) > 16777216n) throw new Error("Gas outside quote profile");
 }
 

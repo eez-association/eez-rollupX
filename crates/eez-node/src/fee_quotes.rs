@@ -22,7 +22,9 @@ use tokio::sync::Semaphore;
 
 pub(crate) const METHOD: &str = "eez_quoteFee";
 pub(crate) const DEBUG_METHOD: &str = "eez_debugQuoteFee";
-pub(crate) const MAX_BODY: usize = 32 * 1024;
+// Hex encoding alone takes 128 KiB for maximum-size calldata; leave room for
+// transaction fields and options while retaining a bounded per-quote input.
+pub(crate) const MAX_BODY: usize = 160 * 1024;
 type Work = Box<dyn FnOnce(Arc<AtomicBool>) -> Result<Value, FeeQuoteError> + Send>;
 type Preparation = Pin<Box<dyn Future<Output = Result<Work, FeeQuoteError>> + Send>>;
 
@@ -122,7 +124,7 @@ impl FeeQuotes {
             return error(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "quote_limit",
-                "quote exceeds 32 KiB",
+                "quote exceeds 160 KiB",
             );
         }
         match CompactFeeRequest::parse(transaction, options) {
@@ -494,6 +496,54 @@ mod tests {
         assert_eq!(response["error"]["code"], -32004);
         assert_eq!(response["error"]["data"]["code"], "starting_up");
         ready.store(true, Ordering::Release);
+        for method in [METHOD, DEBUG_METHOD] {
+            for length in [65_535, 65_536, 65_537] {
+                let mut input = transaction();
+                input["data"] = json!(format!("0x{}", "ff".repeat(length)));
+                let response: Value = client
+                    .post(&url)
+                    .json(&json!({
+                        "jsonrpc":"2.0", "id":"boundary", "method":method, "params":[input]
+                    }))
+                    .send()
+                    .await
+                    .unwrap()
+                    .json()
+                    .await
+                    .unwrap();
+                assert_eq!(response["id"], "boundary");
+                if length <= 65_536 {
+                    assert_eq!(response["result"], json!({"quote":"shared"}), "{response}");
+                } else {
+                    assert_eq!(response["error"]["code"], -32602, "{response}");
+                    assert_eq!(response["error"]["data"]["code"], "invalid_transaction");
+                    assert_eq!(
+                        response["error"]["data"]["message"],
+                        "invalid transaction: calldata must be hex and at most 64 KiB"
+                    );
+                }
+            }
+            // At the serialized-input limit the strict field parser still runs;
+            // one extra byte must be rejected by the resource bound first.
+            for length in [160 * 1024 - 1, 160 * 1024, 160 * 1024 + 1] {
+                let mut input = transaction();
+                input["padding"] = json!("");
+                let base = input.to_string().len() + json!({}).to_string().len();
+                input["padding"] = json!("x".repeat(length - base));
+                let (_, response) = service
+                    .compact(&input, &json!({}), method == DEBUG_METHOD)
+                    .await;
+                assert_eq!(
+                    response["error"]["code"],
+                    if length <= 160 * 1024 {
+                        "invalid_transaction"
+                    } else {
+                        "quote_limit"
+                    },
+                    "{response}"
+                );
+            }
+        }
         for id in [Value::Null, json!(-2), json!("quote")] {
             let mut request = call.clone();
             request["id"] = id.clone();
