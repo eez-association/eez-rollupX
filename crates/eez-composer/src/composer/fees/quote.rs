@@ -27,7 +27,10 @@ use revm::context::TxEnv;
 use serde_json::{Value, json};
 
 use super::super::{Composer, l1_target_gas, posting::PostingQuote};
+use crate::composer::estimate::EstimateError;
 use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBlockState};
+
+mod diagnostics;
 
 pub(super) const MAX_SOURCE_GAS: u64 = revm::primitives::eip7825::TX_GAS_LIMIT_CAP;
 const MAX_CALLDATA: usize = 12 * 1024;
@@ -49,6 +52,13 @@ pub enum FeeQuoteError {
     InsufficientFunds(crate::SourceBalanceError),
     #[error("unsupported quote: {0}")]
     Unsupported(&'static str),
+    /// Execution details are exposed only by the debug quote projection.
+    #[error("unsupported quote: {summary}")]
+    Execution {
+        summary: &'static str,
+        stage: &'static str,
+        cause: Box<EstimateError>,
+    },
     #[error("quote unavailable: {0}")]
     Unavailable(&'static str),
     #[error("quote work limit: {0}")]
@@ -86,7 +96,7 @@ impl FeeQuoteError {
         match self {
             Self::Invalid(_) => "invalid_transaction",
             Self::InsufficientFunds(_) => "insufficient_funds",
-            Self::Unsupported(_) => "unsupported_transaction",
+            Self::Unsupported(_) | Self::Execution { .. } => "unsupported_transaction",
             Self::Unavailable(_) => "quote_unavailable",
             Self::Limit(_) => "quote_limit",
             Self::Stale | Self::SourceSnapshot { .. } => "stale_context",
@@ -123,6 +133,30 @@ impl FeeQuoteError {
                 "maxFeePerGas":format!("{cap:#x}"), "sourceBaseFeePerGas":format!("{base:#x}"),
             })),
             _ => None,
+        }
+    }
+
+    fn execution(summary: &'static str, stage: &'static str, cause: EstimateError) -> Self {
+        Self::Execution {
+            summary,
+            stage,
+            cause: Box::new(cause),
+        }
+    }
+
+    fn at_stage(self, stage: &'static str) -> Self {
+        match self {
+            Self::Unsupported(summary) => {
+                Self::execution(summary, stage, EstimateError::Unsupported(summary.into()))
+            }
+            error => error,
+        }
+    }
+
+    fn debug_diagnostics(&self) -> Option<Value> {
+        match self {
+            Self::Execution { stage, cause, .. } => diagnostics::execution(stage, cause),
+            _ => self.diagnostics(),
         }
     }
 }
@@ -895,12 +929,13 @@ where
             let simulated =
                 l2.simulate_source_env_on(tx_env.clone(), &mut builder, sim_state, sim_env, true);
             budget.check()?;
-            if !simulated
-                .map_err(|e| source_simulation_error(runtime.ctx.l2_chain_id, e))?
-                .success
-            {
-                return Err(FeeQuoteError::Unsupported(
+            let simulated =
+                simulated.map_err(|e| source_simulation_error(runtime.ctx.l2_chain_id, e))?;
+            if !simulated.success {
+                return Err(FeeQuoteError::execution(
                     "source validation or execution failed",
+                    "source_execution",
+                    EstimateError::Revert(simulated.output),
                 ));
             }
             if builder.recorded_count() == 0 {
@@ -908,7 +943,11 @@ where
                     .preview_unsigned(tx_env)
                     .map_err(|e| unavailable("ordinary L2 replay", e))?;
                 if !outcome.success {
-                    return Err(FeeQuoteError::Unsupported("ordinary L2 replay reverted"));
+                    return Err(FeeQuoteError::execution(
+                        "ordinary L2 replay reverted",
+                        "native_replay",
+                        EstimateError::Revert(outcome.output),
+                    ));
                 }
                 return Ok(document(
                     tip,
@@ -963,7 +1002,11 @@ where
                 }
                 .map_err(|e| unavailable("native L2 replay", e))?;
                 if !outcome.success {
-                    return Err(FeeQuoteError::Unsupported("native L2 replay reverted"));
+                    return Err(FeeQuoteError::execution(
+                        "native L2 replay reverted",
+                        "native_replay",
+                        EstimateError::Revert(outcome.output),
+                    ));
                 }
                 if is_source {
                     source_gas = Some(outcome.gas_used);

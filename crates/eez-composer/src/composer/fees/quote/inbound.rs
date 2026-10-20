@@ -111,7 +111,7 @@ where
                         budget: budget.clone(),
                     },
                 )
-                .map_err(compact::estimate_error)?;
+                .map_err(|error| compact::estimate_error_at("fee_simulation", error))?;
             budget.check()?;
             let (post_gas, blobs, da_bytes) = replay
                 .settlement

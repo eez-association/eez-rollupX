@@ -7,7 +7,7 @@ use alloy_network::TxSignerSync;
 use alloy_primitives::{Address, Bytes, TxKind, U256};
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_signer_local::PrivateKeySigner;
-use alloy_sol_types::SolCall;
+use alloy_sol_types::{SolCall, SolError};
 use eez_testkit::{
     INBOUND_USER, INestedSetterInner, INestedSetterOuter, IValue, NodeBinary, NodeConfig,
     NodeHandle, OUTBOUND_USER, TARGET_DEPLOYER, deploy_nested_setter_inner,
@@ -21,6 +21,7 @@ const TIMEOUT: Duration = Duration::from_mins(3);
 
 alloy_sol_types::sol! {
     interface FeeQuoteProbe {
+        function alwaysReverts() external pure;
         function gasSensitive() external view returns (uint256);
         function rejectsSettlementTip(address proxy) external;
     }
@@ -1357,6 +1358,84 @@ async fn l1_refund_roundtrip(legacy: bool) {
     let nonce = onchain_nonce(&world.l1_rpc(), INBOUND_USER).await.unwrap();
     let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(781) }.abi_encode());
     let client = reqwest::Client::new();
+    let artifact: Value = serde_json::from_slice(
+        &std::fs::read(
+            eez_testkit::repo_root().join("contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let bytecode: Bytes = artifact["bytecode"]["object"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let hash = sign_and_send(
+        &world.l1_rpc(),
+        TARGET_DEPLOYER,
+        chain,
+        onchain_nonce(&world.l1_rpc(), TARGET_DEPLOYER)
+            .await
+            .unwrap(),
+        None,
+        U256::ZERO,
+        bytecode.to_vec(),
+        1_000_000,
+    )
+    .await
+    .unwrap();
+    let receipt = wait_for(TIMEOUT, || async {
+        Ok(l1.get_transaction_receipt(hash).await?)
+    })
+    .await
+    .unwrap();
+    assert!(receipt.status());
+    let probe = receipt.contract_address.unwrap();
+    for supplied_gas in [false, true] {
+        let mut rejected = json!({"from":signer.address(),"to":probe,
+            "data":Bytes::from(FeeQuoteProbe::alwaysRevertsCall {}.abi_encode())});
+        if supplied_gas {
+            rejected["gas"] = json!("0x186a0");
+        }
+        let response = wait_for(TIMEOUT, || async {
+            let response = quote_rpc(
+                &client,
+                &world.l1_xchain(),
+                "eez_debugQuoteFee",
+                json!([rejected]),
+            )
+            .await?;
+            Ok((!quote_retry(&response)).then_some(response))
+        })
+        .await
+        .unwrap();
+        let result = &response["result"];
+        assert_eq!(result["options"].as_array().unwrap().len(), 2, "{response}");
+        for option in result["options"].as_array().unwrap() {
+            assert_eq!(option["error"]["code"], "unsupported_transaction");
+            assert!(option["error"].get("details").is_none());
+            assert!(option.get("gas").is_none());
+        }
+        for option in result["diagnostics"]["options"].as_array().unwrap() {
+            let details = &option["error"]["details"];
+            assert_eq!(details["reason"], "execution_reverted", "{response}");
+            assert_eq!(details["message"], "quote probe rejected");
+            assert_eq!(
+                details["revertData"],
+                json!(Bytes::from(
+                    alloy_sol_types::Revert::from("quote probe rejected").abi_encode()
+                ))
+            );
+            assert_eq!(
+                details["stage"],
+                if supplied_gas {
+                    "fee_simulation"
+                } else {
+                    "gas_estimation"
+                }
+            );
+        }
+    }
     let transaction = json!({"from":signer.address(),"to":outer,"data":data});
     let quote = wait_for(TIMEOUT, || async {
         let response = quote_rpc(
@@ -1647,7 +1726,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
             .unwrap();
         assert_eq!(response["error"]["code"], -32601);
     }
-    let call = |params: Value| {
+    let call = |method: &'static str, params: Value| {
         let client = client.clone();
         let url = world.l2_xchain();
         async move {
@@ -1656,7 +1735,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
                 let client = &client;
                 let url = &url;
                 async move {
-                    let response = quote_rpc(client, url, "eez_debugQuoteFee", params).await?;
+                    let response = quote_rpc(client, url, method, params).await?;
                     Ok((!quote_retry(&response)).then_some(response))
                 }
             })
@@ -1665,7 +1744,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         }
     };
     let before = l2_value(&world.l2_rpc(), world.value_l2).await.unwrap();
-    let quote = call(json!([transaction])).await;
+    let quote = call("eez_debugQuoteFee", json!([transaction])).await;
     assert!(quote.get("result").is_some(), "{quote}");
     assert!(quote["result"].get("recoveryMode").is_none());
     assert_eq!(quote["result"]["diagnostics"]["recoveryMode"], "advisory");
@@ -1688,13 +1767,13 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     ] {
         let mut bad = transaction.clone();
         bad[field] = value;
-        let response = call(json!([bad])).await;
+        let response = call("eez_debugQuoteFee", json!([bad])).await;
         assert_eq!(response["error"]["data"]["code"], code, "{response}");
     }
     let mut poor = transaction.clone();
     poor["from"] = json!(Address::repeat_byte(0x19));
     poor["value"] = json!("0x1");
-    let response = call(json!([poor])).await;
+    let response = call("eez_debugQuoteFee", json!([poor])).await;
     for option in response["result"]["options"]
         .as_array()
         .expect("per-variant funding error")
@@ -1706,7 +1785,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     }
     let mut short = transaction.clone();
     short["gas"] = json!("0x5208");
-    let response = call(json!([short])).await;
+    let response = call("eez_debugQuoteFee", json!([short])).await;
     for option in response["result"]["options"]
         .as_array()
         .expect("per-variant execution error")
@@ -1745,9 +1824,56 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     .unwrap();
     assert!(receipt.status());
     let probe = receipt.contract_address.unwrap();
+    let source_nonce = l2.get_transaction_count(signer.address()).await.unwrap();
+    let expected_revert =
+        Bytes::from(alloy_sol_types::Revert::from("quote probe rejected").abi_encode());
+    for supplied_gas in [false, true] {
+        let mut rejected = json!({"from":signer.address(),"to":probe,
+            "data":Bytes::from(FeeQuoteProbe::alwaysRevertsCall {}.abi_encode())});
+        if supplied_gas {
+            rejected["gas"] = json!("0x186a0");
+        }
+        for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
+            let response = call(method, json!([rejected])).await;
+            let result = &response["result"];
+            let options = result["options"].as_array().expect("failed variants");
+            assert_eq!(options.len(), 2, "{response}");
+            for option in options {
+                assert_eq!(
+                    option["error"]["code"], "unsupported_transaction",
+                    "{response}"
+                );
+                assert!(option["error"].get("details").is_none(), "{response}");
+                assert!(option.get("gas").is_none(), "failed option is not signable");
+            }
+            if method == "eez_debugQuoteFee" {
+                for detail in result["diagnostics"]["options"].as_array().unwrap() {
+                    let failure = &detail["error"]["details"];
+                    assert_eq!(failure["reason"], "execution_reverted", "{response}");
+                    assert_eq!(failure["message"], "quote probe rejected");
+                    assert_eq!(failure["revertData"], json!(expected_revert));
+                    assert_eq!(failure["revertDataTruncated"], false);
+                    assert_eq!(
+                        failure["stage"],
+                        if supplied_gas {
+                            "source_execution"
+                        } else {
+                            "gas_estimation"
+                        }
+                    );
+                }
+            } else {
+                assert!(result.get("diagnostics").is_none(), "{response}");
+            }
+        }
+    }
     let sensitive = json!({"from":signer.address(),"to":probe,
         "data":Bytes::from(FeeQuoteProbe::gasSensitiveCall {}.abi_encode())});
-    let response = call(json!([sensitive, {"transactionTypes":["0x2"]}])).await;
+    let response = call(
+        "eez_debugQuoteFee",
+        json!([sensitive, {"transactionTypes":["0x2"]}]),
+    )
+    .await;
     assert_eq!(response["result"]["options"].as_array().unwrap().len(), 1);
     assert_eq!(
         response["result"]["options"][0]["gas"], "0x1000000",
@@ -1755,7 +1881,7 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     );
     let sensitive = json!({"from":signer.address(),"to":probe,
         "data":Bytes::from(FeeQuoteProbe::rejectsSettlementTipCall {proxy:world.outbound_proxy}.abi_encode())});
-    let response = call(json!([sensitive])).await;
+    let response = call("eez_debugQuoteFee", json!([sensitive])).await;
     for option in response["result"]["options"]
         .as_array()
         .expect("per-variant fee-dependent rejection")
@@ -1765,4 +1891,21 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
             "must replay final price: {response}"
         );
     }
+    for diagnostic in response["result"]["diagnostics"]["options"]
+        .as_array()
+        .unwrap()
+    {
+        let details = &diagnostic["error"]["details"];
+        assert_eq!(details["reason"], "execution_reverted", "{response}");
+        assert_eq!(details["stage"], "source_execution", "{response}");
+        assert_eq!(details["message"], "positive tip rejected", "{response}");
+    }
+    assert_eq!(
+        l2.get_transaction_count(signer.address()).await.unwrap(),
+        source_nonce
+    );
+    assert_eq!(
+        l2_value(&world.l2_rpc(), world.value_l2).await.unwrap(),
+        before
+    );
 }

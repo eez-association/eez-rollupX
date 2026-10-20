@@ -1328,6 +1328,40 @@ diagnostics use `estimate.basis = "ordinary_l2"` and zero `requiredL2Tip`; they 
 not invent L1 cost components. Debug is a projection of the same calculation,
 not a trace. Separate calls can select different contexts and need not be equal.
 
+For a failed execution variant, only `diagnostics.options[].error.details`
+adds the available execution cause:
+
+```json
+{
+  "reason": "execution_reverted",
+  "stage": "gas_estimation",
+  "message": "order expired",
+  "messageTruncated": false,
+  "revertData": "0x…",
+  "revertDataLength": 100,
+  "revertDataTruncated": false
+}
+```
+
+The example bytes and length are illustrative. `reason` is `execution_reverted`,
+`effects_mismatch` or `unsupported_execution`. `stage` identifies the quote pass:
+`gas_estimation`, `fee_simulation`, `source_execution`, `native_replay` or
+`final_validation`; it does not identify a nested call's address or depth.
+The latter two reasons retain the estimator's explanation without revert-data
+fields. Reverts retain at most 4096 bytes as hex, the original byte length as a
+JSON number, and an explicit truncation flag. Complete payloads within that bound
+are decoded as standard Solidity `Error(string)` or `Panic(uint256)` when valid.
+Custom, empty, malformed or oversized payloads use `execution reverted` and
+retain the bounded raw bytes; no custom ABI or failing contract is inferred.
+Messages are capped at 512 UTF-8 bytes, without splitting a character.
+Backend/provider failures remain operational errors, without provider details.
+
+The top-level `options` remain the compact projection, including inside debug
+responses: execution failures keep `unsupported_transaction` and no execution
+details or signable wallet fields. Funding diagnostics described above remain
+available in both projections. Debug formatting does not change quote execution,
+retry categories, fee enforcement, source nonces or queue ownership.
+
 Both methods share the bounded quote worker pool. Signed tariff checks have
 separate capacity; both lanes use a ten-second request budget. Per type, at most three gas discovery probes, four
 pricing iterations and one final validation probe run
@@ -1374,6 +1408,12 @@ the new details when available. Successful quote fields and request bindings are
 unchanged. Composer can be upgraded or rolled back independently for this
 correction; no protocol, signer, storage, configuration or historical-replay
 migration is needed. Rollback loses the improved diagnostics, not fee enforcement.
+
+Execution diagnostics are also additive and need only a Composer upgrade.
+Clients must tolerate absent details from an older Composer and treat displayed
+contract messages as untrusted text. Successful options and bindings are
+unchanged. Rolling back removes execution details; it does not change historical
+decoding, follower replay, signer behavior, configuration or storage.
 
 ## Unsigned L2 fee quotes
 

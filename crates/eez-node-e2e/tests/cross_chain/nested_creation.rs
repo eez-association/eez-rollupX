@@ -1,8 +1,12 @@
 //! A nested callback's newly created account must be callable by the original
 //! suspended L2 source frame. The factory returns the actual child address.
 
-use alloy_primitives::{Address, B256, Bytes, U256};
+use alloy_consensus::{TxEip1559, TypedTransaction};
+use alloy_eips::Encodable2718;
+use alloy_network::TxSignerSync;
+use alloy_primitives::{Address, B256, Bytes, TxKind, U256};
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_signer_local::PrivateKeySigner;
 use alloy_sol_types::{SolCall, SolError, sol};
 use eez_testkit::{
     CrossChainWorld, NativeL1Profile, OUTBOUND_USER, SETTLE_TIMEOUT, TARGET_DEPLOYER, call_read,
@@ -86,9 +90,141 @@ async fn terminal_status(world: &CrossChainWorld, hash: B256) -> Value {
     })
 }
 
-async fn nested_creation(deterministic: bool) {
-    let profile = NativeL1Profile::GnosisPrague;
-    let world = setup_cross_chain_with_profile(profile, &[]).await.unwrap();
+async fn submit_source(
+    world: &CrossChainWorld,
+    caller: Address,
+    data: Vec<u8>,
+    quoted: bool,
+) -> B256 {
+    let nonce = onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap();
+    if !quoted {
+        return sign_and_send(
+            &world.l2_xchain(),
+            OUTBOUND_USER,
+            world.l2_chain_id,
+            nonce,
+            Some(caller),
+            U256::ZERO,
+            data,
+            2_000_000,
+        )
+        .await
+        .unwrap();
+    }
+    let signer: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
+    let transaction = json!({
+        "from": signer.address(), "to": caller, "data": Bytes::from(data.clone()),
+        "value": "0x0", "chainId": format!("{:#x}", world.l2_chain_id),
+    });
+    let client = reqwest::Client::new();
+    let mut evidence = Vec::new();
+    let mut selected = Value::Null;
+    // Exercise both the internal estimator and the explicit-gas path before
+    // signing the compact response. None of these calls may consume a nonce.
+    for gas in [Some(2_000_000_u64), None] {
+        let mut request = transaction.clone();
+        if let Some(gas) = gas {
+            request["gas"] = json!(format!("{gas:#x}"));
+        }
+        for method in ["eez_debugQuoteFee", "eez_quoteFee"] {
+            let response = wait_for(SETTLE_TIMEOUT, || async {
+                let response: Value = client
+                    .post(world.l2_xchain())
+                    .json(&json!({
+                        "jsonrpc": "2.0", "id": 1, "method": method,
+                        "params": [request, {"transactionTypes": ["0x2"]}],
+                    }))
+                    .send()
+                    .await?
+                    .json()
+                    .await?;
+                if matches!(
+                    response["error"]["data"]["code"].as_str(),
+                    Some("stale_context" | "quote_unavailable" | "quote_busy")
+                ) {
+                    return Ok(None);
+                }
+                Ok(Some(response))
+            })
+            .await
+            .unwrap();
+            evidence.push(json!({"method":method, "gas":gas, "response":response}));
+            if let Some(dir) = std::env::var_os("EEZ_TEST_LOG_DIR") {
+                std::fs::write(
+                    std::path::Path::new(&dir).join(format!("nested-creation-fees-{nonce}.json")),
+                    serde_json::to_vec_pretty(&evidence).unwrap(),
+                )
+                .unwrap();
+            }
+            let result = &response["result"];
+            let option = &result["options"][0];
+            assert!(result.is_object(), "{response}");
+            assert_eq!(result["nonce"], format!("{nonce:#x}"), "{response}");
+            assert_eq!(option["type"], "0x2", "{response}");
+            assert!(option.get("error").is_none(), "{response}");
+            assert!(option["gas"].as_str().is_some(), "{response}");
+            assert!(option["maxPriorityFeePerGas"].as_str().is_some());
+            if method == "eez_debugQuoteFee" {
+                assert_eq!(result["diagnostics"]["recoveryMode"], "enforced_tariff");
+            }
+            selected = result.clone();
+        }
+    }
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), OUTBOUND_USER).await.unwrap(),
+        nonce,
+        "quotes must not consume the source nonce"
+    );
+    let option = &selected["options"][0];
+    let quantity = |key: &str| {
+        u128::from_str_radix(option[key].as_str().unwrap().trim_start_matches("0x"), 16).unwrap()
+    };
+    let mut transaction: TypedTransaction = TxEip1559 {
+        chain_id: world.l2_chain_id,
+        nonce,
+        gas_limit: u64::try_from(quantity("gas")).unwrap(),
+        max_fee_per_gas: quantity("maxFeePerGas"),
+        max_priority_fee_per_gas: quantity("maxPriorityFeePerGas"),
+        to: TxKind::Call(caller),
+        value: U256::ZERO,
+        input: data.into(),
+        ..Default::default()
+    }
+    .into();
+    let signature = signer.sign_transaction_sync(&mut transaction).unwrap();
+    let signed = transaction.into_envelope(signature);
+    let front = ProviderBuilder::new().connect_http(world.l2_xchain().parse().unwrap());
+    *front
+        .send_raw_transaction(&signed.encoded_2718())
+        .await
+        .unwrap()
+        .tx_hash()
+}
+
+async fn nested_creation(deterministic: bool, quoted: bool) {
+    let profile = if quoted {
+        NativeL1Profile::EthereumOsaka
+    } else {
+        NativeL1Profile::GnosisPrague
+    };
+    let settings = if quoted {
+        crate::settlement_policy_cost::fee_settings(
+            &crate::settlement_policy_cost::shadow_pricing_policy(),
+            &[
+                ("EEZ_FEES_L2_TO_L1_ENABLED", "true".into()),
+                ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+                (
+                    "RUST_LOG",
+                    "info,eez_composer::composer::fees::quote=debug".into(),
+                ),
+            ],
+        )
+    } else {
+        Vec::new()
+    };
+    let world = setup_cross_chain_with_profile(profile, &settings)
+        .await
+        .unwrap();
     let l1_rpc = world.l1_rpc();
     let l2_rpc = world.l2_rpc();
     let l1 = ProviderBuilder::new().connect_http(l1_rpc.parse().unwrap());
@@ -152,13 +288,9 @@ async fn nested_creation(deterministic: bool) {
         "relayProxy":relay_proxy,"factoryProxy":factory_proxy,"existingChild":existing});
 
     for fresh in [false, true] {
-        let hash = sign_and_send(
-            &world.l2_xchain(),
-            OUTBOUND_USER,
-            world.l2_chain_id,
-            onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap(),
-            Some(caller),
-            U256::ZERO,
+        let hash = submit_source(
+            &world,
+            caller,
             Caller::createAndUseCall {
                 relayProxy: relay_proxy,
                 factoryProxy: factory_proxy,
@@ -167,10 +299,9 @@ async fn nested_creation(deterministic: bool) {
                 salt: B256::repeat_byte(0x42),
             }
             .abi_encode(),
-            2_000_000,
+            quoted,
         )
-        .await
-        .unwrap();
+        .await;
         let status = terminal_status(&world, hash).await;
         let case = if fresh { "fresh" } else { "existing" };
         evidence[case] = status.clone();
@@ -239,13 +370,9 @@ async fn nested_creation(deterministic: bool) {
 
     let factory_nonce = l2.get_transaction_count(factory).await.unwrap();
     let expected_second = factory.create(factory_nonce + 1);
-    let hash = sign_and_send(
-        &world.l2_xchain(),
-        OUTBOUND_USER,
-        world.l2_chain_id,
-        onchain_nonce(&l2_rpc, OUTBOUND_USER).await.unwrap(),
-        Some(caller),
-        U256::ZERO,
+    let hash = submit_source(
+        &world,
+        caller,
         Caller::createUseAndReenterCall {
             relayProxy: relay_proxy,
             factoryProxy: factory_proxy,
@@ -254,10 +381,9 @@ async fn nested_creation(deterministic: bool) {
             salt: B256::repeat_byte(0x43),
         }
         .abi_encode(),
-        2_000_000,
+        quoted,
     )
-    .await
-    .unwrap();
+    .await;
     let status = terminal_status(&world, hash).await;
     evidence["reentry"] = status.clone();
     evidence["expectedSecondChild"] = json!(expected_second);
@@ -312,10 +438,15 @@ async fn nested_creation(deterministic: bool) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_create_visible_after_nested_return() {
-    nested_creation(false).await;
+    nested_creation(false, false).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn gnosis_create2_visible_after_nested_return() {
-    nested_creation(true).await;
+    nested_creation(true, false).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ethereum_nested_create2_fee_quotes_settle_and_replay() {
+    nested_creation(true, true).await;
 }

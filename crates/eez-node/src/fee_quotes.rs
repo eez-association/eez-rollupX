@@ -230,6 +230,7 @@ fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
     let status = match err {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
         FeeQuoteError::Unsupported(_)
+        | FeeQuoteError::Execution { .. }
         | FeeQuoteError::InsufficientFunds(_)
         | FeeQuoteError::Limit(_)
         | FeeQuoteError::Underfunded(_)

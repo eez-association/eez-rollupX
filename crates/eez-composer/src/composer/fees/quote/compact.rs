@@ -102,7 +102,11 @@ pub struct PreparedCompactFeeQuote {
 }
 
 pub(super) fn estimate_error(error: EstimateError) -> FeeQuoteError {
-    tracing::debug!(%error, "compact quote estimation failed");
+    estimate_error_at("gas_estimation", error)
+}
+
+pub(super) fn estimate_error_at(stage: &'static str, error: EstimateError) -> FeeQuoteError {
+    tracing::debug!(%error, stage, "compact quote estimation failed");
     match error {
         EstimateError::ContextChanged => FeeQuoteError::Stale,
         EstimateError::SettlementPending => {
@@ -112,7 +116,11 @@ pub(super) fn estimate_error(error: EstimateError) -> FeeQuoteError {
         EstimateError::Invalid(_) => FeeQuoteError::Invalid("gas estimation input"),
         EstimateError::InsufficientFunds(balance) => FeeQuoteError::InsufficientFunds(balance),
         EstimateError::Unsupported(_) | EstimateError::Revert(_) | EstimateError::Effects(_) => {
-            FeeQuoteError::Unsupported("gas estimation or final effect validation failed")
+            FeeQuoteError::execution(
+                "gas estimation or final effect validation failed",
+                stage,
+                error,
+            )
         }
         EstimateError::Unavailable(_) => FeeQuoteError::Unavailable("gas estimation"),
     }
@@ -212,7 +220,9 @@ where
                         transaction = request.resolve(chain, nonce, gas, ty)?;
                     }
                     prepared.request = transaction;
-                    let mut detail = self.quote_in_context(&prepared, &snapshot, &budget)?;
+                    let mut detail = self
+                        .quote_in_context(&prepared, &snapshot, &budget)
+                        .map_err(|error| error.at_stage("fee_simulation"))?;
                     budget.check()?;
                     let tx = &detail["transaction"];
                     let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
@@ -228,15 +238,19 @@ where
                                 prepared.request.env(tip, cap),
                                 budget.deadline,
                             )
-                            .map_err(estimate_error)?
+                            .map_err(|error| estimate_error_at("final_validation", error))?
                     } else {
                         detail["estimate"]["sourceGasUsed"]
                             .as_u64()
                             .ok_or(FeeQuoteError::Unavailable("L1 receipt gas"))?
                     };
                     if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
-                        return Err(FeeQuoteError::Unsupported(
+                        return Err(FeeQuoteError::execution(
                             "final native gas differs from priced execution",
+                            "final_validation",
+                            EstimateError::Effects(
+                                "final native gas differs from priced execution".into(),
+                            ),
                         ));
                     }
                     detail["issuedAt"] = json!(issued);
@@ -252,18 +266,17 @@ where
                     // return a successful option after infrastructure/context failure.
                     Err(
                         error @ (FeeQuoteError::Unsupported(_)
+                        | FeeQuoteError::Execution { .. }
                         | FeeQuoteError::Invalid(_)
                         | FeeQuoteError::InsufficientFunds(_)
                         | FeeQuoteError::Underfunded(_)
                         | FeeQuoteError::L1Underfunded(_)
                         | FeeQuoteError::SourceFeeCap { .. }),
                     ) => {
-                        let mut failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
-                        if let Some(details) = error.diagnostics() {
-                            failed["error"]["details"] = details;
+                        options.push(failed_option(ty, &error, false));
+                        if debug {
+                            diagnostics.push(failed_option(ty, &error, true));
                         }
-                        options.push(failed.clone());
-                        diagnostics.push(failed);
                     }
                     Err(error) => return Err(error),
                 }
@@ -290,6 +303,19 @@ where
         self.validate_fee_context(&prepared, &parent)?;
         result
     }
+}
+
+fn failed_option(ty: u8, error: &FeeQuoteError, debug: bool) -> Value {
+    let mut failed = json!({"type":format!("{ty:#x}"), "error":{"code":error.code(), "message":error.to_string()}});
+    let details = if debug {
+        error.debug_diagnostics()
+    } else {
+        error.diagnostics()
+    };
+    if let Some(details) = details {
+        failed["error"]["details"] = details;
+    }
+    failed
 }
 
 fn price(tx: &Value, key: &str) -> Result<u128, FeeQuoteError> {
@@ -328,6 +354,74 @@ mod tests {
 
     fn transaction() -> Value {
         json!({"from":Address::repeat_byte(0x11), "to":Address::repeat_byte(0x22)})
+    }
+
+    #[test]
+    fn failed_options_preserve_execution_cause_only_in_debug_projection() {
+        use alloy_sol_types::{Revert, SolError};
+
+        for (stage, cause, reason, message) in [
+            (
+                "gas_estimation",
+                EstimateError::Revert(Revert::from("order expired").abi_encode().into()),
+                "execution_reverted",
+                "order expired",
+            ),
+            (
+                "final_validation",
+                EstimateError::Effects("return bytes differ".into()),
+                "effects_mismatch",
+                "return bytes differ",
+            ),
+            (
+                "fee_simulation",
+                EstimateError::Unsupported("unsupported call shape".into()),
+                "unsupported_execution",
+                "unsupported call shape",
+            ),
+        ] {
+            let error = estimate_error_at(stage, cause);
+            for ty in [0, 2] {
+                let compact = failed_option(ty, &error, false);
+                let debug = failed_option(ty, &error, true);
+                assert_eq!(compact["error"]["code"], "unsupported_transaction");
+                assert_eq!(compact["error"]["message"], debug["error"]["message"]);
+                assert!(compact["error"].get("details").is_none());
+                assert!(compact.get("gas").is_none());
+                assert_eq!(debug["error"]["details"]["stage"], stage);
+                assert_eq!(debug["error"]["details"]["reason"], reason);
+                assert_eq!(debug["error"]["details"]["message"], message);
+            }
+        }
+        let error = FeeQuoteError::Unsupported("withdrawal shape").at_stage("fee_simulation");
+        assert_eq!(
+            error.debug_diagnostics().unwrap()["message"],
+            "withdrawal shape"
+        );
+    }
+
+    #[test]
+    fn diagnostic_projection_preserves_operational_and_funding_errors() {
+        let error = estimate_error(EstimateError::Unavailable("private provider detail".into()));
+        let debug = failed_option(2, &error, true);
+        assert_eq!(debug["error"]["code"], "quote_unavailable");
+        assert!(!debug.to_string().contains("private provider detail"));
+        assert!(debug["error"].get("details").is_none());
+        for (error, code) in [
+            (EstimateError::ContextChanged, "stale_context"),
+            (EstimateError::SettlementPending, "quote_unavailable"),
+            (EstimateError::Timeout, "quote_limit"),
+        ] {
+            assert_eq!(estimate_error(error).code(), code);
+        }
+        let error = FeeQuoteError::SourceFeeCap {
+            cap: 1,
+            base: 2,
+            chain_id: 1,
+        };
+        let compact = failed_option(2, &error, false);
+        assert_eq!(compact, failed_option(2, &error, true));
+        assert_eq!(compact["error"]["details"]["reason"], "source_base_fee");
     }
 
     #[test]

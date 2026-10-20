@@ -101,6 +101,31 @@ settlement tips retain their distinct errors. The owning
 [API contract](../configurable-settlement-policy.md#compact-fee-quotes) describes
 the additive error fields and mixed-version behavior.
 
+## Execution failure diagnostics (accepted correction, 2026-10-20)
+
+The [issue #93](https://github.com/eez-association/eez-rollupX/issues/93) review
+confirmed that quote error conversion discarded estimator reverts, effect
+mismatches and unsupported-execution reasons. An isolated process regression
+against `51ef1ba08d5c506c8909bc8be2e16e8d25c0a7a8` reproduced the missing
+revert details from a contract with a known `Error(string)` payload.
+This does not establish the cause of the reported GPv2 transaction failure.
+
+Preserve the typed execution cause and quote pass until debug projection.
+Expose bounded revert bytes and messages only in diagnostic failed options.
+Keep the compact response, operational retry categories, funding diagnostics,
+execution rules and final signed validation unchanged. The
+[API contract](../configurable-settlement-policy.md#compact-fee-quotes) defines
+the fields, bounds and mixed-version behavior. This is not an execution trace;
+it does not promise identification of the failing nested contract.
+
+Acceptance: repeat the baseline process check with both transaction types,
+supplied and omitted gas, and a contract that reverts only after pricing.
+Assert unchanged canonical nonce/state. Test empty, custom, malformed and
+oversized revert payloads, UTF-8 truncation, effect mismatches, unsupported
+execution and provider-error redaction. Retain fee-enabled nested CREATE2
+coverage with native settlement and independent follower replay. The original
+GPv2 route still requires its exact failing transaction to reproduce.
+
 ## Simplified pricing and availability (accepted scope, 2026-10-15)
 
 The operator requested implementation, testing and deployment of the following
