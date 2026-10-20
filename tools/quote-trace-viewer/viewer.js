@@ -2,6 +2,9 @@
 (() => {
   "use strict";
   const api = globalThis.EEZQuoteTrace;
+  if (new URLSearchParams(location.search).get("embedded") === "1") {
+    document.body.classList.add("embedded");
+  }
   const $ = id => document.getElementById(id);
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -10,6 +13,7 @@
     return node;
   };
   let model, run, index, selected, expanded = new Set();
+  let importSequence = 0;
   const short = address => address ? `${address.slice(0, 10)}…${address.slice(-6)}` : "—";
   const chain = id => id === model.trace.context.l1ChainId ? "L1" :
     id === model.trace.context.l2ChainId ? "L2" : api.decimal(id);
@@ -147,13 +151,20 @@
 
   async function file(file) {
     if (!file) return;
+    const sequence = ++importSequence;
     $("workspace").hidden = true;
     $("download").hidden = true;
     if (file.size > api.MAX_IMPORT_BYTES) { error("Import exceeds 8 MiB"); return; }
-    try { load(await file.text()); } catch (failure) { error(failure.message); }
+    try {
+      const text = await file.text();
+      // A newer file selection or paste owns the displayed result.
+      if (sequence === importSequence) load(text);
+    } catch (failure) {
+      if (sequence === importSequence) error(failure.message);
+    }
   }
   $("file").addEventListener("change", event => file(event.target.files[0]));
-  $("load").addEventListener("click", () => load($("json").value));
+  $("load").addEventListener("click", () => { importSequence++; load($("json").value); });
   $("runs").addEventListener("change", () => selectRun(Number($("runs").value)));
   $("search").addEventListener("input", drawTree);
   $("expand").addEventListener("click", () => { if (run) { expanded = new Set(run.frames.map(frame => frame.id)); drawTree(); } });

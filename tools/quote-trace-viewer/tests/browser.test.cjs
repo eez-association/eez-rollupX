@@ -69,3 +69,52 @@ test("imports local JSON, navigates nested failures and exports without network 
     assert.deepEqual(requests, []);
   } finally { await browser.close(); }
 });
+
+test("embedded viewer supports keyboard import and ignores superseded file reads", async () => {
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    const url = pathToFileURL(path.join(__dirname, "../index.html"));
+    url.search = "?embedded=1";
+    await page.goto(url.href);
+    assert.equal(await page.locator("body > header").isVisible(), false);
+    await page.locator("#file").focus();
+    const chooser = page.waitForEvent("filechooser");
+    await page.keyboard.press("Enter");
+    await (await chooser).setFiles(path.join(__dirname, "../examples/nested-revert.json"));
+    await page.locator("#workspace").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#quote-status").textContent(), "Quote failed");
+
+    await page.evaluate(() => {
+      const original = File.prototype.text;
+      globalThis.pendingReads = [];
+      File.prototype.text = function () {
+        if (!this.name.startsWith("delayed")) return original.call(this);
+        return new Promise((resolve, reject) => globalThis.pendingReads.push({ resolve, reject }));
+      };
+    });
+    const delayed = name => page.locator("#file").setInputFiles({
+      name, mimeType: "application/json", buffer: Buffer.from("{}"),
+    });
+    await delayed("delayed-first.json");
+    await page.waitForFunction(() => globalThis.pendingReads.length === 1);
+    const latest = fixture();
+    latest.result.diagnostics.trace.truncated = true;
+    await page.locator("#file").setInputFiles({
+      name: "latest.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(latest)),
+    });
+    await page.locator("#warning").waitFor({ state: "visible" });
+    await page.evaluate(text => globalThis.pendingReads[0].resolve(text), JSON.stringify(fixture()));
+    assert.equal(await page.locator("#warning").isVisible(), true, "an older file must not replace a newer import");
+
+    await delayed("delayed-second.json");
+    await page.waitForFunction(() => globalThis.pendingReads.length === 2);
+    await page.getByText("Paste JSON instead", { exact: true }).click();
+    await page.locator("#json").fill(JSON.stringify(fixture()));
+    await page.locator("#load").click();
+    await page.evaluate(() => globalThis.pendingReads[1].reject(new Error("old read failed")));
+    assert.equal(await page.locator("#workspace").isVisible(), true);
+    assert.equal(await page.locator("#warning").isVisible(), false);
+    assert.equal(await page.locator("#error").isVisible(), false, "a superseded read error must not replace pasted input");
+  } finally { await browser.close(); }
+});

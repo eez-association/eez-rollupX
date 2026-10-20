@@ -138,3 +138,16 @@ Early validation caught and corrected the following implementation/test issues:
 Compilation errors, lint findings and these first failures are retained in the
 local logs. A pass following a code/test correction is not evidence that an
 unchanged flaky test passed reliably.
+
+## Dashboard integration follow-up
+
+The user requested dashboard reuse and a cleanup review after PR #97 opened.
+The viewer now has an embedded layout, a keyboard-accessible file picker, and
+an import sequence guard: a slow earlier file or its read error cannot replace
+a newer file/pasted result. Two Chromium tests passed, including the same nine
+final runtime exports and controlled out-of-order file reads
+(`/tmp/eez-quote-trace-browser-cleanup.log`, local-only).
+The Rust implementation and its tested source patch are unchanged.
+The dashboard bundles the committed static assets from this repository rather
+than maintaining a separate renderer; its browser integration is validated in
+the dashboard checkout.

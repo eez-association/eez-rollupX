@@ -15,6 +15,14 @@ JSON-RPC response, its `result`, or the `diagnostics.trace` object alone. The la
 form has no quote outcome; the viewer explicitly says so. Imports are limited
 to 8 MiB and require trace version 1.
 
+The dashboard can bundle these same static assets and load
+`index.html?embedded=1` in an iframe with `sandbox="allow-scripts allow-downloads"`.
+Embedded mode hides the standalone brand header. Keep the sandbox's origin
+isolation and the viewer's content policy so imports cannot access dashboard
+wallet state or make network requests. No parent-page messaging is required.
+The file picker is keyboard accessible. If file reads overlap, only the most
+recent import or paste can update the displayed result.
+
 For a recorded example, import [nested-revert.json](examples/nested-revert.json).
 It comes from the local nested-call process test on 2026-10-20 using Composer
 SHA-256 `cc1378765533dd14952905e716b43bc9a17d0a346e2daf026a4e23af7e465820`
