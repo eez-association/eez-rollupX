@@ -1334,17 +1334,20 @@ async fn l1_refund_roundtrip(legacy: bool) {
     policy["risk_bps"] = json!(0);
     policy["profit_bps"] = json!(2000);
     let recipient = Address::repeat_byte(0x97);
-    let world = setup_cross_chain_with_env(&crate::settlement_policy_cost::fee_settings(
-        &policy,
-        &[
-            ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
-            ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
-            ("EEZ_FEES_L1_REFUND_RECIPIENT", recipient.to_string()),
-            ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
-            ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
-            ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
-        ],
-    ))
+    let world = eez_testkit::setup_cross_chain_with_profile_and_rpc_faults(
+        eez_testkit::NativeL1Profile::default(),
+        &crate::settlement_policy_cost::fee_settings(
+            &policy,
+            &[
+                ("EEZ_FEES_L1_TO_L2_ENABLED", "true".into()),
+                ("EEZ_FEES_L1_REFUND_PERCENT", "90".into()),
+                ("EEZ_FEES_L1_REFUND_RECIPIENT", recipient.to_string()),
+                ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+                ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+                ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
+            ],
+        ),
+    )
     .await
     .unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
@@ -1360,6 +1363,10 @@ async fn l1_refund_roundtrip(legacy: bool) {
     let nonce = onchain_nonce(&world.l1_rpc(), INBOUND_USER).await.unwrap();
     let data = Bytes::from(INestedSetterOuter::setViaInnerCall { v: U256::from(781) }.abi_encode());
     let client = reqwest::Client::new();
+    // Keep the quote snapshot behind the deployment while L1 continues mining.
+    // A receipt alone does not make the probe visible to advisory simulation.
+    wait_for_l1_quote_parent(&world, &client, 0).await;
+    world.fail_rpc_methods(&["eth_getLogs"]).unwrap();
     let artifact: Value = serde_json::from_slice(
         &std::fs::read(
             eez_testkit::repo_root().join("contracts/out/FeeQuoteProbe.sol/FeeQuoteProbe.json"),
@@ -1393,6 +1400,43 @@ async fn l1_refund_roundtrip(legacy: bool) {
     .unwrap();
     assert!(receipt.status());
     let probe = receipt.contract_address.unwrap();
+    let deployment_block = receipt.block_number.unwrap();
+    let parent = wait_for_l1_quote_parent(&world, &client, 0).await;
+    assert!(parent.number < deployment_block);
+    let old_code = quote_rpc(
+        &client,
+        &world.l1_rpc(),
+        "eth_getCode",
+        json!([probe, {"blockHash": parent.hash}]),
+    )
+    .await
+    .unwrap();
+    assert_eq!(old_code["result"], "0x", "{old_code}");
+    let deployed_code = quote_rpc(
+        &client,
+        &world.l1_rpc(),
+        "eth_getCode",
+        json!([probe, {"blockHash": receipt.block_hash.unwrap()}]),
+    )
+    .await
+    .unwrap();
+    assert_ne!(deployed_code["result"].as_str().unwrap(), "0x");
+    eprintln!(
+        "probe deployment={deployment_block}, quote parent={parent:?}, old code={}, deployed code bytes={}",
+        old_code["result"],
+        (deployed_code["result"].as_str().unwrap().len() - 2) / 2,
+    );
+    let mut ready = Box::pin(wait_for_l1_quote_parent(&world, &client, deployment_block));
+    let l1_rpc = world.l1_rpc();
+    tokio::select! {
+        _ = &mut ready => panic!("quote readiness advanced while L1 scans were blocked"),
+        result = eez_testkit::wait_for_l1_blocks(&l1_rpc, deployment_block + 1, TIMEOUT) => {
+            result.unwrap();
+        }
+    }
+    world.fail_rpc_methods(&[]).unwrap();
+    let ready_parent = ready.await;
+    eprintln!("probe visible to quote parent={ready_parent:?}");
     for supplied_gas in [false, true] {
         let mut rejected = json!({"from":signer.address(),"to":probe,
             "data":Bytes::from(FeeQuoteProbe::alwaysRevertsCall {}.abi_encode())});
@@ -1692,6 +1736,43 @@ async fn l1_refund_roundtrip(legacy: bool) {
         U256::from(781),
         "failed source cannot create a canonical remote effect"
     );
+}
+
+async fn wait_for_l1_quote_parent(
+    world: &eez_testkit::CrossChainWorld,
+    client: &reqwest::Client,
+    minimum_block: u64,
+) -> eez_l1::L1BlockRef {
+    // Rejected probe quotes have no context. Quote the established proxy to
+    // observe the completed scan, resolving the inbound diagnostic's parent hash.
+    // Only availability errors and an older parent are retryable here.
+    let signer: PrivateKeySigner = INBOUND_USER.parse().unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    wait_for(TIMEOUT, || async {
+        let response = quote_rpc(
+            client,
+            &world.l1_xchain(),
+            "eez_debugQuoteFee",
+            json!([{
+                "from": signer.address(),
+                "to": world.setter_proxy,
+                "data": Bytes::from(IValue::setValueCall { v: U256::from(781) }.abi_encode())
+            }, {"transactionTypes": ["0x2"]}]),
+        )
+        .await?;
+        if quote_retry(&response) {
+            return Ok(None);
+        }
+        assert!(response.get("error").is_none(), "{response}");
+        let option = &response["result"]["diagnostics"]["options"][0];
+        assert!(option.get("error").is_none(), "{response}");
+        let hash = serde_json::from_value(option["context"]["l1ParentHash"].clone()).unwrap();
+        let block = l1.get_block_by_hash(hash).await?.unwrap();
+        let number = block.header.number;
+        Ok((number >= minimum_block).then_some(eez_l1::L1BlockRef { number, hash }))
+    })
+    .await
+    .unwrap()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
