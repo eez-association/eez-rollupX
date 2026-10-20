@@ -14,8 +14,9 @@ Then visit `http://127.0.0.1:8000`. The file picker accepts either the entire
 JSON-RPC response, its `result`, or the `diagnostics.trace` object alone. Failed
 quotes can retain a partial export at `error.data.trace`; import that error
 response or the trace object alone. The viewer displays the quote failure and
-the calls observed before it, without treating them as a successful quote. The last
-form has no quote outcome; the viewer explicitly says so. Imports are limited
+the calls observed before it, without treating them as a successful quote.
+Standalone traces without failure metadata have no quote outcome; the viewer
+explicitly says so. Imports are limited
 to 8 MiB and require trace version 1.
 
 The dashboard can bundle these same static assets and load
@@ -46,6 +47,18 @@ COMPOSER_RPC='https://YOUR_HOST/composer/l2'
 TX='{"from":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222","data":"0x","value":"0x0"}'
 cast rpc --rpc-url "$COMPOSER_RPC" eez_debugQuoteFee "$TX" \
   '{"transactionTypes":["0x2"],"trace":"calls"}' > quote-trace.json
+```
+
+To retain a whole-request RPC error and its partial trace as importable JSON,
+save the raw HTTP response. `cast` may print an RPC error to stderr instead of
+writing a JSON result to the redirected file:
+
+```bash
+jq -n --argjson tx "$TX" \
+  '{jsonrpc:"2.0",id:1,method:"eez_debugQuoteFee",params:[$tx,{transactionTypes:["0x2"],trace:"calls"}]}' |
+  curl --silent --show-error --max-time 60 "$COMPOSER_RPC" \
+    -H 'content-type: application/json' --data-binary @- \
+    --output quote-trace.json
 ```
 
 `gas` and `nonce` remain optional. Request `["0x0"]` for legacy, or omit

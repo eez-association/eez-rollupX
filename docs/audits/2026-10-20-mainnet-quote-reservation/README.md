@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Date and status | 2026-10-20 UTC; live failures reproduced, correction implemented; follow-up validation below; no deployment performed |
+| Date and status | 2026-10-20 UTC; both failures reproduced and fixed, affected native regressions passed with infrastructure retries documented below; full CI still pending; no deployment performed |
 | Scope | Fix oversized posting reservations on both quote routes and retain safe diagnostics/partial traces |
 | Source reviewed | Initial investigation: `353be39dd369fe4da1935796dcc23cd729f81398`. Correction: branch `codex/quote-poster-reservation`, based on main `93cfc91ecc4bf296a38c8cbdab8ff23565b19304` |
 | Protocol | Clean initialized gitlink `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774` |
@@ -119,14 +119,112 @@ Two native candidate builds were killed under host memory pressure (`SIGKILL`,
 the second confirmed in kernel OOM records). A third build with package-local
 `eez-node` optimization/debug reductions was stopped to protect the shared host
 as available memory fell below 2 GiB. These are build/resource failures, not
-passing tests. Build logs and original process failures are retained; native
-candidate validation remains pending at this point in the record.
+passing tests. The shared-host OOM also killed a Composer belonging to a separate
+dashboard `treasury_owners` test. The deployed Chiado Composer remained running
+and Docker reported no OOM kill for that container. No service was restarted.
+A subsequent single-job build used the normal profile with a guard to terminate
+its own process group if available host memory fell below 3 GiB. It completed
+successfully in 17m25s. Build logs and original process failures are retained.
 
-Completed frontend checks: viewer model tests, two Chromium browser tests and
-all seven SDK tests passed. The browser tests cover a partial-error envelope,
-but importing new candidate process exports remains pending. Integration
-contracts built successfully. Rust unit/process checks and release CI are
-pending; this entry does not establish production readiness or deployment.
+The candidate runtimes were built with `cargo +1.95.0 build --locked --offline
+-j 1 -p eez-node -p eez-follower -p eez-proof-signer --bins`, then copied to
+`candidate-runtime/` before compiling test targets. No test-feature binary is
+substituted for these processes. The follower and signer have unchanged binary
+hashes; the changed Composer hash is
+`7d6383dbe624b2db0a529f52991222abddd1b8ac07d38c8399aa686a0c950279`.
+Process tests explicitly select these copies with `EEZ_TEST_RUNTIME_BIN_DIR`,
+`EEZ_TEST_PROOF_SIGNER_BIN` and `EEZ_TEST_PREBUILT=1`. They retain separate
+`EEZ_TEST_LOG_DIR` and `EEZ_TEST_DATADIR_DIR` trees for each comparison.
+
+While the updated regression executable compiled, the unchanged 21 existing
+`fee_quotes::` / `safe_fee_quotes::` tests ran serially against the new runtimes
+using the retained baseline test executable. The new `poster_funding` tests are
+excluded from that run and use the newly compiled executable for the baseline
+and candidate comparison.
+
+The first existing-suite run ended with 14 passes and seven failures after the
+shared `/tmp` tmpfs user quota was exhausted. The first failing node explicitly
+reported `durable witness capture unavailable: Disk quota exceeded`; later
+fixtures reported the same quota error or exited with SIGBUS during startup.
+These failures are retained in `candidate-existing-process.log` and its log and
+datadir trees. The remaining seven cases were rerun separately with `TMPDIR`
+under this audit's local artifact directory on the main disk. A retry pass does
+not erase that failed first run. No unrelated temporary files or services were
+removed to recover space.
+
+The updated harness's normal-profile build was stopped by the memory guard.
+The retry reduced optimization and debug information only for the harness's
+linked `eez-node` library (`--config profile.dev.package.eez-node.opt-level=0
+--config profile.dev.package.eez-node.debug=0`). It completed in 13m02s with
+`cargo +1.95.0 test --locked --offline -j 1 -p eez-node-e2e --test node_e2e
+--no-run --message-format=json`; all executed runtime processes still use the
+previously copied normal-profile binaries. The new harness SHA-256 is
+`d719185afa53ee01dae666eef0855edd82cf0de14d19c4683f7c4cf3d00931fe`.
+The separated baseline/candidate comparison selected the same four tests with
+this harness and disk-backed temporary storage:
+
+| Scenario | Original runtime | Fixed runtime |
+| --- | --- | --- |
+| Affordable nested L1 quote | Failed: `quote unavailable: gas estimation` | Passed |
+| Affordable nested L2 quote | Failed: `quote unavailable: L1 settlement execution` | Passed |
+| Unfunded L1 poster, error and partial trace | Failed: generic `quote_unavailable` | Passed |
+| Unfunded L2 poster, error and partial trace | Failed: generic `quote_unavailable` | Passed |
+
+The positive cases exercise both transaction types and explicit/omitted source
+gas, including at least three cross-chain transitions. Both negative cases
+independently request legacy and EIP-1559 through compact and traced debug RPCs.
+Positive quotes leave the poster's canonical balance and nonce unchanged. With
+the fixture's 0.005 ETH balance and sampled prices, the initial posting probe was
+3,172,723 gas instead of 16,777,216; final validated posting limits were 612,578
+for inbound and 290,174 for outbound. These are gas limits, not charged receipt
+gas or a performance benchmark.
+
+The real-export browser run imported all eight generated JSON responses (four
+successes and four partial failures). Both browser tests passed; the partial
+failure screenshot was also inspected.
+
+The remaining seven existing cases then passed with disk-backed temporary
+storage, including both lower-margin policies, trace equivalence, ordinary L2
+Safe execution and nested Safe creation with independent follower replay on
+Ethereum and Gnosis. Across the local runs, all 25 distinct fee/Safe scenarios
+passed: 14 existing cases on their first run, four new regressions, and seven
+infrastructure-related retry-only passes (flakes). The initial failed run remains
+a failure; this is not a clean first-run suite result. No runtime code or runtime
+binary changed between those attempts. The new harness selected exactly the
+seven initially failed cases using the retained inventory, excluding the 14
+already passed cases and the four separate funding regressions.
+
+Completed checks at correction commit `57ab7fbc305fae4f0c9d26a3a8cbf0606dabe083`:
+
+- `cargo +1.95.0 test --locked --offline -j 1 -p eez-l1 -p eez-composer --lib`:
+  194 L1 and 397 Composer tests passed. One Composer test was explicitly ignored:
+  `held_pool::tests::profile_blocked_backlog_discovery`, a manual timing profile.
+- `cargo +1.95.0 clippy --locked --offline -j 1 --workspace --all-targets -- -D warnings`:
+  passed, including the separated process regressions and node RPC projection.
+- Viewer model tests, two Chromium browser tests, all seven SDK tests, formatting,
+  whitespace checks and the integration contract build passed. The later
+  keyboard-test correction and the real exports described above also passed both
+  browser tests.
+
+[PR CI run 39485938467](https://github.com/eez-association/eez-rollupX/actions/runs/39485938467)
+passed its Debug Unit Tests job: 1,521 workspace tests passed, including the new
+node RPC error projection, poster diagnostics, reservation boundaries and trace
+redaction checks. Three explicitly ignored manual utilities/profiles were skipped:
+`profile_blocked_backlog_discovery`, `cold_span_feasibility` and
+`inventory_native_proving_fixtures`. The separate Reth shutdown regression also
+passed (one selected test; 206 unrelated tests filtered out).
+
+That CI run reported two initial failures. The viewer keyboard file-picker test timed out
+with Enter; the same test passed locally without changes. The follow-up uses
+Space on the explicitly focused file input and asserts focus. This does not turn
+the original CI failure into a pass. Lint stopped at `cargo deny` on the unchanged
+lockfile's rustls-webpki/webpki-roots/webpki-root-certs advisories
+RUSTSEC-2026-0381, RUSTSEC-2026-0382 and RUSTSEC-2026-0383. No dependency upgrade or
+advisory suppression is included in this quote correction. These findings block
+CI image promotion until resolved. The release-artifact build and all four
+embedded E2E shards also passed; Kurtosis and the complete cross-chain CI matrix
+remain pending at this point. No local Kurtosis enclave was started on the
+resource-constrained shared host. No deployment is established by these checks.
 
 ## Retained evidence and limits
 

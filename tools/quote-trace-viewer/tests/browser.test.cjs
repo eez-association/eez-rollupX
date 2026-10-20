@@ -92,8 +92,9 @@ test("embedded viewer supports keyboard import and ignores superseded file reads
     await page.goto(url.href);
     assert.equal(await page.locator("body > header").isVisible(), false);
     await page.locator("#file").focus();
+    assert.equal(await page.locator("#file").evaluate(input => input === document.activeElement), true);
     const chooser = page.waitForEvent("filechooser");
-    await page.keyboard.press("Enter");
+    await page.locator("#file").press("Space");
     await (await chooser).setFiles(path.join(__dirname, "../examples/nested-revert.json"));
     await page.locator("#workspace").waitFor({ state: "visible" });
     assert.equal(await page.locator("#quote-status").textContent(), "Quote failed");

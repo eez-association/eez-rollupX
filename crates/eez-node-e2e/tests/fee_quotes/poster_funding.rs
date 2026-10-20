@@ -201,35 +201,37 @@ async fn unfunded_poster_quotes_preserve_partial_trace(inbound: bool) {
     let world = world(false).await;
     let client = reqwest::Client::new();
     let (rpc, tx) = request(&world, inbound);
-    for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
-        let options = if method == "eez_debugQuoteFee" {
-            json!({"trace":"calls"})
-        } else {
-            json!({})
-        };
-        let response = quote_rpc(&client, &rpc, method, json!([tx, options]))
-            .await
-            .unwrap();
-        assert!(response.get("result").is_none(), "{response}");
-        let error = &response["error"]["data"];
-        assert_eq!(error["code"], "poster_insufficient_funds", "{response}");
-        assert_eq!(error["details"]["scope"], "poster");
-        assert_eq!(error["details"]["availableBalance"], "0x0");
-        if method == "eez_debugQuoteFee" {
-            tracing::save_trace(&format!("unfunded-poster-{inbound}"), &response);
-            let trace = &error["trace"];
-            assert_eq!(trace["format"], "eez-quote-call-trace");
-            assert_eq!(trace["partial"], true);
-            assert_eq!(trace["failure"]["code"], "poster_insufficient_funds");
-            assert!(trace["runs"].as_array().unwrap().iter().any(|run| {
-                run["frames"]
-                    .as_array()
-                    .unwrap()
-                    .iter()
-                    .any(|frame| frame["crossChain"] == true)
-            }));
-        } else {
-            assert!(error.get("trace").is_none());
+    for ty in ["0x0", "0x2"] {
+        for method in ["eez_quoteFee", "eez_debugQuoteFee"] {
+            let options = if method == "eez_debugQuoteFee" {
+                json!({"transactionTypes":[ty],"trace":"calls"})
+            } else {
+                json!({"transactionTypes":[ty]})
+            };
+            let response = quote_rpc(&client, &rpc, method, json!([tx, options]))
+                .await
+                .unwrap();
+            assert!(response.get("result").is_none(), "{response}");
+            let error = &response["error"]["data"];
+            assert_eq!(error["code"], "poster_insufficient_funds", "{response}");
+            assert_eq!(error["details"]["scope"], "poster");
+            assert_eq!(error["details"]["availableBalance"], "0x0");
+            if method == "eez_debugQuoteFee" {
+                tracing::save_trace(&format!("unfunded-poster-{inbound}-{ty}"), &response);
+                let trace = &error["trace"];
+                assert_eq!(trace["format"], "eez-quote-call-trace");
+                assert_eq!(trace["partial"], true);
+                assert_eq!(trace["failure"]["code"], "poster_insufficient_funds");
+                assert!(trace["runs"].as_array().unwrap().iter().any(|run| {
+                    run["frames"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|frame| frame["crossChain"] == true)
+                }));
+            } else {
+                assert!(error.get("trace").is_none());
+            }
         }
     }
 }
