@@ -36,6 +36,42 @@ test("compact quotes use one RPC round trip and preserve requested type selectio
   await assert.rejects(requestFeeQuote({rpc:async () => ({...args.quote,options:[args.quote.options[0]]}),transaction:args.transaction}), /requested transaction types/);
 });
 
+test("64 KiB calldata is preserved through quoting and wallet fields; larger input is rejected", async () => {
+  for (const type of ["0x0", "0x2"]) {
+    for (const length of [0, 12_288, 13_000, 65_535, 65_536, 65_537]) {
+      const args = compactFixture(type);
+      args.transaction.data = `0x${"ab".repeat(length)}`;
+      const option = args.quote.options.find(option => option.type === type);
+      // Keep size/byte preservation separate from the independent hash vectors.
+      args.keccak256 = text => {
+        assert.equal(JSON.parse(text).data, args.transaction.data);
+        return option.requestHash;
+      };
+      let calls = 0;
+      const rpc = async (method, [transaction]) => {
+        calls++;
+        assert.equal(method, "eez_quoteFee");
+        assert.equal(transaction.data, args.transaction.data);
+        return args.quote;
+      };
+      if (length <= 65_536) {
+        assert.equal(await requestFeeQuote({...args, rpc}), args.quote);
+        assert.equal(calls, 1);
+        assert.equal(feeQuoteTransaction(args).data, args.transaction.data);
+      } else {
+        await assert.rejects(requestFeeQuote({...args, rpc}), /Invalid calldata/);
+        assert.equal(calls, 0);
+        assert.throws(() => feeQuoteTransaction(args), /Invalid calldata/);
+      }
+    }
+  }
+  for (const data of ["0x0", "0xzz", "ab"]) {
+    const args = compactFixture();
+    args.transaction.data = data;
+    await assert.rejects(requestFeeQuote({...args, rpc:async () => assert.fail("invalid input reached RPC")}), /Invalid calldata/);
+  }
+});
+
 test("compact options bind resolved gas, nonce and type without accepting replacement transaction", () => {
   for (const type of ["0x0","0x2"]) {
     const args = compactFixture(type);

@@ -1507,8 +1507,9 @@ Signed admission has one reserved worker and space for eight waiting requests,
 so quote traffic cannot occupy its capacity. Each lane returns `quote_busy` only
 when its total capacity is full. The ten-second request deadline includes queue
 wait and network preparation; the simulated frame budget also remains bounded. Input is limited
-to 32 KiB, calldata to 12 KiB, retained ordinary history to the active emission
-window minus one terminal block, encoded DA to 2 MiB,
+to 160 KiB of serialized transaction/options JSON, calldata to 64 KiB (65,536
+decoded bytes, including the selector and any ABI encoding), retained ordinary
+history to the active emission window minus one terminal block, encoded DA to 2 MiB,
 cross-chain target frames to 32 across all iterations, and nesting depth to eight.
 Active network/operator gas and blob limits and the negotiated emission window
 still apply. Expensive work uses Reth's blocking executor. Disconnect, timeout
@@ -1527,7 +1528,7 @@ include `invalid_transaction`, `unsupported_transaction`, `quote_limit`, `stale_
 Per-variant execution/input errors are represented as described above; shared
 errors never return a usable option. IDs, mixed batches and notifications follow
 the front's existing semantics. Members execute sequentially under the shared
-worker bound. The 32 KiB transaction/options bound applies alongside the front's
+worker bound. The 160 KiB transaction/options bound applies alongside the front's
 overall transport-body limit. Requote after genuine availability/context failures. Ordinary head advancement
 alone does not discard a quote. Before and after simulation, both sampled hashes
 must remain canonical. Neither chain may have advanced more than sixty seconds
@@ -1540,6 +1541,31 @@ Later state/base-fee changes, wallet edits and approval delays can invalidate it
 too. Quotes provide no inclusion guarantee, liquid L1 reserve, treasury realization
 or durable financial ledger. SDK checks run with `node sdk/l2-fees.test.mjs`;
 source-based process regressions are selected with `fee_quotes::`.
+
+#### Calldata limit compatibility
+
+The 64 KiB bound applies to compact/debug quotes, tariff-enabled signed admission
+and the SDK, for both legacy and type-2 transactions and both source directions.
+The serialized-input allowance accommodates hex encoding (128 KiB for maximum
+calldata) plus transaction fields and options. This is a source transaction limit;
+it does not increase the gas, DA, frame, nesting, worker or deadline budgets.
+A large source and its forwarded call can require multiple blobs, which the
+quote must price under the active network limits. Final native settlement
+validation remains required.
+
+Upgrade every Composer front serving an application before enabling larger
+payloads in that application's copied SDK and clients. Older SDKs and Composers
+still reject calldata above 12 KiB; mixed front versions cannot consistently
+quote or admit the expanded range. The wire format, signing RPC, protocol contracts,
+genesis and database format are unchanged. Existing signers and followers
+already decode these lengths; historical replay does not use the quote parser.
+No migration or protocol pin change is required.
+
+Before rollback, stop accepting larger requests and drain accepted work to
+canonical settlement. Older Composers restore the smaller quote/admission
+profile; retained or resubmitted large requests may then be rejected.
+Queue ownership is in memory, so restart is not durable pending-work recovery.
+This compatibility procedure does not establish a live deployment.
 
 ### Opt-in L2 tariff admission
 
