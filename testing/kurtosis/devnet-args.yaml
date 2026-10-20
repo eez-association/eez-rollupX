@@ -79,11 +79,10 @@ eez:
   # Included pure-L2 transactions and validated cross-chain work post earlier
   # at the next eligible L1 opportunity. Fullness is disabled for this profile.
   settlement_env:
-    # Synthetic private-network assumptions, shared with the CI profile.
+    # Synthetic private-network assumptions without expiration, shared with CI.
     EEZ_FEES_L1_TO_L2_ENABLED: "true"
     EEZ_FEES_L2_TO_L1_ENABLED: "true"
     EEZ_L2_FEE_RECIPIENT: "0x4444444444444444444444444444444444444444"
-    EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP: "4102444800"
     EEZ_FEES_L1_PER_L2_NUMERATOR: "1"
     EEZ_FEES_L1_PER_L2_DENOMINATOR: "1"
     EEZ_FEES_PROVING_COST_L1: "0"

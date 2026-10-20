@@ -15,6 +15,22 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Policy expiration removal authorized on 2026-10-19
+
+The [fee configuration contract](../configurable-settlement-policy.md#removed-fee-policy-expiration)
+removes `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` and the policy calendar cutoff.
+Obsolete inputs, including empty values, must reach Composer and fail startup
+with migration instructions. Conversion, costs, margins and exclusions remain
+required. Gas-price freshness, per-quote validity, funding checks and settlement
+validation remain independent of policy expiration.
+
+Acceptance covers both direction switches without a deadline, rejection of the
+removed setting, invalid and incomplete costs, Compose/Kurtosis propagation,
+and fee-enabled process tests with underpayment rejection and follower replay.
+The configuration contract documents removal of the debug assumption, changed
+policy identifiers, historical decoding and rollback to versions that require an
+explicit timestamp. No live deployment is part of this change.
+
 ### L1 source snapshot correction authorized on 2026-10-19
 
 Status: implementation and qualification in progress. The

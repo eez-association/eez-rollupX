@@ -168,6 +168,17 @@ class FeeProfileTest(unittest.TestCase):
             namespace["run"](plan, args)
         return services
 
+    def test_removed_fee_expiry_reaches_node_for_startup_rejection(self):
+        for value in ("2000000000", "", "0", "invalid"):
+            with self.subTest(value=value):
+                args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
+                key = "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"
+                args["eez"]["settlement_env"][key] = value
+                services = self.runtime_services(args)
+                self.assertEqual(services["eez-node"]["env_vars"][key], value)
+                for role in ("eez-proof-signer", "eez-follower"):
+                    self.assertNotIn(key, services[role].get("env_vars", {}))
+
     def test_default_profiles_collect_both_directions_on_the_node_only(self):
         for filename in ("ci-args.yaml", "devnet-args.yaml"):
             with self.subTest(filename=filename):
@@ -182,7 +193,7 @@ class FeeProfileTest(unittest.TestCase):
                 for cost in ("PROVING", "OPERATIONS", "TREASURY"):
                     self.assertEqual(fees[f"EEZ_FEES_{cost}_COST_L1"], "0")
                 self.assertEqual(fees["EEZ_FEES_EXCLUDED_SENDERS"], "")
-                self.assertGreater(int(fees["EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP"]), 2_000_000_000)
+                self.assertNotIn("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP", fees)
                 self.assertTrue(1 <= int(fees["EEZ_FEES_L1_REFUND_PERCENT"]) <= 99)
                 recipient = fees["EEZ_L2_FEE_RECIPIENT"]
                 self.assertNotEqual(int(recipient, 16), 0)
@@ -190,6 +201,7 @@ class FeeProfileTest(unittest.TestCase):
                 self.assertNotEqual(recipient, fees["EEZ_FEES_L1_REFUND_RECIPIENT"])
                 services = self.runtime_services(args)
                 node_env = services["eez-node"]["env_vars"]
+                self.assertNotIn("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP", node_env)
                 for key, value in fees.items():
                     self.assertEqual(node_env[key], value)
                 self.assertIn("--suggested-fee-recipient=" + recipient,
@@ -344,7 +356,6 @@ class SettlementEnvironmentTest(unittest.TestCase):
         for name in [
             'EEZ_FEES_L1_TO_L2_ENABLED',
             'EEZ_FEES_L2_TO_L1_ENABLED',
-            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
             'EEZ_FEES_L1_PER_L2_NUMERATOR',
             'EEZ_FEES_L1_PER_L2_DENOMINATOR',
             'EEZ_FEES_PROVING_COST_L1',
@@ -355,6 +366,7 @@ class SettlementEnvironmentTest(unittest.TestCase):
             'EEZ_FEES_EXCLUDED_SENDERS',
             'EEZ_FEES_L1_REFUND_RECIPIENT',
             'EEZ_FEES_L1_REFUND_PERCENT',
+            'EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP',
             'EEZ_L2_FEE_SHADOW_POLICY',
             'EEZ_L1_FEE_REFUND_POLICY',
             'EEZ_L2_FEE_ENFORCE_TARIFF',

@@ -77,7 +77,7 @@ fn select_payer(
     poster: Address,
     minimum: U256,
 ) -> Result<Option<Plan>, &'static str> {
-    let eez_l1::BundleTarget::Exact { timestamp, .. } = quote.target else {
+    let eez_l1::BundleTarget::Exact { .. } = quote.target else {
         return Err("refund target unresolved");
     };
     let base = quote
@@ -97,7 +97,7 @@ fn select_payer(
             return Err("refund source binding");
         }
         let sender = tx.recover_signer().map_err(|_| "refund source signature")?;
-        if sender == refund.recipient || !policy.quote_eligible(sender, poster, timestamp) {
+        if sender == refund.recipient || !policy.quote_eligible(sender, poster) {
             continue;
         }
         let tip = tx

@@ -1005,16 +1005,15 @@ the signer and follower do not receive them. Its UI fee flag follows the L2
 collection switch. Unknown `settlement_env` names are rejected; arbitrary unknown
 process environment variables are not a supported configuration interface.
 
-The shared cost model consists of **all nine** settings below. All absent means
-no model; supplying any one requires all nine. Monetary assumptions have no
-implicit defaults, including zero costs, parity conversion and profit. All
+The shared cost model requires **eight settings** below. All absent means no
+model; supplying any cost setting requires the complete set. Monetary assumptions
+have no implicit defaults, including zero costs, parity conversion and profit. All
 numbers are unsigned decimal integers; signs, whitespace, fractions, hex and
 overflow are rejected. The exclusion list is the only cost field accepting an
 empty value.
 
 | Setting | Meaning and bound |
 | --- | --- |
-| `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` | Positive u64 Unix seconds. The candidate L1 target must be at or before this timestamp. Expiry makes pricing unavailable; enabled funding checks cannot treat it as free execution. |
 | `EEZ_FEES_L1_PER_L2_NUMERATOR`, `EEZ_FEES_L1_PER_L2_DENOMINATOR` | Positive U256 values: conservative L1 native base units realizable per L2 native base unit, after proportional haircuts. No inferred parity or live price lookup. |
 | `EEZ_FEES_PROVING_COST_L1`, `EEZ_FEES_OPERATIONS_COST_L1`, `EEZ_FEES_TREASURY_COST_L1` | Nonnegative U256 native L1 base units charged once per complete post. Explicit zero is allowed. These are configured allowances; treasury includes the fixed realization/sweep cost. |
 | `EEZ_FEES_RISK_BPS`, `EEZ_FEES_PROFIT_BPS` | Integers 0..10000, independently applied to posting plus the three fixed costs. Risk is mandatory; profit is the additional quote target and may absorb later cost changes. |
@@ -1049,7 +1048,6 @@ not production prices or an instruction to enable collection:
 export EEZ_FEES_L1_TO_L2_ENABLED=false
 export EEZ_FEES_L2_TO_L1_ENABLED=false
 export EEZ_L2_FEE_RECIPIENT=0x4444444444444444444444444444444444444444
-export EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP=2000000000
 export EEZ_FEES_L1_PER_L2_NUMERATOR=2
 export EEZ_FEES_L1_PER_L2_DENOMINATOR=3
 export EEZ_FEES_PROVING_COST_L1=7
@@ -1060,21 +1058,45 @@ export EEZ_FEES_PROFIT_BPS=500
 export EEZ_FEES_EXCLUDED_SENDERS=
 ```
 
+### Removed fee-policy expiration
+
+Fee policies have no calendar cutoff. `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` has
+been removed; its presence, including an empty value, fails startup with migration
+instructions. Gas-price sampling, individual quote freshness, source/context
+checks, signed funding admission and final native settlement validation still
+apply. No conversion or cost assumption is refreshed automatically.
+
+New debug/observation output omits `assumptions.valid_until_l1_timestamp` entirely.
+Removing that key changes the policy identifier even when all monetary assumptions
+are unchanged. Historical records retain their original identifiers and timestamp
+values (a number, or `null` from builds with optional expiration); readers spanning
+versions must also accept an absent field. The compact quote response and its
+30-second per-quote expiry are unchanged.
+
+Remove the obsolete setting from shell, `.env`, `deployments.env` and effective
+service overrides before starting this Composer. Recreate it with the updated
+environment after draining accepted work. Older Composers that require a timestamp
+reject the non-expiring configuration; restore a valid explicit timestamp before
+rolling back to them. Configuration is still read once at startup. There is no
+protocol, signer-wire, genesis, storage or historical follower-replay migration.
+
 ### Fee configuration migration
 
-The former `EEZ_L2_FEE_SHADOW_POLICY`, `EEZ_L2_FEE_ENFORCE_TARIFF` and
-`EEZ_L1_FEE_REFUND_POLICY` are removed. Their presence, including an empty value,
+The former `EEZ_L2_FEE_SHADOW_POLICY`, `EEZ_L2_FEE_ENFORCE_TARIFF`,
+`EEZ_L1_FEE_REFUND_POLICY` and `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` are removed.
+Their presence, including an empty value,
 fails startup with migration instructions. Mixed old/new settings are rejected;
 there is no compatibility parser. Compose and Kurtosis forward obsolete names
 only so the runtime can reject them rather than silently disable fees.
 
-Map each old cost JSON field to its uppercase `EEZ_FEES_` name above. Join the
+Map each retained cost JSON field to its uppercase `EEZ_FEES_` name above. Drop
+the old `valid_until_l1_timestamp` field as described above. Join the
 excluded address array with commas; an empty array becomes an explicit empty
 value. Remove `version`, chain IDs, rollup ID and `beneficiary` after verifying
 they match the runtime bindings and `EEZ_L2_FEE_RECIPIENT`. Map the old L2 switch
 to `EEZ_FEES_L2_TO_L1_ENABLED`. If the old refund policy was configured, set
 `EEZ_FEES_L1_TO_L2_ENABLED=true` and copy its recipient and percentage into the
-two scalar terms. Preserve numeric assumptions, expiry and exclusions; renaming
+two scalar terms. Preserve monetary assumptions and exclusions; renaming
 settings does not authorize changing fee economics.
 
 Upgrade configuration and Composer together after draining accepted work. Remove
@@ -1084,7 +1106,8 @@ node configuration without exposing secrets. **Old binaries ignore the new
 names**, so restore both the old binary and old configuration on rollback.
 There is no mixed-version compatibility guarantee for these settings. No
 protocol, genesis, signer-wire, persistent storage or follower-replay changes
-are required; compact/debug RPC schemas and refund arithmetic are unchanged.
+are required. The compact RPC schema and refund arithmetic are unchanged; the
+debug assumptions lose only the expiration field described above.
 In-memory pending work and refund attribution still require the existing
 [upgrade procedure](runbooks/chiado-deployment.md#recovery-and-upgrades).
 

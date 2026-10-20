@@ -16,7 +16,6 @@ pub(super) fn shadow_pricing_policy() -> serde_json::Value {
     serde_json::json!({
         "version":1, "l1_chain_id":eez_testkit::DEV_CHAIN_ID, "l2_chain_id":1, "rollup_id":1,
         "beneficiary":alloy_primitives::Address::repeat_byte(0x44),
-        "valid_until_l1_timestamp":u64::MAX,
         "l1_per_l2_numerator":"2", "l1_per_l2_denominator":"3",
         "proving_cost_l1":"1000000000000000", "operations_cost_l1":"2000000000000000",
         "treasury_cost_l1":"3000000000000000", "risk_bps":1000, "profit_bps":500,
@@ -35,10 +34,6 @@ pub(super) fn fee_settings(
         policy["beneficiary"].as_str().unwrap().to_owned(),
     )];
     for (name, field) in [
-        (
-            "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
-            "valid_until_l1_timestamp",
-        ),
         ("EEZ_FEES_L1_PER_L2_NUMERATOR", "l1_per_l2_numerator"),
         ("EEZ_FEES_L1_PER_L2_DENOMINATOR", "l1_per_l2_denominator"),
         ("EEZ_FEES_PROVING_COST_L1", "proving_cost_l1"),

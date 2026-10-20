@@ -912,6 +912,13 @@ Migrate the effective configuration, including Compose overrides; `.env` edits
 alone may not change explicit service environment entries. Never print the full
 rendered environment because it contains operator keys.
 
+The [fee-policy deadline has been removed](../configurable-settlement-policy.md#removed-fee-policy-expiration).
+Remove `EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` from every effective configuration
+source before upgrading; any remaining value, including empty, prevents startup.
+Drain accepted work and recreate Composer to apply the change. A rollback to a
+Composer that requires expiration also needs a valid explicit timestamp restored.
+Quote freshness and funding checks still apply.
+
 Use the normal [recovery and upgrade procedure](#recovery-and-upgrades): retain
 old configuration and stopped state, drain accepted requests, then start the
 qualified new binary with the new settings. Keep the normal matching

@@ -22,7 +22,6 @@ pub(crate) struct Policy {
 /// Operator assumptions; network identity is supplied by runtime wiring.
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
-    valid_until_l1_timestamp: u64,
     numerator: U256,
     denominator: U256,
     proving: U256,
@@ -34,8 +33,7 @@ pub(crate) struct Config {
 }
 
 impl Config {
-    pub const SETTINGS: [&'static str; 9] = [
-        "EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP",
+    pub const SETTINGS: [&'static str; 8] = [
         "EEZ_FEES_L1_PER_L2_NUMERATOR",
         "EEZ_FEES_L1_PER_L2_DENOMINATOR",
         "EEZ_FEES_PROVING_COST_L1",
@@ -78,10 +76,6 @@ impl Config {
             }
             U256::from_str_radix(raw, 10).map_err(|_| format!("{name} exceeds U256"))
         };
-        let valid_until_l1_timestamp = integer("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP")?;
-        if valid_until_l1_timestamp == 0 {
-            return Err("EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP must be positive".into());
-        }
         let numerator = amount("EEZ_FEES_L1_PER_L2_NUMERATOR")?;
         let denominator = amount("EEZ_FEES_L1_PER_L2_DENOMINATOR")?;
         if numerator.is_zero() || denominator.is_zero() {
@@ -117,7 +111,6 @@ impl Config {
             }
         }
         Ok(Some(Self {
-            valid_until_l1_timestamp,
             numerator,
             denominator,
             proving: amount("EEZ_FEES_PROVING_COST_L1")?,
@@ -155,7 +148,6 @@ impl Config {
         let assumptions = json!({
             "version": 1, "l1_chain_id": l1_chain_id, "l2_chain_id": l2_chain_id,
             "rollup_id": rollup_id, "beneficiary": beneficiary,
-            "valid_until_l1_timestamp": self.valid_until_l1_timestamp,
             "l1_per_l2_numerator": self.numerator.to_string(),
             "l1_per_l2_denominator": self.denominator.to_string(),
             "proving_cost_l1": self.proving.to_string(),
@@ -199,9 +191,8 @@ impl Policy {
         json!({"id": self.id, "assumptions": self.assumptions})
     }
 
-    pub(crate) fn quote_eligible(&self, sender: Address, poster: Address, target: u64) -> bool {
-        target <= self.costs.valid_until_l1_timestamp
-            && sender != poster
+    pub(crate) fn quote_eligible(&self, sender: Address, poster: Address) -> bool {
+        sender != poster
             && sender != self.beneficiary
             && !self.costs.excluded_senders.contains(&sender)
     }
@@ -330,9 +321,6 @@ impl Policy {
             || l2.rollup_id != self.rollup_id
         {
             return Err("pricing_network_mismatch");
-        }
-        if l1.target_timestamp > self.costs.valid_until_l1_timestamp {
-            return Err("pricing_policy_expired");
         }
         if l2.beneficiary != self.beneficiary {
             return Err("pricing_beneficiary_mismatch");
@@ -468,7 +456,7 @@ pub(in crate::composer) mod tests {
     pub(in crate::composer) fn policy_json() -> Value {
         json!({
             "version":1, "l1_chain_id":1, "l2_chain_id":9, "rollup_id":1,
-            "beneficiary":Address::repeat_byte(4), "valid_until_l1_timestamp":1000,
+            "beneficiary":Address::repeat_byte(4),
             "l1_per_l2_numerator":"2", "l1_per_l2_denominator":"3",
             "proving_cost_l1":"7", "operations_cost_l1":"5", "treasury_cost_l1":"3",
             "risk_bps":1000, "profit_bps":500, "excluded_senders":[Address::repeat_byte(6)],
@@ -516,7 +504,6 @@ pub(in crate::composer) mod tests {
         (
             L1Fees {
                 chain_id: 1,
-                target_timestamp: 1000,
                 companion_count: 0,
                 post_cost: U256::from(101),
                 detail: Value::Null,
@@ -582,6 +569,46 @@ pub(in crate::composer) mod tests {
     }
 
     #[test]
+    fn policy_has_no_calendar_deadline_and_retains_funding_checks() {
+        let policy = parse(policy_json()).unwrap();
+        let (_, mut l2) = candidate();
+        for target in [0, 1000, 1001, u64::MAX] {
+            let (mut quote, execution, hash) = super::super::tests::preflight();
+            quote.target = eez_l1::BundleTarget::Exact {
+                block: quote.sample.number + 1,
+                timestamp: target,
+            };
+            let l1 = super::super::l1_summary(quote, &execution, hash, "ETH").unwrap();
+            assert_eq!(l1.detail["target_timestamp"], target);
+            l2.sources[0].tip = policy.required_payment(l1.post_cost).unwrap().minimum_l2;
+            l2.tip = l2.sources[0].tip;
+            assert_eq!(
+                policy.calculate(&l1, &l2, Address::ZERO).unwrap()["status"],
+                "calculated"
+            );
+            assert_eq!(policy.check_tariff(&l1, &l2, Address::ZERO), Ok(()));
+            l2.sources[0].tip -= U256::from(1);
+            l2.tip -= U256::from(1);
+            assert_eq!(
+                policy.check_tariff(&l1, &l2, Address::ZERO),
+                Err("l2_tip_underfunded"),
+                "no deadline does not waive the cost-coverage floor"
+            );
+            l2.beneficiary = Address::ZERO;
+            assert_eq!(
+                policy.check_tariff(&l1, &l2, Address::ZERO),
+                Err("pricing_beneficiary_mismatch")
+            );
+            l2.beneficiary = Address::repeat_byte(4);
+        }
+        assert!(
+            policy.details()["assumptions"]
+                .get("valid_until_l1_timestamp")
+                .is_none()
+        );
+    }
+
+    #[test]
     fn dispatch_tariff_uses_actual_external_receipts_and_rechecks_context() {
         let policy = parse(policy_json()).unwrap();
         let (mut l1, mut l2) = candidate();
@@ -606,12 +633,6 @@ pub(in crate::composer) mod tests {
         assert_eq!(
             policy.check_tariff(&l1, &l2, Address::ZERO),
             Err("pricing_beneficiary_mismatch")
-        );
-        l2.beneficiary = Address::repeat_byte(4);
-        l1.target_timestamp += 1;
-        assert_eq!(
-            policy.check_tariff(&l1, &l2, Address::ZERO),
-            Err("pricing_policy_expired")
         );
     }
 
@@ -701,15 +722,9 @@ pub(in crate::composer) mod tests {
     }
 
     #[test]
-    fn expired_mismatched_or_missing_evidence_never_yields_a_price() {
+    fn mismatched_or_missing_evidence_never_yields_a_price() {
         let policy = parse(policy_json()).unwrap();
         let (mut l1, l2) = candidate();
-        l1.target_timestamp = 1001;
-        assert_eq!(
-            policy.calculate(&l1, &l2, Address::ZERO).unwrap_err(),
-            "pricing_policy_expired"
-        );
-        l1.target_timestamp = 1000;
         l1.chain_id = 2;
         assert_eq!(
             policy.calculate(&l1, &l2, Address::ZERO).unwrap_err(),
