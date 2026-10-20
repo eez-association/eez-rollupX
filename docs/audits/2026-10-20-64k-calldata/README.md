@@ -11,14 +11,14 @@
 | Environment | Rust 1.95.0, Foundry 1.7.1, Node 26.7.0, LLVM 22; local process fixtures, not a public-network deployment. |
 | Contract | [Application limits and compatibility](../../configurable-settlement-policy.md#calldata-limit-compatibility). |
 
-The binaries were compiled on the base commit with the uncommitted implementation.
+The initial binaries were compiled on the base commit with the uncommitted implementation.
 The runtime, SDK and test-source patch has SHA-256
 `5c620f43545ead3f7cadd6565799c8189042bb23b141712db001efbb6db8d496`,
 computed with `git diff --cached --binary -- . ':(exclude)docs/**'`.
 Those source files were unchanged throughout the post-change validation.
 Documentation-only edits after compilation do not change the captured binaries.
-After committing, the same patch is the binary diff from the base to this
-record's commit, excluding `docs/**`.
+After committing, the same patch is the binary diff from the base to
+`0f9a02cd6ca8200b3e0dc0b9e3fd8809b269f3b0`, excluding `docs/**`.
 
 ## Change and boundaries
 
@@ -142,3 +142,19 @@ verification, or durable queue recovery is established by these local checks.
 The CI release-artifact/Kurtosis matrix and real-builder refund exercise were
 not run. This change does not modify L1 collection or bundle ordering; the
 local refund regressions do not establish ordered builder payments.
+
+## Test organization cleanup — 2026-10-20
+
+The follow-up to `0f9a02cd` moves the HTTP calldata and serialized-input boundary
+checks into separately named node tests, sharing the existing front setup.
+The serialized-input test also asserts HTTP status codes. All Rust edits are
+inside `#[cfg(test)]`; production code, SDK, contracts and process tests are
+unchanged.
+
+`cargo +1.95.0 test --locked --offline -p eez-node --lib` passed all 95 tests,
+with none ignored or filtered out. Workspace Clippy with the command above,
+`cargo +1.95.0 fmt --all --check` and `git diff --check` passed.
+Local-only logs are `artifacts/calldata-validation/cleanup-node-unit.log` and
+`artifacts/calldata-validation/cleanup-clippy.log`. The process suite was not
+rerun for this test-only cleanup; the earlier executable identities and process
+results remain scoped to the original implementation.

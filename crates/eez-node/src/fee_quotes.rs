@@ -440,11 +440,8 @@ mod tests {
         assert_eq!(pool.len(), 1);
     }
 
-    #[tokio::test]
-    async fn rpc_front_preserves_ids_errors_readiness_and_notifications() {
-        use alloy_provider::{ProviderBuilder, mock::Asserter};
-        use eez_composer::{Direction, HeldPool};
-        let service = Arc::new(FeeQuotes {
+    fn quote_service() -> Arc<FeeQuotes> {
+        Arc::new(FeeQuotes {
             enforce_tariff: false,
             prepare: Arc::new(|_| {
                 Box::pin(async { Ok(Box::new(|_| Ok(json!({"quote":"shared"}))) as Work) })
@@ -453,11 +450,18 @@ mod tests {
             quotes: Workers::new(1, 0),
             admission: Workers::new(1, 0),
             timeout: Duration::from_secs(10),
-        });
+        })
+    }
+
+    async fn start_quote_front(
+        service: Arc<FeeQuotes>,
+        ready: Arc<AtomicBool>,
+    ) -> (String, tokio::task::JoinHandle<eyre::Result<()>>) {
+        use alloy_provider::{ProviderBuilder, mock::Asserter};
+        use eez_composer::{Direction, HeldPool};
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        let ready = Arc::new(AtomicBool::new(false));
         let task = tokio::spawn(crate::ingress::run_cross_chain_front(
             port,
             "http://127.0.0.1:1".into(),
@@ -466,9 +470,9 @@ mod tests {
             ProviderBuilder::default().connect_mocked_client(Asserter::new()),
             1,
             Address::ZERO,
-            Arc::clone(&ready),
+            ready,
             Arc::new(json!({})),
-            Some(Arc::clone(&service)),
+            Some(service),
         ));
         tokio::time::timeout(Duration::from_secs(2), async {
             while tokio::net::TcpStream::connect(("127.0.0.1", port))
@@ -480,22 +484,13 @@ mod tests {
         })
         .await
         .unwrap();
+        (format!("http://127.0.0.1:{port}"), task)
+    }
+
+    #[tokio::test]
+    async fn rpc_front_enforces_64_kib_calldata_boundary() {
+        let (url, task) = start_quote_front(quote_service(), Arc::new(AtomicBool::new(true))).await;
         let client = reqwest::Client::new();
-        let url = format!("http://127.0.0.1:{port}");
-        let call = json!({"jsonrpc":"2.0","id":-2,"method":METHOD,"params":[transaction()]});
-        let response: Value = client
-            .post(&url)
-            .json(&call)
-            .send()
-            .await
-            .unwrap()
-            .json()
-            .await
-            .unwrap();
-        assert_eq!(response["id"], -2);
-        assert_eq!(response["error"]["code"], -32004);
-        assert_eq!(response["error"]["data"]["code"], "starting_up");
-        ready.store(true, Ordering::Release);
         for method in [METHOD, DEBUG_METHOD] {
             for length in [65_535, 65_536, 65_537] {
                 let mut input = transaction();
@@ -523,6 +518,14 @@ mod tests {
                     );
                 }
             }
+        }
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn compact_quotes_enforce_160_kib_serialized_input_boundary() {
+        let service = quote_service();
+        for debug in [false, true] {
             // At the serialized-input limit the strict field parser still runs;
             // one extra byte must be rejected by the resource bound first.
             for length in [160 * 1024 - 1, 160 * 1024, 160 * 1024 + 1] {
@@ -530,9 +533,16 @@ mod tests {
                 input["padding"] = json!("");
                 let base = input.to_string().len() + json!({}).to_string().len();
                 input["padding"] = json!("x".repeat(length - base));
-                let (_, response) = service
-                    .compact(&input, &json!({}), method == DEBUG_METHOD)
-                    .await;
+                let (status, response) = service.compact(&input, &json!({}), debug).await;
+                assert_eq!(
+                    status,
+                    if length <= 160 * 1024 {
+                        StatusCode::BAD_REQUEST
+                    } else {
+                        StatusCode::PAYLOAD_TOO_LARGE
+                    },
+                    "{response}"
+                );
                 assert_eq!(
                     response["error"]["code"],
                     if length <= 160 * 1024 {
@@ -544,6 +554,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn rpc_front_preserves_ids_errors_readiness_and_notifications() {
+        let service = quote_service();
+        let ready = Arc::new(AtomicBool::new(false));
+        let (url, task) = start_quote_front(Arc::clone(&service), Arc::clone(&ready)).await;
+        let client = reqwest::Client::new();
+        let call = json!({"jsonrpc":"2.0","id":-2,"method":METHOD,"params":[transaction()]});
+        let response: Value = client
+            .post(&url)
+            .json(&call)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(response["id"], -2);
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(response["error"]["data"]["code"], "starting_up");
+        ready.store(true, Ordering::Release);
         for id in [Value::Null, json!(-2), json!("quote")] {
             let mut request = call.clone();
             request["id"] = id.clone();
