@@ -11,6 +11,7 @@ use crate::composer::estimate::EstimateError;
 pub struct CompactFeeRequest {
     transaction: Value,
     types: Vec<u8>,
+    trace_calls: bool,
 }
 
 impl CompactFeeRequest {
@@ -20,9 +21,17 @@ impl CompactFeeRequest {
         let options = options
             .as_object()
             .ok_or(FeeQuoteError::Invalid("expected options object"))?;
-        if options.keys().any(|key| key != "transactionTypes") {
+        if options
+            .keys()
+            .any(|key| key != "transactionTypes" && key != "trace")
+        {
             return Err(FeeQuoteError::Invalid("unknown quote option"));
         }
+        let trace_calls = match options.get("trace") {
+            None => false,
+            Some(Value::String(mode)) if mode == "calls" => true,
+            Some(_) => return Err(FeeQuoteError::Invalid("trace must be \"calls\"")),
+        };
         let types = match options.get("transactionTypes") {
             None => match transaction.get("type") {
                 Some(value) => vec![tx_type(value)?],
@@ -54,6 +63,7 @@ impl CompactFeeRequest {
         let request = Self {
             transaction: transaction.clone(),
             types,
+            trace_calls,
         };
         // Reuse the established strict parser and limits before acquiring work.
         request.resolve(1, 0, MAX_SOURCE_GAS, request.types[0])?;
@@ -167,6 +177,11 @@ where
             request,
             mut prepared,
         } = input;
+        if request.trace_calls && !debug {
+            return Err(FeeQuoteError::Invalid(
+                "trace is available only in eez_debugQuoteFee",
+            ));
+        }
         let budget = Arc::new(Budget::new(cancelled));
         budget.check()?;
         let estimator = self
@@ -197,12 +212,40 @@ where
                 }
             };
             check_nonce()?;
+            // Predecessors establish this request's state but their private
+            // pending transaction bodies do not belong in its debug export.
+            let trace = if request.trace_calls {
+                let eez_l1::BundleTarget::Exact { block, timestamp } =
+                    prepared.posting.quote.target
+                else {
+                    return Err(FeeQuoteError::Unavailable("unresolved trace target"));
+                };
+                Some(crate::composer::quote_trace::Scope::begin(
+                    request.transaction.clone(),
+                    json!({
+                        "rollupId":rollup_id,
+                        "l1ChainId":format!("{:#x}",self.inner.posting.ctx.l1_chain_id),
+                        "l2ChainId":format!("{:#x}",self.inner.posting.ctx.l2_chain_id),
+                        "l1ParentHash":prepared.posting.quote.sample.hash,
+                        "l1ParentNumber":prepared.posting.quote.sample.number,
+                        "l1TargetNumber":block,"l1TargetTimestamp":timestamp,
+                        "l2ParentHash":parent.hash(),"l2ParentNumber":parent.number,
+                        "l2Timestamp":snapshot.l2_timestamp,
+                        "nonce":format!("{nonce:#x}"),
+                        "pendingPredecessors":predecessors.len(),
+                        "simulation":true
+                    }),
+                ))
+            } else {
+                None
+            };
             let issued = unix_now()?;
             let expiry = prepared.expires_at;
             let mut options = Vec::new();
             let mut diagnostics = Vec::new();
             for &ty in &request.types {
                 budget.check()?;
+                crate::composer::quote_trace::phase(ty, "gas_estimation");
                 let result = (|| {
                     let mut transaction = request.resolve(chain, nonce, MAX_SOURCE_GAS, ty)?;
                     if request.transaction.get("gas").is_none() {
@@ -220,6 +263,7 @@ where
                         transaction = request.resolve(chain, nonce, gas, ty)?;
                     }
                     prepared.request = transaction;
+                    crate::composer::quote_trace::phase(ty, "fee_simulation");
                     let mut detail = self
                         .quote_in_context(&prepared, &snapshot, &budget)
                         .map_err(|error| error.at_stage("fee_simulation"))?;
@@ -232,6 +276,7 @@ where
                         price(tx, "maxPriorityFeePerGas")?
                     };
                     let validated_gas = if direction == crate::Direction::Outbound {
+                        crate::composer::quote_trace::phase(ty, "final_validation");
                         estimator
                             .validate_quote(
                                 &snapshot,
@@ -295,6 +340,9 @@ where
                     "recoveryMode":if direction == crate::Direction::Inbound {"builder_refund"} else if self.enforces_l2_fee_tariff() {"enforced_tariff"} else {"advisory"},
                     "options":diagnostics
                 });
+                if let Some(trace) = trace {
+                    response["diagnostics"]["trace"] = trace.finish();
+                }
             }
             Ok(response)
         })();
@@ -356,6 +404,29 @@ mod tests {
         json!({"from":Address::repeat_byte(0x11), "to":Address::repeat_byte(0x22)})
     }
 
+    #[test]
+    fn call_tracing_is_explicit_and_strict() {
+        assert!(
+            !CompactFeeRequest::parse(&transaction(), &json!({}))
+                .unwrap()
+                .trace_calls
+        );
+        assert!(
+            CompactFeeRequest::parse(&transaction(), &json!({"trace":"calls"}))
+                .unwrap()
+                .trace_calls
+        );
+        for value in [
+            Value::Null,
+            json!(false),
+            json!(true),
+            json!(""),
+            json!("steps"),
+            json!({}),
+        ] {
+            assert!(CompactFeeRequest::parse(&transaction(), &json!({"trace":value})).is_err());
+        }
+    }
     #[test]
     fn failed_options_preserve_execution_cause_only_in_debug_projection() {
         use alloy_sol_types::{Revert, SolError};

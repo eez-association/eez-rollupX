@@ -1,0 +1,74 @@
+# Quote call tracing and import viewer
+
+| Field | Value |
+| --- | --- |
+| Design status | First iteration authorized by the user on 2026-10-20; implemented and locally validated, release CI pending |
+| Date | 2026-10-20 |
+| Source baseline | `eez-association/eez-rollupX` main `a2d7b0a3be89df3c0b6ac945acd41a830278b0a7` |
+| Protocol baseline | `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774` |
+| Related work | [Fee quote contract](../configurable-settlement-policy.md#compact-fee-quotes) |
+
+## Problem and scope
+
+Debug fee quotes retain revert bytes but do not identify the internal call that
+produced them. Add opt-in call tracing to `eez_debugQuoteFee` and a standalone,
+local JSON-import viewer in this repository. Capture actual quote execution,
+including nested cross-chain callbacks, rather than re-simulating afterwards.
+Solidity source maps, opcode traces, state diffs, remote storage and transaction
+broadcast are outside this iteration.
+
+## Requirements and acceptance
+
+| ID | Behavior | Acceptance |
+| --- | --- | --- |
+| R1 | Only debug quotes accept `trace: "calls"`; omission preserves current output and execution | Parser/RPC tests, quote comparisons |
+| R2 | Explicit frame parents link ordinary calls, creation and synchronous cross-chain execution | Nested L1/L2 process tests and inspector tests |
+| R3 | Reverted frames remain inspectable, including caught failures and successful calls unwound by ancestors | Caught and propagated nested-revert regressions |
+| R4 | Types, gas probes, pricing and validation executions are separate runs with pinned context and actual transaction fields | Both transaction formats and omitted/explicit gas tests |
+| R5 | Tracing observes execution without changing gas, output, state, queue ownership or worker lifetime | Traced/untraced equivalence tests and existing fee process suite |
+| R6 | Capture and viewer input are bounded; missing/truncated evidence is explicit; traced RPC batches are rejected before execution | Boundary, batch rejection, malformed JSON and browser tests |
+| R7 | Import stays in the browser; contract text cannot execute scripts or initiate network requests | DOM/browser tests with hostile trace content |
+
+## Design
+
+The existing bounded blocking quote worker owns an in-memory collector. A scoped
+thread-local connects inspectors across synchronous, reentrant EVM instances;
+it is restored on every exit, including unwinding. No trace survives into another
+request. Inspectors bracket the existing inspector, observing final outcomes
+after its hooks; they do not replace execution decisions. The regular quote and
+signed admission paths do not allocate a collector.
+Traced requests must be sent individually. The RPC front rejects a batch
+containing one before executing any member, bounding accumulated trace replies.
+
+The export has a versioned format, original request, simulation context and
+separate runs. Each run identifies its phase, transaction format and execution
+purpose. Frames have stable IDs, parent IDs, chain identity, code/storage
+addresses, call type, bounded input/output, status and inclusive frame gas.
+Cross-chain roots attach to the suspended source call. Native replays remain
+separate from composition and are never presented as a single mined transaction.
+Gas is not summed across nested inclusive frames or across quote iterations.
+
+The viewer accepts the complete JSON-RPC response or its result. It displays
+the quote outcome separately from individual run/frame outcomes, an expandable
+call tree and selected-frame details. Standard Solidity errors are decoded;
+unknown custom errors retain their selector and bytes. ABI-assisted decoding
+is outside this iteration.
+
+## Compatibility and recovery
+
+This is an additive debug-only option and response field. Older Composers reject
+the option; users must upgrade Composer before requesting traces. The viewer
+reports exports without a supported trace explicitly. No protocol gitlink,
+contract, genesis, signer, follower, storage or operator configuration change is
+needed. Rollback removes trace availability without changing historical replay
+or fee enforcement. A trace describes simulated execution, not a proof or a
+replay witness; a later request can use a different context.
+
+## Validation
+
+Run Composer/node unit tests, fee SDK tests, serial fee quote process tests with
+nested calls in both directions, formatting and Clippy. Exercise import,
+navigation, errors, truncation and malformed data in a real browser. Record
+executed checks and limitations in the
+[validation record](../audits/2026-10-20-quote-call-tracing/README.md).
+This design document alone is not validation evidence.

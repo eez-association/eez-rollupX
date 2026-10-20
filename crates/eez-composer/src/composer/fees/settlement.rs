@@ -391,8 +391,14 @@ fn replay(
                 .create_executor(evm, context)
                 .apply_pre_execution_changes()
                 .map_err(unavailable)?;
+            let traced = crate::composer::quote_trace::inspect(
+                &mut inspector,
+                posting.env.cfg_env.chain_id,
+                "settlement",
+                &tx,
+            );
             let mut evm =
-                config.evm_with_env_and_inspector(&mut state, posting.env.clone(), &mut inspector);
+                config.evm_with_env_and_inspector(&mut state, posting.env.clone(), traced);
             evm.transact(tx).map_err(unavailable)?.result
         }};
     }

@@ -212,9 +212,20 @@ impl LocalExecutionSession {
         let tx_env = self.build_tx_env(destination, calldata, value, source_address, source_rollup);
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes) = {
-            let mut evm = self
-                .evm_config
-                .evm_with_env(&mut self.state, self.evm_env.clone());
+            let inspector = crate::composer::quote_trace::inspect(
+                revm::inspector::NoOpInspector,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
+            let tracing = inspector.is_capturing();
+            let mut evm = self.evm_config.evm_with_env_and_inspector(
+                &mut self.state,
+                self.evm_env.clone(),
+                inspector,
+            );
+            // Ordinary execution previously bypassed the inspection handler.
+            evm.set_inspector_enabled(tracing);
             let result = evm.transact(tx_env).map_err(evm_err)?;
             (
                 result.result.output().cloned().unwrap_or_default(),
@@ -246,6 +257,12 @@ impl LocalExecutionSession {
         let caller = tx_env.caller;
         let (return_data, gas_used, success, mut changes, inspector_error) = {
             let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+            let traced = crate::composer::quote_trace::inspect(
+                traced,
+                self.chain_id,
+                "composition",
+                &tx_env,
+            );
             let mut evm = self.evm_config.evm_with_env_and_inspector(
                 &mut self.state,
                 self.evm_env.clone(),
@@ -291,6 +308,12 @@ impl LocalExecutionSession {
             if let Some(factory) = self.inspector_factory.clone() {
                 let mut inspector = factory.build_static(dispatcher);
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),
@@ -305,6 +328,12 @@ impl LocalExecutionSession {
             } else {
                 let mut inspector = ForceStaticInspector;
                 let traced = gas_trace::maybe_trace(&mut inspector, self.chain_id);
+                let traced = crate::composer::quote_trace::inspect(
+                    traced,
+                    self.chain_id,
+                    "composition",
+                    &tx_env,
+                );
                 let mut evm = self.evm_config.evm_with_env_and_inspector(
                     &mut self.state,
                     self.evm_env.clone(),

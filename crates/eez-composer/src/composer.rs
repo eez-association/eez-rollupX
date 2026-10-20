@@ -70,6 +70,7 @@ pub use fees::quote::{
 mod gas;
 pub(crate) mod gas_trace;
 mod policy;
+pub(crate) mod quote_trace;
 pub use policy::{SettlementPolicyObservation, SettlementStatus};
 mod posting;
 mod selection;

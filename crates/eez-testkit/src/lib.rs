@@ -3611,6 +3611,7 @@ sol! {
     interface IOverlayDriverL1 {
         function pings() external view returns (uint256);
         function deliverThenBurnAndPing(address probe, address driver, uint256 amount) external;
+        function deliverThenRevert(address probe, uint256 amount) external;
     }
     #[sol(rpc)]
     interface IStaticRoundTripReader {
@@ -6459,7 +6460,15 @@ pub async fn setup_cross_chain_codeless() -> Result<CrossChainCodelessWorld> {
 }
 
 pub async fn setup_cross_chain_overlay_round_trip() -> Result<CrossChainOverlayRoundTripWorld> {
-    let world = setup_cross_chain().await?;
+    setup_cross_chain_overlay_round_trip_with_env(&[]).await
+}
+
+/// The round-trip fixture with explicit Composer settings, for fee-enabled
+/// simulations of the same callback topology used by settlement tests.
+pub async fn setup_cross_chain_overlay_round_trip_with_env(
+    settings: &[(&'static str, String)],
+) -> Result<CrossChainOverlayRoundTripWorld> {
+    let world = setup_cross_chain_with_env(settings).await?;
     let l1_rpc = world.l1_rpc();
     let l2_rpc = world.l2_rpc();
     let out = repo_root().join("contracts/out/OverlayRoundTrip.sol");

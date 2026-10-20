@@ -707,6 +707,21 @@ async fn handle(
         ));
     }
 
+    // The batch handler retains all replies until the entire batch finishes.
+    // Per-quote capture limits must not multiply into an unbounded trace reply.
+    if let Value::Array(items) = &json
+        && items.iter().any(|item| {
+            item["method"] == crate::fee_quotes::DEBUG_METHOD
+                && item["params"][1].get("trace").is_some()
+        })
+    {
+        return Ok(rpc_error(
+            Value::Null,
+            -32600,
+            "traced eez_debugQuoteFee requests must be sent individually",
+        ));
+    }
+
     let method = json.get("method").and_then(Value::as_str).unwrap_or("");
 
     // Split only requests containing front-local work. Pure Ethereum requests

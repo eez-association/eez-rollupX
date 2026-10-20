@@ -377,6 +377,12 @@ where
             }
         }
     }
+    let inspector = crate::composer::quote_trace::inspect(
+        inspector,
+        evm_env.cfg_env.chain_id,
+        "native_system",
+        &tx_env,
+    );
     let mut evm = evm_config.evm_with_env_and_inspector(state, evm_env.clone(), inspector);
     // A database read failure is the store being unavailable, not the tx being
     // invalid: the two classes drive opposite recoveries in the drain.
@@ -537,9 +543,21 @@ impl SyncBlockState {
                 "invalid unsigned quote gas/type".into(),
             ));
         }
-        let mut evm = self
-            .evm_config
-            .evm_with_env(&mut self.state, self.evm_env.clone());
+        let inspector = crate::composer::quote_trace::inspect(
+            NoOpInspector,
+            self.evm_env.cfg_env.chain_id,
+            "native_source",
+            &tx,
+        );
+        let tracing = inspector.is_capturing();
+        let mut evm = self.evm_config.evm_with_env_and_inspector(
+            &mut self.state,
+            self.evm_env.clone(),
+            inspector,
+        );
+        // This path normally has no inspector; retain its ordinary execution
+        // mode unless the request explicitly asks for call capture.
+        evm.set_inspector_enabled(tracing);
         let result = evm.transact(tx).map_err(|error| BuildError::ExecuteTx {
             idx: self.applied,
             msg: error.to_string(),
@@ -746,6 +764,12 @@ impl SyncBlockFork {
         // eth_estimateGas permits omitted fee fields (gas price zero). Keep
         // nonce, value, sender and balance checks, and normal fee accounting.
         env.cfg_env.disable_base_fee = true;
+        let inspector = crate::composer::quote_trace::inspect(
+            inspector,
+            env.cfg_env.chain_id,
+            "native_source",
+            &tx_env,
+        );
         let mut evm = self
             .evm_config
             .evm_with_env_and_inspector(&mut self.state, env, inspector);
@@ -779,6 +803,12 @@ impl SyncBlockFork {
     {
         let caller = tx_env.caller;
         let env = self.simulation_env();
+        let inspector = crate::composer::quote_trace::inspect(
+            inspector,
+            env.cfg_env.chain_id,
+            "composition",
+            &tx_env,
+        );
         let mut evm = self
             .evm_config
             .evm_with_env_and_inspector(&mut self.state, env, inspector);
@@ -809,6 +839,12 @@ impl SyncBlockFork {
         I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
     {
         let env = self.simulation_env();
+        let inspector = crate::composer::quote_trace::inspect(
+            inspector,
+            env.cfg_env.chain_id,
+            "composition",
+            &tx_env,
+        );
         let mut evm = self
             .evm_config
             .evm_with_env_and_inspector(&mut self.state, env, inspector);

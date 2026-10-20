@@ -397,6 +397,12 @@ impl LocalChainClient {
         // Attach the cache channel around each downstream dispatch.
         let mut inspector = self.inspector_factory().build(dispatcher);
         let traced = gas_trace::maybe_trace(&mut inspector, evm_env.cfg_env.chain_id);
+        let traced = crate::composer::quote_trace::inspect(
+            traced,
+            evm_env.cfg_env.chain_id,
+            "composition",
+            &tx_env,
+        );
         let mut evm =
             self.provider
                 .evm_config
@@ -597,6 +603,52 @@ mod tests {
         assert!(!source_status(&client, signed_tx(REVERTER)));
     }
 
+    #[test]
+    fn quote_call_trace_preserves_source_execution_and_restores_scope() {
+        use crate::composer::quote_trace;
+        use serde_json::json;
+        for (to, success) in [(RECIPIENT, true), (REVERTER, false)] {
+            let run = |traced: bool| {
+                let client = fixture();
+                let slot = L1SlotState::open(&client).unwrap();
+                let (mut state, mut env) = slot.fork_state(&client).unwrap();
+                // The generic fixture is pre-Byzantium; enable REVERT so this
+                // comparison exercises revert bytes rather than InvalidFE.
+                env.cfg_env
+                    .set_spec_and_mainnet_gas_params(revm::primitives::hardfork::SpecId::BYZANTIUM);
+                let mut builder = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+                let scope = traced.then(|| quote_trace::Scope::begin(json!({}), json!({})));
+                quote_trace::phase(0, "gas_estimation");
+                let result = client
+                    .simulate_source_tx_on_with_retries(
+                        signed_tx(to),
+                        &mut builder,
+                        &mut state,
+                        env,
+                        false,
+                    )
+                    .unwrap();
+                let trace = scope.map(quote_trace::Scope::finish);
+                let account = revm::Database::basic(&mut state, signer().address()).unwrap();
+                (
+                    (result.success, result.gas_used, result.output, account),
+                    trace,
+                )
+            };
+            let plain = run(false);
+            let traced = run(true);
+            assert_eq!(plain.0, traced.0, "tracing changed receipt or sender state");
+            assert_eq!(traced.0.0, success);
+            let trace = traced.1.unwrap();
+            assert_eq!(trace["runs"][0]["complete"], true);
+            assert_eq!(trace["runs"][0]["frames"][0]["to"], json!(to));
+            assert_eq!(
+                trace["runs"][0]["frames"][0]["status"],
+                if success { "success" } else { "revert" }
+            );
+            assert!(run(false).1.is_none());
+        }
+    }
     #[test]
     fn source_planning_gas_reports_execution_instead_of_the_signed_limit() {
         let client = fixture();

@@ -1326,7 +1326,60 @@ is absent from `eez_quoteFee` and is not needed to construct a wallet transactio
 including policy, contexts, measured costs and replay iterations. Ordinary-L2
 diagnostics use `estimate.basis = "ordinary_l2"` and zero `requiredL2Tip`; they do
 not invent L1 cost components. Debug is a projection of the same calculation,
-not a trace. Separate calls can select different contexts and need not be equal.
+not a trace by default. Separate calls can select different contexts and need not be equal.
+
+Only `eez_debugQuoteFee` additionally accepts `options.trace = "calls"`:
+
+```json
+[
+  {"from":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222","data":"0x"},
+  {"transactionTypes":["0x2"],"trace":"calls"}
+]
+```
+
+This adds `diagnostics.trace`, a versioned `eez-quote-call-trace` export from
+the actual blocking quote calculation. It retains calls on failed execution
+variants as well as successful quotes. Omission preserves the existing debug
+response; other trace values, including null and false, are invalid. The compact
+method rejects the trace option before acquiring a worker.
+Traced quotes must be submitted individually. A JSON-RPC batch containing a
+debug quote with a `trace` option is rejected with `-32600` before any member
+executes, so batch response accumulation cannot multiply the capture budget.
+
+Each run records its transaction format, phase (`gas_estimation`,
+`fee_simulation`, `final_validation`), purpose, actual transaction fields and
+call frames. Composition links nested chain executions to their suspended
+callers using explicit parent IDs. Native source, system and settlement replays
+are separate runs. Conditional setup and settlement simulate proof results;
+their traces do not establish proof verification. Context records the L1 parent
+and posting target, L2 parent/environment and resolved nonce. Pending
+predecessors establish this state before capture; their transaction bodies are
+not exported as predecessor runs. Internal state-provider reads and hash-only
+prefix construction are outside the call trace.
+
+Capture is limited to 128 runs, 4096 frames and 1 MiB of raw input/output across
+the request, with at most 4096 bytes per captured field. Lengths and truncation
+flags preserve the distinction between empty and omitted bytes. Capture limits
+do not stop execution or change a fee decision. Incomplete EVM runs retain
+unfinished frames. RPC-level context, provider or deadline failures can prevent
+the calculation from returning a trace; no durable trace ID or server storage
+is provided.
+
+Frames preserve CALL, STATICCALL, DELEGATECALL, CALLCODE, CREATE and CREATE2,
+caller, target/storage and code addresses, value, static context, return bytes,
+EVM outcome and inclusive frame gas. Gas excludes transaction-level overhead
+and is not additive across nested frames, chains or simulation runs. An inner
+revert can be caught, and a successful child's effects can be unwound by a
+later ancestor revert; neither its status nor a gas-probe failure alone
+establishes the quote outcome.
+
+The [local trace viewer](../tools/quote-trace-viewer/README.md) imports the
+response without network access and decodes standard Solidity errors. Unknown
+custom errors retain their selector/bytes. The schema and manual `cast` example
+are documented there. This option requires an updated Composer; older versions
+reject it. The viewer reports missing/unsupported exports explicitly. The change
+does not affect contracts, signer RPC, storage, genesis, historical replay,
+follower behavior or fee enforcement. Rolling back loses trace availability.
 
 For a failed execution variant, only `diagnostics.options[].error.details`
 adds the available execution cause:
