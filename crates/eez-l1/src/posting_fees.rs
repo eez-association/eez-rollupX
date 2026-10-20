@@ -370,6 +370,30 @@ pub struct FeeQuote {
 }
 
 impl FeeQuote {
+    /// Largest zero-value posting probe affordable at the signed fee caps,
+    /// after reserving physical blobs. `None` means even the blob reservation
+    /// is unaffordable.
+    /// This is a probe bound, not an estimate of charged gas or permission to
+    /// skip native execution and final balance validation.
+    pub fn affordable_gas(
+        self,
+        balance: U256,
+        maximum: u64,
+        blobs: u64,
+    ) -> Result<Option<u64>, PostingFeeError> {
+        let Some(funds) = balance.checked_sub(self.reserve(0, blobs)?.blobs) else {
+            return Ok(None);
+        };
+        let gas = if self.max_fee_per_gas == 0 {
+            maximum
+        } else {
+            (funds / U256::from(self.max_fee_per_gas))
+                .try_into()
+                .unwrap_or(u64::MAX)
+        };
+        Ok(Some(maximum.min(gas)))
+    }
+
     pub fn is_current(self, chain_id: u64, block: L1BlockRef, target: BundleTarget) -> bool {
         self.chain_id == chain_id && self.sample == block && self.target == target
     }
@@ -534,6 +558,42 @@ mod tests {
                 "{value}: {error}"
             );
         }
+    }
+
+    #[test]
+    fn affordable_probe_reserves_blobs_and_respects_native_caps() {
+        let mut quote = config(&[]).unwrap().quote(sample()).unwrap();
+        quote.max_fee_per_gas = 10;
+        quote.max_fee_per_blob_gas = 3;
+        let blob_reserve = U256::from(131_072u64 * 3 * 2);
+        for (balance, maximum, expected) in [
+            (blob_reserve - U256::from(1), 100_000, None),
+            (blob_reserve, 100_000, Some(0)),
+            (blob_reserve + U256::from(210_009), 100_000, Some(21_000)),
+            (blob_reserve + U256::from(210_010), 100_000, Some(21_001)),
+            (blob_reserve + U256::from(210_010), 20_000, Some(20_000)),
+            (U256::MAX, u64::MAX, Some(u64::MAX)),
+        ] {
+            assert_eq!(quote.affordable_gas(balance, maximum, 2).unwrap(), expected);
+            if let Some(gas) = expected {
+                assert!(quote.reserve(gas, 2).unwrap().total <= balance);
+                if gas < maximum {
+                    assert!(quote.reserve(gas + 1, 2).unwrap().total > balance);
+                }
+            }
+        }
+        quote.max_fee_per_gas = 0;
+        assert_eq!(
+            quote.affordable_gas(blob_reserve, 50_000, 2).unwrap(),
+            Some(50_000)
+        );
+        assert_eq!(
+            quote
+                .affordable_gas(blob_reserve - U256::from(1), 50_000, 2)
+                .unwrap(),
+            None
+        );
+        assert!(quote.affordable_gas(U256::MAX, 50_000, u64::MAX).is_err());
     }
 
     #[test]

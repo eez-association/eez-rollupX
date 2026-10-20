@@ -234,7 +234,7 @@ pub(crate) fn error(status: StatusCode, code: &str, message: &str) -> (StatusCod
 }
 
 fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
-    let status = match err {
+    let status = match err.untraced() {
         FeeQuoteError::Invalid(_) => StatusCode::BAD_REQUEST,
         FeeQuoteError::Unsupported(_)
         | FeeQuoteError::Execution { .. }
@@ -245,11 +245,17 @@ fn failure(err: FeeQuoteError) -> (StatusCode, Value) {
         | FeeQuoteError::SourceFeeCap { .. } => StatusCode::UNPROCESSABLE_ENTITY,
         FeeQuoteError::Stale | FeeQuoteError::SourceSnapshot { .. } => StatusCode::CONFLICT,
         FeeQuoteError::Disabled => StatusCode::NOT_FOUND,
-        FeeQuoteError::Unavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
+        FeeQuoteError::Unavailable(_) | FeeQuoteError::PosterFunds(_) => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+        FeeQuoteError::WithTrace { .. } => unreachable!("untraced removes diagnostic wrappers"),
     };
     let (status, mut response) = error(status, err.code(), &err.to_string());
     if let Some(details) = err.diagnostics() {
         response["error"]["details"] = details;
+    }
+    if let Some(trace) = err.trace() {
+        response["error"]["trace"] = trace.clone();
     }
     (status, response)
 }
@@ -334,6 +340,37 @@ mod tests {
                 "availableBalance":"0x64", "requiredBalance":"0xc8", "shortfall":"0x64"
             })
         );
+    }
+
+    #[test]
+    fn partial_trace_keeps_the_funding_failure_and_rpc_status() {
+        let cause = FeeQuoteError::PosterFunds(Box::new(eez_composer::PosterBalanceError {
+            poster: Address::repeat_byte(1),
+            chain_id: 1,
+            available: alloy_primitives::U256::from(100),
+            blob_reserve: alloy_primitives::U256::from(200),
+            affordable_gas: 0,
+            gas_budget: 16_777_216,
+            sample: eez_l1::L1BlockRef {
+                number: 10,
+                hash: alloy_primitives::B256::repeat_byte(2),
+            },
+        }));
+        let trace = json!({"format":"eez-quote-call-trace","partial":true,"runs":[]});
+        let (status, value) = failure(FeeQuoteError::WithTrace {
+            source: Box::new(cause),
+            trace: Box::new(trace.clone()),
+        });
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        let response = rpc_response(json!(1), status, value);
+        assert_eq!(response["error"]["code"], -32004);
+        assert_eq!(
+            response["error"]["data"]["code"],
+            "poster_insufficient_funds"
+        );
+        assert_eq!(response["error"]["data"]["details"]["scope"], "poster");
+        assert_eq!(response["error"]["data"]["trace"], trace);
+        assert!(response.get("result").is_none());
     }
 
     fn transaction() -> Value {

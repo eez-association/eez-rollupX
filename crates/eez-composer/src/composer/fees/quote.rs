@@ -50,6 +50,14 @@ pub enum FeeQuoteError {
     Invalid(&'static str),
     #[error(transparent)]
     InsufficientFunds(crate::SourceBalanceError),
+    #[error(transparent)]
+    PosterFunds(Box<crate::PosterBalanceError>),
+    /// A traced operational failure remains a failure of the entire quote.
+    #[error("{source}")]
+    WithTrace {
+        source: Box<Self>,
+        trace: Box<Value>,
+    },
     #[error("unsupported quote: {0}")]
     Unsupported(&'static str),
     /// Execution details are exposed only by the debug quote projection.
@@ -96,6 +104,8 @@ impl FeeQuoteError {
         match self {
             Self::Invalid(_) => "invalid_transaction",
             Self::InsufficientFunds(_) => "insufficient_funds",
+            Self::PosterFunds(_) => "poster_insufficient_funds",
+            Self::WithTrace { source, .. } => source.code(),
             Self::Unsupported(_) | Self::Execution { .. } => "unsupported_transaction",
             Self::Unavailable(_) => "quote_unavailable",
             Self::Limit(_) => "quote_limit",
@@ -123,6 +133,8 @@ impl FeeQuoteError {
                 "currentNonce":format!("{current_nonce:#x}"),
             })),
             Self::InsufficientFunds(balance) => Some(balance.json()),
+            Self::PosterFunds(balance) => Some(balance.json()),
+            Self::WithTrace { source, .. } => source.diagnostics(),
             Self::Underfunded(detail) | Self::L1Underfunded(detail) => Some(detail.json()),
             Self::SourceFeeCap {
                 cap,
@@ -133,6 +145,33 @@ impl FeeQuoteError {
                 "maxFeePerGas":format!("{cap:#x}"), "sourceBaseFeePerGas":format!("{base:#x}"),
             })),
             _ => None,
+        }
+    }
+
+    /// Underlying category, unaffected by optional diagnostic capture.
+    pub fn untraced(&self) -> &Self {
+        match self {
+            Self::WithTrace { source, .. } => source.untraced(),
+            error => error,
+        }
+    }
+
+    pub fn trace(&self) -> Option<&Value> {
+        match self {
+            Self::WithTrace { trace, .. } => Some(trace),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_trace(self, mut trace: Value) -> Self {
+        trace["partial"] = json!(true);
+        trace["failure"] = json!({"code":self.code(),"message":self.to_string()});
+        if let Some(details) = self.debug_diagnostics() {
+            trace["failure"]["details"] = details;
+        }
+        Self::WithTrace {
+            source: Box::new(self),
+            trace: Box::new(trace),
         }
     }
 

@@ -28,11 +28,12 @@
       $("download").hidden = false;
       const options = Array.isArray(model.result.options) ? model.result.options : [];
       const failures = options.filter(option => option.error);
-      $("quote-status").textContent = !options.length ? "Outcome not included" :
+      const failure = model.trace.failure;
+      $("quote-status").textContent = failure ? "Quote failed" : !options.length ? "Outcome not included" :
         failures.length === options.length ? "Quote failed" : failures.length ? "Mixed results" : "Quote available";
       $("quote-detail").textContent = options.map(option => `${option.type === "0x0" ? "Legacy" : "EIP-1559"}: ${option.error?.code ?? "available"}`).join(" · ");
-      $("quote-errors").hidden = failures.length === 0;
-      $("quote-errors").textContent = failures.map(option => {
+      $("quote-errors").hidden = !failure && failures.length === 0;
+      $("quote-errors").textContent = failure ? `${failure.code}: ${failure.message}` : failures.map(option => {
         const detail = model.result.diagnostics?.options?.find(item => item.type === option.type)?.error?.details;
         return `${option.type}: ${detail?.stage ? detail.stage + ": " : ""}${detail?.message ?? option.error.message ?? option.error.code}`;
       }).join("\n");
@@ -40,9 +41,12 @@
       const frames = model.trace.runs.reduce((sum, item) => sum + item.frames.length, 0);
       const count = model.trace.runs.length;
       $("capture").textContent = `${frames} call${frames === 1 ? "" : "s"} · ${count} run${count === 1 ? "" : "s"}`;
-      $("capture-detail").textContent = model.trace.truncated ? "Partial capture" : "Within capture limits";
-      $("warning").hidden = !model.trace.truncated;
-      $("warning").textContent = "This trace is truncated. Missing calls or bytes cannot be reconstructed. Inspect the available evidence without assuming the omitted execution succeeded.";
+      $("capture-detail").textContent = model.trace.partial ? "Quote interrupted" : model.trace.truncated ? "Partial capture" : "Within capture limits";
+      $("warning").hidden = !model.trace.truncated && !model.trace.partial;
+      $("warning").textContent = [
+        model.trace.partial ? "The quote failed. These calls show the work completed before the failure; they do not establish a valid fee quote." : "",
+        model.trace.truncated ? "This trace is truncated. Missing calls or bytes cannot be reconstructed. Inspect the available evidence without assuming the omitted execution succeeded." : "",
+      ].filter(Boolean).join(" ");
       $("context").textContent = JSON.stringify({ context: model.trace.context, request: model.trace.request }, null, 2);
       $("runs").replaceChildren();
       for (const item of model.trace.runs) {

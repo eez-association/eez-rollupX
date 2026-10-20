@@ -136,14 +136,22 @@ pub(super) fn replay(
         chain_id: Some(snapshot.l1_env.cfg_env.chain_id),
         ..Default::default()
     };
+    let mut funding = None;
     if let Some(posting) = posting {
         setup.tx_type = 3;
-        setup.nonce = state
+        let account = state
             .basic(estimator.poster)
             .map_err(unavailable)?
-            .unwrap_or_default()
-            .nonce;
-        setup.gas_limit = gas_limit.unwrap_or(posting.gas_budget);
+            .unwrap_or_default();
+        setup.nonce = account.nonce;
+        let funds = posting
+            .probe_funding(estimator.poster, account.balance, blob_hashes.len() as u64)
+            .map_err(unavailable)?;
+        setup.gas_limit = gas_limit.unwrap_or(funds.affordable_gas);
+        if setup.gas_limit < 21_000 || setup.gas_limit > funds.affordable_gas {
+            return Err(EstimateError::PosterFunds(Box::new(funds)));
+        }
+        funding = Some(funds);
         setup.gas_price = posting.quote.max_fee_per_gas;
         setup.gas_priority_fee = Some(posting.quote.max_priority_fee_per_gas);
         setup.max_fee_per_blob_gas = posting.quote.max_fee_per_blob_gas;
@@ -163,6 +171,7 @@ pub(super) fn replay(
     let limit;
     let post_used;
     let post_required;
+    let post_limit = setup.gas_limit;
     let mut setup_env = snapshot.l1_env.clone();
     if posting.is_none() {
         setup_env.cfg_env.disable_nonce_check = true;
@@ -194,7 +203,7 @@ pub(super) fn replay(
                     &setup,
                 );
                 let evm = config.evm_with_env_and_inspector(&mut state, setup_env, inspector);
-                let output = execute_user(evm, setup)?;
+                let output = execute_user(evm, setup, funding.as_ref())?;
                 if !output.success {
                     return Err(EstimateError::Unsupported(
                         "conditional L1 setup reverted".into(),
@@ -230,7 +239,7 @@ pub(super) fn replay(
                 &tx,
             );
             let evm = config.evm_with_env_and_inspector(&mut state, user_env, inspector);
-            execute_user(evm, tx)?
+            execute_user(evm, tx, None)?
         }};
     }
     let result = if let Some(config) = &chain.gnosis_evm_config {
@@ -271,6 +280,8 @@ pub(super) fn replay(
         output: result.output,
         actions: composition.actions.clone(),
         settlement: posting.map(|_| (post_used, blob_hashes.len(), 0)),
+        post_limit,
+        post_funding: funding,
         post_required,
         retained_l1: Some(state.cache),
         retained_l2: Vec::new(),

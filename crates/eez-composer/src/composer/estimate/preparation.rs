@@ -128,6 +128,8 @@ pub(super) fn outbound(
         actions: c.actions.clone(),
         settlement: None,
         post_required: 0,
+        post_limit: 0,
+        post_funding: None,
         retained_l1: None,
         retained_l2: Vec::new(),
         retained_root: None,
@@ -334,6 +336,7 @@ fn read_call<C: SolCall>(
             chain_id: Some(chain_id),
             ..Default::default()
         },
+        None,
     )?;
     if !output.success {
         return Err(unsupported("deployment lookup reverted"));

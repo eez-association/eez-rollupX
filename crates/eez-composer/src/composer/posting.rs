@@ -94,6 +94,28 @@ pub(super) struct PostingQuote {
     pub gas_budget: u64,
 }
 
+impl PostingQuote {
+    pub fn probe_funding(
+        &self,
+        poster: Address,
+        balance: U256,
+        blobs: u64,
+    ) -> Result<crate::PosterBalanceError, PostingFeeError> {
+        Ok(crate::PosterBalanceError {
+            poster,
+            chain_id: self.quote.chain_id,
+            available: balance,
+            blob_reserve: self.quote.reserve(0, blobs)?.blobs,
+            affordable_gas: self
+                .quote
+                .affordable_gas(balance, self.gas_budget, blobs)?
+                .unwrap_or(0),
+            gas_budget: self.gas_budget,
+            sample: self.quote.sample,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub(super) struct BundleExecution {
     /// Receipt gas, after refunds and the calldata floor, for fee accounting.
@@ -550,24 +572,14 @@ impl PostingRuntime {
             .block_id(quote.quote.sample.hash.into())
             .await
             .map_err(|e| PostingError::Unavailable(e.to_string()))?;
-        let blob_reserve = quote.quote.reserve(0, blobs)?.blobs;
-        let affordable = balance
-            .checked_sub(blob_reserve)
-            .and_then(|funds| {
-                if quote.quote.max_fee_per_gas == 0 {
-                    Some(U256::MAX)
-                } else {
-                    funds.checked_div(U256::from(quote.quote.max_fee_per_gas))
-                }
-            })
+        let probe_gas = quote
+            .quote
+            .affordable_gas(balance, quote.gas_budget, blobs)?
             .ok_or_else(|| {
                 PostingError::Transaction(
                     "poster balance cannot reserve blob and execution fees".into(),
                 )
             })?;
-        let probe_gas = quote
-            .gas_budget
-            .min(affordable.try_into().unwrap_or(u64::MAX));
         let reprice = |bytes: &Bytes, gas: u64| {
             eez_blob_codec::reprice_blob_transaction(
                 bytes,

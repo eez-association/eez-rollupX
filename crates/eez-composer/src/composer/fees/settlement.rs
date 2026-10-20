@@ -305,20 +305,28 @@ fn estimate(
     }
     .abi_encode()
     .into();
+    let poster = runtime.ctx.l1_poster_signer.address();
+    let account = provider
+        .basic_account(&poster)
+        .map_err(unavailable)?
+        .unwrap_or_default();
+    let funding = posting
+        .probe_funding(poster, account.balance, input.blobs as u64)
+        .map_err(unavailable)?;
+    if funding.affordable_gas < 21_000 {
+        return Err(FeeQuoteError::PosterFunds(Box::new(funding)));
+    }
     let tx = TxEnv {
         tx_type: 3,
-        caller: runtime.ctx.l1_poster_signer.address(),
+        caller: poster,
         kind: TxKind::Call(runtime.post_batch_target),
         data: postAndVerifyBatchCall {
             batch: batch.clone(),
         }
         .abi_encode()
         .into(),
-        nonce: provider
-            .account_nonce(&runtime.ctx.l1_poster_signer.address())
-            .map_err(unavailable)?
-            .unwrap_or_default(),
-        gas_limit: posting.gas_budget,
+        nonce: account.nonce,
+        gas_limit: funding.affordable_gas,
         gas_price: posting.quote.max_fee_per_gas,
         gas_priority_fee: Some(posting.quote.max_priority_fee_per_gas),
         max_fee_per_blob_gas: posting.quote.max_fee_per_blob_gas,
@@ -332,14 +340,30 @@ fn estimate(
         .and_then(|entry| entry.rootUpdates.last())
         .ok_or(FeeQuoteError::Unsupported("settlement endpoint"))?
         .newRoot;
-    let execute = |tx| replay(runtime, posting, input, tx, &verify_data, endpoint);
+    let execute = |tx| {
+        replay(
+            runtime,
+            posting,
+            input,
+            tx,
+            &verify_data,
+            endpoint,
+            &funding,
+        )
+    };
     let (used, required) = execute(tx.clone())?;
     let mut selected = tx;
     selected.gas_limit = runtime
         .fees
-        .declared_gas(required, posting.gas_budget)
-        .map_err(unavailable)?;
-    if selected.gas_limit == posting.gas_budget {
+        .declared_gas(required, funding.affordable_gas)
+        .map_err(|error| {
+            if funding.limits_probe() {
+                FeeQuoteError::PosterFunds(Box::new(funding.clone()))
+            } else {
+                unavailable(error)
+            }
+        })?;
+    if selected.gas_limit == funding.affordable_gas {
         return Ok(used);
     }
     // As in final preflight, gas-sensitive code may need the larger verified
@@ -358,7 +382,9 @@ fn replay(
     tx: TxEnv,
     verify_data: &Bytes,
     endpoint: B256,
+    funding: &crate::PosterBalanceError,
 ) -> Result<(u64, u64), FeeQuoteError> {
+    let gas_limit = tx.gas_limit;
     let provider = runtime
         .chain
         .provider
@@ -399,7 +425,15 @@ fn replay(
             );
             let mut evm =
                 config.evm_with_env_and_inspector(&mut state, posting.env.clone(), traced);
-            evm.transact(tx).map_err(unavailable)?.result
+            evm.transact(tx)
+                .map_err(|error| {
+                    if funding.explains(gas_limit, &error) {
+                        FeeQuoteError::PosterFunds(Box::new(funding.clone()))
+                    } else {
+                        unavailable(error)
+                    }
+                })?
+                .result
         }};
     }
     let result = if let Some(config) = &runtime.chain.gnosis_evm_config {
@@ -415,6 +449,18 @@ fn replay(
             SealedHeader::new(posting.parent.clone(), posting.quote.sample.hash)
         )
     };
+    if funding.limits_probe()
+        && gas_limit == funding.affordable_gas
+        && matches!(
+            result,
+            revm::context_interface::result::ExecutionResult::Halt {
+                reason: revm::context_interface::result::HaltReason::OutOfGas(_),
+                ..
+            }
+        )
+    {
+        return Err(FeeQuoteError::PosterFunds(Box::new(funding.clone())));
+    }
     if !result.is_success()
         || inspector.invalid
         || inspector.matches != 1

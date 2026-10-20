@@ -28,6 +28,7 @@ broadcast are outside this iteration.
 | R5 | Tracing observes execution without changing gas, output, state, queue ownership or worker lifetime | Traced/untraced equivalence tests and existing fee process suite |
 | R6 | Capture and viewer input are bounded; missing/truncated evidence is explicit; traced RPC batches are rejected before execution | Boundary, batch rejection, malformed JSON and browser tests |
 | R7 | Import stays in the browser; contract text cannot execute scripts or initiate network requests | DOM/browser tests with hostile trace content |
+| R8 | Operational failures after capture starts retain the partial trace without returning successful quote options | Unfunded-poster nested process tests, error-envelope and browser tests |
 
 ## Design
 
@@ -48,7 +49,15 @@ Cross-chain roots attach to the suspended source call. Native replays remain
 separate from composition and are never presented as a single mined transaction.
 Gas is not summed across nested inclusive frames or across quote iterations.
 
-The viewer accepts the complete JSON-RPC response or its result. It displays
+If calculation fails after capture starts, the RPC error retains the collector
+at `error.data.trace`, with `partial: true` and a sanitized `failure` summary.
+This does not retain pending predecessor bodies, change the error category, or
+return earlier successful quote options. Failures before capture and worker
+timeout, cancellation, shutdown or panic may still have no trace. The bounded
+worker retains its permit until it exits; capture does not change that lifecycle.
+
+The viewer accepts the complete JSON-RPC response, its result, or a trace object.
+It recognizes partial exports inside error responses. It displays
 the quote outcome separately from individual run/frame outcomes, an expandable
 call tree and selected-frame details. Standard Solidity errors are decoded;
 unknown custom errors retain their selector and bytes. ABI-assisted decoding
@@ -63,6 +72,9 @@ contract, genesis, signer, follower, storage or operator configuration change is
 needed. Rollback removes trace availability without changing historical replay
 or fee enforcement. A trace describes simulated execution, not a proof or a
 replay witness; a later request can use a different context.
+The error-envelope extension retains trace schema version 1. Older viewers can
+import the extracted trace but do not explain its new failure summary; upgrade
+the viewer to display the interrupted-quote status.
 
 ## Validation
 
@@ -71,4 +83,6 @@ nested calls in both directions, formatting and Clippy. Exercise import,
 navigation, errors, truncation and malformed data in a real browser. Record
 executed checks and limitations in the
 [validation record](../audits/2026-10-20-quote-call-tracing/README.md).
+The [posting-reservation follow-up](../audits/2026-10-20-mainnet-quote-reservation/README.md)
+records the partial-error-trace regression and its validation separately.
 This design document alone is not validation evidence.

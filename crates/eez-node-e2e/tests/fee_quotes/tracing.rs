@@ -52,7 +52,7 @@ fn validate_trace(response: &Value, ty: &str) {
     }
 }
 
-fn save_trace(name: &str, response: &Value) {
+pub(super) fn save_trace(name: &str, response: &Value) {
     if let Some(directory) = std::env::var_os("EEZ_TEST_LOG_DIR") {
         let directory = std::path::PathBuf::from(directory).join("quote-traces");
         std::fs::create_dir_all(&directory).unwrap();

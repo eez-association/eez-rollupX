@@ -24,7 +24,7 @@
       new TextEncoder().encode(text).length <= MAX_IMPORT_BYTES, "Import exceeds 8 MiB");
     const document = JSON.parse(text);
     const result = document?.result ?? document;
-    const trace = result?.diagnostics?.trace ?? (result?.format ? result : null);
+    const trace = result?.diagnostics?.trace ?? document?.error?.data?.trace ?? (result?.format ? result : null);
     if (!trace && object(document?.error)) {
       const message = typeof document.error.message === "string"
         ? document.error.message.slice(0, 512) : "Request failed";
@@ -37,6 +37,11 @@
     "Invalid trace context");
     requireValue(Array.isArray(trace.runs) && trace.runs.length <= 128 &&
       typeof trace.truncated === "boolean", "Invalid trace runs");
+    requireValue(trace.partial === undefined || typeof trace.partial === "boolean", "Invalid partial trace flag");
+    if (trace.failure !== undefined) {
+      requireValue(object(trace.failure) && string(trace.failure.code, 64) &&
+        string(trace.failure.message, 512), "Invalid trace failure");
+    }
     let count = 0;
     for (const [index, run] of trace.runs.entries()) {
       requireValue(object(run) && run.id === index && string(run.phase, 64) &&
@@ -121,6 +126,7 @@
   function chooseRun(model) {
     const runs = model.trace.runs;
     if (!runs.length) return -1;
+    if (model.trace.partial) return (runs.findLast(run => run.frames.length) ?? runs.at(-1)).id;
     const failed = (model.result.options ?? []).filter(option => option.error).at(-1);
     if (failed) {
       const detail = model.result.diagnostics?.options?.find(option => option.type === failed.type);

@@ -1,9 +1,54 @@
-//! Source balance and measured payment shortfalls. These diagnostics convey a
+//! Source/poster balance and measured payment shortfalls. These diagnostics convey a
 //! calculation; they neither reserve a price nor authorize queue disposition.
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use eez_l1::{L1BlockRef, posting_fees::FeeQuote};
 use serde_json::{Value, json};
+
+/// The poster cannot run a settlement probe within its sampled balance. The
+/// affordable gas bound is diagnostic, not a measured settlement requirement.
+#[derive(Clone, Debug, thiserror::Error)]
+#[error("posting wallet {poster} cannot fund the settlement gas probe on chain {chain_id}")]
+pub struct PosterBalanceError {
+    pub poster: Address,
+    pub chain_id: u64,
+    pub available: U256,
+    pub blob_reserve: U256,
+    pub affordable_gas: u64,
+    pub gas_budget: u64,
+    pub sample: L1BlockRef,
+}
+
+impl PosterBalanceError {
+    pub fn json(&self) -> Value {
+        json!({
+            "reason":"poster_balance", "scope":"poster", "poster":self.poster,
+            "chainId":format!("{:#x}", self.chain_id),
+            "availableBalance":self.available, "blobFeeReservation":self.blob_reserve,
+            "maxAffordableGas":format!("{:#x}", self.affordable_gas),
+            "gasBudget":format!("{:#x}", self.gas_budget),
+            "l1Sample":{"number":format!("{:#x}",self.sample.number),"hash":self.sample.hash},
+        })
+    }
+
+    pub(crate) fn limits_probe(&self) -> bool {
+        self.affordable_gas < self.gas_budget
+    }
+
+    pub(crate) fn explains(&self, gas_limit: u64, error: &impl reth_evm::EvmError) -> bool {
+        use reth_evm::InvalidTxError;
+        use revm::context_interface::result::InvalidTransaction;
+        error.as_invalid_tx_err().is_some_and(|error| {
+            (self.limits_probe()
+                && gas_limit == self.affordable_gas
+                && error.is_gas_limit_too_low())
+                || matches!(
+                    error.as_invalid_tx_err(),
+                    Some(InvalidTransaction::LackOfFundForMaxFee { .. })
+                )
+        })
+    }
+}
 
 /// Failed source-chain balance validation, distinct from settlement-tip coverage.
 /// `required` includes value and the maximum fee reservation when provided by
@@ -120,5 +165,50 @@ impl std::fmt::Display for FundingDiagnostic {
             "settlement payment {} is below required {} on chain {}",
             self.offered, self.required, self.payment_chain_id
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use revm::context_interface::result::{EVMError, InvalidTransaction};
+    use std::convert::Infallible;
+
+    #[test]
+    fn poster_diagnostic_does_not_misclassify_a_tighter_replay_or_unrelated_error() {
+        let mut funds = PosterBalanceError {
+            poster: Address::ZERO,
+            chain_id: 1,
+            available: U256::from(50_000),
+            blob_reserve: U256::ZERO,
+            affordable_gas: 50_000,
+            gas_budget: 100_000,
+            sample: L1BlockRef {
+                number: 1,
+                hash: Default::default(),
+            },
+        };
+        let intrinsic: EVMError<Infallible> =
+            EVMError::Transaction(InvalidTransaction::CallGasCostMoreThanGasLimit {
+                initial_gas: 60_000,
+                gas_limit: 50_000,
+            });
+        assert!(funds.explains(50_000, &intrinsic));
+        // A smaller measured replay may fail while the affordable probe works;
+        // that must preserve the existing fallback to the successful probe.
+        assert!(!funds.explains(40_000, &intrinsic));
+        funds.affordable_gas = funds.gas_budget;
+        assert!(!funds.explains(100_000, &intrinsic));
+        let balance: EVMError<Infallible> =
+            EVMError::Transaction(InvalidTransaction::LackOfFundForMaxFee {
+                fee: Box::new(U256::from(100_000)),
+                balance: Box::new(funds.available),
+            });
+        assert!(funds.explains(100_000, &balance));
+        let nonce: EVMError<Infallible> =
+            EVMError::Transaction(InvalidTransaction::NonceTooLow { tx: 0, state: 1 });
+        assert!(!funds.explains(100_000, &nonce));
+        let provider: EVMError<Infallible> = EVMError::Custom("unavailable".into());
+        assert!(!funds.explains(100_000, &provider));
     }
 }
