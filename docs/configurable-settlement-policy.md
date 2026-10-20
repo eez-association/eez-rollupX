@@ -1405,8 +1405,11 @@ later ancestor revert; neither its status nor a gas-probe failure alone
 establishes the quote outcome.
 
 The [local trace viewer](../tools/quote-trace-viewer/README.md) imports the
-response without network access and decodes standard Solidity errors. Unknown
-custom errors retain their selector/bytes. The schema and manual `cast` example
+response without network access and decodes standard Solidity errors. An embedding
+dashboard can send direct quote responses and verified-ABI annotations through
+its bounded private channel; the viewer itself retains its offline sandbox.
+Unknown custom errors retain their selector/bytes. Explorer metadata is not proof
+of a historical code match. The schema, embedding contract and manual `cast` example
 are documented there. This option requires an updated Composer; older versions
 reject it. The viewer reports missing/unsupported exports explicitly. The change
 does not affect contracts, signer RPC, storage, genesis, historical replay,

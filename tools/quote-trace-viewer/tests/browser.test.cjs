@@ -4,6 +4,7 @@ const { chromium } = require("playwright");
 const { pathToFileURL } = require("node:url");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const http = require("node:http");
 const { fixture, bytes, revert } = require("./fixture.cjs");
 
 test("imports local JSON, navigates nested failures and exports without network access", async () => {
@@ -23,6 +24,12 @@ test("imports local JSON, navigates nested failures and exports without network 
     assert.match(await page.locator("#frame-detail").textContent(), /<img src=/);
     assert.equal(await page.locator("#frame-detail img").count(), 0);
     assert.equal(await page.evaluate(() => globalThis.compromised), undefined);
+    await page.locator('[data-frame="0"]').click();
+    await page.locator('[data-frame="0"]').click();
+    assert.equal(await page.locator('[role="treeitem"]').count(), 3, "selecting a call must not hide its children");
+    await page.locator('[data-frame="0"]').press('ArrowLeft');
+    assert.equal(await page.locator('[role="treeitem"]').count(), 1);
+    await page.locator('[data-frame="0"]').press('ArrowRight');
     await page.locator("#expand").click();
     await page.locator('[data-frame="2"]').click();
     assert.match(await page.locator("#frame-detail").textContent(), /rolled back by an ancestor/);
@@ -123,6 +130,7 @@ test("embedded viewer supports keyboard import and ignores superseded file reads
 
     await delayed("delayed-second.json");
     await page.waitForFunction(() => globalThis.pendingReads.length === 2);
+    await page.locator("#show-import").click();
     await page.getByText("Paste JSON instead", { exact: true }).click();
     await page.locator("#json").fill(JSON.stringify(fixture()));
     await page.locator("#load").click();
@@ -131,4 +139,56 @@ test("embedded viewer supports keyboard import and ignores superseded file reads
     assert.equal(await page.locator("#warning").isVisible(), false);
     assert.equal(await page.locator("#error").isVisible(), false, "a superseded read error must not replace pasted input");
   } finally { await browser.close(); }
+});
+
+test("private embedding channel accepts imports and rejects stale or malformed annotations", async () => {
+  const server = http.createServer(async (request, response) => {
+    const file = request.url.split("?")[0].slice(1);
+    if (!file) {
+      response.setHeader("Content-Type", "text/html");
+      response.end('<iframe title="viewer" sandbox="allow-scripts allow-downloads" src="/index.html?embedded=1"></iframe>');
+    } else if (["index.html", "model.js", "viewer.js", "style.css"].includes(file)) {
+      response.setHeader("Content-Type", file.endsWith("js") ? "text/javascript" : file.endsWith("css") ? "text/css" : "text/html");
+      response.end(await fs.readFile(path.join(__dirname, "..", file)));
+    } else { response.statusCode = 404; response.end(); }
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${server.address().port}/`);
+    const frame = page.frameLocator('iframe');
+    await frame.locator('#file').waitFor({ state: 'attached' });
+    await page.evaluate(() => {
+      const channel = new MessageChannel();
+      globalThis.messages = []; globalThis.port = channel.port1;
+      channel.port1.onmessage = event => messages.push(event.data);
+      document.querySelector('iframe').contentWindow.postMessage({ type: 'eez-quote-connect', version: 1 }, '*', [channel.port2]);
+    });
+    await page.waitForFunction(() => messages.some(message => message.type === 'ready'));
+    const doc = fixture();
+    doc.result.diagnostics.trace.runs.push({ ...structuredClone(doc.result.diagnostics.trace.runs[0]), id: 1 });
+    await page.evaluate(text => port.postMessage({ type: 'load', text }), JSON.stringify(doc));
+    await frame.locator('#workspace').waitFor({ state: 'visible' });
+    await page.waitForFunction(() => messages.some(message => message.type === 'run'));
+    const old = await page.evaluate(() => messages.filter(message => message.type === 'run').at(-1));
+    await frame.locator('#runs').selectOption('0');
+    await frame.locator('#runs').selectOption('1');
+    await page.waitForFunction(sequence => messages.filter(message => message.type === 'run').at(-1).sequence > sequence + 1, old.sequence);
+    const latest = await page.evaluate(() => messages.filter(message => message.type === 'run').at(-1));
+    const send = data => page.evaluate(data => port.postMessage(data), data);
+    await send({ type: 'load', expectedSequence: old.sequence, text: '{}' });
+    await send({ type: 'annotations', sequence: old.sequence, runId: old.run.id, frames: [{ id: 0, name: 'STALE' }] });
+    await send({ type: 'annotations', sequence: latest.sequence, runId: latest.run.id, frames: [{ id: 0, name: 'Latest verified contract' }] });
+    await frame.locator('[data-frame="0"]').filter({ hasText: 'Latest verified contract' }).waitFor();
+    assert.doesNotMatch(await frame.locator('#tree').textContent(), /STALE/);
+    assert.equal(await frame.locator('#workspace').isVisible(), true, 'a late quote must not replace a newer selection');
+    await send({ type: 'annotations', sequence: latest.sequence, runId: latest.run.id, frames: [{ id: 0, name: 'x'.repeat(32769) }] });
+    await send({ type: 'annotations', sequence: latest.sequence, runId: latest.run.id, frames: [{ id: 0, name: 'DUPLICATE' }, { id: 0, name: 'DUPLICATE' }] });
+    // A subsequent status message is a barrier on the same ordered channel.
+    await send({ type: 'decoding-status', sequence: latest.sequence, runId: latest.run.id, text: 'Annotations checked' });
+    await frame.locator('#decoding-status').filter({ hasText: 'Annotations checked' }).waitFor();
+    assert.match(await frame.locator('[data-frame="0"]').textContent(), /Latest verified contract/);
+    assert.doesNotMatch(await frame.locator('#tree').textContent(), /DUPLICATE/);
+  } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
 });

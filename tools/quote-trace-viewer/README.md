@@ -1,8 +1,8 @@
 # Quote trace viewer
 
 Open [index.html](index.html) in a browser and import a debug quote JSON file, or
-paste its contents. All parsing and display stay in the browser. There are no
-RPC calls, uploads, analytics, CDNs or runtime dependencies.
+paste its contents. All parsing and display stay in the browser. The standalone
+viewer makes no RPC calls or uploads and has no analytics, CDNs or runtime dependencies.
 
 For browsers that restrict local scripts, serve this directory locally:
 
@@ -23,7 +23,8 @@ The dashboard can bundle these same static assets and load
 `index.html?embedded=1` in an iframe with `sandbox="allow-scripts allow-downloads"`.
 Embedded mode hides the standalone brand header. Keep the sandbox's origin
 isolation and the viewer's content policy so imports cannot access dashboard
-wallet state or make network requests. No parent-page messaging is required.
+wallet state or make network requests. Local import needs no parent messaging;
+the optional integration below adds direct quoting and decoded annotations.
 The file picker is keyboard accessible. If file reads overlap, only the most
 recent import or paste can update the displayed result.
 
@@ -81,7 +82,8 @@ tree; do not concatenate iterations as if they were one transaction.
   estimation. A successful run does not establish proof verification.
 
 Click a call for caller, target/storage, code address, input, output, gas and
-error details. Click its arrow to expand or collapse its children. Search by
+error details. Click its arrow (or use Left/Right on the focused call) to expand
+or collapse its children; selecting a call keeps its expansion unchanged. Search by
 address, selector, call kind or decoded error. A successful call beneath a
 failed ancestor is marked as rolled back. A failed inner call beneath a
 successful root is marked as a failure inside a successful simulation.
@@ -92,7 +94,8 @@ Do not sum nested frames or repeated runs to calculate a fee. Use the quote's
 existing cost diagnostics for pricing.
 
 The viewer decodes complete standard `Error(string)` and `Panic(uint256)`
-payloads. Custom errors keep the unknown selector and raw bytes. ABI upload,
+payloads. An embedded dashboard can supply ABI-decoded annotations through the
+channel below. Unknown custom errors keep their selector and raw bytes. ABI upload,
 source maps, variables, state diffs and opcode stepping are outside this version.
 The export is a simulation record, not a mined receipt, proof or replay witness.
 The snapshot can include pending predecessor effects; a later request can run
@@ -148,6 +151,47 @@ collector is allocated for ordinary quotes or admission. One scoped collector
 lives on the blocking quote worker; synchronous callbacks share it. Guards
 restore the prior scope on success, error or unwinding. Queue ownership and
 worker-permit cancellation rules are unchanged.
+
+## Dashboard integration
+
+The standalone page remains offline. With `?embedded=1`, a parent served from the
+viewer's URL origin may establish a private `MessageChannel` by sending
+`{type: "eez-quote-connect", version: 1}` with exactly one transferred port.
+The viewer checks the sender window and origin and accepts only one connection.
+Keep the iframe sandbox `allow-scripts allow-downloads` without same-origin
+access. The parent must target `"*"` when sending to this opaque frame; the source
+and origin checks still apply on receipt. No wallet, navigation, storage or
+arbitrary fetch commands are supported. All annotations render as text.
+
+The port sends `{type: "ready", version: 1, sequence}`. The parent can submit
+`{type: "load", text: JSON.stringify(response), expectedSequence}` through the same bounded parser
+as file import. On import/run selection the viewer emits
+`{type: "run", sequence, context, run}` with validated captured frames (or a null
+run); invalid imports emit `{type: "invalid", sequence, message}`. The sequence
+changes on every selection, including returning to an earlier run. File reads
+emit `{type: "import-started", sequence}` before awaiting file contents, so the
+parent can cancel a pending quote. A load with an `expectedSequence` must match
+the current sequence; a late RPC response cannot overwrite a newer local import.
+Hosts can omit that field for an unconditional import.
+
+The parent supplies `{type: "annotations", sequence, runId, frames}`. Each item
+contains an existing frame `id` and optional strings `name`, `method`, `signature`,
+`arguments`, `returns`, `error`, `note`. Strings are capped at 32 Ki characters,
+messages at 1 Mi characters and the selected run's annotations at 4 Mi characters.
+Duplicate/invalid IDs and stale sequences are rejected. A status message uses
+`{type: "decoding-status", sequence, runId, text}` (up to 512 characters).
+Annotations do not change statuses, captured bytes or the exported JSON. The
+dashboard owns chain-aware verified metadata requests, bounded decoding and
+cancellation. It must distinguish an explorer ABI from a proven historical code
+match and retain raw evidence when decoding is unavailable.
+
+The execution summary reports parent-only failures, caught failures and ancestor
+rollback separately from quote validation errors. The last recorded child is a
+navigation aid, not proof of causation. Truncation reports omitted calls/runs and
+each shortened field separately. Byte truncation alone does not imply missing
+calls. Direct quoting and ABI annotations require the upgraded dashboard and
+viewer together; older hosts and standalone imports remain functional. No RPC,
+protocol, storage or node upgrade is needed for these viewer enhancements.
 
 ## Tests
 
