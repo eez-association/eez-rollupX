@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Investigate excluded Ethereum mainnet settlement bundles (read-only).
+"""Inspect Ethereum mainnet builder submissions and inclusion (read-only).
 
-The Composer only reports `bundle dropped ... reason=excluded`. This read-only
-tool classifies each excluded target from public chain and relay data:
+This tool reports successful and failed submissions from Composer JSON logs,
+summarizes outcomes per builder, and classifies targets using chain/relay data:
 
   POSSIBLY_LOCAL         client-like extraData with no observed relay delivery;
                          this is a hint, not proof of local construction
@@ -14,12 +14,15 @@ tool classifies each excluded target from public chain and relay data:
                          slot or reorg)
   UNKNOWN                insufficient evidence, including relay outages
 
-Targets come from block numbers or from Composer JSON logs (`--logs`), which
-also supply the expected target timestamp and the bundle hash each builder
-returned. Stats are queried for every acknowledging builder with a supported
+Targets come from block numbers or Composer JSON logs (`--logs`). Dispatch and
+fan-out events bind outcomes to the exact post hash and target timestamp.
+Stats are queried for every acknowledging builder with a supported
 API and a valid hash, regardless of who won. Unsupported APIs, missing hashes,
 and unavailable stats are explicit. Titan traces take about five minutes to
 appear; Bombora stats take four blocks. Pending/missing stats are inconclusive.
+Accepted/rejected describe submission replies. Included/excluded describe the
+canonical target's exact post for accepted submissions, not who built the block
+or whether the whole bundle settled. Unknown observations stay unresolved.
 
 Usage:
   sudo docker logs --since 2h eez-node-ethereum 2>&1 | \\
@@ -137,15 +140,70 @@ def correlation_hash(value):
     return None
 
 
-def parse_logs(lines):
-    """Collect excluded targets from Composer JSON logs.
+SUBMISSION_OUTCOMES = (
+    "acknowledged", "rejected", "unsupported", "transport_error",
+    "deadline_exceeded", "abandoned_after_acknowledgement", "unknown",
+)
 
-    Returns {target_block: {"timestamp": int|None, "post_tx": str|None,
-    "bundles": {builder_host: bundle_hash|None}}} for targets dropped as excluded.
-    A successful acknowledgement need not contain a usable correlation hash.
+
+def new_attempt(target, post_tx=None):
+    return {"target": target, "timestamp": None, "post_tx": post_tx,
+            "submissions": {}, "drop_reasons": []}
+
+
+def add_submission(attempt, host, outcome, bundle_hash=None, error=None):
+    if not isinstance(host, str) or not host:
+        return False
+    try:
+        host = host_key("https://" + host)
+    except ValueError:
+        return False
+    if not host:
+        return False
+    row = attempt["submissions"].setdefault(host, {
+        "outcomes": [], "bundle_hashes": [], "errors": [],
+    })
+    if outcome not in SUBMISSION_OUTCOMES:
+        outcome = "unknown"
+    if outcome not in row["outcomes"]:
+        row["outcomes"].append(outcome)
+    bundle_hash = correlation_hash(bundle_hash)
+    if outcome == "acknowledged" and bundle_hash and bundle_hash not in row["bundle_hashes"]:
+        row["bundle_hashes"].append(bundle_hash)
+    if error is not None and error not in row["errors"]:
+        row["errors"].append(error)
+    return True
+
+
+def log_integer(value):
+    # Log fields are decimal integers, never booleans or rounded floats.
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        number = int(value)
+        return number if number >= 0 else None
+    except ValueError:
+        return None
+
+
+def parse_logs(lines, diagnostics=None):
+    """Group submission evidence by (target block, exact post hash).
+
+    Typed fan-out events bind every builder outcome to a post. Older response
+    breadcrumbs lack that hash, so use them only when the height has at most
+    one observed post. A missing post hash stays an uncorrelated target record.
+    Repeated events and multiple endpoints of one builder are aggregated, not
+    counted as extra bundles. Input must be JSON logs from one Composer.
     """
-    seen, excluded = {}, set()
+    if diagnostics is None:
+        diagnostics = {}
+
+    def note(key):
+        diagnostics[key] = diagnostics.get(key, 0) + 1
+
+    attempts, responses, timestamps, fanout_hosts = {}, {}, {}, {}
     for line in lines:
+        note("lines")
         start = line.find("{")
         if start < 0:
             continue
@@ -155,39 +213,108 @@ def parse_logs(lines):
             continue
         if not isinstance(event, dict) or not isinstance(event.get("fields"), dict):
             continue
+        note("json_events")
         fields = event["fields"]
-        try:
-            target = int(fields.get("target_block"))
-        except (TypeError, ValueError):
-            continue
-        if target < 0:
-            continue
-        entry = seen.setdefault(target, {"timestamp": None, "post_tx": None, "bundles": {}})
+        target = log_integer(fields.get("target_block"))
         message = fields.get("message", "")
-        if not isinstance(message, str):
+        if target is None or not isinstance(message, str):
             continue
-        if fields.get("target_timestamp") is not None:
-            try:
-                entry["timestamp"] = int(fields["target_timestamp"])
-            except (TypeError, ValueError):
-                pass
         if message.startswith("eth_sendBundle response received"):
+            responses.setdefault(target, []).append(fields)
+            continue
+        if not message.startswith(("bundle submission window open", "dispatching bundle to builder",
+                                   "eth_sendBundle fan-out finished", "bundle dropped")):
+            continue
+        key = (target, correlation_hash(fields.get("tx_hash")))
+        timestamp = log_integer(fields.get("target_timestamp"))
+        if timestamp is not None:
+            timestamps.setdefault(key, set()).add(timestamp)
+        if message.startswith("bundle submission window open"):
+            continue
+        attempt = attempts.setdefault(key, new_attempt(*key))
+        if message.startswith("bundle dropped"):
+            reason = fields.get("reason")
+            if isinstance(reason, str) and reason not in attempt["drop_reasons"]:
+                attempt["drop_reasons"].append(reason)
+        if message.startswith("eth_sendBundle fan-out finished"):
             try:
-                response = json.loads(fields.get("response", "{}"))
+                outcomes = json.loads(fields.get("outcomes", "null"))
+            except (TypeError, ValueError):
+                outcomes = None
+            if not isinstance(outcomes, list):
+                note("malformed_fanouts")
+                continue
+            for outcome in outcomes:
+                if not isinstance(outcome, dict) or not add_submission(
+                        attempt, outcome.get("host"), outcome.get("outcome"),
+                        outcome.get("relay_bundle_hash")):
+                    note("malformed_fanouts")
+            fanout_hosts.setdefault(key, set()).update(attempt["submissions"])
+
+    by_target = {}
+    for key in attempts:
+        by_target.setdefault(key[0], []).append(key)
+    for target, events in responses.items():
+        keys = by_target.get(target, [])
+        if not keys:
+            key = (target, None)
+            attempts[key] = new_attempt(*key)
+            keys = [key]
+        for fields in events:
+            try:
+                response = json.loads(fields.get("response", "null"))
             except (TypeError, ValueError):
                 response = None
-            # Match the submitter's acknowledgement semantics: an optional hash
-            # is metadata, and a non-object result is still a success response.
-            if isinstance(response, dict) and "result" in response and "error" not in response:
-                result = response["result"]
-                bundle_hash = correlation_hash(result.get("bundleHash")) if isinstance(result, dict) else None
-                host = fields.get("builder_host")
-                if isinstance(host, str) and host:
-                    entry["bundles"][host_key("https://" + host)] = bundle_hash
-        if message.startswith("bundle dropped") and fields.get("reason") == "excluded":
-            excluded.add(target)
-            entry["post_tx"] = correlation_hash(fields.get("tx_hash"))
-    return {target: seen[target] for target in sorted(excluded)}
+            outcome, bundle_hash, error = "unknown", None, None
+            if isinstance(response, dict):
+                if "error" in response:
+                    error = response["error"]
+                    unsupported = isinstance(error, dict) and error.get("code") == -32601
+                    outcome = "unsupported" if unsupported else "rejected"
+                elif "result" in response:
+                    outcome = "acknowledged"
+                    result = response["result"]
+                    bundle_hash = correlation_hash(result.get("bundleHash")) if isinstance(result, dict) else None
+            host = fields.get("builder_host")
+            row = new_attempt(target)
+            if not add_submission(row, host, outcome, bundle_hash, error):
+                note("malformed_responses")
+                continue
+            host = next(iter(row["submissions"]))
+            if len(keys) != 1:
+                # A hash-bearing response already represented by fan-out needs
+                # no fallback. Never guess which post owns a hashless response.
+                represented = bundle_hash and any(bundle_hash in attempts[key]["submissions"].get(
+                    host, {}).get("bundle_hashes", []) for key in keys)
+                if represented:
+                    continue
+                note("uncorrelated_responses")
+                if not bundle_hash and any(outcome in attempts[key]["submissions"].get(
+                        host, {}).get("outcomes", []) for key in keys):
+                    continue
+                # Retain unmatched hashes for stats even when we cannot bind
+                # them to a post. The summary flags this incomplete evidence.
+                key = (target, None)
+                attempts.setdefault(key, new_attempt(*key))
+            else:
+                key = keys[0]
+            if host not in fanout_hosts.get(key, set()):
+                add_submission(attempts[key], fields["builder_host"], outcome, bundle_hash, error)
+            elif error is not None and outcome in attempts[key]["submissions"][host]["outcomes"]:
+                # Keep a raw rejection reason without recounting its fan-out.
+                errors = attempts[key]["submissions"][host]["errors"]
+                if error not in errors:
+                    errors.append(error)
+
+    for key, attempt in attempts.items():
+        hints = timestamps.get(key, set())
+        if not hints and len(by_target.get(key[0], [])) <= 1:
+            hints = timestamps.get((key[0], None), set())
+        if len(hints) == 1:
+            attempt["timestamp"] = next(iter(hints))
+        elif len(hints) > 1:
+            note("conflicting_timestamps")
+    return attempts
 
 
 def relay_deliveries(block_hash):
@@ -284,12 +411,19 @@ def analyze(target, info, args, builders):
     # A losing builder can still explain a rejection. Collect its stats even
     # when the target is unavailable, mismatched, or won by another builder.
     report = {
-        "target": target, "expected_timestamp": info.get("timestamp"),
-        "bundles_acknowledged": sorted(info.get("bundles", {})),
+        "type": "attempt", "target": target, "expected_timestamp": info.get("timestamp"),
+        "post_tx": correlation_hash(info.get("post_tx")),
+        "drop_reasons": info.get("drop_reasons", []),
+        "builder_submissions": info.get("submissions", {}),
+        "bundles_acknowledged": sorted(host for host, row in info.get("submissions", {}).items()
+                                        if "acknowledged" in row["outcomes"]),
         "builder_bundle_stats": {
-            host: {"bundle_hash": bundle_hash, **bundle_stats(host, bundle_hash)}
-            for host, bundle_hash in sorted(info.get("bundles", {}).items())
+            host: [{"bundle_hash": bundle_hash, **bundle_stats(host, bundle_hash)}
+                   for bundle_hash in row["bundle_hashes"] or [None]]
+            for host, row in sorted(info.get("submissions", {}).items())
+            if "acknowledged" in row["outcomes"]
         },
+        "target_outcome": "unresolved",
     }
     try:
         summary = block_summary(args.rpc, target)
@@ -312,8 +446,11 @@ def analyze(target, info, args, builders):
     report["post_tx"] = post_tx
     report["post_in_target"] = post_tx in summary["transactions"] if post_tx else None
     if report["post_in_target"]:
+        report["target_outcome"] = "included"
         report["landed"] = {"status": "included", "block": target, "block_hash": summary["hash"]}
     elif post_tx:
+        if info.get("timestamp") == summary["timestamp"]:
+            report["target_outcome"] = "excluded"
         report["landed"] = landed_after(args.rpc, post_tx, target + 1, args.horizon)
     else:
         report["landed"] = {"status": "unknown", "reason": "no exact post hash in supplied logs"}
@@ -321,6 +458,46 @@ def analyze(target, info, args, builders):
         report["poster_transactions_in_target"] = [
             tx_hash for tx_hash, sender in summary["transactions"].items() if sender == args.poster]
     return report
+
+
+def summarize(reports, builders, diagnostics):
+    """Count distinct builder/post/target observations, not winning builders.
+
+    Included, excluded and unresolved partition accepted observations. Replies
+    and typed transport failures describe submission, while simulation failures
+    from stats are a separate stage and do not rewrite an acknowledgement.
+    """
+    fields = ("observed", "accepted", "rejected", "included", "excluded", "unresolved",
+              "unsupported", "transport_error", "deadline_exceeded",
+              "abandoned_after_acknowledgement", "unknown", "simulation_failed", "uncorrelated")
+
+    def empty():
+        return dict.fromkeys(fields, 0)
+
+    totals = {host: empty() for host in sorted(builders)}
+    categories = {}
+    for report in reports:
+        category = report["category"]
+        categories[category] = categories.get(category, 0) + 1
+        for host, submission in report["builder_submissions"].items():
+            counts = totals.setdefault(host, empty())
+            counts["observed"] += 1
+            outcomes = submission["outcomes"]
+            if "acknowledged" in outcomes:
+                counts["accepted"] += 1
+                counts[report["target_outcome"]] += 1
+            elif "rejected" in outcomes:
+                counts["rejected"] += 1
+            for outcome in SUBMISSION_OUTCOMES:
+                if outcome in ("acknowledged", "rejected"):
+                    continue
+                counts[outcome] += int(outcome in outcomes)
+            counts["uncorrelated"] += int(report["post_tx"] is None)
+            stats = report["builder_bundle_stats"].get(host, [])
+            counts["simulation_failed"] += int(any(
+                item.get("result", {}).get("status") in ("Invalid", "SimulationFail") for item in stats))
+    return {"type": "summary", "attempts": len(reports), "categories": categories,
+            "builders": dict(sorted(totals.items())), "log_diagnostics": diagnostics}
 
 
 EXPLANATION = {
@@ -346,22 +523,25 @@ def main(argv=None):
     parser.add_argument("--poster", help="show transactions from this address in the target (activity only)")
     parser.add_argument("--horizon", type=int, default=12,
                         help="blocks to scan after the target for the exact logged post hash (default 12)")
-    parser.add_argument("--json", action="store_true", help="print one JSON object per target")
+    parser.add_argument("--json", action="store_true", help="print JSON attempt records and a final summary")
     args = parser.parse_args(argv)
     if args.horizon < 0 or any(number < 0 for number in args.blocks):
         parser.error("block numbers and --horizon must be nonnegative")
     if args.poster:
         args.poster = args.poster.lower()
 
-    targets = {}
+    attempts, diagnostics = {}, {}
     if args.logs:
         stream = sys.stdin if args.logs == "-" else open(args.logs, encoding="utf-8")
         with stream:
-            targets.update(parse_logs(stream))
+            attempts.update(parse_logs(stream, diagnostics))
+    observed_targets = {key[0] for key in attempts}
     for block in args.blocks:
-        targets.setdefault(block, {"timestamp": None, "post_tx": None, "bundles": {}})
-    if not targets:
-        parser.error("no targets: pass block numbers or --logs with excluded drops")
+        if block not in observed_targets:
+            attempts.setdefault((block, None), new_attempt(block))
+    if not attempts:
+        parser.error("no submissions or drops found: pass block numbers or Composer JSON logs "
+                     f"({diagnostics.get('lines', 0)} lines, {diagnostics.get('json_events', 0)} JSON events)")
     builders = configured_builders(args.builders)
     if not builders:
         print("warning: no configured builders (set --builders or EEZ_L1_BUILDER_RPC_URL); "
@@ -374,14 +554,20 @@ def main(argv=None):
     if chain_id != 1:
         parser.error("the configured relay/stats APIs are Ethereum mainnet only (chain ID 1)")
 
-    counts = {}
-    for target in sorted(targets):
-        report = analyze(target, targets[target], args, builders)
-        counts[report["category"]] = counts.get(report["category"], 0) + 1
+    for key in ("malformed_fanouts", "malformed_responses", "uncorrelated_responses", "conflicting_timestamps"):
+        if diagnostics.get(key):
+            print(f"warning: {key}={diagnostics[key]}; log evidence is incomplete", file=sys.stderr)
+    reports = []
+    for target, post_tx in sorted(attempts, key=lambda key: (key[0], key[1] or "")):
+        report = analyze(target, attempts[(target, post_tx)], args, builders)
+        reports.append(report)
         if args.json:
             print(json.dumps(report))
             continue
         print(f"{target}  {report['category']:<18} {EXPLANATION[report['category']]}")
+        print(f"    post={report['post_tx'] or '(unknown)'} target outcome={report['target_outcome']}")
+        for host, submission in sorted(report["builder_submissions"].items()):
+            print(f"    {host} submission: {json.dumps(submission)}")
         if "block" in report:
             block = report["block"]
             print(f"    extraData={json.dumps(report['builder'])} relays={report['relays'] or '-'}"
@@ -389,8 +575,9 @@ def main(argv=None):
                   f" blobs={block['blobs']} tip p25/p50={block['tip_p25_gwei']}/{block['tip_p50_gwei']} gwei")
         if report["bundles_acknowledged"]:
             print(f"    our bundle acknowledged by: {', '.join(report['bundles_acknowledged'])}")
-        for host, stats in report["builder_bundle_stats"].items():
-            print(f"    {host} bundle stats: {json.dumps(stats)}")
+        for host, records in report["builder_bundle_stats"].items():
+            for stats in records:
+                print(f"    {host} bundle stats: {json.dumps(stats)}")
         if "landed" in report:
             print(f"    exact post {report['post_tx'] or '(unknown)'}: {json.dumps(report['landed'])}")
         if "poster_transactions_in_target" in report:
@@ -399,9 +586,15 @@ def main(argv=None):
             print(f"    (relays unavailable: {', '.join(report['relays_unavailable'])})")
         if "error" in report:
             print(f"    error: {json.dumps(report['error'])}")
-    if not args.json:
-        print("summary: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
-    return 1 if counts.get("RPC_UNAVAILABLE") else 0
+    summary = summarize(reports, builders, diagnostics)
+    if args.json:
+        print(json.dumps(summary))
+    else:
+        print("summary: " + ", ".join(f"{k}={v}" for k, v in sorted(summary["categories"].items())))
+        print("per-builder summary (inclusion/exclusion of accepted posts at their targets; not builder wins):")
+        for host, counts in summary["builders"].items():
+            print(f"    {host}: " + " ".join(f"{key}={value}" for key, value in counts.items()))
+    return 1 if summary["categories"].get("RPC_UNAVAILABLE") else 0
 
 
 if __name__ == "__main__":

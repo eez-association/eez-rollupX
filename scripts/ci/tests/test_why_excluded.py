@@ -45,6 +45,159 @@ def log(message, **fields):
          "fields": {"message": message, **fields}})
 
 
+def dispatch(post=POST_HASH, target=100, timestamp=1000):
+    return log("dispatching bundle to builder", target_block=target,
+               target_timestamp=timestamp, tx_hash=post)
+
+
+def delivery(host, outcome="acknowledged", bundle_hash=POST_HASH, index=0):
+    return {"index": index, "host": host, "outcome": outcome,
+            "relay_bundle_hash": bundle_hash, "elapsed_ms": 12.5}
+
+
+def fanout(*builders, post=POST_HASH, target=100):
+    return log("eth_sendBundle fan-out finished", target_block=target, tx_hash=post,
+               outcomes=json.dumps(list(builders)))
+
+
+class SubmissionLogsTest(unittest.TestCase):
+    def test_successful_only_logs_select_an_attempt_and_keep_dispatch_hash(self):
+        attempts = MODULE.parse_logs([
+            dispatch(),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response='{"result":true}'),
+            fanout(delivery("rpc.titanbuilder.xyz", bundle_hash=None)),
+        ])
+        self.assertEqual(len(attempts), 1)
+        attempt = attempts[(100, POST_HASH)]
+        self.assertEqual(attempt["timestamp"], 1000)
+        self.assertEqual(attempt["submissions"]["titanbuilder.xyz"]["outcomes"], ["acknowledged"])
+
+    def test_rejected_only_logs_are_selected_without_a_drop(self):
+        attempts = MODULE.parse_logs([
+            dispatch(), fanout(delivery("rpc.titanbuilder.xyz", "rejected", None)),
+        ])
+        self.assertEqual(attempts[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]["outcomes"],
+                         ["rejected"])
+
+    def test_duplicate_events_do_not_duplicate_attempts_or_hashes(self):
+        events = [dispatch(), fanout(delivery("rpc.titanbuilder.xyz"))]
+        attempts = MODULE.parse_logs(events + events)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(attempts[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]["bundle_hashes"],
+                         [POST_HASH])
+
+    def test_two_posts_at_same_height_remain_separate(self):
+        attempts = MODULE.parse_logs([
+            dispatch(), fanout(delivery("rpc.titanbuilder.xyz")),
+            dispatch(post=OTHER_HASH),
+            fanout(delivery("rpc.titanbuilder.xyz", bundle_hash=OTHER_HASH), post=OTHER_HASH),
+            log("bundle dropped", target_block=100, tx_hash=POST_HASH, reason="excluded"),
+        ])
+        self.assertEqual(set(attempts), {(100, POST_HASH), (100, OTHER_HASH)})
+        self.assertEqual(attempts[(100, POST_HASH)]["drop_reasons"], ["excluded"])
+        self.assertEqual(attempts[(100, OTHER_HASH)]["drop_reasons"], [])
+
+    def test_fanout_overrides_malformed_response_breadcrumb(self):
+        attempts = MODULE.parse_logs([
+            dispatch(),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response='{}'),
+            fanout(delivery("rpc.titanbuilder.xyz", bundle_hash=None)),
+        ])
+        self.assertEqual(attempts[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]["outcomes"],
+                         ["acknowledged"])
+
+    def test_ambiguous_responses_are_not_attached_to_the_wrong_post(self):
+        diagnostics = {}
+        attempts = MODULE.parse_logs([
+            dispatch(), dispatch(post=OTHER_HASH),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response='{"result":true}'),
+        ], diagnostics)
+        self.assertEqual(diagnostics["uncorrelated_responses"], 1)
+        self.assertEqual(attempts[(100, POST_HASH)]["submissions"], {})
+        self.assertEqual(attempts[(100, OTHER_HASH)]["submissions"], {})
+        self.assertEqual(attempts[(100, None)]["submissions"]["titanbuilder.xyz"]["outcomes"],
+                         ["acknowledged"])
+
+    def test_unmatched_ambiguous_hash_remains_available_for_stats(self):
+        attempts = MODULE.parse_logs([dispatch(), dispatch(post=OTHER_HASH),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz",
+                response=json.dumps({"result": {"bundleHash": BLOCK_HASH}})),
+        ])
+        self.assertEqual(attempts[(100, None)]["submissions"]["titanbuilder.xyz"]["bundle_hashes"],
+                         [BLOCK_HASH])
+
+    def test_ambiguous_responses_do_not_recount_typed_fanout_observations(self):
+        attempts = MODULE.parse_logs([
+            dispatch(), fanout(delivery("rpc.titanbuilder.xyz")),
+            dispatch(post=OTHER_HASH), fanout(delivery("rpc.titanbuilder.xyz", bundle_hash=None), post=OTHER_HASH),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response='{"result":null}'),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response=json.dumps({"result": {"bundleHash": POST_HASH}})),
+        ])
+        self.assertEqual(set(attempts), {(100, POST_HASH), (100, OTHER_HASH)})
+
+    def test_rpc_rejection_and_unsupported_are_distinct(self):
+        attempts = MODULE.parse_logs([
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz",
+                response=json.dumps({"error": {"code": -32000, "message": "fixture rejection"}})),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.bombora.build", response='{"error":{"code":-32601}}'),
+        ])
+        submissions = attempts[(100, None)]["submissions"]
+        self.assertEqual(submissions["titanbuilder.xyz"]["outcomes"], ["rejected"])
+        self.assertEqual(submissions["titanbuilder.xyz"]["errors"][0]["message"], "fixture rejection")
+        self.assertEqual(submissions["bombora.build"]["outcomes"], ["unsupported"])
+
+    def test_all_fanout_failure_variants_remain_explicit(self):
+        outcomes = ["rejected", "unsupported", "transport_error", "deadline_exceeded",
+                    "abandoned_after_acknowledgement"]
+        attempts = MODULE.parse_logs([dispatch(), fanout(*[
+            delivery(f"builder{i}.example", outcome, None, i) for i, outcome in enumerate(outcomes)
+        ])])
+        self.assertEqual({row["outcomes"][0] for row in attempts[(100, POST_HASH)]["submissions"].values()},
+                         set(outcomes))
+
+    def test_malformed_fanout_is_reported_without_inventing_acceptance(self):
+        diagnostics = {}
+        for payload in ('null', '{}', 'not json', '[null]', '[{"host":3}]'):
+            with self.subTest(payload=payload):
+                attempts = MODULE.parse_logs([dispatch(), log("eth_sendBundle fan-out finished",
+                    target_block=100, tx_hash=POST_HASH, outcomes=payload)], diagnostics)
+                self.assertEqual(attempts[(100, POST_HASH)]["submissions"], {})
+        self.assertGreater(diagnostics["malformed_fanouts"], 0)
+
+    def test_non_integer_targets_are_ignored(self):
+        for target in (True, 1.5, "bad", -1, None):
+            with self.subTest(target=target):
+                self.assertEqual(MODULE.parse_logs([dispatch(target=target)]), {})
+
+    def test_conflicting_timestamps_remain_unknown(self):
+        diagnostics = {}
+        attempts = MODULE.parse_logs([dispatch(), dispatch(timestamp=1012)], diagnostics)
+        self.assertIsNone(attempts[(100, POST_HASH)]["timestamp"])
+        self.assertEqual(diagnostics["conflicting_timestamps"], 1)
+
+    def test_pre_dispatch_window_is_not_a_submission(self):
+        self.assertEqual(MODULE.parse_logs([log("bundle submission window open",
+            target_block=100, tx_hash=POST_HASH, target_timestamp=1000)]), {})
+
+    def test_rejected_response_reason_survives_duplicate_fanout(self):
+        attempts = MODULE.parse_logs([dispatch(),
+            log("eth_sendBundle response received", target_block=100,
+                builder_host="rpc.titanbuilder.xyz", response='{"error":{"code":-32000,"message":"bad nonce"}}'),
+            fanout(delivery("rpc.titanbuilder.xyz", "rejected", None)),
+        ])
+        row = attempts[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]
+        self.assertEqual(row["outcomes"], ["rejected"])
+        self.assertEqual(row["errors"], [{"code": -32000, "message": "bad nonce"}])
+
+
 class ClassifyTest(unittest.TestCase):
     def test_configured_builder_is_matched_by_its_extra_data(self):
         self.assertEqual(MODULE.classify("Titan (titanbuilder.xyz)", RELAYED, BUILDERS),
@@ -101,18 +254,21 @@ class ParseLogsTest(unittest.TestCase):
                 response=json.dumps({"result": {"bundleHash": OTHER_HASH}})),
             log("bundle dropped; composer will retry on next tick", target_block=26131577,
                 tx_hash=POST_HASH, reason="excluded"),
-            # Acknowledged but included: not reported.
+            # Acknowledgement without a drop still selects a target.
             log("eth_sendBundle response received", builder_host="rpc.titanbuilder.xyz",
                 target_block=26131578,
                 response=json.dumps({"result": {"bundleHash": OTHER_HASH}})),
-            # Dropped for another reason: not an exclusion.
+            # Other drop reasons are retained without asserting exclusion.
             log("bundle dropped; composer will retry on next tick", target_block=26131579,
                 reason="slot_skipped"),
         ]
-        self.assertEqual(MODULE.parse_logs(lines), {
-            26131577: {"timestamp": 1791268463, "post_tx": POST_HASH,
-                       "bundles": {"titanbuilder.xyz": POST_HASH, "quasar.win": OTHER_HASH}},
-        })
+        attempts = MODULE.parse_logs(lines)
+        self.assertEqual(set(attempts), {(26131577, POST_HASH), (26131578, None), (26131579, None)})
+        attempt = attempts[(26131577, POST_HASH)]
+        self.assertEqual(attempt["timestamp"], 1791268463)
+        self.assertEqual(attempt["submissions"]["titanbuilder.xyz"]["bundle_hashes"], [POST_HASH])
+        self.assertEqual(attempt["submissions"]["quasar.win"]["bundle_hashes"], [OTHER_HASH])
+        self.assertEqual(attempts[(26131579, None)]["drop_reasons"], ["slot_skipped"])
 
     def test_acknowledgements_without_valid_hash_are_retained(self):
         for result in (True, False, None, "0xhash", [], {}, {"bundleHash": 3},
@@ -124,7 +280,9 @@ class ParseLogsTest(unittest.TestCase):
                           log("bundle dropped", target_block=100, tx_hash=POST_HASH,
                               reason="excluded")]
                 parsed = MODULE.parse_logs(events)
-                self.assertEqual(parsed[100]["bundles"], {"titanbuilder.xyz": None})
+                row = parsed[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]
+                self.assertEqual(row["outcomes"], ["acknowledged"])
+                self.assertEqual(row["bundle_hashes"], [])
 
     def test_bad_responses_do_not_crash_or_count_as_acknowledgements(self):
         for response in ('not json', 'null', '[]', 'true', '{}',
@@ -135,7 +293,8 @@ class ParseLogsTest(unittest.TestCase):
                               builder_host="rpc.titanbuilder.xyz", response=response),
                           log("bundle dropped", target_block=100, tx_hash=POST_HASH,
                               reason="excluded")]
-                self.assertEqual(MODULE.parse_logs(events)[100]["bundles"], {})
+                row = MODULE.parse_logs(events)[(100, POST_HASH)]["submissions"]["titanbuilder.xyz"]
+                self.assertNotIn("acknowledged", row["outcomes"])
 
 
 class RelayTest(unittest.TestCase):
@@ -190,7 +349,7 @@ class StatsTest(unittest.TestCase):
 class AnalyzeTest(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(rpc="https://execution.example", poster=POSTER, horizon=2)
-        self.info = {"timestamp": 1000, "post_tx": POST_HASH, "bundles": {}}
+        self.info = {"timestamp": 1000, "post_tx": POST_HASH, "submissions": {}}
 
     def test_relay_outage_is_unknown_not_local(self):
         with patch.object(MODULE, "rpc", return_value=block()), \
@@ -200,16 +359,17 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(set(report["relays_unavailable"]), set(MODULE.RELAYS))
 
     def test_stats_for_every_acknowledging_builder_even_when_another_wins(self):
-        self.info["bundles"] = {"titanbuilder.xyz": POST_HASH, "bombora.build": OTHER_HASH,
-                                "quasar.win": None}
+        submissions = {"titanbuilder.xyz": POST_HASH, "bombora.build": OTHER_HASH, "quasar.win": None}
+        for host, bundle_hash in submissions.items():
+            MODULE.add_submission(self.info, host, "acknowledged", bundle_hash)
         with patch.object(MODULE, "rpc", return_value=block(extra="Builder+ www.btcs.com")), \
                 patch.object(MODULE, "relay_deliveries", return_value=(RELAYED, [])), \
                 patch.object(MODULE, "bundle_stats", return_value={"availability": "fixture"}) as stats:
             report = MODULE.analyze(100, self.info, self.args, BUILDERS)
         self.assertEqual(report["category"], "OTHER_BUILDER")
         self.assertEqual(set(stats.call_args_list[i].args for i in range(stats.call_count)),
-                         set(self.info["bundles"].items()))
-        self.assertEqual(set(report["builder_bundle_stats"]), set(self.info["bundles"]))
+                         set(submissions.items()))
+        self.assertEqual(set(report["builder_bundle_stats"]), set(submissions))
 
     def test_unrelated_poster_transaction_is_not_post_inclusion(self):
         with patch.object(MODULE, "rpc", return_value=block(transactions=[transaction(OTHER_HASH)])), \
@@ -262,6 +422,85 @@ class AnalyzeTest(unittest.TestCase):
         self.assertEqual(rpc.call_count, 1)
 
 
+class SummaryTest(unittest.TestCase):
+    def analyze(self, transactions=(), timestamp=1000, drop_reason=None, target_exists=True):
+        info = MODULE.new_attempt(100, POST_HASH)
+        info["timestamp"] = timestamp
+        if drop_reason:
+            info["drop_reasons"].append(drop_reason)
+        MODULE.add_submission(info, "rpc.titanbuilder.xyz", "acknowledged", POST_HASH)
+        MODULE.add_submission(info, "rpc.bombora.build", "acknowledged", OTHER_HASH)
+        MODULE.add_submission(info, "rpc.quasar.win", "rejected", error={"code": -32000})
+        args = SimpleNamespace(rpc="http://fixture", poster=None, horizon=0)
+        with patch.object(MODULE, "block_summary", return_value=block_summary_fixture(transactions)
+                          if target_exists else None), \
+                patch.object(MODULE, "relay_deliveries", return_value=(RELAYED, [])), \
+                patch.object(MODULE, "bundle_stats", return_value={"availability": "unsupported"}):
+            report = MODULE.analyze(100, info, args, BUILDERS)
+        return report, MODULE.summarize([report], BUILDERS, {})["builders"]
+
+    def test_target_inclusion_applies_to_accepted_posts_without_awarding_builder_wins(self):
+        report, counts = self.analyze([transaction(POST_HASH)])
+        self.assertEqual(report["matched_builder"], "titanbuilder.xyz")
+        for host in ("titanbuilder.xyz", "bombora.build"):
+            self.assertEqual(counts[host]["accepted"], 1)
+            self.assertEqual(counts[host]["included"], 1)
+            self.assertEqual(counts[host]["excluded"], 0)
+        self.assertEqual(counts["quasar.win"]["accepted"], 0)
+        self.assertEqual(counts["quasar.win"]["included"], 0)
+        self.assertEqual(counts["quasar.win"]["rejected"], 1)
+        self.assertEqual(counts["buildernet.org"]["observed"], 0)
+
+    def test_absent_exact_post_is_excluded_even_without_a_drop_log(self):
+        report, counts = self.analyze([transaction(OTHER_HASH)])
+        self.assertEqual(report["target_outcome"], "excluded")
+        self.assertEqual(counts["titanbuilder.xyz"]["excluded"], 1)
+        self.assertEqual(counts["titanbuilder.xyz"]["unresolved"], 0)
+        self.assertEqual(counts["quasar.win"]["excluded"], 0)
+
+    def test_missing_or_mismatched_timestamp_cannot_prove_exclusion(self):
+        for timestamp in (None, 1012):
+            with self.subTest(timestamp=timestamp):
+                report, counts = self.analyze(timestamp=timestamp, drop_reason="excluded")
+                self.assertEqual(report["target_outcome"], "unresolved")
+                self.assertEqual(counts["titanbuilder.xyz"]["unresolved"], 1)
+                self.assertEqual(counts["titanbuilder.xyz"]["excluded"], 0)
+
+    def test_current_canonical_inclusion_overrides_historical_exclusion(self):
+        report, counts = self.analyze([transaction(POST_HASH)], drop_reason="excluded")
+        self.assertEqual(report["drop_reasons"], ["excluded"])
+        self.assertEqual(counts["titanbuilder.xyz"]["included"], 1)
+        self.assertEqual(counts["titanbuilder.xyz"]["excluded"], 0)
+
+    def test_pending_target_is_unresolved(self):
+        report, counts = self.analyze(target_exists=False)
+        self.assertEqual(report["category"], "NOT_YET_PRODUCED")
+        self.assertEqual(counts["titanbuilder.xyz"]["unresolved"], 1)
+
+    def test_multiple_endpoints_of_one_builder_count_once_and_keep_all_hashes(self):
+        info = MODULE.parse_logs([dispatch(), fanout(
+            delivery("rpc.titanbuilder.xyz", bundle_hash=POST_HASH),
+            delivery("other.titanbuilder.xyz", bundle_hash=OTHER_HASH, index=1),
+            delivery("third.titanbuilder.xyz", "rejected", None, index=2),
+        )])[(100, POST_HASH)]
+        with patch.object(MODULE, "block_summary", return_value=None), \
+                patch.object(MODULE, "bundle_stats", return_value={"availability": "available",
+                    "result": {"status": "SimulationFail"}}) as stats:
+            report = MODULE.analyze(100, info, SimpleNamespace(rpc="http://fixture"), BUILDERS)
+        self.assertEqual({call.args for call in stats.call_args_list},
+                         {("titanbuilder.xyz", POST_HASH), ("titanbuilder.xyz", OTHER_HASH)})
+        counts = MODULE.summarize([report], BUILDERS, {})["builders"]["titanbuilder.xyz"]
+        self.assertEqual(counts["observed"], 1)
+        self.assertEqual(counts["accepted"], 1)
+        self.assertEqual(counts["rejected"], 0)
+        self.assertEqual(counts["simulation_failed"], 1)
+
+
+def block_summary_fixture(transactions):
+    with patch.object(MODULE, "rpc", return_value=block(transactions=transactions, extra="Titan")):
+        return MODULE.block_summary("http://fixture", 100)
+
+
 # Only the service locations are replaced. The child executes the real CLI,
 # log parser, HTTP/RPC clients, classifiers and JSON/text renderers.
 CLI_RUNNER = '''
@@ -286,6 +525,8 @@ class CliTest(unittest.TestCase):
         self.target = block(extra="Builder+ www.btcs.com")
         self.block_error = None
         self.relay_error = False
+        self.later_blocks = {}
+        self.stats_status = {"titan": "SimulationFail", "bombora": "SimulationPass"}
         self.simulation_error = "BundleRevert: " + "fixture-detail " * 30 + POST_HASH
         fixture = self
 
@@ -319,14 +560,15 @@ class CliTest(unittest.TestCase):
                             self.reply({"jsonrpc": "2.0", "id": 1, "error": fixture.block_error})
                             return
                         number = int(request["params"][0], 16)
-                        result = fixture.target if number == 100 else block(number, [transaction(OTHER_HASH)])
+                        result = fixture.target if number == 100 else fixture.later_blocks.get(
+                            number, block(number, [transaction(OTHER_HASH)]))
                     else:
                         self.reply({"error": {"code": -32601}}, 400)
                         return
                 elif self.path == "/stats/titan":
-                    result = {"status": "SimulationFail", "error": fixture.simulation_error}
+                    result = {"status": fixture.stats_status["titan"], "error": fixture.simulation_error}
                 elif self.path == "/stats/bombora":
-                    result = {"status": "SimulationPass", "error": ""}
+                    result = {"status": fixture.stats_status["bombora"], "error": ""}
                 else:
                     self.reply({"error": "unexpected endpoint"}, 404)
                     return
@@ -361,26 +603,130 @@ class CliTest(unittest.TestCase):
     def test_cli_reports_all_builders_and_exact_post_absence(self):
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
+        report, summary = map(json.loads, result.stdout.splitlines())
         self.assertEqual(report["category"], "OTHER_BUILDER")
         self.assertFalse(report["post_in_target"])
         self.assertEqual(report["landed"], {"status": "not_found", "through_block": 101})
         stats = report["builder_bundle_stats"]
-        self.assertEqual(stats["titanbuilder.xyz"]["result"]["status"], "SimulationFail")
-        self.assertEqual(stats["bombora.build"]["result"]["status"], "SimulationPass")
-        self.assertEqual(stats["quasar.win"]["availability"], "unsupported")
+        self.assertEqual(stats["titanbuilder.xyz"][0]["result"]["status"], "SimulationFail")
+        self.assertEqual(stats["bombora.build"][0]["result"]["status"], "SimulationPass")
+        self.assertEqual(stats["quasar.win"][0]["availability"], "unsupported")
         queries = {path: request for path, request in self.requests if path.startswith("/stats/")}
         self.assertEqual(set(queries), {"/stats/titan", "/stats/bombora"})
         self.assertEqual(queries["/stats/titan"]["params"], [{"bundleHash": POST_HASH}])
         self.assertEqual(queries["/stats/bombora"]["params"], [{"bundleHash": OTHER_HASH}])
         self.assertIn(("/relay/relay/v1/data/bidtraces/proposer_payload_delivered?block_hash=" + BLOCK_HASH, None),
                       self.requests)
+        self.assertEqual(summary["type"], "summary")
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["accepted"], 1)
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["excluded"], 1)
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["simulation_failed"], 1)
 
     def test_cli_text_preserves_complete_simulation_error(self):
         result = self.run_cli(json_output=False)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(self.simulation_error, result.stdout)
         self.assertIn("bombora.build bundle stats:", result.stdout)
+        self.assertIn("per-builder summary", result.stdout)
+        self.assertIn("accepted=1 rejected=0 included=0 excluded=1", result.stdout)
+
+    def test_cli_successful_only_logs_report_inclusion_and_summary(self):
+        self.target = block(transactions=[transaction(POST_HASH)], extra="Titan")
+        self.logs = "\n".join([dispatch(), fanout(delivery("rpc.titanbuilder.xyz"),
+                                                delivery("rpc.bombora.build", bundle_hash=OTHER_HASH))])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual(report["target_outcome"], "included")
+        self.assertEqual(summary["attempts"], 1)
+        for host in ("titanbuilder.xyz", "bombora.build"):
+            self.assertEqual(summary["builders"][host]["accepted"], 1)
+            self.assertEqual(summary["builders"][host]["included"], 1)
+        self.assertEqual(len([path for path, _ in self.requests if path.startswith("/stats/")]), 2)
+
+    def test_cli_rejected_only_logs_report_rejection_without_stats_queries(self):
+        self.logs = "\n".join([dispatch(), fanout(delivery("rpc.titanbuilder.xyz", "rejected", None))])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        counts = summary["builders"]["titanbuilder.xyz"]
+        self.assertEqual(counts["rejected"], 1)
+        self.assertEqual(counts["accepted"], 0)
+        self.assertEqual(counts["excluded"], 0)
+        self.assertEqual(report["builder_bundle_stats"], {})
+        self.assertFalse(any(path.startswith("/stats/") for path, _ in self.requests))
+
+    def test_cli_multiple_posts_and_duplicate_logs_count_distinct_attempts(self):
+        self.target = block(transactions=[transaction(OTHER_HASH)], extra="Titan")
+        events = [dispatch(), fanout(delivery("rpc.titanbuilder.xyz")),
+                  dispatch(post=OTHER_HASH), fanout(delivery("rpc.titanbuilder.xyz", bundle_hash=OTHER_HASH),
+                                                  post=OTHER_HASH)]
+        self.logs = "\n".join(events + events)
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        first, second, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual((first["post_tx"], second["post_tx"]), (POST_HASH, OTHER_HASH))
+        counts = summary["builders"]["titanbuilder.xyz"]
+        self.assertEqual(counts["observed"], 2)
+        self.assertEqual(counts["accepted"], 2)
+        self.assertEqual(counts["included"], 1)
+        self.assertEqual(counts["excluded"], 1)
+
+    def test_cli_later_inclusion_does_not_rewrite_target_exclusion(self):
+        self.later_blocks[101] = block(101, [transaction(POST_HASH)])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual(report["landed"]["block"], 101)
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["included"], 0)
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["excluded"], 1)
+
+    def test_cli_transport_failures_do_not_become_bundle_rejections(self):
+        self.logs = "\n".join([dispatch(), fanout(
+            delivery("rpc.titanbuilder.xyz", "transport_error", None),
+            delivery("rpc.bombora.build", "deadline_exceeded", None),
+            delivery("rpc.quasar.win", "abandoned_after_acknowledgement", None),
+        )])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        for host, failure in (("titanbuilder.xyz", "transport_error"), ("bombora.build", "deadline_exceeded"),
+                              ("quasar.win", "abandoned_after_acknowledgement")):
+            self.assertEqual(summary["builders"][host][failure], 1)
+            self.assertEqual(summary["builders"][host]["rejected"], 0)
+            self.assertEqual(summary["builders"][host]["accepted"], 0)
+
+    def test_cli_stats_candidate_inclusion_does_not_prove_canonical_inclusion(self):
+        self.stats_status = {"titan": "IncludedInBlock", "bombora": "Submitted"}
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        for host in ("titanbuilder.xyz", "bombora.build"):
+            self.assertEqual(summary["builders"][host]["included"], 0)
+            self.assertEqual(summary["builders"][host]["excluded"], 1)
+            self.assertEqual(summary["builders"][host]["simulation_failed"], 0)
+
+    def test_cli_raw_acknowledgement_without_post_hash_remains_unresolved(self):
+        self.logs = log("eth_sendBundle response received", target_block=100,
+                        builder_host="rpc.titanbuilder.xyz", response='{"result":true}')
+        self.target = block(transactions=[transaction(POST_HASH)])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        counts = summary["builders"]["titanbuilder.xyz"]
+        self.assertEqual(counts["accepted"], 1)
+        self.assertEqual(counts["unresolved"], 1)
+        self.assertEqual(counts["uncorrelated"], 1)
+        self.assertEqual(counts["included"], 0)
+
+    def test_cli_empty_or_plain_text_logs_explain_missing_targets(self):
+        for logs, count in (("", 0), ("WARN bundle dropped reason=excluded target_block=100", 1)):
+            with self.subTest(logs=logs):
+                self.logs = logs
+                result = self.run_cli()
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(f"{count} lines, 0 JSON events", result.stderr)
+                self.assertEqual(self.requests, [])
 
     def test_cli_rejects_other_network_before_querying_public_services(self):
         self.chain_id = hex(560048)
@@ -394,19 +740,22 @@ class CliTest(unittest.TestCase):
         self.target = None
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
+        report, summary = map(json.loads, result.stdout.splitlines())
         self.assertEqual(report["category"], "NOT_YET_PRODUCED")
-        self.assertEqual(report["builder_bundle_stats"]["titanbuilder.xyz"]["result"]["status"],
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["unresolved"], 1)
+        self.assertEqual(report["builder_bundle_stats"]["titanbuilder.xyz"][0]["result"]["status"],
                          "SimulationFail")
 
     def test_cli_retains_stats_on_target_rpc_failure_and_returns_nonzero(self):
         self.block_error = {"code": -32000, "message": "fixture read failed"}
         result = self.run_cli()
         self.assertEqual(result.returncode, 1, result.stderr)
-        report = json.loads(result.stdout)
+        report, summary = map(json.loads, result.stdout.splitlines())
         self.assertEqual(report["category"], "RPC_UNAVAILABLE")
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["unresolved"], 1)
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["excluded"], 0)
         self.assertIn("fixture read failed", report["error"])
-        self.assertEqual(report["builder_bundle_stats"]["bombora.build"]["result"]["status"],
+        self.assertEqual(report["builder_bundle_stats"]["bombora.build"][0]["result"]["status"],
                          "SimulationPass")
 
     def test_cli_relay_outage_remains_inconclusive(self):
@@ -414,7 +763,7 @@ class CliTest(unittest.TestCase):
         self.target = block(extra="geth")
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
+        report, summary = map(json.loads, result.stdout.splitlines())
         self.assertEqual(report["category"], "UNKNOWN")
         self.assertEqual(report["relays_unavailable"], ["fixture"])
 
@@ -422,7 +771,7 @@ class CliTest(unittest.TestCase):
         self.target = block(transactions=[transaction(POST_HASH)])
         result = self.run_cli()
         self.assertEqual(result.returncode, 0, result.stderr)
-        report = json.loads(result.stdout)
+        report, summary = map(json.loads, result.stdout.splitlines())
         self.assertTrue(report["post_in_target"])
         self.assertEqual(report["landed"], {"status": "included", "block": 100, "block_hash": BLOCK_HASH})
         reads = [request for path, request in self.requests

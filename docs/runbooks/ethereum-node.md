@@ -95,16 +95,18 @@ land before relying on a builder set.
 
 ### Why a post was excluded
 
-The Composer logs `bundle dropped … reason=excluded` without saying why.
-[`scripts/why-excluded.py`](../../scripts/why-excluded.py) investigates excluded
-targets using Composer JSON logs, canonical block data, relay deliveries and
-builder bundle stats. It uses only Python's standard library and makes read-only
-requests; it does not send bundles or change the Composer. The built-in relay
+[`scripts/why-excluded.py`](../../scripts/why-excluded.py) reports successful and
+failed builder submissions, including posts dropped with `reason=excluded`.
+It combines Composer JSON logs, canonical block data, relay deliveries and
+builder bundle stats, then prints a per-builder summary. It uses only Python's
+standard library and makes read-only requests; it does not send bundles or change
+the Composer. The built-in relay
 and stats endpoints serve **Ethereum mainnet**. The script checks `eth_chainId`
 and rejects other networks, including Hoodi and Sepolia.
 
 ```bash
 source .env
+sudo -v
 sudo docker logs --since 2h eez-node-ethereum 2>&1 | \
   python3 scripts/why-excluded.py --logs - --builders "$EEZ_L1_BUILDER_RPC_URL"
 # Explicit targets provide block/relay context, without logged bundle hashes.
@@ -113,10 +115,56 @@ python3 scripts/why-excluded.py 26131577 26131674 --builders "$EEZ_L1_BUILDER_RP
 
 Pass the builder list explicitly as above: sourcing a Compose `.env` does not
 export its variables to Python. Use logs from one Composer and the builder list
-it used for those targets. The script retains the latest observed bundle hash
-per builder and target height; it is not a journal of every submission attempt.
+it used for those targets. Include the complete dispatch, response, and fan-out
+events; JSON stdout is enabled in `docker-compose.ethereum-node.yml`. Plain-text
+logs are not parsed. No exclusion event is required: successful-only and
+rejected-only logs also produce reports. If no submissions or drops are found,
+the error shows how many lines and JSON events were read. Check the log format,
+container and time window; an empty report never establishes builder health.
 `--rpc` defaults to the embedded L1 (`http://127.0.0.1:18645`). A saved log file
 can replace `-`; preserve it if the container's logs are about to rotate.
+
+Each summary row counts one builder domain per distinct `(target block, post
+transaction hash)`. Repeated log lines count once; different posts at the same
+height remain separate. Multiple endpoints for the same builder are grouped.
+Any acknowledgement makes that observation accepted; it is counted as rejected
+only when a rejection was observed and none of its endpoints acknowledged.
+Observed outcome types and every distinct acknowledged bundle hash remain
+in the attempt report. Configured builders with no observed submissions appear
+with zero counts, which does not establish reachability or health.
+
+| Summary field | Meaning |
+| --- | --- |
+| `observed` | Distinct builder/post/target observations in the supplied logs |
+| `accepted` | The node recorded an acknowledgement; this does not imply successful simulation |
+| `rejected` | HTTP/JSON-RPC submission rejection with no acknowledgement from that builder; method-not-found is separate |
+| `included` | An accepted observation's exact post is present in the current canonical target block |
+| `excluded` | An accepted observation's exact post is absent from that block and its timestamp matches the logged target timestamp |
+| `unresolved` | Accepted, but target inclusion/exclusion cannot be established: missing post hash/timestamp, changed slot, pending block, or RPC failure |
+| `simulation_failed` | An acknowledged bundle's stats explicitly report `Invalid` or `SimulationFail`; acceptance is retained |
+| `unsupported`, `transport_error`, `deadline_exceeded`, `abandoned_after_acknowledgement`, `unknown` | Typed submission outcomes, kept separate from rejection and canonical exclusion |
+| `uncorrelated` | No exact post hash was available; the observation is grouped by target and builder only |
+
+`included + excluded + unresolved = accepted`. Submission counters and canonical
+outcomes describe different stages, so do not sum all columns as a total. An
+included post is counted for every builder that acknowledged that attempt; these
+are **not builder win counts**. The report does not establish which builder
+caused inclusion, successful receipt execution, inclusion of every companion
+transaction, or full settlement. Later inclusion within `--horizon` is displayed
+separately and does not change the target-slot counters. These observations use
+current canonical blocks and can change after a reorg; they are not finality
+assertions.
+
+Typed `eth_sendBundle fan-out finished` events are authoritative for builder
+outcomes and retain HTTP failures/timeouts that have no JSON-RPC response line.
+Older or truncated logs fall back to response lines only when the target has at
+most one observed post. Responses that cannot be assigned across multiple posts
+at one height are disclosed as `uncorrelated_responses`; unmatched outcomes and
+hashes stay in an uncorrelated target record so their stats can still be queried.
+Malformed fan-outs and conflicting timestamps are also reported. Without post
+hashes, several attempts can collapse into one uncorrelated observation. Partial logs cannot
+establish complete totals. No node upgrade, restart, or storage migration is
+required to use the script with the existing structured events.
 
 | Category | Meaning | Action |
 | --- | --- | --- |
@@ -131,8 +179,8 @@ Relay queries and returned records must match the canonical block **hash**, not
 just its height. Public relay coverage is incomplete, and a missing delivery
 never proves that MEV-Boost was not used.
 
-Stats are collected for **every acknowledging builder**, even when another
-builder won or the target timestamp changed. The supported APIs are
+Stats are collected for **every acknowledging builder and distinct logged bundle
+hash**, even when another builder won or the target timestamp changed. The supported APIs are
 [Titan](https://docs.titanbuilder.xyz/bundle-tracing) at
 `https://stats.titanbuilder.xyz` and
 [Bombora](https://bombora.build/docs/bombora-getBundleStats/) at
@@ -149,8 +197,9 @@ limited; missing or expired stats cannot establish a rejection.
 | `Pending` / `NotFound` / `Received` | Evidence is incomplete. `Received` has builder-specific meaning; consult that builder's API documentation. |
 | `unsupported` / `missing_hash` / `unavailable` | No supported stats API, no valid hash in the acknowledgement, or a failed stats query. These are diagnostic limitations, not bundle failures. |
 
-The exact post transaction hash from the drop log is checked in the target and
-up to `--horizon` subsequent blocks (default 12; zero checks only the target).
+The exact post transaction hash from dispatch, fan-out or drop logs is checked
+in the target and up to `--horizon` subsequent blocks (default 12; zero checks
+only the target).
 An incomplete scan reports `pending` or `unavailable`, not a negative result.
 A later transaction from the same poster, including a recomposed replacement,
 does not establish inclusion of the original post. `--poster ADDRESS` optionally
@@ -159,11 +208,16 @@ logged post hash, inclusion remains unknown. Transaction inclusion also does not
 prove successful execution or consumption of every cross-chain request; see
 [settlement ownership](../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
 
-`--json` prints one object per target. `builder_bundle_stats` is a map keyed by
-builder host, with `bundle_hash`, `availability`, and the API `result` or query
-`error`. Consumers of the initial draft must handle this map and the replacement
-of `LOCAL` with `POSSIBLY_LOCAL`. Exit status zero means reporting completed, not
-that every builder is healthy; inspect the categories and stats. Invalid input
+`--json` prints one `type: "attempt"` object per observed post/target and a final
+`type: "summary"` object. Each attempt has `builder_submissions`,
+`target_outcome`, and `builder_bundle_stats`: a map keyed by builder domain whose
+values are **lists** of stats records with `bundle_hash`, `availability`, and the
+API `result` or query `error`. The final record contains `builders` (the counters
+above), `categories` and `log_diagnostics`. Consumers of the earlier draft must
+handle the typed records, the stats lists and the replacement of `LOCAL` with
+`POSSIBLY_LOCAL`; a script rollback restores the earlier exclusion-only behavior
+and JSON format. Exit status zero means reporting completed, not
+that every builder is healthy; inspect the categories, counters and stats. Invalid input
 or a network-check failure exits with status 2; a target RPC read failure exits
 with status 1. This diagnostic does not change settlement-attempt accounting.
 
