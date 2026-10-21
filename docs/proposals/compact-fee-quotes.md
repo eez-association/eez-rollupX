@@ -93,8 +93,9 @@ L1 replay inputs match exactly. The estimator owns immutable references to the
 posting runtime and quote, so the state hash, target environment and gas policy
 cannot change during reuse. Compare the complete prepared posting transaction
 (including gas, fees and blobs), verifier calldata, settlement endpoint, rollup
-and expected callback identities/outcomes. Preparation and its funding,
-deployment and context checks still run. Recompute payment from the measured gas.
+and expected callback identities/outcomes. Funding and context checks still run;
+the follow-up below reuses validated snapshot preparation. Recompute payment
+from the measured gas.
 
 This narrows the original O3 restriction: only identical successful L1 replays may be reused
 between fee iterations; source execution, different formats, requests and
@@ -112,6 +113,34 @@ from calldata equality and retain failed-probe behavior. Measure repeated
 baseline/candidate latency with the same fixture and build profile. Debug
 diagnostics count reused L1 measurements; traces contain only executions that
 actually ran. Run counts remain diagnostic, not an API guarantee.
+
+### Immutable preparation reuse (authorized follow-up, 2026-10-21)
+
+Baseline: `ec9a22a04bd590ae183c1de80df508dd542443a8`, including the two
+optimizations above. Local unit/native checks and 1,920 quote arithmetic checks
+passed; the [validation record](../audits/2026-10-21-quote-replay-reuse/immutable-preparation.md)
+reports mixed latency results and regressions. This is a reduction in repeated
+preparation work, not an established general latency improvement.
+Within one envelope's estimator, load the registry, validate deployment code,
+fetch the verification key and read the poster account once at the pinned L1
+state. Keep this preparation lazy: ordinary L2 execution does not acquire a
+settlement dependency. A different rollup or expected settled root must repeat
+the lookup and validation; failed preparation is not cached.
+
+Rebuild the batch, blob hashes, proof inputs, callback expectations and posting
+transaction for every pricing iteration. In particular, a cached poster balance
+does not authorize reusing a blob reservation or affordable gas limit: recompute
+those from the current blob count. Preserve source/native execution, exact L1
+replay identity, fee arithmetic and final signed validation. There is no cache
+sharing between requests, formats or L1 snapshots, and no API, configuration,
+storage, deployment or rollback change.
+
+Acceptance: regress preparation identity and failures, run nested and Safe
+fee/receipt/replay tests, and compare repeated nested-callback and nested-Safe
+quotes on the baseline and candidate using identical harnesses/build profiles.
+Report timing noise and unchanged gas/payment arithmetic. These removed setup
+reads were not recorded as trace runs; the existing trace run count need not
+decrease. Release/PBS validation remains separate from native process tests.
 
 ## API and migration decisions
 

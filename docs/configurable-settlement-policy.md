@@ -1383,9 +1383,13 @@ Within one format's pricing loop, an identical successful L1 settlement gas
 measurement may be reused. The complete posting transaction (including gas,
 fee caps and blobs), proof-call data, settlement endpoint and nested callback
 expectations must match under the same immutable L1 state and target environment.
-Preparation still checks funding and deployment; source composition and native
-validation always run at the new fees. Changed inputs and failed measurements
-require replay. This is local to the quote, with no reuse between formats,
+Registry/deployment validation, verification-key lookup and poster-account reads
+are prepared lazily once per format at the pinned L1 state. A different rollup
+or expected settled root repeats that validation; failed preparation is not
+cached. Blob reservations, affordable gas, batch/proof inputs and callback
+expectations are recalculated for each candidate. Source composition and native
+validation always run at the new fees. Changed replay inputs and failed
+measurements require replay. This is local to the quote, with no reuse between formats,
 requests or snapshots. `diagnostics.options[].estimate.l1SettlementReuses`
 counts reused measurements for cross-chain L2 options. The trace retains the
 original L1 executions; it does not synthesize duplicate runs for reuse.

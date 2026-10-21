@@ -72,6 +72,7 @@ pub(in crate::composer) fn measured_payment(
 pub(in crate::composer) struct Estimator<'a> {
     runtime: &'a PostingRuntime,
     posting: &'a PostingQuote,
+    preparation: PreparationCache,
     cache: ReplayCache,
 }
 
@@ -80,6 +81,7 @@ impl<'a> Estimator<'a> {
         Self {
             runtime,
             posting,
+            preparation: PreparationCache::default(),
             cache: ReplayCache::default(),
         }
     }
@@ -99,7 +101,17 @@ impl<'a> Estimator<'a> {
         ),
         FeeQuoteError,
     > {
-        let (prepared, funding) = prepare(self.runtime, self.posting, &input)?;
+        let snapshot = self
+            .preparation
+            .get_or_load(input.rollup_id, input.settled_root, || {
+                prepare_snapshot(
+                    self.runtime,
+                    self.posting,
+                    input.rollup_id,
+                    input.settled_root,
+                )
+            })?;
+        let (prepared, funding) = prepare(self.runtime, self.posting, snapshot, &input)?;
         let gas = self.cache.measure(prepared, |prepared| {
             estimate(self.runtime, self.posting, prepared, &funding)
         })?;
@@ -117,6 +129,46 @@ impl<'a> Estimator<'a> {
             .required_payment(cost.total)
             .map_err(FeeQuoteError::Limit)?;
         Ok((gas, cost, payment))
+    }
+}
+
+/// Validated deployment and account reads at the estimator's pinned L1 state.
+/// No simulated state, blob reservation or execution outcome belongs here.
+struct SnapshotPreparation {
+    vkey: B256,
+    poster_nonce: u64,
+    poster_balance: U256,
+}
+
+#[derive(Default)]
+struct PreparationCache {
+    previous: Option<((u64, B256), SnapshotPreparation)>,
+}
+
+impl PreparationCache {
+    fn get_or_load(
+        &mut self,
+        rollup_id: u64,
+        settled_root: B256,
+        load: impl FnOnce() -> Result<SnapshotPreparation, FeeQuoteError>,
+    ) -> Result<&SnapshotPreparation, FeeQuoteError> {
+        // The owning estimator fixes the state hash, target and runtime. A
+        // different rollup or expected root must still pass deployment/root
+        // validation, even if a previous pricing iteration loaded successfully.
+        let key = (rollup_id, settled_root);
+        if self
+            .previous
+            .as_ref()
+            .is_none_or(|(previous, _)| *previous != key)
+        {
+            self.previous = Some((key, load()?));
+        }
+        // Both paths above establish a successful preparation for this key.
+        Ok(&self
+            .previous
+            .as_ref()
+            .expect("matching preparation loaded")
+            .1)
     }
 }
 
@@ -317,20 +369,21 @@ fn read_call<C: SolCall>(
     .map_err(unavailable)
 }
 
-fn prepare(
+fn prepare_snapshot(
     runtime: &PostingRuntime,
     posting: &PostingQuote,
-    input: &SettlementInput<'_>,
-) -> Result<(PreparedReplay, crate::PosterBalanceError), FeeQuoteError> {
+    rollup_id: u64,
+    settled_root: B256,
+) -> Result<SnapshotPreparation, FeeQuoteError> {
     let registry = read_call(
         runtime,
         posting,
         runtime.registry,
         rollupsCall {
-            rollupId: input.rollup_id,
+            rollupId: rollup_id,
         },
     )?;
-    if registry.root != input.settled_root {
+    if registry.root != settled_root {
         return Err(FeeQuoteError::Stale);
     }
     let provider = runtime
@@ -357,6 +410,23 @@ fn prepare(
     let [vkey] = keys.as_slice() else {
         return Err(FeeQuoteError::Unsupported("settlement proof profile"));
     };
+    let account = provider
+        .basic_account(&runtime.ctx.l1_poster_signer.address())
+        .map_err(unavailable)?
+        .unwrap_or_default();
+    Ok(SnapshotPreparation {
+        vkey: *vkey,
+        poster_nonce: account.nonce,
+        poster_balance: account.balance,
+    })
+}
+
+fn prepare(
+    runtime: &PostingRuntime,
+    posting: &PostingQuote,
+    snapshot: &SnapshotPreparation,
+    input: &SettlementInput<'_>,
+) -> Result<(PreparedReplay, crate::PosterBalanceError), FeeQuoteError> {
     let batch = batch(runtime, input)?;
     let hashes = (0..input.blobs)
         .map(|i| {
@@ -372,7 +442,10 @@ fn prepare(
         target_timestamp: posting.attributes.timestamp,
     };
     let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
-        &batch, *vkey, &hashes, context,
+        &batch,
+        snapshot.vkey,
+        &hashes,
+        context,
     )
     .map_err(unavailable)?;
     let [digest] = digests.as_slice() else {
@@ -385,12 +458,10 @@ fn prepare(
     .abi_encode()
     .into();
     let poster = runtime.ctx.l1_poster_signer.address();
-    let account = provider
-        .basic_account(&poster)
-        .map_err(unavailable)?
-        .unwrap_or_default();
+    // Only the balance is immutable. A fee-dependent call can change the blob
+    // count, so reserve blob fees and derive affordable gas for every candidate.
     let funding = posting
-        .probe_funding(poster, account.balance, input.blobs as u64)
+        .probe_funding(poster, snapshot.poster_balance, input.blobs as u64)
         .map_err(unavailable)?;
     if funding.affordable_gas < 21_000 {
         return Err(FeeQuoteError::PosterFunds(Box::new(funding)));
@@ -404,7 +475,7 @@ fn prepare(
         }
         .abi_encode()
         .into(),
-        nonce: account.nonce,
+        nonce: snapshot.poster_nonce,
         gas_limit: funding.affordable_gas,
         gas_price: posting.quote.max_fee_per_gas,
         gas_priority_fee: Some(posting.quote.max_priority_fee_per_gas),
@@ -675,6 +746,87 @@ mod tests {
     use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
     use revm::interpreter::{CallInput, CallValue, Gas, InstructionResult, InterpreterResult};
     use revm::{Context, MainContext, database::InMemoryDB};
+
+    fn snapshot_fixture(nonce: u64) -> SnapshotPreparation {
+        SnapshotPreparation {
+            vkey: B256::repeat_byte(7),
+            poster_nonce: nonce,
+            poster_balance: U256::from(100),
+        }
+    }
+
+    #[test]
+    fn preparation_reuse_is_bound_to_rollup_root_and_estimator() {
+        let root = B256::repeat_byte(1);
+        let mut cache = PreparationCache::default();
+        assert_eq!(
+            cache
+                .get_or_load(1, root, || Ok(snapshot_fixture(10)))
+                .unwrap()
+                .poster_nonce,
+            10
+        );
+        let snapshot = cache
+            .get_or_load(1, root, || panic!("same snapshot must reuse"))
+            .unwrap();
+        assert_eq!(snapshot.vkey, B256::repeat_byte(7));
+        assert_eq!(snapshot.poster_balance, U256::from(100));
+
+        // Equal roots do not authorize using another rollup's deployment/vkey.
+        assert_eq!(
+            cache
+                .get_or_load(2, root, || Ok(snapshot_fixture(20)))
+                .unwrap()
+                .poster_nonce,
+            20
+        );
+        // A changed expected root must reach the lookup and its stale check.
+        assert!(matches!(
+            cache.get_or_load(2, B256::repeat_byte(2), || Err(FeeQuoteError::Stale)),
+            Err(FeeQuoteError::Stale)
+        ));
+        assert_eq!(
+            cache
+                .get_or_load(2, root, || panic!(
+                    "failed lookup must not replace validated preparation"
+                ))
+                .unwrap()
+                .poster_nonce,
+            20
+        );
+
+        // A different quote/envelope starts with fresh deployment/account reads,
+        // even when the rollup and root match the previous quote.
+        assert_eq!(
+            PreparationCache::default()
+                .get_or_load(2, root, || Ok(snapshot_fixture(30)))
+                .unwrap()
+                .poster_nonce,
+            30
+        );
+    }
+
+    #[test]
+    fn preparation_retries_failed_lookups() {
+        let mut cache = PreparationCache::default();
+        for _ in 0..2 {
+            for error in [
+                FeeQuoteError::Stale,
+                FeeQuoteError::Unavailable("L1 settlement execution"),
+                FeeQuoteError::Unsupported("settlement proof profile"),
+            ] {
+                assert!(cache.get_or_load(1, B256::ZERO, || Err(error)).is_err());
+                assert!(cache.previous.is_none());
+            }
+        }
+        assert_eq!(
+            cache
+                .get_or_load(1, B256::ZERO, || Ok(snapshot_fixture(1)))
+                .unwrap()
+                .poster_nonce,
+            1
+        );
+    }
 
     fn prepared_fixture() -> PreparedReplay {
         PreparedReplay {

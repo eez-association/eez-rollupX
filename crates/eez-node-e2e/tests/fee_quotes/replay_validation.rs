@@ -1,5 +1,7 @@
 use super::*;
-use eez_testkit::{IOverlayProbeL2, setup_cross_chain_overlay_round_trip_with_env};
+use eez_testkit::{
+    CrossChainWorld, IOverlayProbeL2, setup_cross_chain_overlay_round_trip_with_env,
+};
 use std::time::Instant;
 
 /// Retain serial latency samples without asserting a wall-clock threshold on
@@ -18,11 +20,6 @@ async fn repeated_nested_quotes_preserve_priced_execution_and_source_state() {
     let world = setup_cross_chain_overlay_round_trip_with_env(&settings)
         .await
         .unwrap();
-    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
-    let client = reqwest::Client::new();
-    let source: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
-    let nonce = l2.get_transaction_count(source.address()).await.unwrap();
-    let balance = l2.get_balance(source.address()).await.unwrap();
     let data = Bytes::from(
         IOverlayProbeL2::startDeliverThenBurnAndPingCall {
             driver: world.driver_on_l2,
@@ -31,14 +28,31 @@ async fn repeated_nested_quotes_preserve_priced_execution_and_source_state() {
         }
         .abi_encode(),
     );
+    repeated_quotes(&world, world.probe, data, "quote-samples.json").await;
+}
+
+/// Exercise the same quote matrix for nested callbacks and real Safe creation.
+/// Samples include the effective policy so their cost arithmetic can be checked
+/// independently of timings, including across different fixture policies.
+pub(crate) async fn repeated_quotes(
+    world: &CrossChainWorld,
+    target: Address,
+    data: Bytes,
+    filename: &str,
+) {
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let client = reqwest::Client::new();
+    let source: PrivateKeySigner = OUTBOUND_USER.parse().unwrap();
+    let nonce = l2.get_transaction_count(source.address()).await.unwrap();
+    let balance = l2.get_balance(source.address()).await.unwrap();
     let mut samples = Vec::new();
     for supplied_gas in [false, true] {
         for ty in ["0x0", "0x2"] {
-            let mut tx = json!({"from":source.address(),"to":world.probe,"data":data});
+            let mut tx = json!({"from":source.address(),"to":target,"data":data});
             if supplied_gas {
                 tx["gas"] = json!("0x5b8d80");
             }
-            for sample in 0..5 {
+            for sample in 0..10 {
                 for trace in [false, true] {
                     let mut options = json!({"transactionTypes":[ty]});
                     if trace {
@@ -99,7 +113,7 @@ async fn repeated_nested_quotes_preserve_priced_execution_and_source_state() {
                     samples.push(json!({
                         "type":ty,"suppliedGas":supplied_gas,"trace":trace,"sample":sample,
                         "elapsedMs":elapsed_ms,"runs":runs.map(Vec::len),
-                        "estimate":estimate,"context":detail["context"],"option":option
+                        "estimate":estimate,"context":detail["context"],"policy":detail["policy"],"option":option
                     }));
                 }
             }
@@ -112,7 +126,7 @@ async fn repeated_nested_quotes_preserve_priced_execution_and_source_state() {
     assert_eq!(l2.get_balance(source.address()).await.unwrap(), balance);
     if let Some(directory) = std::env::var_os("EEZ_TEST_LOG_DIR") {
         std::fs::write(
-            std::path::Path::new(&directory).join("quote-samples.json"),
+            std::path::Path::new(&directory).join(filename),
             serde_json::to_vec_pretty(&samples).unwrap(),
         )
         .unwrap();

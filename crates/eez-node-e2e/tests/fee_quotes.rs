@@ -3,7 +3,7 @@
 
 mod calldata;
 mod poster_funding;
-mod replay_validation;
+pub(super) mod replay_validation;
 mod tracing;
 
 use alloy_consensus::{Transaction as _, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
