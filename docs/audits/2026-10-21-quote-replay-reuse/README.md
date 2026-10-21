@@ -15,6 +15,9 @@
 The [settlement reuse follow-up](settlement-reuse.md) records a subsequent
 optimization against this candidate. Its results are separate from the
 measurements below.
+The [immutable preparation](immutable-preparation.md) and
+[automatic gas investigation](automatic-gas.md) records retain later comparisons
+and their separate validation boundaries.
 
 L2 pricing now validates the native source and callback effects and source return
 data that it prices.

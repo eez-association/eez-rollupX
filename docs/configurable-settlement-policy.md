@@ -1379,6 +1379,12 @@ hashes during the native source replay and any callback deliveries. It uses that
 replay's receipt gas, so no separate final composition/source pass is needed.
 Both transaction formats still execute independently at their actual gas and
 fee fields; gas-sensitive discovery and L1 settlement limit checks remain.
+L2-origin gas discovery constructs its native block prefix once per format,
+including pre-execution changes and any replayed predecessor transactions.
+Composition and native probes execute on independent forks of that prefix;
+nonce, writes, transaction position and consumed gas never carry between probes.
+The high-limit, selected-limit and conditional fallback probes remain, as do
+their nested action/output comparisons. No preparation spans quote requests.
 Within one format's pricing loop, an identical successful L1 settlement gas
 measurement may be reused. The complete posting transaction (including gas,
 fee caps and blobs), proof-call data, settlement endpoint and nested callback

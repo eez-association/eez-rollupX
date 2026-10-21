@@ -142,6 +142,30 @@ Report timing noise and unchanged gas/payment arithmetic. These removed setup
 reads were not recorded as trace runs; the existing trace run count need not
 decrease. Release/PBS validation remains separate from native process tests.
 
+### Automatic gas preparation (authorized follow-up, 2026-10-21)
+
+Investigate the automatic-gas regressions at `0fc519193b5cd7b5f4e8ef9f42a12bb085053d3c`
+against `ec9a22a04bd590ae183c1de80df508dd542443a8` before merging PR #100.
+Separate gas discovery from pricing in a matched diagnostic build; retain the
+earlier measurements and distinguish a reproducible cause from host variation.
+
+Prepare the native L2 block prefix once within an L2-origin gas-estimation request and
+fork it for each independent execution. This includes the pre-execution changes,
+owned predecessor transactions and their cumulative gas. Never retain a probe's
+account writes, consumed nonce, gas or transient state in the shared preparation.
+Keep high/selected-limit probes, gas-sensitive fallback, nested outcome checks,
+fee convergence and final native validation. No cache spans requests or snapshots.
+
+Acceptance requires nested and Safe quotes with automatic/supplied gas and both
+envelopes, owned-prefix and state-isolation regressions, the standard bidirectional
+wallet gas-estimation cases, and comparable baseline/candidate timings. This is
+internal preparation only: RPC, configuration, storage and rollback stay compatible.
+The [validation record](../audits/2026-10-21-quote-replay-reuse/automatic-gas.md)
+reports 694 passing unit tests, 31 native cases and 3,920 independently reconciled
+quotes. Automatic quotes improved in both comparison rounds against both earlier
+revisions; supplied-gas results retain small per-round regressions. Release CI
+and the separate dependency-policy failure remain merge gates.
+
 ## API and migration decisions
 
 Use optional `gas`, `nonce` and `chainId`, with canonical hex quantities. Default

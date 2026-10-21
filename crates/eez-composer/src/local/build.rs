@@ -527,6 +527,11 @@ impl SyncBlockState {
         self.evm_env.block_env.basefee
     }
 
+    /// Native environment shared by independent forks of this block prefix.
+    pub(crate) fn evm_env(&self) -> &EvmEnvFor<EezEvmConfig> {
+        &self.evm_env
+    }
+
     /// Execute an unsigned legacy or type-2 intent on this disposable quote draft.
     /// Signature recovery is inapplicable; nonce, balance, fees, gas and native
     /// execution checks remain enabled. No payload or submission is produced.
@@ -1433,6 +1438,43 @@ mod tests {
             assert!(
                 unsigned.execute_unsigned(tx, NoOpInspector).is_err(),
                 "spent nonce must remain spent, including after a revert"
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_probe_forks_match_native_setup_and_user_execution() {
+        let f = fixture();
+        let builder_gas = f.builder_gas();
+        for (prefix_len, &setup_gas) in builder_gas.iter().enumerate().take(f.txs.len() - 1) {
+            let mut prepared = f.open(&f.txs[..prefix_len]);
+            let prefix_gas = prepared.gas_used();
+            let raw = &f.txs[prefix_len + 1];
+            let decoded = TransactionSigned::decode_2718(&mut raw.as_ref()).unwrap();
+            let sender = decoded.recover_signer().unwrap();
+            let tx = f
+                .evm_config
+                .tx_env(Recovered::new_unchecked(decoded, sender));
+            let mut expected = f.open(&f.txs[..=prefix_len]);
+            let outcome = expected.execute_tx(raw).unwrap();
+            for _ in 0..2 {
+                let mut probe = prepared.fork().unwrap();
+                let setup = probe.execute_committed(&f.txs[prefix_len]).unwrap();
+                assert_eq!(setup.gas_used, setup_gas);
+                assert_eq!(
+                    probe.execute_unsigned(tx.clone(), NoOpInspector).unwrap(),
+                    outcome
+                );
+                assert_eq!(probe.gas_used, expected.gas_used());
+                assert_eq!(probe.applied, prefix_len + 2);
+                assert!(probe.execute_unsigned(tx.clone(), NoOpInspector).is_err());
+            }
+            // A fresh probe must inherit only the original prefix, including
+            // when a previous setup/user reverted or consumed its nonce.
+            assert_eq!(prepared.gas_used(), prefix_gas);
+            assert_eq!(
+                prepared.execute_tx(&f.txs[prefix_len]).unwrap().gas_used,
+                setup_gas
             );
         }
     }

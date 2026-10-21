@@ -1958,16 +1958,39 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
     }
     let sensitive = json!({"from":signer.address(),"to":probe,
         "data":Bytes::from(FeeQuoteProbe::gasSensitiveCall {}.abi_encode())});
-    let response = call(
-        "eez_debugQuoteFee",
-        json!([sensitive, {"transactionTypes":["0x2"]}]),
-    )
-    .await;
-    assert_eq!(response["result"]["options"].as_array().unwrap().len(), 1);
-    assert_eq!(
-        response["result"]["options"][0]["gas"], "0x1000000",
-        "gas-dependent output must retain verified ceiling: {response}"
-    );
+    for ty in ["0x0", "0x2"] {
+        let response = call(
+            "eez_debugQuoteFee",
+            json!([sensitive, {"transactionTypes":[ty],"trace":"calls"}]),
+        )
+        .await;
+        assert_eq!(response["result"]["options"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            response["result"]["options"][0]["gas"], "0x1000000",
+            "gas-dependent output must retain verified ceiling: {response}"
+        );
+        let probes = response["result"]["diagnostics"]["trace"]["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|run| run["phase"] == "gas_estimation" && run["purpose"] == "native_source")
+            .collect::<Vec<_>>();
+        assert_eq!(probes.len(), 3, "high, selected and fallback: {response}");
+        assert_eq!(probes[0]["transaction"], probes[2]["transaction"]);
+        assert_eq!(
+            probes[0]["frames"][0]["output"],
+            probes[2]["frames"][0]["output"]
+        );
+        assert_ne!(
+            probes[0]["frames"][0]["output"],
+            probes[1]["frames"][0]["output"]
+        );
+        assert!(probes.iter().all(|run| {
+            run["complete"] == true
+                && run["frames"][0]["status"] == "success"
+                && run["transaction"]["nonce"] == probes[0]["transaction"]["nonce"]
+        }));
+    }
     let sensitive = json!({"from":signer.address(),"to":probe,
         "data":Bytes::from(FeeQuoteProbe::rejectsSettlementTipCall {proxy:world.outbound_proxy}.abi_encode())});
     let response = call("eez_debugQuoteFee", json!([sensitive])).await;
