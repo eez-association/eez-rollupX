@@ -821,6 +821,7 @@ struct ObservedCall {
 /// Observe the actual manager path without intercepting execution, warming
 /// accounts, or replacing proven lookups with simulation results. Root checks
 /// alone miss a caught static lookup failure with no state change.
+#[derive(Clone, PartialEq, Eq)]
 pub(super) struct EffectInspector {
     registry: Address,
     rollup_id: u64,

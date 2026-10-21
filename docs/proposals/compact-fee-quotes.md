@@ -61,8 +61,8 @@ return data.
 | --- | --- | --- |
 | O1 | Validate native call identities, outcomes, event hashes, source output and callback order at the returned gas and fees | Nested process tests, gas/fee-sensitive rejection and priced replay trace assertions |
 | O2 | Preserve actual source/native/settlement gas pricing, margin and admission floors | Fee receipt round trips, underpayment rejection and independent follower replay |
-| O3 | Reuse no result across transaction formats, fee iterations, requests or snapshots | Both formats, explicit/omitted gas, fee-dependent changes and existing context tests |
-| O4 | Reduce duplicate work without weakening the estimator or L1 settlement replay | Successful nested L2 trace: 19 to 16 runs with omitted gas, 13 to 10 with explicit gas; same workload baseline/candidate timings |
+| O3 | Keep source execution independent across fee iterations, formats, requests and snapshots; bind any L1 reuse to one envelope and identical replay inputs | Both formats, explicit/omitted gas, fee-dependent changes, exact settlement identity and existing context tests |
+| O4 | Reduce duplicate work without weakening the estimator or L1 settlement replay | Nested L2 fixture: 19→16→14 runs with omitted gas, 13→10→8 with explicit gas across the two optimizations; same-workload baseline/candidate timings |
 
 Gas discovery and settlement gas-limit verification remain unchanged: `gasleft()`
 and `GASPRICE` can change behavior, so zero-price composition cannot be reused
@@ -80,6 +80,38 @@ Measure repeated serial quotes for identical nested fixtures, formats and gas
 selection on the baseline and candidate, using the same runtime build profile.
 Retain run counts and elapsed milliseconds; shared-host timing noise prevents
 inferring production throughput from these measurements.
+
+### Identical settlement replay reuse (authorized follow-up, 2026-10-21)
+
+Baseline: the first optimization at `09934699357fc8da2c5bf80c9554edff1d1df3bf`.
+Local unit, native fee/Safe, viewer and two-round timing checks passed; the
+[follow-up record](../audits/2026-10-21-quote-replay-reuse/settlement-reuse.md)
+identifies exact executables, measurements and remaining CI/deployment limits.
+Keep source composition and native validation at every candidate fee, but reuse
+a successful L1 gas measurement within that envelope's pricing loop when all
+L1 replay inputs match exactly. The estimator owns immutable references to the
+posting runtime and quote, so the state hash, target environment and gas policy
+cannot change during reuse. Compare the complete prepared posting transaction
+(including gas, fees and blobs), verifier calldata, settlement endpoint, rollup
+and expected callback identities/outcomes. Preparation and its funding,
+deployment and context checks still run. Recompute payment from the measured gas.
+
+This narrows the original O3 restriction: only identical successful L1 replays may be reused
+between fee iterations; source execution, different formats, requests and
+snapshots remain independent. A changed nested call, result, calldata or blob
+count requires replay. Failures are not cached. Retain both the generous and
+selected-limit probes on a miss, including the verified high-limit fallback
+for gas-sensitive settlement. Signed admission and final posting remain fully
+validated. No shared cache, concurrency, configuration or storage is introduced.
+
+Acceptance: demonstrate the same nested quote goes from 16 to 14 recorded runs
+with gas discovery (10 to 8 with supplied gas), retains the final priced source
+validation and identical cost arithmetic, and does not reuse changed
+fee-dependent settlement inputs. Test callback-expectation changes separately
+from calldata equality and retain failed-probe behavior. Measure repeated
+baseline/candidate latency with the same fixture and build profile. Debug
+diagnostics count reused L1 measurements; traces contain only executions that
+actually ran. Run counts remain diagnostic, not an API guarantee.
 
 ## API and migration decisions
 

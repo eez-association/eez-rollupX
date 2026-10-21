@@ -1379,11 +1379,22 @@ hashes during the native source replay and any callback deliveries. It uses that
 replay's receipt gas, so no separate final composition/source pass is needed.
 Both transaction formats still execute independently at their actual gas and
 fee fields; gas-sensitive discovery and L1 settlement limit checks remain.
+Within one format's pricing loop, an identical successful L1 settlement gas
+measurement may be reused. The complete posting transaction (including gas,
+fee caps and blobs), proof-call data, settlement endpoint and nested callback
+expectations must match under the same immutable L1 state and target environment.
+Preparation still checks funding and deployment; source composition and native
+validation always run at the new fees. Changed inputs and failed measurements
+require replay. This is local to the quote, with no reuse between formats,
+requests or snapshots. `diagnostics.options[].estimate.l1SettlementReuses`
+counts reused measurements for cross-chain L2 options. The trace retains the
+original L1 executions; it does not synthesize duplicate runs for reuse.
 Effect mismatches appear at `native_replay` during `fee_simulation`.
 Run counts and phases are diagnostic observations, not fixed API guarantees.
-This optimization changes no quote fields, policy or persisted state. Older
-Composers perform the extra validation pass; mixed versions, historical replay
-and rollback need no migration or coordinated signer/follower upgrade.
+These optimizations change no compact quote fields, policy or persisted state.
+Older Composers perform the extra passes and omit the optional debug reuse
+counter; mixed versions, historical replay and rollback need no migration or
+coordinated signer/follower upgrade.
 
 Capture is limited to 128 runs, 4096 frames and 1 MiB of raw input/output across
 the request, with at most 4096 bytes per captured field. Lengths and truncation

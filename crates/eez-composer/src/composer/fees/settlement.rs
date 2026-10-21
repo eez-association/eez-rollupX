@@ -63,19 +63,98 @@ pub(in crate::composer) fn measured_payment(
     ),
     FeeQuoteError,
 > {
-    let gas = estimate(runtime, posting, &input)?;
-    let cost = posting
-        .quote
-        .estimate(gas, input.blobs as u64)
-        .map_err(unavailable)?;
-    let payment = runtime
-        .collection
-        .pricing
-        .as_ref()
-        .ok_or(FeeQuoteError::Disabled)?
-        .required_payment(cost.total)
-        .map_err(FeeQuoteError::Limit)?;
-    Ok((gas, cost, payment))
+    Estimator::new(runtime, posting).measured_payment(input)
+}
+
+/// Bound to one immutable posting context and one source envelope's pricing
+/// loop. Source/native execution always reruns; only identical successful L1
+/// replays can share a gas measurement. Never share this across quote requests.
+pub(in crate::composer) struct Estimator<'a> {
+    runtime: &'a PostingRuntime,
+    posting: &'a PostingQuote,
+    cache: ReplayCache,
+}
+
+impl<'a> Estimator<'a> {
+    pub fn new(runtime: &'a PostingRuntime, posting: &'a PostingQuote) -> Self {
+        Self {
+            runtime,
+            posting,
+            cache: ReplayCache::default(),
+        }
+    }
+
+    pub fn reuses(&self) -> usize {
+        self.cache.reuses
+    }
+
+    pub fn measured_payment(
+        &mut self,
+        input: SettlementInput<'_>,
+    ) -> Result<
+        (
+            u64,
+            eez_l1::posting_fees::PostingCost,
+            super::pricing::RequiredPayment,
+        ),
+        FeeQuoteError,
+    > {
+        let (prepared, funding) = prepare(self.runtime, self.posting, &input)?;
+        let gas = self.cache.measure(prepared, |prepared| {
+            estimate(self.runtime, self.posting, prepared, &funding)
+        })?;
+        let cost = self
+            .posting
+            .quote
+            .estimate(gas, input.blobs as u64)
+            .map_err(unavailable)?;
+        let payment = self
+            .runtime
+            .collection
+            .pricing
+            .as_ref()
+            .ok_or(FeeQuoteError::Disabled)?
+            .required_payment(cost.total)
+            .map_err(FeeQuoteError::Limit)?;
+        Ok((gas, cost, payment))
+    }
+}
+
+/// Complete variable inputs consumed by the L1 probe and its validation. The
+/// enclosing Estimator pins state, block environment, gas policy and deployment.
+/// Source fee bytes are absent only because L1 executes this prepared post, not
+/// the L2 envelope. Blob count/fees and expected nested results remain bound.
+#[derive(Clone, PartialEq, Eq)]
+struct PreparedReplay {
+    tx: TxEnv,
+    verify_data: Bytes,
+    endpoint: B256,
+    rollup_id: u64,
+    effects: EffectInspector,
+}
+
+#[derive(Default)]
+struct ReplayCache {
+    previous: Option<(PreparedReplay, u64)>,
+    reuses: usize,
+}
+
+impl ReplayCache {
+    fn measure(
+        &mut self,
+        prepared: PreparedReplay,
+        execute: impl FnOnce(&PreparedReplay) -> Result<u64, FeeQuoteError>,
+    ) -> Result<u64, FeeQuoteError> {
+        if let Some((previous, gas)) = &self.previous
+            && previous == &prepared
+        {
+            self.reuses += 1;
+            return Ok(*gas);
+        }
+        let gas = execute(&prepared)?;
+        self.previous = Some((prepared, gas));
+        Ok(gas)
+    }
 }
 
 /// Full-width hashes bound calldata pricing without pretending to know the
@@ -238,11 +317,11 @@ fn read_call<C: SolCall>(
     .map_err(unavailable)
 }
 
-fn estimate(
+fn prepare(
     runtime: &PostingRuntime,
     posting: &PostingQuote,
     input: &SettlementInput<'_>,
-) -> Result<u64, FeeQuoteError> {
+) -> Result<(PreparedReplay, crate::PosterBalanceError), FeeQuoteError> {
     let registry = read_call(
         runtime,
         posting,
@@ -340,19 +419,29 @@ fn estimate(
         .and_then(|entry| entry.rootUpdates.last())
         .ok_or(FeeQuoteError::Unsupported("settlement endpoint"))?
         .newRoot;
-    let execute = |tx| {
-        replay(
-            runtime,
-            posting,
-            input,
+    let effects = EffectInspector::new(runtime.registry, input.rollup_id, input.semantics)
+        .map_err(unavailable)?;
+    Ok((
+        PreparedReplay {
             tx,
-            &verify_data,
+            verify_data,
             endpoint,
-            &funding,
-        )
-    };
-    let (used, required) = execute(tx.clone())?;
-    let mut selected = tx;
+            rollup_id: input.rollup_id,
+            effects,
+        },
+        funding,
+    ))
+}
+
+fn estimate(
+    runtime: &PostingRuntime,
+    posting: &PostingQuote,
+    prepared: &PreparedReplay,
+    funding: &crate::PosterBalanceError,
+) -> Result<u64, FeeQuoteError> {
+    let execute = |tx| replay(runtime, posting, prepared, tx, funding);
+    let (used, required) = execute(prepared.tx.clone())?;
+    let mut selected = prepared.tx.clone();
     selected.gas_limit = runtime
         .fees
         .declared_gas(required, funding.affordable_gas)
@@ -378,10 +467,8 @@ fn estimate(
 fn replay(
     runtime: &PostingRuntime,
     posting: &PostingQuote,
-    input: &SettlementInput<'_>,
+    prepared: &PreparedReplay,
     tx: TxEnv,
-    verify_data: &Bytes,
-    endpoint: B256,
     funding: &crate::PosterBalanceError,
 ) -> Result<(u64, u64), FeeQuoteError> {
     let gas_limit = tx.gas_limit;
@@ -399,12 +486,11 @@ fn replay(
     let mut inspector = MeteredProof {
         registry: runtime.registry,
         verifier: runtime.ctx.ecdsa_proof_system_address,
-        calldata: verify_data.clone(),
+        calldata: prepared.verify_data.clone(),
         matches: 0,
         completed: 0,
         invalid: false,
-        effects: EffectInspector::new(runtime.registry, input.rollup_id, input.semantics)
-            .map_err(unavailable)?,
+        effects: prepared.effects.clone(),
     };
     macro_rules! execute {
         ($config:expr, $parent:expr) => {{
@@ -488,12 +574,12 @@ fn replay(
         {
             let event =
                 eez_protocol::abi::L2ExecutionPerformed::decode_log(log).map_err(unavailable)?;
-            if event.rollupId == input.rollup_id {
+            if event.rollupId == prepared.rollup_id {
                 last = Some(event.newRoot);
             }
         }
     }
-    if last != Some(endpoint) {
+    if last != Some(prepared.endpoint) {
         return Err(FeeQuoteError::Unsupported("settlement endpoint mismatch"));
     }
     inspector.effects.verify().map_err(|error| {
@@ -586,8 +672,122 @@ impl<DB: Database, C: ContextTr<Db = DB, Journal = Journal<DB>>> Inspector<C> fo
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
     use revm::interpreter::{CallInput, CallValue, Gas, InstructionResult, InterpreterResult};
     use revm::{Context, MainContext, database::InMemoryDB};
+
+    fn prepared_fixture() -> PreparedReplay {
+        PreparedReplay {
+            tx: TxEnv {
+                gas_limit: 1_000_000,
+                data: Bytes::from_static(&[1, 2, 3]),
+                ..Default::default()
+            },
+            verify_data: Bytes::from_static(&[4, 5, 6]),
+            endpoint: B256::repeat_byte(7),
+            rollup_id: 1,
+            effects: callback_expectations(1, true),
+        }
+    }
+
+    fn callback_expectations(output: u8, success: bool) -> EffectInspector {
+        EffectInspector::new(
+            Address::repeat_byte(1),
+            1,
+            &[SemanticTransaction {
+                origin_chain: RollupId(0),
+                tx_data: Bytes::new(),
+                actions: vec![ExecutedAction {
+                    parent_index: None,
+                    source_rollup_id: RollupId(0),
+                    target_rollup_id: RollupId(1),
+                    source_address: Address::repeat_byte(2),
+                    target_address: Address::repeat_byte(3),
+                    call_mode: CallMode::Mutable,
+                    data: Bytes::from_static(&[4]),
+                    value: U256::ZERO,
+                    outcome: ExecutionOutcome::Resolved {
+                        return_data: vec![output],
+                        success,
+                        gas_used: 100,
+                    },
+                    revert_span: None,
+                }],
+            }],
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn settlement_reuse_requires_transaction_proof_endpoint_and_callback_identity() {
+        let original = prepared_fixture();
+        for variant in 0..14 {
+            let mut cache = ReplayCache::default();
+            assert_eq!(cache.measure(original.clone(), |_| Ok(123)).unwrap(), 123);
+            let mut changed = original.clone();
+            match variant {
+                0 => changed.tx.data = Bytes::from_static(&[9]),
+                1 => changed.tx.gas_limit -= 1,
+                2 => changed.tx.gas_price += 1,
+                3 => changed.tx.gas_priority_fee = Some(1),
+                4 => changed.tx.blob_hashes.push(B256::repeat_byte(1)),
+                5 => changed.tx.max_fee_per_blob_gas += 1,
+                6 => changed.tx.caller = Address::repeat_byte(9),
+                7 => changed.tx.nonce += 1,
+                8 => changed.tx.kind = TxKind::Call(Address::repeat_byte(9)),
+                9 => changed.verify_data = Bytes::from_static(&[9]),
+                10 => changed.endpoint = B256::repeat_byte(9),
+                11 => changed.rollup_id += 1,
+                // Even identical posting bytes cannot reuse validation of
+                // different expected nested results or success polarity.
+                12 => changed.effects = callback_expectations(9, true),
+                _ => changed.effects = callback_expectations(1, false),
+            }
+            let mut executed = false;
+            let gas = cache
+                .measure(changed.clone(), |_| {
+                    executed = true;
+                    Ok(456)
+                })
+                .unwrap();
+            assert!(executed, "changed input {variant} reused a measurement");
+            assert_eq!(gas, 456);
+            assert_eq!(cache.reuses, 0);
+            assert_eq!(
+                cache
+                    .measure(changed, |_| panic!("identical successful input must reuse"))
+                    .unwrap(),
+                456
+            );
+            assert_eq!(cache.reuses, 1);
+        }
+    }
+
+    #[test]
+    fn settlement_reuse_never_memoizes_failed_replay() {
+        let mut cache = ReplayCache::default();
+        for _ in 0..2 {
+            let mut executed = false;
+            assert!(matches!(
+                cache.measure(prepared_fixture(), |_| {
+                    executed = true;
+                    Err(FeeQuoteError::Unsupported("settlement effects mismatch"))
+                }),
+                Err(FeeQuoteError::Unsupported("settlement effects mismatch"))
+            ));
+            assert!(executed);
+            assert!(cache.previous.is_none());
+        }
+        assert_eq!(cache.measure(prepared_fixture(), |_| Ok(123)).unwrap(), 123);
+        assert_eq!(cache.reuses, 0);
+        // Another quote/envelope owns an empty cache even for equal inputs.
+        assert_eq!(
+            ReplayCache::default()
+                .measure(prepared_fixture(), |_| Ok(456))
+                .unwrap(),
+            456
+        );
+    }
 
     fn fixture() -> (MeteredProof, CallInputs, CallOutcome) {
         let registry = Address::repeat_byte(1);

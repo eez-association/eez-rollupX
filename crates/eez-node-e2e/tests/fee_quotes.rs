@@ -2019,6 +2019,23 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         };
         assert_eq!(remote_calls(compositions[0]), 1, "{response}");
         assert_eq!(remote_calls(compositions.last().unwrap()), 2, "{response}");
+        let settlement = runs
+            .iter()
+            .filter(|run| run["purpose"] == "settlement")
+            .collect::<Vec<_>>();
+        assert!(
+            settlement.len() >= 4,
+            "changed effects must replay: {response}"
+        );
+        assert_ne!(
+            settlement.first().unwrap()["transaction"]["input"],
+            settlement.last().unwrap()["transaction"]["input"],
+            "the priced branch must measure its own settlement: {response}"
+        );
+        assert_eq!(
+            response["result"]["diagnostics"]["options"][0]["estimate"]["l1SettlementReuses"], 0,
+            "{response}"
+        );
 
         for (kind, data) in [
             (

@@ -884,6 +884,7 @@ where
         } else {
             0
         };
+        let mut settlement = super::settlement::Estimator::new(runtime, posting);
         for iteration in 1..=MAX_ITERATIONS {
             budget.check()?;
             let mut draft = SyncBlockState::open(
@@ -1133,10 +1134,8 @@ where
                 .ok_or(FeeQuoteError::Unsupported("no L1 settlement traces"))?
                 .entry_traces;
             budget.check()?;
-            let (l1_gas, cost, payment) = super::settlement::measured_payment(
-                runtime,
-                posting,
-                super::settlement::SettlementInput {
+            let (l1_gas, cost, payment) =
+                settlement.measured_payment(super::settlement::SettlementInput {
                     rollup_id,
                     settled_root: endpoint.hash,
                     entries: l1_entries,
@@ -1144,8 +1143,7 @@ where
                     groups: &[group],
                     semantics: &[semantic],
                     blobs,
-                },
-            )?;
+                })?;
             let next_tip = required_tip(
                 if request.signed_fees {
                     payment.minimum_l2
@@ -1193,7 +1191,7 @@ where
                 cap,
                 json!({"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
                     "sourceGasUsed":gas, "nativeL2GasUsed":native_gas, "l2BaseFeePerGas":base.to_string(),
-                    "l1Gas":l1_gas, "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
+                    "l1Gas":l1_gas, "l1SettlementReuses":settlement.reuses(), "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
                     "l1PriorityFeePerGas":posting.quote.max_priority_fee_per_gas.to_string(),
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),

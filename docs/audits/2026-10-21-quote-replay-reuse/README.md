@@ -5,12 +5,16 @@
 | Date and status | 2026-10-21; local correctness checks and two-round timing comparison passed |
 | Scope | L2 quote execution reuse; nested validation, correct fee accounting and latency |
 | Baseline | `eez-association/eez-rollupX` main `1ab1e2e3386a8832c7b18224e1eed82fa7c0b074` |
-| Candidate | `codex/quote-replay-reuse`; source in the commit containing this record |
+| Candidate | `09934699357fc8da2c5bf80c9554edff1d1df3bf` on `codex/quote-replay-reuse` |
 | Protocol | Unchanged `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774` |
 | Environment | Shared Linux host, Intel Core Ultra 9 185H, 22 logical CPUs, approximately 61 GiB RAM; Rust 1.95.0, Foundry 1.7.1, Solidity 0.8.34; native development-profile runtimes |
 | Design | [Requirements O1–O4](../../proposals/compact-fee-quotes.md#reuse-priced-native-validation-2026-10-21) |
 
 ## Change and validation boundaries
+
+The [settlement reuse follow-up](settlement-reuse.md) records a subsequent
+optimization against this candidate. Its results are separate from the
+measurements below.
 
 L2 pricing now validates the native source and callback effects and source return
 data that it prices.
