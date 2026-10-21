@@ -96,29 +96,76 @@ land before relying on a builder set.
 ### Why a post was excluded
 
 The Composer logs `bundle dropped … reason=excluded` without saying why.
-[`scripts/why-excluded.py`](../../scripts/why-excluded.py) classifies each
-excluded target from public block and relay data (read-only, standard library):
+[`scripts/why-excluded.py`](../../scripts/why-excluded.py) investigates excluded
+targets using Composer JSON logs, canonical block data, relay deliveries and
+builder bundle stats. It uses only Python's standard library and makes read-only
+requests; it does not send bundles or change the Composer. The built-in relay
+and stats endpoints serve **Ethereum mainnet**. The script checks `eth_chainId`
+and rejects other networks, including Hoodi and Sepolia.
 
 ```bash
-source .env   # EEZ_L1_BUILDER_RPC_URL lists the builders bundles are sent to
+source .env
 sudo docker logs --since 2h eez-node-ethereum 2>&1 | \
-  python3 scripts/why-excluded.py --logs - --poster <POSTER_ADDRESS>
-python3 scripts/why-excluded.py 26131577 26131674   # or explicit target blocks
+  python3 scripts/why-excluded.py --logs - --builders "$EEZ_L1_BUILDER_RPC_URL"
+# Explicit targets provide block/relay context, without logged bundle hashes.
+python3 scripts/why-excluded.py 26131577 26131674 --builders "$EEZ_L1_BUILDER_RPC_URL"
 ```
+
+Pass the builder list explicitly as above: sourcing a Compose `.env` does not
+export its variables to Python. Use logs from one Composer and the builder list
+it used for those targets. The script retains the latest observed bundle hash
+per builder and target height; it is not a journal of every submission attempt.
+`--rpc` defaults to the embedded L1 (`http://127.0.0.1:18645`). A saved log file
+can replace `-`; preserve it if the container's logs are about to rotate.
 
 | Category | Meaning | Action |
 | --- | --- | --- |
-| `LOCAL` | The proposer built the block without MEV-Boost | None: no bundle can land there |
-| `OTHER_BUILDER` | A builder outside `EEZ_L1_BUILDER_RPC_URL` won | Consider adding it after probing that it accepts the bundle shape |
-| `CONFIGURED_BUILDER` | One of our builders won without our bundle | Check the tip and blob count; the builder's bundle stats are shown when available |
+| `POSSIBLY_LOCAL` | Client-like `extraData`; all listed relays answered but none reported this block | Local construction is only a possibility: an unlisted relay may have delivered it |
+| `OTHER_BUILDER` | A relay delivered this exact block, but its `extraData` does not match the configured builders | Investigate builder coverage; `extraData` is an identity hint, not authentication |
+| `CONFIGURED_BUILDER` | A relay delivered this exact block and its `extraData` matches a configured builder | Inspect the per-builder stats below; this category alone does not explain exclusion |
 | `TARGET_MISMATCH` | The target height has another timestamp | Skipped slot or reorg |
+| `UNKNOWN` | Evidence is insufficient, including unavailable relay APIs or an absent builder list | Resolve missing evidence; do not interpret it as a builder failure or local construction |
+| `NOT_YET_PRODUCED` / `RPC_UNAVAILABLE` | The block is not available yet / the RPC read failed | Retry the observation; builder stats may still be available |
 
-`--poster` reports where the post finally landed. With `--logs`, it also uses the
-expected target timestamp and each builder's acknowledged bundle hash. Builder
-stats expire quickly, so run it soon after the slot. `--rpc` defaults to the
-embedded L1 (`http://127.0.0.1:18645`); `--json` prints one object per target.
-Every `excluded` drop currently charges the user's settlement-attempt budget,
-whichever category it falls in.
+Relay queries and returned records must match the canonical block **hash**, not
+just its height. Public relay coverage is incomplete, and a missing delivery
+never proves that MEV-Boost was not used.
+
+Stats are collected for **every acknowledging builder**, even when another
+builder won or the target timestamp changed. The supported APIs are
+[Titan](https://docs.titanbuilder.xyz/bundle-tracing) at
+`https://stats.titanbuilder.xyz` and
+[Bombora](https://bombora.build/docs/bombora-getBundleStats/) at
+`https://stats.bombora.build`. Titan traces become available about five minutes
+after submission; Bombora stats become available after four blocks (about 48
+seconds). Save the logs promptly and rerun after those delays. API retention is
+limited; missing or expired stats cannot establish a rejection.
+
+| Builder result | Interpretation |
+| --- | --- |
+| `Invalid` / `SimulationFail` | The builder reports a validation or simulation failure. Inspect its complete `error` field and the exact captured bundle. |
+| `SimulationPass` | The builder reports a successful simulation. This does not establish why it omitted the bundle. |
+| `IncludedInBlock` / `Submitted` | Included in a builder candidate / submitted to a relay. Neither establishes canonical inclusion. |
+| `Pending` / `NotFound` / `Received` | Evidence is incomplete. `Received` has builder-specific meaning; consult that builder's API documentation. |
+| `unsupported` / `missing_hash` / `unavailable` | No supported stats API, no valid hash in the acknowledgement, or a failed stats query. These are diagnostic limitations, not bundle failures. |
+
+The exact post transaction hash from the drop log is checked in the target and
+up to `--horizon` subsequent blocks (default 12; zero checks only the target).
+An incomplete scan reports `pending` or `unavailable`, not a negative result.
+A later transaction from the same poster, including a recomposed replacement,
+does not establish inclusion of the original post. `--poster ADDRESS` optionally
+lists that address's target-block transactions as **activity only**. Without a
+logged post hash, inclusion remains unknown. Transaction inclusion also does not
+prove successful execution or consumption of every cross-chain request; see
+[settlement ownership](../../crates/eez-control-rpc/SPEC.md#8-settlement-ownership-after-submission).
+
+`--json` prints one object per target. `builder_bundle_stats` is a map keyed by
+builder host, with `bundle_hash`, `availability`, and the API `result` or query
+`error`. Consumers of the initial draft must handle this map and the replacement
+of `LOCAL` with `POSSIBLY_LOCAL`. Exit status zero means reporting completed, not
+that every builder is healthy; inspect the categories and stats. Invalid input
+or a network-check failure exits with status 2; a target RPC read failure exits
+with status 1. This diagnostic does not change settlement-attempt accounting.
 
 ## Stop and restart
 
