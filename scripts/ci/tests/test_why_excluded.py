@@ -26,6 +26,9 @@ BLOCK_HASH = "0x" + "aa" * 32
 POST_HASH = "0x" + "bb" * 32
 OTHER_HASH = "0x" + "cc" * 32
 POSTER = "0x" + "11" * 20
+BUILDERNET_KEY = "0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7"
+BUILDERNET_RETIRED_KEY = "0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947"
+UNKNOWN_BUILDER_KEY = "0x" + "dd" * 48
 
 
 def block(number=100, transactions=(), extra="geth"):
@@ -395,6 +398,88 @@ class StatsTest(unittest.TestCase):
                              "unavailable")
 
 
+class BuilderNetTest(unittest.TestCase):
+    def test_active_and_retired_exact_keys_identify_buildernet(self):
+        for key in (BUILDERNET_KEY, BUILDERNET_RETIRED_KEY, BUILDERNET_KEY.upper()):
+            with self.subTest(key=key):
+                producer = MODULE.identify_block_producer([
+                    {"relay": "fixture", "builder_pubkey": key},
+                    {"relay": "duplicate", "builder_pubkey": key},
+                ])
+                self.assertEqual(producer["status"], "identified")
+                self.assertEqual(producer["builder"], "buildernet.org")
+                self.assertEqual(producer["builder_pubkeys"], [key.lower()])
+                self.assertEqual(producer["relays"], ["duplicate", "fixture"])
+
+    def test_unknown_missing_and_malformed_keys_do_not_identify_buildernet(self):
+        for key in (UNKNOWN_BUILDER_KEY, BUILDERNET_KEY[:-1], BUILDERNET_KEY + "0", None, 12):
+            with self.subTest(key=key):
+                producer = MODULE.identify_block_producer([{"relay": "fixture", "builder_pubkey": key}])
+                self.assertEqual(producer["status"], "unknown")
+                self.assertIsNone(producer["builder"])
+        self.assertEqual(MODULE.identify_block_producer([])["status"], "unknown")
+
+    def test_conflicting_relay_keys_cannot_identify_buildernet(self):
+        producer = MODULE.identify_block_producer([
+            {"relay": "first", "builder_pubkey": BUILDERNET_KEY},
+            {"relay": "second", "builder_pubkey": UNKNOWN_BUILDER_KEY},
+        ])
+        self.assertEqual(producer["status"], "conflicting")
+        self.assertIsNone(producer["builder"])
+        self.assertEqual(set(producer["builder_pubkeys"]), {BUILDERNET_KEY, UNKNOWN_BUILDER_KEY})
+
+    def test_agreeing_published_keys_survive_missing_keys_elsewhere(self):
+        producer = MODULE.identify_block_producer([
+            {"relay": "first", "builder_pubkey": BUILDERNET_KEY},
+            {"relay": "second", "builder_pubkey": BUILDERNET_RETIRED_KEY},
+            {"relay": "incomplete", "builder_pubkey": None},
+        ])
+        self.assertEqual(producer["status"], "identified")
+        self.assertEqual(producer["relays"], ["first", "second"])
+
+    def test_refunds_use_string_parameter_and_filter_exact_target(self):
+        current = {"hash": POST_HASH, "blockNumber": "0x64", "amount": "0x1", "status": "pending"}
+        later = {**current, "blockNumber": "0x65", "status": "sent"}
+        raw = {"refunds": [current, later], "cursor": "next-page"}
+        with patch.object(MODULE, "http_json", return_value={"result": raw}) as request:
+            evidence = MODULE.buildernet_refunds(POST_HASH, 100)
+        self.assertEqual(request.call_args.args[0], "https://relay.flashbots.net")
+        self.assertEqual(request.call_args.args[1]["method"], "buildernet_getFeeRefundsByBundle")
+        self.assertEqual(request.call_args.args[1]["params"], [POST_HASH])
+        self.assertEqual(evidence["availability"], "available")
+        self.assertEqual(evidence["result"], raw)
+        self.assertEqual(evidence["target_refunds"], [current])
+
+    def test_empty_refunds_remain_available_without_an_inclusion_claim(self):
+        with patch.object(MODULE, "http_json", return_value={"result": {"refunds": []}}):
+            evidence = MODULE.buildernet_refunds(POST_HASH, 100)
+        self.assertEqual(evidence, {"availability": "available", "result": {"refunds": []},
+                                    "target_refunds": []})
+
+    def test_malformed_or_wrong_hash_refunds_are_unavailable_and_preserved(self):
+        for raw in ({}, {"refunds": None}, {"refunds": [None]},
+                    {"refunds": [{"hash": OTHER_HASH, "blockNumber": "0x64"}]},
+                    {"refunds": [{"hash": POST_HASH, "blockNumber": True}]},
+                    {"refunds": [{"hash": POST_HASH, "blockNumber": "0xnope"}]}):
+            with self.subTest(raw=raw), patch.object(MODULE, "http_json", return_value={"result": raw}):
+                evidence = MODULE.buildernet_refunds(POST_HASH, 100)
+                self.assertEqual(evidence["availability"], "unavailable")
+                self.assertEqual(evidence["result"], raw)
+                self.assertNotIn("target_refunds", evidence)
+
+    def test_refund_errors_and_missing_hashes_cannot_be_success(self):
+        with patch.object(MODULE, "http_json") as request:
+            for bundle_hash in (None, "0xshort", 3):
+                self.assertEqual(MODULE.buildernet_refunds(bundle_hash, 100)["availability"], "missing_hash")
+            request.assert_not_called()
+        error = {"code": -32005, "message": "rate limit exceeded"}
+        with patch.object(MODULE, "http_json", return_value={"error": error}):
+            self.assertEqual(MODULE.buildernet_refunds(POST_HASH, 100),
+                             {"availability": "unavailable", "error": error})
+        with patch.object(MODULE, "http_json", side_effect=OSError("offline")):
+            self.assertEqual(MODULE.buildernet_refunds(POST_HASH, 100)["availability"], "unavailable")
+
+
 class AnalyzeTest(unittest.TestCase):
     def setUp(self):
         self.args = SimpleNamespace(rpc="https://execution.example", poster=POSTER, horizon=2)
@@ -559,6 +644,7 @@ spec = importlib.util.spec_from_file_location("why_excluded", script)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.RELAYS = {"fixture": base + "/relay"}
+module.BUILDERNET_REFUNDS_URL = base + "/refunds/buildernet"
 module.BUNDLE_STATS = {
     host: (base + "/stats/" + name, *module.BUNDLE_STATS[host][1:])
     for host, name in (("titanbuilder.xyz", "titan"), ("bombora.build", "bombora"),
@@ -575,6 +661,8 @@ class CliTest(unittest.TestCase):
         self.target = block(extra="Builder+ www.btcs.com")
         self.block_error = None
         self.relay_error = False
+        self.relay_traces = [{"block_hash": BLOCK_HASH, "builder_pubkey": "0xfixture", "value": "1"}]
+        self.refund_result = {"refunds": []}
         self.later_blocks = {}
         self.stats_status = {"titan": "SimulationFail", "bombora": "SimulationPass"}
         self.quasar_result = {"status": "submitted", "targetBlock": 100, "error": None,
@@ -602,7 +690,7 @@ class CliTest(unittest.TestCase):
                 if fixture.relay_error:
                     self.reply({"error": "fixture outage"}, 503)
                 else:
-                    self.reply([{"block_hash": BLOCK_HASH, "builder_pubkey": "0xfixture", "value": "1"}])
+                    self.reply(fixture.relay_traces)
 
             def do_POST(self):
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -637,6 +725,12 @@ class CliTest(unittest.TestCase):
                         self.reply({"error": {"code": -32602, "message": "expected bundleHash"}})
                         return
                     result = fixture.eureka_result
+                elif self.path == "/refunds/buildernet":
+                    if request["method"] != "buildernet_getFeeRefundsByBundle" or not (
+                            len(request["params"]) == 1 and isinstance(request["params"][0], str)):
+                        self.reply({"error": {"code": -32602, "message": "expected one hash string"}})
+                        return
+                    result = fixture.refund_result
                 else:
                     self.reply({"error": "unexpected endpoint"}, 404)
                     return
@@ -704,6 +798,166 @@ class CliTest(unittest.TestCase):
             delivery("rpc.eurekabuilder.xyz", bundle_hash=OTHER_HASH),
             delivery("rpc.buildernet.org", bundle_hash=BLOCK_HASH),
         )])
+
+    def use_buildernet_logs(self, outcome="acknowledged", post=POST_HASH, timestamp=1000):
+        self.logs = "\n".join([dispatch(post=post, timestamp=timestamp), fanout(
+            delivery("rpc.buildernet.org", outcome, bundle_hash=POST_HASH), post=post)])
+        self.relay_traces = [{"block_hash": BLOCK_HASH, "builder_pubkey": BUILDERNET_KEY, "value": "1"}]
+
+    def test_cli_flags_acknowledged_post_omitted_by_buildernet(self):
+        self.use_buildernet_logs()
+        self.target = block(extra="untrusted hint")
+        result = self.run_cli("--builders", "https://rpc.buildernet.org")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual(report["block_producer"]["builder"], "buildernet.org")
+        self.assertEqual(report["category"], "CONFIGURED_BUILDER")
+        self.assertEqual(report["matched_builder"], "buildernet.org")
+        self.assertTrue(report["producer_omitted_acknowledged_post"])
+        self.assertEqual(report["relay_deliveries"][0]["block_hash"], BLOCK_HASH)
+        counts = summary["builders"]["buildernet.org"]
+        self.assertEqual(counts["omitted_from_own_block"], 1)
+        self.assertEqual(counts["excluded"], 1)
+        self.assertEqual(counts["rejected"], 0)
+        self.assertEqual(counts["simulation_failed"], 0)
+        refunds = report["builder_refunds"]["buildernet.org"][0]
+        self.assertEqual(refunds["availability"], "available")
+        self.assertEqual(refunds["target_refunds"], [])
+        self.assertEqual(report["builder_bundle_stats"]["buildernet.org"][0]["availability"], "unsupported")
+
+    def test_cli_buildernet_omission_requires_exclusion_and_acknowledgement(self):
+        cases = (("included", "acknowledged", POST_HASH, 1000),
+                 ("rejected", "rejected", POST_HASH, 1000),
+                 ("missing_post", "acknowledged", None, 1000),
+                 ("missing_time", "acknowledged", POST_HASH, None),
+                 ("changed_slot", "acknowledged", POST_HASH, 1012),
+                 ("pending", "acknowledged", POST_HASH, 1000),
+                 ("rpc_failure", "acknowledged", POST_HASH, 1000))
+        for name, outcome, post, timestamp in cases:
+            with self.subTest(name=name):
+                self.use_buildernet_logs(outcome=outcome, post=post, timestamp=timestamp)
+                self.target = block(transactions=[transaction(POST_HASH)] if name == "included" else [])
+                if name == "pending":
+                    self.target = None
+                self.block_error = {"code": -32000, "message": "offline"} if name == "rpc_failure" else None
+                result = self.run_cli()
+                self.assertEqual(result.returncode, int(name == "rpc_failure"), result.stderr)
+                report, summary = map(json.loads, result.stdout.splitlines())
+                self.assertFalse(report["producer_omitted_acknowledged_post"])
+                counts = summary["builders"]["buildernet.org"]
+                self.assertEqual(counts["omitted_from_own_block"], 0)
+                self.assertEqual(counts["included"] + counts["excluded"] + counts["unresolved"],
+                                 counts["accepted"])
+                if name == "included":
+                    self.assertEqual(counts["included"], 1)
+                    self.assertEqual(report["builder_refunds"]["buildernet.org"][0]["target_refunds"], [])
+
+    def test_cli_buildernet_hint_or_uncertain_relay_evidence_cannot_raise_omission(self):
+        for name in ("outage", "orphan", "unknown_key", "malformed_key", "conflict"):
+            with self.subTest(name=name):
+                self.use_buildernet_logs()
+                self.target = block(extra="BuilderNet")
+                self.relay_error = name == "outage"
+                if name == "orphan":
+                    self.relay_traces[0]["block_hash"] = OTHER_HASH
+                elif name == "unknown_key":
+                    self.relay_traces[0]["builder_pubkey"] = UNKNOWN_BUILDER_KEY
+                elif name == "malformed_key":
+                    self.relay_traces[0]["builder_pubkey"] = BUILDERNET_KEY[:-1]
+                elif name == "conflict":
+                    self.relay_traces.append({**self.relay_traces[0], "builder_pubkey": UNKNOWN_BUILDER_KEY})
+                result = self.run_cli()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report, summary = map(json.loads, result.stdout.splitlines())
+                self.assertFalse(report["producer_omitted_acknowledged_post"])
+                self.assertEqual(report["block_producer"]["status"],
+                                 "conflicting" if name == "conflict" else "unknown")
+                self.assertEqual(summary["builders"]["buildernet.org"]["omitted_from_own_block"], 0)
+                if name == "conflict":
+                    self.assertEqual(report["category"], "UNKNOWN")
+                    self.assertIsNone(report["matched_builder"])
+
+    def test_cli_other_builder_acknowledgement_cannot_be_attributed_to_buildernet(self):
+        self.use_buildernet_logs()
+        self.logs = "\n".join([dispatch(), fanout(delivery("rpc.titanbuilder.xyz"))])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual(report["block_producer"]["builder"], "buildernet.org")
+        self.assertFalse(report["producer_omitted_acknowledged_post"])
+        self.assertEqual(summary["builders"]["titanbuilder.xyz"]["omitted_from_own_block"], 0)
+        self.assertEqual(report["builder_refunds"], {})
+        self.assertNotIn("/refunds/buildernet", [path for path, _ in self.requests])
+
+    def test_cli_omission_is_reported_even_without_a_usable_bundle_hash(self):
+        self.use_buildernet_logs()
+        self.logs = "\n".join([dispatch(), fanout(delivery("rpc.buildernet.org", bundle_hash=None))])
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertTrue(report["producer_omitted_acknowledged_post"])
+        self.assertEqual(report["builder_refunds"]["buildernet.org"][0]["availability"], "missing_hash")
+        self.assertEqual(summary["builders"]["buildernet.org"]["omitted_from_own_block"], 1)
+        self.assertNotIn("/refunds/buildernet", [path for path, _ in self.requests])
+
+    def test_cli_refund_records_do_not_override_canonical_exclusion(self):
+        self.use_buildernet_logs()
+        current = {"hash": POST_HASH, "blockNumber": "0x64", "amount": "0x1", "status": "pending"}
+        self.refund_result = {"refunds": [current, {**current, "blockNumber": "0x65"}], "cursor": "next"}
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        refunds = report["builder_refunds"]["buildernet.org"][0]
+        self.assertEqual(refunds["result"], self.refund_result)
+        self.assertEqual(refunds["target_refunds"], [current])
+        self.assertTrue(report["producer_omitted_acknowledged_post"])
+        counts = summary["builders"]["buildernet.org"]
+        self.assertEqual((counts["included"], counts["excluded"], counts["simulation_failed"]), (0, 1, 0))
+        request = next(request for path, request in self.requests if path == "/refunds/buildernet")
+        self.assertEqual(request["params"], [POST_HASH])
+
+    def test_cli_refund_failures_do_not_change_submission_or_inclusion(self):
+        self.use_buildernet_logs()
+        self.target = block(transactions=[transaction(POST_HASH)])
+        for error in ({"code": -32005, "message": "rate limit exceeded"}, None):
+            with self.subTest(error=error):
+                self.stats_error = {"/refunds/buildernet": error} if error else {}
+                self.refund_result = {"refunds": [{"hash": OTHER_HASH, "blockNumber": "0x64"}]}
+                result = self.run_cli()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report, summary = map(json.loads, result.stdout.splitlines())
+                refunds = report["builder_refunds"]["buildernet.org"][0]
+                self.assertEqual(refunds["availability"], "unavailable")
+                if error:
+                    self.assertEqual(refunds["error"], error)
+                else:
+                    self.assertEqual(refunds["result"], self.refund_result)
+                counts = summary["builders"]["buildernet.org"]
+                self.assertEqual((counts["accepted"], counts["included"], counts["rejected"]), (1, 1, 0))
+                self.assertEqual(counts["omitted_from_own_block"], 0)
+
+    def test_cli_duplicate_buildernet_endpoints_count_once_and_query_each_hash(self):
+        self.use_buildernet_logs()
+        events = [dispatch(), fanout(delivery("rpc.buildernet.org"),
+                                    delivery("direct-eu.buildernet.org", bundle_hash=OTHER_HASH, index=1))]
+        self.logs = "\n".join(events + events)
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        queries = [request["params"] for path, request in self.requests if path == "/refunds/buildernet"]
+        self.assertEqual(queries, [[POST_HASH], [OTHER_HASH]])
+        self.assertEqual(len(report["builder_refunds"]["buildernet.org"]), 2)
+        self.assertEqual(summary["builders"]["buildernet.org"]["omitted_from_own_block"], 1)
+
+    def test_cli_buildernet_text_explains_omission_and_separate_refund_evidence(self):
+        self.use_buildernet_logs()
+        result = self.run_cli(json_output=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("block producer (relay keys):", result.stdout)
+        self.assertIn("buildernet.org acknowledged this post but omitted it from its target block; reason unknown", result.stdout)
+        self.assertIn("buildernet.org refunds (supplementary):", result.stdout)
+        self.assertIn('"refunds": []', result.stdout)
+        self.assertIn("omitted_from_own_block=1", result.stdout)
 
     def test_cli_queries_quasar_and_eureka_with_their_actual_parameter_names(self):
         self.use_new_builder_logs()

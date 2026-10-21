@@ -21,6 +21,8 @@ well as exclusions. No runtime, contract, queue, or deployment changes are neede
 | R4 | Keep unsupported APIs, transport errors, deadlines, incomplete logs and simulation failures explicit. Query every acknowledging builder's distinct usable hashes. | All fan-out outcomes, malformed logs, missing hashes and stats-result tests. |
 | R5 | Publish summaries in text and JSON and document their counting unit and limitations. | CLI subprocess fixtures and runbook command checks. |
 | R6 | Add verified public Quasar and Eureka tracing APIs alongside Titan/Bombora; keep BuilderNet's unverified tracing support explicit. Preserve raw statuses/details and reject mismatched returned correlation metadata. | Provider-specific request fields, lowercase failure states, missing/rate-limited records, mismatched hash/target, and builder inclusion claims tested through the CLI. |
+| R7 | Attribute BuilderNet production using exact published relay keys only after canonical block-hash filtering. Flag accepted posts omitted from its matching target slot without asserting a failure cause. | Active/retired keys, unknown/malformed/conflicting keys, orphaned deliveries, missing post/time/acknowledgement, changed slots, unavailable targets and included posts. |
+| R8 | Query BuilderNet refund records separately for every distinct acknowledged hash; retain raw records and select matching hash/target evidence without changing submission or canonical outcomes. | Empty/positive/refund-error responses, wrong hash/block, pagination cursor preservation, duplicate endpoints and text/JSON CLI tests. |
 
 ## Design and compatibility
 
@@ -53,6 +55,22 @@ unit. Returned hash/target mismatches remain visible as unavailable evidence;
 missing stats and provider detail strings cannot turn acceptance into rejection.
 Builder-reported inclusion never overrides canonical post checks. See the
 [runbook's API list and availability limits](../runbooks/ethereum-node.md#why-a-post-was-excluded).
+
+The BuilderNet extension starts from PR head
+`c651b551ba3cc13e7eb01a83d857de599b6c9d12` and target fork main
+`3477c5412f9d7aeba76de826de698d3caff67f9f`. Published relay-key attribution takes
+precedence over `extraData`; contradictory usable keys leave the producer
+unresolved. The key snapshot includes retired keys for historical reports and
+requires explicit updates for future keys. It trusts public relay reports, not
+locally verified BLS signatures. The omission counter is a subset of canonical
+exclusion for accepted posts, counted per post/target rather than as builder wins.
+
+Refund accounting remains separate from unsupported internal bundle tracing.
+One read-only query retains a page and its cursor; empty records and pagination
+cannot establish rejection or absence of inclusion. The new attribution, omission
+and refund fields are additive. Rollback drops them and restores hint-based
+classification without changing runtime state or requiring a migration. The
+existing CLI arguments and node logs are sufficient.
 
 ## Validation
 

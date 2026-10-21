@@ -144,11 +144,13 @@ with zero counts, which does not establish reachability or health.
 | `simulation_failed` | An acknowledged bundle's available stats explicitly report `Invalid` or `SimulationFail` (including lowercase/snake_case variants); acceptance is retained |
 | `unsupported`, `transport_error`, `deadline_exceeded`, `abandoned_after_acknowledgement`, `unknown` | Typed submission outcomes, kept separate from rejection and canonical exclusion |
 | `uncorrelated` | No exact post hash was available; the observation is grouped by target and builder only |
+| `omitted_from_own_block` | An accepted post was excluded from its matching target slot, and published relay keys identify that builder as the block producer; currently supported for BuilderNet |
 
 `included + excluded + unresolved = accepted`. Submission counters and canonical
 outcomes describe different stages, so do not sum all columns as a total. An
 included post is counted for every builder that acknowledged that attempt; these
-are **not builder win counts**. The report does not establish which builder
+are **not builder win counts**. `omitted_from_own_block` is a subset of `excluded`,
+counted per post/target observation, not per block. The report does not establish which builder
 caused inclusion, successful receipt execution, inclusion of every companion
 transaction, or full settlement. Later inclusion within `--horizon` is displayed
 separately and does not change the target-slot counters. These observations use
@@ -169,15 +171,39 @@ required to use the script with the existing structured events.
 | Category | Meaning | Action |
 | --- | --- | --- |
 | `POSSIBLY_LOCAL` | Client-like `extraData`; all listed relays answered but none reported this block | Local construction is only a possibility: an unlisted relay may have delivered it |
-| `OTHER_BUILDER` | A relay delivered this exact block, but its `extraData` does not match the configured builders | Investigate builder coverage; `extraData` is an identity hint, not authentication |
-| `CONFIGURED_BUILDER` | A relay delivered this exact block and its `extraData` matches a configured builder | Inspect the per-builder stats below; this category alone does not explain exclusion |
+| `OTHER_BUILDER` | A relay delivered this exact block, but the identified producer or fallback `extraData` hint is outside the configured builders | Inspect `block_producer` and builder coverage; `extraData` is only a hint |
+| `CONFIGURED_BUILDER` | A relay delivered this exact block and the identified producer or fallback `extraData` hint matches a configured builder | Inspect `block_producer` and per-builder evidence; this category alone does not explain exclusion |
 | `TARGET_MISMATCH` | The target height has another timestamp | Skipped slot or reorg |
-| `UNKNOWN` | Evidence is insufficient, including unavailable relay APIs or an absent builder list | Resolve missing evidence; do not interpret it as a builder failure or local construction |
+| `UNKNOWN` | Evidence is insufficient or conflicting, including unavailable relay APIs or an absent builder list | Resolve missing evidence; do not interpret it as a builder failure or local construction |
 | `NOT_YET_PRODUCED` / `RPC_UNAVAILABLE` | The block is not available yet / the RPC read failed | Retry the observation; builder stats may still be available |
 
 Relay queries and returned records must match the canonical block **hash**, not
 just its height. Public relay coverage is incomplete, and a missing delivery
 never proves that MEV-Boost was not used.
+
+`block_producer` records published-key attribution separately from `extraData`.
+The script includes BuilderNet's [published BLS relay keys](https://buildernet.org/docs/public-identity)
+checked on 2026-10-21, including retired keys for historical observations. An
+exact key match in a canonical delivery identifies BuilderNet. This takes
+precedence over the `extraData` hint when classifying configured builders.
+One usable matching relay record suffices despite other outages or missing keys;
+a usable key outside the published set alongside a matching key makes the
+attribution `conflicting` and the category `UNKNOWN`. Unrecognized or malformed
+keys alone leave attribution `unknown`. New BuilderNet keys require updating the
+published list in the script; `extraData` alone cannot raise the omission flag.
+This trusts public relay reports and the published key mapping; the script does
+not independently verify a BLS signature. Returned `relay_deliveries` retain the
+canonical block hash, relay, reported key and value for inspection.
+
+`producer_omitted_acknowledged_post: true` requires BuilderNet attribution, a
+logged BuilderNet acknowledgement bound to the exact post, and canonical target
+exclusion with a matching timestamp. The text report prints a warning and the
+BuilderNet summary increments `omitted_from_own_block`. A missing bundle hash
+does not prevent this check when the post and acknowledgement are known. Missing
+post/timing evidence, another builder's acknowledgement, or an unresolved target
+cannot raise it. This identifies cases to investigate, not an internal failure
+reason: late arrival, simulation, propagation and block selection remain possible
+explanations. It does not establish faulty or malicious builder behavior.
 
 Stats are collected for **every acknowledging builder and distinct logged bundle
 hash**, even when another builder won or the target timestamp changed. The script
@@ -198,7 +224,7 @@ submission. Eureka retains stats for about 30 days and documents a shared limit
 of 50 requests per second. Save logs promptly and rerun after availability
 delays. Missing, expired or rate-limited stats cannot establish a rejection.
 
-BuilderNet remains `availability: "unsupported"`: its
+BuilderNet's **bundle stats** remain `availability: "unsupported"`: its
 [public API](https://buildernet.org/docs/api) documents refund queries, which do
 not provide simulation/rejection tracing, and the legacy Flashbots stats methods
 were [announced for deprecation](https://collective.flashbots.net/t/deprecation-of-bundle-stats-api-methods-in-flashbots-protect/4973).
@@ -208,6 +234,22 @@ found). No public tracing API was verified. The script reports that limit rather
 than repeatedly calling those methods. Stats `availability: "unsupported"` is
 separate from the summary's `unsupported` **submission** counter; an accepted
 BuilderNet submission still counts as accepted.
+
+For each distinct valid hash acknowledged by BuilderNet, the script separately
+queries [`buildernet_getFeeRefundsByBundle`](https://buildernet.org/docs/api#buildernet_getFeeRefundsByBundle)
+at `https://relay.flashbots.net`, with `params: ["0x..."]` (one hash string).
+This read-only query needs no credentials and is not a simulation trace.
+`builder_refunds` preserves the returned page and any cursor; `target_refunds`
+selects records whose hash and block match the logged attempt. Other-block records
+stay in the raw result. Malformed records or mismatched hashes make the query
+`unavailable` with its result retained. Only one page is requested per hash/target;
+a returned cursor means the refund history may be incomplete.
+
+Refund `pending`/`sent` states refer to accounting, not submission or settlement.
+The API documents a usual processing delay of about four hours. Empty, delayed,
+unavailable or positive refund records never alter accepted/rejected,
+included/excluded, simulation-failure or omission counters. In particular,
+`refunds: []` does not establish that BuilderNet rejected the bundle.
 
 Raw API results and error details are preserved. Quasar uses lowercase statuses;
 the simulation-failure counter also recognizes PascalCase and snake_case. Eureka
@@ -249,6 +291,15 @@ and JSON format. Exit status zero means reporting completed, not
 that every builder is healthy; inspect the categories, counters and stats. Invalid input
 or a network-check failure exits with status 2; a target RPC read failure exits
 with status 1. This diagnostic does not change settlement-attempt accounting.
+
+The BuilderNet extension adds `block_producer`, `relay_deliveries` when the target
+is available, `producer_omitted_acknowledged_post`, and `builder_refunds` to attempt
+records, plus `omitted_from_own_block` to builder summaries. The refund map uses
+the same per-builder list shape as stats, with an additional `target_refunds`
+list for available results. Consumers should tolerate these additive fields and
+unknown attribution states. Rolling back to the preceding script drops these
+fields and restores classification by `extraData` only; no node or storage
+migration is involved.
 
 ## Stop and restart
 

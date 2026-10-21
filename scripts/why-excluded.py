@@ -6,10 +6,10 @@ summarizes outcomes per builder, and classifies targets using chain/relay data:
 
   POSSIBLY_LOCAL         client-like extraData with no observed relay delivery;
                          this is a hint, not proof of local construction
-  OTHER_BUILDER          relay delivery confirmed; extraData does not match
-                         the configured builders
-  CONFIGURED_BUILDER     relay delivery confirmed; extraData matches a
-                         configured builder (identity is inferred)
+  OTHER_BUILDER          relay delivery confirmed; identified producer or
+                         extraData hint does not match configured builders
+  CONFIGURED_BUILDER     relay delivery confirmed; identified producer or
+                         extraData hint matches a configured builder
   TARGET_MISMATCH        the target height carries another timestamp (skipped
                          slot or reorg)
   UNKNOWN                insufficient evidence, including relay outages
@@ -24,6 +24,9 @@ also exposes public tracing. Pending/missing stats are inconclusive.
 Accepted/rejected describe submission replies. Included/excluded describe the
 canonical target's exact post for accepted submissions, not who built the block
 or whether the whole bundle settled. Unknown observations stay unresolved.
+BuilderNet attribution uses published relay keys. A separate flag identifies
+acknowledged posts omitted from its canonical target blocks; this does not
+establish why they were omitted. Refund lookups are supplementary evidence.
 
 Usage:
   sudo docker logs --since 2h eez-node-ethereum 2>&1 | \\
@@ -71,6 +74,20 @@ BUNDLE_STATS = {
     "quasar.win": ("https://stats.quasar.win", "quasar_getBundleStats", "bundle_hash"),
     "eurekabuilder.xyz": ("https://rpc.eurekabuilder.xyz", "eureka_getBundleStats", "bundleHash"),
 }
+
+# Published at https://buildernet.org/docs/public-identity, checked 2026-10-21.
+# Retain retired keys for historical blocks. Unknown future keys cannot identify
+# BuilderNet until this list is updated; extraData alone cannot raise an omission flag.
+BUILDERNET_RELAY_KEYS = frozenset((
+    "0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7",
+    "0x853b0078c722ade5dd089dd9ce2eea3890dcc825213231600b3023ab92aa3e835c5325f31515b82a9a0559c881a14cde",
+    "0x857b00388fc623b52cec21b5dde4f0e543dd824db41d30480bbd6d1885f9c69833745a0396573aa1013ecacda3c118d7",
+    "0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947",
+    "0x856b00042301181ccf5277309c6f44595e343a284187bfe9868d6812e46fba21831fecbe8b0e6814c1463ba540ac3f46",
+    "0x852b0070e2522fcb06dcb159fabcdc7a4b5e1221cc2a56b083577cce03e50afe1b699c5a1111eb3bb1b8684aa90a8333",
+    "0x855b00e6b2c5dd524d2689bd43e0a965262810cbd7a2c71166f53594fb01bba8151bdd6a09ddb0408f7063b17eb3742e",
+))
+BUILDERNET_REFUNDS_URL = "https://relay.flashbots.net"
 
 CLIENT_RE = re.compile(
     r"geth|nethermind|besu|erigon|reth|nimbus|lighthouse|teku|lodestar|prysm|grandine",
@@ -120,10 +137,17 @@ def decode_extra(hex_data):
         ch if ch.isprintable() and ch != "�" else " " for ch in text)).strip()
 
 
-def classify(extra, delivered, builders, expected_ts=None, block_ts=None, unavailable=()):
-    """Return an evidence category and optional extraData-based builder hint."""
+def classify(extra, delivered, builders, expected_ts=None, block_ts=None, unavailable=(), producer=None):
+    """Prefer published relay-key attribution over the weaker extraData hint."""
     if expected_ts is not None and block_ts is not None and expected_ts != block_ts:
         return "TARGET_MISMATCH", None
+    if producer and producer["status"] == "conflicting":
+        return "UNKNOWN", None
+    if producer and producer["status"] == "identified":
+        if not builders:
+            return "UNKNOWN", None
+        key = producer["builder"]
+        return ("CONFIGURED_BUILDER", key) if key in builders else ("OTHER_BUILDER", None)
     if not delivered:
         if not unavailable and extra and CLIENT_RE.search(extra):
             return "POSSIBLY_LOCAL", None
@@ -336,13 +360,34 @@ def relay_deliveries(block_hash):
                     raise ValueError("relay delivery has no block hash")
                 if trace["block_hash"].lower() != block_hash.lower():
                     continue
-                matching.append({"relay": name, "builder_pubkey": trace.get("builder_pubkey"),
+                matching.append({"relay": name, "block_hash": block_hash.lower(),
+                                 "builder_pubkey": trace.get("builder_pubkey"),
                                  "value_eth": int(trace.get("value", 0)) / 1e18})
         except (OSError, ValueError, TypeError):
             unavailable.append(name)
             continue
         delivered.extend(matching)
     return delivered, unavailable
+
+
+def identify_block_producer(delivered):
+    """Attribute canonical deliveries using published keys, trusting relay reports.
+
+    Call only with relay_deliveries()'s block-hash-filtered records. One usable
+    published key suffices despite outages/missing keys elsewhere; contradictory
+    usable keys prevent attribution. This does not verify a BLS signature locally.
+    """
+    usable = []
+    for trace in delivered:
+        key = trace.get("builder_pubkey")
+        if isinstance(key, str) and re.fullmatch(r"0x[0-9a-f]{96}", key.lower()):
+            usable.append((trace["relay"], key.lower()))
+    keys = {key for _, key in usable}
+    known = keys & BUILDERNET_RELAY_KEYS
+    status = "unknown" if not known else "conflicting" if keys - known else "identified"
+    return {"status": status, "builder": "buildernet.org" if status == "identified" else None,
+            "source": "relay_builder_pubkey", "builder_pubkeys": sorted(keys),
+            "relays": sorted({relay for relay, _ in usable})}
 
 
 def block_summary(rpc_url, number):
@@ -390,6 +435,22 @@ def landed_after(rpc_url, post_tx, start, horizon):
     return {"status": "not_found", "through_block": start + horizon - 1}
 
 
+def diagnostic_rpc(url, method, params):
+    """Keep stats/refund RPC errors as evidence, separate from submission outcomes."""
+    try:
+        reply = http_json(url, {"jsonrpc": "2.0", "id": 1, "method": method,
+                                "params": params})
+    except (OSError, ValueError) as error:
+        return {"availability": "unavailable", "error": str(error)}
+    if not isinstance(reply, dict):
+        return {"availability": "unavailable", "error": "malformed diagnostic RPC response"}
+    if reply.get("error") is not None:
+        return {"availability": "unavailable", "error": reply["error"]}
+    if not isinstance(reply.get("result"), dict):
+        return {"availability": "unavailable", "error": "missing diagnostic RPC result"}
+    return {"availability": "available", "result": reply["result"]}
+
+
 def bundle_stats(host, bundle_hash, target=None):
     """Read provider evidence, checking returned correlation fields when present."""
     endpoint = BUNDLE_STATS.get(host)
@@ -401,18 +462,10 @@ def bundle_stats(host, bundle_hash, target=None):
     if not bundle_hash:
         return {"availability": "missing_hash"}
     url, method, hash_parameter = endpoint
-    try:
-        reply = http_json(url, {"jsonrpc": "2.0", "id": 1, "method": method,
-                                "params": [{hash_parameter: bundle_hash}]})
-    except (OSError, ValueError) as error:
-        return {"availability": "unavailable", "error": str(error)}
-    if not isinstance(reply, dict):
-        return {"availability": "unavailable", "error": "malformed stats response"}
-    if reply.get("error") is not None:
-        return {"availability": "unavailable", "error": reply["error"]}
-    if not isinstance(reply.get("result"), dict):
-        return {"availability": "unavailable", "error": "missing stats result"}
-    result = reply["result"]
+    evidence = diagnostic_rpc(url, method, [{hash_parameter: bundle_hash}])
+    if evidence["availability"] != "available":
+        return evidence
+    result = evidence["result"]
     if "bundleHash" in result and correlation_hash(result["bundleHash"]) != bundle_hash:
         return {"availability": "unavailable", "result": result,
                 "error": "stats bundle hash does not match the request"}
@@ -421,6 +474,37 @@ def bundle_stats(host, bundle_hash, target=None):
             return {"availability": "unavailable", "result": result,
                     "error": "stats target block does not match the logged attempt"}
     return {"availability": "available", "result": result}
+
+
+def buildernet_refunds(bundle_hash, target):
+    """Keep refund accounting separate from simulation and canonical inclusion.
+
+    Preserve the returned page (including any cursor) and select records for the
+    exact hash/target. An empty selection is inconclusive, not a bundle failure.
+    """
+    bundle_hash = correlation_hash(bundle_hash)
+    if not bundle_hash:
+        return {"availability": "missing_hash"}
+    evidence = diagnostic_rpc(BUILDERNET_REFUNDS_URL, "buildernet_getFeeRefundsByBundle", [bundle_hash])
+    if evidence["availability"] != "available":
+        return evidence
+    refunds = evidence["result"].get("refunds")
+    if not isinstance(refunds, list):
+        return {**evidence, "availability": "unavailable", "error": "missing refunds list"}
+    target_refunds = []
+    for refund in refunds:
+        if not isinstance(refund, dict) or correlation_hash(refund.get("hash")) != bundle_hash:
+            return {**evidence, "availability": "unavailable", "error": "refund hash does not match the request"}
+        block = refund.get("blockNumber")
+        if isinstance(block, str) and re.fullmatch(r"0x[0-9a-fA-F]+", block):
+            block = int(block, 16)
+        else:
+            block = log_integer(block)
+        if block is None:
+            return {**evidence, "availability": "unavailable", "error": "invalid refund block number"}
+        if block == target:
+            target_refunds.append(refund)
+    return {**evidence, "target_refunds": target_refunds}
 
 
 def stats_simulation_failed(stats):
@@ -452,6 +536,14 @@ def analyze(target, info, args, builders):
             for host, row in sorted(info.get("submissions", {}).items())
             if "acknowledged" in row["outcomes"]
         },
+        "builder_refunds": {
+            host: [{"bundle_hash": bundle_hash, **buildernet_refunds(bundle_hash, target)}
+                   for bundle_hash in row["bundle_hashes"] or [None]]
+            for host, row in sorted(info.get("submissions", {}).items())
+            if host == "buildernet.org" and "acknowledged" in row["outcomes"]
+        },
+        "block_producer": identify_block_producer([]),
+        "producer_omitted_acknowledged_post": False,
         "target_outcome": "unresolved",
     }
     try:
@@ -461,12 +553,14 @@ def analyze(target, info, args, builders):
     if summary is None:
         return {**report, "category": "NOT_YET_PRODUCED"}
     delivered, unavailable = relay_deliveries(summary["hash"])
+    producer = identify_block_producer(delivered)
     category, matched = classify(summary["extra"], delivered, builders,
-                                 info.get("timestamp"), summary["timestamp"], unavailable)
+                                 info.get("timestamp"), summary["timestamp"], unavailable, producer=producer)
     report.update({
         "category": category, "builder": summary["extra"] or "(empty)",
         "matched_builder": matched, "relays": sorted({d["relay"] for d in delivered}),
         "relays_unavailable": unavailable,
+        "relay_deliveries": delivered, "block_producer": producer,
         "block": {key: summary[key] for key in (
             "hash", "timestamp", "fee_recipient", "gas_used_pct", "base_fee_gwei",
             "txs", "blob_txs", "blobs", "tip_p25_gwei", "tip_p50_gwei")},
@@ -483,6 +577,9 @@ def analyze(target, info, args, builders):
         report["landed"] = landed_after(args.rpc, post_tx, target + 1, args.horizon)
     else:
         report["landed"] = {"status": "unknown", "reason": "no exact post hash in supplied logs"}
+    report["producer_omitted_acknowledged_post"] = (
+        producer["status"] == "identified" and report["target_outcome"] == "excluded"
+        and producer["builder"] in report["bundles_acknowledged"])
     if args.poster:
         report["poster_transactions_in_target"] = [
             tx_hash for tx_hash, sender in summary["transactions"].items() if sender == args.poster]
@@ -498,7 +595,8 @@ def summarize(reports, builders, diagnostics):
     """
     fields = ("observed", "accepted", "rejected", "included", "excluded", "unresolved",
               "unsupported", "transport_error", "deadline_exceeded",
-              "abandoned_after_acknowledgement", "unknown", "simulation_failed", "uncorrelated")
+              "abandoned_after_acknowledgement", "unknown", "simulation_failed", "uncorrelated",
+              "omitted_from_own_block")
 
     def empty():
         return dict.fromkeys(fields, 0)
@@ -524,16 +622,18 @@ def summarize(reports, builders, diagnostics):
             counts["uncorrelated"] += int(report["post_tx"] is None)
             stats = report["builder_bundle_stats"].get(host, [])
             counts["simulation_failed"] += int(any(stats_simulation_failed(item) for item in stats))
+            counts["omitted_from_own_block"] += int(
+                report["producer_omitted_acknowledged_post"] and report["block_producer"]["builder"] == host)
     return {"type": "summary", "attempts": len(reports), "categories": categories,
             "builders": dict(sorted(totals.items())), "log_diagnostics": diagnostics}
 
 
 EXPLANATION = {
     "POSSIBLY_LOCAL": "client-like extraData; no observed relay delivery (local construction unproven)",
-    "OTHER_BUILDER": "relay delivery confirmed; extraData does not match configured builders",
-    "CONFIGURED_BUILDER": "relay delivery confirmed; extraData matches a configured builder",
+    "OTHER_BUILDER": "relay delivery confirmed; producer attribution or extraData hint is outside configured builders",
+    "CONFIGURED_BUILDER": "relay delivery confirmed; producer attribution or extraData hint matches a configured builder",
     "TARGET_MISMATCH": "target height has another timestamp (skipped slot or reorg)",
-    "UNKNOWN": "insufficient evidence to identify the block producer",
+    "UNKNOWN": "insufficient or conflicting evidence to classify the block producer",
     "NOT_YET_PRODUCED": "target block does not exist yet",
     "RPC_UNAVAILABLE": "target block could not be read",
 }
@@ -601,11 +701,18 @@ def main(argv=None):
             print(f"    extraData={json.dumps(report['builder'])} relays={report['relays'] or '-'}"
                   f" gas={block['gas_used_pct']}% base={block['base_fee_gwei']} gwei"
                   f" blobs={block['blobs']} tip p25/p50={block['tip_p25_gwei']}/{block['tip_p50_gwei']} gwei")
+            print(f"    block producer (relay keys): {json.dumps(report['block_producer'])}")
+        if report["producer_omitted_acknowledged_post"]:
+            print(f"    warning: {report['block_producer']['builder']} acknowledged this post but omitted it"
+                  " from its target block; reason unknown")
         if report["bundles_acknowledged"]:
             print(f"    our bundle acknowledged by: {', '.join(report['bundles_acknowledged'])}")
         for host, records in report["builder_bundle_stats"].items():
             for stats in records:
                 print(f"    {host} bundle stats: {json.dumps(stats)}")
+        for host, records in report["builder_refunds"].items():
+            for refunds in records:
+                print(f"    {host} refunds (supplementary): {json.dumps(refunds)}")
         if "landed" in report:
             print(f"    exact post {report['post_tx'] or '(unknown)'}: {json.dumps(report['landed'])}")
         if "poster_transactions_in_target" in report:
