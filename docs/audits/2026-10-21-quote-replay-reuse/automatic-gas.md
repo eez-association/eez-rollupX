@@ -194,3 +194,30 @@ At `0fc51919`, CI run `39627515775` fails the dependency-policy step in job
 `119316546645` on RUSTSEC-2026-0381, -0382 and -0383 in the existing certificate
 dependencies. No dependency update or advisory suppression is included here.
 The follow-up needs its own CI; prior revision results do not validate it.
+
+### Dependency advisory follow-up
+
+At `6e470e8c4b07b176496aea8b651375833b6d8e90`, local `cargo deny --locked check
+advisories bans sources` and `cargo audit` reproduced the three certificate
+advisories above. The lockfiles now select `rustls-webpki` 0.103.16 and both
+`webpki-roots` / `webpki-root-certs` 1.0.10, the patched releases listed in
+[RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382.html),
+[RUSTSEC-2026-0381](https://rustsec.org/advisories/RUSTSEC-2026-0381.html) and
+[RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383.html).
+The 0.26.11 compatibility packages forward to the patched 1.x roots.
+
+The vendored Reth regression workspace and standalone monitoring indexer receive
+the same patches. Their older `rustls` 0.23.45 also reports
+RUSTSEC-2026-0346 through -0349; both now use 0.23.46, already selected by the
+main workspace. No advisory exceptions were added. All other locked packages,
+dependency edges, protocol pins and manifests are unchanged. Cargo's unrelated
+reselection of Syn for `data-encoding-macro-internal` was excluded; that package
+continues using the existing compatible Syn 2 resolution.
+
+The main dependency-policy check and `cargo audit` for all three lockfiles pass
+with the existing advisory policy. Raw before/after reports and precise update
+commands are local-only under `artifacts/quote-optimization/advisory-fix/` in
+the isolated worktree. Broader validation must use the updated PR head; the
+performance measurements above precede this lockfile patch. The lockfile is part
+of the runtime validation identity, so Composer and signer must be rebuilt from
+the same revision. No deployment, API, protocol or data migration is included.
