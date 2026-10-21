@@ -189,3 +189,75 @@ with `--exact --test-threads=1` against each runtime set. Its
 Use the normal runtime build profile for both; the test harness profile is not
 the runtime execution profile. Run serially without a concurrent compiler or
 another process suite, and retain raw samples when comparing latency.
+
+## Protocol PR #54 update
+
+This follow-up starts at RollupX `802898c90ba2d79ee255759802664d3ebe4eedb0`
+(PR #100 base `1ab1e2e3386a8832c7b18224e1eed82fa7c0b074`) and advances the
+protocol from `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774` to
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`, the reviewed head of
+[protocol PR #54](https://github.com/eez-association/eez-core-protocol/pull/54)
+(base `143d87e62cade98bfc122d612638dcaaf1c85633`). The executions below used
+`e67a8106a0421a51b73ab8eeb9036b08e905e705`; the PR advanced during validation,
+and a complete diff confirms that the only subsequent change is two lines of
+`AGENTS.md` guidance. Code, test fixtures and dependencies are identical.
+
+The protocol's `src/`, normative specifications, `test/`, libraries, compiler
+settings and decoder dependency manifests/lockfile are unchanged from the old
+pin. No Rust, ABI, contract, genesis, fee-policy or storage adaptation is required.
+This update therefore adds no runtime migration or historical-replay/rollback
+boundary. It does not deploy or upgrade an existing network.
+
+The imported tooling changes retain typed submission errors through the shell
+wrapper, isolate classic workers' broadcast files, and require canonical L2
+setup receipts at or below `safe` before signing triggers. CI keeps this wait
+enabled. The [Kurtosis guide](../../../testing/kurtosis/README.md#run-the-pinned-protocol-e2e-suite)
+documents the timeout, development opt-out and scenario inventory. Four existing
+static-read/write fixtures remove their fixed proxy-call gas cap; the new
+`staticThenNestedWrites` and `staticThenNestedWritesL2` fixtures assert ordered
+callback/remote/source writes. Upstream exclusion markers remain intact:
+64 scenarios are discoverable, 30 explicit-only, and 34 in the default network
+suite. The decoder can also import debug quote simulations without treating them
+as mined transactions. RollupX's standalone viewer has no dependency on it.
+
+Validation:
+
+- `forge build --root eez-core-protocol -j 2`: passed with Foundry 1.7.1 and
+  Solidity 0.8.34. `FOUNDRY_ISOLATE=false forge test --root eez-core-protocol
+  -j 2 --no-match-path 'script/*' --no-match-test
+  'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'`:
+  **778 passed**, three optional fork tests skipped. The named local exclusions
+  remain exclusions, not coverage.
+- `BASE_PORT=32500 BASE_CHAIN_ID=61337 bash scripts/ci/run-protocol-anvil.sh`:
+  **64/64 distinct scenarios passed**, including both new fixtures; no scenario
+  retries, timeouts or unrun cases. These use local Anvil and permissive protocol
+  proofs; they do not qualify the explicit-only scenarios on a live Composer.
+- `forge test --root contracts -j 2`: **89 passed**; integration formatting passed.
+- Protocol Python runner regressions: **197 passed**. Decoder tests:
+  **267 passed**. SDK tests: **7 passed**. All eight changed upstream shell
+  scripts passed `bash -n`.
+- The upstream quote adapter imported **19 saved real debug responses** containing
+  269 simulation runs and 2,964 frames, preserving run/frame counts and simulation
+  identity. These include both directions, nested calls, creation, caught/propagated
+  errors and partial failures. This is offline compatibility evidence, not new
+  transaction execution or performance evidence.
+- Fork tooling validation covers **381 distinct passing tests**, with eight
+  existing opt-in skips. The initial host run discovered 389 tests; all failures
+  were confined to four modules (69 tests) blocked by the shared `/tmp` quota.
+  Those modules were checked in disposable containers with read-only source,
+  no network and private temporary storage. Their older initial `jq` and `awk`
+  versions were corrected to `jq` 1.8.1 and GNU awk before the affected checks
+  passed. This is combined host/container evidence, not a single clean suite run.
+
+First failures are retained: initial decoder/runner tests lacked the compiled
+protocol ABIs; later runs supplied that prerequisite. Host quota failures and the
+old-tool container failures are also retained, rather than counted as passes or
+hidden retries. No repository source was changed to bypass those checks.
+Local-only logs, scenario results, environment identities and quote-import
+summaries are under `artifacts/quote-optimization/protocol-pr54/` in this worktree;
+they are ignored and unavailable in another checkout. The final tooling image
+identity is `sha256:4d55572686faad1c97660ed5b157ed6c0ccafd4e63de8fae53d08e2a2d5e19b3`.
+
+The previous green CI run at `802898c9` predates this protocol update. The new PR
+head must run its own release-artifact, native E2E and fee-enabled Kurtosis checks.
+No new local Kurtosis run or deployment is claimed here.
