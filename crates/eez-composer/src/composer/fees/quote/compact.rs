@@ -270,36 +270,6 @@ where
                         .quote_in_context(&prepared, &snapshot, &budget)
                         .map_err(|error| error.at_stage("fee_simulation"))?;
                     budget.check()?;
-                    let tx = &detail["transaction"];
-                    let cap = price(tx, if ty == 0 { "gasPrice" } else { "maxFeePerGas" })?;
-                    let tip = if ty == 0 {
-                        cap
-                    } else {
-                        price(tx, "maxPriorityFeePerGas")?
-                    };
-                    let validated_gas = if direction == crate::Direction::Outbound {
-                        crate::composer::quote_trace::phase(ty, "final_validation");
-                        estimator
-                            .validate_quote(
-                                &snapshot,
-                                prepared.request.env(tip, cap),
-                                budget.deadline,
-                            )
-                            .map_err(|error| estimate_error_at("final_validation", error))?
-                    } else {
-                        detail["estimate"]["sourceGasUsed"]
-                            .as_u64()
-                            .ok_or(FeeQuoteError::Unavailable("L1 receipt gas"))?
-                    };
-                    if detail["estimate"]["sourceGasUsed"].as_u64() != Some(validated_gas) {
-                        return Err(FeeQuoteError::execution(
-                            "final native gas differs from priced execution",
-                            "final_validation",
-                            EstimateError::Effects(
-                                "final native gas differs from priced execution".into(),
-                            ),
-                        ));
-                    }
                     detail["issuedAt"] = json!(issued);
                     detail["expiresAt"] = json!(expiry);
                     compact_option(&detail).map(|option| (option, detail))

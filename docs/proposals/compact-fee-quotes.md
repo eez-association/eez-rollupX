@@ -41,6 +41,46 @@ searches and final replays. There is no nested acquisition of the ordinary estim
 Cancellation/deadline expiry does not release the fee worker permit while a
 blocking frame is still running. `eth_estimateGas` keeps its own existing limits.
 
+## Reuse priced native validation (2026-10-21)
+
+Status: implementation authorized by the user; local correctness and repeated
+timing checks passed ([validation record](../audits/2026-10-21-quote-replay-reuse/README.md)).
+Release CI and live deployment are outside that evidence. Baseline:
+RollupX `1ab1e2e3386a8832c7b18224e1eed82fa7c0b074`, pinned protocol
+`abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774`.
+
+The L2 quote already composes and natively replays each candidate price before
+measuring L1 settlement. Attach the existing effect inspector to that native
+source replay and its callback deliveries, then verify the outbound event
+hashes and source return data. Price its receipt gas directly. The compact
+projection can then omit its separate final composition/setup/source pass.
+Ordinary L2 calls also retain the comparison between composition and native
+return data.
+
+| ID | Requirement | Acceptance |
+| --- | --- | --- |
+| O1 | Validate native call identities, outcomes, event hashes, source output and callback order at the returned gas and fees | Nested process tests, gas/fee-sensitive rejection and priced replay trace assertions |
+| O2 | Preserve actual source/native/settlement gas pricing, margin and admission floors | Fee receipt round trips, underpayment rejection and independent follower replay |
+| O3 | Reuse no result across transaction formats, fee iterations, requests or snapshots | Both formats, explicit/omitted gas, fee-dependent changes and existing context tests |
+| O4 | Reduce duplicate work without weakening the estimator or L1 settlement replay | Successful nested L2 trace: 19 to 16 runs with omitted gas, 13 to 10 with explicit gas; same workload baseline/candidate timings |
+
+Gas discovery and settlement gas-limit verification remain unchanged: `gasleft()`
+and `GASPRICE` can change behavior, so zero-price composition cannot be reused
+as a priced result. No speculative cross-request cache or new concurrency is
+introduced. The existing worker retains ownership, limits and cancellation.
+
+This changes no quote fields, fee policy, contracts, stored data or historical
+replay. Debug traces report the executions actually performed: successful L2
+quotes no longer include a separate `final_validation` phase. Effect failures
+are attributed to `native_replay` within `fee_simulation`. Viewers must not
+require a particular phase count. Mixed versions and rollback need no migration;
+older Composers perform the extra pass. Live deployment is outside this change.
+
+Measure repeated serial quotes for identical nested fixtures, formats and gas
+selection on the baseline and candidate, using the same runtime build profile.
+Retain run counts and elapsed milliseconds; shared-host timing noise prevents
+inferring production throughput from these measurements.
+
 ## API and migration decisions
 
 Use optional `gas`, `nonce` and `chainId`, with canonical hex quantities. Default

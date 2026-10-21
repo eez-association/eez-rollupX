@@ -397,24 +397,6 @@ impl GasEstimator {
         })
     }
 
-    /// Validate effects at the final gas limit and effective price; discovering
-    /// gas at a provisional price alone cannot validate GASPRICE-dependent code.
-    pub(super) fn validate_quote(
-        &self,
-        snapshot: &Snapshot,
-        tx: TxEnv,
-        deadline: Instant,
-    ) -> Result<u64, EstimateError> {
-        let gas = tx.gas_limit;
-        let replay = self.probe(Direction::Outbound, snapshot, tx, deadline)?;
-        if replay.limit != gas {
-            return Err(EstimateError::Effects(
-                "quoted gas exceeds native block capacity".into(),
-            ));
-        }
-        Ok(replay.source_gas)
-    }
-
     fn snapshot(&self) -> Result<Snapshot, EstimateError> {
         if self.optimistic.pending_attempt().is_some() {
             return Err(EstimateError::SettlementPending);

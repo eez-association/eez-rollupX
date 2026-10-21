@@ -3,6 +3,7 @@
 
 mod calldata;
 mod poster_funding;
+mod replay_validation;
 mod tracing;
 
 use alloy_consensus::{Transaction as _, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
@@ -28,6 +29,9 @@ alloy_sol_types::sol! {
         function alwaysReverts() external pure;
         function gasSensitive() external view returns (uint256);
         function rejectsSettlementTip(address proxy) external;
+        function feeDependentCalls(address proxy) external;
+        function gasDependentCalls(address proxy) external returns (bool);
+        function gasDependentOutput(address proxy) external returns (uint256);
     }
     interface PendingQuoteProbe {
         function setAfterInner(uint256 expectedLocal, uint256 expectedRemote, uint256 v) external;
@@ -1984,6 +1988,84 @@ async fn compact_ordinary_calls_boundaries_and_fee_sensitive_rejection() {
         assert_eq!(details["reason"], "execution_reverted", "{response}");
         assert_eq!(details["stage"], "source_execution", "{response}");
         assert_eq!(details["message"], "positive tip rejected", "{response}");
+    }
+    for ty in ["0x0", "0x2"] {
+        let changing = json!({"from":signer.address(),"to":probe,"gas":"0x7a120",
+            "data":Bytes::from(FeeQuoteProbe::feeDependentCallsCall {proxy:world.outbound_proxy}.abi_encode())});
+        let response = call(
+            "eez_debugQuoteFee",
+            json!([changing, {"transactionTypes":[ty],"trace":"calls"}]),
+        )
+        .await;
+        assert!(
+            response["result"]["options"][0].get("gas").is_some(),
+            "{response}"
+        );
+        tracing::save_trace(&format!("fee-dependent-{ty}"), &response);
+        let runs = response["result"]["diagnostics"]["trace"]["runs"]
+            .as_array()
+            .unwrap();
+        let compositions = runs
+            .iter()
+            .filter(|run| run["purpose"] == "composition")
+            .collect::<Vec<_>>();
+        let remote_calls = |run: &Value| {
+            run["frames"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|frame| frame["crossChain"] == true)
+                .count()
+        };
+        assert_eq!(remote_calls(compositions[0]), 1, "{response}");
+        assert_eq!(remote_calls(compositions.last().unwrap()), 2, "{response}");
+
+        for (kind, data) in [
+            (
+                "effect",
+                FeeQuoteProbe::gasDependentCallsCall {
+                    proxy: world.outbound_proxy,
+                }
+                .abi_encode(),
+            ),
+            (
+                "output",
+                FeeQuoteProbe::gasDependentOutputCall {
+                    proxy: world.outbound_proxy,
+                }
+                .abi_encode(),
+            ),
+        ] {
+            let divergent = json!({"from":signer.address(),"to":probe,"gas":"0x7a120", "data":Bytes::from(data)});
+            let response = call(
+                "eez_debugQuoteFee",
+                json!([divergent, {"transactionTypes":[ty],"trace":"calls"}]),
+            )
+            .await;
+            tracing::save_trace(&format!("{kind}-mismatch-{ty}"), &response);
+            let option = &response["result"]["options"][0];
+            assert!(option.get("gas").is_none(), "{response}");
+            assert_eq!(
+                option["error"]["code"], "unsupported_transaction",
+                "{response}"
+            );
+            let details = &response["result"]["diagnostics"]["options"][0]["error"]["details"];
+            assert_eq!(details["reason"], "effects_mismatch", "{response}");
+            assert_eq!(details["stage"], "native_replay", "{response}");
+            if kind == "output" {
+                assert_eq!(
+                    details["message"], "native source output differs from composition",
+                    "{response}"
+                );
+            }
+            let native = response["result"]["diagnostics"]["trace"]["runs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .rfind(|run| run["purpose"] == "native_source")
+                .unwrap();
+            assert_eq!(native["frames"][0]["status"], "success", "{response}");
+        }
     }
     assert_eq!(
         l2.get_transaction_count(signer.address()).await.unwrap(),

@@ -1364,7 +1364,7 @@ debug quote with a `trace` option is rejected with `-32600` before any member
 executes, so batch response accumulation cannot multiply the capture budget.
 
 Each run records its transaction format, phase (`gas_estimation`,
-`fee_simulation`, `final_validation`), purpose, actual transaction fields and
+`fee_simulation`, or `final_validation` in older exports), purpose, actual transaction fields and
 call frames. Composition links nested chain executions to their suspended
 callers using explicit parent IDs. Native source, system and settlement replays
 are separate runs. Conditional setup and settlement simulate proof results;
@@ -1373,6 +1373,17 @@ and posting target, L2 parent/environment and resolved nonce. Pending
 predecessors establish this state before capture; their transaction bodies are
 not exported as predecessor runs. Internal state-provider reads and hash-only
 prefix construction are outside the call trace.
+
+L2 pricing validates call identities, outcomes, source return data and outbound
+hashes during the native source replay and any callback deliveries. It uses that validated
+replay's receipt gas, so no separate final composition/source pass is needed.
+Both transaction formats still execute independently at their actual gas and
+fee fields; gas-sensitive discovery and L1 settlement limit checks remain.
+Effect mismatches appear at `native_replay` during `fee_simulation`.
+Run counts and phases are diagnostic observations, not fixed API guarantees.
+This optimization changes no quote fields, policy or persisted state. Older
+Composers perform the extra validation pass; mixed versions, historical replay
+and rollback need no migration or coordinated signer/follower upgrade.
 
 Capture is limited to 128 runs, 4096 frames and 1 MiB of raw input/output across
 the request, with at most 4096 bytes per captured field. Lengths and truncation

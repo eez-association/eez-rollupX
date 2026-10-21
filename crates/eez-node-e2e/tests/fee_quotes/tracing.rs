@@ -176,6 +176,25 @@ async fn nested_call_traces_link_both_directions_and_preserve_quote_results() {
                 "{traced}"
             );
             validate_trace(&traced, ty);
+            if !inbound {
+                let runs = traced["result"]["diagnostics"]["trace"]["runs"]
+                    .as_array()
+                    .unwrap();
+                assert_eq!(runs.len(), if ty == "0x0" { 10 } else { 16 }, "{traced}");
+                assert!(runs.iter().all(|run| run["phase"] != "final_validation"));
+                let priced = runs
+                    .iter()
+                    .rfind(|run| run["purpose"] == "native_source")
+                    .unwrap();
+                assert_eq!(priced["phase"], "fee_simulation");
+                let option = &traced["result"]["options"][0];
+                for field in ["gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
+                    assert_eq!(
+                        priced["transaction"][field], option[field],
+                        "{field}: {traced}"
+                    );
+                }
+            }
             assert_eq!(
                 plain["result"]["options"][0]["gas"],
                 traced["result"]["options"][0]["gas"]
