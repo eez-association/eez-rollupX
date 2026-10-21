@@ -19,7 +19,8 @@ fan-out events bind outcomes to the exact post hash and target timestamp.
 Stats are queried for every acknowledging builder with a supported
 API and a valid hash, regardless of who won. Unsupported APIs, missing hashes,
 and unavailable stats are explicit. Titan traces take about five minutes to
-appear; Bombora stats take four blocks. Pending/missing stats are inconclusive.
+appear; Bombora stats take four blocks and Quasar at least two slots. Eureka
+also exposes public tracing. Pending/missing stats are inconclusive.
 Accepted/rejected describe submission replies. Included/excluded describe the
 canonical target's exact post for accepted submissions, not who built the block
 or whether the whole bundle settled. Unknown observations stay unresolved.
@@ -62,10 +63,13 @@ BUILDER_MARKERS = {
     "rsync-builder.xyz": ("rsync",),
 }
 
-# Stats use dedicated hosts, not the submission RPC. Both accept {"bundleHash": ...}.
+# Endpoint, method and hash parameter differ by provider. Eureka serves stats
+# on its submission RPC; Quasar uses a snake_case parameter on its stats host.
 BUNDLE_STATS = {
-    "titanbuilder.xyz": ("https://stats.titanbuilder.xyz", "titan_getBundleStats"),
-    "bombora.build": ("https://stats.bombora.build", "bombora_getBundleStats"),
+    "titanbuilder.xyz": ("https://stats.titanbuilder.xyz", "titan_getBundleStats", "bundleHash"),
+    "bombora.build": ("https://stats.bombora.build", "bombora_getBundleStats", "bundleHash"),
+    "quasar.win": ("https://stats.quasar.win", "quasar_getBundleStats", "bundle_hash"),
+    "eurekabuilder.xyz": ("https://rpc.eurekabuilder.xyz", "eureka_getBundleStats", "bundleHash"),
 }
 
 CLIENT_RE = re.compile(
@@ -386,16 +390,20 @@ def landed_after(rpc_url, post_tx, start, horizon):
     return {"status": "not_found", "through_block": start + horizon - 1}
 
 
-def bundle_stats(host, bundle_hash):
+def bundle_stats(host, bundle_hash, target=None):
+    """Read provider evidence, checking returned correlation fields when present."""
     endpoint = BUNDLE_STATS.get(host)
     if not endpoint:
-        return {"availability": "unsupported"}
+        reason = ("No verified public BuilderNet bundle-stats API; legacy Flashbots stats methods are deprecated."
+                  if host == "buildernet.org" else "No bundle-stats integration for this builder.")
+        return {"availability": "unsupported", "reason": reason}
+    bundle_hash = correlation_hash(bundle_hash)
     if not bundle_hash:
         return {"availability": "missing_hash"}
-    url, method = endpoint
+    url, method, hash_parameter = endpoint
     try:
         reply = http_json(url, {"jsonrpc": "2.0", "id": 1, "method": method,
-                                "params": [{"bundleHash": bundle_hash}]})
+                                "params": [{hash_parameter: bundle_hash}]})
     except (OSError, ValueError) as error:
         return {"availability": "unavailable", "error": str(error)}
     if not isinstance(reply, dict):
@@ -404,7 +412,28 @@ def bundle_stats(host, bundle_hash):
         return {"availability": "unavailable", "error": reply["error"]}
     if not isinstance(reply.get("result"), dict):
         return {"availability": "unavailable", "error": "missing stats result"}
-    return {"availability": "available", "result": reply["result"]}
+    result = reply["result"]
+    if "bundleHash" in result and correlation_hash(result["bundleHash"]) != bundle_hash:
+        return {"availability": "unavailable", "result": result,
+                "error": "stats bundle hash does not match the request"}
+    if target is not None and result.get("targetBlock") is not None:
+        if log_integer(result["targetBlock"]) != target:
+            return {"availability": "unavailable", "result": result,
+                    "error": "stats target block does not match the logged attempt"}
+    return {"availability": "available", "result": result}
+
+
+def stats_simulation_failed(stats):
+    """Recognize explicit failure states without reinterpreting detail strings.
+
+    Quasar serializes states in lowercase; keep the raw response untouched and
+    recognize both casing styles and snake_case. Builder-reported inclusion is
+    never used as canonical inclusion evidence.
+    """
+    if stats.get("availability") != "available":
+        return False
+    status = stats.get("result", {}).get("status")
+    return isinstance(status, str) and status.replace("_", "").lower() in ("invalid", "simulationfail")
 
 
 def analyze(target, info, args, builders):
@@ -418,7 +447,7 @@ def analyze(target, info, args, builders):
         "bundles_acknowledged": sorted(host for host, row in info.get("submissions", {}).items()
                                         if "acknowledged" in row["outcomes"]),
         "builder_bundle_stats": {
-            host: [{"bundle_hash": bundle_hash, **bundle_stats(host, bundle_hash)}
+            host: [{"bundle_hash": bundle_hash, **bundle_stats(host, bundle_hash, target=target)}
                    for bundle_hash in row["bundle_hashes"] or [None]]
             for host, row in sorted(info.get("submissions", {}).items())
             if "acknowledged" in row["outcomes"]
@@ -494,8 +523,7 @@ def summarize(reports, builders, diagnostics):
                 counts[outcome] += int(outcome in outcomes)
             counts["uncorrelated"] += int(report["post_tx"] is None)
             stats = report["builder_bundle_stats"].get(host, [])
-            counts["simulation_failed"] += int(any(
-                item.get("result", {}).get("status") in ("Invalid", "SimulationFail") for item in stats))
+            counts["simulation_failed"] += int(any(stats_simulation_failed(item) for item in stats))
     return {"type": "summary", "attempts": len(reports), "categories": categories,
             "builders": dict(sorted(totals.items())), "log_diagnostics": diagnostics}
 

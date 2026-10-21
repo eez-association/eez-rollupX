@@ -141,7 +141,7 @@ with zero counts, which does not establish reachability or health.
 | `included` | An accepted observation's exact post is present in the current canonical target block |
 | `excluded` | An accepted observation's exact post is absent from that block and its timestamp matches the logged target timestamp |
 | `unresolved` | Accepted, but target inclusion/exclusion cannot be established: missing post hash/timestamp, changed slot, pending block, or RPC failure |
-| `simulation_failed` | An acknowledged bundle's stats explicitly report `Invalid` or `SimulationFail`; acceptance is retained |
+| `simulation_failed` | An acknowledged bundle's available stats explicitly report `Invalid` or `SimulationFail` (including lowercase/snake_case variants); acceptance is retained |
 | `unsupported`, `transport_error`, `deadline_exceeded`, `abandoned_after_acknowledgement`, `unknown` | Typed submission outcomes, kept separate from rejection and canonical exclusion |
 | `uncorrelated` | No exact post hash was available; the observation is grouped by target and builder only |
 
@@ -180,20 +180,49 @@ just its height. Public relay coverage is incomplete, and a missing delivery
 never proves that MEV-Boost was not used.
 
 Stats are collected for **every acknowledging builder and distinct logged bundle
-hash**, even when another builder won or the target timestamp changed. The supported APIs are
-[Titan](https://docs.titanbuilder.xyz/bundle-tracing) at
-`https://stats.titanbuilder.xyz` and
-[Bombora](https://bombora.build/docs/bombora-getBundleStats/) at
-`https://stats.bombora.build`. Titan traces become available about five minutes
-after submission; Bombora stats become available after four blocks (about 48
-seconds). Save the logs promptly and rerun after those delays. API retention is
-limited; missing or expired stats cannot establish a rejection.
+hash**, even when another builder won or the target timestamp changed. The script
+uses the following public APIs without credentials. Each request passes one
+object in `params`, using the provider's hash field below.
+
+| Builder / documentation | Endpoint | Method | Hash field |
+| --- | --- | --- | --- |
+| [Titan](https://docs.titanbuilder.xyz/bundle-tracing) | `https://stats.titanbuilder.xyz` | `titan_getBundleStats` | `bundleHash` |
+| [Bombora](https://bombora.build/docs/bombora-getBundleStats/) | `https://stats.bombora.build` | `bombora_getBundleStats` | `bundleHash` |
+| [Quasar](https://docs.quasar.win/bundle-tracing) | `https://stats.quasar.win` | `quasar_getBundleStats` | `bundle_hash` |
+| [Eureka](https://docs.eurekalabs.xyz/bundle-tracing/api) | `https://rpc.eurekabuilder.xyz` | `eureka_getBundleStats` | `bundleHash` |
+
+Titan traces become available about five minutes after submission; Bombora stats
+after four blocks (about 48 seconds). Quasar requires at least two slots after
+the target block or `maxTimestamp` and retains data for up to 24 hours after
+submission. Eureka retains stats for about 30 days and documents a shared limit
+of 50 requests per second. Save logs promptly and rerun after availability
+delays. Missing, expired or rate-limited stats cannot establish a rejection.
+
+BuilderNet remains `availability: "unsupported"`: its
+[public API](https://buildernet.org/docs/api) documents refund queries, which do
+not provide simulation/rejection tracing, and the legacy Flashbots stats methods
+were [announced for deprecation](https://collective.flashbots.net/t/deprecation-of-bundle-stats-api-methods-in-flashbots-protect/4973).
+On 2026-10-21, authenticated read-only probes of `buildernet_getBundleStats` and
+`flashbots_getBundleStatsV2` at `rpc.buildernet.org` returned `-32601` (method not
+found). No public tracing API was verified. The script reports that limit rather
+than repeatedly calling those methods. Stats `availability: "unsupported"` is
+separate from the summary's `unsupported` **submission** counter; an accepted
+BuilderNet submission still counts as accepted.
+
+Raw API results and error details are preserved. Quasar uses lowercase statuses;
+the simulation-failure counter also recognizes PascalCase and snake_case. Eureka
+reports the best status reached, so a detail such as `error: "HeadAdvanced"`
+alongside `status: "Submitted"` is not treated as rejection or simulation failure.
+When returned `bundleHash` or non-null `targetBlock` metadata disagrees with the
+requested hash or logged target, the record is retained as `unavailable` and
+cannot increment `simulation_failed`.
 
 | Builder result | Interpretation |
 | --- | --- |
 | `Invalid` / `SimulationFail` | The builder reports a validation or simulation failure. Inspect its complete `error` field and the exact captured bundle. |
 | `SimulationPass` | The builder reports a successful simulation. This does not establish why it omitted the bundle. |
 | `IncludedInBlock` / `Submitted` | Included in a builder candidate / submitted to a relay. Neither establishes canonical inclusion. |
+| `ExcludedFromBlock` / `Landed` | Builder-reported omission / inclusion; canonical target counters still come from the exact post check on the L1 RPC. |
 | `Pending` / `NotFound` / `Received` | Evidence is incomplete. `Received` has builder-specific meaning; consult that builder's API documentation. |
 | `unsupported` / `missing_hash` / `unavailable` | No supported stats API, no valid hash in the acknowledgement, or a failed stats query. These are diagnostic limitations, not bundle failures. |
 

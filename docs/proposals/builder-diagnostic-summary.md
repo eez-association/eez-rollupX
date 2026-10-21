@@ -20,6 +20,7 @@ well as exclusions. No runtime, contract, queue, or deployment changes are neede
 | R3 | Report per-builder accepted/rejected submission counts separately from canonical target inclusion/exclusion. Never credit a builder with producing a block based on acknowledgement. | Multi-builder inclusion, absent/unrelated posts, skipped slots, reorg observations, unavailable RPC and pending target tests. |
 | R4 | Keep unsupported APIs, transport errors, deadlines, incomplete logs and simulation failures explicit. Query every acknowledging builder's distinct usable hashes. | All fan-out outcomes, malformed logs, missing hashes and stats-result tests. |
 | R5 | Publish summaries in text and JSON and document their counting unit and limitations. | CLI subprocess fixtures and runbook command checks. |
+| R6 | Add verified public Quasar and Eureka tracing APIs alongside Titan/Bombora; keep BuilderNet's unverified tracing support explicit. Preserve raw statuses/details and reject mismatched returned correlation metadata. | Provider-specific request fields, lowercase failure states, missing/rate-limited records, mismatched hash/target, and builder inclusion claims tested through the CLI. |
 
 ## Design and compatibility
 
@@ -44,6 +45,14 @@ responses when correlation is unambiguous. No node upgrade or restart is require
 The draft CLI JSON format adds typed attempt/summary records and lists stats per
 builder so multiple hashes are retained. Consumers must update their parsing;
 rolling back the script restores exclusion-only selection and the earlier format.
+
+The tracing extension starts from PR head
+`841ee4f783e077e95ae0e465799376879138021f`. It adds provider endpoints and an
+explanatory `reason` for unsupported stats without changing the CLI or counting
+unit. Returned hash/target mismatches remain visible as unavailable evidence;
+missing stats and provider detail strings cannot turn acceptance into rejection.
+Builder-reported inclusion never overrides canonical post checks. See the
+[runbook's API list and availability limits](../runbooks/ethereum-node.md#why-a-post-was-excluded).
 
 ## Validation
 

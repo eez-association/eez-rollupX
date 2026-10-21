@@ -317,6 +317,54 @@ class RelayTest(unittest.TestCase):
 
 
 class StatsTest(unittest.TestCase):
+    def test_quasar_uses_snake_case_hash_parameter(self):
+        reply = {"result": {"status": "submitted", "targetBlock": 100, "error": None}}
+        with patch.object(MODULE, "http_json", return_value=reply) as request:
+            stats = MODULE.bundle_stats("quasar.win", POST_HASH)
+        self.assertEqual(stats, {"availability": "available", "result": reply["result"]})
+        self.assertEqual(request.call_args.args[0], "https://stats.quasar.win")
+        self.assertEqual(request.call_args.args[1]["method"], "quasar_getBundleStats")
+        self.assertEqual(request.call_args.args[1]["params"], [{"bundle_hash": POST_HASH}])
+
+    def test_eureka_uses_submission_rpc_and_preserves_lifecycle_details(self):
+        reply = {"result": {"bundleHash": POST_HASH, "status": "Submitted",
+                            "error": "HeadAdvanced", "targetBlock": 100,
+                            "timeline": [{"status": "SimulationPass"}]}}
+        with patch.object(MODULE, "http_json", return_value=reply) as request:
+            stats = MODULE.bundle_stats("eurekabuilder.xyz", POST_HASH)
+        self.assertEqual(stats, {"availability": "available", "result": reply["result"]})
+        self.assertEqual(request.call_args.args[0], "https://rpc.eurekabuilder.xyz")
+        self.assertEqual(request.call_args.args[1]["method"], "eureka_getBundleStats")
+        self.assertEqual(request.call_args.args[1]["params"], [{"bundleHash": POST_HASH}])
+
+    def test_buildernet_unsupported_explains_api_limit_without_requesting(self):
+        with patch.object(MODULE, "http_json") as request:
+            stats = MODULE.bundle_stats("buildernet.org", POST_HASH)
+        self.assertEqual(stats["availability"], "unsupported")
+        self.assertIn("deprecated", stats["reason"])
+        request.assert_not_called()
+
+    def test_quasar_failure_status_variants_are_counted_without_changing_result(self):
+        for status, expected in (("invalid", True), ("simulation_fail", True),
+                                 ("SimulationFail", True), ("submitted", False),
+                                 ("landed", False), ("excluded_from_block", False),
+                                 ("not_found", False), (None, False), ({}, False)):
+            with self.subTest(status=status):
+                record = {"availability": "available", "result": {"status": status}}
+                self.assertEqual(MODULE.stats_simulation_failed(record), expected)
+                self.assertEqual(record["result"]["status"], status)
+
+    def test_stats_for_another_target_or_hash_are_unavailable(self):
+        for result in ({"status": "invalid", "targetBlock": 101},
+                       {"status": "SimulationFail", "bundleHash": OTHER_HASH},
+                       {"status": "invalid", "targetBlock": True}):
+            with self.subTest(result=result):
+                with patch.object(MODULE, "http_json", return_value={"result": result}):
+                    stats = MODULE.bundle_stats("quasar.win", POST_HASH, target=100)
+                self.assertEqual(stats["availability"], "unavailable")
+                self.assertEqual(stats["result"], result)
+                self.assertFalse(MODULE.stats_simulation_failed(stats))
+
     def test_uses_documented_stats_hosts(self):
         for host, method in (("titanbuilder.xyz", "titan_getBundleStats"),
                              ("bombora.build", "bombora_getBundleStats")):
@@ -330,10 +378,11 @@ class StatsTest(unittest.TestCase):
 
     def test_unsupported_and_missing_hash_do_not_make_requests(self):
         with patch.object(MODULE, "http_json") as request:
-            self.assertEqual(MODULE.bundle_stats("quasar.win", POST_HASH)["availability"],
+            self.assertEqual(MODULE.bundle_stats("buildernet.org", POST_HASH)["availability"],
                              "unsupported")
-            self.assertEqual(MODULE.bundle_stats("titanbuilder.xyz", None)["availability"],
-                             "missing_hash")
+            for host in MODULE.BUNDLE_STATS:
+                for bundle_hash in (None, "0xshort", 3):
+                    self.assertEqual(MODULE.bundle_stats(host, bundle_hash)["availability"], "missing_hash")
             request.assert_not_called()
 
     def test_transport_rpc_and_malformed_responses_are_unavailable(self):
@@ -511,8 +560,9 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 module.RELAYS = {"fixture": base + "/relay"}
 module.BUNDLE_STATS = {
-    "titanbuilder.xyz": (base + "/stats/titan", "titan_getBundleStats"),
-    "bombora.build": (base + "/stats/bombora", "bombora_getBundleStats"),
+    host: (base + "/stats/" + name, *module.BUNDLE_STATS[host][1:])
+    for host, name in (("titanbuilder.xyz", "titan"), ("bombora.build", "bombora"),
+                       ("quasar.win", "quasar"), ("eurekabuilder.xyz", "eureka"))
 }
 sys.exit(module.main(args))
 '''
@@ -527,6 +577,11 @@ class CliTest(unittest.TestCase):
         self.relay_error = False
         self.later_blocks = {}
         self.stats_status = {"titan": "SimulationFail", "bombora": "SimulationPass"}
+        self.quasar_result = {"status": "submitted", "targetBlock": 100, "error": None,
+                              "receivedAt": 988, "submittedAt": 990, "landedAt": None}
+        self.eureka_result = {"bundleHash": OTHER_HASH, "status": "Submitted", "targetBlock": 100,
+                              "error": "HeadAdvanced", "timeline": []}
+        self.stats_error = {}
         self.simulation_error = "BundleRevert: " + "fixture-detail " * 30 + POST_HASH
         fixture = self
 
@@ -552,6 +607,9 @@ class CliTest(unittest.TestCase):
             def do_POST(self):
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 fixture.requests.append((self.path, request))
+                if self.path in fixture.stats_error:
+                    self.reply({"jsonrpc": "2.0", "id": 1, "error": fixture.stats_error[self.path]})
+                    return
                 if self.path == "/l1":
                     if request["method"] == "eth_chainId":
                         result = fixture.chain_id
@@ -569,6 +627,16 @@ class CliTest(unittest.TestCase):
                     result = {"status": fixture.stats_status["titan"], "error": fixture.simulation_error}
                 elif self.path == "/stats/bombora":
                     result = {"status": fixture.stats_status["bombora"], "error": ""}
+                elif self.path == "/stats/quasar":
+                    if request["method"] != "quasar_getBundleStats" or request["params"] != [{"bundle_hash": POST_HASH}]:
+                        self.reply({"error": {"code": -32602, "message": "expected bundle_hash"}})
+                        return
+                    result = fixture.quasar_result
+                elif self.path == "/stats/eureka":
+                    if request["method"] != "eureka_getBundleStats" or request["params"] != [{"bundleHash": OTHER_HASH}]:
+                        self.reply({"error": {"code": -32602, "message": "expected bundleHash"}})
+                        return
+                    result = fixture.eureka_result
                 else:
                     self.reply({"error": "unexpected endpoint"}, 404)
                     return
@@ -610,7 +678,7 @@ class CliTest(unittest.TestCase):
         stats = report["builder_bundle_stats"]
         self.assertEqual(stats["titanbuilder.xyz"][0]["result"]["status"], "SimulationFail")
         self.assertEqual(stats["bombora.build"][0]["result"]["status"], "SimulationPass")
-        self.assertEqual(stats["quasar.win"][0]["availability"], "unsupported")
+        self.assertEqual(stats["quasar.win"][0]["availability"], "missing_hash")
         queries = {path: request for path, request in self.requests if path.startswith("/stats/")}
         self.assertEqual(set(queries), {"/stats/titan", "/stats/bombora"})
         self.assertEqual(queries["/stats/titan"]["params"], [{"bundleHash": POST_HASH}])
@@ -629,6 +697,92 @@ class CliTest(unittest.TestCase):
         self.assertIn("bombora.build bundle stats:", result.stdout)
         self.assertIn("per-builder summary", result.stdout)
         self.assertIn("accepted=1 rejected=0 included=0 excluded=1", result.stdout)
+
+    def use_new_builder_logs(self):
+        self.logs = "\n".join([dispatch(), fanout(
+            delivery("rpc.quasar.win", bundle_hash=POST_HASH),
+            delivery("rpc.eurekabuilder.xyz", bundle_hash=OTHER_HASH),
+            delivery("rpc.buildernet.org", bundle_hash=BLOCK_HASH),
+        )])
+
+    def test_cli_queries_quasar_and_eureka_with_their_actual_parameter_names(self):
+        self.use_new_builder_logs()
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        stats = report["builder_bundle_stats"]
+        self.assertEqual(stats["quasar.win"][0]["result"], self.quasar_result)
+        self.assertEqual(stats["eurekabuilder.xyz"][0]["result"], self.eureka_result)
+        self.assertEqual(stats["buildernet.org"][0]["availability"], "unsupported")
+        self.assertIn("deprecated", stats["buildernet.org"][0]["reason"])
+        self.assertEqual({path for path, _ in self.requests if path.startswith("/stats/")},
+                         {"/stats/quasar", "/stats/eureka"})
+        self.assertEqual(summary["builders"]["eurekabuilder.xyz"]["simulation_failed"], 0)
+        self.assertEqual(summary["builders"]["quasar.win"]["accepted"], 1)
+
+    def test_cli_quasar_lowercase_failures_are_counted_and_raw_status_is_preserved(self):
+        self.use_new_builder_logs()
+        for status in ("invalid", "simulation_fail"):
+            with self.subTest(status=status):
+                self.quasar_result["status"] = status
+                result = self.run_cli()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                report, summary = map(json.loads, result.stdout.splitlines())
+                self.assertEqual(report["builder_bundle_stats"]["quasar.win"][0]["result"]["status"], status)
+                counts = summary["builders"]["quasar.win"]
+                self.assertEqual(counts["simulation_failed"], 1)
+                self.assertEqual(counts["accepted"], 1)
+                self.assertEqual(counts["rejected"], 0)
+
+    def test_cli_quasar_landed_claim_does_not_override_canonical_evidence(self):
+        self.use_new_builder_logs()
+        self.quasar_result["status"] = "landed"
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        self.assertEqual(report["target_outcome"], "excluded")
+        for host in ("quasar.win", "eurekabuilder.xyz"):
+            counts = summary["builders"][host]
+            self.assertEqual(counts["included"], 0)
+            self.assertEqual(counts["simulation_failed"], 0)
+            self.assertEqual(counts["excluded"], 1)
+
+    def test_cli_missing_stats_and_rate_limits_are_not_bundle_rejections(self):
+        self.use_new_builder_logs()
+        self.stats_error = {"/stats/quasar": {"code": -32005, "message": "rate limit exceeded"},
+                            "/stats/eureka": {"code": -32001, "message": "bundle not found"}}
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        for host, path in (("quasar.win", "/stats/quasar"), ("eurekabuilder.xyz", "/stats/eureka")):
+            stats = report["builder_bundle_stats"][host][0]
+            self.assertEqual(stats["availability"], "unavailable")
+            self.assertEqual(stats["error"], self.stats_error[path])
+            self.assertEqual(summary["builders"][host]["rejected"], 0)
+            self.assertEqual(summary["builders"][host]["simulation_failed"], 0)
+
+    def test_cli_mismatched_stats_metadata_is_retained_but_not_counted(self):
+        self.use_new_builder_logs()
+        self.quasar_result.update(status="invalid", targetBlock=101)
+        self.eureka_result.update(status="SimulationFail", bundleHash=BLOCK_HASH)
+        result = self.run_cli()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report, summary = map(json.loads, result.stdout.splitlines())
+        for host, expected in (("quasar.win", self.quasar_result), ("eurekabuilder.xyz", self.eureka_result)):
+            stats = report["builder_bundle_stats"][host][0]
+            self.assertEqual(stats["availability"], "unavailable")
+            self.assertEqual(stats["result"], expected)
+            self.assertIn("does not match", stats["error"])
+            self.assertEqual(summary["builders"][host]["simulation_failed"], 0)
+
+    def test_cli_text_includes_quasar_timings_and_eureka_detail(self):
+        self.use_new_builder_logs()
+        result = self.run_cli(json_output=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("quasar.win bundle stats:", result.stdout)
+        self.assertIn('"receivedAt": 988', result.stdout)
+        self.assertIn('"error": "HeadAdvanced"', result.stdout)
+        self.assertIn("No verified public BuilderNet bundle-stats API", result.stdout)
 
     def test_cli_successful_only_logs_report_inclusion_and_summary(self):
         self.target = block(transactions=[transaction(POST_HASH)], extra="Titan")
