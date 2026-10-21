@@ -241,13 +241,15 @@ Validation:
   identity. These include both directions, nested calls, creation, caught/propagated
   errors and partial failures. This is offline compatibility evidence, not new
   transaction execution or performance evidence.
-- Fork tooling validation covers **381 distinct passing tests**, with eight
+- Fork tooling validation covers **383 distinct passing tests**, with six
   existing opt-in skips. The initial host run discovered 389 tests; all failures
   were confined to four modules (69 tests) blocked by the shared `/tmp` quota.
   Those modules were checked in disposable containers with read-only source,
   no network and private temporary storage. Their older initial `jq` and `awk`
   versions were corrected to `jq` 1.8.1 and GNU awk before the affected checks
-  passed. This is combined host/container evidence, not a single clean suite run.
+  passed. Two initially skipped secret-scanner regressions also passed after
+  installing CI's checksum-verified Gitleaks 8.30.1 into the task artifact directory.
+  This is combined host/container evidence, not a single clean suite run.
 
 First failures are retained: initial decoder/runner tests lacked the compiled
 protocol ABIs; later runs supplied that prerequisite. Host quota failures and the
