@@ -1364,7 +1364,7 @@ debug quote with a `trace` option is rejected with `-32600` before any member
 executes, so batch response accumulation cannot multiply the capture budget.
 
 Each run records its transaction format, phase (`gas_estimation`,
-`fee_simulation`, `final_validation`), purpose, actual transaction fields and
+`fee_simulation`, or `final_validation` in older exports), purpose, actual transaction fields and
 call frames. Composition links nested chain executions to their suspended
 callers using explicit parent IDs. Native source, system and settlement replays
 are separate runs. Conditional setup and settlement simulate proof results;
@@ -1373,6 +1373,38 @@ and posting target, L2 parent/environment and resolved nonce. Pending
 predecessors establish this state before capture; their transaction bodies are
 not exported as predecessor runs. Internal state-provider reads and hash-only
 prefix construction are outside the call trace.
+
+L2 pricing validates call identities, outcomes, source return data and outbound
+hashes during the native source replay and any callback deliveries. It uses that validated
+replay's receipt gas, so no separate final composition/source pass is needed.
+Both transaction formats still execute independently at their actual gas and
+fee fields; gas-sensitive discovery and L1 settlement limit checks remain.
+L2-origin gas discovery constructs its native block prefix once per format,
+including pre-execution changes and any replayed predecessor transactions.
+Composition and native probes execute on independent forks of that prefix;
+nonce, writes, transaction position and consumed gas never carry between probes.
+The high-limit, selected-limit and conditional fallback probes remain, as do
+their nested action/output comparisons. No preparation spans quote requests.
+Within one format's pricing loop, an identical successful L1 settlement gas
+measurement may be reused. The complete posting transaction (including gas,
+fee caps and blobs), proof-call data, settlement endpoint and nested callback
+expectations must match under the same immutable L1 state and target environment.
+Registry/deployment validation, verification-key lookup and poster-account reads
+are prepared lazily once per format at the pinned L1 state. A different rollup
+or expected settled root repeats that validation; failed preparation is not
+cached. Blob reservations, affordable gas, batch/proof inputs and callback
+expectations are recalculated for each candidate. Source composition and native
+validation always run at the new fees. Changed replay inputs and failed
+measurements require replay. This is local to the quote, with no reuse between formats,
+requests or snapshots. `diagnostics.options[].estimate.l1SettlementReuses`
+counts reused measurements for cross-chain L2 options. The trace retains the
+original L1 executions; it does not synthesize duplicate runs for reuse.
+Effect mismatches appear at `native_replay` during `fee_simulation`.
+Run counts and phases are diagnostic observations, not fixed API guarantees.
+These optimizations change no compact quote fields, policy or persisted state.
+Older Composers perform the extra passes and omit the optional debug reuse
+counter; mixed versions, historical replay and rollback need no migration or
+coordinated signer/follower upgrade.
 
 Capture is limited to 128 runs, 4096 frames and 1 MiB of raw input/output across
 the request, with at most 4096 bytes per captured field. Lengths and truncation

@@ -285,6 +285,64 @@ async fn gnosis_safe_factory_nested_initialization_is_funded_and_replays() {
     safe_roundtrip(NativeL1Profile::GnosisPrague).await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repeated_nested_safe_quotes_preserve_priced_execution_and_source_state() {
+    repeated_safe_quotes(NativeL1Profile::EthereumOsaka).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn repeated_nested_gnosis_safe_quotes_preserve_priced_execution_and_source_state() {
+    repeated_safe_quotes(NativeL1Profile::GnosisPrague).await;
+}
+
+async fn repeated_safe_quotes(profile: NativeL1Profile) {
+    let world = funded_world(profile).await;
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let chain_id = l1.get_chain_id().await.unwrap();
+    let singleton = deploy(&world.l1_rpc(), chain_id, "Safe").await;
+    let factory = deploy(&world.l1_rpc(), chain_id, "SafeProxyFactory").await;
+    let multisend = deploy(&world.l1_rpc(), chain_id, "MultiSend").await;
+    let proxy = create_l2_cross_chain_proxy(&world.l2_rpc(), TARGET_DEPLOYER, factory, 0)
+        .await
+        .unwrap();
+    let owner = OUTBOUND_USER.parse::<PrivateKeySigner>().unwrap().address();
+    let simple = setup(owner, Address::ZERO, Bytes::new());
+    let mut packed = Vec::new();
+    let mut addresses = Vec::new();
+    for salt in 10..14 {
+        let call = create(singleton, simple.clone(), salt);
+        packed.push(0);
+        packed.extend_from_slice(factory.as_slice());
+        packed.extend_from_slice(&U256::ZERO.to_be_bytes::<32>());
+        packed.extend_from_slice(&U256::from(call.len()).to_be_bytes::<32>());
+        packed.extend_from_slice(&call);
+        addresses.push(predicted(&world.l1_rpc(), factory, singleton, &simple, salt).await);
+    }
+    let initializer = setup(
+        owner,
+        multisend,
+        MultiSend::multiSendCall {
+            transactions: packed.into(),
+        }
+        .abi_encode()
+        .into(),
+    );
+    addresses.push(predicted(&world.l1_rpc(), factory, singleton, &initializer, 2).await);
+    crate::fee_quotes::replay_validation::repeated_quotes(
+        &world,
+        proxy,
+        create(singleton, initializer, 2),
+        &format!("{profile:?}-safe-quote-samples.json"),
+    )
+    .await;
+    for address in addresses {
+        assert!(
+            l1.get_code_at(address).await.unwrap().is_empty(),
+            "quotes must not deploy a Safe"
+        );
+    }
+}
+
 async fn safe_roundtrip(profile: NativeL1Profile) {
     let world = funded_world(profile).await;
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());

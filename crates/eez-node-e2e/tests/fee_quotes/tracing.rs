@@ -176,6 +176,36 @@ async fn nested_call_traces_link_both_directions_and_preserve_quote_results() {
                 "{traced}"
             );
             validate_trace(&traced, ty);
+            if !inbound {
+                let runs = traced["result"]["diagnostics"]["trace"]["runs"]
+                    .as_array()
+                    .unwrap();
+                assert_eq!(runs.len(), if ty == "0x0" { 8 } else { 14 }, "{traced}");
+                assert_eq!(
+                    traced["result"]["diagnostics"]["options"][0]["estimate"]["l1SettlementReuses"],
+                    1,
+                    "{traced}"
+                );
+                let settlement = runs
+                    .iter()
+                    .filter(|run| run["purpose"] == "settlement")
+                    .collect::<Vec<_>>();
+                assert_eq!(settlement.len(), 2, "{traced}");
+                assert!(settlement.iter().all(|run| run["pass"] == 1));
+                assert!(runs.iter().all(|run| run["phase"] != "final_validation"));
+                let priced = runs
+                    .iter()
+                    .rfind(|run| run["purpose"] == "native_source")
+                    .unwrap();
+                assert_eq!(priced["phase"], "fee_simulation");
+                let option = &traced["result"]["options"][0];
+                for field in ["gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas"] {
+                    assert_eq!(
+                        priced["transaction"][field], option[field],
+                        "{field}: {traced}"
+                    );
+                }
+            }
             assert_eq!(
                 plain["result"]["options"][0]["gas"],
                 traced["result"]["options"][0]["gas"]
@@ -217,6 +247,37 @@ async fn nested_call_traces_link_both_directions_and_preserve_quote_results() {
             .await
             .unwrap();
             assert_eq!(invalid["error"]["data"]["code"], "invalid_transaction");
+        }
+        if !inbound {
+            let response = quote_rpc(
+                &client,
+                &rpc,
+                "eez_debugQuoteFee",
+                json!([{"from":sender,"to":target,"data":Bytes::from(data),"gas":"0x5b8d80"},
+                    {"transactionTypes":["0x0","0x2"],"trace":"calls"}]),
+            )
+            .await
+            .unwrap();
+            save_trace("nested-outbound-both-formats", &response);
+            let runs = response["result"]["diagnostics"]["trace"]["runs"]
+                .as_array()
+                .unwrap();
+            assert_eq!(response["result"]["options"].as_array().unwrap().len(), 2);
+            for (index, ty) in ["0x0", "0x2"].into_iter().enumerate() {
+                assert!(response["result"]["options"][index].get("gas").is_some());
+                assert_eq!(
+                    response["result"]["diagnostics"]["options"][index]["estimate"]["l1SettlementReuses"],
+                    1,
+                    "{response}"
+                );
+                assert_eq!(
+                    runs.iter()
+                        .filter(|run| run["type"] == ty && run["purpose"] == "settlement")
+                        .count(),
+                    2,
+                    "formats must measure independently: {response}"
+                );
+            }
         }
     }
 

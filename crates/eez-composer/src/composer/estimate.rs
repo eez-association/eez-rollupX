@@ -244,12 +244,14 @@ impl GasEstimator {
                 "only legacy, access-list and EIP-1559 source calls are supported",
             ));
         }
+        // Every probe starts at this same native prefix. Only forks may execute
+        // candidates, so gas search cannot inherit a prior probe's writes,
+        // spent nonce or gas. Reopening would replay owned predecessors again.
         let mut draft = self.l2_draft(snapshot)?;
-        let mut fork = draft.fork().map_err(unavailable)?;
         let mut env = if direction == Direction::Inbound {
             snapshot.l1_env.clone()
         } else {
-            fork.state_and_env().1.clone()
+            draft.evm_env().clone()
         };
         env.cfg_env.disable_base_fee = true;
         if request
@@ -263,7 +265,16 @@ impl GasEstimator {
         let caller = request
             .from
             .ok_or_else(|| EstimateError::Invalid("from is required".into()))?;
-        let account = self.source_account(direction, snapshot, caller)?;
+        let account = if direction == Direction::Inbound {
+            self.source_account(direction, snapshot, caller)?
+        } else {
+            let mut fork = draft.fork().map_err(unavailable)?;
+            fork.state_and_env()
+                .0
+                .basic(caller)
+                .map_err(unavailable)?
+                .unwrap_or_default()
+        };
         let nonce = account.nonce;
         if request.nonce.is_some_and(|requested| requested != nonce) {
             return Err(EstimateError::Invalid(format!(
@@ -293,7 +304,7 @@ impl GasEstimator {
                 .gas_limit
                 .min((available / U256::from(tx.gas_price)).saturating_to());
         }
-        let first = self.probe(direction, snapshot, tx.clone(), deadline)?;
+        let first = self.probe(direction, snapshot, tx.clone(), deadline, &mut draft)?;
         // Native setup consumes block capacity. Its measured remainder can
         // tighten the high bound before the user's first execution.
         let ceiling = first.limit;
@@ -315,7 +326,7 @@ impl GasEstimator {
             ceiling
         } else {
             tx.gas_limit = candidate;
-            match self.probe(direction, snapshot, tx.clone(), deadline) {
+            match self.probe(direction, snapshot, tx.clone(), deadline, &mut draft) {
                 Ok(ref lower)
                     if lower.limit == candidate
                         && same_actions(&first.actions, &lower.actions)
@@ -325,7 +336,7 @@ impl GasEstimator {
                 }
                 Ok(_) | Err(EstimateError::Revert(_) | EstimateError::Effects(_)) => {
                     tx.gas_limit = ceiling;
-                    let repeated = self.probe(direction, snapshot, tx, deadline)?;
+                    let repeated = self.probe(direction, snapshot, tx, deadline, &mut draft)?;
                     if repeated.limit != ceiling
                         || !same_actions(&first.actions, &repeated.actions)
                         || first.output != repeated.output
@@ -395,24 +406,6 @@ impl GasEstimator {
             l1_prefix_gas: 0,
             prefix_semantic_bytes: 0,
         })
-    }
-
-    /// Validate effects at the final gas limit and effective price; discovering
-    /// gas at a provisional price alone cannot validate GASPRICE-dependent code.
-    pub(super) fn validate_quote(
-        &self,
-        snapshot: &Snapshot,
-        tx: TxEnv,
-        deadline: Instant,
-    ) -> Result<u64, EstimateError> {
-        let gas = tx.gas_limit;
-        let replay = self.probe(Direction::Outbound, snapshot, tx, deadline)?;
-        if replay.limit != gas {
-            return Err(EstimateError::Effects(
-                "quoted gas exceeds native block capacity".into(),
-            ));
-        }
-        Ok(replay.source_gas)
     }
 
     fn snapshot(&self) -> Result<Snapshot, EstimateError> {
@@ -525,8 +518,9 @@ impl GasEstimator {
         s: &Snapshot,
         tx: TxEnv,
         deadline: Instant,
+        draft: &mut SyncBlockState,
     ) -> Result<Probe, EstimateError> {
-        self.probe_inner(direction, s, tx, deadline, None)
+        self.probe_inner(direction, s, tx, deadline, None, draft)
     }
 
     pub(super) fn priced_inbound(
@@ -537,7 +531,18 @@ impl GasEstimator {
         pricing: InboundPricing<'_>,
     ) -> Result<Probe, EstimateError> {
         let limit = tx.gas_limit;
-        let result = self.probe_inner(Direction::Inbound, s, tx, deadline, Some(pricing))?;
+        if Instant::now() >= deadline {
+            return Err(EstimateError::Timeout);
+        }
+        let mut draft = self.l2_draft(s)?;
+        let result = self.probe_inner(
+            Direction::Inbound,
+            s,
+            tx,
+            deadline,
+            Some(pricing),
+            &mut draft,
+        )?;
         if result.limit != limit {
             return Err(unsupported("quoted gas exceeds native block capacity"));
         }
@@ -551,13 +556,12 @@ impl GasEstimator {
         tx: TxEnv,
         deadline: Instant,
         pricing: Option<InboundPricing<'_>>,
+        draft: &mut SyncBlockState,
     ) -> Result<Probe, EstimateError> {
         if Instant::now() >= deadline {
             return Err(EstimateError::Timeout);
         }
-        let mut initial = self.l2_draft(s)?;
-        let mut initial_fork = initial.fork().map_err(unavailable)?;
-        let l2_env = initial_fork.state_and_env().1.clone();
+        let l2_env = draft.evm_env().clone();
         let l1 = self.l1.isolated(s.l1.anchor.hash(), s.l1_env.clone());
         let l2 = self.l2.isolated(s.l2_parent.hash(), l2_env);
         let mut rollups = HashMap::new();
@@ -602,7 +606,6 @@ impl GasEstimator {
                 budget::wrap(session, deadline)
             }
         };
-        let mut draft = self.l2_draft(s)?;
         let (entry, mut builder, source) = if direction == Direction::Inbound {
             let session =
                 InboundL2TargetSession::new(draft.fork().map_err(unavailable)?, l2.clone());
@@ -778,7 +781,7 @@ impl GasEstimator {
             replay.retained_root = Some(pending_root);
             Ok(replay)
         } else {
-            preparation::outbound(self, s, &composition, tx)
+            preparation::outbound(self, &composition, tx, draft.fork().map_err(unavailable)?)
         }?;
         if replay.output != source.output {
             return Err(EstimateError::Effects(

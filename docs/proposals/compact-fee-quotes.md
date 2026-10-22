@@ -41,6 +41,131 @@ searches and final replays. There is no nested acquisition of the ordinary estim
 Cancellation/deadline expiry does not release the fee worker permit while a
 blocking frame is still running. `eth_estimateGas` keeps its own existing limits.
 
+## Reuse priced native validation (2026-10-21)
+
+Status: implementation authorized by the user; local correctness and repeated
+timing checks passed ([validation record](../audits/2026-10-21-quote-replay-reuse/README.md)).
+Release CI and live deployment are outside that evidence. Baseline:
+RollupX `1ab1e2e3386a8832c7b18224e1eed82fa7c0b074`, pinned protocol
+`abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774`.
+
+The L2 quote already composes and natively replays each candidate price before
+measuring L1 settlement. Attach the existing effect inspector to that native
+source replay and its callback deliveries, then verify the outbound event
+hashes and source return data. Price its receipt gas directly. The compact
+projection can then omit its separate final composition/setup/source pass.
+Ordinary L2 calls also retain the comparison between composition and native
+return data.
+
+| ID | Requirement | Acceptance |
+| --- | --- | --- |
+| O1 | Validate native call identities, outcomes, event hashes, source output and callback order at the returned gas and fees | Nested process tests, gas/fee-sensitive rejection and priced replay trace assertions |
+| O2 | Preserve actual source/native/settlement gas pricing, margin and admission floors | Fee receipt round trips, underpayment rejection and independent follower replay |
+| O3 | Keep source execution independent across fee iterations, formats, requests and snapshots; bind any L1 reuse to one envelope and identical replay inputs | Both formats, explicit/omitted gas, fee-dependent changes, exact settlement identity and existing context tests |
+| O4 | Reduce duplicate work without weakening the estimator or L1 settlement replay | Nested L2 fixture: 19→16→14 runs with omitted gas, 13→10→8 with explicit gas across the two optimizations; same-workload baseline/candidate timings |
+
+Gas discovery and settlement gas-limit verification remain unchanged: `gasleft()`
+and `GASPRICE` can change behavior, so zero-price composition cannot be reused
+as a priced result. No speculative cross-request cache or new concurrency is
+introduced. The existing worker retains ownership, limits and cancellation.
+
+This changes no quote fields, fee policy, contracts, stored data or historical
+replay. Debug traces report the executions actually performed: successful L2
+quotes no longer include a separate `final_validation` phase. Effect failures
+are attributed to `native_replay` within `fee_simulation`. Viewers must not
+require a particular phase count. Mixed versions and rollback need no migration;
+older Composers perform the extra pass. Live deployment is outside this change.
+
+Measure repeated serial quotes for identical nested fixtures, formats and gas
+selection on the baseline and candidate, using the same runtime build profile.
+Retain run counts and elapsed milliseconds; shared-host timing noise prevents
+inferring production throughput from these measurements.
+
+### Identical settlement replay reuse (authorized follow-up, 2026-10-21)
+
+Baseline: the first optimization at `09934699357fc8da2c5bf80c9554edff1d1df3bf`.
+Local unit, native fee/Safe, viewer and two-round timing checks passed; the
+[follow-up record](../audits/2026-10-21-quote-replay-reuse/settlement-reuse.md)
+identifies exact executables, measurements and remaining CI/deployment limits.
+Keep source composition and native validation at every candidate fee, but reuse
+a successful L1 gas measurement within that envelope's pricing loop when all
+L1 replay inputs match exactly. The estimator owns immutable references to the
+posting runtime and quote, so the state hash, target environment and gas policy
+cannot change during reuse. Compare the complete prepared posting transaction
+(including gas, fees and blobs), verifier calldata, settlement endpoint, rollup
+and expected callback identities/outcomes. Funding and context checks still run;
+the follow-up below reuses validated snapshot preparation. Recompute payment
+from the measured gas.
+
+This narrows the original O3 restriction: only identical successful L1 replays may be reused
+between fee iterations; source execution, different formats, requests and
+snapshots remain independent. A changed nested call, result, calldata or blob
+count requires replay. Failures are not cached. Retain both the generous and
+selected-limit probes on a miss, including the verified high-limit fallback
+for gas-sensitive settlement. Signed admission and final posting remain fully
+validated. No shared cache, concurrency, configuration or storage is introduced.
+
+Acceptance: demonstrate the same nested quote goes from 16 to 14 recorded runs
+with gas discovery (10 to 8 with supplied gas), retains the final priced source
+validation and identical cost arithmetic, and does not reuse changed
+fee-dependent settlement inputs. Test callback-expectation changes separately
+from calldata equality and retain failed-probe behavior. Measure repeated
+baseline/candidate latency with the same fixture and build profile. Debug
+diagnostics count reused L1 measurements; traces contain only executions that
+actually ran. Run counts remain diagnostic, not an API guarantee.
+
+### Immutable preparation reuse (authorized follow-up, 2026-10-21)
+
+Baseline: `ec9a22a04bd590ae183c1de80df508dd542443a8`, including the two
+optimizations above. Local unit/native checks and 1,920 quote arithmetic checks
+passed; the [validation record](../audits/2026-10-21-quote-replay-reuse/immutable-preparation.md)
+reports mixed latency results and regressions. This is a reduction in repeated
+preparation work, not an established general latency improvement.
+Within one envelope's estimator, load the registry, validate deployment code,
+fetch the verification key and read the poster account once at the pinned L1
+state. Keep this preparation lazy: ordinary L2 execution does not acquire a
+settlement dependency. A different rollup or expected settled root must repeat
+the lookup and validation; failed preparation is not cached.
+
+Rebuild the batch, blob hashes, proof inputs, callback expectations and posting
+transaction for every pricing iteration. In particular, a cached poster balance
+does not authorize reusing a blob reservation or affordable gas limit: recompute
+those from the current blob count. Preserve source/native execution, exact L1
+replay identity, fee arithmetic and final signed validation. There is no cache
+sharing between requests, formats or L1 snapshots, and no API, configuration,
+storage, deployment or rollback change.
+
+Acceptance: regress preparation identity and failures, run nested and Safe
+fee/receipt/replay tests, and compare repeated nested-callback and nested-Safe
+quotes on the baseline and candidate using identical harnesses/build profiles.
+Report timing noise and unchanged gas/payment arithmetic. These removed setup
+reads were not recorded as trace runs; the existing trace run count need not
+decrease. Release/PBS validation remains separate from native process tests.
+
+### Automatic gas preparation (authorized follow-up, 2026-10-21)
+
+Investigate the automatic-gas regressions at `0fc519193b5cd7b5f4e8ef9f42a12bb085053d3c`
+against `ec9a22a04bd590ae183c1de80df508dd542443a8` before merging PR #100.
+Separate gas discovery from pricing in a matched diagnostic build; retain the
+earlier measurements and distinguish a reproducible cause from host variation.
+
+Prepare the native L2 block prefix once within an L2-origin gas-estimation request and
+fork it for each independent execution. This includes the pre-execution changes,
+owned predecessor transactions and their cumulative gas. Never retain a probe's
+account writes, consumed nonce, gas or transient state in the shared preparation.
+Keep high/selected-limit probes, gas-sensitive fallback, nested outcome checks,
+fee convergence and final native validation. No cache spans requests or snapshots.
+
+Acceptance requires nested and Safe quotes with automatic/supplied gas and both
+envelopes, owned-prefix and state-isolation regressions, the standard bidirectional
+wallet gas-estimation cases, and comparable baseline/candidate timings. This is
+internal preparation only: RPC, configuration, storage and rollback stay compatible.
+The [validation record](../audits/2026-10-21-quote-replay-reuse/automatic-gas.md)
+reports 694 passing unit tests, 31 native cases and 3,920 independently reconciled
+quotes. Automatic quotes improved in both comparison rounds against both earlier
+revisions; supplied-gas results retain small per-round regressions. Release CI
+and the separate dependency-policy failure remain merge gates.
+
 ## API and migration decisions
 
 Use optional `gas`, `nonce` and `chainId`, with canonical hex quantities. Default

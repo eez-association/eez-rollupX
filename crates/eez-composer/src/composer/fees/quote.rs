@@ -884,6 +884,7 @@ where
         } else {
             0
         };
+        let mut settlement = super::settlement::Estimator::new(runtime, posting);
         for iteration in 1..=MAX_ITERATIONS {
             budget.check()?;
             let mut draft = SyncBlockState::open(
@@ -988,6 +989,13 @@ where
                         EstimateError::Revert(outcome.output),
                     ));
                 }
+                if outcome.output != simulated.output {
+                    return Err(FeeQuoteError::execution(
+                        "ordinary L2 replay output changed",
+                        "native_replay",
+                        EstimateError::Effects("ordinary replay output changed".into()),
+                    ));
+                }
                 return Ok(document(
                     tip,
                     cap,
@@ -1025,7 +1033,24 @@ where
                 system_nonce,
             )
             .map_err(|e| unavailable("native group", e))?;
+            // Price the same replay that validates the composed effects. A
+            // separate final probe would repeat composition, table setup and
+            // source execution at exactly these fees and this snapshot.
+            let mut native = draft
+                .fork()
+                .map_err(|e| unavailable("native L2 replay state", e))?;
+            let remaining = native.remaining_gas();
+            let mut observer = super::super::posting::EffectInspector::for_actions(
+                runtime.ctx.eezl2_address,
+                rollup_id,
+                0,
+                eez_protocol::EEZL2_AUTHORIZED_PROXIES_SLOT,
+                &composition.actions,
+            )
+            .map_err(|e| unavailable("native effect inspector", e))?;
             let mut source_gas = None;
+            let mut source_output_matches = false;
+            let mut logs = Vec::new();
             for raw in eez_protocol::system_tx::interleave_sync_block_txs(&pairs) {
                 budget.check()?;
                 let is_source = raw == raw_size;
@@ -1033,9 +1058,13 @@ where
                     if source_gas.is_some() {
                         return Err(FeeQuoteError::Unsupported("duplicate source"));
                     }
-                    draft.preview_unsigned(tx_env.clone())
+                    native.execute_unsigned(tx_env.clone(), &mut observer)
                 } else if raw.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    draft.execute_tx(&raw)
+                    if source_gas.is_some() {
+                        native.execute_committed_inspected(&raw, &mut observer)
+                    } else {
+                        native.execute_committed(&raw)
+                    }
                 } else {
                     return Err(FeeQuoteError::Unsupported("unexpected group member"));
                 }
@@ -1049,11 +1078,35 @@ where
                 }
                 if is_source {
                     source_gas = Some(outcome.gas_used);
+                    source_output_matches = outcome.output == simulated.output;
+                }
+                if source_gas.is_some() {
+                    logs.extend(outcome.logs);
                 }
             }
+            let effects_error = |error| {
+                FeeQuoteError::execution(
+                    "native L2 replay differs from composition",
+                    "native_replay",
+                    EstimateError::Effects(error),
+                )
+            };
+            let calls_match = observer
+                .verify()
+                .map_err(|error| effects_error(error.to_string()));
+            let observed = eez_protocol::outbound_gate::observations_from_logs(
+                &logs,
+                runtime.ctx.eezl2_address,
+            );
+            let hashes_match = eez_protocol::outbound_gate::verify_expected_outbound_hashes(
+                &composition.source.outbound_event_hashes,
+                &observed,
+            )
+            .map_err(effects_error);
             let gas = source_gas
                 .filter(|gas| *gas > 0)
                 .ok_or(FeeQuoteError::Unavailable("source gas"))?;
+            let native_gas = remaining - native.remaining_gas() - gas;
             let semantic = eez_protocol::blob_semantics::SemanticTransaction {
                 origin_chain: RollupId(rollup_id),
                 tx_data: raw_size,
@@ -1081,10 +1134,8 @@ where
                 .ok_or(FeeQuoteError::Unsupported("no L1 settlement traces"))?
                 .entry_traces;
             budget.check()?;
-            let (l1_gas, cost, payment) = super::settlement::measured_payment(
-                runtime,
-                posting,
-                super::settlement::SettlementInput {
+            let (l1_gas, cost, payment) =
+                settlement.measured_payment(super::settlement::SettlementInput {
                     rollup_id,
                     settled_root: endpoint.hash,
                     entries: l1_entries,
@@ -1092,8 +1143,7 @@ where
                     groups: &[group],
                     semantics: &[semantic],
                     blobs,
-                },
-            )?;
+                })?;
             let next_tip = required_tip(
                 if request.signed_fees {
                     payment.minimum_l2
@@ -1122,6 +1172,15 @@ where
                 tip = next_tip;
                 continue;
             }
+            // A provisional price may take a different path. As with the old
+            // final probe, require matching effects at the converged price.
+            calls_match?;
+            hashes_match?;
+            if !source_output_matches {
+                return Err(effects_error(
+                    "native source output differs from composition".into(),
+                ));
+            }
             budget.check()?;
             if unix_now()? >= expiry {
                 return Err(FeeQuoteError::Stale);
@@ -1131,8 +1190,8 @@ where
                 tip,
                 cap,
                 json!({"basis":"isolated_native_l2_and_l1_settlement", "proof":"metered_assumed_valid", "iterations":iteration,
-                    "sourceGasUsed":gas, "nativeL2GasUsed":draft.gas_used()-gas, "l2BaseFeePerGas":base.to_string(),
-                    "l1Gas":l1_gas, "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
+                    "sourceGasUsed":gas, "nativeL2GasUsed":native_gas, "l2BaseFeePerGas":base.to_string(),
+                    "l1Gas":l1_gas, "l1SettlementReuses":settlement.reuses(), "l1TargetGas":l1_target_gas(&composition.actions), "blobs":blobs, "daBytes":da_bytes,
                     "l1PriorityFeePerGas":posting.quote.max_priority_fee_per_gas.to_string(),
                     "l1ExecutionPrice":posting.quote.estimated_effective_gas_price.to_string(), "l1BlobPrice":posting.quote.estimated_blob_gas_price.to_string(),
                     "l1ExecutionCost":cost.execution.to_string(), "l1BlobCost":cost.blobs.to_string(), "l1PostingCost":cost.total.to_string(),

@@ -37,9 +37,9 @@ fn sidecars(c: &Composition, rid: u64) -> Result<Vec<InboundSidecar>, EstimateEr
 
 pub(super) fn outbound(
     e: &GasEstimator,
-    s: &Snapshot,
     c: &Composition,
     mut tx: TxEnv,
+    mut fork: crate::local::build::SyncBlockFork,
 ) -> Result<Probe, EstimateError> {
     let callbacks = sidecars(c, e.rollup_id)?;
     let counts = &c.source.callback_entry_counts;
@@ -74,14 +74,22 @@ pub(super) fn outbound(
         effects,
         user_tx: Bytes::new(),
     };
-    let pair = build_outbound_group(&group, &system_context(e), system_nonce(e, s)?)
-        .map_err(unsupported)?;
-    let mut draft = e.l2_draft(s)?;
-    let setup = draft.execute_tx(&pair.system_tx).map_err(unavailable)?;
+    let nonce = fork
+        .state_and_env()
+        .0
+        .basic(eez_primitives::SYSTEM_ADDRESS)
+        .map_err(unavailable)?
+        .unwrap_or_default()
+        .nonce;
+    let pair = build_outbound_group(&group, &system_context(e), nonce).map_err(unsupported)?;
+    // The caller supplies a fresh copy of the native prefix, including its
+    // system nonce and gas. Setup and user execution belong to this probe only.
+    let setup = fork
+        .execute_committed(&pair.system_tx)
+        .map_err(unavailable)?;
     if !setup.success {
         return Err(unsupported("L2 table setup reverted"));
     }
-    let mut fork = draft.fork().map_err(unavailable)?;
     let mut observer = super::super::posting::EffectInspector::for_actions(
         e.l2.manager_address(),
         e.rollup_id,

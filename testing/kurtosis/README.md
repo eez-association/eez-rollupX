@@ -827,6 +827,15 @@ wallets. A failed deposit skips the dependent release and fails the suite;
 unrelated scenarios still run. Selecting `bridgeL2` alone requires existing
 escrow, as specified by the pinned protocol's scenario.
 
+Each classic preparation worker captures its L2 setup transaction hashes in a
+private broadcast directory and waits for successful canonical receipts at or
+below the L2 `safe` head before signing its trigger. `E2E_SETUP_TIMEOUT` bounds
+that wait (default 180 seconds); ordinary L2 activity must settle independently
+of the cross-chain trigger. CI retains this confirmation barrier. The upstream
+`--no-wait-for-confirmation` / `E2E_NO_WAIT_FOR_CONFIRMATION=true` opt-out is for
+explicit development runs and can reintroduce setup/nonce races; it does not
+disable fee quoting or post-trigger verification.
+
 The full CI entry point, `run-ci.sh`, completes its protocol and integration fixture builds
 before starting the network, readiness, and sequential wave/state-chaining checks.
 Cold compilation must not compete with the live PBS fixture's slot deadlines on
@@ -855,10 +864,11 @@ Override it for a custom workload. Funding transfers are not measured settlement
 fees or production pricing assumptions.
 
 The wrapper honors the pinned upstream `E2E_EXCLUDE_FROM_ALL` marker when
-expanding the default `all` target. The current pin discovers 62 scenarios and
-marks 28 as excluded: 22 call-pattern probes, four static reads around local
-writes and two missing-callback-proxy static round trips. The default live suite
-therefore contains 34 scenarios. The summary lists all
+expanding the default `all` target. The current pin discovers 64 scenarios and
+marks 30 as excluded: 22 call-pattern probes, four static reads around local
+writes, two missing-callback-proxy static round trips and two static reads
+followed by nested writes (`staticThenNestedWrites` / `staticThenNestedWritesL2`).
+The default live suite therefore contains 34 scenarios. The summary lists all
 discovered scenarios, the live eligible count, and the excluded names;
 `suite.complete` means every eligible scenario was selected. Explicit names
 can still run excluded scenarios during development, but those runs do not
