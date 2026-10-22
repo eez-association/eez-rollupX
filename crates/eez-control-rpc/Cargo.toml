@@ -15,11 +15,16 @@ tonic-prost = { workspace = true }
 prost       = { workspace = true }
 
 [build-dependencies]
-# Compiles `proto/prove.proto`. Needs `protoc` on PATH.
+# Compiles the v1 and shared v2 schemas. Needs `protoc` on PATH.
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+alloy-primitives = { workspace = true, features = ["k256", "rlp"] }
 proptest = "1"
+hex.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-stream.workspace = true
 
 [lints]
 workspace = true
