@@ -12,13 +12,21 @@ REPO = Path(__file__).resolve().parents[3]
 
 @unittest.skipUnless(shutil.which("gitleaks"), "requires Gitleaks (installed by CI)")
 class SecretScanTest(unittest.TestCase):
-    def test_fee_policy_and_evidence_exceptions_are_scoped_to_exact_values_and_paths(self):
+    def test_reviewed_values_are_scoped_to_exact_values_and_paths(self):
         audit_path = "docs/audits/2026-10-15-simplified-fees/result.json"
         digest = json.loads((REPO / audit_path).read_text())["evidence"]["sha256"]["public-api-check.log"]
         cases = [
             ("scripts/ci/tests/test_chiado_config.py", "key = " + json.dumps("EEZ_L1_FEE_REFUND_POLICY") + "\n"),
             (audit_path, json.dumps({"public-api-check.log": digest}) + "\n"),
         ]
+        builder_keys = [
+            ("BUILDERNET_KEY",
+             "0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7"),
+            ("BUILDERNET_RETIRED_KEY",
+             "0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947"),
+        ]
+        cases.extend(("scripts/ci/tests/test_why_excluded.py", f'{name} = "{value}"\n')
+                     for name, value in builder_keys)
         for relative, allowed in cases:
             with self.subTest(path=relative), tempfile.TemporaryDirectory(prefix="eez-secret-scan.") as directory:
                 root = Path(directory)
@@ -53,7 +61,7 @@ class SecretScanTest(unittest.TestCase):
                 self.assertEqual(findings[0]["RuleID"], "generic-api-key")
 
                 # Even the reviewed value remains detectable outside its evidence path.
-                fixture.unlink()
+                fixture.write_text(allowed)
                 (source / "unreviewed.txt").write_text(allowed)
                 result = scan_commit()
                 self.assertEqual(result.returncode, 1, result.stderr)

@@ -72,3 +72,14 @@ condition = "AND"
 paths = ['''^docs/audits/2026-10-15-simplified-fees/result\.json$''']
 regexTarget = "secret"
 regexes = ['''^e65d5eab9947fe18dc5275dfe1be9310db0fef44af222acefd85164aeffa7833$''']
+
+[[allowlists]]
+description = "Published BuilderNet relay BLS public keys in omission diagnostic tests"
+condition = "AND"
+paths = ['''^scripts/ci/tests/test_why_excluded\.py$''']
+regexTarget = "secret"
+# https://buildernet.org/docs/public-identity (verified 2026-10-22).
+regexes = [
+  '''^0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7$''',
+  '''^0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947$''',
+]

@@ -263,3 +263,32 @@ identity is `sha256:4d55572686faad1c97660ed5b157ed6c0ccafd4e63de8fae53d08e2a2d5e
 The previous green CI run at `802898c9` predates this protocol update. The new PR
 head must run its own release-artifact, native E2E and fee-enabled Kurtosis checks.
 No new local Kurtosis run or deployment is claimed here.
+
+### CI readiness check, 2026-10-22
+
+[CI run 39684135384](https://github.com/eez-association/eez-rollupX/actions/runs/39684135384)
+for `a8873a6eae6cfc4ecca818dd948cb8b312ee1ab1` completed its first attempt.
+Runtime artifacts, debug unit tests, the viewer, all eight native E2E shards
+and Kurtosis passed. Lint stopped at the history secret scan, so its subsequent
+formatting, dependency, tooling and Clippy steps did not run on that revision.
+The aggregate gate therefore failed.
+
+Both findings came from `scripts/ci/tests/test_why_excluded.py` in commit
+`924fde262f1d6c402270d73608b194a638aee56c` on another fetched branch. They are
+48-byte BuilderNet BLS public keys, independently matched against BuilderNet's
+[published identities](https://buildernet.org/docs/public-identity). The PR's
+own ancestry scans clean; CI includes every fetched branch and merge diff.
+An isolated repository with the same CI refs reproduced both findings over
+925 commits and 148,455,487 scanned bytes.
+
+The correction exempts only these two exact values in that exact test path.
+The history scan remains unchanged; the same scan then reported no findings.
+Scanner regressions cover both public keys, reject an added credential in the
+same file, and detect the reviewed values in a different path. Their first run
+exposed a fixture problem: Git recognized a move and emitted no added lines for
+the wrong-path check. The fixture now adds a separate file instead, and both
+tests pass. First failures and corrected results are retained as
+`gitleaks-*.log` and fully redacted JSON under the local artifact directory above.
+
+This correction changes scanner configuration/tests and this record only.
+Fresh CI is still required before declaring the updated PR ready to merge.
