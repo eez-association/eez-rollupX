@@ -23,6 +23,7 @@ use tonic::Status;
 pub(crate) enum L1Authority {
     Canonical {
         reader: L1Reader,
+        l2: Option<alloy_provider::RootProvider>,
         registry: Address,
         rollup_id: u64,
         schedule: Schedule,
@@ -51,10 +52,77 @@ impl L1Authority {
         });
         Ok(Self::Canonical {
             reader,
+            l2: None,
             registry,
             rollup_id,
             schedule,
         })
+    }
+
+    pub(crate) fn with_l2_rpc(mut self, url: Option<url::Url>) -> Self {
+        use alloy_provider::Provider as _;
+        match &mut self {
+            Self::Canonical { l2, .. } => {
+                *l2 = url.map(|url| {
+                    alloy_provider::ProviderBuilder::new()
+                        .connect_http(url)
+                        .root()
+                        .clone()
+                })
+            }
+            #[cfg(test)]
+            Self::Synthetic => {}
+        }
+        self
+    }
+
+    pub(super) fn streaming_enabled(&self) -> bool {
+        match self {
+            Self::Canonical { l2, .. } => l2.is_some(),
+            #[cfg(test)]
+            Self::Synthetic => true,
+        }
+    }
+
+    pub(super) async fn authenticate_stream(
+        &self,
+        target: L1PostingContext,
+        anchor: crate::validate::streaming::BlockAnchor,
+        max_headers: usize,
+    ) -> Result<CandidateContext, Status> {
+        match self {
+            Self::Canonical {
+                reader,
+                l2,
+                registry,
+                rollup_id,
+                schedule,
+            } => {
+                let l2 = l2
+                    .as_ref()
+                    .ok_or_else(|| Status::unimplemented("v2 L2 source is not configured"))?;
+                let source = reader
+                    .derivation_source(*schedule)
+                    .await
+                    .map_err(source_status)?;
+                let context = source
+                    .owned_proof_context(
+                        *registry,
+                        *rollup_id,
+                        target,
+                        anchor.number,
+                        anchor.hash,
+                        anchor.state_root,
+                        l2,
+                        max_headers,
+                    )
+                    .await
+                    .map_err(proof_status)?;
+                Ok(CandidateContext::Canonical(Box::new(context)))
+            }
+            #[cfg(test)]
+            Self::Synthetic => Ok(CandidateContext::Synthetic),
+        }
     }
 
     pub(super) async fn authenticate(
@@ -68,6 +136,7 @@ impl L1Authority {
                 registry,
                 rollup_id,
                 schedule,
+                ..
             } => {
                 // Lazy authentication lets a signer start before the embedded
                 // L1 is ready. Every Prove still requires finalized genesis and

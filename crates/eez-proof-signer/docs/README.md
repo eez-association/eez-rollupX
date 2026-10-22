@@ -25,8 +25,9 @@ changing `service/`; Operations is aimed at deployment and incident diagnosis.
 
 ## Shared vocabulary
 
-- **Window:** the inclusive L2 block span streamed in one `Prove` RPC.
-- **Batch:** the `PostBatch.abi_calldata` decoded as an `EvmBatch`.
+- **Window:** the inclusive L2 block span submitted through v1 `Prove` or
+  selected from a v2 session by `Finalize`.
+- **Batch:** the settlement's `abi_calldata` decoded as an `EvmBatch`.
 - **Stateless / stateless:** `Stateless` names the upstream witness-backed
   validator; lowercase “stateless service” means that this daemon persists no
   request-derived protocol state.
@@ -82,6 +83,8 @@ only when one flat test file would obscure the same ownership boundary:
   settlement gate modules;
 - [`src/service/tests/`](../src/service/tests) covers in-process gRPC
   orchestration, runtime behavior, attestation, and recorded regressions;
+- [`src/service/sessions/tests.rs`](../src/service/sessions/tests.rs) covers
+  frozen v2 transcripts, session fencing, quotas, deadlines and shutdown;
 - inline tests in [`src/attest.rs`](../src/attest.rs) cover key separation and
   signature encoding; and
 - the pinned [EEZ Stateless fork](https://github.com/eez-association/stateless)

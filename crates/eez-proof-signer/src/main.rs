@@ -7,6 +7,8 @@
 //! public-input hash. Settlement entries consist of one anchor, then zero or
 //! more successful mutable outbound call trees, then zero or more fully
 //! reconstructed successful mutable inbound call trees.
+//! The optional v2 endpoint retains incremental execution in bounded sessions;
+//! Finalize runs the same native settlement and authorization gates.
 //!
 //! This binary is wiring only: configuration, tracing, and serving
 //! [`service::ProveSvc`]. The window discipline lives in [`window`], the
@@ -104,7 +106,8 @@ async fn main() -> eyre::Result<()> {
         config.registry_address,
         config.expected_rollup_id.get(),
         schedule,
-    )?;
+    )?
+    .with_l2_rpc(config.l2_rpc_url);
     let svc = service::ProveSvc::new(
         Arc::new(service::ServiceState::new(
             l1_authority,
@@ -117,8 +120,14 @@ async fn main() -> eyre::Result<()> {
     );
     let shutdown_service = svc.clone();
     let serve_result = tonic::transport::Server::builder()
+        .add_service(svc.streaming_server())
         .add_service(svc.into_server())
-        .serve_with_shutdown(listen_addr, shutdown_signal())
+        .serve_with_shutdown(listen_addr, async {
+            shutdown_signal().await;
+            // A continuously active v2 client must not keep tonic draining forever.
+            // Detached blocking workers remain owned until wait_until_idle below.
+            shutdown_service.stop_streams();
+        })
         .await;
     // A timed-out RPC may leave non-interruptible blocking work running after
     // tonic has drained its request future. Do not terminate that work midway.

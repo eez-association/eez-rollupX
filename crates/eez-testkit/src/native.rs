@@ -44,7 +44,11 @@ impl Drop for MirrorComposer {
     }
 }
 
-pub async fn spawn_composer(world: &CrossChainWorld, builder_url: &str) -> Result<MirrorComposer> {
+pub async fn spawn_composer(
+    world: &CrossChainWorld,
+    builder_url: &str,
+    extra_env: &[(&'static str, String)],
+) -> Result<MirrorComposer> {
     let port_leases = [
         PortLease::http_pair(),
         PortLease::tcp(),
@@ -90,6 +94,7 @@ pub async fn spawn_composer(world: &CrossChainWorld, builder_url: &str) -> Resul
         env.retain(|(key, _)| *key != name);
         env.push((name, value));
     }
+    env.extend_from_slice(extra_env);
     assert!(!env.iter().any(|(name, _)| *name == "EEZ_L2_SYSTEM_KEY"));
     let node = NodeHandle::spawn_with_reservations(
         "native-mirror-composer",
@@ -100,13 +105,15 @@ pub async fn spawn_composer(world: &CrossChainWorld, builder_url: &str) -> Resul
         },
         &env,
         port_leases.into(),
+        None,
     )?;
     let error = Arc::new(Mutex::new(None));
     let feed_error = error.clone();
     let source = world.l1_rpc();
     let destination = format!("http://127.0.0.1:{l1_auth}");
+    let destination_rpc = format!("http://127.0.0.1:{l1_http}");
     let feed = tokio::spawn(async move {
-        let result = mirror_l1(&source, &destination, jwt).await;
+        let result = mirror_l1(&source, &destination, &destination_rpc, jwt).await;
         if let Err(err) = result {
             *feed_error.lock().unwrap() = Some(format!("{err:#}"));
         }
@@ -128,8 +135,14 @@ pub async fn spawn_composer(world: &CrossChainWorld, builder_url: &str) -> Resul
     Ok(mirror)
 }
 
-async fn mirror_l1(source: &str, destination: &str, jwt: JwtSecret) -> Result<()> {
+async fn mirror_l1(
+    source: &str,
+    destination: &str,
+    destination_rpc: &str,
+    jwt: JwtSecret,
+) -> Result<()> {
     let source = ProviderBuilder::new().connect_http(source.parse()?);
+    let mirror = ProviderBuilder::new().connect_http(destination_rpc.parse()?);
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
@@ -140,7 +153,31 @@ async fn mirror_l1(source: &str, destination: &str, jwt: JwtSecret) -> Result<()
         Ok(response.ok().filter(|r| r.status().is_success()).map(|_| ()))
     }).await?;
     let mut number = 1;
+    let mut imported_hash = None;
     loop {
+        if let Some(previous_hash) = imported_hash {
+            let previous = source.get_block_by_number((number - 1).into()).await?;
+            if previous.as_ref().map(|block| block.header.hash) != Some(previous_hash) {
+                // The controlled source replaced an unfinalized suffix. Find an
+                // actually shared ancestor before importing replacement payloads;
+                // both Composers must simulate against the same canonical L1.
+                let mut ancestor = number - 1;
+                let shared_hash = loop {
+                    let source_block = source.get_block_by_number(ancestor.into()).await?;
+                    let mirror_block = mirror.get_block_by_number(ancestor.into()).await?;
+                    if let (Some(source_block), Some(mirror_block)) = (source_block, mirror_block)
+                        && source_block.header.hash == mirror_block.header.hash
+                    {
+                        break source_block.header.hash;
+                    }
+                    ensure!(ancestor > 0, "L1 mirror has no shared genesis");
+                    ancestor -= 1;
+                };
+                imported_hash = Some(shared_hash);
+                number = ancestor + 1;
+                eprintln!("L1 mirror replaying canonical suffix from block {number}");
+            }
+        }
         let Some(rpc_block) = source
             .get_block_by_number(BlockNumberOrTag::Number(number))
             .full()
@@ -210,6 +247,7 @@ async fn mirror_l1(source: &str, destination: &str, jwt: JwtSecret) -> Result<()
             result["payloadStatus"]["status"] == "VALID",
             "L1 forkchoice {number}: {result}"
         );
+        imported_hash = Some(hash);
         number += 1;
     }
 }

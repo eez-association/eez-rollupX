@@ -884,3 +884,74 @@ fn canonical_l1_endpoint_and_registry_are_required_and_redacted() {
         "L1 registry address must be nonzero"
     );
 }
+
+#[test]
+fn streaming_source_is_optional_strict_redacted_and_cli_overrides_environment() {
+    const CHILD: &str = "EEZ_STREAMING_SOURCE_CONFIG_TEST";
+    if let Ok(case) = std::env::var(CHILD) {
+        let mut cli = vec!["eez-proof-signer", "--chain-config", "genesis.json"];
+        if case == "cli" {
+            cli.extend(["--l2-rpc-url", "http://127.0.0.1:9876"]);
+        }
+        let args = Args::try_parse_from(cli).unwrap();
+        assert!(!format!("{args:?}").contains("fixture-password"));
+        let result = Config::from_args(args);
+        match case.as_str() {
+            "absent" => assert!(result.unwrap().l2_rpc_url.is_none()),
+            "valid" => assert_eq!(
+                result.unwrap().l2_rpc_url.unwrap().as_str(),
+                "https://fixture-user:fixture-password@example.invalid/rpc"
+            ),
+            "cli" => assert_eq!(
+                result.unwrap().l2_rpc_url.unwrap().as_str(),
+                "http://127.0.0.1:9876/"
+            ),
+            "empty" | "invalid" => assert_eq!(
+                result.unwrap_err().to_string(),
+                "L2 RPC URL must be an absolute HTTP(S) endpoint"
+            ),
+            _ => unreachable!(),
+        }
+        eprintln!("stream-source-config-ok:{case}");
+        return;
+    }
+    for (case, value) in [
+        ("absent", None),
+        ("empty", Some("")),
+        ("invalid", Some("ws://fixture-password@example.invalid")),
+        (
+            "valid",
+            Some("https://fixture-user:fixture-password@example.invalid/rpc"),
+        ),
+        ("cli", Some("invalid-fixture-password")),
+    ] {
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child.args(["--exact","config::tests::streaming_source_is_optional_strict_redacted_and_cli_overrides_environment","--nocapture"]);
+        for (key, _) in std::env::vars_os() {
+            if key.to_string_lossy().starts_with("EEZ_") {
+                child.env_remove(key);
+            }
+        }
+        child
+            .env(CHILD, case)
+            .env("EEZ_L1_RPC_URL", "http://127.0.0.1:8545")
+            .env("EEZ_L1_CHAIN_CONFIG", "mainnet")
+            .env(
+                "EEZ_REGISTRY_ADDRESS",
+                "0x1111111111111111111111111111111111111111",
+            )
+            .env("EEZ_ROLLUP_ID", "1")
+            .env("EEZ_VKEY", TEST_VKEY)
+            .env("EEZ_PROOF_SIGNER_KEY", TEST_ATTESTER_KEY)
+            .env("EEZ_ATTESTER_ADDRESS", TEST_ATTESTER_ADDRESS)
+            .env("EEZ_PROOF_SYSTEM", TEST_PROOF_SYSTEM);
+        if let Some(value) = value {
+            child.env("EEZ_PROOF_SIGNER_L2_RPC_URL", value);
+        }
+        let output = child.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{case}: {stderr}");
+        assert!(stderr.contains(&format!("stream-source-config-ok:{case}")));
+        assert!(!stderr.contains("fixture-password"));
+    }
+}

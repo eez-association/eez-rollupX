@@ -3,8 +3,9 @@
 > This is an implementation guide. [`SPEC.md`](../SPEC.md) is authoritative for
 > protocol behavior and compatibility requirements.
 
-`eez-proof-signer` is a stateless, single-flight attestation service. A Composer
-streams one complete block window. The daemon re-executes every block, binds a
+`eez-proof-signer` is a stateless attestation service with one shared execution
+worker. V1 streams a complete block window; v2 retains incremental execution
+in bounded independent sessions. The daemon re-executes every block, binds a
 supported settlement batch to the resulting evidence, recomputes the public
 input, and signs it. Any failed stage returns no signature.
 
@@ -120,3 +121,8 @@ identity at the pinned EEZL2 address. The exact normative boundary is in
 Continue with [Request lifecycle](request-lifecycle.md),
 [Validation evidence](validation-evidence.md), or the
 [Settlement pipeline](settlement-pipeline.md).
+
+The additive v2 path is `service/sessions` → `validate/streaming` → the shared
+`service/settlement_job::settle_validated` pipeline. It preserves native DA and
+independent observation replay. See [streaming lifecycle](request-lifecycle.md#streaming-sessions)
+for ownership, cancellation and the provenance retrieval boundary.

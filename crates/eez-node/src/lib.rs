@@ -163,6 +163,7 @@ async fn run_preparation_worker(
     system_address: Address,
     l1_head: Arc<L1CanonicalHead>,
 ) {
+    let mut streaming_preparation = false;
     let mut last_prepared: Option<eez_l1::L2Endpoint> = None;
     let mut retained_settled = l1_head.policy_anchor_snapshot().endpoint;
     let mut lease_window_full = false;
@@ -173,7 +174,12 @@ async fn run_preparation_worker(
             tokio::select! {
                 next = receiver.recv() => next,
                 () = tokio::time::sleep_until(renewal_due) => {
-                    if l1_head.policy_anchor_snapshot().endpoint == retained_settled {
+                    if streaming_preparation && l1_head.policy_anchor_snapshot().endpoint == retained_settled {
+                        // V2 progress has no lease; a later exchange resumes or backfills.
+                        renewal_due = tokio::time::Instant::now() + renewal_interval;
+                        continue;
+                    }
+                    if !streaming_preparation && l1_head.policy_anchor_snapshot().endpoint == retained_settled {
                         match prover.renew_preparation_lease().await {
                             Ok(true) => {
                                 store.preparation_status(None);
@@ -220,7 +226,10 @@ async fn run_preparation_worker(
             target = watermark;
         }
         loop {
-            if last_prepared.is_some() && tokio::time::Instant::now() >= renewal_due {
+            if !streaming_preparation
+                && last_prepared.is_some()
+                && tokio::time::Instant::now() >= renewal_due
+            {
                 match prover.renew_preparation_lease().await {
                     Ok(true) => {
                         store.preparation_status(None);
@@ -323,7 +332,7 @@ async fn run_preparation_worker(
                 number: block.number,
                 hash: block.hash,
             });
-            if lease_window_full && path.connected_to_stop {
+            if !streaming_preparation && lease_window_full && path.connected_to_stop {
                 // The current lease already reserves the oldest maximum-sized
                 // prefix. Newer descendants belong to the next settlement
                 // window and must wait for the authenticated floor to advance.
@@ -338,15 +347,30 @@ async fn run_preparation_worker(
                 continue;
             }
             let mut failure = None;
-            for segment in path
-                .blocks
-                .split(|block| !ordinary_preparable(block, system_address))
-            {
-                if let Err(error) = prover.prepare_ordinary_range(rollup_id, segment).await {
-                    failure = Some(error.to_string());
+            match prover.prevalidate_range(rollup_id, &path.blocks).await {
+                Ok(eez_prover_client::Prevalidation::Available) => {
+                    streaming_preparation = true;
                 }
-                if failure.is_some() {
-                    break;
+                Ok(eez_prover_client::Prevalidation::Unsupported) => {
+                    streaming_preparation = false;
+                    for segment in path
+                        .blocks
+                        .split(|block| !ordinary_preparable(block, system_address))
+                    {
+                        if let Err(error) = prover.prepare_ordinary_range(rollup_id, segment).await
+                        {
+                            failure = Some(error.to_string());
+                            break;
+                        }
+                    }
+                }
+                Err(error) => {
+                    // Durable capture already succeeded. Optional prevalidation
+                    // cannot pause admission; the full proof must backfill and
+                    // validate every missing block under its own deadline.
+                    streaming_preparation = prover.streaming_supported().await;
+                    event!(name: "eez.node.witness_preparation.deferred", Level::WARN,
+                        %error, "stream prevalidation deferred; durable witnesses retained");
                 }
             }
             if let Some(error) = failure {
@@ -380,6 +404,10 @@ async fn run_preparation_worker(
             if last_prepared == Some(target) || target.number <= floor.map_or(0, |f| f.number) {
                 lease_window_full = false;
                 break;
+            }
+            if streaming_preparation {
+                // Continue the bounded durable walk without reserving a v1 lease.
+                continue;
             }
             lease_window_full = true;
             // One reservation can cover exactly one maximum ordinary window.

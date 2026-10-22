@@ -19,6 +19,7 @@ eez-evm.workspace = true
 eez-driver = { workspace = true, features = ["observation", "derivation"] }
 
 alloy-consensus.workspace = true
+alloy-provider.workspace = true
 alloy-eips.workspace = true
 alloy-genesis.workspace = true
 alloy-primitives = { workspace = true, features = ["k256"] }
@@ -42,7 +43,9 @@ url.workspace = true
 prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+getrandom = "0.3"
 tokio.workspace = true
+tokio-stream.workspace = true
 tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

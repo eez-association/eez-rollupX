@@ -2244,6 +2244,7 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
     // same pruning boundary as the Composer. The original signer uses direct
     // L1 RPC and would otherwise hide the live failure after restart.
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
+        l2_rpc_url: None,
         l1_rpc_url: fault_url.clone(),
         registry_address: world.cfg.eez_address,
         chain_config: &world.cfg.l2_genesis.0,
@@ -2276,7 +2277,7 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
         ])
         .await
         .unwrap();
-    // The fixture allocates a new public L2 RPC port on every reopen.
+    // The signer retains the same L2 source address across Composer restarts.
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
         Ok((world

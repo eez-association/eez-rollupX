@@ -239,6 +239,7 @@ def run(plan, args):
             },
             env_vars={
                 "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
+                "EEZ_PROOF_SIGNER_L2_RPC_URL": "http://eez-node:{}".format(L2_RPC_PORT),
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
                 "RUST_LOG": eez.get("proof_signer_rust_log", "info"),
             },

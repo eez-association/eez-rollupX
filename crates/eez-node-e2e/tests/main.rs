@@ -24,3 +24,5 @@ mod settlement_policy;
 mod settlement_policy_cost;
 mod settlement_policy_gas;
 mod transaction_references;
+
+mod streaming;

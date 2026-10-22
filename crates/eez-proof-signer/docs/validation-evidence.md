@@ -67,10 +67,13 @@ independently recomputed post-state root. The adapter carries those returned
 values into `BackendWindowOutput`; it does not promote a copied Composer or
 header claim merely by renaming it.
 
-The terminal block always uses checkpoint-enabled replay, including an empty
-selection, to expose its state after mandatory pre-execution. B[0] commits that
-state plus the ordinary transaction prefix. An empty checkpoint vector does
-not authorize an effect position. Preceding blocks use ordinary replay.
+A terminal containing native system transactions uses checkpoint-enabled replay
+to expose its state after mandatory pre-execution. B[0] commits that state plus
+the ordinary transaction prefix. Ordinary and empty terminals use normal replay;
+their fully validated block hash already commits the complete ordinary prefix.
+An empty checkpoint vector does not authorize an effect position. Preceding
+blocks use ordinary replay. V2 retains each block as a possible terminal, then
+checks the actual intermediate-block restrictions again at Finalize.
 
 ## One associated output per block
 

@@ -7,9 +7,9 @@
 
 The operator supplies the required fresh-network genesis, expected rollup ID,
 canonical L1 RPC source and registry address, proof-system address and vkey, and
-attestation key. Startup validates local relationships. Each Prove independently
+attestation key. Startup validates local relationships. Each final proof independently
 authenticates its accepted parent, live-slot seed and target L1 context through
-that source before replay. Signing performs no further L1 reads; an already
+that source before authorizing settlement. V2 prevalidation can replay earlier. Signing performs no further L1 reads; an already
 stale signature cannot be used under a different L1 parent or timestamp.
 Deployment automation must still verify the manager's proof-system registration,
 vkey and attester bindings.
@@ -24,7 +24,7 @@ manager environment injection over command-line flags. The checked-in
 
 Loopback is the safe default. The gRPC protocol does not authenticate peers, so
 a non-loopback listener needs an authenticated transport, private network,
-firewall, or equivalent control. Single-flight admission limits concurrent
+firewall, or equivalent control. Bounded admission limits concurrent
 work; it is not authentication and does not stop an authorized-but-buggy client
 from holding the slot with a slow stream.
 
@@ -40,7 +40,7 @@ independent:
 - per-message idle timeout; and
 - end-to-end request deadline.
 
-An overlap returns `Unavailable` immediately and may be retried later. Local
+A v1 overlap returns `Unavailable` immediately and may be retried later. Local
 quota violations return `ResourceExhausted` and require changing the request or
 the configured limit. Clients can therefore classify the failure from the
 canonical status code without parsing its message.
@@ -60,19 +60,22 @@ Composer and signer together; rollback requires reverting both. The original
 native V0 format still requires a matching fresh-network deployment. See the
 [fresh-network boundary](../SPEC.md#mixed-outbound-profile-compatibility).
 
-The idle timeout covers each wait for the next chunk or EOF. The absolute
-request deadline covers ingestion through signing. Both are checked for
+For v1, the idle timeout covers each wait for the next chunk or EOF, and the
+absolute request deadline covers ingestion through signing. Both are checked for
 monotonic-clock overflow at startup.
 
 EVM execution and individual settlement gates are synchronous. When an RPC
 times out, cancellation asks the worker to stop at the next safe boundary; it
-does not interrupt the current work unit. Until the worker exits, retries are
-rejected because the slot is still occupied.
+does not interrupt the current work unit. Until the worker exits, v1 retries are
+rejected because the slot is occupied; v2 queues under its operation deadline.
+The [streaming profile](../../eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile)
+defines its per-operation, queue and backpressure bounds.
 
 Ctrl-C, and SIGTERM on Unix, stop new acceptance and begin tonic's drain. The
-signal does not cancel an already admitted RPC: tonic first lets it run until
-completion or its request deadline. The process then waits for any detached
-worker to reach a cancellation boundary or complete and release the slot.
+signal lets an admitted v1 RPC run until completion or its request deadline.
+V2 attachments close and cancel their async operations, including continuously
+active or non-reading clients. The process then waits for any detached worker
+to reach a cancellation boundary or complete and release its permits.
 Supervisors should therefore allow the remaining request deadline plus the
 worst-case non-interruptible cancellation tail. A forced kill trades bounded
 shutdown time for abandoning validation mid-computation.
@@ -101,3 +104,28 @@ The full contributor command set is maintained in
 [`eez-association/stateless`](https://github.com/eez-association/stateless)
 fork must pass that repository's tests and strict Clippy checks before the
 signer updates its commit pin; the pin update must then pass the signer checks.
+
+## Streaming source and upgrades
+
+`--l2-rpc-url` / `EEZ_PROOF_SIGNER_L2_RPC_URL` enables v2 on the existing
+listener. The standalone default is absent (v1 only). Packaged Chiado, Ethereum
+and local Kurtosis Compose services set `http://127.0.0.1:18688`; Kurtosis's
+service network uses `http://eez-node:18688`. Compose preserves explicit empty
+values so the signer's parser rejects them. CLI overrides environment; an
+invalid HTTP(S) endpoint fails startup with a redacted error.
+
+The source must retain exact-hash predecessor and live-slot endpoint headers.
+It need not be available when the signer binds its listener, but Finalize cannot
+succeed without independently authenticated provenance. Keep its address stable
+across source restart. Archive/pruned-history gaps and deep acceptance-history
+scans may consume the operation deadline; no receipt or root equality bypasses
+the canonical checks. Tune existing request limits for the bounded eight-stream,
+eight-session profile; retained-memory allowances are per session, not global.
+
+Follow the [runtime compatibility contract](../../eez-control-rpc/STREAMING_SPEC.md#upgrade-and-rollback)
+for signer-first upgrades, v1 fallback and rollback. Sessions are volatile, and
+restart can increase backfill work within the unchanged settlement cutoff.
+`eez.proof_signer.block_validated` records prevalidation only;
+`eez.proof_signer.window_signed` with `rpc_version=2` records completed native
+settlement validation/signing. Neither establishes L1 inclusion or durable queue
+recovery. Deployment and latency claims require separate live evidence.

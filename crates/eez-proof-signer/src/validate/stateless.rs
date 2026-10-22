@@ -159,6 +159,8 @@ pub(crate) struct Backend {
     chain_document_digest: B256,
     #[cfg(test)]
     pub(super) derivation_enabled: bool,
+    #[cfg(test)]
+    checkpoint_replays: std::sync::atomic::AtomicUsize,
 }
 
 impl Backend {
@@ -229,6 +231,8 @@ impl Backend {
             chain_document_digest,
             #[cfg(test)]
             derivation_enabled: true,
+            #[cfg(test)]
+            checkpoint_replays: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -285,7 +289,14 @@ impl Backend {
                 })?;
                 (
                     prepared.block,
-                    Some(prepared.checkpoint_plan),
+                    // Ordinary (including empty) terminals use their fully
+                    // validated block hash as the ordinary-prefix commitment.
+                    // Only native effect boundaries need intermediate roots.
+                    prepared
+                        .system_sender_flags
+                        .iter()
+                        .any(|&native| native)
+                        .then_some(prepared.checkpoint_plan),
                     prepared.system_sender_flags,
                 )
             } else {
@@ -328,6 +339,9 @@ impl Backend {
             let (stateless_output, replay_state_checkpoints, pre_transaction_state_root) =
                 match checkpoint_plan {
                     Some(plan) => {
+                        #[cfg(test)]
+                        self.checkpoint_replays
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let output = stateless_validation_recovered_with_state_checkpoints(
                             recovered_block,
                             witness,
@@ -417,8 +431,9 @@ impl Backend {
                             .position(|&native| native)
                             .unwrap_or(transaction_count);
                         let base = if ordinary == 0 {
-                            // The checkpoint backend ran pre-execution changes even for
-                            // an empty block. The parent state root cannot stand in for it.
+                            // The checkpoint backend ran pre-execution changes before
+                            // the first native transaction; the parent state root
+                            // cannot stand in for that state.
                             let state_root = pre_transaction_state_root.ok_or_else(|| {
                                 ValidationError::InvalidBackendOutput(
                                     "missing pre-transaction state root".into(),

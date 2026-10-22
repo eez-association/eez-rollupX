@@ -124,6 +124,9 @@ its Solidity implementation/tests and the applicable fork contract:
   cancellation, and shutdown behavior.
   A timed-out RPC does not stop an already-running blocking worker: the signer
   worker retains its request permit until it exits.
+  V2 session changes must preserve the [streaming profile](crates/eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile),
+  including independent provenance retrieval, shared worker ownership and epoch fencing.
+  Run the frozen native session transcripts without regenerating expectations.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
   triggers from gas/blob/timing admission limits. Derive budgets from active network
   rules or measured work; admission estimates are not consensus limits. Retain final
@@ -158,9 +161,11 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ### Generated files
 
-- Edit the wire schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
-  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` using `protoc`;
-  the [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
+- Edit v1 in [prove.proto](crates/eez-control-rpc/proto/prove.proto) and the shared
+  v2 schema in [prove_stream.proto](crates/eez-control-rpc/proto/prove_stream.proto).
+  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` and
+  `$OUT_DIR/prove.v2.rs` using `protoc`; the
+  [include module](crates/eez-control-rpc/src/generated.rs) loads them. Regenerate
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run

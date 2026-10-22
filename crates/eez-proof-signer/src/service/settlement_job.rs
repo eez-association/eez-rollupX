@@ -110,8 +110,35 @@ pub(super) fn validate_and_settle(
     cancellation: &CancellationToken,
 ) -> Result<AttestationMaterial, PipelineError> {
     let validated_window = state.validator.validate_window(blocks, cancellation)?;
+    settle_validated(
+        state,
+        &validated_window,
+        submitted_post_batch_calldata,
+        submitted_blobs,
+        maximum_blobs,
+        posting_context,
+        candidate_context,
+        deadline,
+        cancellation,
+    )
+}
+
+/// Both wire versions must pass the same canonical authorization, native DA,
+/// effect binding and observation replay gates before obtaining signing authority.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn settle_validated(
+    state: &ServiceState,
+    validated_window: &validate::ValidatedWindow,
+    submitted_post_batch_calldata: Vec<u8>,
+    submitted_blobs: Vec<Vec<u8>>,
+    maximum_blobs: usize,
+    posting_context: eez_protocol::public_inputs::L1PostingContext,
+    candidate_context: super::l1::CandidateContext,
+    deadline: Instant,
+    cancellation: &CancellationToken,
+) -> Result<AttestationMaterial, PipelineError> {
     candidate_context
-        .check_execution(&validated_window)
+        .check_execution(validated_window)
         .map_err(PipelineError::L1Authorization)?;
     if Instant::now() >= deadline {
         return Err(PipelineError::DeadlineBeforeSettlement);
@@ -121,7 +148,7 @@ pub(super) fn validate_and_settle(
             submitted_post_batch_calldata,
             posting_context,
             submitted_blobs: &submitted_blobs,
-            validated_window: &validated_window,
+            validated_window,
             expected_rollup_id: state.expected_rollup_id,
             expected_l2_system_address: state.expected_l2_system_address,
             proof_system_vkey: state.attester.proof_system_vkey(),
@@ -138,7 +165,7 @@ pub(super) fn validate_and_settle(
     }
     state
         .validator
-        .verify_observations(&validated_window, &observation_claims)
+        .verify_observations(validated_window, &observation_claims)
         .map_err(SettlementPipelineError::from)?;
 
     ensure_settlement_active(cancellation)?;

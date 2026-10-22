@@ -46,7 +46,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     let mut owned_follower = None;
     let mut owned_late = None;
     let result: Result<()> = async {
-    owned_composer = Some(eez_testkit::native::spawn_composer(&world, &builder.url).await?);
+    owned_composer = Some(eez_testkit::native::spawn_composer(&world, &builder.url, &[]).await?);
     let composer = owned_composer.as_ref().unwrap();
     owned_follower = Some(eez_testkit::native::spawn_follower(&world, "native-follower-1").await?);
     let follower = owned_follower.as_ref().unwrap();

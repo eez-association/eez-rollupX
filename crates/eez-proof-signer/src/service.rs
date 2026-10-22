@@ -1,9 +1,9 @@
 //! The `Prove` RPC service: bounded ingestion, validation, and attestation.
 //!
-//! Each RPC consumes one window. [`crate::window::WindowAssembler`] enforces
-//! stream structure and quotas, [`crate::validate`] re-executes its blocks, and
-//! [`crate::settlement`] binds the posted batch to the execution facts. The
-//! attester signs only after every stage succeeds.
+//! V1 consumes complete windows through [`crate::window::WindowAssembler`];
+//! v2 retains incremental execution in bounded sessions. Both use
+//! [`crate::validate`] and [`crate::settlement`] to bind the native batch to
+//! checked execution. The attester signs only after every stage succeeds.
 
 use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::{Arc, Mutex};
@@ -18,6 +18,7 @@ use crate::{attest::Attester, settlement, validate, window};
 pub(crate) mod l1;
 mod preparation;
 mod rpc;
+mod sessions;
 mod settlement_job;
 mod stream;
 
@@ -43,8 +44,8 @@ pub(crate) struct ServiceLimitsParams {
 
 /// Runtime limits shared by every service clone.
 ///
-/// The request deadline covers ingestion through signing; the idle timeout
-/// applies to each streamed-message wait.
+/// V1 deadlines cover ingestion through signing; v2 deadlines cover each
+/// ordered operation. Idle timeouts bound inactive input and output backpressure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ServiceLimits {
     window_limits: window::WindowLimits,
@@ -196,6 +197,7 @@ impl ServiceState {
 /// The `Prove` service. All cheap clones share state and one active-request slot.
 #[derive(Debug, Clone)]
 pub(crate) struct ProveSvc {
+    sessions: Arc<sessions::SessionRuntime>,
     state: Arc<ServiceState>,
     limits: ServiceLimits,
     active_request_slot: Arc<Semaphore>,
@@ -206,16 +208,30 @@ pub(crate) struct ProveSvc {
 
 impl ProveSvc {
     pub(crate) fn new(state: Arc<ServiceState>, limits: ServiceLimits) -> Self {
+        let validation_worker = Arc::new(Semaphore::new(1));
+        let active_request_slot = Arc::new(Semaphore::new(1));
+        let sessions = sessions::SessionRuntime::new(
+            Arc::clone(&state),
+            limits,
+            Arc::clone(&validation_worker),
+            Arc::clone(&active_request_slot),
+        );
         Self {
+            sessions,
             state,
             limits,
-            active_request_slot: Arc::new(Semaphore::new(1)),
+            active_request_slot,
             preparation_slot: Arc::new(Semaphore::new(1)),
-            validation_worker: Arc::new(Semaphore::new(1)),
+            validation_worker,
             prepared_cache: Arc::new(Mutex::new(
                 crate::prepared_cache::PreparedCache::with_defaults(),
             )),
         }
+    }
+
+    /// Close long-lived v2 attachments before tonic drains its connections.
+    pub(crate) fn stop_streams(&self) {
+        self.sessions.stop_streams();
     }
 
     /// Wait until no admitted request or detached request worker holds the slot.
@@ -224,6 +240,7 @@ impl ProveSvc {
     /// after the listener stops accepting requests; called while serving it
     /// would briefly occupy the slot and reject an incoming `Prove`.
     pub(crate) async fn wait_until_idle(&self) {
+        self.sessions.wait_until_idle().await;
         drop(
             self.active_request_slot
                 .acquire()
@@ -242,6 +259,14 @@ impl ProveSvc {
                 .await
                 .expect("the validation-worker semaphore is never closed"),
         );
+    }
+
+    pub(crate) fn streaming_server(
+        &self,
+    ) -> eez_control_rpc::v2::prover_server::ProverServer<Self> {
+        eez_control_rpc::v2::prover_server::ProverServer::new(self.clone())
+            .max_decoding_message_size(self.limits.max_decoding_message_bytes())
+            .max_encoding_message_size(MAX_ENCODING_MESSAGE_BYTES)
     }
 
     /// Build the gRPC server with the configured request and response size limits.

@@ -17,6 +17,8 @@ use eez_protocol::{
 use super::{AuthenticatedL1Header, DerivationError, DerivationSource, fetch};
 use crate::{L1BlockRef, scan::scan_batch_logs_range};
 
+mod retrieval;
+
 pub use eez_protocol::l2::ParentProvenance;
 
 #[derive(Debug, thiserror::Error)]

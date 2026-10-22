@@ -14,6 +14,7 @@ use crate::cancel::CancellationToken;
 use crate::window::{AdmittedBlock, AdmittedBlocks};
 
 mod stateless;
+pub(crate) mod streaming;
 use stateless::reconstruction::ReconstructedBlock;
 
 type EezBlock = eez_primitives::Block;
@@ -270,7 +271,7 @@ impl ValidatedBlock {
 
 /// The terminal block and its execution outcome, kept together so settlement
 /// cannot accidentally combine evidence from different positions.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ValidatedSettlingBlock {
     block: ValidatedBlock,
     /// Receipt status for every transaction in the settling block.
@@ -284,7 +285,7 @@ pub(crate) struct ValidatedSettlingBlock {
 
 /// Authenticated input for a second, observation-only replay of the terminal
 /// block. The normal validation backend already accepted this exact witness.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SettlingReplayInput {
     pub(crate) pre_state_root: B256,
     pub(crate) witness: alloy_rpc_types_debug::ExecutionWitness,

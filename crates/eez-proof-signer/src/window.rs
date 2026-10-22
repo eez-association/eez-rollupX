@@ -675,7 +675,7 @@ fn into_execution_witness(witness: WireExecutionWitness) -> ExecutionWitness {
 }
 
 /// Count protobuf witness items before allocating the retained representation.
-fn wire_witness_item_count(witness: &WireExecutionWitness) -> usize {
+pub(crate) fn wire_witness_item_count(witness: &WireExecutionWitness) -> usize {
     witness
         .state
         .len()

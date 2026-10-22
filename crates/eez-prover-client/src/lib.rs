@@ -1,9 +1,9 @@
-//! `RemoteProver` — the composer-side [`Prover`] backed by one `Prove` RPC.
+//! `RemoteProver` — Composer's remote validation and settlement client.
 //!
 //! The composer holds `Arc<dyn Prover>` and calls `prove(ctx)`; when that
-//! `Arc` is a [`RemoteProver`], the call maps [`ProvingContext`] to a
-//! `prove.v1` client-stream (a header then one chunk per window block), dials
-//! the configured `eez-proof-signer`, awaits the attestation, verifies it recovers
+//! `Arc` is a [`RemoteProver`], the call resumes or backfills a `prove.v2`
+//! session, falling back to the complete `prove.v1` window for older peers.
+//! It awaits the configured signer's attestation, verifies it recovers
 //! to the registered attester over the exact request batch and physical blobs,
 //! and returns the 65-byte signature. A shared channel retains the checked
 //! capability snapshot; each proof still independently verifies its response.
@@ -14,6 +14,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 mod connection;
+mod streaming;
+pub use streaming::Prevalidation;
 
 use alloy_primitives::{Address, B256, Bytes, Signature};
 use alloy_sol_types::SolCall;
@@ -31,8 +33,8 @@ use prost::Message as _;
 use tonic::{Code, Status};
 use tracing::{Level, event};
 
-/// A [`Prover`] that proves a window on a remote `eez-proof-signer` over the
-/// `prove.v1.Prover` gRPC service. Cheap to clone (`Arc<Inner>`).
+/// A [`Prover`] that proves a window on a remote `eez-proof-signer` over v2,
+/// with v1 compatibility. Clones share the session, channel and checked limits.
 #[derive(Debug, Clone)]
 pub struct RemoteProver {
     inner: Arc<Inner>,
@@ -40,6 +42,8 @@ pub struct RemoteProver {
 
 #[derive(Debug)]
 struct Inner {
+    streaming: tokio::sync::Mutex<streaming::StreamingState>,
+    exchange_timeout: std::time::Duration,
     /// The `eez-proof-signer` endpoint, e.g. `http://127.0.0.1:50061`.
     url: String,
     /// The proof system's registered attester. The returned signature MUST
@@ -63,6 +67,8 @@ impl RemoteProver {
     pub fn new(url: impl Into<String>, attester: Address, expected_identity: B256) -> Self {
         Self {
             inner: Arc::new(Inner {
+                streaming: tokio::sync::Mutex::new(streaming::StreamingState::default()),
+                exchange_timeout: std::time::Duration::from_secs(5),
                 url: url.into(),
                 attester,
                 expected_identity,
@@ -605,10 +611,8 @@ fn chunks_for(
     }))
 }
 
-#[async_trait]
-impl Prover for RemoteProver {
-    async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
-        let n_blocks = ctx.blocks.len();
+impl RemoteProver {
+    async fn prove_v1(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
         let connection = self.connection().await?;
         let span = ctx
             .to_block
@@ -716,13 +720,20 @@ impl Prover for RemoteProver {
             }
         };
 
+        self.verify_response(ctx, resp.public_inputs_hash, resp.signature)
+            .await
+    }
+
+    async fn verify_response(
+        &self,
+        ctx: ProvingContext,
+        public_inputs_hash: Vec<u8>,
+        signature: Vec<u8>,
+    ) -> ProverResult<Bytes> {
+        let n_blocks = ctx.blocks.len();
         // Bind both the signing authority and the signed payload. A signature
         // from the registered attester over another batch is not our proof.
-        let hash = verify_attestation(
-            &resp.signature,
-            &resp.public_inputs_hash,
-            self.inner.attester,
-        )?;
+        let hash = verify_attestation(&signature, &public_inputs_hash, self.inner.attester)?;
         let from_block = ctx.from_block;
         let to_block = ctx.to_block;
         let vkey = self.vkey();
@@ -747,7 +758,61 @@ impl Prover for RemoteProver {
             %hash,
             "remote prover attested the window",
         );
-        Ok(Bytes::copy_from_slice(&resp.signature))
+        Ok(Bytes::copy_from_slice(&signature))
+    }
+}
+
+#[async_trait]
+impl Prover for RemoteProver {
+    async fn prove(&self, ctx: ProvingContext) -> ProverResult<Bytes> {
+        let connection = self.connection().await?;
+        let count = ctx
+            .to_block
+            .checked_sub(ctx.from_block)
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| ProverError::Backend("invalid proof window".into()))?;
+        if count > connection.capabilities.max_window_blocks || count != ctx.blocks.len() as u64 {
+            return Err(ProverError::Backend(
+                "proof window exceeds negotiated block limit or has missing blocks".into(),
+            ));
+        }
+        let parent = &ctx.parent_provenance.parent;
+        let anchor = streaming::StreamAnchor {
+            number: parent.number,
+            hash: parent.hash_slow(),
+            state_root: parent.state_root,
+        };
+        let settlement = eez_control_rpc::v2::SettlementInput {
+            abi_calldata: eez_protocol::abi::postAndVerifyBatchCall {
+                batch: ctx.batch.clone(),
+            }
+            .abi_encode(),
+            blobs: ctx
+                .blobs
+                .iter()
+                .map(|blob| blob.as_bytes().to_vec())
+                .collect(),
+            posting_context: Some(eez_control_rpc::v2::L1PostingContext {
+                chain_id: ctx.l1_posting.chain_id,
+                target_timestamp: ctx.l1_posting.target_timestamp,
+                parent_number: ctx.l1_posting.parent_number,
+                parent_hash: ctx.l1_posting.parent_hash.to_vec(),
+            }),
+        };
+        match self
+            .stream_exchange(
+                ctx.rollup_id,
+                anchor,
+                &ctx.blocks,
+                Some((ctx.from_block, ctx.to_block, settlement)),
+            )
+            .await
+        {
+            Ok(Some((hash, proof))) => self.verify_response(ctx, hash, proof).await,
+            Ok(None) => Err(ProverError::Backend("Finalize returned no proof".into())),
+            Err(streaming::StreamingError::Unsupported) => self.prove_v1(ctx).await,
+            Err(streaming::StreamingError::Prover(error)) => Err(error),
+        }
     }
 
     fn vkey(&self) -> B256 {
@@ -915,6 +980,7 @@ fn verify_attestation(
 
 #[cfg(test)]
 mod tests {
+    mod streaming;
     use super::*;
     use alloy_primitives::address;
     use alloy_signer::SignerSync;
@@ -1433,7 +1499,26 @@ mod tests {
                 ..Default::default()
             },
             blobs: eez_blob_codec::pack(&[0, 1]).unwrap(),
-            blocks: Arc::from([]),
+            blocks: Arc::from([eez_prover::BlockWitness {
+                number: 1,
+                hash: alloy_consensus::Header {
+                    number: 1,
+                    parent_hash: alloy_consensus::Header::default().hash_slow(),
+                    ..Default::default()
+                }
+                .hash_slow(),
+                parent_hash: alloy_consensus::Header::default().hash_slow(),
+                rlp: alloy_rlp::encode(eez_primitives::Block::new(
+                    alloy_consensus::Header {
+                        number: 1,
+                        parent_hash: alloy_consensus::Header::default().hash_slow(),
+                        ..Default::default()
+                    },
+                    Default::default(),
+                ))
+                .into(),
+                witness: Default::default(),
+            }]),
             l1_posting: eez_prover::L1PostingContext {
                 parent_number: 99,
                 parent_hash: B256::repeat_byte(0x42),

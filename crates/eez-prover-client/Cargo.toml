@@ -7,6 +7,8 @@ rust-version.workspace = true
 description            = "RemoteProver: the composer-side Prover implementation for one eez-proof-signer RPC round-trip."
 
 [dependencies]
+eez-primitives.workspace = true
+alloy-consensus.workspace = true
 eez-prover.workspace      = true
 eez-control-rpc.workspace = true
 # Encode ProvingContext.batch → postAndVerifyBatch calldata for the wire.

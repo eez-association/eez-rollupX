@@ -27,10 +27,11 @@ rather than replace it.
 
 - Production always uses the in-process Stateless backend. No alternative
   backend is selectable; the stub backend exists only in tests.
-- Exactly one final `Prove` request may be active across all connections. An
-  overlap is rejected, not queued. The request permit covers ingestion through response
+- Exactly one final proof owns the shared request permit. V1 `Prove` overlap
+  is rejected; v2 Finalize queues under its absolute deadline. The request permit covers ingestion through response
   construction and remains with a running detached worker until it exits.
-- Validation and settlement run in one blocking task. Cancellation is
+- V1 validation and settlement run in one blocking task; v2 retains checked
+  block execution and runs the same settlement gates in a blocking task. Cancellation is
   cooperative between non-interruptible units; graceful shutdown waits for
   detached work rather than terminating it halfway through execution.
 - The active mutable-entry profile is `anchor, outbound*, (inbound-effect |
@@ -69,7 +70,8 @@ See [architecture](docs/architecture.md),
   transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
 - Independently authenticate the accepted parent, seed and L1 target before
-  execution. Keep the signature bound to that exact parent hash and timestamp;
+  authorizing settlement. V2 prevalidation may execute earlier; those facts
+  alone never authorize signing. Keep the signature bound to that exact parent hash and timestamp;
   there is no post-replay freshness RPC. An attestation still does
   not guarantee future L1 inclusion, sequencer authority, dispatch mode, or
   deployment code identity.

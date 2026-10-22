@@ -440,3 +440,199 @@ async fn false_parent_wrong_genesis_and_source_failures_remain_rejected() {
         );
     }
 }
+
+fn l2_header(header: Header) -> Block {
+    let mut block: Block = Block::default();
+    block.header.hash = header.hash_slow();
+    block.header.inner = header;
+    block
+}
+
+#[tokio::test]
+async fn owned_genesis_headers_are_hash_bound_and_source_failures_are_not_authority() {
+    let (schedule, reference) = super::super::tests::fixture();
+    for case in 0..5 {
+        let l1 = Asserter::new();
+        super::super::tests::startup_replies(&l1, &reference);
+        let source = DerivationSource::authenticate(
+            ProviderBuilder::new().connect_mocked_client(l1.clone()),
+            schedule,
+        )
+        .await
+        .unwrap();
+        let l2 = Asserter::new();
+        let provider = ProviderBuilder::new().connect_mocked_client(l2.clone());
+        let parent = Header {
+            timestamp: 1000,
+            mix_hash: reference.header.mix_hash,
+            ..Default::default()
+        };
+        let head = super::super::tests::block(14, 1016, 11);
+        match case {
+            1 => l2.push_success(&Option::<Block>::None),
+            2 => {
+                let mut wrong = parent.clone();
+                wrong.state_root = B256::repeat_byte(3);
+                l2.push_success(&l2_header(wrong));
+            }
+            3 => l2.push_failure_msg("private source diagnostic must not escape"),
+            _ => l2.push_success(&l2_header(parent.clone())),
+        }
+        if case == 0 || case == 4 {
+            l1.push_success(&head); // retrieval snapshot
+            l1.push_success(&head); // existing proof_context snapshot
+            registry(&l1, parent.hash_slow());
+            if case == 4 {
+                l1.push_success(&super::super::tests::block(14, 1016, 99));
+            } else {
+                l1.push_success(&head);
+            }
+        }
+        let result = source
+            .owned_proof_context(
+                REGISTRY,
+                1,
+                target(&head),
+                0,
+                parent.hash_slow(),
+                parent.state_root,
+                &provider,
+                128,
+            )
+            .await;
+        match case {
+            0 => assert_eq!(result.unwrap().parent(), &parent),
+            1 | 3 => assert!(matches!(
+                result,
+                Err(ProofContextError::Source(DerivationError::Unavailable(_)))
+            )),
+            2 => assert!(matches!(
+                result,
+                Err(ProofContextError::Invalid("L2 provenance header hash"))
+            )),
+            4 => assert!(matches!(result, Err(ProofContextError::StaleTarget))),
+            _ => unreachable!(),
+        }
+        assert!(l1.read_q().is_empty());
+        assert!(l2.read_q().is_empty());
+    }
+}
+
+#[tokio::test]
+async fn owned_catchup_provenance_fetches_the_complete_live_slot_and_reauthenticates_it() {
+    let (schedule, reference) = super::super::tests::fixture();
+    let replies = Asserter::new();
+    super::super::tests::startup_replies(&replies, &reference);
+    let source = DerivationSource::authenticate(
+        ProviderBuilder::new().connect_mocked_client(replies.clone()),
+        schedule,
+    )
+    .await
+    .unwrap();
+    let head = super::super::tests::block(14, 1016, 11);
+    let catchup = super::super::tests::block(12, 1008, 9);
+    let live = super::super::tests::block(11, 1004, 8);
+    let parent = parent();
+    let mut earlier = parent.clone();
+    earlier.state_root = B256::with_last_byte(0x34);
+    let l2 = Asserter::new();
+    let provider = ProviderBuilder::new().connect_mocked_client(l2.clone());
+    l2.push_success(&l2_header(parent.clone()));
+    l2.push_success(&l2_header(earlier.clone()));
+    l2.push_success(&l2_header(parent.clone()));
+    replies.push_success(&head);
+    replies.push_success(&vec![log(
+        L2ExecutionPerformed {
+            rollupId: 1,
+            newRoot: parent.hash_slow(),
+            etherBalance: U256::ZERO,
+        }
+        .encode_log_data(),
+        &catchup,
+        0,
+        B256::with_last_byte(1),
+    )]);
+    replies.push_success(&catchup);
+    endpoints(&replies, &catchup, &[parent.hash_slow()]);
+    replies.push_success(&catchup);
+    replies.push_success(&reference);
+    replies.push_success(&live);
+    endpoints(&replies, &live, &[earlier.hash_slow(), parent.hash_slow()]);
+    // Independently repeat the canonical checks with the retrieved evidence.
+    replies.push_success(&head);
+    replies.push_success(&catchup);
+    endpoints(&replies, &catchup, &[parent.hash_slow()]);
+    replies.push_success(&catchup);
+    replies.push_success(&reference);
+    replies.push_success(&live);
+    endpoints(&replies, &live, &[earlier.hash_slow(), parent.hash_slow()]);
+    registry(&replies, parent.hash_slow());
+    replies.push_success(&head);
+    let checked = source
+        .owned_proof_context(
+            REGISTRY,
+            1,
+            target(&head),
+            parent.number,
+            parent.hash_slow(),
+            parent.state_root,
+            &provider,
+            128,
+        )
+        .await
+        .unwrap();
+    assert_eq!(checked.parent(), &parent);
+    assert_eq!(checked.descendant_seed(), live.header.mix_hash);
+    assert!(replies.read_q().is_empty());
+    assert!(l2.read_q().is_empty());
+}
+
+#[tokio::test]
+async fn an_execution_log_without_an_attributed_accepted_endpoint_cannot_authorize_parent() {
+    let (schedule, reference) = super::super::tests::fixture();
+    let replies = Asserter::new();
+    super::super::tests::startup_replies(&replies, &reference);
+    let source = DerivationSource::authenticate(
+        ProviderBuilder::new().connect_mocked_client(replies.clone()),
+        schedule,
+    )
+    .await
+    .unwrap();
+    let parent = parent();
+    let head = super::super::tests::block(12, 1008, 9);
+    let l2 = Asserter::new();
+    let provider = ProviderBuilder::new().connect_mocked_client(l2.clone());
+    l2.push_success(&l2_header(parent.clone()));
+    replies.push_success(&head);
+    replies.push_success(&vec![log(
+        L2ExecutionPerformed {
+            rollupId: 1,
+            newRoot: parent.hash_slow(),
+            etherBalance: U256::ZERO,
+        }
+        .encode_log_data(),
+        &head,
+        0,
+        B256::ZERO,
+    )]);
+    replies.push_success(&head);
+    endpoints(&replies, &head, &[]);
+    let error = source
+        .owned_proof_context(
+            REGISTRY,
+            1,
+            target(&head),
+            parent.number,
+            parent.hash_slow(),
+            parent.state_root,
+            &provider,
+            128,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ProofContextError::Invalid("parent has no canonical acceptance")
+    ));
+    assert!(replies.read_q().is_empty());
+}
