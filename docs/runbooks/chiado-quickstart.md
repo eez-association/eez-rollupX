@@ -2,8 +2,10 @@
 
 Create a **new rollup** from an unused deployment checkout; deployment spends
 Chiado test xDAI. Run commands from the repository root and stop on failure.
-For an existing rollup, use [restart](chiado-deployment.md#restart-and-stop) or
-[set up another Composer](chiado-existing-rollup.md).
+This revision requires the offline-history profile from genesis, with new
+contracts and fresh L2 datadirs. For an existing rollup, keep its matching
+release and follow that release's restart/Composer procedure; these binaries
+do not migrate it. See the [profile boundary](chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary).
 Fresh-host deployment and restart rehearsal are pending.
 
 Required: Linux amd64, local Docker Engine/Compose, Git, Bash, curl, jq, OpenSSL,

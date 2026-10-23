@@ -110,6 +110,10 @@ pub struct CrossChainExecCtx {
     pub l1_poster_signer: alloy_signer_local::PrivateKeySigner,
     /// L1 chain id for EIP-155 signing of the `postAndVerifyBatch` transaction.
     pub l1_chain_id: u64,
+    /// Fresh-genesis execution and L1 rule identity registered by the manager.
+    pub offline_profile: eez_protocol::l1_history::OfflineProfile,
+    /// Exact OfflineRollup deployment committed by capability preflight.
+    pub rollup_manager: Address,
     /// Physical sidecar encoding for the mandatory native blob DA carrier.
     pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded
@@ -379,12 +383,84 @@ pub(crate) const SUBMISSION_BACKOFF_THRESHOLD: u32 = 5;
 /// Stand-in for `proofs[0]` when sizing before the prover runs (ECDSA is 65 B).
 const MAX_PROOF_BYTES: usize = 128;
 
+/// Select the proof mode before proving; submission still owns the exact target.
+fn select_proof_anchor(
+    profile: &eez_protocol::l1_history::OfflineProfile,
+    parent: &alloy_consensus::Header,
+    target_timestamp: u64,
+    terminal_timestamp: u64,
+    has_actions: bool,
+) -> Result<eez_protocol::l1_history::EvidenceAnchor, eez_protocol::l2::ProfileError> {
+    use eez_protocol::l1_history::EvidenceAnchor;
+    Ok(
+        if !has_actions
+            && parent.number != 0
+            && terminal_timestamp <= parent.timestamp
+            // Historical context uses the anchor's rule epoch. When the next
+            // inclusion crosses a known fork, bind its actual parent/time so
+            // the first proof already uses the rules getCustomData will return.
+            && profile.rules_id(parent.timestamp)? == profile.rules_id(target_timestamp)?
+        {
+            EvidenceAnchor::Historical {
+                number: parent.number,
+                hash: parent.hash_slow(),
+            }
+        } else {
+            EvidenceAnchor::ActualParent {
+                number: parent.number,
+                hash: parent.hash_slow(),
+                target_timestamp,
+            }
+        },
+    )
+}
+
+/// Complete only the terminal frame's L1 bridge. Earlier captured segments end
+/// at their selected source and remain reusable across target changes. Preserve
+/// the exact retained bytes; inconsistent canonical evidence is an error.
+fn append_anchor_bridge(
+    blocks: &mut [BlockWitness],
+    history: &eez_protocol::l1_history::HeaderChain,
+    anchor_number: u64,
+    anchor_hash: B256,
+) -> Result<(), String> {
+    let terminal = blocks
+        .last_mut()
+        .ok_or_else(|| "missing terminal witness".to_string())?;
+    let last = terminal
+        .l1_headers_rlp
+        .last()
+        .ok_or_else(|| "missing terminal L1 evidence".to_string())?;
+    let selected: alloy_consensus::Header =
+        alloy_rlp::decode_exact(last).map_err(|e| format!("terminal L1 header: {e}"))?;
+    if history
+        .at(selected.number)
+        .map_err(|e| e.to_string())?
+        .hash()
+        != selected.hash_slow()
+        || history.at(anchor_number).map_err(|e| e.to_string())?.hash() != anchor_hash
+        || selected.number > anchor_number
+    {
+        return Err("terminal witness and canonical proof anchor disagree".into());
+    }
+    if selected.number < anchor_number {
+        terminal.l1_headers_rlp.extend(
+            history
+                .range(selected.number + 1, anchor_number)
+                .map_err(|e| e.to_string())?
+                .raw_headers(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
 
 /// Execution for a batch with just the leading immediate entry, calldata aside.
-/// Measured 139k, 10% slack; pinned by `contracts/test/PostBatchGasPins.t.sol`.
-const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
+/// Offline manager with its root pin, 64 rule epochs and 64 blob references:
+/// measured 165,440, plus 10% rounded up. Pinned by PostBatchGasPins.t.sol.
+const POSTBATCH_BASE_GAS_PIN: u64 = 190_000;
 
 /// One more entry costs EEZ.sol hashing, a state SSTORE, and a CREATE2 proxy
 /// deploy for a new sender. Same pin test; measured 334k worst case, 10% slack.
@@ -2223,6 +2299,10 @@ where
                 .await
                 .map_err(|error| error.to_string())?;
         }
+        rollup
+            .l1_head
+            .authorize_replacement_history(snapshot.generation, parent, timestamp)
+            .map_err(|error| error.to_string())?;
         rollup.held_pool.release_for_replacement(attempt.id)?;
         event!(name: "eez.composer.settlement.replacement", Level::INFO,
             event_name = "eez.composer.settlement.replacement", rollup_id,
@@ -5628,6 +5708,7 @@ where
             Some(l2_fees),
         );
         Ok(Some(SyncSlotBlock {
+            l1_origin_hash: built.l1_origin_hash,
             payload: built.payload,
             header: built.header,
         }))
@@ -5720,6 +5801,7 @@ where
                         "settlement policy evidence unavailable; preserving pending work");
                 }
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5755,6 +5837,7 @@ where
             event!(Level::ERROR, rollup_id, %error,
                 "minimal batch unavailable; retaining complete range without capacity splitting");
             return Ok(Some(SyncSlotBlock {
+                l1_origin_hash: empty_built.l1_origin_hash,
                 payload: empty_built.payload,
                 header: empty_built.header,
             }));
@@ -5793,6 +5876,7 @@ where
                     );
                 }
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5812,6 +5896,7 @@ where
             Err(error) => {
                 event!(Level::ERROR, rollup_id, %error, "cannot record minimal submission; committing without emission");
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5839,6 +5924,7 @@ where
             None,
         );
         Ok(Some(SyncSlotBlock {
+            l1_origin_hash: empty_built.l1_origin_hash,
             payload: empty_built.payload,
             header: empty_built.header,
         }))
@@ -5867,6 +5953,7 @@ where
             &[],
         ) {
             Ok(built) => Some(SyncSlotBlock {
+                l1_origin_hash: built.l1_origin_hash,
                 payload: built.payload,
                 header: built.header,
             }),
@@ -6753,6 +6840,10 @@ where
         // destinationRollupId (e.g. an un-rewritten MAINNET(0) outbound entry).
         ensure_batch_registry_native(&batch, rollup_id)?;
         batch.blockNumber = u64::MAX;
+        batch.expectedRootPerRollup = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: rollup_id,
+            root: pre_block_hash,
+        }];
         batch.proofSystems = vec![ctx.ecdsa_proof_system_address];
         batch.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
             rollupId: rollup_id,
@@ -7019,6 +7110,34 @@ where
         }
         .validate()
         .map_err(|error| error.to_string())?;
+        // Historical anchoring is a deliberate choice for ordinary catch-up.
+        // The submission attempt still targets the actual next L1 block below;
+        // neither proof expiry nor a failed live attempt changes that ownership.
+        let terminal_timestamp = rollup
+            .l1_head
+            .derivation_schedule()
+            .map_err(|error| error.to_string())?
+            .timestamp(sync_block_number)
+            .map_err(|error| error.to_string())?;
+        let proof_anchor = select_proof_anchor(
+            &ctx.offline_profile,
+            &header,
+            timestamp,
+            terminal_timestamp,
+            !semantic_transactions.is_empty(),
+        )
+        .map_err(|error| error.to_string())?;
+        let offline_context = eez_protocol::l1_history::OfflineContext::new(
+            &ctx.offline_profile,
+            posting.registry,
+            ctx.rollup_manager,
+            rollup_id,
+            pre_block_hash,
+            proof_anchor,
+            header.timestamp,
+        )
+        .map_err(|error| error.to_string())?;
+        batch.blockNumber = offline_context.selector();
         if gas_projection.is_none() && semantic_transactions.is_empty() {
             let hash = alloy_consensus::Sealable::hash_slow(&header);
             empty_projection = provider.provider.state_by_block_hash(hash)
@@ -7146,6 +7265,13 @@ where
                         .l2_provider,
                 );
                 let evm_config = self.inner.evm_config.clone();
+                let proof_history = rollup
+                    .l1_head
+                    .prepared_history()
+                    .ok_or_else(|| "canonical proof history is unavailable".to_string())?
+                    .chain();
+                let proof_anchor_number = header.number;
+                let proof_anchor_hash = header.hash_slow();
                 let terminal_block = sync_block.cloned();
                 tokio::task::spawn_blocking(
                     move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
@@ -7171,6 +7297,7 @@ where
                                     )
                                 })?;
                                 ws.push(witness);
+                                append_anchor_bridge(&mut ws, &proof_history, proof_anchor_number, proof_anchor_hash)?;
                                 return Ok((ws, outcomes));
                             }
                             // Committed (historical chunk): from the store — an
@@ -7187,6 +7314,7 @@ where
                                 );
                             }
                         }
+                        append_anchor_bridge(&mut ws, &proof_history, proof_anchor_number, proof_anchor_hash)?;
                         Ok((ws, Vec::new()))
                     },
                 )
@@ -7241,76 +7369,16 @@ where
                 observed_output_hash: mismatch.observed_output_hash,
             });
         }
-        let parent_provenance = if let Some(source) = &self.inner.witness_source {
-            // Correlations are complete only after reconciliation has scanned
-            // through the exact L1 parent used by this proof target.
-            if policy_anchor.through
-                != Some(eez_l1::L1BlockRef {
-                    number: l1_posting.parent_number,
-                    hash: l1_posting.parent_hash,
-                })
-            {
-                return Err("candidate provenance is waiting for the canonical L1 scan".into());
-            }
-            let mut live_slot = None;
-            if anchor_header.number != 0 {
-                let schedule = rollup
-                    .l1_head
-                    .derivation_schedule()
-                    .map_err(|e| e.to_string())?;
-                let (mut low, mut high) = (
-                    schedule.config().l1_reference.number,
-                    l1_posting.parent_number,
-                );
-                while low <= high {
-                    let middle = low + (high - low) / 2;
-                    let header = provider
-                        .headers
-                        .header_by_number(middle)
-                        .map_err(|e| e.to_string())?
-                        .ok_or("canonical L1 slot header missing")?;
-                    match header.timestamp.cmp(&anchor_header.timestamp) {
-                        std::cmp::Ordering::Equal => {
-                            live_slot = Some((middle, header.hash_slow()));
-                            break;
-                        }
-                        std::cmp::Ordering::Less => {
-                            let Some(next) = middle.checked_add(1) else {
-                                break;
-                            };
-                            low = next;
-                        }
-                        std::cmp::Ordering::Greater => {
-                            let Some(previous) = middle.checked_sub(1) else {
-                                break;
-                            };
-                            high = previous;
-                        }
-                    }
-                }
-            }
-            let source = Arc::clone(source);
-            let parent = anchor_header.clone().unseal();
-            tokio::task::spawn_blocking(move || source.parent_provenance(parent, live_slot))
-                .await
-                .map_err(|e| format!("parent provenance worker: {e}"))??
-        } else {
-            // Lightweight in-process test provers do not attest remotely.
-            eez_protocol::l2::ParentProvenance {
-                parent: anchor_header.clone().unseal(),
-                accepted_l1_number: 0,
-                live_slot_endpoints: Vec::new(),
-            }
-        };
         let proving_ctx = ProvingContext {
-            parent_provenance,
+            parent: anchor_header.clone().unseal(),
             rollup_id,
             from_block: from,
             to_block: sync_block_number,
             batch: batch.clone(),
             blobs: transaction_blobs.clone(),
             blocks: block_witnesses.into(),
-            l1_posting,
+            l1_posting: (batch.blockNumber == u64::MAX).then_some(l1_posting),
+            offline_context,
         };
         if let Some(attempt) = admission {
             attempt.prepared(rollup_id, semantic_transactions.len());
@@ -7409,7 +7477,6 @@ where
                             eez_prover::RetryableProverError::Aborted => "prover_aborted",
                         },
                         eez_prover::ProverError::Actionable { .. } => "prover_rejected_candidate",
-                        eez_prover::ProverError::CacheMiss { .. } => "prover_cache_miss",
                         eez_prover::ProverError::Backend(_) => "prover_backend",
                     }
                 };
@@ -8118,6 +8185,64 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    #[test]
+    fn proof_anchor_uses_inclusion_rules_at_a_known_fork_boundary() {
+        use eez_protocol::l1_history::{
+            EvidenceAnchor, HISTORY_RUNTIME, OfflineContext, OfflineProfile,
+        };
+        let profile = OfflineProfile {
+            l1ChainId: U256::from(1),
+            l2ChainId: U256::from(31337),
+            genesisHash: B256::repeat_byte(1),
+            genesisTimestamp: 80,
+            blockInterval: 2,
+            syncInterval: 6,
+            updateOffset: 2,
+            l1ConfigHash: B256::repeat_byte(2),
+            historyCodeHash: alloy_primitives::keccak256(HISTORY_RUNTIME),
+            ruleTimes: vec![0, 120],
+        };
+        // A historical proof for parent time 119 binds the old rule epoch,
+        // whereas getCustomData at the exact target 120 returns the new one.
+        for (parent_time, target_time, terminal_time, has_actions, historical) in [
+            (118, 119, 100, false, true),
+            (119, 120, 100, false, false),
+            (119, 121, 100, false, false),
+            (120, 121, 100, false, true),
+            (120, 121, 121, false, false),
+            (120, 121, 121, true, false),
+        ] {
+            let parent = alloy_consensus::Header {
+                number: 10,
+                timestamp: parent_time,
+                ..Default::default()
+            };
+            let anchor =
+                select_proof_anchor(&profile, &parent, target_time, terminal_time, has_actions)
+                    .unwrap();
+            assert_eq!(
+                matches!(anchor, EvidenceAnchor::Historical { .. }),
+                historical,
+                "parent {parent_time}, target {target_time}, terminal {terminal_time}, actions {has_actions}"
+            );
+            let context = OfflineContext::new(
+                &profile,
+                Address::with_last_byte(1),
+                Address::with_last_byte(2),
+                1,
+                B256::repeat_byte(3),
+                anchor,
+                parent_time,
+            )
+            .unwrap();
+            // Word 7 is the rule identity returned by the real manager at inclusion.
+            assert_eq!(
+                &context.custom_data()[7 * 32..8 * 32],
+                profile.rules_id(target_time).unwrap().as_slice()
+            );
+        }
+    }
 
     fn gas_action(
         source: u64,

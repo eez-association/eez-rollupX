@@ -9,38 +9,27 @@ use crate::testkit::{LEGACY_USER_TX, TEST_SYSTEM_ADDRESS};
 use crate::validate::Validator;
 
 fn fixture_genesis() -> Genesis {
-    serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/native-osaka-empty/l2-genesis.json"
-    )))
-    .unwrap()
+    crate::testkit::native_block("native-offline-bidirectional", Some(2)).0
 }
 
 fn fixture_input() -> AdmittedBlock {
-    let rlp = include_bytes!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/native-osaka-empty/block.rlp"
-    ))
-    .to_vec();
-    let block = alloy_rlp::decode_exact::<Block>(&rlp).unwrap();
-    let witness = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/fixtures/native-osaka-empty/witness.json"
-    )))
-    .unwrap();
-    AdmittedBlock {
-        declared_number: block.header.number,
-        claimed_hash: block.header.hash_slow(),
-        claimed_parent_hash: block.header.parent_hash,
-        rlp,
-        witness,
-    }
+    // The first scheduled import is a real state transition, not a synthetic
+    // empty-account replay. Its parent is in the middle of the captured range.
+    crate::testkit::native_block("native-offline-bidirectional", Some(2)).1
 }
 
 #[test]
 fn reconstruction_fact_is_built_only_from_exact_replay_outputs() {
     let input = fixture_input();
     let backend = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS);
+    let mut backend = backend;
+    backend.evm_config = backend
+        .evm_config
+        .clone()
+        .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory(
+            crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap(),
+        )))
+        .unwrap();
     let recovered = decode_match_and_recover_signers(&input, &backend.chain_spec).unwrap();
     let block = recovered.clone().into_sealed_block().into_block();
     let mut output = stateless_validation_recovered(
@@ -112,31 +101,33 @@ fn checkpoint_fixture() -> (AdmittedBlock, Genesis, Vec<usize>) {
 
 #[test]
 fn nonempty_ordinary_terminal_skips_checkpoints_without_changing_execution() {
-    use eez_control_rpc::v1::{ProveChunk, prove_chunk};
-    use prost::Message as _;
-    let directory = crate::testkit::manifest_dir().join("tests/fixtures/native-osaka-lookup");
-    let bytes = std::fs::read(directory.join("cold-request.protobuf")).unwrap();
-    let mut remaining = bytes.as_slice();
-    let _header = ProveChunk::decode_length_delimited(&mut remaining).unwrap();
-    let Some(prove_chunk::Kind::Block(block)) = ProveChunk::decode_length_delimited(&mut remaining)
-        .unwrap()
-        .kind
-    else {
-        panic!("capture must begin with a deployment block");
-    };
-    let input = AdmittedBlock::from_wire(
-        block,
-        &mut 0,
-        crate::window::WindowLimits {
-            blocks: 1,
-            payload_bytes: 1024 * 1024,
-            witness_items: 100_000,
-        },
-    )
-    .unwrap();
-    let genesis =
-        serde_json::from_slice(&std::fs::read(directory.join("l2-genesis.json")).unwrap()).unwrap();
-    let backend = Backend::new(genesis, TEST_SYSTEM_ADDRESS);
+    use eez_control_rpc::v2::client_frame;
+    let name = "native-offline-bidirectional";
+    let index = crate::testkit::native_frames(name)
+        .into_iter()
+        .filter_map(|frame| match frame.kind {
+            Some(client_frame::Kind::Block(block)) => block.data,
+            _ => None,
+        })
+        .position(|block| {
+            let decoded: Block = alloy_rlp::decode_exact(&block.rlp).unwrap();
+            !decoded.body.transactions.is_empty()
+                && decoded
+                    .body
+                    .transactions
+                    .iter()
+                    .all(|tx| !matches!(tx, TransactionSigned::System(_)))
+        })
+        .expect("fixture must contain an ordinary deployment block");
+    let (genesis, input) = crate::testkit::native_block(name, Some(index));
+    let mut backend = Backend::new(genesis, TEST_SYSTEM_ADDRESS);
+    backend.evm_config = backend
+        .evm_config
+        .clone()
+        .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory(
+            crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap(),
+        )))
+        .unwrap();
     let decoded = decode_match_and_recover_signers(&input, &backend.chain_spec).unwrap();
     assert!(
         !decoded.body().transactions.is_empty(),
@@ -202,11 +193,16 @@ fn observation_claim(
     }
 }
 
-fn validated_observation_fixture() -> (Validator, ValidatedWindow) {
+fn validated_observation_fixture() -> (
+    Validator,
+    ValidatedWindow,
+    Arc<eez_protocol::l1_history::HeaderChain>,
+) {
     let (input, chain_config) = observation_fixture();
+    let history = crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap();
     let validator = Validator::stateless_for_test(chain_config, TEST_SYSTEM_ADDRESS);
     let window = validator.validate(&[input]).unwrap();
-    (validator, window)
+    (validator, window, history)
 }
 
 fn high_s_user_transaction() -> TransactionSigned {
@@ -572,22 +568,23 @@ fn recovered_sender_facts_follow_the_homestead_signature_rule() {
 
 #[test]
 fn validates_the_golden_block_through_stateless() {
+    let input = fixture_input();
+    let parent: Header = alloy_rlp::decode_exact(input.witness.headers.last().unwrap()).unwrap();
+    let captured: Block = alloy_rlp::decode_exact(&input.rlp).unwrap();
+    let expected_hash = input.claimed_hash;
     let output = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
-        .validate(&[fixture_input()])
+        .validate(&[input])
         .unwrap();
-    let pre_root = b256!("345cfb3dfd143f8484075eccccd3e14c3adaa3da42adfcda081328be75a7b178");
-    let post_root = b256!("c03f7e9458ad5d7523f21bd518ad68730effb14c1323ac0264a1bcd817819ce2");
+    let pre_root = parent.state_root;
+    let post_root = captured.header.state_root;
     assert_ne!(
         pre_root, post_root,
-        "an empty block still writes its parent's hash via EIP-2935"
+        "an empty block still executes history pre-execution hooks"
     );
     assert_eq!(output.pre_state_root, pre_root);
     assert_eq!(output.blocks.len(), 1);
     let block = &output.blocks[0];
-    assert_eq!(
-        block.computed_hash,
-        b256!("d5fdf6983f57dddaff35f2004d7965813b7bff1a4da48e47734fda8042acb858")
-    );
+    assert_eq!(block.computed_hash, expected_hash);
     assert_eq!(block.post_state_root, post_root);
     assert!(block.receipt_successes.is_empty());
     assert!(block.transaction_state_checkpoints.is_empty());
@@ -604,11 +601,13 @@ fn validates_the_golden_block_through_stateless() {
 fn selected_checkpoints_flow_through_the_stateless_adapter() {
     let (mut input, chain_config, expected) = checkpoint_fixture();
     let expected_hash = input.claimed_hash;
+    let history = crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap();
 
     let output = Backend::new(chain_config, TEST_SYSTEM_ADDRESS)
         .validate_blocks(
             std::slice::from_mut(&mut input),
             &CancellationToken::default(),
+            history,
         )
         .unwrap();
 
@@ -641,7 +640,7 @@ fn selected_checkpoints_flow_through_the_stateless_adapter() {
 
 #[test]
 fn authenticated_observation_replay_accepts_exact_static_result() {
-    let (validator, window) = validated_observation_fixture();
+    let (validator, window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -658,7 +657,7 @@ fn authenticated_observation_replay_accepts_exact_static_result() {
         calldata,
     );
     let outcome = backend
-        .replay_observations(&window, std::slice::from_ref(&claim))
+        .replay_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap()
         .pop()
         .unwrap();
@@ -667,12 +666,14 @@ fn authenticated_observation_replay_accepts_exact_static_result() {
     claim.expected_success = outcome.success;
     claim.expected_output = outcome.output;
 
-    backend.verify_observations(&window, &[claim]).unwrap();
+    backend
+        .verify_observations(&window, &[claim], Arc::clone(&history))
+        .unwrap();
 }
 
 #[test]
 fn authenticated_observation_replay_accepts_each_fifo_prefix() {
-    let (validator, window) = validated_observation_fixture();
+    let (validator, window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -700,7 +701,11 @@ fn authenticated_observation_replay_accepts_each_fifo_prefix() {
 
     for pin in pins {
         let mut claim = observation_claim(pin, CallMode::Static, calldata.clone());
-        match backend.replay_observations(&window, std::slice::from_ref(&claim)) {
+        match backend.replay_observations(
+            &window,
+            std::slice::from_ref(&claim),
+            Arc::clone(&history),
+        ) {
             Ok(mut outcomes) => {
                 let outcome = outcomes.pop().unwrap();
                 claim.expected_success = outcome.success;
@@ -712,12 +717,14 @@ fn authenticated_observation_replay_accepts_each_fifo_prefix() {
     }
     assert!(!accepted.is_empty());
 
-    backend.verify_observations(&window, &accepted).unwrap();
+    backend
+        .verify_observations(&window, &accepted, Arc::clone(&history))
+        .unwrap();
 }
 
 #[test]
 fn authenticated_observation_replay_rejects_forged_success_and_output() {
-    let (validator, window) = validated_observation_fixture();
+    let (validator, window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -734,14 +741,14 @@ fn authenticated_observation_replay_rejects_forged_success_and_output() {
         calldata,
     );
     let outcome = backend
-        .replay_observations(&window, std::slice::from_ref(&claim))
+        .replay_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap()
         .pop()
         .unwrap();
     claim.expected_success = !outcome.success;
     claim.expected_output = outcome.output.clone();
     assert_eq!(
-        backend.verify_observations(&window, std::slice::from_ref(&claim)),
+        backend.verify_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history)),
         Err(ObservationValidationError::OutcomeMismatch { index: 0 })
     );
 
@@ -750,14 +757,14 @@ fn authenticated_observation_replay_rejects_forged_success_and_output() {
     forged_output.push(0xff);
     claim.expected_output = forged_output.into();
     assert_eq!(
-        backend.verify_observations(&window, &[claim]),
+        backend.verify_observations(&window, &[claim], Arc::clone(&history)),
         Err(ObservationValidationError::OutcomeMismatch { index: 0 })
     );
 }
 
 #[test]
 fn authenticated_observation_replay_binds_mutable_lookup_output() {
-    let (validator, window) = validated_observation_fixture();
+    let (validator, window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -773,7 +780,7 @@ fn authenticated_observation_replay_binds_mutable_lookup_output() {
             .into(),
     );
     let outcome = backend
-        .replay_observations(&window, std::slice::from_ref(&claim))
+        .replay_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap()
         .pop()
         .unwrap();
@@ -781,21 +788,21 @@ fn authenticated_observation_replay_binds_mutable_lookup_output() {
     claim.expected_success = true;
     claim.expected_output = outcome.output;
     backend
-        .verify_observations(&window, std::slice::from_ref(&claim))
+        .verify_observations(&window, std::slice::from_ref(&claim), Arc::clone(&history))
         .unwrap();
 
     let mut forged_output = claim.expected_output.to_vec();
     forged_output.push(0x01);
     claim.expected_output = forged_output.into();
     assert_eq!(
-        backend.verify_observations(&window, &[claim]),
+        backend.verify_observations(&window, &[claim], Arc::clone(&history)),
         Err(ObservationValidationError::OutcomeMismatch { index: 0 })
     );
 }
 
 #[test]
 fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
-    let (validator, mut window) = validated_observation_fixture();
+    let (validator, mut window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -804,7 +811,7 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
         .into();
     let unknown = observation_claim(B256::repeat_byte(0xfe), CallMode::Static, calldata.clone());
     assert_eq!(
-        backend.verify_observations(&window, &[unknown]),
+        backend.verify_observations(&window, &[unknown], Arc::clone(&history)),
         Err(ObservationValidationError::UnknownPinnedRoot {
             index: 0,
             block_hash: B256::repeat_byte(0xfe),
@@ -828,7 +835,7 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
     let mut missing_account = claim.clone();
     missing_account.source_address = Address::repeat_byte(0x78);
     let error = backend
-        .verify_observations(&window, &[missing_account])
+        .verify_observations(&window, &[missing_account], Arc::clone(&history))
         .unwrap_err();
     assert!(
         matches!(&error, ObservationValidationError::Replay(reason)
@@ -837,13 +844,16 @@ fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
     );
 
     window.settling_block.replay_input.witness.codes.clear();
-    let error = backend.verify_observations(&window, &[claim]).unwrap_err();
+    let error = backend
+        .verify_observations(&window, &[claim], Arc::clone(&history))
+        .unwrap_err();
     assert!(matches!(error, ObservationValidationError::Replay(_)));
 }
 
 #[test]
 fn authenticated_observation_replay_rejects_non_fifo_pins() {
     let (input, genesis, _) = checkpoint_fixture();
+    let history = crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap();
     let validator = Validator::stateless_for_test(genesis, TEST_SYSTEM_ADDRESS);
     let window = validator.validate(&[input]).unwrap();
     let Validator::Stateless(backend) = &validator else {
@@ -868,13 +878,15 @@ fn authenticated_observation_replay_rejects_non_fifo_pins() {
         ),
     ];
 
-    let error = backend.verify_observations(&window, &claims).unwrap_err();
+    let error = backend
+        .verify_observations(&window, &claims, Arc::clone(&history))
+        .unwrap_err();
     assert!(matches!(error, ObservationValidationError::Replay(_)));
 }
 
 #[test]
 fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
-    let (validator, mut window) = validated_observation_fixture();
+    let (validator, mut window, history) = validated_observation_fixture();
     let Validator::Stateless(backend) = &validator else {
         unreachable!()
     };
@@ -898,7 +910,9 @@ fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
     parent.gas_limit ^= 1;
     *encoded_parent = alloy_rlp::encode(parent).into();
 
-    let error = backend.verify_observations(&window, &[claim]).unwrap_err();
+    let error = backend
+        .verify_observations(&window, &[claim], Arc::clone(&history))
+        .unwrap_err();
     assert!(matches!(error, ObservationValidationError::Replay(_)));
 }
 
@@ -935,9 +949,13 @@ fn pre_cancelled_validation_does_not_consume_the_witness() {
     cancellation.cancel();
     let mut input = fixture_input();
     let state_items = input.witness.state.len();
+    let history = crate::testkit::checked_history(std::slice::from_ref(&input)).unwrap();
 
-    let result = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
-        .validate_blocks(std::slice::from_mut(&mut input), &cancellation);
+    let result = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS).validate_blocks(
+        std::slice::from_mut(&mut input),
+        &cancellation,
+        history,
+    );
 
     assert!(matches!(result, Err(ValidationError::Cancelled)));
     assert_eq!(input.witness.state.len(), state_items);
@@ -1022,62 +1040,23 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     use alloy_consensus::TxReceipt as _;
     use eez_primitives::{EezTxType, SYSTEM_ADDRESS, SystemTransaction};
 
-    // Hand-built two-account MPT: distinct first nibbles yield one branch and
-    // two 63-nibble leaves. Expected nonce/balance roots do not use an EVM or
-    // the checkpoint/reconstruction implementation under test.
+    // Expected nonce/balance roots include the mandatory history predeploy,
+    // assembled independently from values rather than an EVM execution.
     fn state(
         user: Address,
         user_nonce: u64,
         balance: U256,
         native_nonce: u64,
     ) -> (B256, Vec<Bytes>) {
-        #[derive(alloy_rlp::RlpEncodable)]
-        struct Account {
-            nonce: u64,
-            balance: U256,
-            storage_root: B256,
-            code_hash: B256,
-        }
-        let mut branch = vec![Bytes::new(); 17];
-        let mut nodes = Vec::new();
-        for (address, nonce, balance) in [
-            (user, user_nonce, balance),
-            (SYSTEM_ADDRESS, native_nonce, U256::ZERO),
-        ] {
-            let key = keccak256(address);
-            let child = usize::from(key[0] >> 4);
-            assert!(
-                branch[child].is_empty(),
-                "fixture keys need distinct first nibbles"
-            );
-            let mut path = vec![0x30 | (key[0] & 0x0f)];
-            path.extend_from_slice(&key[1..]);
-            let leaf = alloy_rlp::encode(vec![
-                Bytes::from(path),
-                Bytes::from(alloy_rlp::encode(Account {
-                    nonce,
-                    balance,
-                    storage_root: alloy_consensus::EMPTY_ROOT_HASH,
-                    code_hash: alloy_primitives::KECCAK256_EMPTY,
-                })),
-            ]);
-            assert!(leaf.len() >= 32);
-            branch[child] = Bytes::copy_from_slice(keccak256(&leaf).as_slice());
-            nodes.push(leaf.into());
-        }
-        let root = alloy_rlp::encode(branch);
-        let hash = keccak256(&root);
-        nodes.push(root.into());
-        (hash, nodes)
+        crate::testkit::history::state(
+            &[
+                (user, user_nonce, balance),
+                (SYSTEM_ADDRESS, native_nonce, U256::ZERO),
+            ],
+            100,
+        )
     }
-
-    let mut genesis = fixture_genesis();
-    genesis.config.chain_id = 1;
-    genesis.timestamp = 80;
-    let schedule = genesis.config.extra_fields.get_mut("rollupX").unwrap();
-    schedule["blockIntervalSeconds"] = 2u64.into();
-    schedule["syncIntervalBlocks"] = 6u64.into();
-    schedule["l1Reference"]["timestamp"] = 80u64.into();
+    let genesis = crate::testkit::history::genesis();
     let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
     let user = key.address();
     let balance = U256::from(1_000_000_000_000_000_000u64);
@@ -1169,12 +1148,19 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         },
     );
     let input = AdmittedBlock {
+        l1_headers_rlp: crate::testkit::history::l1_headers()
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         declared_number: 11,
         claimed_hash: expected[2].hash_slow(),
         claimed_parent_hash: parent.hash_slow(),
         rlp: alloy_rlp::encode(full),
         witness: alloy_rpc_types_debug::ExecutionWitness {
             state: witness_nodes,
+            codes: vec![Bytes::copy_from_slice(
+                eez_protocol::l1_history::HISTORY_RUNTIME,
+            )],
             headers: vec![alloy_rlp::encode(&parent).into()],
             ..Default::default()
         },

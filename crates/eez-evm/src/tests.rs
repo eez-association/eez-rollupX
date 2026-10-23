@@ -20,7 +20,7 @@ use revm::{
 fn config() -> EezEvmConfig {
     let mut genesis: alloy_genesis::Genesis =
         serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
-    genesis.timestamp = 0;
+    genesis.timestamp = 4;
     genesis.config.chain_id = 1;
     // A private L1 with one-second blocks: the production base references
     // Ethereum mainnet, which requires the 2-second, six-position schedule.
@@ -29,7 +29,25 @@ fn config() -> EezEvmConfig {
     rollup_x["l1Reference"]["timestamp"] = serde_json::json!(0);
     rollup_x["blockIntervalSeconds"] = serde_json::json!(1);
     rollup_x["syncIntervalBlocks"] = serde_json::json!(4);
+    let (history, _) = crate::history::tests::fixture();
+    let chain = history.source.headers(0).unwrap();
+    rollup_x["historyUpdateOffset"] = serde_json::json!(2);
+    rollup_x["l1Reference"]["hash"] = serde_json::json!(chain.at(0).unwrap().hash());
+    let account = genesis
+        .alloc
+        .get_mut(&eez_protocol::l1_history::HISTORY_ADDRESS)
+        .unwrap();
+    account.storage = Some(
+        eez_protocol::l1_history::bootstrap_storage(
+            0,
+            chain.at(0).unwrap().hash(),
+            history.schedule,
+        )
+        .unwrap(),
+    );
     EezEvmConfig::new(Arc::new(profile::chain_spec(genesis).unwrap()))
+        .with_l1_history(history.source)
+        .unwrap()
 }
 
 #[test]
@@ -50,6 +68,7 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         EEZL2_GENESIS_IMPLEMENTATION_ADDRESS,
         proxy_admin,
         alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+        eez_protocol::l1_history::HISTORY_ADDRESS,
     ];
     expected.sort();
     assert_eq!(addresses, expected);
@@ -85,7 +104,7 @@ fn block(nonce: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Bl
     let block = Block::new(
         Header {
             number: 1,
-            timestamp: 1,
+            timestamp: 5,
             gas_limit: 30_000_000,
             base_fee_per_gas: Some(1),
             excess_blob_gas: Some(0),
@@ -106,7 +125,7 @@ fn block(nonce: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Bl
 }
 
 fn database(balance: U256, code: Bytes) -> InMemoryDB {
-    let mut db = InMemoryDB::default();
+    let (_, mut db) = crate::history::tests::fixture();
     // Zero means the account is absent, matching a genesis without an alloc entry.
     if !balance.is_zero() {
         db.insert_account_info(
@@ -358,7 +377,7 @@ fn l2_rejects_beacon_withdrawals_during_construction_import_and_engine_replay() 
         .context_for_next_block(
             &parent,
             NextBlockEnvAttributes {
-                timestamp: 1,
+                timestamp: 5,
                 suggested_fee_recipient: Address::ZERO,
                 prev_randao: B256::ZERO,
                 gas_limit: 30_000_000,
@@ -826,7 +845,7 @@ fn issue35_fixed_fields_are_enforced_on_block_and_engine_execution() {
     }
     let parent = SealedHeader::seal_slow(original.header);
     let attributes = NextBlockEnvAttributes {
-        timestamp: 2,
+        timestamp: 6,
         suggested_fee_recipient: Address::ZERO,
         prev_randao: B256::ZERO,
         gas_limit: eez_protocol::l2::GAS_LIMIT,
@@ -850,11 +869,11 @@ fn issue35_fixed_fields_are_enforced_on_block_and_engine_execution() {
             ..attributes.clone()
         },
         NextBlockEnvAttributes {
-            timestamp: 1,
+            timestamp: 5,
             ..attributes.clone()
         },
         NextBlockEnvAttributes {
-            timestamp: 3,
+            timestamp: 7,
             ..attributes
         },
     ] {

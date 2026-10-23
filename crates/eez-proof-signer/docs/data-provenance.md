@@ -9,16 +9,19 @@ itself never turns a Composer claim into validated evidence.
 
 ```mermaid
 flowchart TB
-    W[Composer ProveChunk stream] --> A[AdmittedWindow]
+    W[Composer v2 frames] --> A[AdmittedBlock and checked session binding]
     A -->|RLP and witnesses| V[Stateless validation]
-    V --> VW[ValidatedWindow]
+    V --> VB[ValidatedStreamBlock plus L1 checkpoint]
+    VB --> VW[ValidatedWindow selected at Finalize]
 
-    A -->|submitted PostBatch calldata| C[CanonicalPostBatch]
+    W -->|Finalize calldata| C[CanonicalPostBatch]
     C --> B[Settlement binding and authorization]
     VW --> B
+    E[Checked L1 ancestry and conditional context] --> B
     B --> R[RecomputedPublicInputsHash]
     R --> H[AttestablePublicInputsHash]
     H --> S[Attestation signature]
+    S --> M[Manager binds actual L1 context at inclusion]
 ```
 
 ## Naming vocabulary
@@ -48,16 +51,25 @@ Avoid the unqualified word `trusted` when a more precise source exists. Prefer
 
 ## Boundary guarantees
 
-### `AdmittedWindow`
+### `AdmittedBlock` and session admission
 
-The stream header appeared first, the declared inclusive range is valid, all
-declared blocks arrived in order, fixed-width hash claims were decoded, claimed
-adjacency holds, the header rollup claim matched `expected_rollup_id`, and the
-configured resource quotas were respected.
+Identity metadata and Begin's rollup/hash widths are checked before admission.
+Each Block has present, bounded witness fields and decoded fixed-width claims.
+Quotas include its separate L1 header segment. Admission alone does not establish
+block identity, execution, accepted ancestry or settlement correctness.
 
-Block hashes, RLP, witnesses, settlement calldata, and the discarded wire
-public-input hash remain Composer-controlled. Admission does not establish
-consensus or execution correctness.
+### `ValidatedStreamBlock` and L1 checkpoints
+
+Exact consensus bytes and stateless execution agree with the wire hash, parent
+and state root before an ACK is emitted. L1 segments exact-decode and extend one
+consecutive hash-linked chain under local fork rules. Each retained block owns
+its evidence checkpoint and selected source cutoffs. Rewind restores both L2
+and L1 prefixes; a changed duplicate witness cannot overwrite them.
+
+The chain establishes internal consistency. Finalize still checks all source
+maximality and anchor termination, including inherited selections and the complete
+bridge. Its endpoint is authenticated by the on-chain manager's context at
+inclusion, not by trusting the Composer or querying a provider.
 
 ### Backend results
 
@@ -77,12 +89,15 @@ contract check succeeds.
 This is the settlement-facing output of execution validation. It contains exact
 admitted block bytes, locally validated endpoint block hashes, system-sender flags,
 and outbound receipt observations. The terminal block additionally retains
-receipt outcomes and selected transaction checkpoints. It contains no execution
-witnesses; validation consumed them.
+receipt outcomes and selected transaction checkpoints. It retains the terminal replay input needed to independently validate static and
+lookup observations during each Finalize.
 
-Execution validity alone does not authorize canonical ancestry. The independent
-`CandidateContext` binds `window_pre_block_hash` to the accepted L1 parent
-commitment and seed. The batch's leading root update instead binds B[0], the
+Execution validity alone does not authorize canonical ancestry. The checked
+`CandidateContext` binds the exact replay parent, schedule, complete L1 ancestry
+and selected mode to a conditional offline context. The accepted-root gate
+requires that context's pin to equal the predecessor or a fully replayed
+whole-group terminal checkpoint. The manager supplies the actual registry
+commitment at inclusion; Begin and ACKs never establish acceptance. The batch's leading root update instead binds B[0], the
 terminal ordinary prefix after mandatory pre-execution and any ordinary users.
 
 ### `CanonicalPostBatch`
@@ -108,10 +123,10 @@ DA passed the complete settlement job.
 ### `AttestablePublicInputsHash`
 
 The async RPC wraps the recomputed digest in this stronger type only after
-execution, state-chain validation, effect/DA binding and independent L1
-authorization pass. On-chain verification binds the signature to the authenticated
-L1 parent hash and timestamp; the signer does not recheck tip freshness after
-replay. `Attester::sign` accepts only this type rather
+execution, state-chain validation, effect/DA binding, observation replay and
+offline context/evidence checks pass. On-chain verification binds the signature
+to actual anchor, accepted L2 root and active L1 rules. The signer performs no
+network lookup before or after replay. `Attester::sign` accepts only this type rather
 than `RecomputedPublicInputsHash` or an arbitrary `B256`, so a profile-only or
 Composer-supplied digest cannot cross the signing boundary by accident.
 

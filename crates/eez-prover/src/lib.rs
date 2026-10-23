@@ -79,14 +79,6 @@ pub enum ProverError {
         /// Diagnostic detail; callers MUST NOT parse it for classification.
         message: String,
     },
-    /// A locally prepared block was evicted or lost. This is request-local
-    /// repair work and never authorizes cross-chain source eviction.
-    #[error("prover cache miss at block {block_number} ({block_hash})")]
-    CacheMiss {
-        validation_identity: B256,
-        block_number: u64,
-        block_hash: B256,
-    },
     /// A transient failure that permits retrying the complete proving operation.
     #[error("retryable prover error ({kind}): {message}")]
     Retryable {
@@ -103,7 +95,7 @@ impl ProverError {
     pub const fn retryable_kind(&self) -> Option<RetryableProverError> {
         match self {
             Self::Retryable { kind, .. } => Some(*kind),
-            Self::Backend(_) | Self::Actionable { .. } | Self::CacheMiss { .. } => None,
+            Self::Backend(_) | Self::Actionable { .. } => None,
         }
     }
 
@@ -112,7 +104,7 @@ impl ProverError {
     pub const fn actionable_failure(&self) -> Option<ActionableProverFailure> {
         match self {
             Self::Actionable { failure, .. } => Some(*failure),
-            Self::Backend(_) | Self::Retryable { .. } | Self::CacheMiss { .. } => None,
+            Self::Backend(_) | Self::Retryable { .. } => None,
         }
     }
 }
@@ -133,13 +125,17 @@ pub struct BlockWitness {
     /// Minimal execution witness (`state`/`codes`/`keys`/`headers`), augmented
     /// with the removal-closure nodes intermediate per-tx roots need.
     pub witness: ExecutionWitness,
+    /// Canonical raw L1 headers extending this proof session's contiguous
+    /// evidence chain. Finalize binds the exact endpoint to its anchor mode.
+    pub l1_headers_rlp: Vec<Bytes>,
 }
 
 /// Inputs the prover needs to prove one posted settlement window.
 ///
 /// The composer fills this and calls [`Prover::prove`]; the whole window's
 /// L2 block data travels in-band ([`blocks`](Self::blocks)). The signer independently
-/// authenticates the L1 target and accepted ancestry before authorizing that execution.
+/// checks the complete L1 bridge and execution ancestry. Settlement authenticates
+/// the same accepted commitment and anchor through the manager's public inputs.
 #[derive(Debug, Clone)]
 pub struct ProvingContext {
     /// The L2 this window settles.
@@ -157,9 +153,11 @@ pub struct ProvingContext {
     /// the RPC adapter converts one block at a time under stream backpressure.
     pub blocks: std::sync::Arc<[BlockWitness]>,
     /// Explicit L1 target whose fork rules authorize this request's blob carrier.
-    pub l1_posting: L1PostingContext,
-    /// Untrusted acceptance hints; the remote signer checks canonical L1 facts.
-    pub parent_provenance: eez_protocol::l2::ParentProvenance,
+    pub l1_posting: Option<L1PostingContext>,
+    /// Locally derived context for independent response verification.
+    pub offline_context: eez_protocol::l1_history::OfflineContext,
+    /// Exact execution predecessor, authenticated through replay and settlement.
+    pub parent: alloy_consensus::Header,
 }
 
 pub use eez_protocol::public_inputs::L1PostingContext;
@@ -172,15 +170,6 @@ pub trait ProvingWitnessSource: Send + Sync + std::fmt::Debug {
     /// Fail closed when durable capture or storage capacity is unavailable.
     /// This affects admission, not execution or signature authority.
     fn ensure_ready(&self) -> Result<(), String>;
-
-    /// Exact accepted endpoint and all accepted headers in its possible live
-    /// L1 slot. The caller pins the scan generation; this is evidence transport,
-    /// never authorization for the signer to trust the local correlation index.
-    fn parent_provenance(
-        &self,
-        parent: alloy_consensus::Header,
-        live_slot: Option<(u64, B256)>,
-    ) -> Result<eez_protocol::l2::ParentProvenance, String>;
 
     /// Build the RLP + augmented witness for the exact `(number, hash)` selected
     /// by the candidate ancestry. A fresh canonical-height lookup is not a substitute.

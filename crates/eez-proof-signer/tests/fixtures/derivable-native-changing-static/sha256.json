@@ -1,8 +1,0 @@
-{
-  "request.protobuf": "2c9c9a2e2cbe29a8d0a3cca20c428b14eadc5bac06aadd47153bed94c62931c0",
-  "cold-request.protobuf": "38200adb289d8dc3da010bba2cb6385cbc3aef914c5142107a1e728d7d94c795",
-  "response.json": "7a5423bc31782dedc30da807fa4ca48bcec31e3a0191446cf568ab9f7f012d43",
-  "identity.json": "7ae95aa0638082ed579be992b51500da2d52a2403782c2f249232012d932f1f4",
-  "chain-config.json": "9ca9a80927c78ea811aeb5315f2aab67cf7887ff6d16d75e700aa2cbba5d9ee3",
-  "l1-genesis.json": "3c6f73e06364566b4d4418af1a15c23c1c5d2e8bed0609270428950b87646ba9"
-}

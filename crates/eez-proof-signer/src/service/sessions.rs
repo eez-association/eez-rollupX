@@ -40,6 +40,10 @@ struct Session {
     anchor: BlockAnchor,
     begin_bytes: usize,
     blocks: Vec<SessionBlock>,
+    history: Arc<eez_protocol::l1_history::HeaderChain>,
+    history_length: usize,
+    anchor_history_length: usize,
+    anchor_witness_items: usize,
     epoch: u64,
     connected: bool,
     cancellation: CancellationToken,
@@ -660,6 +664,10 @@ impl SessionRuntime {
                 anchor,
                 begin_bytes: frame_bytes,
                 blocks: Vec::new(),
+                history: Arc::default(),
+                history_length: 0,
+                anchor_history_length: 0,
+                anchor_witness_items: 0,
                 epoch: 1,
                 connected: true,
                 cancellation: CancellationToken::default(),
@@ -728,6 +736,12 @@ impl SessionRuntime {
         };
         let epoch = next_epoch(session.epoch)?;
         session.blocks.truncate(retained);
+        session.history_length = session
+            .blocks
+            .last()
+            .map_or(session.anchor_history_length, |block| {
+                block.validated.l1_checkpoint_len()
+            });
         session.cancellation.cancel();
         session.epoch = epoch;
         session.cancellation = CancellationToken::default();
@@ -820,7 +834,7 @@ impl SessionRuntime {
         let (attempted_bytes, attempted_items) = session_guard.blocks.iter().try_fold(
             (
                 payload_bytes.saturating_add(session_guard.begin_bytes),
-                witness_items,
+                witness_items.saturating_add(session_guard.anchor_witness_items),
             ),
             |(bytes, items), block| {
                 let bytes = bytes
@@ -840,10 +854,17 @@ impl SessionRuntime {
         }
 
         let session_cancellation = session_guard.cancellation.clone();
+        let history = Arc::clone(&session_guard.history);
+        let checkpoint_len = session_guard.history_length;
+        let previous = session_guard
+            .blocks
+            .last()
+            .map(|block| Arc::clone(&block.validated));
+        let max_headers = self.limits.window_limits().witness_items.min(131_072);
         let cancellation = CancellationToken::default();
         drop(session_guard);
-        // Structural admission is shared with v1; replay and output checks remain
-        // behind the Validator boundary. No unvalidated witness enters retained facts.
+        // Structural admission cannot authorize execution. Replay and output checks
+        // remain behind Validator; no unvalidated witness enters retained facts.
         let deadline = tokio::time::Instant::now() + self.limits.request_timeout();
         let permit = timeout_at(
             deadline,
@@ -863,12 +884,21 @@ impl SessionRuntime {
             }
             state
                 .validator
-                .validate_stream_block(parent, admitted, &worker_cancellation)
-                .map(Arc::new)
+                .validate_stream_block(
+                    parent,
+                    admitted,
+                    history,
+                    checkpoint_len,
+                    previous.as_deref(),
+                    &state.offline_rules.headers,
+                    max_headers,
+                    &worker_cancellation,
+                )
+                .map(|(block, history)| (Arc::new(block), history))
                 .map_err(validation_status)
         });
         let _guard = WorkerGuard::new(worker.abort_handle(), cancellation);
-        let cached = timeout_at(deadline, worker)
+        let (cached, history) = timeout_at(deadline, worker)
             .await
             .map_err(|_| Status::deadline_exceeded("block validation deadline exceeded"))?
             .map_err(|_| Status::internal("block validation worker failed"))??;
@@ -887,6 +917,8 @@ impl SessionRuntime {
                 "session cursor changed while block validation was in flight",
             ));
         }
+        session_guard.history_length = cached.l1_checkpoint_len();
+        session_guard.history = history;
         session_guard.blocks.push(SessionBlock {
             validated: Arc::clone(&cached),
             payload_bytes,
@@ -909,26 +941,28 @@ impl SessionRuntime {
             .settlement
             .take()
             .ok_or_else(|| Status::invalid_argument("Finalize carries no settlement input"))?;
-        let target = settlement.posting_context.as_ref().ok_or_else(|| {
-            Status::invalid_argument("native settlement requires posting context")
-        })?;
-        let posting_context = eez_protocol::public_inputs::L1PostingContext {
-            chain_id: target.chain_id,
-            target_timestamp: target.target_timestamp,
-            parent_number: target.parent_number,
-            parent_hash: parse_b256("L1 parent hash", &target.parent_hash)?,
-        };
-        posting_context
-            .validate()
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let posting_context = settlement
+            .posting_context
+            .as_ref()
+            .map(|target| {
+                let context = eez_protocol::public_inputs::L1PostingContext {
+                    chain_id: target.chain_id,
+                    target_timestamp: target.target_timestamp,
+                    parent_number: target.parent_number,
+                    parent_hash: parse_b256("L1 parent hash", &target.parent_hash)?,
+                };
+                context
+                    .validate()
+                    .map_err(|error| Status::invalid_argument(error.to_string()))
+            })
+            .transpose()?;
         if settlement.blobs.is_empty() || settlement.abi_calldata.is_empty() {
             return Err(Status::invalid_argument(
                 "native settlement requires calldata and physical blobs",
             ));
         }
-        let maximum_blobs = self.state.posting_blob_limit(&posting_context)?;
         let session = self.session(bound.id).await?;
-        let (anchor, blocks, start_index, cancellation) = {
+        let (anchor, blocks, start_index, history, cancellation) = {
             let mut session = session.lock().await;
             require_epoch(&session, bound.epoch)?;
             let retained_bytes = session
@@ -951,9 +985,15 @@ impl SessionRuntime {
             let (anchor, window, start_index) = session.select_window(&finalize, terminal_hash)?;
             session.cancellation.cancel();
             session.cancellation = CancellationToken::default();
-            (anchor, window, start_index, session.cancellation.clone())
+            (
+                anchor,
+                window,
+                start_index,
+                Arc::clone(&session.history),
+                session.cancellation.clone(),
+            )
         };
-        // Queue complete finalizations fairly. The same slot excludes v1 proofs;
+        // Queue complete finalizations fairly;
         // a timed-out blocking worker retains it until that worker has exited.
         let request_permit = timeout_at(
             deadline,
@@ -962,16 +1002,6 @@ impl SessionRuntime {
         .await
         .map_err(|_| Status::deadline_exceeded("Finalize admission deadline exceeded"))?
         .map_err(|_| Status::unavailable("proof admission closed"))?;
-        let candidate_context = timeout_at(
-            deadline,
-            self.state.l1_authority.authenticate_stream(
-                posting_context,
-                anchor,
-                self.limits.window_limits().witness_items,
-            ),
-        )
-        .await
-        .map_err(|_| Status::deadline_exceeded("parent authentication deadline exceeded"))??;
         let permit = timeout_at(
             deadline,
             Arc::clone(&self.validation_worker).acquire_owned(),
@@ -983,21 +1013,38 @@ impl SessionRuntime {
         let worker_cancellation = cancellation.clone();
         let worker = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            let result = ValidatedWindow::from_streamed_prefix(anchor, &blocks)
-                .map_err(PipelineError::Validation)
-                .and_then(|validated_window| {
-                    settle_validated(
-                        &state,
-                        &validated_window,
-                        settlement.abi_calldata,
-                        settlement.blobs,
-                        maximum_blobs,
+            let result = (|| {
+                let canonical_batch =
+                    crate::settlement::decode_canonical_post_batch(settlement.abi_calldata)
+                        .map_err(super::settlement_job::SettlementPipelineError::from)?;
+                let candidate_context = state
+                    .deployment
+                    .candidate(
+                        state.expected_rollup_id.get(),
+                        canonical_batch.as_batch(),
                         posting_context,
-                        candidate_context,
-                        deadline,
-                        &worker_cancellation,
+                        anchor,
+                        &blocks,
+                        &history,
                     )
-                });
+                    .map_err(PipelineError::L1Authorization)?;
+                let maximum_blobs = state
+                    .posting_blob_limit(candidate_context.rules_timestamp())
+                    .map_err(|_| {
+                        PipelineError::L1Authorization("no supported L1 blob rules at proof anchor")
+                    })?;
+                let validated_window = ValidatedWindow::from_streamed_prefix(anchor, &blocks)?;
+                settle_validated(
+                    &state,
+                    &validated_window,
+                    canonical_batch,
+                    settlement.blobs,
+                    maximum_blobs,
+                    candidate_context,
+                    deadline,
+                    &worker_cancellation,
+                )
+            })();
             (request_permit, result)
         });
         let _guard = WorkerGuard::new(worker.abort_handle(), cancellation.clone());
@@ -1005,7 +1052,10 @@ impl SessionRuntime {
             .await
             .map_err(|_| Status::deadline_exceeded("Finalize deadline exceeded"))?
             .map_err(|_| Status::internal("Finalize worker failed"))?;
-        let material = result.map_err(|error| error.status())?;
+        let material = result.map_err(|error| {
+            warn!(phase = error.phase(), gate = error.gate(), %error, "offline finalization rejected");
+            error.status()
+        })?;
         let mut session = session.lock().await;
         require_epoch(&session, bound.epoch)?;
         check_deadline(deadline)?;
@@ -1027,6 +1077,21 @@ impl SessionRuntime {
             recomputed_public_inputs_hash = %hash.into_inner(), attester = %self.state.attester.address(),
             "window validated and signed");
         session.anchor = anchor;
+        if start_index != 0 {
+            session.anchor_history_length = session.blocks[start_index - 1]
+                .validated
+                .l1_checkpoint_len();
+            // The shared L1 bridge remains retained. Conservatively keep each
+            // dropped frame's quota charge until the session is discarded.
+            for index in 0..start_index {
+                session.begin_bytes = session
+                    .begin_bytes
+                    .saturating_add(session.blocks[index].payload_bytes);
+                session.anchor_witness_items = session
+                    .anchor_witness_items
+                    .saturating_add(session.blocks[index].witness_items);
+            }
+        }
         session.blocks.drain(..start_index);
         Ok(Proof {
             public_inputs_hash: hash.into_inner().to_vec(),
@@ -1047,16 +1112,16 @@ impl Prover for ProveSvc {
         if *self.sessions.shutdown.borrow() {
             return Err(Status::unavailable("prover is shutting down"));
         }
-        if !self.state.l1_authority.streaming_enabled() {
-            return Err(Status::unimplemented("v2 L2 source is not configured"));
-        }
-        if let Some(identity) = request.metadata().get_bin("eez-validation-identity-bin") {
-            let identity = identity
-                .to_bytes()
-                .map_err(|_| Status::invalid_argument("invalid validation identity metadata"))?;
-            if identity.as_ref() != self.state.validation_identity.as_slice() {
-                return Err(Status::failed_precondition("validation identity mismatch"));
-            }
+        let identity = request
+            .metadata()
+            .get_bin("eez-validation-identity-bin")
+            .ok_or_else(|| {
+                Status::failed_precondition("offline validation identity metadata is required")
+            })?
+            .to_bytes()
+            .map_err(|_| Status::invalid_argument("invalid validation identity metadata"))?;
+        if identity.as_ref() != self.state.validation_identity.as_slice() {
+            return Err(Status::failed_precondition("validation identity mismatch"));
         }
         let (sender, receiver) = mpsc::channel(8);
         self.sessions

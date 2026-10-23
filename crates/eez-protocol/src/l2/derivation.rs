@@ -21,7 +21,7 @@ pub struct GenesisL1Reference {
     pub hash: B256,
     /// Reference timestamp, also fixing the settlement slot phase.
     pub timestamp: u64,
-    /// Copied into genesis and descendants before the first accepted live anchor.
+    /// Bootstrap randomness, retained until the first scheduled history update.
     pub prev_randao: B256,
 }
 
@@ -35,7 +35,9 @@ pub struct DerivationConfig {
     pub block_interval_seconds: u64,
     /// Number of positions in a complete Sync-to-Sync interval, at least two.
     pub sync_interval_blocks: u32,
-    /// Independently authenticated startup reference for timing and initial seed.
+    /// Fixed history/PREVRANDAO update offset; must be less than the Sync interval.
+    pub history_update_offset: u32,
+    /// Independently authenticated startup reference for timing and bootstrap history.
     pub l1_reference: GenesisL1Reference,
 }
 
@@ -49,12 +51,13 @@ pub struct Schedule {
     l1_slot_seconds: u64,
 }
 
-/// Whether an accepted endpoint refreshes the seed for its descendants.
+/// Endpoint eligibility relative to the settlement context. History and randomness
+/// follow their fixed delayed schedule independently of this classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnchorKind {
     /// Endpoint timestamp equals its containing L1 block's timestamp.
     Live,
-    /// Historical endpoint; its acceptance retains the previous seed.
+    /// Endpoint predates the settlement context; cross-chain actions are forbidden.
     CatchUp,
 }
 
@@ -66,6 +69,7 @@ impl Schedule {
         let positions = config.sync_interval_blocks;
         if step == 0
             || positions < 2
+            || config.history_update_offset >= positions
             || config.l1_reference.chain_id == 0
             || config.l1_reference.hash == B256::ZERO
         {
@@ -105,6 +109,21 @@ impl Schedule {
             genesis_timestamp: genesis.timestamp,
             l1_slot_seconds,
         })
+    }
+
+    /// Shared delayed-update schedule. Reject a genesis before its bootstrap
+    /// window; no legacy seed path or activation bootstrap is inferred.
+    pub fn history(&self) -> Result<crate::l1_history::HistorySchedule, ProfileError> {
+        let history = crate::l1_history::HistorySchedule::new(
+            self.genesis_timestamp,
+            self.config.block_interval_seconds,
+            self.config.sync_interval_blocks,
+            self.config.history_update_offset,
+        )?;
+        if self.config.l1_reference.timestamp > history.bootstrap_cutoff() {
+            return Err(ProfileError("genesis reference is after bootstrap cutoff"));
+        }
+        Ok(history)
     }
 
     /// Exact genesis identity whose timestamp defines block-number alignment.
@@ -176,8 +195,8 @@ impl Schedule {
         Ok((number, kind))
     }
 
-    /// Classify an independently authenticated accepted endpoint. A live anchor
-    /// refreshes only block numbers greater than this endpoint, never its variants.
+    /// Classify an endpoint against the bound settlement timestamp. Neither
+    /// classification changes the delayed history/PREVRANDAO update schedule.
     pub fn anchor_kind(
         &self,
         number: u64,
@@ -232,6 +251,7 @@ mod tests {
         let seed = B256::with_last_byte(7);
         (
             DerivationConfig {
+                history_update_offset: 0,
                 block_interval_seconds: step,
                 sync_interval_blocks: positions,
                 l1_reference: GenesisL1Reference {

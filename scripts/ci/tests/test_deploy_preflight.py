@@ -20,6 +20,7 @@ class DeployPreflightTest(unittest.TestCase):
         (self.root / "scripts").mkdir()
         (self.root / "contracts").mkdir()
         (self.root / "bin").mkdir()
+        (self.root / "genesis.json").write_text('{"config":{}}')
         shutil.copy2(REPO / "scripts/deploy.sh", self.root / "scripts/deploy.sh")
         (self.root / ".env").write_text(
             "EEZ_L1_RPC_URL=http://example.invalid\nEEZ_L1_POSTER_KEY=poster\n"
@@ -50,16 +51,18 @@ while (( $# )); do
     case "$1" in
         --output) genesis="$2"; shift ;;
         --profile-output) profile="$2"; shift ;;
+        --base) base="$2"; shift ;;
     esac
     shift
 done
 mkdir -p "$(dirname "$genesis")"
-echo '{"config":{}}' > "$genesis"
+cp "$base" "$genesis"
 echo '{"genesisStateRoot":"0x1234","runtimeCodeHash":"0x5678","eezL2Address":"0x4b2760f84b83d6b3829e30a7573b0172b6d6402c","eezL2ImplementationAddress":"0x4c3d971b1079e58843d0e1af155a2e54b9e54dba","eezL2ProxyAdminAddress":"0x57bf29a07746a25b87c613e01d5da49f6119e96c"}' > "$profile"
 ''')
         self.tool("bin/eez-genesis-block-hash", '''
 [[ -f "$1" ]] || exit 93
 [[ "$FAIL_STAGE" != hash ]] || { echo 'hash failed' >&2; exit 61; }
+[[ "$FAIL_STAGE" != profile || "${2-}" != --offline-profile ]] || { echo 'profile failed' >&2; exit 62; }
 echo 0x1234
 ''')
         self.tool("bin/forge", '''
@@ -83,10 +86,11 @@ exit 97
         )
 
     def test_private_devnet_can_pin_l1_genesis_without_waiting_for_finality(self):
-        result = self.run_deploy("", CHAIN_ID="31337", EEZ_L1_REFERENCE="genesis")
+        result = self.run_deploy("", CHAIN_ID="31337", EEZ_L1_REFERENCE="genesis",
+                                 EEZ_L1_CHAIN_CONFIG="private-genesis.json")
         self.assertIn("DeployEEZ failed", result.stderr)
         genesis = json.loads((self.root / "datadir/genesis.json").read_text())
-        self.assertEqual(genesis["timestamp"], "0x64")
+        self.assertEqual(genesis["timestamp"], "0x69")
         self.assertEqual(genesis["mixHash"], "0x" + "55" * 32)
         self.assertEqual(genesis["config"]["rollupX"]["l1Reference"], {
             "chainId": 31337, "number": 0, "timestamp": 100,
@@ -106,8 +110,9 @@ exit 97
                 self.assertFalse((self.root / "broadcast.log").exists())
 
     def test_failed_render_or_hash_prevents_broadcast(self):
-        for stage in ("render", "hash"):
+        for stage in ("render", "hash", "profile"):
             with self.subTest(stage=stage):
+                shutil.rmtree(self.root / "datadir", ignore_errors=True)
                 result = self.run_deploy(stage)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn(stage + " failed", result.stderr)
@@ -122,10 +127,11 @@ exit 97
         self.assertIn("--broadcast", command)
         self.assertIn("DeployEEZ failed", result.stderr)
         genesis = json.loads((self.root / "datadir/genesis.json").read_text())
-        self.assertEqual(genesis["timestamp"], "0x3e8")
+        self.assertEqual(genesis["timestamp"], "0x3ed")
         self.assertEqual(genesis["mixHash"], "0x" + "22" * 32)
         self.assertEqual(genesis["config"]["rollupX"], {
             "blockIntervalSeconds": 1, "syncIntervalBlocks": 5,
+            "historyUpdateOffset": 2,
             "l1Reference": {"chainId": 10200, "number": 42, "timestamp": 1000,
                             "hash": "0x" + "11" * 32, "prevRandao": "0x" + "22" * 32}})
 
@@ -141,6 +147,32 @@ exit 97
         result = self.run_deploy("")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cadence conflicts", result.stderr)
+        self.assertFalse((self.root / "broadcast.log").exists())
+
+    def test_history_delay_is_fixed_at_genesis_and_rejects_invalid_inputs(self):
+        for value in ("", "-1", "5", "invalid"):
+            with self.subTest(value=value):
+                result = self.run_deploy("", EEZ_L2_HISTORY_UPDATE_OFFSET=value)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / "broadcast.log").exists())
+        result = self.run_deploy("", EEZ_L2_HISTORY_UPDATE_OFFSET="4")
+        self.assertIn("DeployEEZ failed", result.stderr)
+        genesis = json.loads((self.root / "datadir/genesis.json").read_text())
+        self.assertEqual(genesis["config"]["rollupX"]["historyUpdateOffset"], 4)
+
+    def test_existing_genesis_is_preserved_without_broadcast(self):
+        directory = self.root / "datadir"
+        directory.mkdir()
+        genesis = directory / "genesis.json"
+        genesis.write_text("existing network state")
+        result = self.run_deploy("")
+        self.assertIn("output files already exist", result.stderr)
+        self.assertEqual(genesis.read_text(), "existing network state")
+        self.assertFalse((self.root / "broadcast.log").exists())
+
+    def test_private_network_requires_a_local_l1_profile(self):
+        result = self.run_deploy("", CHAIN_ID="31337", EEZ_L1_REFERENCE="genesis")
+        self.assertIn("private L1 requires EEZ_L1_CHAIN_CONFIG", result.stderr)
         self.assertFalse((self.root / "broadcast.log").exists())
 
     def test_absent_public_cadence_uses_fixed_profile_but_explicit_empty_is_rejected(self):

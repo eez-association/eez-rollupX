@@ -1,21 +1,18 @@
 //! Shared fixtures and the in-process tonic `Prove` harness for the service
 //! test submodules.
 
-mod attestation;
 mod derivation;
 mod golden;
 mod pipeline;
-mod preparation;
 mod runtime;
+mod settlement_checks;
 
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
 use alloy_primitives::{B256, Bytes, Signature, U256, address, b256, keccak256};
 use alloy_sol_types::SolValue as _;
 use eez_control_rpc::v1::prover_client::ProverClient;
-use eez_control_rpc::v1::{
-    BlockWitness, ExecutionWitness, PostBatch, ProveChunk, ProveHeader, ProveResponse, prove_chunk,
-    prove_failure,
-};
+use eez_control_rpc::v1::{BlockWitness, ExecutionWitness, prove_failure};
+use eez_control_rpc::v2::{Proof, SettlementInput as WireSettlement};
 use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
 use eez_protocol::blob_semantics::SemanticTransaction;
 use eez_protocol::{CallMode, ExecutedAction, ExecutionOutcome, RollupId};
@@ -26,7 +23,7 @@ use tonic::{Code, Status};
 
 use super::rpc::WorkerGuard;
 use super::settlement_job::{
-    PipelineError, SettlementInput, SettlementPipelineError, run_settlement, validate_and_settle,
+    PipelineError, SettlementInput, SettlementPipelineError, run_settlement,
 };
 use super::*;
 use crate::cancel::CancellationToken;
@@ -82,48 +79,52 @@ fn test_system_transaction_reconstructor(
 
 #[test]
 fn posting_rules_use_the_trusted_profile_and_exact_target_fork() {
-    use eez_protocol::public_inputs::L1PostingContext;
-    let context = L1PostingContext {
-        chain_id: 100,
-        target_timestamp: 999,
-        ..crate::testkit::l1_target()
-    };
-    let mut genesis = alloy_genesis::Genesis::default();
-    genesis.config.chain_id = 100;
+    let mut genesis = reth_chainspec::MAINNET.genesis.clone();
     genesis.config.cancun_time = Some(10);
     genesis.config.prague_time = Some(20);
     genesis.config.osaka_time = Some(1_000);
     let state = ServiceState::new(
-        crate::service::l1::L1Authority::Synthetic,
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
         Validator::stub(Vec::new()),
         expected_rollup_id(1),
         test_attester(),
         Arc::new(reth_chainspec::ChainSpec::from(genesis)),
     )
     .unwrap();
-    assert_eq!(state.posting_blob_limit(&context).unwrap(), 9);
-    assert_eq!(
-        state
-            .posting_blob_limit(&L1PostingContext {
-                target_timestamp: 1_000,
-                ..context
-            })
-            .unwrap(),
-        6
-    );
-    for invalid in [
-        L1PostingContext {
-            target_timestamp: 0,
-            ..context
-        },
-        L1PostingContext {
-            chain_id: 1,
-            ..context
-        },
-    ] {
+    assert_eq!(state.posting_blob_limit(999).unwrap(), 9);
+    assert_eq!(state.posting_blob_limit(1_000).unwrap(), 6);
+    for invalid in [0, 9] {
         assert_eq!(
-            state.posting_blob_limit(&invalid).unwrap_err().code(),
+            state.posting_blob_limit(invalid).unwrap_err().code(),
             Code::InvalidArgument
+        );
+    }
+}
+
+#[test]
+fn first_unsupported_inclusion_rejects_even_with_a_supported_parent() {
+    let mut genesis = reth_chainspec::MAINNET.genesis.clone();
+    genesis.config.cancun_time = Some(10);
+    genesis.config.prague_time = Some(20);
+    genesis.config.osaka_time = Some(1_000);
+    genesis.config.amsterdam_time = Some(2_000);
+    let state = ServiceState::new(
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
+        Validator::stub(Vec::new()),
+        expected_rollup_id(1),
+        test_attester(),
+        Arc::new(reth_chainspec::ChainSpec::from(genesis)),
+    )
+    .unwrap();
+    assert_eq!(state.posting_blob_limit(1_999).unwrap(), 6);
+    for target in [2_000, 2_001] {
+        let error = state.posting_blob_limit(target).unwrap_err();
+        assert_eq!(error.code(), Code::InvalidArgument);
+        assert_eq!(
+            error.message(),
+            "unsupported L1 rule period at posting target"
         );
     }
 }
@@ -135,7 +136,8 @@ fn service_state_rejects_a_validator_for_another_system_identity() {
         Address::repeat_byte(0xbb),
     );
     let error = ServiceState::new(
-        crate::service::l1::L1Authority::Synthetic,
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
         validator,
         expected_rollup_id(1),
         test_attester(),
@@ -160,7 +162,8 @@ fn service_state_rejects_an_attester_bound_to_another_system_identity() {
     .unwrap();
 
     let error = ServiceState::new(
-        crate::service::l1::L1Authority::Synthetic,
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
         Validator::stub(Vec::new()),
         expected_rollup_id(1),
         attester,
@@ -181,6 +184,10 @@ fn anchor_batch() -> eez_protocol::EvmBatch {
 fn anchor_batch_for(rollup_id: u64) -> eez_protocol::EvmBatch {
     let mut batch = eez_protocol::EvmBatch {
         blockNumber: u64::MAX,
+        expectedRootPerRollup: vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: rollup_id,
+            root: B256::repeat_byte(0x04),
+        }],
         ..Default::default()
     };
     batch.entries.push(ExecutionEntrySol {
@@ -409,7 +416,7 @@ fn mixed_evidence(outbound_call_hash: B256) -> validate::SettlementBlockEvidence
 fn single_block_settlement_window(
     batch: eez_protocol::EvmBatch,
     block_rlp: Vec<u8>,
-) -> Vec<ProveChunk> {
+) -> Vec<WindowChunk> {
     let semantic_transactions = fixture_semantics(&batch, &block_rlp);
     let mut block = block_chunk(5, 0x04, 0x05);
     block_mut(&mut block).rlp = block_rlp;
@@ -421,22 +428,37 @@ fn single_block_settlement_window(
     window
 }
 
-fn header_chunk(from: u64, to: u64) -> ProveChunk {
+// Mutable case data shared by the execution and pure settlement regressions.
+// TestServer emits only actual v2 frames; these types have no wire codec.
+#[derive(Clone)]
+struct WindowChunk {
+    kind: Option<WindowPart>,
+}
+
+#[derive(Clone)]
+enum WindowPart {
+    Metadata(WindowMetadata),
+    Block(BlockWitness),
+}
+
+#[derive(Clone)]
+struct WindowMetadata {
+    rollup_id: u64,
+    from_block: u64,
+    to_block: u64,
+    parent_header_rlp: Vec<u8>,
+    post_batch: Option<WireSettlement>,
+}
+
+fn header_chunk(from: u64, to: u64) -> WindowChunk {
     let block_count = to
         .checked_sub(from)
         .and_then(|distance| distance.checked_add(1))
         .and_then(|count| usize::try_from(count).ok())
         .unwrap_or_default();
-    ProveChunk {
-        kind: Some(prove_chunk::Kind::Header(ProveHeader {
-            parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
-                parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
-                accepted_l1_number: 0,
-                live_slot_endpoint_headers_rlp: Vec::new(),
-            }),
-            expected_validation_identity: Validator::stub(Vec::new())
-                .validation_identity(expected_rollup_id(1))
-                .to_vec(),
+    WindowChunk {
+        kind: Some(WindowPart::Metadata(WindowMetadata {
+            parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
             rollup_id: 1,
             from_block: from,
             to_block: to,
@@ -448,18 +470,18 @@ fn header_chunk(from: u64, to: u64) -> ProveChunk {
     }
 }
 
-fn public_input_post_batch() -> PostBatch {
+fn public_input_post_batch() -> WireSettlement {
     public_input_post_batch_for_empty_blocks(anchor_batch(), 3)
 }
 
-fn public_input_post_batch_for(batch: eez_protocol::EvmBatch) -> PostBatch {
+fn public_input_post_batch_for(batch: eez_protocol::EvmBatch) -> WireSettlement {
     public_input_post_batch_for_semantics(batch, &[])
 }
 
 fn public_input_post_batch_for_semantics(
     mut batch: eez_protocol::EvmBatch,
     semantic_transactions: &[SemanticTransaction],
-) -> PostBatch {
+) -> WireSettlement {
     let rollup_id = batch
         .rollupIdsWithProofSystems
         .first()
@@ -476,7 +498,7 @@ fn public_input_post_batch_for_semantics(
     let blobs =
         eez_blob_codec::encode_native_payload(rollup_id, operations, semantic_messages).unwrap();
     batch.blobIndices = (0..blobs.len()).map(U256::from).collect();
-    PostBatch {
+    WireSettlement {
         abi_calldata: eez_protocol::entries::encode_postbatch(&batch),
         blobs: blobs
             .into_iter()
@@ -489,7 +511,7 @@ fn public_input_post_batch_for_semantics(
 fn public_input_post_batch_for_empty_blocks(
     mut batch: eez_protocol::EvmBatch,
     block_count: usize,
-) -> PostBatch {
+) -> WireSettlement {
     bind_anchor_commitments(&mut batch, block_count);
     batch.callData = settlement::encode_da_payload(&vec![Vec::new(); block_count.max(1)]).into();
     public_input_post_batch_for(batch)
@@ -512,7 +534,7 @@ fn bind_anchor_commitments(batch: &mut eez_protocol::EvmBatch, block_count: usiz
     eez_protocol::entries::finalize_l1_rolling_hashes(batch).unwrap();
 }
 
-fn recompute_test_public_inputs_hash(post_batch: &PostBatch) -> B256 {
+fn recompute_test_public_inputs_hash(post_batch: &WireSettlement) -> B256 {
     let batch = settlement::decode_canonical_post_batch(post_batch.abi_calldata.clone()).unwrap();
     let verified_da = settlement::verify_da_carrier(&batch, &post_batch.blobs, 1).unwrap();
     settlement::CheckedPublicInputProfile::new(&batch, expected_rollup_id(1), test_proof_system())
@@ -520,17 +542,80 @@ fn recompute_test_public_inputs_hash(post_batch: &PostBatch) -> B256 {
         .recompute_public_inputs_hash(
             test_proof_system_vkey(),
             verified_da.transaction_blob_hashes(),
-            crate::testkit::target_from_wire(post_batch.posting_context.as_ref().unwrap()),
+            &crate::testkit::offline_context(
+                &batch,
+                crate::testkit::target_from_wire(post_batch.posting_context.as_ref().unwrap()),
+            ),
         )
         .unwrap()
         .into_inner()
 }
 
-fn recompute_window_public_inputs_hash(window: &[ProveChunk]) -> B256 {
-    let Some(prove_chunk::Kind::Header(header)) = &window[0].kind else {
+fn recompute_window_public_inputs_hash(window: &[WindowChunk]) -> B256 {
+    let Some(WindowPart::Metadata(header)) = &window[0].kind else {
         unreachable!("fixture starts with a header")
     };
     recompute_test_public_inputs_hash(header.post_batch.as_ref().unwrap())
+}
+
+fn recompute_window_public_inputs_for_state(state: &ServiceState, window: &[WindowChunk]) -> B256 {
+    let Some(WindowPart::Metadata(header)) = &window[0].kind else {
+        panic!("fixture header")
+    };
+    let post = header.post_batch.as_ref().unwrap();
+    let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+    let endpoint: alloy_consensus::Header = window[1..]
+        .iter()
+        .rev()
+        .find_map(|chunk| {
+            let Some(WindowPart::Block(block)) = &chunk.kind else {
+                return None;
+            };
+            block
+                .witness
+                .as_ref()?
+                .l1_headers_rlp
+                .last()
+                .map(|raw| alloy_rlp::decode_exact(raw).unwrap())
+        })
+        .unwrap();
+    let anchor = match &post.posting_context {
+        Some(posting) => eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+            number: posting.parent_number,
+            hash: B256::from_slice(&posting.parent_hash),
+            target_timestamp: posting.target_timestamp,
+        },
+        None => eez_protocol::l1_history::EvidenceAnchor::Historical {
+            number: batch.blockNumber,
+            hash: endpoint.hash_slow(),
+        },
+    };
+    let context = eez_protocol::l1_history::OfflineContext::new(
+        &state.deployment.profile,
+        state.deployment.registry,
+        state.deployment.manager,
+        header.rollup_id,
+        batch.expectedRootPerRollup[0].root,
+        anchor,
+        endpoint.timestamp,
+    )
+    .unwrap();
+    let carrier =
+        settlement::verify_da_carrier_with_limit(&batch, &post.blobs, header.rollup_id, 16)
+            .unwrap();
+    settlement::CheckedPublicInputProfile::new(
+        &batch,
+        state.expected_rollup_id,
+        state.attester.expected_proof_system(),
+    )
+    .unwrap()
+    .recompute_public_inputs_hash(
+        state.attester.proof_system_vkey(),
+        carrier.transaction_blob_hashes(),
+        &context,
+    )
+    .unwrap()
+    .into_inner()
 }
 
 fn fixture_action(
@@ -627,10 +712,10 @@ fn fixture_semantics(batch: &eez_protocol::EvmBatch, block_rlp: &[u8]) -> Vec<Se
 }
 
 #[track_caller]
-fn assert_attestation(response: &ProveResponse, expected_hash: B256, expected_signer: Address) {
+fn assert_attestation(response: &Proof, expected_hash: B256, expected_signer: Address) {
     assert_eq!(response.public_inputs_hash, expected_hash.as_slice());
-    assert_eq!(response.signature.len(), 65);
-    let signature = Signature::try_from(response.signature.as_slice()).unwrap();
+    assert_eq!(response.proof.len(), 65);
+    let signature = Signature::try_from(response.proof.as_slice()).unwrap();
     assert_eq!(
         signature
             .recover_address_from_prehash(&expected_hash)
@@ -639,32 +724,32 @@ fn assert_attestation(response: &ProveResponse, expected_hash: B256, expected_si
     );
 }
 
-fn replace_post_batch(window: &mut [ProveChunk], post_batch: PostBatch) {
+fn replace_post_batch(window: &mut [WindowChunk], post_batch: WireSettlement) {
     header_mut(&mut window[0]).post_batch = Some(post_batch);
 }
 
 #[track_caller]
-fn header_mut(chunk: &mut ProveChunk) -> &mut ProveHeader {
-    let Some(prove_chunk::Kind::Header(header)) = &mut chunk.kind else {
+fn header_mut(chunk: &mut WindowChunk) -> &mut WindowMetadata {
+    let Some(WindowPart::Metadata(header)) = &mut chunk.kind else {
         unreachable!("test chunk must be a header");
     };
     header
 }
 
 #[track_caller]
-fn block_mut(chunk: &mut ProveChunk) -> &mut BlockWitness {
-    let Some(prove_chunk::Kind::Block(block)) = &mut chunk.kind else {
+fn block_mut(chunk: &mut WindowChunk) -> &mut BlockWitness {
+    let Some(WindowPart::Block(block)) = &mut chunk.kind else {
         unreachable!("test chunk must be a block");
     };
     block
 }
 
-fn da_payload_for_window(window: &[ProveChunk]) -> Vec<u8> {
+fn da_payload_for_window(window: &[WindowChunk]) -> Vec<u8> {
     let blocks = window
         .iter()
         .skip(1)
         .map(|chunk| {
-            let Some(prove_chunk::Kind::Block(block)) = &chunk.kind else {
+            let Some(WindowPart::Block(block)) = &chunk.kind else {
                 panic!("test window contains a non-block chunk after its header");
             };
             let block = alloy_rlp::decode_exact::<eez_primitives::Block>(&block.rlp).unwrap();
@@ -674,17 +759,17 @@ fn da_payload_for_window(window: &[ProveChunk]) -> Vec<u8> {
     settlement::encode_da_payload(&blocks)
 }
 
-fn replace_batch_bound_to_window(window: &mut [ProveChunk], mut batch: eez_protocol::EvmBatch) {
+fn replace_batch_bound_to_window(window: &mut [WindowChunk], mut batch: eez_protocol::EvmBatch) {
     bind_anchor_commitments(&mut batch, window.len() - 1);
     batch.callData = da_payload_for_window(window).into();
     replace_post_batch(window, public_input_post_batch_for(batch));
 }
 
-fn block_chunk(number: u64, parent: u8, hash: u8) -> ProveChunk {
+fn block_chunk(number: u64, parent: u8, hash: u8) -> WindowChunk {
     let block =
         eez_primitives::Block::new(Default::default(), eez_primitives::BlockBody::default());
-    ProveChunk {
-        kind: Some(prove_chunk::Kind::Block(BlockWitness {
+    WindowChunk {
+        kind: Some(WindowPart::Block(BlockWitness {
             number,
             hash: vec![hash; 32],
             parent_hash: vec![parent; 32],
@@ -698,7 +783,7 @@ fn block_chunk(number: u64, parent: u8, hash: u8) -> ProveChunk {
 }
 
 /// A chained happy-path window: header(5..=7) + blocks 5, 6, 7.
-fn happy_window() -> Vec<ProveChunk> {
+fn happy_window() -> Vec<WindowChunk> {
     vec![
         header_chunk(5, 7),
         block_chunk(5, 0x04, 0x05),
@@ -707,7 +792,7 @@ fn happy_window() -> Vec<ProveChunk> {
     ]
 }
 
-fn stateless_window() -> Vec<ProveChunk> {
+fn stateless_window() -> Vec<WindowChunk> {
     let consensus_header = alloy_consensus::Header {
         number: 5,
         parent_hash: alloy_primitives::B256::repeat_byte(0x04),
@@ -726,7 +811,7 @@ fn stateless_window() -> Vec<ProveChunk> {
 
 type TestTransaction = eez_primitives::EezTxEnvelope;
 
-fn single_non_system_transaction_window() -> Vec<ProveChunk> {
+fn single_non_system_transaction_window() -> Vec<WindowChunk> {
     single_transaction_window(non_system_transaction())
 }
 
@@ -736,7 +821,7 @@ fn non_system_transaction() -> TestTransaction {
         .into()
 }
 
-fn single_system_transaction_window() -> Vec<ProveChunk> {
+fn single_system_transaction_window() -> Vec<WindowChunk> {
     single_transaction_window(system_transaction())
 }
 
@@ -796,7 +881,7 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
     (transaction, call_hash, return_data, sidecar)
 }
 
-fn single_transaction_window(transaction: TestTransaction) -> Vec<ProveChunk> {
+fn single_transaction_window(transaction: TestTransaction) -> Vec<WindowChunk> {
     vec![
         header_chunk(5, 5),
         transaction_block_chunk(5, 0x04, 0x05, transaction),
@@ -806,7 +891,7 @@ fn single_transaction_window(transaction: TestTransaction) -> Vec<ProveChunk> {
 fn two_block_transaction_window(
     first: TestTransaction,
     settling: TestTransaction,
-) -> Vec<ProveChunk> {
+) -> Vec<WindowChunk> {
     vec![
         header_chunk(5, 6),
         transaction_block_chunk(5, 0x04, 0x05, first),
@@ -819,7 +904,7 @@ fn transaction_block_chunk(
     parent: u8,
     hash: u8,
     transaction: TestTransaction,
-) -> ProveChunk {
+) -> WindowChunk {
     transactions_block_chunk(number, parent, hash, vec![transaction])
 }
 
@@ -828,7 +913,7 @@ fn transactions_block_chunk(
     parent: u8,
     hash: u8,
     transactions: Vec<TestTransaction>,
-) -> ProveChunk {
+) -> WindowChunk {
     let body: eez_primitives::BlockBody = alloy_consensus::BlockBody {
         transactions,
         ..Default::default()
@@ -895,6 +980,7 @@ impl TestServer {
         let (shutdown, shutdown_rx) = oneshot::channel();
         tokio::spawn(async move {
             tonic::transport::Server::builder()
+                .add_service(svc.streaming_server())
                 .add_service(svc.into_server())
                 .serve_with_incoming_shutdown(
                     tokio_stream::wrappers::TcpListenerStream::new(listener),
@@ -916,23 +1002,110 @@ impl TestServer {
         ProverClient::connect(self.endpoint.clone()).await.unwrap()
     }
 
-    // Most tests target gates after configuration agreement. Identity rejection
-    // tests deliberately use the raw client instead of these request helpers.
-    fn bind_identity(&self, chunks: &mut [ProveChunk]) {
-        for chunk in chunks {
-            if let Some(prove_chunk::Kind::Header(header)) = &mut chunk.kind {
-                header.expected_validation_identity = self.state.validation_identity.to_vec();
+    async fn exchange(&self, chunks: Vec<WindowChunk>) -> Result<Proof, Status> {
+        use eez_control_rpc::v2::{self, client_frame, server_frame};
+        let Some(WindowPart::Metadata(header)) = &chunks[0].kind else {
+            panic!("fixture has no range metadata");
+        };
+        let blocks = chunks[1..]
+            .iter()
+            .map(|chunk| {
+                let Some(WindowPart::Block(block)) = &chunk.kind else {
+                    panic!("offline fixture must supply every block");
+                };
+                block.clone()
+            })
+            .collect::<Vec<_>>();
+        let parent: alloy_consensus::Header =
+            alloy_rlp::decode_exact(&header.parent_header_rlp).unwrap();
+        let post = header.post_batch.as_ref().unwrap();
+        let mut frames = vec![client_frame::Kind::Begin(v2::Begin {
+            rollup_id: header.rollup_id,
+            anchor_number: parent.number,
+            anchor_hash: parent.hash_slow().to_vec(),
+            anchor_state_root: parent.state_root.to_vec(),
+        })];
+        frames.extend(
+            blocks
+                .iter()
+                .cloned()
+                .map(|data| client_frame::Kind::Block(v2::Block { data: Some(data) })),
+        );
+        frames.push(client_frame::Kind::Finalize(v2::Finalize {
+            from_block: header.from_block,
+            to_block: header.to_block,
+            terminal_hash: blocks.last().unwrap().hash.clone(),
+            settlement: Some(v2::SettlementInput {
+                abi_calldata: post.abi_calldata.clone(),
+                blobs: post.blobs.clone(),
+                posting_context: post.posting_context.as_ref().map(|context| {
+                    v2::L1PostingContext {
+                        chain_id: context.chain_id,
+                        target_timestamp: context.target_timestamp,
+                        parent_number: context.parent_number,
+                        parent_hash: context.parent_hash.clone(),
+                    }
+                }),
+            }),
+        }));
+        let mut client = v2::prover_client::ProverClient::connect(self.endpoint.clone())
+            .await
+            .unwrap()
+            .max_encoding_message_size(MAX_DECODING_MESSAGE_BYTES)
+            .max_decoding_message_size(MAX_DECODING_MESSAGE_BYTES);
+        let (tx, rx) = mpsc::channel(1);
+        let mut request = tonic::Request::new(ReceiverStream::new(rx));
+        request.metadata_mut().insert_bin(
+            "eez-validation-identity-bin",
+            tonic::metadata::MetadataValue::from_bytes(self.state.validation_identity.as_slice()),
+        );
+        let mut stream = client.prove_stream(request).await?.into_inner();
+        let mut session_id = Vec::new();
+        let mut epoch = 0;
+        for (index, kind) in frames.into_iter().enumerate() {
+            let request_id = index as u64 + 1;
+            tx.send(v2::ClientFrame {
+                session_id: session_id.clone(),
+                epoch,
+                request_id,
+                kind: Some(kind),
+            })
+            .await
+            .map_err(|_| Status::cancelled("test stream closed before send"))?;
+            let response = stream
+                .message()
+                .await?
+                .ok_or_else(|| Status::internal("stream ended without response"))?;
+            assert_eq!(response.request_id, request_id);
+            match response.kind.unwrap() {
+                server_frame::Kind::Ready(_) => {
+                    session_id = response.session_id;
+                    epoch = response.epoch;
+                }
+                server_frame::Kind::Validated(_) => {}
+                server_frame::Kind::Proof(proof) => {
+                    return Ok(Proof {
+                        public_inputs_hash: proof.public_inputs_hash,
+                        proof: proof.proof,
+                    });
+                }
+                server_frame::Kind::Rejected(error) => {
+                    return Err(Status::with_details(
+                        Code::from_i32(error.code),
+                        error.message,
+                        error.details.into(),
+                    ));
+                }
+                other => panic!("unexpected fixture response {other:?}"),
             }
         }
+        Err(Status::internal("fixture did not finish with Proof"))
     }
 
-    async fn prove(&self, mut chunks: Vec<ProveChunk>) -> Status {
-        self.bind_identity(&mut chunks);
+    async fn prove(&self, chunks: Vec<WindowChunk>) -> Status {
         let before = self.state.attester.signing_calls();
         let status = self
-            .client()
-            .await
-            .prove(tokio_stream::iter(chunks))
+            .exchange(chunks)
             .await
             .expect_err("request must be rejected");
         assert_eq!(
@@ -943,16 +1116,12 @@ impl TestServer {
         status
     }
 
-    async fn attest(&self, mut chunks: Vec<ProveChunk>) -> ProveResponse {
-        self.bind_identity(&mut chunks);
+    async fn attest(&self, chunks: Vec<WindowChunk>) -> Proof {
         let before = self.state.attester.signing_calls();
         let response = self
-            .client()
+            .exchange(chunks)
             .await
-            .prove(tokio_stream::iter(chunks))
-            .await
-            .expect("valid window must be attested")
-            .into_inner();
+            .expect("valid window must be attested");
         assert_eq!(self.state.attester.signing_calls(), before + 1);
         response
     }
@@ -966,12 +1135,6 @@ fn one_accepting_validator() -> Arc<ServiceState> {
     inner(Validator::stub(vec![Ok(backend_output_for(
         &happy_block_inputs(),
     ))]))
-}
-
-fn one_accepting_single_block_validator() -> Arc<ServiceState> {
-    inner(Validator::stub(vec![Ok(backend_output_for(&[
-        stub_block(5, 0x04, 0x05),
-    ]))]))
 }
 
 fn single_block_validator_with_execution_evidence(
@@ -1009,10 +1172,32 @@ fn inner(validator: Validator) -> Arc<ServiceState> {
     inner_with_rollup(validator, expected_rollup_id(1))
 }
 
+fn native_validator_state(rollup_id: NonZeroU64) -> Arc<ServiceState> {
+    let directory =
+        crate::testkit::manifest_dir().join("tests/fixtures/native-offline-bidirectional");
+    Arc::new(
+        ServiceState::new(
+            Address::repeat_byte(0x33),
+            Address::repeat_byte(0x44),
+            Validator::stateless(&directory.join("l2-genesis.json"), TEST_SYSTEM_ADDRESS).unwrap(),
+            rollup_id,
+            test_attester(),
+            Arc::new(reth_chainspec::ChainSpec::from(
+                serde_json::from_slice::<alloy_genesis::Genesis>(
+                    &std::fs::read(directory.join("l1-genesis.json")).unwrap(),
+                )
+                .unwrap(),
+            )),
+        )
+        .unwrap(),
+    )
+}
+
 fn inner_with_rollup(validator: Validator, expected_rollup_id: NonZeroU64) -> Arc<ServiceState> {
     Arc::new(
         ServiceState::new(
-            crate::service::l1::L1Authority::Synthetic,
+            Address::repeat_byte(0x33),
+            Address::repeat_byte(0x44),
             validator,
             expected_rollup_id,
             test_attester(),

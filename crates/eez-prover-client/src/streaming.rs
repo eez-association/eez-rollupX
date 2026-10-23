@@ -19,14 +19,6 @@ pub(super) struct StreamAnchor {
     pub(super) state_root: B256,
 }
 
-/// Outcome of optional prevalidation. Skipping work never asserts validation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Prevalidation {
-    Unsupported,
-    /// V2 is available; any gap remains deferred until full proof backfill.
-    Available,
-}
-
 fn block_header(block: &BlockWitness) -> ProverResult<alloy_consensus::Header> {
     let decoded: eez_primitives::Block = alloy_rlp::decode_exact(&block.rlp)
         .map_err(|_| ProverError::Backend("invalid local block RLP".into()))?;
@@ -41,9 +33,34 @@ fn block_header(block: &BlockWitness) -> ProverResult<alloy_consensus::Header> {
     Ok(decoded.header)
 }
 
+fn wire_segment(
+    block: &BlockWitness,
+    tip: &mut Option<alloy_primitives::Bytes>,
+) -> ProverResult<eez_control_rpc::v1::BlockWitness> {
+    let first = block
+        .l1_headers_rlp
+        .first()
+        .ok_or_else(|| ProverError::Backend("captured witness has no L1 endpoint".into()))?;
+    let last = block.l1_headers_rlp.last().expect("nonempty checked above");
+    let mut wire = wire_block(block.clone());
+    if let Some(previous) = tip.as_ref() {
+        if previous != first {
+            return Err(ProverError::Backend(
+                "captured L1 witness segments disagree at shared endpoint".into(),
+            ));
+        }
+        wire.witness
+            .as_mut()
+            .expect("wire_block always supplies a witness")
+            .l1_headers_rlp
+            .remove(0);
+    }
+    *tip = Some(last.clone());
+    Ok(wire)
+}
+
 #[derive(Debug, Default)]
 pub(super) struct StreamingState {
-    supported: Option<bool>,
     session: Option<StreamingSession>,
     next_request_id: u64,
 }
@@ -54,6 +71,15 @@ struct StreamingSession {
     rollup_id: u64,
     id: Vec<u8>,
     epoch: u64,
+    // Oldest retained predecessor, from Begin or a successful subrange Proof.
+    // Background prevalidation can start beyond an unsettled candidate's parent.
+    anchor: StreamAnchor,
+    // Only this original Begin anchor has an empty header checkpoint. A
+    // promoted subrange anchor retains the headers of its executed predecessor.
+    empty_history_anchor: Option<B256>,
+    // Finalize extends the terminal evidence through its proof anchor. A later
+    // target must rewind that frame, even when the L2 block hash is unchanged.
+    extended_at: Option<u64>,
 }
 
 #[derive(Debug)]
@@ -191,46 +217,24 @@ fn rejection_error(response: &ServerFrame, from_block: u64, to_block: u64) -> Op
 impl RemoteProver {
     /// Best-effort v2 prevalidation using the caller's complete durable range.
     /// A gap retains prior progress; final proving always backfills what is missing.
-    /// Unsupported peers explicitly select the existing v1 preparation path.
+    /// Unsupported peers fail explicitly; there is no v1 proving fallback.
     pub async fn prevalidate_range(
         &self,
         rollup_id: u64,
         blocks: &[BlockWitness],
-    ) -> ProverResult<Prevalidation> {
+    ) -> ProverResult<()> {
         let connection = self.connection().await?;
-        let chunk_size = connection.capabilities.preparation_max_blocks as usize;
+        let chunk_size = (connection.capabilities.max_window_blocks as usize).min(64);
         for chunk in blocks.chunks(chunk_size) {
-            if self.prevalidate_chunk(rollup_id, chunk).await? == Prevalidation::Unsupported {
-                return Ok(Prevalidation::Unsupported);
-            }
+            self.prevalidate_chunk(rollup_id, chunk).await?;
         }
-        Ok(if self.streaming_supported().await {
-            Prevalidation::Available
-        } else {
-            Prevalidation::Unsupported
-        })
+        Ok(())
     }
 
-    async fn prevalidate_chunk(
-        &self,
-        rollup_id: u64,
-        blocks: &[BlockWitness],
-    ) -> ProverResult<Prevalidation> {
+    async fn prevalidate_chunk(&self, rollup_id: u64, blocks: &[BlockWitness]) -> ProverResult<()> {
         let Some(first) = blocks.first() else {
-            return Ok(if self.streaming_supported().await {
-                Prevalidation::Available
-            } else {
-                Prevalidation::Unsupported
-            });
+            return Ok(());
         };
-        if self
-            .inner
-            .streaming
-            .try_lock()
-            .is_ok_and(|state| state.supported == Some(false))
-        {
-            return Ok(Prevalidation::Unsupported);
-        }
         let mut parent = None;
         for bytes in &first.witness.headers {
             let header: alloy_consensus::Header = alloy_rlp::decode_exact(bytes)
@@ -247,18 +251,15 @@ impl RemoteProver {
             state_root: parent.state_root,
         };
         match self.stream_exchange(rollup_id, anchor, blocks, None).await {
-            Ok(None) => Ok(Prevalidation::Available),
+            Ok(None) => Ok(()),
             Ok(Some(_)) => Err(ProverError::Backend(
                 "unsolicited prevalidation proof".into(),
             )),
-            Err(StreamingError::Unsupported) => Ok(Prevalidation::Unsupported),
+            Err(StreamingError::Unsupported) => Err(ProverError::Backend(
+                "offline v2 proving is required".into(),
+            )),
             Err(StreamingError::Prover(error)) => Err(error),
         }
-    }
-
-    /// Whether this client has negotiated the optional v2 preparation path.
-    pub async fn streaming_supported(&self) -> bool {
-        self.inner.streaming.lock().await.supported == Some(true)
     }
 
     async fn open_stream(
@@ -301,9 +302,14 @@ impl RemoteProver {
             "eez-validation-identity-bin",
             tonic::metadata::MetadataValue::from_bytes(self.inner.expected_identity.as_slice()),
         );
-        let mut responses = client
-            .prove_stream(request)
-            .await
+        let response = client.prove_stream(request).await;
+        if response
+            .as_ref()
+            .is_err_and(|status| status.code() == Code::Unavailable)
+        {
+            self.invalidate_connection(&connection).await;
+        }
+        let mut responses = response
             .map_err(|status| {
                 if status.code() == Code::Unimplemented {
                     StreamingError::Unsupported
@@ -352,14 +358,20 @@ impl RemoteProver {
         finalize: Option<(u64, u64, eez_control_rpc::v2::SettlementInput)>,
     ) -> Result<Option<(Vec<u8>, Vec<u8>)>, StreamingError> {
         let mut state = self.inner.streaming.lock().await;
-        if state.supported == Some(false) {
-            return Err(StreamingError::Unsupported);
+        if state.session.as_ref().is_some_and(|session| {
+            session.rollup_id != rollup_id
+                || anchor.number < session.anchor.number
+                || (anchor.number == session.anchor.number && anchor.hash != session.anchor.hash)
+        }) {
+            state.session = None;
         }
-        if state
-            .session
-            .as_ref()
-            .is_some_and(|session| session.rollup_id != rollup_id)
-        {
+        if state.session.as_ref().is_some_and(|session| {
+            session.extended_at.is_some_and(|number| {
+                finalize.is_none() || blocks.first().is_some_and(|block| block.number > number)
+            })
+        }) {
+            // A previous proof's anchor bridge is not the next part's execution
+            // history. Begin from the supplied authenticated predecessor.
             state.session = None;
         }
         let range = finalize.as_ref().map_or_else(
@@ -398,7 +410,7 @@ impl RemoteProver {
         'attempt: loop {
             // Only the server retains the validated prefix. A fresh Ready determines
             // what to send, including work completed after a previous response was lost.
-            let (requests, mut responses, blocks) = loop {
+            let (requests, mut responses, blocks, mut l1_tip) = loop {
                 let creating = state.session.is_none();
                 if creating {
                     retry_at_anchor = false; // Already starting at the requested anchor.
@@ -413,13 +425,11 @@ impl RemoteProver {
                     match self.open_stream(&mut state, begin, range.0, range.1).await {
                         Ok(opened) => opened,
                         Err(StreamingError::Unsupported) => {
-                            state.supported = Some(false);
                             state.session = None;
                             return Err(StreamingError::Unsupported);
                         }
                         Err(error) => return Err(error),
                     };
-                state.supported = Some(true);
                 if !creating
                     && matches!(&response.kind,
                         Some(server_frame::Kind::Rejected(rejected)) if matches!(Code::from_i32(rejected.code), Code::NotFound | Code::Unimplemented)
@@ -463,19 +473,41 @@ impl RemoteProver {
                     )
                     .into());
                 }
+                let previous = state.session.take();
+                let session_anchor = previous.as_ref().map_or(anchor, |session| session.anchor);
+                let extended_at = previous.as_ref().and_then(|session| session.extended_at);
+                let empty_history_anchor =
+                    previous.map_or(Some(anchor.hash), |session| session.empty_history_anchor);
                 state.session = Some(StreamingSession {
                     rollup_id,
                     id: response.session_id,
                     epoch: response.epoch,
+                    anchor: session_anchor,
+                    empty_history_anchor,
+                    extended_at,
                 });
 
-                let skip = blocks
+                let mut skip = blocks
                     .iter()
                     .position(|block| {
                         block.number == ready.validated_through
                             && block.hash.as_slice() == ready.validated_hash
                     })
                     .map_or(0, |index| index + 1);
+                if let Some(finalize) = &finalize {
+                    let terminal = blocks
+                        .iter()
+                        .position(|block| block.number == finalize.to_block)
+                        .ok_or_else(|| {
+                            ProverError::Backend("missing finalization terminal".into())
+                        })?;
+                    skip = skip.min(terminal);
+                    if let Some(index) = extended_at
+                        .and_then(|number| blocks.iter().position(|block| block.number == number))
+                    {
+                        skip = skip.min(index);
+                    }
+                }
                 let remaining = &blocks[skip..];
                 if let Some(first) = remaining.first()
                     && (ready.validated_through.checked_add(1) != Some(first.number)
@@ -539,7 +571,25 @@ impl RemoteProver {
                     }
                     state.session.as_mut().expect("ready session exists").epoch = response.epoch;
                 }
-                break (requests, responses, remaining);
+                let empty = remaining
+                    .first()
+                    .is_none_or(|first| empty_history_anchor == Some(first.parent_hash));
+                let l1_tip = if empty {
+                    None
+                } else {
+                    Some(
+                        remaining[0]
+                            .l1_headers_rlp
+                            .first()
+                            .ok_or_else(|| {
+                                ProverError::Backend(
+                                    "missing predecessor L1 header in captured witness".into(),
+                                )
+                            })?
+                            .clone(),
+                    )
+                };
+                break (requests, responses, remaining, l1_tip);
             };
 
             // Poll both directions: a slow reader must not deadlock our request sender.
@@ -558,7 +608,12 @@ impl RemoteProver {
                             message: "ProveStream request stream closed".into(),
                         })?;
                         let kind = if next < blocks.len() {
-                            client_frame::Kind::Block(StreamBlock { data: Some(wire_block(blocks[next].clone())) })
+                            let block = &blocks[next];
+                            let wire = wire_segment(block, &mut l1_tip)?;
+                            if finalize.as_ref().is_some_and(|finalize| finalize.to_block == block.number) {
+                                state.session.as_mut().expect("ready session exists").extended_at = Some(block.number);
+                            }
+                            client_frame::Kind::Block(StreamBlock { data: Some(wire) })
                         } else {
                             client_frame::Kind::Finalize(pending_finalize.take().expect("last request is Finalize"))
                         };
@@ -597,6 +652,11 @@ impl RemoteProver {
                             let Some(server_frame::Kind::Proof(result)) = response.kind else {
                                 return Err(ProverError::Backend("ProveStream did not answer Finalize with Proof".into()).into());
                             };
+                            let session = state.session.as_mut().expect("ready session exists");
+                            session.anchor = anchor;
+                            if session.empty_history_anchor != Some(anchor.hash) {
+                                session.empty_history_anchor = None;
+                            }
                             proof = Some((result.public_inputs_hash, result.proof));
                         }
                     }

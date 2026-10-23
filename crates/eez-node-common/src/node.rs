@@ -31,8 +31,10 @@ use reth_primitives_traits::SealedBlock;
 use reth_provider::EthStorage;
 use std::{future::ready, sync::Arc};
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct EezNode;
+#[derive(Debug, Clone)]
+pub struct EezNode {
+    history: Arc<dyn eez_evm::history::L1HistorySource>,
+}
 
 impl NodeTypes for EezNode {
     type Primitives = EezPrimitives;
@@ -42,7 +44,15 @@ impl NodeTypes for EezNode {
 }
 
 impl EezNode {
-    pub fn components<N: FullNodeTypes<Types = Self>>() -> ComponentsBuilder<
+    /// Every node instance requires a canonical evidence source. It can remain
+    /// empty during boot, but execution fails closed until derivation prepares it.
+    pub fn new(history: Arc<dyn eez_evm::history::L1HistorySource>) -> Self {
+        Self { history }
+    }
+
+    pub fn components<N: FullNodeTypes<Types = Self>>(
+        history: Arc<dyn eez_evm::history::L1HistorySource>,
+    ) -> ComponentsBuilder<
         N,
         EezPoolBuilder,
         BasicPayloadServiceBuilder<EezPayloadBuilder>,
@@ -53,7 +63,7 @@ impl EezNode {
         ComponentsBuilder::default()
             .node_types::<N>()
             .pool(EezPoolBuilder::new(eez_primitives::SYSTEM_ADDRESS))
-            .executor(EezExecutorBuilder)
+            .executor(EezExecutorBuilder { history })
             .payload(BasicPayloadServiceBuilder::new(EezPayloadBuilder::default()))
             .network(EthereumNetworkBuilder::default())
             .consensus(EezConsensusBuilder)
@@ -76,14 +86,20 @@ impl<N: FullNodeComponents<Types = Self>> DebugNode<N> for EezNode {
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub struct EezExecutorBuilder;
+#[derive(Debug, Clone)]
+pub struct EezExecutorBuilder {
+    history: Arc<dyn eez_evm::history::L1HistorySource>,
+}
 
 impl<N: FullNodeTypes<Types = EezNode>> ExecutorBuilder<N> for EezExecutorBuilder {
     type EVM = EezEvmConfig;
 
     fn build_evm(self, ctx: &BuilderContext<N>) -> impl Future<Output = eyre::Result<Self::EVM>> {
-        ready(Ok(EezEvmConfig::new(ctx.chain_spec())))
+        ready(
+            EezEvmConfig::new(ctx.chain_spec())
+                .with_l1_history(self.history)
+                .map_err(Into::into),
+        )
     }
 }
 
@@ -179,7 +195,7 @@ impl<N: FullNodeTypes<Types = Self>> reth_node_builder::Node<N> for EezNode {
     >;
 
     fn components_builder(&self) -> Self::ComponentsBuilder {
-        Self::components()
+        Self::components(Arc::clone(&self.history))
     }
 
     fn add_ons(&self) -> Self::AddOns {

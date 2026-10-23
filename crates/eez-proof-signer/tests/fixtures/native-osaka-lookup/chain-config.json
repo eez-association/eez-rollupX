@@ -17,12 +17,13 @@
   "pragueTime": 0,
   "rollupX": {
     "blockIntervalSeconds": 1,
+    "historyUpdateOffset": 2,
     "l1Reference": {
       "chainId": 1337,
-      "hash": "0x1a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "hash": "0x916a9904b6cbf0b7eb689e75b57c0771dac0b9232233bb77af4c3d5650f4aadf",
       "number": 0,
       "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "timestamp": 1790851967
+      "timestamp": 1792691998
     },
     "syncIntervalBlocks": 5
   },

@@ -397,6 +397,7 @@ mod tests {
         (
             BuiltSyncBlock {
                 payload: EezEngineTypes::block_to_payload(sealed, None),
+                l1_origin_hash: B256::ZERO,
                 header,
                 block,
                 tx_successes: vec![true, true, true, false],

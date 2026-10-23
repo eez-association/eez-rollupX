@@ -862,23 +862,44 @@ mod tests {
 
     fn test_context() -> ProvingContext {
         ProvingContext {
-            parent_provenance: eez_protocol::l2::ParentProvenance {
-                parent: Default::default(),
-                accepted_l1_number: 0,
-                live_slot_endpoints: Vec::new(),
-            },
+            parent: Default::default(),
+            offline_context: eez_protocol::l1_history::OfflineContext::new(
+                &eez_protocol::l1_history::OfflineProfile {
+                    l1ChainId: alloy_primitives::U256::from(1),
+                    l2ChainId: alloy_primitives::U256::from(1),
+                    genesisHash: B256::repeat_byte(1),
+                    genesisTimestamp: 12,
+                    blockInterval: 2,
+                    syncInterval: 6,
+                    updateOffset: 2,
+                    l1ConfigHash: B256::repeat_byte(2),
+                    historyCodeHash: B256::repeat_byte(3),
+                    ruleTimes: vec![0],
+                },
+                alloy_primitives::Address::repeat_byte(4),
+                alloy_primitives::Address::repeat_byte(5),
+                1,
+                B256::repeat_byte(1),
+                eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+                    number: 99,
+                    hash: B256::repeat_byte(0x42),
+                    target_timestamp: 1,
+                },
+                0,
+            )
+            .unwrap(),
             rollup_id: 1,
             from_block: 1,
             to_block: 1,
             batch: Default::default(),
             blobs: Vec::new(),
             blocks: Vec::new().into(),
-            l1_posting: eez_prover::L1PostingContext {
+            l1_posting: Some(eez_prover::L1PostingContext {
                 parent_number: 99,
                 parent_hash: B256::repeat_byte(0x42),
                 chain_id: 1,
                 target_timestamp: 1,
-            },
+            }),
         }
     }
 

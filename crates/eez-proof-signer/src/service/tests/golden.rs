@@ -1,12 +1,9 @@
 //! Captured protocol and wire-format regressions.
 
+use super::{WindowChunk, WindowMetadata, WindowPart, WireSettlement};
 use alloy_primitives::B256;
-use eez_control_rpc::v1::{
-    BlockWitness, ExecutionWitness, PostBatch, ProveChunk, ProveHeader, prove_chunk,
-};
+use eez_control_rpc::v1::{BlockWitness, ExecutionWitness};
 
-use super::expected_rollup_id;
-use crate::cancel::CancellationToken;
 use crate::testkit::TEST_SYSTEM_ADDRESS;
 use crate::{settlement, validate};
 
@@ -87,6 +84,7 @@ fn recorded_wire_witness(encoded: &str) -> ExecutionWitness {
         codes: decode_items("codes"),
         keys: decode_items("keys"),
         headers: decode_items("headers"),
+        l1_headers_rlp: Vec::new(),
     }
 }
 
@@ -116,20 +114,13 @@ fn captured_legacy_outbound_window_requires_the_native_genesis_profile() {
     );
 
     let calldata = fixture_hex(fixture_str(&post_batch_json, "abi_calldata"));
-    let mut chunks = vec![ProveChunk {
-        kind: Some(prove_chunk::Kind::Header(ProveHeader {
-            parent_provenance: Some(eez_control_rpc::v1::ParentProvenance {
-                parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
-                accepted_l1_number: 0,
-                live_slot_endpoint_headers_rlp: Vec::new(),
-            }),
-            expected_validation_identity: crate::validate::Validator::stub(Vec::new())
-                .validation_identity(expected_rollup_id(1))
-                .to_vec(),
+    let mut chunks = vec![WindowChunk {
+        kind: Some(WindowPart::Metadata(WindowMetadata {
+            parent_header_rlp: alloy_rlp::encode(alloy_consensus::Header::default()),
             rollup_id: rollup,
             from_block: from,
             to_block: to,
-            post_batch: Some(PostBatch {
+            post_batch: Some(WireSettlement {
                 abi_calldata: calldata,
                 blobs: Vec::new(),
                 posting_context: Some(crate::testkit::posting_context()),
@@ -140,8 +131,8 @@ fn captured_legacy_outbound_window_requires_the_native_genesis_profile() {
         let rlp = fixture_hex(encoded_rlp);
         let block = alloy_rlp::decode_exact::<eez_primitives::Block>(&rlp).unwrap();
         assert_eq!(block.header.number, *number);
-        chunks.push(ProveChunk {
-            kind: Some(prove_chunk::Kind::Block(BlockWitness {
+        chunks.push(WindowChunk {
+            kind: Some(WindowPart::Block(BlockWitness {
                 number: *number,
                 hash: block.header.hash_slow().to_vec(),
                 parent_hash: block.header.parent_hash.to_vec(),
@@ -151,7 +142,7 @@ fn captured_legacy_outbound_window_requires_the_native_genesis_profile() {
         });
     }
     let settling_hash = match &chunks.last().unwrap().kind {
-        Some(prove_chunk::Kind::Block(block)) => B256::from_slice(&block.hash),
+        Some(WindowPart::Block(block)) => B256::from_slice(&block.hash),
         _ => unreachable!(),
     };
     assert_eq!(
@@ -178,24 +169,25 @@ fn captured_legacy_outbound_window_requires_the_native_genesis_profile() {
     );
     assert_eq!(validator.chain_id(), fixture_u64(&oracle, "l2_chain_id"));
 
-    let mut assembler = crate::window::WindowAssembler::start(
-        crate::window::WindowLimits {
-            blocks: blocks.len(),
-            payload_bytes: 1_000_000,
-            witness_items: 10_000,
-        },
-        chunks[0].clone(),
-    )
-    .unwrap()
-    .verify_rollup_identity(expected_rollup_id(rollup))
-    .unwrap();
-    for chunk in &chunks[1..] {
-        assembler.push(chunk.clone()).unwrap();
-    }
-    let admitted = assembler.finish().unwrap();
-    let (_, admitted_blocks) = admitted.into_parts();
-    let error = validator
-        .validate_window(admitted_blocks, &CancellationToken::default())
-        .unwrap_err();
+    let admitted = chunks
+        .into_iter()
+        .skip(1)
+        .map(|chunk| {
+            let Some(WindowPart::Block(block)) = chunk.kind else {
+                unreachable!()
+            };
+            crate::window::AdmittedBlock::from_wire(
+                block,
+                &mut 0,
+                crate::window::WindowLimits {
+                    blocks: blocks.len(),
+                    payload_bytes: 1_000_000,
+                    witness_items: 10_000,
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let error = validator.validate(&admitted).unwrap_err();
     assert!(error.to_string().contains("config.rollupX"), "{error}");
 }

@@ -12,7 +12,6 @@ use super::RemoteProver;
 #[derive(Debug)]
 pub(super) struct Connection {
     pub(super) channel: Channel,
-    pub(super) client: ProverClient<Channel>,
     pub(super) capabilities: CapabilitiesResponse,
 }
 
@@ -61,12 +60,8 @@ impl RemoteProver {
             *agreed = Some(capabilities.clone());
         }
         drop(agreed);
-        let maximum = usize::try_from(capabilities.max_message_bytes).map_err(|_| {
-            ProverError::Backend("prover message limit exceeds platform capacity".into())
-        })?;
         let connection = Arc::new(Connection {
             channel,
-            client: client.max_encoding_message_size(maximum),
             capabilities,
         });
         *slot = Some(Arc::clone(&connection));
@@ -96,7 +91,9 @@ fn validate(
     capabilities: &CapabilitiesResponse,
     expected: alloy_primitives::B256,
 ) -> ProverResult<()> {
-    if capabilities.operations_tag != 0 || capabilities.profile_id != 1 {
+    if capabilities.operations_tag != 0
+        || capabilities.profile_id != eez_control_rpc::OFFLINE_PROFILE_ID
+    {
         return Err(ProverError::Backend(
             "prover operations tag/profile mismatch".into(),
         ));
@@ -112,17 +109,8 @@ fn validate(
         || capabilities.max_message_bytes == 0
         || capabilities.max_message_bytes > capabilities.max_request_bytes
         || capabilities.max_message_bytes > 268_435_456
-        || !(1..=64).contains(&capabilities.preparation_max_blocks)
         || capabilities.stream_idle_timeout_millis == 0
         || capabilities.request_timeout_millis == 0
-        || capabilities.cache_max_entries == 0
-        || capabilities.cache_max_bytes == 0
-        || capabilities.maximum_leases != eez_control_rpc::MAX_PREPARATION_LEASES
-        || capabilities.lease_lifetime_millis
-            < capabilities
-                .request_timeout_millis
-                .saturating_mul(2)
-                .max(120_000)
     {
         return Err(ProverError::Backend(
             "prover returned invalid effective limits".into(),

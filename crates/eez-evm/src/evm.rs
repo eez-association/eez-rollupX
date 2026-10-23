@@ -10,13 +10,14 @@ use alloy_evm::{
 use alloy_primitives::{Address, Bytes, TxKind};
 use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS, SYSTEM_TX_GAS_CAP, SYSTEM_TX_TYPE};
 use revm::{
-    Inspector,
+    Context, ExecuteEvm as _, Inspector, MainBuilder as _, MainContext as _,
     context::{BlockEnv, CfgEnv, TxEnv},
     context_interface::{
         JournalTr,
         journaled_state::account::JournaledAccountTr,
         result::{EVMError, HaltReason, ResultAndState},
     },
+    handler::{Handler as _, MainnetHandler},
     inspector::NoOpInspector,
     primitives::hardfork::SpecId,
 };
@@ -132,6 +133,23 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
         contract: Address,
         data: Bytes,
     ) -> Result<ResultAndState, Self::Error> {
+        if contract == eez_protocol::l1_history::HISTORY_ADDRESS {
+            if caller != SYSTEM_ADDRESS {
+                return Err(EVMError::Custom("invalid L1 history system caller".into()));
+            }
+            // The upstream convenience method replaces the gas limit with its
+            // 30M system budget. Run the same handler with the fixed profile
+            // budget instead. The temporary journal shares only the state DB:
+            // failure cannot commit a prefix of the import, and no transaction
+            // validation, caller nonce increment or fee settlement runs.
+            return bounded_history_call(
+                self.ethereum.block().clone(),
+                self.ethereum.cfg_env().clone(),
+                self.ethereum.db_mut(),
+                data,
+                eez_protocol::l1_history::IMPORT_GAS_LIMIT,
+            );
+        }
         self.ethereum.transact_system_call(caller, contract, data)
     }
 
@@ -150,6 +168,31 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
     fn components_mut(&mut self) -> (&mut DB, &mut I, &mut PrecompilesMap) {
         self.ethereum.components_mut()
     }
+}
+
+fn bounded_history_call<DB: Database>(
+    block: BlockEnv,
+    cfg: CfgEnv,
+    db: &mut DB,
+    data: Bytes,
+    gas_limit: u64,
+) -> Result<ResultAndState, EVMError<DB::Error>> {
+    let mut evm = Context::mainnet()
+        .with_block(block)
+        .with_cfg(cfg)
+        .with_db(db)
+        .with_tx(TxEnv {
+            caller: SYSTEM_ADDRESS,
+            kind: TxKind::Call(eez_protocol::l1_history::HISTORY_ADDRESS),
+            data,
+            gas_limit,
+            ..Default::default()
+        })
+        .build_mainnet();
+    let result =
+        MainnetHandler::<_, EVMError<DB::Error>, _>::default().run_system_call(&mut evm)?;
+    let state = evm.finalize();
+    Ok(ResultAndState { result, state })
 }
 
 /// Installs the minting wrapper for both ordinary and inspected execution.
@@ -181,5 +224,82 @@ impl EvmFactory for EezEvmFactory {
         EezEvm {
             ethereum: EthEvmFactory::default().create_evm_with_inspector(db, input, inspector),
         }
+    }
+}
+
+#[cfg(test)]
+mod history_budget_tests {
+    use super::*;
+    use alloy_primitives::{B256, U256};
+    use alloy_sol_types::SolCall as _;
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract, IMPORT_GAS_LIMIT};
+    use revm::Database as _;
+
+    #[test]
+    fn maximum_import_fits_and_a_small_budget_halts_without_charging_the_caller() {
+        let (_, mut db) = crate::history::tests::fixture();
+        db.insert_account_info(
+            SYSTEM_ADDRESS,
+            revm::state::AccountInfo {
+                nonce: 91,
+                balance: U256::from(7),
+                ..Default::default()
+            },
+        );
+        let data: Bytes = IL1BlockhashContract::importHistoryCall {
+            cutoff: 4,
+            hashes: (1..=64).map(B256::with_last_byte).collect(),
+        }
+        .abi_encode()
+        .into();
+        let cfg = CfgEnv::new_with_spec(SpecId::OSAKA);
+        let block = BlockEnv {
+            number: U256::from(3),
+            timestamp: U256::from(7),
+            prevrandao: Some(B256::ZERO),
+            ..Default::default()
+        };
+        let result = bounded_history_call(
+            block.clone(),
+            cfg.clone(),
+            &mut db,
+            data.clone(),
+            IMPORT_GAS_LIMIT,
+        )
+        .unwrap();
+        assert!(result.result.is_success(), "{:?}", result.result);
+        assert!(result.result.tx_gas_used() <= IMPORT_GAS_LIMIT);
+        assert_eq!(
+            result.state[&HISTORY_ADDRESS].storage[&U256::from(2)].present_value(),
+            U256::from(64)
+        );
+        assert_eq!(db.basic(SYSTEM_ADDRESS).unwrap().unwrap().nonce, 91);
+        assert_eq!(
+            db.basic(SYSTEM_ADDRESS).unwrap().unwrap().balance,
+            U256::from(7)
+        );
+
+        let insufficient = bounded_history_call(block, cfg, &mut db, data, 10_000).unwrap();
+        assert!(insufficient.result.is_halt());
+        assert_eq!(insufficient.result.tx_gas_used(), 10_000);
+        assert_eq!(
+            db.storage(HISTORY_ADDRESS, U256::from(2)).unwrap(),
+            U256::ZERO
+        );
+        assert_eq!(db.basic(SYSTEM_ADDRESS).unwrap().unwrap().nonce, 91);
+    }
+
+    #[test]
+    fn history_system_entry_rejects_any_other_caller() {
+        let (_, db) = crate::history::tests::fixture();
+        let mut evm = EezEvmFactory.create_evm(db, EvmEnv::default());
+        let error = evm
+            .transact_system_call(Address::ZERO, HISTORY_ADDRESS, Bytes::new())
+            .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("invalid L1 history system caller")
+        );
     }
 }

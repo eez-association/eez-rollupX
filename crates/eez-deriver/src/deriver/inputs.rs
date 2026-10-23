@@ -54,16 +54,62 @@ mod tests {
     use std::sync::Arc;
 
     fn fixture() -> (EezEvmConfig, SealedHeader, Environment, Block) {
+        use eez_protocol::l1_history::{
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
+            bootstrap_storage,
+        };
+        let reference = Header {
+            timestamp: 68,
+            mix_hash: B256::repeat_byte(0x22),
+            ..Default::default()
+        };
+        let endpoint = Header {
+            number: 1,
+            parent_hash: reference.hash_slow(),
+            timestamp: 1_000_000,
+            ..Default::default()
+        };
         let mut genesis =
             eez_l1::chain_config::parse_l2_genesis(include_bytes!("../../../../genesis.json"))
                 .unwrap()
                 .into_genesis();
         genesis.timestamp = 80;
+        genesis.mix_hash = reference.mix_hash;
         let derivation = genesis.config.extra_fields.get_mut("rollupX").unwrap();
         derivation["blockIntervalSeconds"] = 2u64.into();
         derivation["syncIntervalBlocks"] = 6u64.into();
-        derivation["l1Reference"]["timestamp"] = 80u64.into();
-        let config = EezEvmConfig::new(Arc::new(eez_evm::profile::chain_spec(genesis).unwrap()));
+        derivation["historyUpdateOffset"] = 2u64.into();
+        derivation["l1Reference"]["timestamp"] = 68u64.into();
+        derivation["l1Reference"]["hash"] = reference.hash_slow().to_string().into();
+        derivation["l1Reference"]["prevRandao"] = reference.mix_hash.to_string().into();
+        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
+            bootstrap_storage(
+                0,
+                reference.hash_slow(),
+                HistorySchedule::new(80, 2, 6, 2).unwrap(),
+            )
+            .unwrap(),
+        );
+        let mut history = HeaderChain::default();
+        history
+            .append(
+                &[
+                    alloy_rlp::encode(reference).into(),
+                    alloy_rlp::encode(endpoint).into(),
+                ],
+                &HeaderRules {
+                    london_block: None,
+                    shanghai_time: None,
+                    cancun_time: None,
+                    prague_time: None,
+                    unsupported_time: None,
+                },
+                2,
+            )
+            .unwrap();
+        let config = EezEvmConfig::new(Arc::new(eez_evm::profile::chain_spec(genesis).unwrap()))
+            .with_l1_history(Arc::new(WitnessHistory(Arc::new(history))))
+            .unwrap();
         let parent = SealedHeader::seal_slow(Header {
             number: 10,
             timestamp: 100,
@@ -78,7 +124,6 @@ mod tests {
         });
         let env = Environment {
             fee_recipient: Address::repeat_byte(0x11),
-            prev_randao: B256::repeat_byte(0x22),
             extra_data: Bytes::from_static(b"published"),
         };
         // Independent input/header fixture, without using the shared assembler.
@@ -89,7 +134,7 @@ mod tests {
                 timestamp: 102,
                 gas_limit: eez_protocol::l2::GAS_LIMIT,
                 beneficiary: env.fee_recipient,
-                mix_hash: env.prev_randao,
+                mix_hash: B256::repeat_byte(0x22),
                 extra_data: env.extra_data.clone(),
                 base_fee_per_gas: Some(980_000_000),
                 withdrawals_root: Some(EMPTY_ROOT_HASH),

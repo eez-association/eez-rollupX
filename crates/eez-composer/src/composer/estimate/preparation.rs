@@ -287,12 +287,24 @@ pub(super) fn inbound(
     let [vkey] = keys.as_slice() else {
         return Err(unsupported("single proof-system profile required"));
     };
-    let context = eez_protocol::public_inputs::L1PostingContext {
-        chain_id: s.l1_env.cfg_env.chain_id,
-        parent_number: s.l1.anchor.number,
-        parent_hash: s.l1.anchor.hash(),
-        target_timestamp: s.l1_attributes.timestamp,
-    };
+    batch.expectedRootPerRollup = vec![ExpectedRootPerRollupSol {
+        rollupId: e.rollup_id,
+        root: s.settled_root,
+    }];
+    let context = eez_protocol::l1_history::OfflineContext::new(
+        &e.offline_profile,
+        e.l1.manager_address(),
+        e.rollup_manager,
+        e.rollup_id,
+        s.settled_root,
+        eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+            number: s.l1.anchor.number,
+            hash: s.l1.anchor.hash(),
+            target_timestamp: s.l1_attributes.timestamp,
+        },
+        s.l1.anchor.timestamp,
+    )
+    .map_err(unsupported)?;
     let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &batch,
         *vkey,

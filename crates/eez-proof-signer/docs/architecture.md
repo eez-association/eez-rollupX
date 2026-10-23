@@ -1,128 +1,78 @@
 # Architecture
 
-> This is an implementation guide. [`SPEC.md`](../SPEC.md) is authoritative for
-> protocol behavior and compatibility requirements.
-
-`eez-proof-signer` is a stateless attestation service with one shared execution
-worker. V1 streams a complete block window; v2 retains incremental execution
-in bounded independent sessions. The daemon re-executes every block, binds a
-supported settlement batch to the resulting evidence, recomputes the public
-input, and signs it. Any failed stage returns no signature.
+[SPEC.md](../SPEC.md) defines the accepted offline profile. The service retains
+v2 execution in bounded sessions, replays every supplied block and independently
+checks settlement, DA and the public input before signing. It has no L1 or L2
+RPC client and requires only local genesis/profile documents and deployment keys.
 
 ```mermaid
 flowchart LR
-    C[Composer] -->|ProveChunk stream| RPC[service/rpc]
-    RPC --> ING[service/stream]
-    ING --> ADM[window admission]
-    ADM --> L1[Authenticate L1 parent and context]
-    L1 -->|AdmittedWindow and CandidateContext| JOB[blocking validate_and_settle]
-
-    CFG[Operator configuration] --> SVC[ProveSvc: limits and active request slot]
-    CFG --> STATE[ServiceState: validator and configured identities]
-    SVC --> RPC
-    STATE --> JOB
-
-    JOB --> ST[Stateless and Reth]
-    ST -->|BackendWindowOutput| VAL[shared output checks]
-    VAL -->|ValidatedWindow| SET[settlement binding and authorization]
-    SET --> HASH[RecomputedPublicInputsHash]
-    HASH --> MATERIAL[AttestationMaterial]
-    MATERIAL --> AUTH[AttestablePublicInputsHash]
-
-    STATE --> ATT[Attester]
-    AUTH --> ATT
-    ATT -->|hash and signature| C
+    C[Composer] -->|Begin, Block witnesses, Finalize| S[Bounded v2 session]
+    P[Local genesis and deployment profile] --> S
+    S -->|checked L1 chain and L2 parent| E[Stateless execution]
+    E --> A[Validated ACKs and retained checkpoints]
+    A --> F[Finalize: modes, effects, DA and context]
+    F --> H[Independently recomputed public input]
+    H --> K[ECDSA attester]
+    K -->|conditional proof| C
+    C --> L[L1 settlement]
+    L --> G[getCustomData: actual L1 facts and accepted L2 commitment]
+    G --> V[Verify proof against this exact context]
 ```
 
-## Responsibility boundaries
+## Responsibilities
 
 | Module | Owns |
 | --- | --- |
-| [`main.rs`](../src/main.rs) | Startup wiring, tracing, server lifetime, graceful shutdown |
-| [`config.rs`](../src/config.rs) | CLI/environment parsing, secret redaction, startup validation |
-| [`service.rs`](../src/service.rs) | Shared immutable dependencies, limits, and the one active-request slot |
-| [`service/stream.rs`](../src/service/stream.rs) | Stream draining and transport-timeout normalization |
-| [`service/rpc.rs`](../src/service/rpc.rs) | Async orchestration, absolute deadline, worker lifetime, signing, response |
-| [`service/l1.rs`](../src/service/l1.rs) | Independent parent/seed authentication at the named canonical L1 block |
-| [`service/settlement_job.rs`](../src/service/settlement_job.rs) | The synchronous validation-to-settlement handoff and error provenance |
-| [`window.rs`](../src/window.rs) | Incremental structural admission and aggregate resource accounting |
-| [`validate.rs`](../src/validate.rs) | Associated backend-output contract, shared cross-checks, `ValidatedWindow` normalization |
-| [`validate/stateless.rs`](../src/validate/stateless.rs) | Chain-aware decode/recovery, checkpoint planning, Stateless execution |
-| [`settlement/`](../src/settlement.rs) | Focused batch, block, state, inbound, outbound, and DA gates |
-| [`attest.rs`](../src/attest.rs) | Attestation identity and typed attestable-hash signing |
-| [`cancel.rs`](../src/cancel.rs) | Cooperative cancellation shared with synchronous work |
+| [main](../src/main.rs), [config](../src/config.rs) | Local profile loading, strict configuration, listener and shutdown |
+| [service](../src/service.rs), [RPC](../src/service/rpc.rs) | Capability identity, quotas, shared execution permit and transport lifetime |
+| [sessions](../src/service/sessions.rs) | Begin/Block/Finalize, duplicates, Resume/Rewind, epochs and retained ownership |
+| [window](../src/window.rs) | Bounded structural admission; decoding does not authorize execution or signing |
+| [stream validation](../src/validate/streaming.rs) | Canonical L1 evidence, authenticated L2 state and incremental checked execution |
+| [Stateless adapter](../src/validate/stateless.rs) | Transaction recovery, exact replay, receipts, roots and whole-group checkpoints |
+| [offline context](../src/service/l1.rs) | Mode-specific anchor/time/action rules and the exact on-chain context commitment |
+| [settlement job](../src/service/settlement_job.rs), [settlement gates](../src/settlement.rs) | Accepted-root binding, ordered effects, observations and native blob DA |
+| [attester](../src/attest.rs) | Signing only the typed authorized public input |
+| [cancellation](../src/cancel.rs) | Cooperative cancellation of blocking work |
 
-This is a binary crate, so `main.rs` is the crate root and the implementation
-has no public library API. Rust allows a parent module such as `service.rs` to
-declare children in `service/rpc.rs`, and a child such as
-`validate/stateless.rs` can in turn declare `validate/stateless/chain_config.rs`.
-That file-plus-directory layout is intentional: the parent file exposes the
-module boundary while the directory holds focused implementation pieces. It
-does not change runtime behavior or import semantics because every module is
-declared explicitly.
+Shared schedule, ancestry and context encodings live in
+[eez-protocol](../../eez-protocol/src/l1_history.rs). The same
+[execution hook](../../eez-evm/src/history.rs) imports history and checks the
+selected PREVRANDAO for stateful production and stateless replay.
 
-The split follows trust boundaries, not just file size. `window` may reject
-malformed structure but cannot claim a block is valid. `validate` may prove
-execution but does not interpret a settlement entry. `settlement` may join
-already validated facts but cannot manufacture missing execution evidence.
+## Evidence and authority
 
-## Data narrows as it moves
+1. Begin identifies an execution predecessor by number, hash and state root.
+   Those claims alone establish no L1 acceptance.
+2. Block admission bounds and decodes the exact bytes. The worker validates
+   consecutive canonical L1 headers, the parent history endpoint, source
+   selection and complete L2 execution before returning an ACK.
+3. The session retains immutable validated blocks, execution witnesses needed
+   for target-dependent observation replay and L1 evidence checkpoints. Quotas
+   cover this retained data. Exact duplicates cannot change evidence; Rewind
+   restores the corresponding evidence prefix.
+4. Finalize checks maximality and exact anchor termination, verifies both the
+   selected range and settlement eligibility, and independently recomputes
+   observations, effects, blob commitments and public inputs. The accepted L2
+   hash must match the replay predecessor or a fully replayed whole-group
+   terminal checkpoint, including partial consumption.
+5. Only successful complete validation yields attestation material. The async
+   owner checks its deadline/cancellation state before signing. A timed-out
+   response does not release a blocking worker's permit before it exits.
+6. On L1, the manager independently supplies the actual accepted commitment,
+   deployment/profile, current rules and anchor facts through getCustomData.
+   An inconsistent context produces a different digest and cannot verify.
 
-1. `WindowAssembler` produces an `AdmittedWindow`. Its `AdmittedBlock` values
-   retain Composer-declared metadata, exact RLP, and execution witnesses after
-   stream-shape, identity, adjacency, and quota checks.
-2. The Stateless adapter consumes those witnesses and returns one
-   `BackendWindowOutput`. Each `BackendBlockOutput` keeps its computed identity,
-   post-state root, receipt outcomes, selected checkpoints, and settlement
-   evidence together.
-3. Shared validation consumes both representations, binds every backend output
-   to its admitted block, and normalizes the checked result into
-   `ValidatedWindow`.
-4. `ValidatedWindow` drops the consumed witnesses. It retains exact block RLP,
-   `window_pre_block_hash`, `settling_pre_block_hash`,
-   `window_post_block_hash`, `preceding_blocks`, and the terminal
-   `settling_block` with its settlement evidence.
-5. Independently, the submitted `PostBatch` calldata becomes a
-   `CanonicalPostBatch`. Canonical decoding does not validate its state or
-   effect claims. Settlement binds those claims into a `BoundEffectSequence`,
-   then produces `AuthorizedInboundEffects` and `AuthorizedOutboundEffects`.
-6. After every settlement gate passes, the checked public-input profile
-   produces a locally computed `RecomputedPublicInputsHash`. The job returns it in
-   `AttestationMaterial`. The async RPC promotes it to `AttestablePublicInputsHash`
-   under the request deadline, with no additional L1 reads. The attester accepts
-   neither a profile-only recomputation nor Composer-provided hash bytes.
+Composer-controlled headers, witnesses, ranges and ABI are untrusted input.
+Local profile documents and keys define deployment authority. Stateless, Reth
+and shared protocol code are part of the pinned implementation's trust base.
+Network access controls remain responsible for restricting a non-loopback RPC
+listener; session IDs are not authentication credentials.
 
-This ownership reduction is intentional: once a witness has been consumed and
-its result checked, later layers should not continue carrying an alternative
-untrusted representation of the same fact.
+The ECDSA signature attests execution and settlement consistency **conditional
+on the bound context**. It does not establish L1 consensus, future inclusion,
+future canonicality, successful dispatch or ZK security. No RPC-backed authority,
+preparation lease or v1 execution path supplements it.
 
-## Trust boundaries
-
-| Source | Treatment |
-| --- | --- |
-| Composer stream | Entirely untrusted, including hashes, RLP, witness, range, calldata, and claimed public-input hash |
-| Operator configuration | Deployment authority for the chain document, expected rollup ID, configured proof-system vkey, proof-system and attester addresses, keys, and limits |
-| `BackendWindowOutput` | Security-critical backend result, consumed and contract-checked against the admitted input before settlement |
-| `eez_protocol`, Stateless, Reth | Canonical/security-critical implementation base pinned by the workspace |
-| Configured canonical L1 source | Independently supplies accepted parent, live-slot occurrences, seed and target before replay; the signature binds this context |
-
-The RPC transport has no peer authentication of its own. Network controls must
-ensure that only intended Composers can reach a non-loopback listener.
-
-## What the signature does not claim
-
-The signature says that this supplied transition and batch passed the active
-profile from an independently accepted parent under the named L1 context. It
-does not guarantee future canonicality or inclusion, sequencer authorization,
-successful future L1 execution, immediate-versus-deferred dispatch, or independent code
-identity at the pinned EEZL2 address. The exact normative boundary is in
-`SPEC.md`, especially the commitment authority and attestation sections.
-
-Continue with [Request lifecycle](request-lifecycle.md),
-[Validation evidence](validation-evidence.md), or the
-[Settlement pipeline](settlement-pipeline.md).
-
-The additive v2 path is `service/sessions` → `validate/streaming` → the shared
-`service/settlement_job::settle_validated` pipeline. It preserves native DA and
-independent observation replay. See [streaming lifecycle](request-lifecycle.md#streaming-sessions)
-for ownership, cancellation and the provenance retrieval boundary.
+See [request lifecycle](request-lifecycle.md), [data provenance](data-provenance.md)
+and [settlement pipeline](settlement-pipeline.md) for detailed invariants.

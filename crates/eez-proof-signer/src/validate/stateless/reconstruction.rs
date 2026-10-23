@@ -36,7 +36,7 @@ impl ReconstructedBlock {
     }
 
     /// Only these two execution inputs are published by V0. The omitted fields
-    /// are fixed by the profile, parent and independently authenticated L1 seed.
+    /// are fixed by the profile, parent and checked L1 history evidence.
     pub(crate) fn matches_metadata(&self, beneficiary: Address, extra_data: &[u8]) -> bool {
         self.beneficiary == beneficiary && self.extra_data.as_ref() == extra_data
     }

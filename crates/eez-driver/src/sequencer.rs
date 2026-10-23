@@ -192,6 +192,11 @@ mod tests {
                 ..Default::default()
             });
             SyncSlotOutcome::Built(Box::new(SyncSlotBlock {
+                l1_origin_hash: alloy_consensus::Header {
+                    timestamp: parent.header.timestamp - parent.header.number - 5,
+                    ..Default::default()
+                }
+                .hash_slow(),
                 payload: alloy_rpc_types_engine::ExecutionData::from_block_unchecked(
                     header.hash(),
                     &alloy_consensus::Block::<alloy_consensus::TxEnvelope>::new(
@@ -214,7 +219,7 @@ mod tests {
                     .as_secs()
                     + 3600;
                 let timestamp = if mode == SyncSlotMode::Empty {
-                    5
+                    15
                 } else {
                     future
                 };
@@ -223,7 +228,7 @@ mod tests {
                     timestamp: timestamp - 1,
                     ..Default::default()
                 });
-                let l1_head = test_seed_head(&parent);
+                let l1_head = test_history_head(&parent).await;
                 let (committer, commands) = crate::block_committer::test_committer(parent);
                 let calls = Arc::new(Mutex::new(Vec::new()));
                 let composer: SyncSlotComposerHandle = Arc::new(PolicyComposer {
@@ -297,7 +302,7 @@ mod tests {
                 timestamp: now - 1,
                 ..Default::default()
             });
-            let l1_head = test_seed_head(&parent);
+            let l1_head = test_history_head(&parent).await;
             let l1_parent = eez_l1::L1BlockRef {
                 number: 7,
                 hash: B256::repeat_byte(7),
@@ -386,7 +391,7 @@ mod tests {
                     timestamp: now,
                     ..Default::default()
                 });
-                let l1_head = test_seed_head(&parent);
+                let l1_head = test_history_head(&parent).await;
                 let l1_parent = eez_l1::L1BlockRef {
                     number: 7,
                     hash: B256::repeat_byte(7),
@@ -474,7 +479,7 @@ mod tests {
                     timestamp: now - 1,
                     ..Default::default()
                 });
-                let l1_head = test_seed_head(&parent);
+                let l1_head = test_history_head(&parent).await;
                 let l1_parent = eez_l1::L1BlockRef {
                     number: 7,
                     hash: B256::repeat_byte(7),
@@ -581,7 +586,7 @@ mod tests {
                 timestamp: now,
                 ..Default::default()
             });
-            let l1_head = test_seed_head(&parent);
+            let l1_head = test_history_head(&parent).await;
             let l1_parent = eez_l1::L1BlockRef {
                 number: 7,
                 hash: B256::repeat_byte(7),
@@ -675,7 +680,7 @@ mod tests {
             timestamp: now,
             ..Default::default()
         });
-        let l1_head = test_seed_head(&parent);
+        let l1_head = test_history_head(&parent).await;
         let l1_parent = eez_l1::L1BlockRef {
             number: 7,
             hash: B256::repeat_byte(7),
@@ -752,7 +757,7 @@ mod tests {
             timestamp: now - 10,
             ..Default::default()
         });
-        let l1_head = test_seed_head(&parent);
+        let l1_head = test_history_head(&parent).await;
         let l1_parent = eez_l1::L1BlockRef {
             number: 7,
             hash: B256::repeat_byte(7),
@@ -803,22 +808,33 @@ mod tests {
         );
     }
 
-    fn test_seed_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
+    async fn test_history_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
         use eez_protocol::l2::{DerivationConfig, GenesisL1Reference, Schedule};
         let timestamp = parent.timestamp.checked_sub(parent.number).unwrap();
         let genesis = alloy_consensus::Header {
             timestamp,
             ..Default::default()
         };
+        let reference = alloy_consensus::Header {
+            timestamp: timestamp - 5,
+            ..Default::default()
+        };
+        let endpoint = alloy_consensus::Header {
+            number: 1,
+            parent_hash: reference.hash_slow(),
+            timestamp: parent.timestamp + 1_000_000,
+            ..Default::default()
+        };
         let schedule = Schedule::new(
             DerivationConfig {
+                history_update_offset: 0,
                 block_interval_seconds: 1,
                 sync_interval_blocks: 5,
                 l1_reference: GenesisL1Reference {
                     chain_id: 1337,
                     number: 0,
-                    hash: B256::repeat_byte(1),
-                    timestamp,
+                    hash: reference.hash_slow(),
+                    timestamp: reference.timestamp,
                     prev_randao: B256::ZERO,
                 },
             },
@@ -826,7 +842,55 @@ mod tests {
         )
         .unwrap();
         let head = Arc::new(eez_l1::L1CanonicalHead::default());
-        head.restore_derivation(eez_l1::derivation::SeedHistory::new(schedule));
+        head.initialize_history(schedule);
+        let replies = alloy_provider::mock::Asserter::new();
+        let block = |header: alloy_consensus::Header| alloy_rpc_types_eth::Block::<
+            alloy_rpc_types_eth::Transaction,
+        > {
+            header: alloy_rpc_types_eth::Header {
+                hash: header.hash_slow(),
+                inner: header,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let reference = block(reference);
+        let endpoint = block(endpoint);
+        replies.push_success(&alloy_primitives::U64::from(1337));
+        replies.push_success(&reference);
+        let source = eez_l1::derivation::DerivationSource::authenticate(
+            alloy_provider::ProviderBuilder::new().connect_mocked_client(replies.clone()),
+            schedule,
+        )
+        .await
+        .unwrap();
+        // Endpoint read, binary search, contiguous acquisition, canonical recheck.
+        for value in [
+            &endpoint, &reference, &endpoint, &reference, &endpoint, &endpoint,
+        ] {
+            replies.push_success(value);
+        }
+        head.publish_history(
+            source
+                .prepare_history(
+                    parent.timestamp,
+                    eez_l1::L1BlockRef {
+                        number: endpoint.header.number,
+                        hash: endpoint.header.hash,
+                    },
+                    eez_protocol::l1_history::HeaderRules {
+                        london_block: None,
+                        shanghai_time: None,
+                        cancun_time: None,
+                        prague_time: None,
+                        unsupported_time: None,
+                    },
+                    None,
+                )
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         head
     }
 
@@ -840,7 +904,7 @@ mod tests {
                         timestamp: 100,
                         ..Default::default()
                     });
-                    let l1_head = test_seed_head(&parent);
+                    let l1_head = test_history_head(&parent).await;
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -920,7 +984,7 @@ mod tests {
                         timestamp: timestamp - (target - start) + u64::from(case == "misaligned"),
                         ..Default::default()
                     });
-                    let l1_head = test_seed_head(&parent);
+                    let l1_head = test_history_head(&parent).await;
                     let (committer, commands) = crate::block_committer::test_committer(parent);
                     let calls = Arc::new(Mutex::new(Vec::new()));
                     let (_, receiver) = mpsc::channel(1);
@@ -1820,7 +1884,14 @@ where
             .l1_head
             .next_block_context(&self.committer.last_header())
             .map_err(DriverError::provider)?;
-        if built.header.timestamp != timestamp || built.header.mix_hash != seed {
+        let origin = self
+            .l1_head
+            .derivation_origin(built.header.number)
+            .map_err(DriverError::provider)?;
+        if built.header.timestamp != timestamp
+            || built.header.mix_hash != seed
+            || built.l1_origin_hash != origin
+        {
             return Err(DriverError::stale_context(built_parent));
         }
         let block_number = built.header.number();

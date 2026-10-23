@@ -1,120 +1,120 @@
 {
-  "authority": "synthetic fixture L1 authority; real Stateless execution, native blobs, observation validation and ECDSA signing",
+  "authority": "Input-side construction; native capture or derived ordinary subrange, never response-derived expectations",
   "case": "stream-capacity",
-  "category": "RollupX resource profile with optional session controls",
+  "category": "offline-v2",
   "events": [
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1001224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 0
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2001010101010101010101010101010101010101010101010101010101010101011001180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 0
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1002224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 1
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20020202020202020202020202020202020202020202020202020202020202020210011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2002020202020202020202020202020202020202020202020202020202020202021002180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 1
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1003224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 2
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20030303030303030303030303030303030303030303030303030303030303030310011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2003030303030303030303030303030303030303030303030303030303030303031003180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 2
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1004224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 3
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20040404040404040404040404040404040404040404040404040404040404040410011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2004040404040404040404040404040404040404040404040404040404040404041004180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 3
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1005224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 4
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20050505050505050505050505050505050505050505050505050505050505050510011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2005050505050505050505050505050505050505050505050505050505050505051005180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 4
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1006224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 5
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20060606060606060606060606060606060606060606060606060606060606060610011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2006060606060606060606060606060606060606060606060606060606060606061006180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 5
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1007224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 6
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20070707070707070707070707070707070707070707070707070707070707070710011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2007070707070707070707070707070707070707070707070707070707070707071007180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 6
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "1008224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 7
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20080808080808080808080808080808080808080808080808080808080808080810011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2008080808080808080808080808080808080808080808080808080808080808081008180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 7
     },
     {
-      "check": "ninth transport exceeds fixed eight-stream capacity",
+      "check": "Ninth stream exceeds eight-stream capacity",
       "code": 8,
       "direction": "rpc_open_error",
       "transport": 8
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100218014a00",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100918014a00",
       "transport": 0
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100218013a00",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100918013a00",
       "transport": 0
     },
     {
@@ -122,15 +122,15 @@
       "transport": 0
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100218014a00",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100a18014a00",
       "transport": 1
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100218013a00",
+      "protobuf_hex": "0a200202020202020202020202020202020202020202020202020202020202020202100a18013a00",
       "transport": 1
     },
     {
@@ -138,15 +138,15 @@
       "transport": 1
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100218014a00",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100b18014a00",
       "transport": 2
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100218013a00",
+      "protobuf_hex": "0a200303030303030303030303030303030303030303030303030303030303030303100b18013a00",
       "transport": 2
     },
     {
@@ -154,15 +154,15 @@
       "transport": 2
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100218014a00",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100c18014a00",
       "transport": 3
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100218013a00",
+      "protobuf_hex": "0a200404040404040404040404040404040404040404040404040404040404040404100c18013a00",
       "transport": 3
     },
     {
@@ -170,15 +170,15 @@
       "transport": 3
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100218014a00",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100d18014a00",
       "transport": 4
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100218013a00",
+      "protobuf_hex": "0a200505050505050505050505050505050505050505050505050505050505050505100d18013a00",
       "transport": 4
     },
     {
@@ -186,15 +186,15 @@
       "transport": 4
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100218014a00",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100e18014a00",
       "transport": 5
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100218013a00",
+      "protobuf_hex": "0a200606060606060606060606060606060606060606060606060606060606060606100e18013a00",
       "transport": 5
     },
     {
@@ -202,15 +202,15 @@
       "transport": 5
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100218014a00",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100f18014a00",
       "transport": 6
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100218013a00",
+      "protobuf_hex": "0a200707070707070707070707070707070707070707070707070707070707070707100f18013a00",
       "transport": 6
     },
     {
@@ -218,15 +218,15 @@
       "transport": 6
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Cancel bound session only",
       "direction": "client",
-      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808100218014a00",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808101018014a00",
       "transport": 7
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Cancelled retires this session",
       "direction": "server",
-      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808100218013a00",
+      "protobuf_hex": "0a200808080808080808080808080808080808080808080808080808080808080808101018013a00",
       "transport": 7
     },
     {
@@ -235,18 +235,17 @@
     }
   ],
   "expected_proofs": 0,
-  "fixture": "native-osaka-lookup",
+  "fixture": "native-offline-bidirectional",
   "format": 2,
-  "normalization": "issued IDs become distinct 32-byte repeated tokens; epochs rebound per session; diagnostic wording/reused omitted",
+  "normalization": "Distinct session tokens and monotonic epochs rebound; diagnostic wording/reused omitted",
   "oracle": {
-    "attester": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-    "full_fixture_public_inputs_hash": "0x43773380711514f8b7e4ed30d4cc6bd41e2132c4ecd3c9ecba7d7bd0043f700f"
+    "attester": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
   },
   "server_profile": {
-    "max_window_blocks": 128,
+    "max_window_blocks": 4096,
     "max_window_bytes": 16777216,
     "max_window_witness_items": 100000,
-    "request_timeout_secs": 60,
+    "request_timeout_secs": 120,
     "stream_idle_timeout_secs": 30
   }
 }

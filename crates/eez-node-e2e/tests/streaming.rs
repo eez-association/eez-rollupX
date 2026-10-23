@@ -43,11 +43,7 @@ async fn shared_stateless_signer_composers_recover_from_native_l1_reorg() {
         .log_count_matching(&["eez.prover_client.attested"])
         .unwrap();
     let signed = world.proof_signer.streaming_attestations().unwrap();
-    let reorg_signals = [
-        signals::L1_REORG_DETECTED,
-        signals::DERIVER_REORG_RETREATED,
-        signals::DERIVER_REORG_NOOP,
-    ];
+    let reorg_signals = [signals::L1_REORG_DETECTED, signals::DERIVER_REORG_RETREATED];
     let reorgs_a = world.node.count_signals(&reorg_signals).unwrap();
     let reorgs_b = peer.count_signals(&reorg_signals).unwrap();
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());

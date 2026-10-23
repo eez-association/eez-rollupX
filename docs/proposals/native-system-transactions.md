@@ -47,7 +47,7 @@ reference, not an accepted replacement for the pinned core protocol.
 | T2 | Shape validation is distinct from settlement authorization | Substituted settlement ABI, call/rolling hash, wrong identity and reconstructed bytes rejected |
 | D1 | Direct V0 body, canonical count/metadata runs and transaction length stream over the whole interval including terminal block | #35 exact size vectors and malformed/boundary/fuzz cases; baseline comparison |
 | D2 | Bounded parsing of full u32 wire runs, no eager empty-run expansion or artificial 65,536 wire cap | Allocation/resource-limit and canonical integer tests |
-| D3 | Deterministic headers, active timestamp step and authenticated live-anchor RANDAO, correct restart/reorg behavior | Header/hash vectors and independent derivation with catch-up, live anchor and rollback |
+| D3 | Deterministic headers and fixed timestamp step; delayed origin/PREVRANDAO and recovery follow the current offline-history contract | Header/hash vectors and independent derivation with catch-up, live anchor and rollback |
 | D4 | Canonical terminal pure prefix and authorized native action reconstruction, preserving the fork's richer explicit profile | Signer, DA, partial-consumption, nested/static/reverted process tests |
 | D5 | Fixed L2 execution/header profile including EIP-2935 and empty requests hash, independently of L1 rules | Empty/nonempty block tests, pre-execution state, fee and gas/header checks |
 | B1 | Preserve #42's FIFO prefix rebuilding, candidate-local execution cache, shared deadline and canonical-only queue completion | Existing composer, dynamic admission, queue and prefix equivalence tests |
@@ -162,131 +162,35 @@ groups. These are block-hash commitments at the same height; B[0] is not the
 preceding block. The fork's existing failed-outbound carrier schedule remains
 necessary because reverted L1 effects cannot persist root updates.
 
-### Authenticated seed context: implementation constraints
+### Delayed history and offline authentication
 
-The fixed block profile alone cannot remove transported `prevRandao`. The
-signature now binds the latest L1 context, but the signer still needs independent
-authentication of an accepted L1 anchor. A Composer-supplied header or block hash
-is insufficient to establish the seed. The implementation uses the independent
-source described below; final combined replay validation is recorded in the audit.
+The [L1 history and offline proving contract](l1-origin-and-offline-proving.md)
+supersedes this proposal's settlement-driven seed selection and signer RPC
+provenance. A fixed genesis schedule selects a maximal L1 source and installs
+its history and PREVRANDAO together before applications. Settlement does not
+refresh the seed. The same rules apply to pending calls, terminal variants,
+restart and follower replay.
 
-The extension uses an operator-selected canonical L1 source to bind
-accepted root advancement and its containing execution header independently of
-Composer. The genesis document must identify the finalized L1 reference and
-its chain identity. The signer must also bind attestation to the intended L1
-parent and child timestamp: the pinned reference Rollup already supports the
-latest-context sentinel and `(timestamp, parentBlockHash)` custom data. Extending
-that currently rejected profile requires updated shared public-input helpers,
-RPC/specification, posting and independent Solidity vectors together. A timeless
-signature is insufficient across an L1 reorg that re-includes the same terminal
-L2 hash under a different anchor RANDAO. No trusted-header shortcut or unverified
-Composer context is acceptable.
-
-Seed history must record accepted commitment transitions, including partial
-consumption at an existing terminal height. Inferring the seed only from the
-last L2 header is wrong: accepting a live anchor's `B[0]` refreshes descendants,
-then a later accepted `B[1]` at the same L2 height can be a catch-up transition.
-That catch-up retains the seed established by `B[0]`, while both terminal
-variants themselves still contain the preceding seed. Reorg and restart must
-recover this provenance, not just a height or last observed receipt. Candidate
-and prefix-cache environments must capture a fixed seed for their actual parent;
-a mutable global seed cannot change a draft already being executed.
-
-When no executed pending payload is available, RPC simulation derives the next
-position and seed from the same canonical history as block construction. Both
-Composer and follower wire that shared history into their RPC builder. Pending
-simulation returns an error until seed provenance is initialized and boot
-catch-up has completed through the existing public-query readiness gate; it cannot
-infer a descendant seed from the parent's `mixHash`. A history rebuild after
-reorg or restart is visible to subsequent simulations. The EVM caches only the
-immutable genesis schedule, never a mutable seed or per-block validation result.
-
-A bounded implementation can use the existing canonical accepted block-hash
-commitment as its parent trust boundary, without downloading historical blobs or
-revalidating the whole accepted L2 chain in the signer. An accepted parent's
-header already commits its execution seed. The descendant seed differs only if
-that height had an accepted live variant: use that containing L1 header's RANDAO
-even if the latest variant at the same height was accepted later as catch-up.
-
-To establish that no same-height live variant was omitted, use the fixed
-schedule rather than a full historical header proof. A live acceptance at L2
-height `n` can occur only in the unique canonical L1 block whose timestamp equals
-`timestamp(n)`. The signer independently locates that block at or before the
-named target parent and reads its complete relevant settlement occurrences. Each
-supplied endpoint header must match an actually applied commitment; the set must
-be exhausted exactly. Any accepted endpoint at height `n` in that block refreshes
-the descendant seed from that L1 header. Missing slots or a block with no such
-acceptance retain the independently accepted parent's committed execution seed.
-Later same-height catch-up acceptances cannot erase a live refresh. Reorgs change
-the canonical slot and invalidate its former occurrences.
-
-The parent itself still needs independent canonical acceptance (or the configured
-genesis). The timestamp lookup does not turn a claimed header or a
-manual registry root reset into an accepted endpoint. Candidate blocks require
-full independent execution. This avoids an additional historical-provenance wire
-format while preserving the same-height partial-consumption safety boundary.
-
-The current registry root at the named L1 parent must agree with the candidate's
-authenticated parent or an independently reconstructed, already-consumed terminal
-prefix. The latest-context public-input binding prevents reusing authorization
-after the L1 parent or target child timestamp changes. See the audit for
-revision-specific validation and remaining acceptance checks.
-
-Seed lookup is by the block being reconstructed, not a mutable global value.
-A live anchor at L2 height `n` affects only blocks greater than `n`. Revalidating
-or extending a partially consumed terminal variant at `n` still uses the older
-seed even if its `B[0]` was accepted live. Its replay may therefore need provenance
-from the preceding live anchor as well as the current one. Existing prefix
-selection and nonce offsets remain valid; a current-seed shortcut would break
-them. Retained provenance must survive the node's validated checkpoint/restart
-path, and reorg handling must discard removed L1 occurrences. A minimal active
-proof retains a preceding lower-height accepted endpoint and all subsequent
-occurrences; older replay ranges need their own authenticated parent provenance.
-Operational header/log budgets and cancellation remain separate from the u32 V0
-wire range. The complete one-slot occurrence check remains required even when a
-parent was accepted later as catch-up. This fresh-network implementation needs
-no old checkpoint migration.
-
-The wider Appendix D.2 manager/wrapper domain and trigger restrictions remain
-separate requirements to audit and report. Reusing the pinned latest-context
-primitive would not establish full draft manager conformance.
-
-### Signer simplification (accepted owner direction, 2026-09-29)
-
-Authenticate the parent and live-anchor seed at the named canonical L1 block
-before replay, preserving exact settlement attribution and the registry-root
-comparison. Read that block by height before and after authentication to detect
-replacement; do not require it to be the latest head. The on-chain latest-context
-binding already prevents using the signature under another parent/timestamp.
-Remove the post-replay freshness RPC and its service handoff type. Keep the
-request deadline, worker permit, independent execution and settlement gates.
-
-Remove the lifetime registration/reset scan. Configured genesis is the trust
-root, non-genesis parents require actual canonical settlement acceptance, and
-the registry root at the named L1 hash must be the parent or a validated terminal
-prefix. Historical owner resets no longer independently veto a proof; an arbitrary
-assigned root does not supply acceptance evidence. Node reset/recovery support
-is not extended. This uses the existing trusted L1 RPC, with no new source cache,
-background index, persistent state or offline witness format.
-
-Regressions must cover absence of the history scan and latest-head queries,
-canonical replacement during authentication, source loss after authentication,
-registry/seed mismatches, permit release, and on-chain rejection of a signature
-under a changed parent or timestamp. Validation identity schema 4 separates the
-changed admission policy; Composer and signer update together. Genesis, database,
-DA encoding, public-input hashing and historical replay are unchanged.
+The signer receives complete L1 ancestry through v2 witnesses. The deployed
+`OfflineRollup` binds the current accepted block-hash commitment, profile, L1
+rules and chosen anchor in `getCustomData()`. Parent or whole-group checkpoint
+authentication remains required; height equality is insufficient. Actual-parent
+mode retains the exact live target; historical mode is ordinary catch-up only.
+There is no signer chain RPC, v1 fallback or previous seed-selection path.
+The dated audit retains evidence for the earlier implementation; those results
+do not validate the replacement profile.
 
 ### Wider draft conformance dispositions (#35 section F)
 
 These are explicit limits of this fork's selected profile, tracked by
 [issue #35](https://github.com/eduadiez/rollupX/issues/35); implementing V0 does
-not claim full draft Rollup0 conformance. The protocol gitlink remains unchanged.
+not claim full draft Rollup0 conformance. Protocol revisions and current validation are recorded in the offline-history audit.
 
 | Requirement | Current contract and disposition |
 | --- | --- |
-| F1: Appendix D.2 manager/wrapper | Latest-context sentinel and exact `(timestamp, parentBlockHash)` customData are implemented end to end. The pinned [reference manager](../../eez-core-protocol/src/rollupContract/Rollup.sol) supplies those bytes. The draft's additional transaction-scoped wrapper/domain, unsigned-prefix enforcement, pre/post anchor checks and one-settlement-per-L1-block rule are **not implemented**. The pinned registry deliberately permits another verified batch to replace a same-block queue; removing that behavior would conflict with #42's replacement/partial-consumption architecture. A separate manager/profile change must resolve this before claiming Appendix D.2 conformance. |
+| F1: Appendix D.2 manager/wrapper | The fresh-network `OfflineRollup` binds deployment, profile, rules, accepted commitment and both anchor modes. The draft's additional transaction-scoped wrapper, unsigned-prefix enforcement and one-settlement-per-L1-block restriction are not implied by these bindings. The registry still permits another verified batch to replace a same-block queue; whole-group partial consumption remains supported. |
 | F2: Chapter 7 trigger rules | Retain the pinned [registry's](../../eez-core-protocol/src/EEZ.sol) authorized-proxy and verified-this-block gates, exact call/rolling hashes, grouped action boundaries and ordered canonical applied-prefix attribution. This does **not** enforce every draft restriction on who triggers consumption. Broader trigger-policy alignment remains under #35, alongside [#12](https://github.com/eduadiez/rollupX/issues/12) and [#13](https://github.com/eduadiez/rollupX/issues/13); nested/static support is preserved rather than silently narrowed. |
-| F3: Validators, parents and delivery | The signer independently authenticates the canonical accepted parent, complete possible live-slot endpoint set, seed, target parent and timestamp. The reference manager enforces configured proof-system membership and threshold; this task does not introduce a validator committee, change owner-controlled threshold governance, or establish production private-delivery guarantees. Those remain deployment/protocol requirements under #35, not consequences of the codec. |
+| F3: Validators, parents and delivery | Offline validation checks complete ancestry, delayed source selection, execution and eligible parent/checkpoints, conditional on the manager's on-chain context. Proof-system membership and threshold still govern attestation; no validator committee or production private-delivery guarantee is introduced. |
 | F4: Announcements/bootstrap/peers | Existing Engine transport, native block/receipt serialization, authenticated bootstrap and source-based late-follower replay are in scope and tested at the revisions recorded in the audit. General draft unsafe-announcement/gossip and peer-distribution conformance remains separate work under #35. The local devnet result is not a production availability or private-delivery claim. |
 
 No external issue was opened or amended by this task. The local specification

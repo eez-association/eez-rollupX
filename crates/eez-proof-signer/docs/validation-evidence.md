@@ -34,9 +34,17 @@ flowchart TB
 
 ## Startup initialization
 
-At startup, [`validate/stateless.rs`](../src/validate/stateless.rs) loads the
-operator-configured Alloy `ChainConfig` or complete `Genesis` document once,
-then builds the Reth `ChainSpec` and EVM configuration shared by every request.
+At startup, the service loads the complete fresh-network L2 `Genesis` and local
+L1 rule profile, then builds the Reth `ChainSpec`, fixed offline profile and
+EVM configuration. Startup does not fetch chain data.
+
+Before block replay, [stream validation](../src/validate/streaming.rs) extends
+the checked raw L1-header chain and freezes its evidence for execution. The
+mandatory history hook authenticates the previous endpoint against L2 storage,
+derives the scheduled import and checks the synchronized PREVRANDAO. Finalize
+still must resolve source maximality, exact anchor termination and the accepted
+L2 commitment through the selected mode. A validated block ACK alone cannot
+authorize a signature.
 
 ## Per-request adapter stages
 

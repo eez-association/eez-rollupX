@@ -90,9 +90,12 @@ fn trailing_bytes_are_rejected() {
 fn signer_hash_matches_the_context_bound_protocol_api() {
     let batch = target_anchor_batch();
     let proof_system_vkey = test_proof_system_vkey();
-    let expected =
-        public_inputs_hashes(&batch, proof_system_vkey.get(), crate::testkit::l1_target()).unwrap()
-            [0];
+    let expected = public_inputs_hashes(
+        &batch,
+        proof_system_vkey.get(),
+        crate::testkit::offline_context(&batch, crate::testkit::l1_target()),
+    )
+    .unwrap()[0];
 
     let result = recompute_public_input_hash(
         &batch,
@@ -175,7 +178,7 @@ fn proofs_are_not_an_input_to_the_hash_gate() {
     let expected = public_inputs_hashes(
         &batch,
         test_proof_system_vkey().get(),
-        crate::testkit::l1_target(),
+        crate::testkit::offline_context(&batch, crate::testkit::l1_target()),
     )
     .unwrap()[0];
     batch.proofs = vec![Bytes::from_static(b"ignored"), Bytes::from(vec![0xaa; 65])];
@@ -273,7 +276,20 @@ fn rejects_every_public_input_structural_violation() {
         rollupId: 1,
         root: B256::ZERO,
     }];
-    cases.push(("expected state-root pin", batch));
+    cases.push(("zero accepted block-hash pin", batch));
+
+    let mut batch = valid.clone();
+    batch.expectedRootPerRollup.clear();
+    cases.push(("missing accepted block-hash pin", batch));
+
+    let mut batch = valid.clone();
+    batch.expectedRootPerRollup[0].rollupId = 2;
+    cases.push(("accepted pin for another rollup", batch));
+
+    let mut batch = valid.clone();
+    let duplicate = batch.expectedRootPerRollup[0].clone();
+    batch.expectedRootPerRollup.push(duplicate);
+    cases.push(("duplicate accepted pin", batch));
 
     let mut batch = target_anchor_batch();
     batch.entries[0].destinationRollupId = 2;
@@ -288,8 +304,8 @@ fn rejects_every_public_input_structural_violation() {
     cases.push(("immediate static entry count", batch));
 
     let mut batch = valid.clone();
-    batch.blockNumber = 1;
-    cases.push(("bound block number", batch));
+    batch.blockNumber = 0;
+    cases.push(("reserved zero anchor", batch));
 
     let mut batch = valid;
     batch.bindMsgSenderInPublicInput = true;
@@ -312,7 +328,7 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
         profile.recompute_public_inputs_hash(
             test_proof_system_vkey(),
             &[],
-            crate::testkit::l1_target()
+            &crate::testkit::offline_context(&batch, crate::testkit::l1_target())
         ),
         Err(PublicInputError::Computation(_))
     ));
@@ -321,7 +337,7 @@ fn blob_indices_are_checked_by_the_da_gate_and_hash_computation() {
             .recompute_public_inputs_hash(
                 test_proof_system_vkey(),
                 &[B256::repeat_byte(0x44)],
-                crate::testkit::l1_target()
+                &crate::testkit::offline_context(&batch, crate::testkit::l1_target())
             )
             .is_ok()
     );

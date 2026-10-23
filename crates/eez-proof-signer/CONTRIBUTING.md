@@ -27,11 +27,11 @@ rather than replace it.
 
 - Production always uses the in-process Stateless backend. No alternative
   backend is selectable; the stub backend exists only in tests.
-- Exactly one final proof owns the shared request permit. V1 `Prove` overlap
-  is rejected; v2 Finalize queues under its absolute deadline. The request permit covers ingestion through response
-  construction and remains with a running detached worker until it exits.
-- V1 validation and settlement run in one blocking task; v2 retains checked
-  block execution and runs the same settlement gates in a blocking task. Cancellation is
+- Exactly one final proof owns the shared request permit. V2 Finalize queues
+  under its absolute deadline; the permit remains with a detached blocking worker
+  until exit and covers settlement through signing/response construction.
+- V2 retains checked block execution and exact L1 evidence checkpoints, then runs
+  final settlement/observation gates in a blocking task. Cancellation is
   cooperative between non-interruptible units; graceful shutdown waits for
   detached work rather than terminating it halfway through execution.
 - The active mutable-entry profile is `anchor, outbound*, (inbound-effect |
@@ -57,7 +57,7 @@ See [architecture](docs/architecture.md),
 ## Non-negotiable invariants
 
 - Treat every Composer field as untrusted, including range and hash claims,
-  block RLP, witnesses, `PostBatch` calldata, parent provenance and posting context.
+  block RLP, L1/L2 witnesses, settlement calldata and posting context.
 - Never choose a range, skip a streamed block, generate a zk proof, submit an
   L1 transaction, or sign after any failed gate.
 - Re-derive block identity, execution results, roots, transaction outcomes,
@@ -69,12 +69,14 @@ See [architecture](docs/architecture.md),
   proof-system address as explicit operator-configured bindings. Native L2
   transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
-- Independently authenticate the accepted parent, seed and L1 target before
-  authorizing settlement. V2 prevalidation may execute earlier; those facts
-  alone never authorize signing. Keep the signature bound to that exact parent hash and timestamp;
-  there is no post-replay freshness RPC. An attestation still does
-  not guarantee future L1 inclusion, sequencer authority, dispatch mode, or
-  deployment code identity.
+- Check the exact execution parent, complete canonical header encoding/linkage,
+  delayed source/PREVRANDAO, maximality, accepted-root coverage and mode eligibility
+  before authorizing settlement. The proof is conditional on the offline context;
+  the manager binds it to actual L1 anchor/root/rules at inclusion. Never replace
+  missing evidence with RPC, cached authority or a Composer assertion. ACKs alone
+  cannot sign. Historical mode forbids every cross-chain action, including
+  observations without an L2 transaction. ECDSA attestation remains a trusted
+  proof backend and does not guarantee future inclusion or finality.
 
 ## Reuse canonical implementations
 
@@ -87,7 +89,9 @@ algorithms, including:
 - `eez_protocol::settlement::pair_end_positions`;
 - `eez_protocol::system_tx::{build_cross_chain_sync_pairs,
   interleave_sync_block_txs}`; and
-- the `prove.v1` schema in `crates/eez-control-rpc/proto/prove.proto`.
+- the shared history/context rules in `eez_protocol::l1_history`; and
+- `prove.v2` in `prove_stream.proto` plus the shared witness/capability messages
+  in `prove.proto`. The shared v1 namespace does not provide v1 proving.
 
 System classification uses the backend's validated native-envelope evidence and
 the exact transaction recipient. Ordinary transactions retain fork-aware sender
@@ -127,14 +131,20 @@ needs focused fixture coverage.
 
 ## Verify
 
+Use fresh-profile witnesses through the real v2 gates. Test-only stubs can isolate
+backend contracts, but cannot bypass context or settlement gates to manufacture
+positive attestations. Retain native on-chain and cold network-denied process
+checks alongside unit/vector coverage. Historical captures with old execution
+rules do not establish current validity.
+
 From the repository root:
 
 ```bash
-cargo fmt --package eez-proof-signer -- --check
-cargo check --package eez-proof-signer --all-targets --locked
-cargo clippy --package eez-proof-signer --all-targets --all-features --locked -- -D warnings
-cargo test --package eez-proof-signer --locked
-RUSTDOCFLAGS='-D warnings' cargo doc --package eez-proof-signer --no-deps --locked
+cargo +1.95.0 fmt --package eez-proof-signer -- --check
+cargo +1.95.0 check --package eez-proof-signer --all-targets --locked
+cargo +1.95.0 clippy --package eez-proof-signer --all-targets --all-features --locked -- -D warnings
+cargo +1.95.0 test --package eez-proof-signer --locked
+RUSTDOCFLAGS='-D warnings' cargo +1.95.0 doc --package eez-proof-signer --no-deps --locked
 ```
 
 When changing the dependency, run the fork's checkpoint and trie checks at the

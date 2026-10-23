@@ -228,7 +228,7 @@ fn settlement_pipeline_errors_have_stable_rpc_mappings() {
 }
 
 #[test]
-fn cancelled_settlement_stops_before_decoding_untrusted_input() {
+fn cancelled_settlement_stops_before_effect_and_da_checks() {
     let cancellation = CancellationToken::default();
     cancellation.cancel();
     let system_transaction_reconstructor =
@@ -241,8 +241,14 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
     let validated = validated_single_block(settling_block, Vec::new(), Vec::new());
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: b"not ABI calldata".to_vec(),
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&anchor_batch()),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -254,42 +260,6 @@ fn cancelled_settlement_stops_before_decoding_untrusted_input() {
     });
 
     assert!(matches!(run, Err(SettlementPipelineError::Cancelled)));
-}
-
-#[test]
-fn an_elapsed_deadline_stops_the_pipeline_between_validation_and_settlement() {
-    let mut input = stub_block(5, 0x04, 0x05);
-    let empty_body: eez_primitives::BlockBody = Default::default();
-    input.rlp = alloy_rlp::encode(eez_primitives::Block::new(Default::default(), empty_body));
-    let inputs = vec![input];
-    let state = inner(Validator::stub(vec![Ok(backend_output_for(&inputs))]));
-    // A deadline captured now is already past when the boundary between
-    // execution validation and settlement runs.
-    let deadline = tokio::time::Instant::now();
-
-    let result = validate_and_settle(
-        &state,
-        crate::window::AdmittedBlocks::for_test(inputs),
-        b"not ABI calldata".to_vec(),
-        Vec::new(),
-        eez_blob_codec::MAX_BLOBS_PER_TRANSACTION,
-        crate::testkit::l1_target(),
-        crate::service::l1::CandidateContext::Synthetic,
-        deadline,
-        &CancellationToken::default(),
-    );
-
-    // The exact variant proves settlement never decoded the untrusted bytes:
-    // decoding them would have produced a calldata error instead.
-    let error = result
-        .err()
-        .expect("an elapsed deadline must stop the pipeline");
-    assert!(matches!(error, PipelineError::DeadlineBeforeSettlement));
-    assert_eq!(error.phase(), "settlement");
-    assert_eq!(error.gate(), "deadline");
-    let status = error.status();
-    assert_eq!(status.code(), Code::DeadlineExceeded);
-    assert_eq!(status.message(), "Prove request deadline exceeded");
 }
 
 #[test]
@@ -354,8 +324,11 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata.clone(),
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata.clone()).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -375,8 +348,11 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata,
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &reverted,
         expected_rollup_id: expected_rollup_id(1),
@@ -420,8 +396,14 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -463,8 +445,14 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -512,8 +500,14 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: eez_protocol::entries::encode_postbatch(&batch),
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            eez_protocol::entries::encode_postbatch(&batch),
+        )
+        .unwrap(),
         submitted_blobs: &[],
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -532,7 +526,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
 }
 
 #[test]
-fn a_fully_bound_outbound_effect_is_authorized() {
+fn a_fully_bound_outbound_effect_passes_settlement_checks() {
     let (batch, block_rlp, user, call_hash) = canonical_outbound_case();
     let settling_block = validate::ValidatedBlock::for_test(
         5,
@@ -571,8 +565,11 @@ fn a_fully_bound_outbound_effect_is_authorized() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: calldata,
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(calldata).unwrap(),
         submitted_blobs: &post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),
@@ -589,8 +586,14 @@ fn a_fully_bound_outbound_effect_is_authorized() {
     mismatched_da.callData = settlement::encode_da_payload(&[vec![user]]).into();
     let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::l1_target(),
-        submitted_post_batch_calldata: mismatched_post_batch.abi_calldata,
+        posting_context: crate::testkit::offline_context(
+            &anchor_batch(),
+            crate::testkit::l1_target(),
+        ),
+        canonical_batch: settlement::decode_canonical_post_batch(
+            mismatched_post_batch.abi_calldata,
+        )
+        .unwrap(),
         submitted_blobs: &mismatched_post_batch.blobs,
         validated_window: &validated,
         expected_rollup_id: expected_rollup_id(1),

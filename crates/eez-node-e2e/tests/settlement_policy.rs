@@ -7,9 +7,9 @@ use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
-    ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeBinary, NodeConfig, NodeHandle, batches_posted,
-    send_l2_value_transfer_confirmed, setup_cross_chain_with_env, wait_for_latest_height,
-    wait_for_safe_prefix_convergence,
+    ANVIL_ADDR_3, ANVIL_KEY_1, NodeBinary, NodeConfig, NodeHandle, batches_posted,
+    send_l2_value_transfer_confirmed, setup_cross_chain_with_env, setup_native_history,
+    wait_for_latest_height, wait_for_safe_prefix_convergence,
 };
 
 const TIMEOUT: Duration = Duration::from_mins(3);
@@ -145,7 +145,7 @@ async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
+async fn delayed_settlement_preserves_ordinary_history_and_replays() {
     use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
 
     let mut env = policy_env(Vec::new(), "interval");
@@ -161,7 +161,7 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
 
     // Hold submission only long enough to close the canonical log reader.
     // The real batch must still land in its exact target slot; delaying its
-    // observation then lets ordinary transactions enter stale-seed descendants.
+    // observation must not change the independent history/RANDAO schedule.
     world.hold_next_bundle().unwrap();
     sign_and_send(
         &world.l1_xchain(),
@@ -197,11 +197,11 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
         .await
         .unwrap()
         .unwrap();
-    let endpoint = posting_block.header.timestamp - world.cfg.genesis_time;
-    // K=5, L2=1s: a live acceptance changes the seed strictly after this endpoint.
+    let endpoint = posting_block.header.timestamp - world.dep.profile.genesisTimestamp;
+    // K=5, L2=1s: use the L2 bootstrap timestamp, not L1's earlier genesis.
     let initial_balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
-    // Exceed Reth's external per-sender capacity (16). A single recovered
-    // transaction cannot detect a local-to-external origin downgrade.
+    // Retain a nonce chain longer than Reth's external per-sender capacity (16),
+    // checking all ordinary effects through delayed canonical acceptance.
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
     let mut hashes = Vec::new();
     for offset in 0..20 {
@@ -241,37 +241,30 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
         "log-reader fault must delay acceptance"
     );
 
-    // No client resubmission: Reth's reorg notification must return the signed
-    // ordinary transaction to its pool when the accepted seed replaces its block.
+    // Settlement observation no longer selects randomness. These already
+    // executed descendants must keep their exact block hashes after acceptance.
     world.fail_rpc_methods(&[]).unwrap();
-    let mut after = Vec::new();
-    for (hash, before) in hashes.iter().zip(&before) {
-        let receipt = wait_for(TIMEOUT, || async {
-            Ok(l2
-                .get_transaction_receipt(*hash)
-                .await?
-                .filter(|receipt| receipt.block_hash != before.block_hash))
-        })
-        .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "stale-seed transaction {hash} was lost: {error:#}{}",
-                world.settlement_diagnostics()
-            )
-        });
-        assert!(receipt.status());
-        after.push(receipt);
-    }
     wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
         .await
         .unwrap();
+    let mut after = Vec::new();
+    for (hash, before) in hashes.iter().zip(&before) {
+        let receipt = l2
+            .get_transaction_receipt(*hash)
+            .await
+            .unwrap()
+            .expect("delayed settlement retains the ordinary transaction");
+        assert!(receipt.status());
+        assert_eq!(receipt.block_hash, before.block_hash);
+        after.push(receipt);
+    }
     assert_eq!(
         l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
         initial_balance + U256::from(9 * 20)
     );
 
-    // A second cross-chain opportunity settles the repaired ordinary history.
-    // An independent follower must reconstruct the empty sibling and transfer.
+    // A second cross-chain opportunity settles the retained ordinary history.
+    // An independent follower must reconstruct every transfer identically.
     sign_and_send(
         &world.l1_xchain(),
         ANVIL_KEY_1,
@@ -285,7 +278,7 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
     .await
     .unwrap();
     let follower = NodeHandle::start(
-        "stale-seed-follower",
+        "delayed-settlement-follower",
         &NodeConfig {
             binary: NodeBinary::Follower,
             genesis_path: Some(&world.cfg.l2_genesis.0),
@@ -2079,11 +2072,10 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interval_preserves_execution_but_waits_below_all_thresholds() {
-    let harness = Harness::fresh().await.unwrap();
-    let env = policy_env(harness.env().await.unwrap(), "interval");
-    let node = NodeHandle::start("policy-interval", &NodeConfig::default(), &env)
+    let world = setup_native_history(&policy_env(Vec::new(), "interval"))
         .await
         .unwrap();
+    let node = &world.node;
     // L2 RPC binds before the Composer installs its ordinary-transaction
     // sequencing limits. Wait for the later startup event before sending.
     eez_testkit::wait_for(TIMEOUT, || async {
@@ -2128,11 +2120,11 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     })
     .await
     .expect("test must observe an accepted not-due planning decision after execution");
-    wait_for_latest_height(&node, (height + 12).max(planned_boundary), TIMEOUT)
+    wait_for_latest_height(node, (height + 12).max(planned_boundary), TIMEOUT)
         .await
         .unwrap();
     assert_eq!(
-        harness.chain().batches_posted().await.unwrap(),
+        world.chain().batches_posted().await.unwrap(),
         0,
         "included pure activity waits for an enabled trigger"
     );
@@ -2240,15 +2232,13 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
     world.prune_rpc_history_before(anchor).unwrap();
     let fault_url = world.fault_rpc_url().to_owned();
 
-    // Exercise the signer's independent genesis authentication against the
-    // same pruning boundary as the Composer. The original signer uses direct
-    // L1 RPC and would otherwise hide the live failure after restart.
+    // A fresh offline signer needs only the local profile and request evidence.
+    // Pruning remains an acquisition constraint for the producer/follower.
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
-        l2_rpc_url: None,
-        l1_rpc_url: fault_url.clone(),
+        rollup_manager_address: world.cfg.rollup_manager_address,
         registry_address: world.cfg.eez_address,
         chain_config: &world.cfg.l2_genesis.0,
-        l1_chain_config: Some(world.cfg.l1_genesis.0.to_string_lossy().into_owned()),
+        l1_chain_config: world.cfg.l1_genesis.0.to_string_lossy().into_owned(),
         rollup_id: world.cfg.rollup_id,
         signer_key: world.cfg.attester_key,
         vkey: eez_testkit::signer_address(world.cfg.attester_key)

@@ -47,21 +47,28 @@ class ChiadoConfigTest(unittest.TestCase):
             text=True, capture_output=True,
         )
 
-    def test_streaming_header_source_reaches_only_the_signer(self):
+    def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
         key = "EEZ_PROOF_SIGNER_L2_RPC_URL"
-        for overrides, expected in (
-            ({}, "http://127.0.0.1:18688"),
-            ({key: "http://127.0.0.1:29999"}, "http://127.0.0.1:29999"),
-            ({key: ""}, ""),
-            ({key: "invalid"}, "invalid"),
+        for overrides in (
+            {},
+            {key: "http://127.0.0.1:29999"},
+            {key: ""},
+            {key: "invalid"},
         ):
             with self.subTest(overrides=overrides):
                 result = self.render(overrides)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 services = json.loads(result.stdout)["services"]
-                self.assertEqual(services["eez-proof-signer"]["environment"][key], expected)
+                signer = services["eez-proof-signer"]["environment"]
+                self.assertNotIn(key, signer)
+                self.assertNotIn("EEZ_L1_RPC_URL", signer)
+                self.assertEqual(signer["EEZ_CHAIN_CONFIG"], "/app/genesis.json")
+                self.assertEqual(signer["EEZ_L1_CHAIN_CONFIG"], "chiado")
+                self.assertEqual(services["eez-node"]["environment"]["EEZ_L1_RPC_URL"],
+                                 "http://127.0.0.1:18645")
                 self.assertNotIn(key, services["eez-node"]["environment"])
-        # Empty/invalid values reach the signer's strict startup parser unchanged.
+        # Obsolete shell settings cannot create an RPC-backed Compose path.
+        # Standalone signer configuration tests separately assert their rejection.
 
     def test_fee_recipient_is_required_and_reaches_only_the_node(self):
         env_file = self.repo / ".env"

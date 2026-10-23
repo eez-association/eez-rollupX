@@ -11,6 +11,7 @@ solc        = "0.8.34"
 optimizer   = true
 optimizer_runs = 1
 via_ir      = true
+fs_permissions = [{ access = "read", path = "test/fixtures" }]
 
 # Pull `forge-std` from the submodule's vendored copy, and include
 # `eez-core-protocol` as a library lookup path so Foundry discovers

@@ -1,102 +1,102 @@
 {
-  "authority": "synthetic fixture L1 authority; real Stateless execution, native blobs, observation validation and ECDSA signing",
+  "authority": "Input-side construction; native capture or derived ordinary subrange, never response-derived expectations",
   "case": "resume-boundaries",
-  "category": "optional sessions, subranges or pipelining",
+  "category": "offline-v2",
   "events": [
     {
-      "check": "malformed or unknown Resume",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "client",
-      "protobuf_hex": "2a00",
+      "protobuf_hex": "10012a00",
       "transport": 0
     },
     {
-      "check": "unbound Resume leaks no cursor",
-      "direction": "server",
-      "protobuf_hex": "42020803",
-      "transport": 0
-    },
-    {
-      "check": "malformed or unknown Resume",
-      "direction": "client",
-      "protobuf_hex": "0a1f4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d10012a00",
-      "transport": 0
-    },
-    {
-      "check": "unbound Resume leaks no cursor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "server",
       "protobuf_hex": "100142020803",
       "transport": 0
     },
     {
-      "check": "malformed or unknown Resume",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "client",
-      "protobuf_hex": "0a214d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d10022a00",
+      "protobuf_hex": "0a01ee10022a00",
       "transport": 0
     },
     {
-      "check": "unbound Resume leaks no cursor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "server",
       "protobuf_hex": "100242020803",
       "transport": 0
     },
     {
-      "check": "malformed or unknown Resume",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "client",
-      "protobuf_hex": "0a204d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d100318012a00",
+      "protobuf_hex": "0a1feeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10032a00",
       "transport": 0
     },
     {
-      "check": "unbound Resume leaks no cursor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "server",
       "protobuf_hex": "100342020803",
       "transport": 0
     },
     {
-      "check": "malformed or unknown Resume",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "client",
-      "protobuf_hex": "0a204d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d10042a00",
+      "protobuf_hex": "0a20eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10042a00",
       "transport": 0
     },
     {
-      "check": "unbound Resume leaks no cursor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "server",
       "protobuf_hex": "100442020805",
       "transport": 0
     },
     {
-      "check": "Begin exact fixture anchor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "client",
-      "protobuf_hex": "1001224608011a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e2220673a04cf2bccfc37d96a2778eaf9a413dd4ddad30916920bed14c6dfb70df017",
+      "protobuf_hex": "0a21eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10052a00",
       "transport": 0
     },
     {
-      "check": "Ready exact anchor",
+      "check": "Malformed or unknown Resume discloses no cursor",
       "direction": "server",
-      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110011801222212201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "100542020803",
       "transport": 0
     },
     {
-      "check": "Resume must start a new attachment",
+      "check": "Begin exact native predecessor",
       "direction": "client",
-      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100218012a00",
+      "protobuf_hex": "1006224608011a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c722220725bb3f3e803f144804f800fb328a9b58fd17d51e726d15528700c2f7065ca33",
       "transport": 0
     },
     {
-      "check": "Resume must start a new attachment",
+      "check": "Ready exact cursor and binding",
       "direction": "server",
-      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110021801422408032a201a8469772b63320d68dd49a0fe6112b1729876a6377e93773bfa2a3e530eb81e",
+      "protobuf_hex": "0a2001010101010101010101010101010101010101010101010101010101010101011006180122221220fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
       "transport": 0
     },
     {
-      "check": "Cancel only bound session",
+      "check": "Resume requires a new attachment",
       "direction": "client",
-      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100318014a00",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100718012a00",
       "transport": 0
     },
     {
-      "check": "Cancelled acknowledges retirement",
+      "check": "Resume requires a new attachment",
       "direction": "server",
-      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100318013a00",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110071801422408032a20fb4ed67a861dc6af1cf7613fcb327969dfc50720a419e345e9ab18136c7d2c72",
+      "transport": 0
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100818014a00",
+      "transport": 0
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100818013a00",
       "transport": 0
     },
     {
@@ -104,15 +104,15 @@
       "transport": 0
     },
     {
-      "check": "retired session Resume",
+      "check": "Cancelled session cannot Resume",
       "direction": "client",
-      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110012a00",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110092a00",
       "transport": 1
     },
     {
-      "check": "Cancel retirement is permanent",
+      "check": "Cancelled session cannot Resume",
       "direction": "server",
-      "protobuf_hex": "100142020805",
+      "protobuf_hex": "100942020805",
       "transport": 1
     },
     {
@@ -125,18 +125,17 @@
     }
   ],
   "expected_proofs": 0,
-  "fixture": "native-osaka-lookup",
+  "fixture": "native-offline-bidirectional",
   "format": 2,
-  "normalization": "issued IDs become distinct 32-byte repeated tokens; epochs rebound per session; diagnostic wording/reused omitted",
+  "normalization": "Distinct session tokens and monotonic epochs rebound; diagnostic wording/reused omitted",
   "oracle": {
-    "attester": "0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc",
-    "full_fixture_public_inputs_hash": "0x43773380711514f8b7e4ed30d4cc6bd41e2132c4ecd3c9ecba7d7bd0043f700f"
+    "attester": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
   },
   "server_profile": {
-    "max_window_blocks": 128,
+    "max_window_blocks": 4096,
     "max_window_bytes": 16777216,
     "max_window_witness_items": 100000,
-    "request_timeout_secs": 60,
+    "request_timeout_secs": 120,
     "stream_idle_timeout_secs": 30
   }
 }

@@ -161,6 +161,10 @@ fn expected_rollup_id() -> NonZeroU64 {
 fn carrier_batch() -> CanonicalPostBatch {
     let batch = EvmBatch {
         blockNumber: u64::MAX,
+        expectedRootPerRollup: vec![ExpectedRootPerRollupSol {
+            rollupId: 1,
+            root: B256::repeat_byte(0x42),
+        }],
         proofSystems: vec![EXPECTED_PROOF_SYSTEM],
         rollupIdsWithProofSystems: vec![rollup_row(1)],
         ..Default::default()

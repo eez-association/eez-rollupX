@@ -42,6 +42,7 @@ mod evm;
 pub use evm::EezEvmFactory;
 
 pub mod block;
+pub mod history;
 pub mod profile;
 use block::{EezBlockExecutorFactory, ExecutionLayer};
 
@@ -136,6 +137,50 @@ impl<C> EezEvmConfig<C> {
 }
 
 impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
+    /// Install ready checked L1 evidence for the mandatory history hook. No
+    /// execution path falls back to an RPC source when evidence is absent.
+    pub fn with_l1_history(
+        mut self,
+        source: Arc<dyn history::L1HistorySource>,
+    ) -> Result<Self, eez_protocol::l2::ProfileError> {
+        let schedule = self.schedule()?;
+        self.executor.history = Some(history::HistoryConfig {
+            schedule: schedule.history()?,
+            first_number: schedule.config().l1_reference.number,
+            source,
+        });
+        Ok(self)
+    }
+
+    /// Ready checked evidence for a scheduled L2 timestamp. The source performs
+    /// no network or blocking I/O here; absence is an execution/preparation error.
+    pub fn l1_headers(
+        &self,
+        timestamp: u64,
+    ) -> Result<Arc<eez_protocol::l1_history::HeaderChain>, eez_protocol::l2::ProfileError> {
+        let history = self
+            .executor
+            .history
+            .as_ref()
+            .ok_or(eez_protocol::l2::ProfileError(
+                "L1 history source is not configured",
+            ))?;
+        history
+            .source
+            .headers(history.schedule.source_cutoff(timestamp)?)
+    }
+
+    /// One source of PREVRANDAO for block construction and reconstruction. The
+    /// import hook independently matches this source against authenticated state.
+    pub fn history_prev_randao(
+        &self,
+        timestamp: u64,
+    ) -> Result<alloy_primitives::B256, eez_protocol::l2::ProfileError> {
+        let chain = self.l1_headers(timestamp)?;
+        let cutoff = self.schedule()?.history()?.source_cutoff(timestamp)?;
+        Ok(chain.select(cutoff)?.header().mix_hash)
+    }
+
     fn schedule(&self) -> Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError> {
         *self
             .schedule

@@ -81,6 +81,8 @@ tokio.workspace       = true
 tracing.workspace     = true
 
 [dev-dependencies]
+alloy-provider.workspace = true
+alloy-rpc-types-eth.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 serde_json.workspace = true
 reth-provider = { workspace = true, features = ["test-utils"] }

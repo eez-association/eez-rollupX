@@ -93,9 +93,17 @@ its Solidity implementation/tests and the applicable fork contract:
   wiring in `eez-node`/`eez-follower`, the RPC contract in `eez-control-rpc`, and
   independent proof validation in `eez-proof-signer`.
 - Preserve **block-hash commitments**, native blob DA, whole grouped/nested calls,
-  and proving/submission bound to the **same L1 target**. An authorized contract
+  and each mode's exact L1 binding. Actual-parent live proofs bind the inclusion
+  parent and timestamp; historical ordinary catch-up proofs bind an explicit
+  recent anchor, independently of the submission attempt's parent/cutoff.
+  Never turn a failed live attempt into historical mode. An authorized contract
   change must update every affected Solidity/Rust producer and consumer, including
   ABI/codecs, Composer, signer, and deriver/follower.
+- The [offline history profile](docs/proposals/l1-origin-and-offline-proving.md)
+  is active from fresh genesis only. Retain v2, complete L1-header witnesses,
+  the shared delayed origin/PREVRANDAO schedule and on-chain context checks.
+  Do not add signer chain RPCs, seed-selection fallbacks, v1 proving or an
+  existing-network migration path. Composer and followers still need L1 access.
 - The signer accepts a narrower profile than the core protocol; upstream support
   alone does not authorize extending it. An authorized extension must update the
   applicable specification, validation, and regressions together. Preserve exact
@@ -371,7 +379,7 @@ artifact location/digest; label local-only, missing, or expired evidence. Ignore
 For Chiado operation or deployment changes, read the
 [quick start](docs/runbooks/chiado-quickstart.md) and
 [deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Before adding or
-replacing a Composer on an existing Chiado L2, read the
+replacing a Composer on a Chiado L2 created with this offline profile, read the
 [existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). Preserve these boundaries:
 
 - Normal deployment uses the published deploy image's bundled contracts/tools;
@@ -390,7 +398,8 @@ replacing a Composer on an existing Chiado L2, read the
 - Keep quick starts to normal setup/run/check commands. Put optional diagnostics
   and recovery in the detailed runbook, not the normal setup sequence.
 
-The feature/events protocol pin uses position-bound L2 static entries and changed
-L2 selectors, proxy initcode and settlement events. It is not a binary-only upgrade
-for pre-existing Chiado contracts/genesis; follow the
-[compatibility boundary](docs/runbooks/chiado-deployment.md#featureevents-protocol-compatibility).
+The offline-history profile requires matching contracts, bootstrap, genesis,
+Composer, signer and followers from network creation. Native transaction support
+alone does not make an earlier network compatible. Follow the
+[compatibility boundary](docs/runbooks/chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary);
+same-profile restart and recovery do not authorize migration of an older network.

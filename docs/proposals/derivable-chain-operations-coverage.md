@@ -1,5 +1,11 @@
 # Derivable ChainOperation coverage ledger
 
+Historical evidence ledger: preparation/cache/lease and seed-authorization rows
+refer to the earlier profile. For the fresh-network offline v2 implementation,
+use the [current O1–O15 ledger](../audits/2026-10-22-l1-history-offline-proving/README.md).
+No result below establishes acceptance of the new genesis, imports or offline
+proof rules.
+
 Companion to the [implementation contract](derivable-chain-operations.md).
 The implementation status and retained evidence are recorded below.
 Package letters refer to the contract's component table. Each completed row must gain concrete code,

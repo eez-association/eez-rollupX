@@ -12,19 +12,47 @@ const EMPTY_REQUESTS: B256 =
 fn environment() -> Environment {
     Environment {
         fee_recipient: Address::repeat_byte(0x11),
-        prev_randao: B256::repeat_byte(0x22),
         extra_data: Bytes::from_static(b"published inputs"),
     }
 }
 
 fn config(fork: EthereumHardfork) -> EezEvmConfig {
+    use eez_protocol::l1_history::{
+        HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
+        bootstrap_storage,
+    };
+    let reference = Header {
+        timestamp: 68,
+        mix_hash: B256::repeat_byte(0x22),
+        ..Default::default()
+    };
+    let endpoint = Header {
+        number: 1,
+        timestamp: 1_000_000,
+        parent_hash: reference.hash_slow(),
+        ..Default::default()
+    };
     let mut genesis: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
     genesis["timestamp"] = serde_json::json!("0x50");
+    genesis["mixHash"] = serde_json::json!(reference.mix_hash);
     genesis["config"]["chainId"] = serde_json::json!(1);
     genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(2);
     genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(6);
-    genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(80);
+    genesis["config"]["rollupX"]["historyUpdateOffset"] = serde_json::json!(2);
+    genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(68);
+    genesis["config"]["rollupX"]["l1Reference"]["hash"] = serde_json::json!(reference.hash_slow());
+    genesis["config"]["rollupX"]["l1Reference"]["prevRandao"] =
+        serde_json::json!(reference.mix_hash);
+    genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
+        bootstrap_storage(
+            0,
+            reference.hash_slow(),
+            HistorySchedule::new(80, 2, 6, 2).unwrap(),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let mut spec = eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap();
     if fork != EthereumHardfork::Osaka {
         let builder = ChainSpecBuilder::mainnet().reset();
@@ -36,7 +64,26 @@ fn config(fork: EthereumHardfork) -> EezEvmConfig {
         .build()
         .hardforks;
     }
+    let mut chain = HeaderChain::default();
+    chain
+        .append(
+            &[
+                alloy_rlp::encode(reference).into(),
+                alloy_rlp::encode(endpoint).into(),
+            ],
+            &HeaderRules {
+                london_block: None,
+                shanghai_time: None,
+                cancun_time: None,
+                prague_time: None,
+                unsupported_time: None,
+            },
+            2,
+        )
+        .unwrap();
     EezEvmConfig::new(Arc::new(spec))
+        .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
+        .unwrap()
 }
 
 fn parent() -> SealedHeader {
@@ -58,6 +105,40 @@ fn parent() -> SealedHeader {
 fn parent_for(fork: EthereumHardfork) -> SealedHeader {
     assert_eq!(fork, EthereumHardfork::Osaka);
     parent()
+}
+
+fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &EezEvmConfig) {
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, NEXT_CUTOFF_SLOT};
+    use revm::{bytecode::Bytecode, state::AccountInfo};
+    let history = &config.chain_spec().genesis.alloc[&HISTORY_ADDRESS];
+    let code = Bytecode::new_raw(history.code.clone().unwrap());
+    database.insert_account_info(
+        HISTORY_ADDRESS,
+        AccountInfo {
+            nonce: 1,
+            code_hash: code.hash_slow(),
+            code: Some(code),
+            ..Default::default()
+        },
+    );
+    for (slot, value) in history.storage.as_ref().unwrap() {
+        database
+            .insert_account_storage(
+                HISTORY_ADDRESS,
+                U256::from_be_bytes(slot.0),
+                U256::from_be_bytes(value.0),
+            )
+            .unwrap();
+    }
+    // Parent 10 at timestamp 100 has executed the repeated-source updates at
+    // 86 and 98. Its next cutoff is 104 (installed at 110), not genesis's 80.
+    database
+        .insert_account_storage(
+            HISTORY_ADDRESS,
+            U256::from(NEXT_CUTOFF_SLOT),
+            U256::from(104),
+        )
+        .unwrap();
 }
 
 #[test]
@@ -201,14 +282,13 @@ fn whole_block_matches_independent_fixed_osaka_fixture() {
 }
 
 #[test]
-fn metadata_and_seed_bind_assembly_while_fixed_environment_changes_are_rejected() {
+fn metadata_binds_assembly_and_wrong_history_randao_or_fixed_fields_are_rejected() {
     let config = config(EthereumHardfork::Osaka);
     let parent = parent();
     let original = assemble_empty(&config, &parent, &environment());
     let original_rlp = alloy_rlp::encode(&original);
     for change in [
         |env: &mut Environment| env.fee_recipient = Address::repeat_byte(0x44),
-        |env: &mut Environment| env.prev_randao = B256::repeat_byte(0x55),
         |env: &mut Environment| env.extra_data = Bytes::from_static(b"other"),
     ] {
         let mut env = environment();
@@ -217,6 +297,7 @@ fn metadata_and_seed_bind_assembly_while_fixed_environment_changes_are_rejected(
         assert!(require_exact_block(&changed, &original_rlp).is_err());
     }
     for change in [
+        |h: &mut Header| h.mix_hash = B256::repeat_byte(0x55),
         |h: &mut Header| h.timestamp += 1,
         |h: &mut Header| h.gas_limit += 1,
         |h: &mut Header| h.parent_beacon_block_root = Some(B256::repeat_byte(0x66)),
@@ -404,11 +485,12 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
             ..Default::default()
         },
     );
+    let config = config(EthereumHardfork::Osaka);
+    install_parent_history(&mut database, &config);
     let mut state = State::builder()
         .with_database(database)
         .with_bundle_update()
         .build();
-    let config = config(EthereumHardfork::Osaka);
     let mut parent = parent_for(EthereumHardfork::Osaka);
 
     // Reuse actual in-memory state for two consecutive empty derived blocks.
@@ -488,11 +570,12 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
             ..Default::default()
         },
     );
+    let config = config(EthereumHardfork::Osaka);
+    install_parent_history(&mut database, &config);
     let mut state = State::builder()
         .with_database(database)
         .with_bundle_update()
         .build();
-    let config = config(EthereumHardfork::Osaka);
     let parent = parent_for(EthereumHardfork::Osaka);
     let attrs = next_attributes(&config, &parent, &environment()).unwrap();
     let mut builder = config

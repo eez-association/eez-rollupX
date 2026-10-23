@@ -25,11 +25,15 @@ struct Model {
     sessions: HashMap<Vec<u8>, Retained>,
     begins: usize,
     blocks: usize,
+    received: Vec<WireBlockWitness>,
     resumes: usize,
     settlements: Vec<v2::SettlementInput>,
 }
 #[derive(Clone)]
-struct StreamStub {
+pub(super) struct StreamStub {
+    signer: PrivateKeySigner,
+    finalizes: Option<tokio::sync::mpsc::UnboundedSender<v2::Finalize>>,
+    pub(super) unavailable: bool,
     model: Arc<Mutex<Model>>,
     hash: B256,
     capacity: usize,
@@ -39,8 +43,29 @@ struct StreamStub {
     pipeline: bool,
 }
 impl StreamStub {
+    pub(super) fn response(
+        signer: PrivateKeySigner,
+        hash: B256,
+        finalizes: Option<tokio::sync::mpsc::UnboundedSender<v2::Finalize>>,
+    ) -> Self {
+        Self {
+            signer,
+            hash,
+            finalizes,
+            unavailable: false,
+            model: Arc::default(),
+            capacity: 512,
+            unsupported: None,
+            corrupt: None,
+            stall: None,
+            pipeline: false,
+        }
+    }
     fn new(ctx: &ProvingContext) -> Self {
         Self {
+            signer: test_key(),
+            finalizes: None,
+            unavailable: false,
             model: Arc::default(),
             hash: request_hash(ctx, test_key().address().into_word()).unwrap(),
             capacity: 512,
@@ -68,6 +93,9 @@ impl v2::prover_server::Prover for StreamStub {
                 .as_ref(),
             TEST_IDENTITY.as_slice()
         );
+        if self.unavailable {
+            return Err(Status::unavailable("test prover is busy"));
+        }
         let mut input = request.into_inner();
         let this = self.clone();
         let (tx, rx) = tokio::sync::mpsc::channel(16);
@@ -170,6 +198,7 @@ impl v2::prover_server::Prover for StreamStub {
                                 decoded.header.state_root,
                             ));
                             model.blocks += 1;
+                            model.received.push(block.clone());
                             if this.corrupt == Some("session") {
                                 id = vec![0xff; 32];
                             }
@@ -186,6 +215,9 @@ impl v2::prover_server::Prover for StreamStub {
                         }
                     }
                     cf::Kind::Finalize(finalize) => {
+                        if let Some(receiver) = &this.finalizes {
+                            let _ = receiver.send(finalize.clone());
+                        }
                         let session = model.sessions.get_mut(&id).unwrap();
                         if finalize.from_block <= session.anchor.0 {
                             rejected(Code::FailedPrecondition, session.tip())
@@ -204,7 +236,7 @@ impl v2::prover_server::Prover for StreamStub {
                             done = true;
                             sf::Kind::Proof(v2::Proof {
                                 public_inputs_hash: this.hash.to_vec(),
-                                proof: sign_65(&test_key(), this.hash),
+                                proof: sign_65(&this.signer, this.hash),
                             })
                         }
                     }
@@ -260,18 +292,13 @@ impl Drop for ServerTask {
 async fn serve(stub: StreamStub) -> (RemoteProver, ServerTask) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let (headers, _) = tokio::sync::mpsc::unbounded_channel();
-    let v1 = StubProver {
-        signer: test_key(),
-        hash: stub.hash,
-        headers,
-        retentions: None,
+    let capabilities = CapabilityStub {
         capabilities: test_capabilities(),
         capability_calls: Arc::default(),
     };
     let task = tokio::spawn(async move {
         Server::builder()
-            .add_service(ProverServer::new(v1))
+            .add_service(ProverServer::new(capabilities))
             .add_service(
                 v2::prover_server::ProverServer::new(stub)
                     .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES),
@@ -292,7 +319,7 @@ fn context(count: usize) -> ProvingContext {
         state_root: B256::repeat_byte(0x41),
         ..Default::default()
     };
-    ctx.parent_provenance.parent = parent.clone();
+    ctx.parent = parent.clone();
     let mut blocks = Vec::new();
     for number in 1..=count as u64 {
         let header = alloy_consensus::Header {
@@ -302,6 +329,7 @@ fn context(count: usize) -> ProvingContext {
             ..Default::default()
         };
         let mut block = eez_prover::BlockWitness {
+            l1_headers_rlp: vec![Bytes::from_static(&[0xc0])],
             number,
             hash: header.hash_slow(),
             parent_hash: header.parent_hash,
@@ -329,7 +357,7 @@ fn selected(ctx: &ProvingContext, from: u64, to: u64) -> ProvingContext {
     if from > 1 {
         let parent: eez_primitives::Block =
             alloy_rlp::decode_exact(&ctx.blocks[(from - 2) as usize].rlp).unwrap();
-        next.parent_provenance.parent = parent.header;
+        next.parent = parent.header;
     }
     next
 }
@@ -340,12 +368,17 @@ async fn retained_capacity_recovers_once_at_requested_anchor() {
     let stub = StreamStub::new(&ctx);
     let model = Arc::clone(&stub.model);
     let (prover, _server) = serve(stub).await;
-    prover.prove(selected(&ctx, 1, 300)).await.unwrap();
+    // Prevalidation retains the ordinary prefix without a finalized anchor
+    // extension, so the next range must actually encounter the session quota.
+    prover
+        .prevalidate_range(1, &ctx.blocks[..300])
+        .await
+        .unwrap();
     prover.prove(selected(&ctx, 301, 600)).await.unwrap();
     let model = model.lock().await;
     assert_eq!(model.begins, 2);
     assert_eq!(model.blocks, 812);
-    assert_eq!(model.settlements.len(), 2);
+    assert_eq!(model.settlements.len(), 1);
 }
 
 #[tokio::test]
@@ -356,12 +389,54 @@ async fn rollback_below_promoted_anchor_backfills_identical_blocks() {
     let (prover, _server) = serve(stub).await;
     prover.prove(ctx.clone()).await.unwrap();
     prover.prove(selected(&ctx, 51, 100)).await.unwrap();
-    assert_eq!(model.lock().await.blocks, 100);
+    // A proof may extend terminal L1 evidence. Rewind/resend that terminal
+    // before selecting a different range, even if the L2 hash is unchanged.
+    assert_eq!(model.lock().await.blocks, 101);
     prover.prove(ctx).await.unwrap();
     let model = model.lock().await;
     assert_eq!(model.begins, 2);
-    assert_eq!(model.blocks, 200);
+    // The last request predates the known retained predecessor, so it starts
+    // a complete session without first resending a terminal to the old one.
+    assert_eq!(model.blocks, 201);
     assert_eq!(model.settlements.len(), 3);
+}
+
+#[tokio::test]
+async fn prevalidation_after_proof_preserves_the_next_requested_predecessor() {
+    let ctx = context(100);
+    let mut stub = StreamStub::new(&ctx);
+    let (finalizes, mut requests) = tokio::sync::mpsc::unbounded_channel();
+    stub.finalizes = Some(finalizes);
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    prover.prove(selected(&ctx, 1, 50)).await.unwrap();
+    // Background prevalidation starts after the proof's extended L1 bridge.
+    // Until settlement is canonical, the next candidate can still start at 1.
+    prover
+        .prevalidate_range(1, &ctx.blocks[50..])
+        .await
+        .unwrap();
+    prover.prove(ctx.clone()).await.unwrap();
+    assert_eq!(requests.try_recv().unwrap().to_block, 50);
+    let finalization = requests.try_recv().unwrap();
+    assert_eq!((finalization.from_block, finalization.to_block), (1, 100));
+    assert!(
+        requests.try_recv().is_err(),
+        "a known missing predecessor must start a complete session before Finalize"
+    );
+    let model = model.lock().await;
+    assert_eq!(model.begins, 3);
+    assert_eq!(model.blocks, 200);
+    assert_eq!(
+        model.received[100..]
+            .iter()
+            .map(|block| block.hash.as_slice())
+            .collect::<Vec<_>>(),
+        ctx.blocks
+            .iter()
+            .map(|block| block.hash.as_slice())
+            .collect::<Vec<_>>()
+    );
 }
 
 #[tokio::test]
@@ -370,10 +445,7 @@ async fn skipped_prevalidation_keeps_prefix_and_final_proof_backfills_gap() {
     let stub = StreamStub::new(&ctx);
     let model = Arc::clone(&stub.model);
     let (prover, _server) = serve(stub).await;
-    assert_eq!(
-        prover.prevalidate_range(1, &ctx.blocks[..1]).await.unwrap(),
-        Prevalidation::Available
-    );
+    prover.prevalidate_range(1, &ctx.blocks[..1]).await.unwrap();
     prover.prevalidate_range(1, &ctx.blocks[2..]).await.unwrap();
     assert_eq!(model.lock().await.blocks, 1);
     prover.prove(ctx).await.unwrap();
@@ -417,8 +489,14 @@ async fn optional_controls_fall_back_without_omitting_native_settlement() {
             .abi_encode()
         );
         let target = input.posting_context.as_ref().unwrap();
-        assert_eq!(target.parent_hash, request.l1_posting.parent_hash.to_vec());
-        assert_eq!(target.target_timestamp, request.l1_posting.target_timestamp);
+        assert_eq!(
+            target.parent_hash,
+            request.l1_posting.unwrap().parent_hash.to_vec()
+        );
+        assert_eq!(
+            target.target_timestamp,
+            request.l1_posting.unwrap().target_timestamp
+        );
     }
 }
 
@@ -500,4 +578,88 @@ async fn exchange_deadline_covers_ready_block_eof_and_mutex_waits() {
         );
         drop(guard);
     }
+}
+
+#[tokio::test]
+async fn changed_proof_anchor_replaces_terminal_evidence_for_the_same_l2_hash() {
+    let original = context(2);
+    let stub = StreamStub::new(&original);
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    prover.prove(original.clone()).await.unwrap();
+    let mut changed = original.clone();
+    let blocks = Arc::make_mut(&mut changed.blocks);
+    // The transport model does not authenticate these headers. It verifies that
+    // a new proof's bridge is transmitted, not silently reused by L2 hash alone.
+    blocks[1]
+        .l1_headers_rlp
+        .push(Bytes::from_static(&[0xc1, 1]));
+    let terminal_hash = blocks[1].hash;
+    prover.prove(changed).await.unwrap();
+    let model = model.lock().await;
+    assert_eq!(model.begins, 1);
+    assert_eq!(model.blocks, 3);
+    assert_eq!(model.settlements.len(), 2);
+    let terminal = model.received.last().unwrap();
+    assert_eq!(terminal.hash, terminal_hash.as_slice());
+    assert_eq!(
+        terminal.witness.as_ref().unwrap().l1_headers_rlp,
+        vec![vec![0xc1, 1]]
+    );
+}
+
+#[tokio::test]
+async fn missing_or_disconnected_l1_segments_cannot_reach_finalize() {
+    for disconnected in [false, true] {
+        let mut ctx = context(2);
+        let stub = StreamStub::new(&ctx);
+        let model = Arc::clone(&stub.model);
+        let blocks = Arc::make_mut(&mut ctx.blocks);
+        blocks[1].l1_headers_rlp = if disconnected {
+            vec![Bytes::from_static(&[0xc1, 1])]
+        } else {
+            Vec::new()
+        };
+        let (prover, _server) = serve(stub).await;
+        let error = prover.prove(ctx).await.unwrap_err();
+        let expected = if disconnected {
+            "captured L1 witness segments disagree at shared endpoint"
+        } else {
+            "captured witness has no L1 endpoint"
+        };
+        assert!(
+            matches!(&error, ProverError::Backend(message) if message == expected),
+            "{error}"
+        );
+        assert!(model.lock().await.settlements.is_empty());
+    }
+}
+
+#[tokio::test]
+async fn cancelling_a_partial_v2_exchange_releases_its_witness_owner() {
+    let ctx = context(2);
+    let owner = Arc::downgrade(&ctx.blocks);
+    let mut stub = StreamStub::new(&ctx);
+    stub.stall = Some("block");
+    let model = Arc::clone(&stub.model);
+    let (prover, _server) = serve(stub).await;
+    let task = tokio::spawn(async move { prover.prove(ctx).await });
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while model.lock().await.blocks == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(owner.strong_count() > 0);
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while owner.strong_count() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled v2 exchange retained the caller's window allocation");
+    assert!(model.lock().await.settlements.is_empty());
 }

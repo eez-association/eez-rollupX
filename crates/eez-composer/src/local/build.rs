@@ -105,6 +105,9 @@ impl BuildError {
 /// [`commit_derived`]: eez_driver::BlockCommitterHandle::commit_derived
 #[derive(Debug)]
 pub struct BuiltSyncBlock {
+    /// Exact selected L1 hash used by the mandatory import. This fences a
+    /// delayed commit against reorgs that leave PREVRANDAO unchanged.
+    pub l1_origin_hash: B256,
     /// Engine-API payload — pass to `commit_derived`.
     pub payload: ExecutionData,
     /// Sealed header of the new block (cursor mirror in the committer).
@@ -204,6 +207,21 @@ pub fn build_sync_block<P>(
 where
     P: StateProviderFactory,
 {
+    let history = evm_config
+        .l1_headers(timestamp)
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let cutoff = eez_evm::profile::schedule(evm_config.chain_spec().as_ref())
+        .and_then(|schedule| schedule.history())
+        .and_then(|schedule| schedule.source_cutoff(timestamp))
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let l1_origin_hash = history
+        .select(cutoff)
+        .map_err(|e| BuildError::Builder(e.to_string()))?
+        .hash();
+    let evm_config = evm_config
+        .clone()
+        .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(history)))
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
     let parent_hash = parent.hash();
     let state_provider = l2_provider
         .state_by_block_hash(parent_hash)
@@ -215,7 +233,7 @@ where
         .build();
 
     let attributes =
-        next_block_attributes(evm_config, timestamp, prev_randao, suggested_fee_recipient);
+        next_block_attributes(&evm_config, timestamp, prev_randao, suggested_fee_recipient);
 
     let mut builder = evm_config
         .builder_for_next_block(&mut db, parent, attributes)
@@ -254,6 +272,7 @@ where
     let header = sealed_block.sealed_header().clone();
     let payload = <EezEngineTypes as PayloadTypes>::block_to_payload(sealed_block, None);
     Ok(BuiltSyncBlock {
+        l1_origin_hash,
         payload,
         header,
         block,
@@ -1067,6 +1086,20 @@ mod tests {
     }
 
     fn rollup_config() -> EezEvmConfig {
+        use eez_protocol::l1_history::{
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
+            bootstrap_storage,
+        };
+        let reference = Header {
+            timestamp: 964,
+            ..Default::default()
+        };
+        let endpoint = Header {
+            number: 1,
+            timestamp: 2_000,
+            parent_hash: reference.hash_slow(),
+            ..Default::default()
+        };
         let mut genesis: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         genesis["timestamp"] = serde_json::json!("0x3dc"); // 988: parent 1 at 1000, child 2 at 1012.
@@ -1075,16 +1108,62 @@ mod tests {
         genesis["config"]["rollupX"]["l1Reference"]["chainId"] = serde_json::json!(1337);
         genesis["config"]["rollupX"]["blockIntervalSeconds"] = serde_json::json!(12);
         genesis["config"]["rollupX"]["syncIntervalBlocks"] = serde_json::json!(2);
-        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(988);
+        genesis["config"]["rollupX"]["historyUpdateOffset"] = serde_json::json!(1);
+        genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(964);
+        genesis["config"]["rollupX"]["l1Reference"]["hash"] =
+            serde_json::json!(reference.hash_slow());
+        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
+            bootstrap_storage(
+                0,
+                reference.hash_slow(),
+                HistorySchedule::new(988, 12, 2, 1).unwrap(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let mut chain = HeaderChain::default();
+        chain
+            .append(
+                &[
+                    alloy_rlp::encode(reference).into(),
+                    alloy_rlp::encode(endpoint).into(),
+                ],
+                &HeaderRules {
+                    london_block: None,
+                    shanghai_time: None,
+                    cancun_time: None,
+                    prague_time: None,
+                    unsupported_time: None,
+                },
+                2,
+            )
+            .unwrap();
         EezEvmConfig::new(Arc::new(
             eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap(),
         ))
+        .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
+        .unwrap()
     }
 
     fn fixture() -> Fixture {
         let evm_config = rollup_config();
 
         let provider: MockEthProvider = MockEthProvider::new();
+        let history =
+            &evm_config.chain_spec().genesis().alloc[&eez_protocol::l1_history::HISTORY_ADDRESS];
+        provider.add_account(
+            eez_protocol::l1_history::HISTORY_ADDRESS,
+            ExtendedAccount::new(1, U256::ZERO)
+                .with_bytecode(history.code.clone().unwrap())
+                .extend_storage(
+                    history
+                        .storage
+                        .as_ref()
+                        .unwrap()
+                        .iter()
+                        .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                ),
+        );
         provider.add_account(
             test_signer().address(),
             ExtendedAccount::new(0, U256::from(1_000_000_000_000_000_000_u128)),
@@ -1503,7 +1582,7 @@ mod tests {
     }
 
     #[test]
-    fn prefix_checkpoint_matches_independent_rebuild_across_forks_and_reverts() {
+    fn sync_builder_rejects_l1_execution_profiles() {
         for config in [
             EezEvmConfig::for_l1_simulation(Arc::new(
                 ChainSpecBuilder::mainnet().cancun_activated().build(),
@@ -1511,47 +1590,64 @@ mod tests {
             EezEvmConfig::for_l1_simulation(Arc::new(
                 ChainSpecBuilder::mainnet().prague_activated().build(),
             )),
-            rollup_config(),
         ] {
-            let mut f = fixture();
-            f.evm_config = config;
-            // Exercise receipt bloom and log ordering as well as SSTORE and a
-            // reverted transaction. MockEthProvider has no real trie; compare
-            // complete pre-finalization state separately from header equality.
-            f.provider.add_account(
-                STORE,
-                ExtendedAccount::new(0, U256::ZERO)
-                    .with_bytecode(bytes!("6001600055602a60005260206000a060206000f3")),
-            );
-            // System-call counters detect applying pre-block changes twice or
-            // retaining post-block mutations in the next checkpoint.
-            for address in [
-                alloy_eips::eip4788::BEACON_ROOTS_ADDRESS,
-                alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
-                alloy_eips::eip7002::WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
-                alloy_eips::eip7251::CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS,
-            ] {
-                f.provider.add_account(
-                    address,
-                    ExtendedAccount::new(0, U256::ZERO)
-                        .with_bytecode(bytes!("60005460010160005500")),
-                );
-            }
-            let mut hashes = SyncPrefixHashes::new(
+            let f = fixture();
+            let error = build_sync_block(
                 &f.provider,
-                &f.evm_config,
+                &config,
                 &f.parent,
                 TIMESTAMP,
                 B256::ZERO,
                 FEE_RECIPIENT,
+                &f.txs,
+            )
+            .unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("L1 history source is not configured")
             );
-            for p in 0..f.txs.len() {
-                let actual = hashes.at_positions(&f.txs[..=p], &[p]).unwrap();
-                assert_eq!(actual, vec![f.build(&f.txs[..=p]).header.hash()]);
-                hashes.assert_state_matches_rebuild();
-            }
-            assert_eq!(hashes.executed_transactions, f.txs.len());
         }
+    }
+
+    #[test]
+    fn prefix_checkpoint_matches_independent_rebuild_with_history_and_reverts() {
+        let f = fixture();
+        // Exercise receipt bloom and log ordering as well as SSTORE and a
+        // reverted transaction. MockEthProvider has no real trie; compare
+        // complete pre-finalization state separately from header equality.
+        f.provider.add_account(
+            STORE,
+            ExtendedAccount::new(0, U256::ZERO)
+                .with_bytecode(bytes!("6001600055602a60005260206000a060206000f3")),
+        );
+        // System-call counters detect applying pre-block changes twice or
+        // retaining post-block mutations in the next checkpoint.
+        for address in [
+            alloy_eips::eip4788::BEACON_ROOTS_ADDRESS,
+            alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+            alloy_eips::eip7002::WITHDRAWAL_REQUEST_PREDEPLOY_ADDRESS,
+            alloy_eips::eip7251::CONSOLIDATION_REQUEST_PREDEPLOY_ADDRESS,
+        ] {
+            f.provider.add_account(
+                address,
+                ExtendedAccount::new(0, U256::ZERO).with_bytecode(bytes!("60005460010160005500")),
+            );
+        }
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        for p in 0..f.txs.len() {
+            let actual = hashes.at_positions(&f.txs[..=p], &[p]).unwrap();
+            assert_eq!(actual, vec![f.build(&f.txs[..=p]).header.hash()]);
+            hashes.assert_state_matches_rebuild();
+        }
+        assert_eq!(hashes.executed_transactions, f.txs.len());
     }
 
     #[test]

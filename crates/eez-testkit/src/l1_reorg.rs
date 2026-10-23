@@ -77,8 +77,14 @@ impl L1ReorgControl {
         ]
     }
 
-    pub(super) async fn start(&mut self, cfg: &CrossChainConfig) -> Result<()> {
+    pub(super) async fn start(
+        &mut self,
+        cfg: &CrossChainConfig,
+        history_end: Option<u64>,
+    ) -> Result<()> {
         let log = std::fs::File::create(&self.log_path)?;
+        let history_args = history_end
+            .map(|timestamp| ["--replay-history-until".to_owned(), timestamp.to_string()]);
         self.child = Some(
             Command::new("python3")
                 .arg(repo_root().join("scripts/native-l1-consensus.py"))
@@ -98,6 +104,7 @@ impl L1ReorgControl {
                     "--block-seconds",
                     &(super::CROSS_CHAIN_L1_BLOCK_TIME_MS / 1000).to_string(),
                 ])
+                .args(history_args.into_iter().flatten())
                 .stderr(Stdio::from(log.try_clone()?))
                 .stdout(Stdio::from(log))
                 .spawn()

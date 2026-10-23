@@ -2,7 +2,6 @@ use alloy_primitives::B256;
 use anyhow::{Context, Result, anyhow};
 
 pub const BUNDLE_ACCEPTED: &str = "eez.node.l1_embedded.bundle.accepted";
-pub const DERIVER_REORG_NOOP: &str = "eez.deriver.l1.reorg.noop";
 pub const DERIVER_REORG_RETREATED: &str = "eez.deriver.l1.reorg.retreated";
 pub const DERIVER_STATE_DIVERGED_POST: &str = "eez.deriver.state.diverged_post";
 pub const DERIVER_STATE_DIVERGED_PRE: &str = "eez.deriver.state.diverged_pre";

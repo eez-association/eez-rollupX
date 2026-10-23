@@ -35,9 +35,10 @@ message ClientFrame {
 
 message Begin {
   uint64 rollup_id = 1;
-  // Execution predecessor and baseline settlement parent. The first expected
-  // block is anchor_number + 1. The prover fetches and verifies the parent's
-  // L1 acceptance independently at Finalize.
+  // Execution predecessor. The first expected block is anchor_number + 1.
+  // Finalize binds its exact witness-supplied header and either this predecessor
+  // or a replayed whole-group checkpoint to the manager's accepted commitment.
+  // Begin alone establishes no execution or settlement authority.
   uint64 anchor_number = 2;
   bytes anchor_hash = 3;
   bytes anchor_state_root = 4;
@@ -83,10 +84,11 @@ message SettlementInput {
   // The prover derives commitments/versioned hashes itself. RollupX and draft
   // blob-based Rollup0 require all blobs, empty batch.callData and indices [0, 1, ...].
   repeated bytes blobs = 2;
-  // Named L1 target, independently authenticated.
-  // Manager-specific custom data is derived from trusted profile/deployment rules,
-  // not supplied here. Both blob profiles use these same target fields.
-  // Required for the RollupX profile.
+  // Required only for actual-parent mode (batch.blockNumber == uint64.max).
+  // Historical mode requires absence; these fields never acquire new meanings.
+  // L1 witness headers establish internal consistency; the deployed manager
+  // authenticates the same parent/time when it recomputes the public input.
+  // Profile/deployment context is independently derived from local configuration.
   L1PostingContext posting_context = 3;
 }
 
@@ -95,7 +97,7 @@ message L1PostingContext {
   uint64 chain_id = 1;
   uint64 target_timestamp = 2;
   uint64 parent_number = 3;
-  bytes parent_hash = 4; // nonzero 32-byte hash; authenticated on configured L1.
+  bytes parent_hash = 4; // nonzero 32-byte hash; checked against the L1 evidence endpoint.
 }
 
 // Optional; unsupported Cancel returns UNIMPLEMENTED. Ordinary gRPC cancellation

@@ -38,6 +38,7 @@ pub struct EezBlockExecutorFactory<C> {
     spec: Arc<C>,
     layer: ExecutionLayer,
     evm: EezEvmFactory,
+    pub(crate) history: Option<crate::history::HistoryConfig>,
 }
 
 impl<C> EezBlockExecutorFactory<C> {
@@ -46,6 +47,7 @@ impl<C> EezBlockExecutorFactory<C> {
             spec,
             layer,
             evm: EezEvmFactory,
+            history: None,
         }
     }
 }
@@ -54,6 +56,7 @@ impl<C> EezBlockExecutorFactory<C> {
 pub struct EezBlockExecutor<'a, E, S> {
     inner: EthBlockExecutor<'a, E, S, EezReceiptBuilder>,
     layer: ExecutionLayer,
+    history: Option<crate::history::HistoryConfig>,
 }
 
 impl<'a, E, S> Deref for EezBlockExecutor<'a, E, S> {
@@ -153,7 +156,11 @@ where
         self.inner
             .system_caller
             .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)?;
-        burn_protocol_balances(self.inner.evm.db_mut())
+        burn_protocol_balances(self.inner.evm.db_mut())?;
+        let history = self.history.as_ref().ok_or_else(|| {
+            BlockExecutionError::msg("mandatory L1 history evidence source is not configured")
+        })?;
+        crate::history::apply(&mut self.inner.evm, history)
     }
 
     fn execute_transaction_without_commit(
@@ -257,6 +264,7 @@ impl<C: EthExecutorSpec + 'static> BlockExecutorFactory for EezBlockExecutorFact
         EezBlockExecutor {
             inner: EthBlockExecutor::new(evm, ctx, &self.spec, EezReceiptBuilder),
             layer: self.layer,
+            history: self.history.clone(),
         }
     }
 }

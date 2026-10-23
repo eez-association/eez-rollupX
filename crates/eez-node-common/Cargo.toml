@@ -70,6 +70,7 @@ reth-rpc-eth-types.workspace = true
 revm.workspace = true
 
 [dev-dependencies]
+eez-protocol.workspace = true
 alloy-provider.workspace = true
 alloy-transport = "=2.5.0"
 

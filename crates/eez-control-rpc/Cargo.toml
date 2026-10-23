@@ -7,7 +7,7 @@ rust-version.workspace = true
 description            = "Wire contract for the composer → prover `Prove` RPC (tonic/protobuf). Pure wire — no Prover-trait coupling."
 
 [dependencies]
-alloy-primitives.workspace = true
+alloy-primitives = { workspace = true, features = ["rlp"] }
 alloy-rlp.workspace = true
 # tonic 0.14 split: "server" (the signer hosts Prove) + "channel" (the composer dials).
 tonic       = { workspace = true, features = ["server", "channel"] }

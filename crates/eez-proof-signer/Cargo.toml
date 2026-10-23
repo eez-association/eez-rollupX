@@ -8,7 +8,7 @@ description            = "EEZ attestation daemon: re-executes composer-streamed 
 
 [dependencies]
 eez-l1 = { workspace = true, features = ["chain-spec"] }
-# The `prove.v1` wire this daemon serves.
+# V2 streaming and common capability/witness messages.
 eez-control-rpc.workspace = true
 eez-blob-codec.workspace = true
 eez-payload-codec.workspace = true
@@ -19,7 +19,6 @@ eez-evm.workspace = true
 eez-driver = { workspace = true, features = ["observation", "derivation"] }
 
 alloy-consensus.workspace = true
-alloy-provider.workspace = true
 alloy-eips.workspace = true
 alloy-genesis.workspace = true
 alloy-primitives = { workspace = true, features = ["k256"] }
@@ -39,7 +38,6 @@ stateless-tries.workspace = true
 
 clap = { workspace = true, features = ["env"] }
 eyre.workspace = true
-url.workspace = true
 prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -52,10 +50,14 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 alloy-signer-local.workspace = true
+# Independent account/storage roots for fixtures including the mandatory history predeploy.
+reth-trie-common.workspace = true
 # Recorded calldata fixture decoding.
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.
 tokio-stream = { workspace = true, features = ["net"] }
+# Advance admission deadlines without imposing a short wall-clock replay budget.
+tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true

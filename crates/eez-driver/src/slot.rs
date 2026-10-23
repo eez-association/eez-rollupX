@@ -116,6 +116,9 @@ pub enum SlotEvent {
 /// [`BlockCommitterHandle::commit_derived`]: crate::block_committer::BlockCommitterHandle::commit_derived
 #[derive(Debug)]
 pub struct SyncSlotBlock {
+    /// Canonical origin hash captured during execution; compared again before
+    /// commit because two L1 branches may carry the same PREVRANDAO.
+    pub l1_origin_hash: alloy_primitives::B256,
     /// Engine-API payload.
     pub payload: ExecutionData,
     /// Sealed header of the new block (head-mirror update on commit).

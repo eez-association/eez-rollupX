@@ -42,7 +42,7 @@ pub struct BatchCorrelation {
     /// Exact canonical L2 hashes covered by the batch's settled portion.
     pub l2_blocks: Vec<L2BlockCorrelation>,
     /// Exact accepted terminal variant. Same-height replacements can orphan it
-    /// in Reth; retain its header to restore live-anchor seed provenance.
+    /// in Reth; retain its header to recover the exact reconstruction predecessor.
     pub endpoint_header: alloy_consensus::Header,
 }
 

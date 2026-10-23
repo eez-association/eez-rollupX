@@ -20,8 +20,11 @@ const TEST_PROOF_SYSTEM: &str = "00000000000000000000000000000000000000aa";
 /// it varies. Tests for mandatory options use `parse_exact_args` directly.
 fn parse_args<const N: usize>(args: [&str; N]) -> Result<Args, clap::Error> {
     let mut args = args.to_vec();
-    if !args.contains(&"--l1-rpc-url") {
-        args.extend(["--l1-rpc-url", "http://127.0.0.1:8545"]);
+    if !args.contains(&"--manager-address") {
+        args.extend([
+            "--manager-address",
+            "0x3333333333333333333333333333333333333333",
+        ]);
     }
     if !args.contains(&"--registry-address") {
         args.extend([
@@ -247,8 +250,8 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
                 "eez-proof-signer",
                 "--l1-chain-config",
                 "mainnet",
-                "--l1-rpc-url",
-                "https://example.invalid/rpc",
+                "--manager-address",
+                "0x4444444444444444444444444444444444444444",
                 "--registry-address",
                 "0x2222222222222222222222222222222222222222",
                 "--chain-config",
@@ -276,20 +279,14 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
                 let args = parsed.unwrap();
                 assert_eq!(args.expected_rollup_id.get(), 7);
                 assert_eq!(args.l1_chain_document_path, PathBuf::from("chiado"));
-                assert_eq!(
-                    args.l1_rpc_url.0.unwrap().as_str(),
-                    "http://127.0.0.1:8545/"
-                );
+                assert_eq!(args.manager_address, Address::repeat_byte(0x33));
                 assert_eq!(args.registry_address, Address::repeat_byte(0x11));
             }
             "cli-precedence" => {
                 let args = parsed.unwrap();
                 assert_eq!(args.expected_rollup_id.get(), 9);
                 assert_eq!(args.l1_chain_document_path, PathBuf::from("mainnet"));
-                assert_eq!(
-                    args.l1_rpc_url.0.unwrap().as_str(),
-                    "https://example.invalid/rpc"
-                );
+                assert_eq!(args.manager_address, Address::repeat_byte(0x44));
                 assert_eq!(args.registry_address, Address::repeat_byte(0x22));
             }
             "empty" => assert!(parsed.is_err(), "an empty EEZ_ROLLUP_ID was accepted"),
@@ -316,7 +313,10 @@ fn rollup_id_uses_environment_fallback_with_cli_precedence() {
             }
         }
         child
-            .env("EEZ_L1_RPC_URL", "http://127.0.0.1:8545")
+            .env(
+                "EEZ_ROLLUP_MANAGER_ADDRESS",
+                "0x3333333333333333333333333333333333333333",
+            )
             .env(
                 "EEZ_REGISTRY_ADDRESS",
                 "0x1111111111111111111111111111111111111111",
@@ -810,8 +810,8 @@ fn l1_profile_is_mandatory() {
         "eez-proof-signer",
         "--chain-config",
         "l2.json",
-        "--l1-rpc-url",
-        "http://127.0.0.1:8545",
+        "--manager-address",
+        "0x3333333333333333333333333333333333333333",
         "--registry-address",
         "0x1111111111111111111111111111111111111111",
         "--rollup-id",
@@ -839,119 +839,106 @@ fn l1_profile_is_mandatory() {
 }
 
 #[test]
-fn canonical_l1_endpoint_and_registry_are_required_and_redacted() {
-    for endpoint in ["", "ws://localhost:8546", "not-a-url", "http://"] {
+fn deployment_addresses_are_nonzero_and_malformed_values_are_rejected() {
+    for (flag, message) in [
+        ("--registry-address", "L1 registry address must be nonzero"),
+        (
+            "--manager-address",
+            "offline manager address must be nonzero",
+        ),
+    ] {
         let args = parse_args([
             "eez-proof-signer",
             "--chain-config",
             "genesis.json",
             "--rollup-id",
             "1",
-            "--l1-rpc-url",
-            endpoint,
+            flag,
+            "0x0000000000000000000000000000000000000000",
         ])
         .unwrap();
-        let error = Config::from_args(args).unwrap_err().to_string();
-        assert_eq!(error, "L1 RPC URL must be an absolute HTTP(S) endpoint");
+        assert_eq!(Config::from_args(args).unwrap_err().to_string(), message);
+        for invalid in ["", "not-an-address", "0x11"] {
+            assert!(
+                parse_args([
+                    "eez-proof-signer",
+                    "--chain-config",
+                    "genesis.json",
+                    "--rollup-id",
+                    "1",
+                    flag,
+                    invalid,
+                ])
+                .is_err()
+            );
+        }
     }
-    let endpoint = "https://fixture-user:fixture-password@example.invalid/rpc?fixture-token=secret";
-    let args = parse_args([
-        "eez-proof-signer",
-        "--chain-config",
-        "genesis.json",
-        "--rollup-id",
-        "1",
-        "--l1-rpc-url",
-        endpoint,
-    ])
-    .unwrap();
-    assert!(!format!("{args:?}").contains("fixture-password"));
-    let config = Config::from_args(args).unwrap();
-    assert_eq!(config.l1_rpc_url.as_str(), endpoint);
-    assert!(!format!("{config:?}").contains("fixture-password"));
-    let args = parse_args([
-        "eez-proof-signer",
-        "--chain-config",
-        "genesis.json",
-        "--rollup-id",
-        "1",
-        "--registry-address",
-        "0x0000000000000000000000000000000000000000",
-    ])
-    .unwrap();
-    assert_eq!(
-        Config::from_args(args).unwrap_err().to_string(),
-        "L1 registry address must be nonzero"
-    );
 }
 
 #[test]
-fn streaming_source_is_optional_strict_redacted_and_cli_overrides_environment() {
-    const CHILD: &str = "EEZ_STREAMING_SOURCE_CONFIG_TEST";
-    if let Ok(case) = std::env::var(CHILD) {
-        let mut cli = vec!["eez-proof-signer", "--chain-config", "genesis.json"];
-        if case == "cli" {
-            cli.extend(["--l2-rpc-url", "http://127.0.0.1:9876"]);
-        }
-        let args = Args::try_parse_from(cli).unwrap();
-        assert!(!format!("{args:?}").contains("fixture-password"));
-        let result = Config::from_args(args);
-        match case.as_str() {
-            "absent" => assert!(result.unwrap().l2_rpc_url.is_none()),
-            "valid" => assert_eq!(
-                result.unwrap().l2_rpc_url.unwrap().as_str(),
-                "https://fixture-user:fixture-password@example.invalid/rpc"
-            ),
-            "cli" => assert_eq!(
-                result.unwrap().l2_rpc_url.unwrap().as_str(),
-                "http://127.0.0.1:9876/"
-            ),
-            "empty" | "invalid" => assert_eq!(
+fn obsolete_rpc_environment_is_rejected_even_when_empty_and_never_echoed() {
+    const CHILD: &str = "EEZ_OFFLINE_CONFIG_TEST_CHILD";
+    if let Ok(name) = std::env::var(CHILD) {
+        let result = Config::reject_obsolete_environment();
+        if name == "absent" {
+            result.unwrap();
+            let args = parse_args([
+                "eez-proof-signer",
+                "--chain-config",
+                "genesis.json",
+                "--rollup-id",
+                "1",
+            ])
+            .unwrap();
+            Config::from_args(args).unwrap();
+        } else {
+            assert_eq!(
                 result.unwrap_err().to_string(),
-                "L2 RPC URL must be an absolute HTTP(S) endpoint"
-            ),
-            _ => unreachable!(),
+                format!("{name} is obsolete for the offline signer; remove it")
+            );
         }
-        eprintln!("stream-source-config-ok:{case}");
+        eprintln!("offline-config-ok:{name}");
         return;
     }
-    for (case, value) in [
-        ("absent", None),
-        ("empty", Some("")),
-        ("invalid", Some("ws://fixture-password@example.invalid")),
-        (
-            "valid",
-            Some("https://fixture-user:fixture-password@example.invalid/rpc"),
-        ),
-        ("cli", Some("invalid-fixture-password")),
-    ] {
-        let mut child = Command::new(std::env::current_exe().unwrap());
-        child.args(["--exact","config::tests::streaming_source_is_optional_strict_redacted_and_cli_overrides_environment","--nocapture"]);
-        for (key, _) in std::env::vars_os() {
-            if key.to_string_lossy().starts_with("EEZ_") {
-                child.env_remove(key);
+    for name in ["absent", "EEZ_L1_RPC_URL", "EEZ_PROOF_SIGNER_L2_RPC_URL"] {
+        for value in [
+            "",
+            "invalid",
+            "https://fixture-user:fixture-password@example.invalid/rpc",
+        ] {
+            let mut child = Command::new(std::env::current_exe().unwrap());
+            child.args(["--exact","config::tests::obsolete_rpc_environment_is_rejected_even_when_empty_and_never_echoed","--nocapture"]);
+            for (key, _) in std::env::vars_os() {
+                if key.to_string_lossy().starts_with("EEZ_") {
+                    child.env_remove(key);
+                }
             }
+            child.env(CHILD, name);
+            if name != "absent" {
+                child.env(name, value);
+            }
+            let output = child.output().unwrap();
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(output.status.success(), "{name}: {stderr}");
+            assert!(stderr.contains(&format!("offline-config-ok:{name}")));
+            assert!(!stderr.contains("fixture-password"));
         }
-        child
-            .env(CHILD, case)
-            .env("EEZ_L1_RPC_URL", "http://127.0.0.1:8545")
-            .env("EEZ_L1_CHAIN_CONFIG", "mainnet")
-            .env(
-                "EEZ_REGISTRY_ADDRESS",
-                "0x1111111111111111111111111111111111111111",
-            )
-            .env("EEZ_ROLLUP_ID", "1")
-            .env("EEZ_VKEY", TEST_VKEY)
-            .env("EEZ_PROOF_SIGNER_KEY", TEST_ATTESTER_KEY)
-            .env("EEZ_ATTESTER_ADDRESS", TEST_ATTESTER_ADDRESS)
-            .env("EEZ_PROOF_SYSTEM", TEST_PROOF_SYSTEM);
-        if let Some(value) = value {
-            child.env("EEZ_PROOF_SIGNER_L2_RPC_URL", value);
-        }
-        let output = child.output().unwrap();
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(output.status.success(), "{case}: {stderr}");
-        assert!(stderr.contains(&format!("stream-source-config-ok:{case}")));
-        assert!(!stderr.contains("fixture-password"));
+    }
+}
+
+#[test]
+fn obsolete_rpc_flags_are_rejected() {
+    for flag in ["--l1-rpc-url", "--l2-rpc-url"] {
+        let error = parse_args([
+            "eez-proof-signer",
+            "--chain-config",
+            "genesis.json",
+            "--rollup-id",
+            "1",
+            flag,
+            "http://127.0.0.1:8545",
+        ])
+        .unwrap_err();
+        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }

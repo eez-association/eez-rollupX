@@ -10,13 +10,12 @@ use tokio_stream::wrappers::TcpListenerStream;
 #[path = "../../../../eez-control-rpc/conformance/replay.rs"]
 mod replay;
 
-fn vector_service(name: &str) -> (serde_json::Value, ProveSvc) {
-    let root = crate::testkit::manifest_dir().join("tests/fixtures");
-    let vector: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(root.join("streaming-v2").join(format!("{name}.json"))).unwrap(),
-    )
-    .unwrap();
-    let fixture = root.join(vector["fixture"].as_str().unwrap());
+mod vectors;
+
+fn fixture_state(name: &str) -> Arc<ServiceState> {
+    let fixture = crate::testkit::manifest_dir()
+        .join("tests/fixtures")
+        .join(name);
     let identity: serde_json::Value =
         serde_json::from_slice(&std::fs::read(fixture.join("identity.json")).unwrap()).unwrap();
     // Public Anvil account #5, fixed by the captured native fixture.
@@ -27,9 +26,18 @@ fn vector_service(name: &str) -> (serde_json::Value, ProveSvc) {
         eez_primitives::SYSTEM_ADDRESS,
     )
     .unwrap();
-    let state = Arc::new(
+    Arc::new(
         ServiceState::new(
-            super::super::l1::L1Authority::Synthetic,
+            identity["registry_address"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap(),
+            identity["rollup_manager_address"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap(),
             Validator::stateless(
                 &fixture.join("l2-genesis.json"),
                 eez_primitives::SYSTEM_ADDRESS,
@@ -45,7 +53,16 @@ fn vector_service(name: &str) -> (serde_json::Value, ProveSvc) {
             )),
         )
         .unwrap(),
-    );
+    )
+}
+
+fn vector_service(name: &str) -> (serde_json::Value, ProveSvc) {
+    let root = crate::testkit::manifest_dir().join("tests/fixtures");
+    let vector: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(root.join("streaming-v2").join(format!("{name}.json"))).unwrap(),
+    )
+    .unwrap();
+    let state = fixture_state(vector["fixture"].as_str().unwrap());
     let profile = &vector["server_profile"];
     let nz = |key: &str| NonZeroUsize::new(profile[key].as_u64().unwrap() as usize).unwrap();
     let limits = ServiceLimits::new(ServiceLimitsParams {
@@ -77,7 +94,11 @@ async fn vector(name: &str) {
             .await
             .unwrap();
     });
-    let result = timeout(Duration::from_secs(90), replay::replay(&vector, &endpoint)).await;
+    let result = timeout(
+        Duration::from_secs(90),
+        replay::replay(&vector, &endpoint, service.state.validation_identity),
+    )
+    .await;
     stop.send(()).unwrap();
     server.await.unwrap();
     service.wait_until_idle().await;
@@ -122,7 +143,7 @@ vectors! {
     settlement_abi_binding => "settlement-abi-binding",
     settlement_blob_encoding => "settlement-blob-encoding",
     settlement_required_inputs => "settlement-required-inputs",
-    single_block_proof => "single-block-proof",
+    sync_range_proof => "sync-range-proof",
     stream_capacity => "stream-capacity",
     subrange_promoted_anchor => "subrange-promoted-anchor",
     terminal_before_tip => "terminal-before-tip",
@@ -131,12 +152,8 @@ vectors! {
 
 #[tokio::test]
 async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch() {
-    let (vector, fixture) = vector_service("single-block-proof");
-    let limits = ServiceLimits {
-        request_timeout: Duration::from_secs(1),
-        ..fixture.limits
-    };
-    let service = ProveSvc::new(Arc::clone(&fixture.state), limits);
+    let (vector, fixture) = vector_service("sync-range-proof");
+    let service = ProveSvc::new(Arc::clone(&fixture.state), fixture.limits);
     let runtime = &service.sessions;
     let mut bound: Option<BoundSession> = None;
     let mut finalize = None;
@@ -156,7 +173,9 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
         }
         if matches!(frame.kind, Some(client_frame::Kind::Finalize(_))) {
             finalize = Some(frame);
-            break;
+            // The vector first rejects an incomplete Sync range, then proves
+            // the complete range. Exercise the deadline with that valid request.
+            continue;
         }
         runtime.handle_frame(&mut bound, frame).await.unwrap();
     }
@@ -168,6 +187,10 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
         .acquire_owned()
         .await
         .unwrap();
+    // Only admission is waiting: no blocking worker exists while the permit
+    // is held. Advance its timer deterministically, then restore real time for
+    // the retry's actual replay instead of requiring it to finish in one second.
+    tokio::time::pause();
     let (_, error) = runtime
         .handle_frame(&mut bound, frame.clone())
         .await
@@ -177,6 +200,7 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
     assert_eq!(bound, Some(binding));
     assert_eq!(retained.lock().await.tip(), tip);
     assert_eq!(service.state.attester.signing_calls(), 0);
+    tokio::time::resume();
     drop(occupied);
     // Retry without Resume/Rewind: a failed attempt cannot poison its attachment.
     let (response, closed) = runtime.handle_frame(&mut bound, frame).await.unwrap();
@@ -274,11 +298,12 @@ struct Controlled {
     release: std::sync::mpsc::Sender<()>,
 }
 fn controlled(request_timeout: Duration) -> Controlled {
-    let parent = alloy_consensus::Header::default();
+    let parent = crate::testkit::controlled_genesis_header();
     let block = eez_primitives::Block::new(
         alloy_consensus::Header {
             number: 1,
             parent_hash: parent.hash_slow(),
+            timestamp: parent.timestamp + 2,
             ..Default::default()
         },
         Default::default(),
@@ -288,7 +313,11 @@ fn controlled(request_timeout: Duration) -> Controlled {
         hash: block.header.hash_slow().to_vec(),
         parent_hash: parent.hash_slow().to_vec(),
         rlp: alloy_rlp::encode(block),
-        witness: Some(eez_control_rpc::v1::ExecutionWitness::default()),
+        witness: Some(eez_control_rpc::v1::ExecutionWitness {
+            headers: vec![alloy_rlp::encode(&parent)],
+            l1_headers_rlp: vec![alloy_rlp::encode(crate::testkit::controlled_l1_header())],
+            ..Default::default()
+        }),
     };
     let limits = ServiceLimits::new(ServiceLimitsParams {
         max_window_blocks: NonZeroUsize::new(10).unwrap(),
@@ -314,7 +343,8 @@ fn controlled(request_timeout: Duration) -> Controlled {
     .unwrap();
     let state = Arc::new(
         ServiceState::new(
-            super::super::l1::L1Authority::Synthetic,
+            alloy_primitives::Address::repeat_byte(0x33),
+            alloy_primitives::Address::repeat_byte(0x44),
             validator,
             NonZeroU64::new(1).unwrap(),
             attester,
@@ -358,11 +388,14 @@ async fn open_controlled(
         .await
         .unwrap();
     let (tx, rx) = mpsc::channel(8);
-    let mut response = client
-        .prove_stream(ReceiverStream::new(rx))
-        .await
-        .unwrap()
-        .into_inner();
+    let mut request = tonic::Request::new(ReceiverStream::new(rx));
+    request.metadata_mut().insert_bin(
+        "eez-validation-identity-bin",
+        tonic::metadata::MetadataValue::from_bytes(
+            fixture.service.state.validation_identity.as_slice(),
+        ),
+    );
+    let mut response = client.prove_stream(request).await.unwrap().into_inner();
     tx.send(ClientFrame {
         request_id: 1,
         kind: Some(client_frame::Kind::Begin(fixture.begin.clone())),
@@ -642,6 +675,52 @@ async fn timed_out_stream_block_keeps_worker_and_never_advances_cursor() {
     assert_eq!(fixture.service.state.attester.signing_calls(), 0);
 }
 
+#[tokio::test]
+async fn panicking_stream_worker_returns_redacted_error_without_progress_or_signature() {
+    let mut fixture = controlled(Duration::from_secs(5));
+    let attester = crate::attest::Attester::new(
+        b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
+        crate::testkit::test_proof_system_vkey(),
+        alloy_primitives::Address::repeat_byte(0xaa),
+        eez_primitives::SYSTEM_ADDRESS,
+    )
+    .unwrap();
+    let state = Arc::new(
+        ServiceState::new(
+            alloy_primitives::Address::repeat_byte(0x33),
+            alloy_primitives::Address::repeat_byte(0x44),
+            Validator::panicking_stub(),
+            NonZeroU64::new(1).unwrap(),
+            attester,
+            crate::testkit::l1_chain_spec(),
+        )
+        .unwrap(),
+    );
+    fixture.service = ProveSvc::new(state, fixture.service.limits);
+    let (server, tx, mut responses, ready) = open_controlled(&fixture).await;
+    tx.send(ClientFrame {
+        session_id: ready.session_id,
+        epoch: ready.epoch,
+        request_id: 2,
+        kind: Some(client_frame::Kind::Block(fixture.block)),
+    })
+    .await
+    .unwrap();
+    let response = responses.message().await.unwrap().unwrap();
+    let Some(server_frame::Kind::Rejected(error)) = response.kind else {
+        panic!("worker panic must reject")
+    };
+    assert_eq!(error.code, tonic::Code::Internal as i32);
+    assert_eq!(error.message, "block validation worker failed");
+    assert_eq!(error.validated_through, 0);
+    assert!(error.details.is_empty());
+    assert_eq!(fixture.service.state.attester.signing_calls(), 0);
+    drop(tx);
+    fixture.service.wait_until_idle().await;
+    assert_eq!(fixture.service.validation_worker.available_permits(), 1);
+    server.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_closes_live_rpc_but_waits_for_detached_execution() {
     let fixture = controlled(Duration::from_secs(30));
@@ -664,11 +743,14 @@ async fn shutdown_closes_live_rpc_but_waits_for_detached_execution() {
         .await
         .unwrap();
     let (tx, rx) = mpsc::channel(8);
-    let mut response = client
-        .prove_stream(ReceiverStream::new(rx))
-        .await
-        .unwrap()
-        .into_inner();
+    let mut request = tonic::Request::new(ReceiverStream::new(rx));
+    request.metadata_mut().insert_bin(
+        "eez-validation-identity-bin",
+        tonic::metadata::MetadataValue::from_bytes(
+            fixture.service.state.validation_identity.as_slice(),
+        ),
+    );
+    let mut response = client.prove_stream(request).await.unwrap().into_inner();
     tx.send(ClientFrame {
         request_id: 1,
         kind: Some(client_frame::Kind::Begin(fixture.begin)),
@@ -809,14 +891,40 @@ async fn incompatible_validation_identity_is_rejected_before_session_creation() 
     let mut client = eez_control_rpc::v2::prover_client::ProverClient::connect(endpoint)
         .await
         .unwrap();
-    let mut request = Request::new(tokio_stream::empty::<ClientFrame>());
-    request.metadata_mut().insert_bin(
-        "eez-validation-identity-bin",
-        tonic::metadata::MetadataValue::from_bytes(&[0; 32]),
-    );
-    let error = client.prove_stream(request).await.unwrap_err();
-    assert_eq!(error.code(), tonic::Code::FailedPrecondition);
-    assert_eq!(error.message(), "validation identity mismatch");
+    for identity in [
+        None,
+        Some(vec![]),
+        Some(vec![0; 31]),
+        Some(vec![0; 32]),
+        Some(vec![0; 33]),
+    ] {
+        let (_sender, receiver) = mpsc::channel::<ClientFrame>(1);
+        let mut request = Request::new(ReceiverStream::new(receiver));
+        if let Some(identity) = &identity {
+            request.metadata_mut().insert_bin(
+                "eez-validation-identity-bin",
+                tonic::metadata::MetadataValue::from_bytes(identity),
+            );
+        }
+        let error = timeout(Duration::from_secs(2), client.prove_stream(request))
+            .await
+            .expect("identity rejection must not wait for a frame or EOF")
+            .unwrap_err();
+        assert_eq!(error.code(), tonic::Code::FailedPrecondition);
+        assert_eq!(
+            error.message(),
+            if identity.is_none() {
+                "offline validation identity metadata is required"
+            } else {
+                "validation identity mismatch"
+            }
+        );
+        assert!(
+            error.details().is_empty(),
+            "identity failures cannot evict a source"
+        );
+        assert_eq!(fixture.service.state.attester.signing_calls(), 0);
+    }
     assert!(
         fixture
             .service

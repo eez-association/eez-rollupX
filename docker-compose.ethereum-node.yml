@@ -25,8 +25,6 @@ services:
       - ./deployments.env
     environment:
       EEZ_PROOF_SIGNER_ADDR: 127.0.0.1:${EEZ_SIGNER_PORT:-50061}
-      EEZ_L1_RPC_URL: http://127.0.0.1:18645
-      EEZ_PROOF_SIGNER_L2_RPC_URL: "${EEZ_PROOF_SIGNER_L2_RPC_URL-http://127.0.0.1:18688}"
       EEZ_CHAIN_CONFIG: /app/genesis.json
       # Trusted L1 profile; must name the same network as the embedded L1.
       EEZ_L1_CHAIN_CONFIG: "${EEZ_L1_NETWORK:?set EEZ_L1_NETWORK (mainnet, hoodi or sepolia)}"

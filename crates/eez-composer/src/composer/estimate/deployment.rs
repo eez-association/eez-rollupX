@@ -1,9 +1,9 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Native execution always uses the original deployed bytes, including metadata.
-//! Source: protocol v0.1.0-rc.2 (9a1f8153), contracts/foundry.toml (0.8.34, via IR, runs=1).
-//! A manager still on an older implementation is not recognized, so estimation
-//! is unavailable on a network until its contracts are upgraded.
+//! Sources: the pinned core protocol and contracts/src/OfflineRollup.sol, built
+//! with contracts/foundry.toml (0.8.34, via IR, runs=1). The fresh-network offline
+//! manager is required; unknown implementations cannot authorize an assumed proof.
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
 };
@@ -34,11 +34,11 @@ const REGISTRY: Code = Code {
     metadata_hashes: &[23750],
     hash: b256!("4002bf893eb71b85237faebb323218a4c9a1e33b77535639241e00feace3b650"),
 };
-const ROLLUP: Code = Code {
-    length: 3295,
-    immutables: &[1015, 1751, 2266],
+const OFFLINE_ROLLUP: Code = Code {
+    length: 6524,
+    immutables: &[595, 1467, 3932, 5194],
     metadata_hashes: &[],
-    hash: b256!("9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"),
+    hash: b256!("dbffc6748e5d86bcdebf592523355f95efa71fe80779bc96f1768d118f13fc9c"),
 };
 // contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {
@@ -159,7 +159,7 @@ pub(in crate::composer) fn validate_at(
     post_batch_target: Address,
 ) -> Result<(), EstimateError> {
     proxy(state, registry, &REGISTRY)?;
-    proxy(state, rollup, &ROLLUP)?;
+    proxy(state, rollup, &OFFLINE_ROLLUP)?;
     if post_batch_target != registry {
         check(state, post_batch_target, &POST_BATCHER)?;
         let code = state
@@ -184,6 +184,30 @@ pub(in crate::composer) fn validate_at(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fingerprint_recognizes_offline_manager_and_rejects_changed_execution() {
+        // Runtime from contracts/src/OfflineRollup.sol, built with the pinned
+        // Solidity 0.8.34, via-IR, optimizer-runs=1 integration profile.
+        let mut code =
+            alloy_primitives::hex::decode(include_str!("testdata/offline-rollup.hex").trim())
+                .unwrap();
+        assert!(matches(&code, &OFFLINE_ROLLUP));
+        for start in OFFLINE_ROLLUP.immutables {
+            code[*start..*start + 32].fill(0xa5);
+        }
+        assert!(matches(&code, &OFFLINE_ROLLUP));
+        for offset in [
+            0,
+            OFFLINE_ROLLUP.immutables[0] - 1,
+            OFFLINE_ROLLUP.immutables[0] + 32,
+        ] {
+            let mut changed = code.clone();
+            changed[offset] ^= 1;
+            assert!(!matches(&changed, &OFFLINE_ROLLUP));
+        }
+    }
+
     #[test]
     fn fingerprint_metadata_mask_does_not_hide_adjacent_code_changes() {
         let mut canonical = vec![0x5b; 40];

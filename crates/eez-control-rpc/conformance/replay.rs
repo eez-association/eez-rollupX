@@ -1,5 +1,5 @@
-// Wire-only transcript checker, extracted unchanged from the generator
-// workspace. This is development tooling, not a runtime dependency.
+// Wire-only transcript checker. Offline-profile admission uses an independently
+// supplied validation identity; the checker never follows a server-selected identity.
 use std::collections::HashMap;
 
 use alloy_primitives::{Address, B256, Signature};
@@ -112,7 +112,7 @@ impl Bindings {
     }
 }
 
-pub async fn replay(vector: &Value, endpoint: &str) -> Result<(), Error> {
+pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> Result<(), Error> {
     if vector["format"] != 2 {
         return Err("unsupported vector format".into());
     }
@@ -123,6 +123,19 @@ pub async fn replay(vector: &Value, endpoint: &str) -> Result<(), Error> {
     let events = vector["events"].as_array().ok_or("missing events")?;
     if events.is_empty() {
         return Err("empty transcript".into());
+    }
+    let capabilities =
+        eez_control_rpc::v1::prover_client::ProverClient::connect(endpoint.to_owned())
+            .await?
+            .capabilities(eez_control_rpc::v1::CapabilitiesRequest {})
+            .await?
+            .into_inner();
+    if capabilities.profile_id != eez_control_rpc::OFFLINE_PROFILE_ID
+        || capabilities.validation_identity != expected_identity.as_slice()
+    {
+        return Err(
+            "offline profile or independently configured validation identity differs".into(),
+        );
     }
     let mut streams = HashMap::new();
     let mut bindings = Bindings::default();
@@ -139,10 +152,12 @@ pub async fn replay(vector: &Value, endpoint: &str) -> Result<(), Error> {
                 if let std::collections::hash_map::Entry::Vacant(entry) = streams.entry(transport) {
                     let (tx, rx) = mpsc::channel(16);
                     tx.send(frame).await?;
-                    let replies = client
-                        .prove_stream(ReceiverStream::new(rx))
-                        .await?
-                        .into_inner();
+                    let mut request = tonic::Request::new(ReceiverStream::new(rx));
+                    request.metadata_mut().insert_bin(
+                        "eez-validation-identity-bin",
+                        tonic::metadata::MetadataValue::from_bytes(expected_identity.as_slice()),
+                    );
+                    let replies = client.prove_stream(request).await?.into_inner();
                     entry.insert((Some(tx), replies));
                 } else {
                     streams[&transport]
@@ -175,7 +190,12 @@ pub async fn replay(vector: &Value, endpoint: &str) -> Result<(), Error> {
             }
             "rpc_open_error" => {
                 let (tx, rx) = mpsc::channel::<ClientFrame>(1);
-                let result = client.prove_stream(ReceiverStream::new(rx)).await;
+                let mut request = tonic::Request::new(ReceiverStream::new(rx));
+                request.metadata_mut().insert_bin(
+                    "eez-validation-identity-bin",
+                    tonic::metadata::MetadataValue::from_bytes(expected_identity.as_slice()),
+                );
+                let result = client.prove_stream(request).await;
                 drop(tx);
                 match result {
                     Err(status)

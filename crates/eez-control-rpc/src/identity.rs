@@ -9,9 +9,8 @@ use std::num::NonZeroU64;
 use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_rlp::RlpEncodable;
 
-const IDENTITY_SCHEMA_VERSION: u64 = 4;
-const VALIDATOR_REVISION: &[u8] =
-    b"eez-native-v0-validator-v8;operations=columns/count14/u32;gas=30000000;basefee=2/50;system=0x76/nonce/remaining-gas-cap16777216;l1-origin-txdata=empty;l1=canonical-snapshot+parent-provenance;protocol=9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f";
+const IDENTITY_SCHEMA_VERSION: u64 = 5;
+const VALIDATOR_REVISION: &[u8] = b"eez-offline-v2-validator-v1;operations=columns/count14/u32;history=all-produced/0xee77/64/2000000;context=flat-v1;anchors=actual-parent+historical;seed=delayed-origin;hook=eip2935+cleanup+import";
 // A conservative fingerprint: every locked version/source/checksum participates,
 // including Reth, Stateless, REVM, Alloy and the JSON implementation. This may
 // invalidate reusable facts after an unrelated dependency change; it cannot
@@ -27,6 +26,10 @@ pub struct ValidationContext {
     pub eez_l2_address: Address,
     pub chain_document_digest: B256,
     pub canonical_json_version: u64,
+    /// Exact profile committed by the deployed manager, including L1 rules.
+    pub offline_profile_hash: B256,
+    pub registry: Address,
+    pub manager: Address,
 }
 
 impl ValidationContext {
@@ -48,6 +51,9 @@ impl ValidationContext {
             system_address: Address,
             eez_l2_address: Address,
             chain_document_digest: B256,
+            offline_profile_hash: B256,
+            registry: Address,
+            manager: Address,
             validator_revision: Bytes,
             dependency_digest: B256,
         }
@@ -60,6 +66,9 @@ impl ValidationContext {
             system_address: self.system_address,
             eez_l2_address: self.eez_l2_address,
             chain_document_digest: self.chain_document_digest,
+            offline_profile_hash: self.offline_profile_hash,
+            registry: self.registry,
+            manager: self.manager,
             validator_revision: Bytes::copy_from_slice(revision),
             dependency_digest,
         }))
@@ -78,6 +87,9 @@ mod tests {
             eez_l2_address: Address::repeat_byte(0x22),
             chain_document_digest: B256::repeat_byte(0x33),
             canonical_json_version: 1,
+            offline_profile_hash: B256::repeat_byte(0x55),
+            registry: Address::repeat_byte(0x66),
+            manager: Address::repeat_byte(0x77),
         }
     }
 
@@ -86,6 +98,18 @@ mod tests {
         let original = context();
         let identity = original.identity();
         for changed in [
+            ValidationContext {
+                offline_profile_hash: B256::ZERO,
+                ..original
+            },
+            ValidationContext {
+                registry: Address::ZERO,
+                ..original
+            },
+            ValidationContext {
+                manager: Address::ZERO,
+                ..original
+            },
             ValidationContext {
                 rollup_id: NonZeroU64::new(8).unwrap(),
                 ..original
@@ -131,7 +155,7 @@ mod tests {
         assert_eq!(
             actual,
             alloy_primitives::b256!(
-                "560be4be5fd4adbc54538ec169b719288efb543fabc9cb94e2d072b276ad41d9"
+                "fcb5c0a9a49e06e6b95842465d1ca5249362aa8dd690c614811556199d5dbece"
             )
         );
     }

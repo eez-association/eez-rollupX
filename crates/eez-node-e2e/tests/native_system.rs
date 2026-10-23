@@ -1,8 +1,9 @@
 //! Live native transaction QA with two independent Composers and two keyless followers.
 
-use alloy_primitives::U256;
+use alloy_primitives::{Bytes, U256};
 use alloy_sol_types::SolCall;
 use anyhow::{Result, ensure};
+use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
 use serde_json::{Value, json};
 
 use eez_testkit::*;
@@ -244,11 +245,17 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             .trim_start_matches("0x"), 16)?)
     };
     let genesis_timestamp = quantity(&genesis_block["timestamp"])?;
-    let mut expected_seed = genesis_block["mixHash"].clone();
-    let mut refreshes = std::collections::BTreeMap::new();
-    // Independent oracle: inspect actual accepted commitments and their L1
-    // headers, retaining every same-height occurrence in transaction order.
+    ensure!(
+        (world.dep.profile.blockInterval, world.dep.profile.syncInterval, world.dep.profile.updateOffset) == (1, 5, 2),
+        "independent oracle requires the fixture's one-second blocks and three-second update delay"
+    );
+    let mut live_anchors = std::collections::BTreeSet::new();
+    let mut l1_headers = Vec::new();
+    // Settlement still constrains eligibility, but no longer changes the
+    // source. Collect canonical headers separately for a timestamp-only oracle.
     for l1_number in 0..=l1.get_block_number().await? {
+        let header = rpc(&l1_rpc, "eth_getBlockByNumber", json!([format!("{l1_number:#x}"), false])).await?;
+        l1_headers.push((l1_number, quantity(&header["timestamp"])?, header["hash"].clone(), header["mixHash"].clone()));
         let accepted = rpc(&world.l2_xchain(), "eez_getSettledL2RangesByL1Block", json!([format!("{l1_number:#x}")])).await?;
         for record in accepted.as_array().ok_or_else(|| anyhow::anyhow!("missing accepted ranges"))? {
             let height = quantity(&record["l2Range"]["lastBlockNumber"])?;
@@ -260,12 +267,18 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             let containing_timestamp = quantity(&containing["timestamp"])?;
             ensure!(endpoint_timestamp <= containing_timestamp, "future accepted endpoint");
             if endpoint_timestamp == containing_timestamp {
-                refreshes.insert(height, containing["mixHash"].clone());
+                live_anchors.insert(height);
             }
         }
     }
-    ensure!(final_height % 5 == 0 && !refreshes.is_empty(), "no accepted live Sync anchors");
-    let mut blocks_with_refreshed_seed = 0;
+    ensure!(final_height % 5 == 0 && !live_anchors.is_empty(), "no accepted live Sync anchors");
+    let bootstrap_source = l1_headers.iter().rfind(|header| header.1 <= genesis_timestamp - 5)
+        .ok_or_else(|| anyhow::anyhow!("bootstrap source missing"))?;
+    ensure!(genesis_block["mixHash"] == bootstrap_source.3, "bootstrap RANDAO mismatch");
+    let current_call = Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode());
+    let mut blocks_with_updated_origin = 0;
+    let mut history_updates = Vec::new();
+    let mut last_source_number = bootstrap_source.0;
 
     let mut native_count = 0;
     let mut incoming_count = 0;
@@ -279,8 +292,22 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         .await?;
         ensure!(quantity(&block["timestamp"])? == genesis_timestamp + number,
             "block {number} timestamp does not follow genesis");
-        ensure!(block["mixHash"] == expected_seed, "block {number} used the wrong accepted-anchor seed");
-        blocks_with_refreshed_seed += usize::from(expected_seed != genesis_block["mixHash"]);
+        let cutoff = if number < 3 { genesis_timestamp - 5 }
+            else { genesis_timestamp + ((number - 3) / 5) * 5 };
+        let source = l1_headers.iter().rfind(|header| header.1 <= cutoff)
+            .ok_or_else(|| anyhow::anyhow!("L1 source missing for cutoff {cutoff}"))?;
+        ensure!(block["mixHash"] == source.3, "block {number} used the wrong delayed source RANDAO");
+        blocks_with_updated_origin += usize::from(source.0 > bootstrap_source.0);
+        last_source_number = source.0;
+        if number % 5 == 3 { history_updates.push((number, source.0)); }
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": current_call}, format!("{number:#x}")
+            ])).await?)?;
+            let current = IL1BlockhashContract::currentCall::abi_decode_returns(&returned)?;
+            ensure!(current.number == source.0 && json!(current.hash) == source.2,
+                "history origin differs from header RANDAO at L2 {number} on {url}");
+        }
         for url in &urls[1..] {
             let other = rpc(
                 url,
@@ -364,18 +391,29 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
                 );
             }
         }
-        if let Some(seed) = refreshes.get(&number) {
-            expected_seed = seed.clone(); // This anchor changes only descendants.
-        }
     }
     ensure!(
         incoming_count > 0 && load_count > 0,
         "did not exercise both native directions: incoming={incoming_count}, load={load_count}"
     );
-    ensure!(blocks_with_refreshed_seed > 0, "did not execute descendants of a live seed refresh");
+    ensure!(blocks_with_updated_origin > 0, "did not execute a delayed origin update");
+    // Include every produced header in the covered range, not only selected
+    // origins. All four independent nodes must retain the same exact mapping.
+    for source in l1_headers.iter().filter(|header| (bootstrap_source.0..=last_source_number).contains(&header.0)) {
+        let data = Bytes::from(IL1BlockhashContract::getL1BlockHashCall { number: source.0 }.abi_encode());
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": data}, format!("{final_height:#x}")
+            ])).await?)?;
+            let hash = IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&returned)?;
+            ensure!(json!(hash) == source.2, "permanent L1 history differs at {} on {url}", source.0);
+        }
+    }
     println!("derivation evidence: {}", json!({
-        "genesisTimestamp": genesis_timestamp, "syncInterval": 5,
-        "liveAnchorSeeds": refreshes, "blocksAfterSeedRefresh": blocks_with_refreshed_seed,
+        "genesisTimestamp": genesis_timestamp, "syncInterval": 5, "historyDelaySeconds": 3,
+        "liveSyncAnchors": live_anchors, "historyUpdates": history_updates,
+        "blocksWithUpdatedOrigin": blocks_with_updated_origin,
+        "lastImportedL1Number": last_source_number,
     }));
     world.node.assert_no_divergence_failure_logs();
     composer.node.assert_no_divergence_failure_logs();

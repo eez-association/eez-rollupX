@@ -30,6 +30,8 @@ alloy-signer-local.workspace = true
 alloy-sol-types.workspace = true
 anyhow = "1"
 eez-control-rpc.workspace = true
+eez-evm.workspace = true
+eez-l1 = { workspace = true, features = ["chain-spec"] }
 prost.workspace = true
 eez-protocol.workspace = true
 reth-chainspec.workspace = true

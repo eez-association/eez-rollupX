@@ -21,8 +21,9 @@ fn execute_empty_blocks(
     accounts: &[(Address, AccountInfo)],
 ) -> State<InMemoryDB> {
     let spec = Arc::new(ChainSpecBuilder::mainnet().osaka_activated().build());
-    let factory = EezBlockExecutorFactory::new(spec, layer);
-    let mut db = InMemoryDB::default();
+    let mut factory = EezBlockExecutorFactory::new(spec, layer);
+    let (history, mut db) = crate::history::tests::fixture();
+    factory.history = Some(history);
     for (address, raw) in [
         (HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE.clone()),
         // These adversarial predeploys make unwanted calls observable even
@@ -60,7 +61,7 @@ fn execute_empty_blocks(
                 cfg_env: CfgEnv::new_with_spec(SpecId::OSAKA).with_chain_id(1),
                 block_env: BlockEnv {
                     number: U256::from(number),
-                    timestamp: U256::from(number),
+                    timestamp: U256::from(number + 4),
                     gas_limit: 30_000_000,
                     basefee: 1,
                     ..Default::default()

@@ -18,9 +18,10 @@
 //!   replays execution and verifies the committed block headers.
 //! - **Canonical public inputs.** [`public_inputs::public_inputs_hashes`] is the
 //!   reconstruction used by the proof signer; another encoding changes the
-//!   signed inputs. The supported profile requires one uniform verification
-//!   key, block number zero, no blobs, and no sender binding; other profiles are
-//!   rejected.
+//!   signed inputs. The offline signer binds native blob hashes, one uniform
+//!   verification key and the manager's complete context for either an exact
+//!   inclusion parent or an eligible historical anchor. Its narrower admission
+//!   rules are specified in `crates/eez-proof-signer/SPEC.md`.
 //! - **Settlement commitment.** Before signing, the proof signer checks
 //!   `RootUpdate.newRoot` against the canonical block hash reth produced.
 //!
@@ -46,6 +47,7 @@ pub mod discovery;
 pub mod entries;
 pub mod error;
 pub mod executor;
+pub mod l1_history;
 pub mod l2;
 pub mod outbound_gate;
 pub mod proof_plan;

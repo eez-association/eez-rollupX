@@ -47,24 +47,6 @@ impl SecretKeyArg {
     }
 }
 
-/// Invalid endpoint syntax is retained only as absence so clap cannot echo
-/// credentials in either parsing errors or Debug output.
-#[derive(Clone)]
-struct RpcUrlArg(Option<url::Url>);
-impl FromStr for RpcUrlArg {
-    type Err = std::convert::Infallible;
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        Ok(Self(url::Url::parse(value).ok().filter(|u| {
-            matches!(u.scheme(), "http" | "https") && u.host_str().is_some()
-        })))
-    }
-}
-impl std::fmt::Debug for RpcUrlArg {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("<redacted>")
-    }
-}
-
 #[derive(Parser, Debug)]
 #[command(
     name = "eez-proof-signer",
@@ -82,20 +64,12 @@ struct Args {
     #[arg(long = "l1-chain-config", env = "EEZ_L1_CHAIN_CONFIG")]
     l1_chain_document_path: PathBuf,
 
-    /// Operator-trusted canonical L1 source, independent from Composer claims.
-    #[arg(long = "l1-rpc-url", env = "EEZ_L1_RPC_URL", hide_env_values = true)]
-    l1_rpc_url: RpcUrlArg,
-    /// Operator-selected L2 header source for v2 provenance retrieval.
-    /// Absence keeps v1 available and reports v2 as unimplemented.
-    #[arg(
-        long = "l2-rpc-url",
-        env = "EEZ_PROOF_SIGNER_L2_RPC_URL",
-        hide_env_values = true
-    )]
-    l2_rpc_url: Option<RpcUrlArg>,
     /// Deployed L1 EEZ registry whose accepted endpoints authorize this signer.
     #[arg(long = "registry-address", env = "EEZ_REGISTRY_ADDRESS")]
     registry_address: Address,
+    /// Deployed OfflineRollup manager for this registry entry.
+    #[arg(long = "manager-address", env = "EEZ_ROLLUP_MANAGER_ADDRESS")]
+    manager_address: Address,
 
     /// Expected nonzero L1 rollup-registry ID this signer serves.
     ///
@@ -181,9 +155,8 @@ pub(crate) struct Config {
     pub(crate) listen_addr: SocketAddr,
     pub(crate) chain_document_path: PathBuf,
     pub(crate) l1_chain_document_path: PathBuf,
-    pub(crate) l1_rpc_url: url::Url,
-    pub(crate) l2_rpc_url: Option<url::Url>,
     pub(crate) registry_address: Address,
+    pub(crate) manager_address: Address,
     /// Expected L1 rollup-registry ID, distinct from the L2 EIP-155 chain ID.
     pub(crate) expected_rollup_id: NonZeroU64,
     /// Fixed native sender, checked against any deployment-supplied address.
@@ -205,7 +178,20 @@ impl std::fmt::Debug for Config {
 impl Config {
     /// Parse CLI and environment input, then validate keys and service limits.
     pub(crate) fn load() -> eyre::Result<Self> {
+        Self::reject_obsolete_environment()?;
         Self::from_args(Args::parse())
+    }
+
+    fn reject_obsolete_environment() -> eyre::Result<()> {
+        // Presence, including an empty value, is incompatible with this fresh-
+        // network profile. Never echo a retired URL, which may hold credentials.
+        for name in ["EEZ_PROOF_SIGNER_L2_RPC_URL", "EEZ_L1_RPC_URL"] {
+            eyre::ensure!(
+                std::env::var_os(name).is_none(),
+                "{name} is obsolete for the offline signer; remove it"
+            );
+        }
+        Ok(())
     }
 
     fn from_args(args: Args) -> eyre::Result<Self> {
@@ -218,17 +204,10 @@ impl Config {
             !args.registry_address.is_zero(),
             "L1 registry address must be nonzero"
         );
-        let l1_rpc_url = args
-            .l1_rpc_url
-            .0
-            .ok_or_else(|| eyre::eyre!("L1 RPC URL must be an absolute HTTP(S) endpoint"))?;
-        let l2_rpc_url = args
-            .l2_rpc_url
-            .map(|arg| {
-                arg.0
-                    .ok_or_else(|| eyre::eyre!("L2 RPC URL must be an absolute HTTP(S) endpoint"))
-            })
-            .transpose()?;
+        eyre::ensure!(
+            !args.manager_address.is_zero(),
+            "offline manager address must be nonzero"
+        );
         let attestation_private_key = args.attestation_key.into_key("attestation")?;
         let attester = Attester::new(
             attestation_private_key,
@@ -243,9 +222,8 @@ impl Config {
         );
         Ok(Self {
             listen_addr: args.listen_addr,
-            l1_rpc_url,
-            l2_rpc_url,
             registry_address: args.registry_address,
+            manager_address: args.manager_address,
             chain_document_path: args.chain_document_path,
             l1_chain_document_path: args.l1_chain_document_path,
             expected_rollup_id: args.expected_rollup_id,

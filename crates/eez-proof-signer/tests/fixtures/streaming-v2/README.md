@@ -1,13 +1,11 @@
-# RollupX streaming v2 test vectors
+# Offline v2 test vectors
 
-This directory contains 29 implementation-derived request/response cases with
-full execution witnesses, physical blobs, calldata and posting context.
+These 29 frozen cases contain full L1/L2 evidence and native settlement inputs
+for the fresh-network offline profile. Expected values come from captured native
+headers/proofs or explicit request-side constructions, not tested responses.
 
-See the [conformance guide](../../../../eez-control-rpc/conformance/README.md) for
-the complete coverage matrix, exact fixture/server profiles, wire-only replay,
-generation provenance, normalization rules and limitations. The
-[manifest](manifest.json) hashes the separate generating source, fixture inputs and vectors.
-
-The cases use real Stateless execution and settlement checks with **synthetic
-L1 authority**. They do not establish cross-implementation interoperability or
-establish live restart, reorg or parent-authentication behavior.
+The [conformance guide](../../../../eez-control-rpc/conformance/README.md) explains
+coverage, generation, replay, normalization and limits. The [manifest](manifest.json)
+records the generator, fixture, schema and vector digests. Signatures remain
+conditional on the on-chain context checks; this suite does not claim independent
+L1 consensus authentication or a ZK proof backend.
