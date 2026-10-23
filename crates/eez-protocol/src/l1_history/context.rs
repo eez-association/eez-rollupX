@@ -4,7 +4,9 @@
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use alloy_sol_types::{SolType as _, SolValue as _, sol, sol_data};
 
-use super::{EvidenceAnchor, HISTORY_ADDRESS, IMPORT_GAS_LIMIT, MAX_IMPORT_HEADERS};
+use super::{
+    EvidenceAnchor, HISTORY_ADDRESS, IMPORT_GAS_LIMIT, MAX_IMPORT_HEADERS, MAX_RULE_EPOCHS,
+};
 use crate::l2::ProfileError;
 
 sol! {
@@ -30,6 +32,12 @@ sol! {
         address[] proofSystems, bytes32[] vkeys, OfflineProfile profile) external;
 }
 
+fn valid_rule_epochs(times: &[u64]) -> bool {
+    times.first() == Some(&0)
+        && times.len() <= MAX_RULE_EPOCHS
+        && times.windows(2).all(|pair| pair[0] < pair[1])
+}
+
 impl OfflineProfile {
     /// Check the complete shape against independently loaded chain/code identity.
     /// The caller additionally checks bootstrap and the canonical L1 schedule.
@@ -41,10 +49,7 @@ impl OfflineProfile {
             || self.l1ConfigHash.is_zero()
             || self.historyCodeHash != history_code_hash
             || history_code_hash.is_zero()
-            || self.ruleTimes.is_empty()
-            || self.ruleTimes.len() > 64
-            || self.ruleTimes[0] != 0
-            || self.ruleTimes.windows(2).any(|w| w[0] >= w[1])
+            || !valid_rule_epochs(&self.ruleTimes)
         {
             return Err(ProfileError("invalid offline network profile"));
         }
@@ -78,12 +83,7 @@ impl OfflineProfile {
 
     /// Epoch-specific identity, including transitions that change only blob rules.
     pub fn rules_id(&self, timestamp: u64) -> Result<B256, ProfileError> {
-        if self.ruleTimes.is_empty()
-            || self.ruleTimes.len() > 64
-            || self.ruleTimes[0] != 0
-            || self.ruleTimes.windows(2).any(|w| w[0] >= w[1])
-            || self.l1ConfigHash.is_zero()
-        {
+        if !valid_rule_epochs(&self.ruleTimes) || self.l1ConfigHash.is_zero() {
             return Err(ProfileError("invalid L1 rule epochs"));
         }
         let index = self.ruleTimes.partition_point(|&at| at <= timestamp) - 1;
@@ -422,6 +422,28 @@ mod tests {
             make(B256::repeat_byte(3), 120),
             make(B256::repeat_byte(5), 120)
         );
+    }
+
+    #[test]
+    fn profile_and_rules_id_enforce_the_same_epoch_boundaries() {
+        let mut p = profile();
+        for times in [
+            vec![],
+            vec![1],
+            vec![0, 1, 1],
+            vec![0, 2, 1],
+            (0..=MAX_RULE_EPOCHS as u64).collect(),
+        ] {
+            p.ruleTimes = times;
+            assert!(p.validate(U256::from(1), p.historyCodeHash).is_err());
+            assert!(p.rules_id(u64::MAX).is_err());
+        }
+        for times in [vec![0], (0..MAX_RULE_EPOCHS as u64).collect()] {
+            p.ruleTimes = times;
+            p.validate(U256::from(1), p.historyCodeHash).unwrap();
+            assert!(p.rules_id(0).is_ok());
+            assert!(p.rules_id(u64::MAX).is_ok());
+        }
     }
 
     #[test]

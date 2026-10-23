@@ -1,5 +1,9 @@
 # Offline v2 conformance vectors
 
+For Nethermind/C# and other external implementations, start with the
+[integration guide](IMPLEMENTING.md) and
+[portable identity vectors](validation-identity.json).
+
 The [29 frozen cases](../../eez-proof-signer/tests/fixtures/streaming-v2/manifest.json)
 exercise the [v2 offline profile](../STREAMING_SPEC.md) through the real TCP
 service and Stateless executor. They contain complete L1/L2 witnesses, native
@@ -75,12 +79,16 @@ No expected digest, cursor or status is learned from a server response.
 ## Replay and regeneration
 
 Use Rust 1.95.0, pinned dependencies and `protoc`. The wire-only client does not
-link Stateless or Reth. Against an independently provisioned fixture service:
+link Stateless or Reth. Set `VALIDATION_IDENTITY` to the 0x-prefixed hash
+independently computed from that fixture's local inputs using the
+[identity contract](../VALIDATION_IDENTITY.md), never a value copied from the server.
+Against an independently provisioned fixture service:
 
 ```bash
 cargo +1.95.0 run --locked -p eez-control-rpc --example replay_streaming -- \
   http://127.0.0.1:50051 \
-  crates/eez-proof-signer/tests/fixtures/streaming-v2/baseline-lookup.json
+  crates/eez-proof-signer/tests/fixtures/streaming-v2/baseline-lookup.json \
+  "$VALIDATION_IDENTITY"
 ```
 
 The signer's tests create fresh services with each declared profile and replay

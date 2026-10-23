@@ -1,0 +1,15 @@
+{
+  "url": "https://github.com/eez-association/eez-rollupX/pull/73",
+  "title": "docs: propose a minimal prover interface",
+  "state": "open",
+  "draft": true,
+  "base": "2febeb1003f98e6660fdf18a05cdec9b38d0e1c8",
+  "head": "d8f89eed6ffd8d287326c507931d8693105a7c40",
+  "commits": 1,
+  "files": 1,
+  "reviews": 0,
+  "inline_comments": 0,
+  "issue_comments": 0,
+  "complete_diff_sha256": "b3ebca16a64b8de8ec847d968fe5253ac3b5fd0411cdda4e76a72a67ea12ac7a",
+  "reviewed_contract": "Draft documentation only; adapt requirements to the existing offline v2 profile. No implementation or upstream tests to cherry-pick."
+}

@@ -1283,10 +1283,4 @@ fn regenerate_offline_vectors() {
         )
         .unwrap();
     }
-    // Single-block finalization is intentionally retired. Its rejection and a
-    // complete Sync range now share sync-range-proof.json.
-    let obsolete = destination.join("single-block-proof.json");
-    if obsolete.exists() {
-        std::fs::remove_file(obsolete).unwrap();
-    }
 }

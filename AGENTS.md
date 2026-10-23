@@ -135,6 +135,9 @@ its Solidity implementation/tests and the applicable fork contract:
   V2 session changes must preserve the [streaming profile](crates/eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile),
   including independent provenance retrieval, shared worker ownership and epoch fencing.
   Run the frozen native session transcripts without regenerating expectations.
+  Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
+  language-neutral. Dependency changes require the local review guard and a
+  protocol-version change only when validation semantics change.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
   triggers from gas/blob/timing admission limits. Derive budgets from active network
   rules or measured work; admission estimates are not consensus limits. Retain final

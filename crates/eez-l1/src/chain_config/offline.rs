@@ -120,7 +120,10 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
         "unordered L1 blob schedule"
     );
     times.extend(spec.blob_params.scheduled.iter().map(|(at, _)| *at));
-    eyre::ensure!(times.len() <= 64, "L1 rule epoch limit exceeded");
+    eyre::ensure!(
+        times.len() <= eez_protocol::l1_history::MAX_RULE_EPOCHS,
+        "L1 rule epoch limit exceeded"
+    );
     let document = serde_json::json!({
         "domain": "EEZ_ROLLUPX_EFFECTIVE_L1_RULES_V1",
         "chainId": spec.chain().id(), "genesisHash": spec.genesis_header.hash(),

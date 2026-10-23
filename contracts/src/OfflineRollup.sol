@@ -322,7 +322,7 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     ///      `RollupBatchActiveThisBlock` if `lastVerifiedBlock(rollupId) == block.number` (i.e.,
     ///      a postAndVerifyBatch has touched this rollup in the current block) — the escape hatch
     ///      is locked out for the rest of the block once a verified state transition lands.
-    /// @param newRoot Replacement state root for this rollup.
+    /// @param newRoot Replacement L2 block-hash commitment for this rollup.
     function setRoot(bytes32 newRoot) external onlyOwner {
         IEEZRegistry(EEZContract).setRoot(rollupId, newRoot);
         emit RootEscape(newRoot);

@@ -200,10 +200,7 @@ impl Prover for RemoteProver {
         {
             Ok(Some((hash, proof))) => self.verify_response(ctx, hash, proof).await,
             Ok(None) => Err(ProverError::Backend("Finalize returned no proof".into())),
-            Err(streaming::StreamingError::Unsupported) => Err(ProverError::Backend(
-                "offline v2 proving is required".into(),
-            )),
-            Err(streaming::StreamingError::Prover(error)) => Err(error),
+            Err(error) => Err(error),
         }
     }
 

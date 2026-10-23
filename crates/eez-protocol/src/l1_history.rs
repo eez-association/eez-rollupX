@@ -23,6 +23,8 @@ pub const HISTORY_ADDRESS: Address = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 pub const MAX_IMPORT_HEADERS: usize = 64;
 /// Separate system-call budget; excluded from transaction gas accounting.
 pub const IMPORT_GAS_LIMIT: u64 = 2_000_000;
+/// Maximum L1 rule epochs in the committed offline profile.
+pub const MAX_RULE_EPOCHS: usize = 64;
 /// Pre-decode byte ceiling for supported L1 execution headers.
 pub const MAX_HEADER_BYTES: usize = 2048;
 

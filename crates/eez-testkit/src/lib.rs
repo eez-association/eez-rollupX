@@ -774,9 +774,9 @@ fn proof_signer_binary() -> Result<PathBuf> {
         .ok_or_else(|| anyhow!("eez-proof-signer build completed without producing the binary"))
 }
 
-/// Configuration for one real `eez-proof-signer` process.
+/// Launch configuration for one real `eez-proof-signer` process, including
+/// native and retained-history tests.
 #[derive(Debug)]
-/// Launch configuration for real-signer native and retained-history tests.
 pub struct ProofSignerConfig<'a> {
     pub rollup_manager_address: Address,
     pub registry_address: Address,

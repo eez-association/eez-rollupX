@@ -2,20 +2,18 @@
 //!
 //! This is a compatibility check, never authorization to sign or trust a block.
 //! Resource settings are deliberately absent. Changes to validation semantics
-//! require a schema revision bump even when the wire and dependencies stay fixed.
+//! require a validation specification version bump even when the wire stays fixed.
 
 use std::num::NonZeroU64;
 
 use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_rlp::RlpEncodable;
 
-const IDENTITY_SCHEMA_VERSION: u64 = 5;
-const VALIDATOR_REVISION: &[u8] = b"eez-offline-v2-validator-v1;operations=columns/count14/u32;history=all-produced/0xee77/64/2000000;context=flat-v1;anchors=actual-parent+historical;seed=delayed-origin;hook=eip2935+cleanup+import";
-// A conservative fingerprint: every locked version/source/checksum participates,
-// including Reth, Stateless, REVM, Alloy and the JSON implementation. This may
-// invalidate reusable facts after an unrelated dependency change; it cannot
-// silently reuse them after a validator dependency upgrade.
-const DEPENDENCY_LOCK: &[u8] = include_bytes!("../../../Cargo.lock");
+/// Encoding revision of the language-neutral RLP identity tuple.
+pub const IDENTITY_SCHEMA_VERSION: u64 = 6;
+/// Accepted validation semantics, independent of implementation/build metadata.
+/// See VALIDATION_IDENTITY.md for the versioning and dependency-review rules.
+pub const VALIDATION_SPEC_VERSION: u64 = 1;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]
@@ -37,14 +35,15 @@ impl ValidationContext {
     /// key, quota, transport endpoint or caller-supplied block participates.
     #[must_use]
     pub fn identity(self) -> B256 {
-        self.identity_with_revision(VALIDATOR_REVISION, keccak256(DEPENDENCY_LOCK))
+        keccak256(self.preimage(VALIDATION_SPEC_VERSION))
     }
 
-    fn identity_with_revision(self, revision: &[u8], dependency_digest: B256) -> B256 {
+    fn preimage(self, spec_version: u64) -> Vec<u8> {
         #[derive(RlpEncodable)]
         struct Identity {
             domain: Bytes,
             schema: u64,
+            spec_version: u64,
             canonical_json_version: u64,
             rollup_id: u64,
             chain_id: u64,
@@ -54,12 +53,11 @@ impl ValidationContext {
             offline_profile_hash: B256,
             registry: Address,
             manager: Address,
-            validator_revision: Bytes,
-            dependency_digest: B256,
         }
-        keccak256(alloy_rlp::encode(Identity {
+        alloy_rlp::encode(Identity {
             domain: Bytes::from_static(b"eez.validation-identity"),
             schema: IDENTITY_SCHEMA_VERSION,
+            spec_version,
             canonical_json_version: self.canonical_json_version,
             rollup_id: self.rollup_id.get(),
             chain_id: self.chain_id,
@@ -69,9 +67,7 @@ impl ValidationContext {
             offline_profile_hash: self.offline_profile_hash,
             registry: self.registry,
             manager: self.manager,
-            validator_revision: Bytes::copy_from_slice(revision),
-            dependency_digest,
-        }))
+        })
     }
 }
 
@@ -90,6 +86,50 @@ mod tests {
             offline_profile_hash: B256::repeat_byte(0x55),
             registry: Address::repeat_byte(0x66),
             manager: Address::repeat_byte(0x77),
+        }
+    }
+
+    #[test]
+    fn portable_identity_vectors() {
+        let vectors: serde_json::Value =
+            serde_json::from_str(include_str!("../conformance/validation-identity.json")).unwrap();
+        assert_eq!(vectors["schema_version"], IDENTITY_SCHEMA_VERSION);
+        assert_eq!(vectors["spec_version"], VALIDATION_SPEC_VERSION);
+        assert_eq!(vectors["identities"].as_array().unwrap().len(), 3);
+        for vector in vectors["identities"].as_array().unwrap() {
+            let context = ValidationContext {
+                rollup_id: vector["rollup_id"].as_str().unwrap().parse().unwrap(),
+                chain_id: vector["chain_id"].as_str().unwrap().parse().unwrap(),
+                system_address: vector["system_address"].as_str().unwrap().parse().unwrap(),
+                eez_l2_address: vector["eez_l2_address"].as_str().unwrap().parse().unwrap(),
+                chain_document_digest: vector["chain_document_digest"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                canonical_json_version: vectors["canonical_json_version"].as_u64().unwrap(),
+                offline_profile_hash: vector["offline_profile_hash"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                registry: vector["registry"].as_str().unwrap().parse().unwrap(),
+                manager: vector["manager"].as_str().unwrap().parse().unwrap(),
+            };
+            assert_eq!(
+                context.preimage(VALIDATION_SPEC_VERSION),
+                hex::decode(vector["rlp"].as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
+            );
+            assert_eq!(
+                context.identity(),
+                vector["identity"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<B256>()
+                    .unwrap(),
+                "{}",
+                vector["name"]
+            );
         }
     }
 
@@ -139,24 +179,22 @@ mod tests {
         }
         assert_ne!(
             identity,
-            original.identity_with_revision(b"next", keccak256(DEPENDENCY_LOCK))
-        );
-        assert_ne!(
-            identity,
-            original.identity_with_revision(VALIDATOR_REVISION, B256::ZERO)
+            keccak256(original.preimage(VALIDATION_SPEC_VERSION + 1))
         );
     }
 
     #[test]
-    fn identity_has_a_fixed_external_rlp_keccak_vector() {
-        // Fixed revision/dependency inputs isolate the wire vector from future
-        // legitimate lockfile changes. Expected hash is computed independently.
-        let actual = context().identity_with_revision(b"fixture-v1", B256::repeat_byte(0x44));
+    fn rust_dependency_changes_require_a_semantics_review() {
+        // This conservative guard is local review evidence, never a wire input.
+        // For a lockfile change, review execution/decoding impacts; bump the
+        // protocol version if semantics changed, otherwise document equivalence
+        // and update only this digest. Never copy build metadata into identity().
         assert_eq!(
-            actual,
+            keccak256(include_bytes!("../../../Cargo.lock")),
             alloy_primitives::b256!(
-                "fcb5c0a9a49e06e6b95842465d1ca5249362aa8dd690c614811556199d5dbece"
-            )
+                "6250a73d002bc15d5dc3724ba268ebcab84c5dd2d64d9f70c46ba2c10cd3327e"
+            ),
+            "review dependency semantics and VALIDATION_SPEC_VERSION before updating this guard"
         );
     }
 }

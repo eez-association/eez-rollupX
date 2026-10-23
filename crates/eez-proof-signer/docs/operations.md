@@ -62,7 +62,7 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-Validation identity schema 5 and offline profile 2 require agreement between
+Validation identity schema 6 and offline profile 2 require agreement between
 Composer and signer before any work is dispatched. Old peers fail capability
 preflight; no v1 proving fallback is offered. The profile requires fresh contracts,
 genesis and datadirs. Do not attach these binaries to an existing network or

@@ -82,29 +82,6 @@ struct StreamingSession {
     extended_at: Option<u64>,
 }
 
-#[derive(Debug)]
-pub(super) enum StreamingError {
-    Unsupported,
-    Prover(ProverError),
-}
-
-impl From<ProverError> for StreamingError {
-    fn from(error: ProverError) -> Self {
-        Self::Prover(error)
-    }
-}
-
-impl From<StreamingError> for ProverError {
-    fn from(error: StreamingError) -> Self {
-        match error {
-            StreamingError::Unsupported => {
-                Self::Backend("ProveStream unexpectedly unavailable".into())
-            }
-            StreamingError::Prover(error) => error,
-        }
-    }
-}
-
 impl StreamingState {
     async fn send(
         &mut self,
@@ -138,7 +115,7 @@ impl StreamingState {
         responses: &mut tonic::Streaming<ServerFrame>,
         request_id: u64,
         range: (u64, u64),
-    ) -> Result<ServerFrame, StreamingError> {
+    ) -> ProverResult<ServerFrame> {
         let session = self.session.as_ref().expect("ready session exists");
         let response = next_stream_response(
             responses,
@@ -164,7 +141,7 @@ async fn next_stream_response(
     expected_epoch: Option<u64>,
     from_block: u64,
     to_block: u64,
-) -> Result<ServerFrame, StreamingError> {
+) -> ProverResult<ServerFrame> {
     let response = responses
         .message()
         .await
@@ -177,8 +154,7 @@ async fn next_stream_response(
         return Err(ProverError::Backend(format!(
             "ProveStream response {} crossed request {}",
             response.request_id, request_id,
-        ))
-        .into());
+        )));
     }
     // An unknown or stale session has no authorized binding to echo.
     let unbound_rejection = matches!(response.kind, Some(server_frame::Kind::Rejected(_)))
@@ -187,17 +163,16 @@ async fn next_stream_response(
     if !unbound_rejection
         && expected_session_id.is_some_and(|expected| response.session_id != expected)
     {
-        return Err(
-            ProverError::Backend("ProveStream response crossed Composer sessions".into()).into(),
-        );
+        return Err(ProverError::Backend(
+            "ProveStream response crossed Composer sessions".into(),
+        ));
     }
     if !unbound_rejection && expected_epoch.is_some_and(|expected| response.epoch != expected) {
         return Err(ProverError::Backend(format!(
             "ProveStream response epoch {} crossed epoch {}",
             response.epoch,
             expected_epoch.expect("checked above"),
-        ))
-        .into());
+        )));
     }
     Ok(response)
 }
@@ -255,10 +230,7 @@ impl RemoteProver {
             Ok(Some(_)) => Err(ProverError::Backend(
                 "unsolicited prevalidation proof".into(),
             )),
-            Err(StreamingError::Unsupported) => Err(ProverError::Backend(
-                "offline v2 proving is required".into(),
-            )),
-            Err(StreamingError::Prover(error)) => Err(error),
+            Err(error) => Err(error),
         }
     }
 
@@ -268,14 +240,11 @@ impl RemoteProver {
         begin: Option<StreamBegin>,
         from_block: u64,
         to_block: u64,
-    ) -> Result<
-        (
-            tokio::sync::mpsc::Sender<ClientFrame>,
-            tonic::Streaming<ServerFrame>,
-            ServerFrame,
-        ),
-        StreamingError,
-    > {
+    ) -> ProverResult<(
+        tokio::sync::mpsc::Sender<ClientFrame>,
+        tonic::Streaming<ServerFrame>,
+        ServerFrame,
+    )> {
         let connection = self.connection().await?;
         let mut client = StreamingProverClient::new(connection.channel.clone())
             .max_encoding_message_size(connection.capabilities.max_message_bytes as usize)
@@ -312,9 +281,10 @@ impl RemoteProver {
         let mut responses = response
             .map_err(|status| {
                 if status.code() == Code::Unimplemented {
-                    StreamingError::Unsupported
+                    state.session = None;
+                    ProverError::Backend("offline v2 proving is required".into())
                 } else {
-                    map_rpc_status(from_block, to_block, status).into()
+                    map_rpc_status(from_block, to_block, status)
                 }
             })?
             .into_inner();
@@ -336,7 +306,7 @@ impl RemoteProver {
         anchor: StreamAnchor,
         blocks: &[BlockWitness],
         finalize: Option<(u64, u64, eez_control_rpc::v2::SettlementInput)>,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, StreamingError> {
+    ) -> ProverResult<Option<(Vec<u8>, Vec<u8>)>> {
         // One deadline covers lock acquisition, connect, both stream directions and EOF.
         // Dropping the exchange releases its lock; a later Resume recovers accepted work.
         tokio::time::timeout(
@@ -356,7 +326,7 @@ impl RemoteProver {
         anchor: StreamAnchor,
         blocks: &[BlockWitness],
         finalize: Option<(u64, u64, eez_control_rpc::v2::SettlementInput)>,
-    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, StreamingError> {
+    ) -> ProverResult<Option<(Vec<u8>, Vec<u8>)>> {
         let mut state = self.inner.streaming.lock().await;
         if state.session.as_ref().is_some_and(|session| {
             session.rollup_id != rollup_id
@@ -421,15 +391,9 @@ impl RemoteProver {
                     anchor_hash: anchor.hash.to_vec(),
                     anchor_state_root: anchor.state_root.to_vec(),
                 });
-                let (requests, mut responses, response) =
-                    match self.open_stream(&mut state, begin, range.0, range.1).await {
-                        Ok(opened) => opened,
-                        Err(StreamingError::Unsupported) => {
-                            state.session = None;
-                            return Err(StreamingError::Unsupported);
-                        }
-                        Err(error) => return Err(error),
-                    };
+                let (requests, mut responses, response) = self
+                    .open_stream(&mut state, begin, range.0, range.1)
+                    .await?;
                 if !creating
                     && matches!(&response.kind,
                         Some(server_frame::Kind::Rejected(rejected)) if matches!(Code::from_i32(rejected.code), Code::NotFound | Code::Unimplemented)
@@ -439,10 +403,10 @@ impl RemoteProver {
                     continue; // The server evicted the session or restarted; begin at the supplied anchor.
                 }
                 if let Some(error) = rejection_error(&response, range.0, range.1) {
-                    return Err(error.into());
+                    return Err(error);
                 }
                 let Some(server_frame::Kind::Ready(ready)) = response.kind else {
-                    return Err(ProverError::Backend("ProveStream expected Ready".into()).into());
+                    return Err(ProverError::Backend("ProveStream expected Ready".into()));
                 };
                 if response.session_id.len() != 32
                     || response.epoch == 0
@@ -450,8 +414,7 @@ impl RemoteProver {
                 {
                     return Err(ProverError::Backend(
                         "ProveStream returned an invalid Ready binding".into(),
-                    )
-                    .into());
+                    ));
                 }
                 if !creating
                     && state
@@ -461,8 +424,7 @@ impl RemoteProver {
                 {
                     return Err(ProverError::Backend(
                         "Resume did not advance the session epoch".into(),
-                    )
-                    .into());
+                    ));
                 }
                 if creating
                     && (ready.validated_through != anchor.number
@@ -470,8 +432,7 @@ impl RemoteProver {
                 {
                     return Err(ProverError::Backend(
                         "ProveStream Begin acknowledged another anchor".into(),
-                    )
-                    .into());
+                    ));
                 }
                 let previous = state.session.take();
                 let session_anchor = previous.as_ref().map_or(anchor, |session| session.anchor);
@@ -551,13 +512,12 @@ impl RemoteProver {
                         continue; // The requested parent is no longer retained; backfill a new session.
                     }
                     if let Some(error) = rejection_error(&response, range.0, range.1) {
-                        return Err(error.into());
+                        return Err(error);
                     }
                     let Some(server_frame::Kind::Ready(ready)) = response.kind else {
                         return Err(ProverError::Backend(
                             "ProveStream expected Ready after Rewind".into(),
-                        )
-                        .into());
+                        ));
                     };
                     if response.epoch <= session.epoch
                         || ready.validated_through.checked_add(1) != Some(first.number)
@@ -566,8 +526,7 @@ impl RemoteProver {
                         state.session = None;
                         return Err(ProverError::Backend(
                             "ProveStream Rewind acknowledged another parent".into(),
-                        )
-                        .into());
+                        ));
                     }
                     state.session.as_mut().expect("ready session exists").epoch = response.epoch;
                 }
@@ -639,18 +598,18 @@ impl RemoteProver {
                                 || error.retryable_kind() == Some(RetryableProverError::Aborted) {
                                 state.session = None;
                             }
-                            return Err(error.into());
+                            return Err(error);
                         }
                         if let Some(block) = blocks.get(index) {
                             if !matches!(&response.kind, Some(server_frame::Kind::Validated(validated))
                                 if validated.number == block.number && validated.hash == block.hash.as_slice()
                                     && validated.post_state_root == block_header(block)?.state_root.as_slice()) {
-                                return Err(ProverError::Backend("ProveStream Validated response identity mismatch".into()).into());
+                                return Err(ProverError::Backend("ProveStream Validated response identity mismatch".into()));
                             }
 
                         } else {
                             let Some(server_frame::Kind::Proof(result)) = response.kind else {
-                                return Err(ProverError::Backend("ProveStream did not answer Finalize with Proof".into()).into());
+                                return Err(ProverError::Backend("ProveStream did not answer Finalize with Proof".into()));
                             };
                             let session = state.session.as_mut().expect("ready session exists");
                             session.anchor = anchor;
@@ -672,9 +631,8 @@ impl RemoteProver {
                 Ok(None) => Ok(proof),
                 Ok(Some(_)) => Err(ProverError::Backend(
                     "ProveStream returned an unsolicited response".into(),
-                )
-                .into()),
-                Err(status) => Err(map_rpc_status(range.0, range.1, status).into()),
+                )),
+                Err(status) => Err(map_rpc_status(range.0, range.1, status)),
             };
         }
     }

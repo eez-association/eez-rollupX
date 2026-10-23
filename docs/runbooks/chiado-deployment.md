@@ -415,13 +415,16 @@ persistence/shutdown failure still requires recovery assessment. The existing
 CLI shutdown budget is unchanged, and this does not make unsettled requests
 durable.
 
-When adopting or rolling back this backport or a dependency lockfile update,
-select matching Composer and signer revisions and restart them together. The
-validation identity fingerprints the entire lockfile, including optional
-dependencies: the `quinn-proto 0.11.18` security update therefore changes it even
-when QUIC is not enabled. Mixed identities fail the startup capability check.
-The Quinn patch itself requires no contract, genesis, wire or database migration;
-rollback still requires a matching pair and restores the affected dependency.
+The fresh-network offline profile uses the
+[portable validation identity](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md).
+Schema 6 replaces the earlier lockfile fingerprint. Deploy Composer and signer
+with matching protocol versions and local network/deployment configuration;
+schema 5/6 pairs fail the startup capability check. Clear retained prover sessions
+when the identity changes. Lockfile-only changes no longer automatically change
+the identity, but still require dependency/semantic review. This handshake update
+requires no contract, genesis, wire-field or database migration. It does not make
+the broader fresh-network profile an upgrade for existing Chiado contracts.
+Rollback requires compatible endpoints and does not restore volatile queue state.
 
 **Stop changes running services; preserves bind-mounted data:**
 

@@ -101,7 +101,7 @@ cast block-number --rpc-url http://127.0.0.1:18688                              
 
 **Stop conditions:**
 - **Unexpected L1 kind or chain ID:** if the embedded L1 reports a different chain ID or `kind`, stop. `EEZ_L1_CHAIN` must be exactly `mainnet`, `hoodi` or `sepolia`; any other value is a startup error.
-- **Prover preflight rejects:** a `prover validation identity differs` error means the node and signer disagree on validation, dependency, genesis, profile or deployment identity. Match their artifacts and local configuration before retrying.
+- **Prover preflight rejects:** a `prover validation identity differs` error means the node and signer disagree on validation specification, genesis, profile or deployment identity. Match their artifacts and local configuration before retrying.
 - **Invalid builder signature:** `Invalid signature` replies from BuilderNet mean `EEZ_L1_BUNDLE_SIGNING_KEY` is missing.
 
 Bundle acceptance is not inclusion. Measure the share of settlement slots that

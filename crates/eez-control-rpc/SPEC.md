@@ -52,11 +52,14 @@ from these schemas, not a second codec.
 
 Capabilities returns operations tag 0, offline profile 2, the 32-byte validation
 identity, effective block/byte/witness-item/message limits and timeouts. The call
-neither occupies the expensive worker nor signs. Identity schema 5 binds actual
+neither occupies the expensive worker nor signs. Identity schema 6 binds actual
 loaded L1/L2 configuration, fixed genesis/history profile, registry/manager,
-rollup and proof policy. Duplicate JSON keys reject before rules are loaded;
+rollup and validation specification version. Proof-system/vkey policy is checked
+separately during settlement and response verification. Duplicate JSON keys reject before rules are loaded;
 EIP-155 chain ID alone does not identify a network or its rules. Resource limits
-are separate from the validation identity.
+are separate from the validation identity. The normative
+[portable identity encoding](VALIDATION_IDENTITY.md) and
+[external prover guide](conformance/IMPLEMENTING.md) define the non-Rust boundary.
 
 Composer derives its expected identity locally, requires exact agreement before
 node launch and intersects the reported block ceiling with local emission
@@ -65,10 +68,12 @@ matching `eez-validation-identity-bin` metadata; missing, malformed or mismatchi
 identity rejects before witnesses. Configuration-change responses cannot authorize
 candidate eviction, even if they contain extraneous failure details.
 
-Clients share a capability snapshot across successful requests. Transport/resource
-or configuration-change failures invalidate the relevant snapshot; stale in-flight
-failures cannot discard a newer connection's snapshot. Changed rules or limits
-require replanning from one coherent snapshot, never silently reusing old facts.
+Clients share a capability snapshot across successful requests. UNAVAILABLE
+while opening ProveStream invalidates that connection; a stale in-flight failure
+cannot discard a newer connection. Rediscovery must agree with the initially
+accepted snapshot. Changed rules or limits require a producer restart and
+replanning; a resource/configuration rejection does not silently adopt new limits
+or authorize reuse under changed rules.
 
 Optional prevalidation sends bounded v2 Block chunks and receives validated ACKs.
 They are execution facts, not signatures or canonical progress. Finalize always

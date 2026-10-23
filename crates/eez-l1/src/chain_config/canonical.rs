@@ -98,6 +98,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn portable_canonical_json_vectors() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../eez-control-rpc/conformance/validation-identity.json"
+        ))
+        .unwrap();
+        assert_eq!(vectors["canonical_json_version"], CANONICAL_JSON_VERSION);
+        for vector in vectors["canonical_json"].as_array().unwrap() {
+            let actual =
+                canonicalize_chain_json(vector["input"].as_str().unwrap().as_bytes()).unwrap();
+            let expected: alloy_primitives::Bytes = vector["canonical_utf8_hex"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(actual, expected.as_ref(), "{}", vector["name"]);
+            assert_eq!(
+                alloy_primitives::keccak256(&actual),
+                vector["digest"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<alloy_primitives::B256>()
+                    .unwrap()
+            );
+        }
+        for invalid in vectors["invalid_json"].as_array().unwrap() {
+            assert!(
+                canonicalize_chain_json(invalid.as_str().unwrap().as_bytes()).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
     fn canonical_json_preserves_scalars_and_orders_only_object_keys() {
         let source = br#" { "z": [true, null, -0, 184467440737095516160, 1.234567890123456789, 1e999], "a": { "y": "\u00e9", "b": "\/\n" } } "#;
         let expected = "{\"a\":{\"b\":\"/\\n\",\"y\":\"é\"},\"z\":[true,null,-0,184467440737095516160,1.234567890123456789,1e999]}";

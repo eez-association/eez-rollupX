@@ -25,6 +25,15 @@ document MUST be updated atomically.
 For Composer request construction, response validation, and recovery, see the
 [Composer-to-prover RPC specification](../eez-control-rpc/SPEC.md).
 
+External v2 provers MUST enforce the same execution, encoding, evidence,
+settlement, public-input and signature validation requirements. References to
+Stateless/Reth APIs, Rust types, daemon configuration and worker implementation
+describe this Rust signer. Another engine may implement the same validation
+contract with the resource/session policies permitted by the
+[streaming baseline](../eez-control-rpc/STREAMING_SPEC.md#1-required-interface);
+matching an identity never substitutes for validation. See the
+[external integration guide](../eez-control-rpc/conformance/IMPLEMENTING.md).
+
 Partial L1 consumption does not relax this proof profile. The signer validates
 the full proposal and the original native-blob commitments. Canonical prefix
 selection and signed-user recovery belong to the deriver and Composer, as
@@ -293,7 +302,7 @@ is normative for attachment epochs, queues, byte accounting, duplicates,
 Resume/Rewind/Cancel and subrange finalization.
 
 Capabilities reports operations tag 0, offline profile 2, validation identity
-schema 5 and effective limits without acquiring an expensive worker or signing.
+schema 6 and effective limits without acquiring an expensive worker or signing.
 Every stream requires matching `eez-validation-identity-bin` metadata before
 admission. Identity binds loaded chain/deployment/profile and proof rules, not
 request truth. Missing or mismatching identities never reach execution.
@@ -858,7 +867,7 @@ all roots covered by that host, within the `int192` range.
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
 fresh datadirs. There is no old/new activation height or migration. Identity
-schema 5/offline profile 2 rejects incompatible peers before proving. Old selectors,
+schema 6/offline profile 2 rejects incompatible peers before proving. Old selectors,
 wire inputs and genesis profiles fail explicitly. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.

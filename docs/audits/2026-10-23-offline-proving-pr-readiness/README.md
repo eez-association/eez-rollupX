@@ -173,3 +173,11 @@ not change during these checks.
 The branch is prepared for PR review with the published protocol dependency.
 Merging still requires the repository's full CI gate. No public deployment,
 wallet operation or unrelated working-tree modification was performed.
+
+## Portable prover follow-up
+
+The subsequent [portable prover review](../2026-10-23-portable-prover/README.md)
+applies the approved cleanup and PR #73 adaptation on top of `21fc597e`.
+It supersedes the handshake/compatibility description with identity schema 6,
+keeps v2 and the same protocol pin, and records validation of the changed source.
+The results above remain evidence for their recorded revision.

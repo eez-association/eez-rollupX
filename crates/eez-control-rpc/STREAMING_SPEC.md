@@ -341,15 +341,17 @@ values. Composer, followers and transaction senders retain their own chain
 connections.
 
 Capabilities must advertise offline profile 2, operations tag 0 and an exact
-matching validation identity. Identity schema 5 binds the fixed offline profile,
-L1/L2 rules, runtime, registry/manager, rollup and validator/dependency revision.
+matching validation identity. Identity schema 6 binds the fixed offline profile,
+L1/L2 rules, runtime, registry/manager, rollup and portable validation specification
+version. The exact language-neutral encoding is defined in
+[the identity contract](VALIDATION_IDENTITY.md); build dependencies are not wire inputs.
 The signer separately checks its configured proof-system policy during settlement;
 the client checks the returned digest and configured attester's signature.
 Every v2 RPC must carry matching `eez-validation-identity-bin` metadata. Missing
 or mismatching metadata rejects before frames are admitted. Identity agreement
 establishes compatible validation rules; it never authorizes a signature.
 
-The runtime implements Resume, Rewind, Cancel and subrange Finalize, including a
+The Rust signer implements Resume, Rewind, Cancel and subrange Finalize, including a
 terminal before the tip. Success promotes the selected predecessor and prunes
 older L2 data while retaining evidence needed by the remaining prefix. Invalid
 ranges, gaps, conflicting duplicates or unretained ancestors reject without
