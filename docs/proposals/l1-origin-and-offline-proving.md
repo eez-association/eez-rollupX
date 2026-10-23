@@ -5,7 +5,7 @@
 | Design status | Implemented and locally validated for new networks only, with both anchor modes active from genesis. The implementation audit records evidence and excluded checks; upstream adoption and deployment are separate. |
 | Date | 2026-10-22 |
 | Source baseline | Latest `origin/main` at `a50c326d99f7cd1c21406eedbf370a344015a6b5`, with the required unmerged v2 streaming backport `00fe7bc2541a56f26f088d0a7baf567dac5059de` integrated by merge `8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd`. |
-| Protocol baseline | `eez-core-protocol` gitlink `84a5b5207880f192a6a5896cbfe0bac5249db47f`; isolated protocol development is recorded in the implementation audit |
+| Protocol pin | Published `feature/e2e_edge_cases` at `84a5b5207880f192a6a5896cbfe0bac5249db47f`, without local protocol changes. RollupX owns the history predeploy and offline manager. |
 | Design input | [Protocol feedback](https://hackmd.io/@Yu7RfKfWRP6MwaKqIFALjw/HygKZD8hMg), reviewed 2026-10-21 |
 | Existing contracts | [Core public inputs](../../eez-core-protocol/docs/MULTI_PROVER_SPEC.md), [streaming RPC v2](../../crates/eez-control-rpc/STREAMING_SPEC.md), [fork timing and eligibility](../../crates/eez-protocol/src/l2/derivation.rs) |
 
@@ -19,6 +19,13 @@ profile. Both anchor modes are current supported modes. Preserve shared
 infrastructure with a current consumer, new-network genesis replay, reorgs,
 restarts, retries, partial consumption and fork-aware historical L1 decoding.
 Reject incompatible configurations and peers explicitly.
+
+The [offline manager](../../contracts/src/OfflineRollup.sol) implements the
+pinned `IRollupContract` interface. It preserves the reference manager's owner,
+proof-system membership, verification-key, threshold and root-escape policy,
+while requiring the offline profile at initialization. The generic core manager
+is not the RollupX deployment target. The [history predeploy contract](../../contracts/L1_HISTORY_SPEC.md)
+and its tests live in this repository; no unpublished core patch is required.
 
 ## Purpose and full flow
 

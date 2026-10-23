@@ -3,7 +3,7 @@ pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {RLP} from "@openzeppelin/contracts/utils/RLP.sol";
-import {L1BlockhashContract} from "eez-core-protocol/src/L2/L1BlockhashContract.sol";
+import {L1BlockhashContract} from "../src/L2/L1BlockhashContract.sol";
 import {L1StorageProof} from "../src/L1StorageProof.sol";
 
 contract L1StorageProofTest is Test {

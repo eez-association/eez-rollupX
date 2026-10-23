@@ -175,6 +175,11 @@ its Solidity implementation/tests and the applicable fork contract:
   `$OUT_DIR/prove.v2.rs` using `protoc`; the
   [include module](crates/eez-control-rpc/src/generated.rs) loads them. Regenerate
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
+- The core pin tracks published `feature/e2e_edge_cases`; RollupX's
+  [history predeploy](contracts/src/L2/L1BlockhashContract.sol) and
+  [offline manager](contracts/src/OfflineRollup.sol) live in this repository.
+  The manager implements the pinned `IRollupContract` interface directly;
+  do not restore a private core patch or the context-free initializer.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production

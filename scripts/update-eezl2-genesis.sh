@@ -5,6 +5,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROTOCOL="$REPO/eez-core-protocol"
 GENERATOR="$REPO/scripts/solidity/GenerateEEZL2Genesis.s.sol"
+HISTORY_CONTRACT="$REPO/contracts/src/L2/L1BlockhashContract.sol"
 FIXTURE_PROFILE="$REPO/testing/kurtosis/l2-genesis-profile.json"
 EXPECTED_FOUNDRY_VERSION="1.7.1"
 USE_GAS_LEFT=false
@@ -186,7 +187,7 @@ if [[ "$forge_version" != "$EXPECTED_FOUNDRY_VERSION" ]]; then
 fi
 
 for required in "$PROTOCOL/foundry.toml" "$PROTOCOL/remappings.txt" "$PROTOCOL/src" \
-    "$PROTOCOL/lib" "$GENERATOR"
+    "$PROTOCOL/lib" "$GENERATOR" "$HISTORY_CONTRACT"
 do
     if [[ ! -e "$required" ]]; then
         echo "required canonical protocol input is missing: $required" >&2
@@ -204,6 +205,14 @@ cp "$PROTOCOL/foundry.toml" "$PROTOCOL/remappings.txt" "$build_root/"
 [[ ! -f "$PROTOCOL/foundry.lock" ]] || cp "$PROTOCOL/foundry.lock" "$build_root/"
 cp -a "$PROTOCOL/src" "$build_root/src"
 cp -a "$PROTOCOL/lib" "$build_root/lib"
+# Compile the RollupX predeploy at its canonical source name. Source paths enter
+# Solidity metadata and therefore the genesis/profile commitment. Only this
+# disposable build tree is extended; the pinned protocol checkout stays intact.
+if [[ -e "$build_root/src/L2/L1BlockhashContract.sol" ]]; then
+    echo "pinned protocol conflicts with the RollupX history source" >&2
+    exit 1
+fi
+cp "$HISTORY_CONTRACT" "$build_root/src/L2/L1BlockhashContract.sol"
 mkdir "$build_root/script"
 cp "$GENERATOR" "$build_root/script/GenerateEEZL2Genesis.s.sol"
 

@@ -13,6 +13,7 @@ import {
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {OfflineRollup} from "../src/OfflineRollup.sol";
+import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 contract OfflineRollupTest is Test {
     EEZ internal registry;
@@ -94,7 +95,7 @@ contract OfflineRollupTest is Test {
         vm.setBlockhash(100, HASH);
         assertEq(manager.getCustomData(100), expected);
         vm.roll(357);
-        vm.expectRevert(abi.encodeWithSelector(Rollup.BlockHashUnavailable.selector, uint64(100)));
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.BlockHashUnavailable.selector, uint64(100)));
         manager.getCustomData(100);
     }
 
@@ -102,14 +103,14 @@ contract OfflineRollupTest is Test {
         vm.expectRevert(OfflineRollup.InvalidAnchorSelector.selector);
         manager.getCustomData(0);
         for (uint64 n = 101; n <= 102; ++n) {
-            vm.expectRevert(abi.encodeWithSelector(Rollup.BlockHashUnavailable.selector, n));
+            vm.expectRevert(abi.encodeWithSelector(OfflineRollup.BlockHashUnavailable.selector, n));
             manager.getCustomData(n);
         }
         vm.setBlockhash(99, bytes32(0));
-        vm.expectRevert(abi.encodeWithSelector(Rollup.BlockHashUnavailable.selector, uint64(99)));
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.BlockHashUnavailable.selector, uint64(99)));
         manager.getCustomData(99);
         vm.setBlockhash(100, bytes32(0));
-        vm.expectRevert(abi.encodeWithSelector(Rollup.BlockHashUnavailable.selector, uint64(100)));
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.BlockHashUnavailable.selector, uint64(100)));
         manager.getCustomData(type(uint64).max);
     }
 
@@ -132,7 +133,7 @@ contract OfflineRollupTest is Test {
         assertNotEq(manager.getCustomData(100), beforeReorg);
     }
 
-    function testCanonicalProfileCommitmentAndOldInitializationRejects() public {
+    function testCanonicalProfileCommitmentAndUnregisteredContextRejects() public {
         bytes memory expected = abi.encode(
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1"),
             manager.HISTORY_ADDRESS(),
@@ -141,11 +142,144 @@ contract OfflineRollupTest is Test {
             profile()
         );
         assertEq(manager.protocolConfigHash(), keccak256(expected));
-        vm.expectRevert(OfflineRollup.OfflineProfileRequired.selector);
-        manager.initialize(address(this), 1, new address[](0), new bytes32[](0));
         OfflineRollup unregistered = deploy(profile());
         vm.expectRevert(OfflineRollup.UnregisteredOfflineRollup.selector);
         unregistered.getCustomData(100);
+    }
+
+    function testOnlyProfileInitializerExistsAndImplementationIsLocked() public {
+        vm.expectRevert(OfflineRollup.InvalidEEZContract.selector);
+        new OfflineRollup(address(0));
+        OfflineRollup implementation = new OfflineRollup(address(registry));
+        address[] memory systems = new address[](1);
+        systems[0] = address(verifier);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = VKEY;
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        implementation.initializeOffline(address(this), 1, systems, keys, profile());
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        manager.initializeOffline(address(this), 1, systems, keys, profile());
+
+        (bool accepted, bytes memory data) =
+            address(implementation).call(abi.encodeCall(Rollup.initialize, (address(this), 0, systems, keys)));
+        assertFalse(accepted, "context-free initialization must not be available");
+        assertEq(data.length, 0, "unknown selector must revert without entering an initializer");
+        assertEq(implementation.owner(), address(0));
+        assertEq(manager.owner(), address(this));
+        assertEq(manager.threshold(), 1);
+        assertEq(manager.verificationKey(address(verifier)), VKEY);
+    }
+
+    function deployPolicy(address[] memory systems, bytes32[] memory keys) external returns (OfflineRollup) {
+        OfflineRollup implementation = new OfflineRollup(address(registry));
+        bytes memory init =
+            abi.encodeCall(OfflineRollup.initializeOffline, (address(this), 1, systems, keys, profile()));
+        return OfflineRollup(address(new TransparentUpgradeableProxy(address(implementation), address(this), init)));
+    }
+
+    function testInvalidInitialPolicyRejectsAtomically() public {
+        address[] memory systems = new address[](2);
+        systems[0] = address(verifier);
+        systems[1] = address(verifier);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = VKEY;
+        vm.expectRevert(OfflineRollup.InvalidConfig.selector);
+        this.deployPolicy(systems, keys);
+        keys = new bytes32[](2);
+        keys[0] = VKEY;
+        keys[1] = VKEY;
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.ProofSystemAlreadyAllowed.selector, address(verifier)));
+        this.deployPolicy(systems, keys);
+        systems[1] = address(0xBEEF);
+        keys[1] = bytes32(0);
+        vm.expectRevert(OfflineRollup.InvalidConfig.selector);
+        this.deployPolicy(systems, keys);
+    }
+
+    function testRegistrationRequiresRegistryAndCurrentOwnerAndIsOneShot() public {
+        OfflineRollup fresh = deploy(profile());
+        vm.expectRevert(OfflineRollup.NotEEZRegistry.selector);
+        fresh.rollupContractRegistered(rid + 1, address(this));
+        address nextOwner = address(0xBEEF);
+        fresh.transferOwnership(nextOwner);
+        uint64 counter = registry.rollupCounter();
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.UnauthorizedRegistrantAccount.selector, address(this)));
+        registry.registerRollup(address(fresh), ROOT);
+        assertEq(fresh.rollupId(), 0);
+        assertEq(registry.rollupCounter(), counter);
+        vm.prank(nextOwner);
+        assertEq(registry.registerRollup(address(fresh), ROOT), counter + 1);
+        vm.prank(address(registry));
+        vm.expectRevert(OfflineRollup.AlreadyRegistered.selector);
+        fresh.rollupContractRegistered(counter + 2, nextOwner);
+        assertEq(fresh.rollupId(), counter + 1);
+    }
+
+    function testOwnerPolicyChangesAndRootEscape() public {
+        address extra = address(0xBEEF);
+        manager.addProofSystem(extra, VKEY);
+        bytes32 replacement = bytes32(uint256(0x43));
+        manager.updateVerificationKey(extra, replacement);
+        assertEq(manager.verificationKey(extra), replacement);
+        manager.setThreshold(2);
+        assertEq(manager.threshold(), 2);
+        manager.removeProofSystem(extra);
+        assertEq(manager.verificationKey(extra), bytes32(0));
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.ProofSystemNotAdded.selector, extra));
+        manager.removeProofSystem(extra);
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.ProofSystemNotAdded.selector, extra));
+        manager.updateVerificationKey(extra, VKEY);
+        vm.expectRevert(OfflineRollup.InvalidConfig.selector);
+        manager.updateVerificationKey(address(verifier), bytes32(0));
+        vm.expectRevert(OfflineRollup.InvalidConfig.selector);
+        manager.addProofSystem(extra, bytes32(0));
+        vm.expectRevert(abi.encodeWithSelector(OfflineRollup.ProofSystemAlreadyAllowed.selector, address(verifier)));
+        manager.addProofSystem(address(verifier), replacement);
+
+        bytes[] memory calls = new bytes[](5);
+        calls[0] = abi.encodeCall(OfflineRollup.addProofSystem, (extra, VKEY));
+        calls[1] = abi.encodeCall(OfflineRollup.removeProofSystem, (address(verifier)));
+        calls[2] = abi.encodeCall(OfflineRollup.updateVerificationKey, (address(verifier), replacement));
+        calls[3] = abi.encodeCall(OfflineRollup.setThreshold, (0));
+        calls[4] = abi.encodeCall(OfflineRollup.setRoot, (replacement));
+        for (uint256 i; i < calls.length; ++i) {
+            vm.prank(extra);
+            (bool success, bytes memory errorData) = address(manager).call(calls[i]);
+            assertFalse(success);
+            assertEq(errorData, abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", extra));
+        }
+        manager.setThreshold(1);
+        verifier.setExpectedPublicInputsHash(hashForContext(manager.getCustomData(100)));
+        registry.postAndVerifyBatch(batch(100));
+        vm.expectRevert(abi.encodeWithSelector(EEZ.RollupBatchActiveThisBlock.selector, rid));
+        manager.setRoot(replacement);
+        (, bytes32 root,) = registry.rollups(rid);
+        assertEq(root, ROOT);
+        vm.roll(block.number + 1);
+        manager.setRoot(replacement);
+        (, root,) = registry.rollups(rid);
+        assertEq(root, replacement);
+    }
+
+    function testFuzzProofPolicyMatchesPinnedReference(uint8 first, uint8 second, uint8 count, uint8 threshold) public {
+        address[] memory systems = new address[](1);
+        systems[0] = address(verifier);
+        bytes32[] memory keys = new bytes32[](1);
+        keys[0] = VKEY;
+        uint256 required = bound(threshold, 0, 3);
+        Rollup referenceManager = RollupDeployment.deploy(address(registry), address(this), required, systems, keys);
+        manager.setThreshold(required);
+        referenceManager.addProofSystem(address(0xBEEF), bytes32(uint256(0x43)));
+        manager.addProofSystem(address(0xBEEF), bytes32(uint256(0x43)));
+        address[4] memory choices = [address(0), address(0xBEEF), address(verifier), address(0xDEAD)];
+        address[] memory subset = new address[](bound(count, 0, 2));
+        if (subset.length > 0) subset[0] = choices[first % 4];
+        if (subset.length > 1) subset[1] = choices[second % 4];
+        bytes memory input = abi.encodeCall(OfflineRollup.checkProofSystemsAndGetVkeys, (subset));
+        (bool expectedSuccess, bytes memory expected) = address(referenceManager).staticcall(input);
+        (bool actualSuccess, bytes memory actual) = address(manager).staticcall(input);
+        assertEq(actualSuccess, expectedSuccess);
+        assertEq(actual, expected);
     }
 
     function testRegistrationRejectsDifferentGenesisAtomically() public {

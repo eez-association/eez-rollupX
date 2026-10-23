@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {L1BlockhashContract} from "eez-core-protocol/src/L2/L1BlockhashContract.sol";
+import {L1BlockhashContract} from "./L2/L1BlockhashContract.sol";
 
 /// @notice Integration fixture for ordinary applications reading the history
 ///         contract and PREVRANDAO in the same L2 execution environment.

@@ -3,11 +3,13 @@
 This maps the authorized [proposal](../../proposals/l1-origin-and-offline-proving.md)
 to code and tests. Execution results, failures and remaining gaps belong to the
 [validation record](README.md); a test listed here is not itself a passing result.
-The implementation applies to fresh networks from genesis.
+The implementation applies to fresh networks from genesis. The
+[PR-readiness review](../2026-10-23-offline-proving-pr-readiness/README.md) records
+the subsequent adaptation to the published protocol pin and its validation.
 
 | Requirement | Implementation | Meaningful regressions |
 | --- | --- | --- |
-| O1: permanent complete history | [L1BlockhashContract](../../../eez-core-protocol/src/L2/L1BlockhashContract.sol), shared [storage and transition rules](../../../crates/eez-protocol/src/l1_history.rs) | Core `L1BlockhashContractTest`; shared history vectors; EVM `delayed_import_runs_before_opcode_and_retains_unused_headers_without_transaction_gas`; multipart comparison of every imported hash. |
+| O1: permanent complete history | [L1BlockhashContract](../../../contracts/src/L2/L1BlockhashContract.sol), shared [storage and transition rules](../../../crates/eez-protocol/src/l1_history.rs) | Integration `L1BlockhashContractTest`; shared history vectors; EVM `delayed_import_runs_before_opcode_and_retains_unused_headers_without_transaction_gas`; multipart comparison of every imported hash. |
 | O2: exact mandatory import | [EVM history hook](../../../crates/eez-evm/src/history.rs), bounded system call in [evm.rs](../../../crates/eez-evm/src/evm.rs), existing hook order in [block.rs](../../../crates/eez-evm/src/block.rs) | Actual system-call budget, caller balance/nonce and atomic failure tests; wrong runtime/state/RANDAO, duplicate and conflicting import tests. Ordinary transaction receipts and gas remain covered by the existing executor suite. |
 | O3: complete checked ancestry | `HeaderChain` in [shared history](../../../crates/eez-protocol/src/l1_history.rs), [canonical acquisition](../../../crates/eez-l1/src/derivation/history.rs), [stream validation](../../../crates/eez-proof-signer/src/validate/streaming.rs) | Canonical encoding, fork layout, gaps, conflicting branches, inherited/non-maximal source and exact endpoint tests; real denied-signer rejection of missing source and a bridge-only omitted header. |
 | O4: independently bound public input | [OfflineRollup](../../../contracts/src/OfflineRollup.sol), [OfflineProfile/OfflineContext](../../../crates/eez-protocol/src/l1_history/context.rs), [public inputs](../../../crates/eez-protocol/src/public_inputs.rs) | Independent flat ABI/profile word vectors; deployed manager/Rust byte comparisons; registry proof-context substitution, accepted-root, anchor and rule-period tests. |

@@ -1,14 +1,21 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {IRollupContract} from "eez-core-protocol/src/interfaces/IRollup.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {IEEZRegistry} from "eez-core-protocol/src/interfaces/IEEZRegistry.sol";
 import {L1HistoryCode} from "./generated/L1HistoryCode.sol";
 
-/// @notice New-network RollupX manager, binding complete offline evidence to actual L1 facts.
-/// @dev Core's generic manager remains usable by other rollup profiles. This manager
-///      exposes one initialization path and rejects Core's context-free configuration.
-contract OfflineRollup is Rollup {
+/// @dev The pinned registry exposes this public getter in addition to IEEZRegistry.
+interface IOfflineRegistry is IEEZRegistry {
+    function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 root, uint256 etherBalance);
+}
+
+/// @notice Fresh-network manager binding offline evidence to actual L1 facts.
+/// @dev Implements the pinned IRollupContract extension point directly. Proof policy,
+///      ownership and root escape follow Core's reference Rollup; the offline profile
+///      is mandatory and has a single atomic initializer.
+contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     bytes32 public constant CONTEXT_DOMAIN = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1");
     bytes32 public constant PROFILE_DOMAIN = keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1");
     bytes32 public constant RULES_DOMAIN = keccak256("EEZ_ROLLUPX_L1_RULES_V1");
@@ -33,13 +40,76 @@ contract OfflineRollup is Rollup {
         uint64[] ruleTimes;
     }
 
+    /// @notice The central EEZ registry this rollup is registered with
+    address public immutable EEZContract;
+
+    /// @notice The rollupId this contract manages. Written once on registration.
+    uint64 public rollupId;
+
+    /// @notice Minimum number of proof systems that must attest per batch (M of N). Owner is
+    ///         free to set this to any value, including above the current PS count (which
+    ///         effectively locks the rollup until more PSes are added).
+    /// @dev Enforced internally by `checkProofSystemsAndGetVkeys`; not on the `IRollupContract`
+    ///      interface (registry doesn't read it as a separate value).
+    uint256 public threshold;
+
+    /// @notice Per-proof-system verification key. `bytes32(0)` = not allowed.
+    mapping(address proofSystem => bytes32 vkey) public verificationKey;
+
+    /// @notice Emitted when a proof system is added with its initial verification key.
+    event ProofSystemAdded(address indexed proofSystem, bytes32 verificationKey);
+
+    /// @notice Emitted when a proof system is removed from the allowed set.
+    event ProofSystemRemoved(address indexed proofSystem);
+
+    /// @notice Emitted when an allowed proof system receives a replacement verification key.
+    event VerificationKeyUpdated(address indexed proofSystem, bytes32 newVerificationKey);
+
+    /// @notice Emitted when the threshold is initialized or updated.
+    event ThresholdChanged(uint256 newThreshold);
+
+    /// @notice Emitted after the registry accepts an owner-requested root replacement.
+    event RootEscape(bytes32 newRoot);
+
+    /// @notice The registration callback was called by an address other than EEZContract.
+    error NotEEZRegistry();
+
+    /// @notice The EEZ contract address is zero.
+    error InvalidEEZContract();
+
+    /// @notice A verification key is zero, or initial array lengths differ.
+    error InvalidConfig();
+
+    /// @notice A registration callback was received after a rollup ID was already assigned.
+    error AlreadyRegistered();
+
+    /// @notice The account registering this manager is not its current owner.
+    error UnauthorizedRegistrantAccount(address registrant);
+
+    /// @notice An attempt was made to add a proof system that already has a nonzero key.
+    error ProofSystemAlreadyAllowed(address proofSystem);
+
+    /// @notice A submitted proof system has no key, is zero, or breaks strictly increasing address order.
+    error ProofSystemNotAllowed(address proofSystem);
+
+    /// @notice A management op (`removeProofSystem` / `updateVerificationKey`) targeted a
+    ///         proof system that isn't currently added (zero vkey).
+    error ProofSystemNotAdded(address proofSystem);
+
+    /// @notice Reverts during `checkProofSystemsAndGetVkeys` when fewer non-zero vkeys would
+    ///         be returned than this manager's threshold requires
+    error ThresholdNotMet(uint256 submitted, uint256 required);
+
+    /// @notice `getCustomData` was asked to bind a blockNumber whose `blockhash`
+    ///         is unavailable (≥ current block or older than the last 256 blocks → 0).
+    error BlockHashUnavailable(uint64 blockNumber);
+
     uint256 public l2ChainId;
     bytes32 public protocolConfigHash;
     bytes32 public l1ConfigHash;
     bytes32 public initialBlockHash;
     uint64[] private ruleTimes;
 
-    error OfflineProfileRequired();
     error InvalidOfflineProfile();
     error UnregisteredOfflineRollup();
     error InvalidAnchorSelector();
@@ -48,11 +118,11 @@ contract OfflineRollup is Rollup {
     /// @notice Complete canonical profile preimage, sufficient for independent reconstruction.
     event OfflineProfileInitialized(bytes canonicalProfile);
 
-    constructor(address registry) Rollup(registry) {}
-
-    /// @notice Old manager initialization cannot create a partially configured offline network.
-    function initialize(address, uint256, address[] memory, bytes32[] memory) external pure override {
-        revert OfflineProfileRequired();
+    /// @notice Bind the implementation to its registry and lock implementation storage.
+    constructor(address registry) {
+        if (registry == address(0)) revert InvalidEEZContract();
+        EEZContract = registry;
+        _disableInitializers();
     }
 
     /// @notice Initialize a fresh proxy atomically with its fixed network profile and proof policy.
@@ -66,7 +136,12 @@ contract OfflineRollup is Rollup {
         external
         initializer
     {
-        _initializeRollup(initialOwner, initialThreshold, proofSystems, vkeys);
+        __Ownable_init(initialOwner);
+        if (proofSystems.length != vkeys.length) revert InvalidConfig();
+        _setThreshold(initialThreshold);
+        for (uint256 i; i < proofSystems.length; ++i) {
+            _addProofSystem(proofSystems[i], vkeys[i]);
+        }
         uint256 interval = uint256(profile.blockInterval) * profile.syncInterval;
         uint256 delay = uint256(profile.blockInterval) * (uint256(profile.updateOffset) + 1);
         if (
@@ -95,8 +170,11 @@ contract OfflineRollup is Rollup {
     /// @dev EEZ installs its record before this callback; reverting rolls back
     ///      registration, including the counter and this manager's rollup ID.
     function rollupContractRegistered(uint64 id, address registrant) public override {
-        super.rollupContractRegistered(id, registrant);
-        (address manager, bytes32 root,) = IEEZRegistry(EEZContract).rollups(id);
+        if (msg.sender != EEZContract) revert NotEEZRegistry();
+        if (rollupId != 0) revert AlreadyRegistered();
+        if (registrant != owner()) revert UnauthorizedRegistrantAccount(registrant);
+        rollupId = id;
+        (address manager, bytes32 root,) = IOfflineRegistry(EEZContract).rollups(id);
         if (manager != address(this) || root != initialBlockHash || initialBlockHash == bytes32(0)) {
             revert InvalidOfflineProfile();
         }
@@ -124,7 +202,7 @@ contract OfflineRollup is Rollup {
         if (block.timestamp > type(uint64).max || block.number == 0 || block.number > type(uint64).max) {
             revert InvalidAnchorCoordinates();
         }
-        (address manager, bytes32 currentRoot,) = IEEZRegistry(EEZContract).rollups(rollupId);
+        (address manager, bytes32 currentRoot,) = IOfflineRegistry(EEZContract).rollups(rollupId);
         if (manager != address(this) || currentRoot == bytes32(0)) revert UnregisteredOfflineRollup();
         uint64 timestamp = uint64(block.timestamp);
         bytes32 rules = l1RulesId(timestamp);
@@ -166,5 +244,104 @@ contract OfflineRollup is Rollup {
             selector,
             historicalHash
         );
+    }
+
+    /// @notice Bulk vkey lookup for the chosen PS subset of a posting batch.
+    /// @dev Strict: every `proofSystem` in the input MUST be allowed for this rollup
+    ///      (non-zero vkey). Reverts `ProofSystemNotAllowed` on the first unknown one. There
+    ///      is no zero-padding semantic — the orchestrator must compose batches whose
+    ///      proofSystem subset for THIS rollup is a subset of this manager's allowed set,
+    ///      and whose size is at least the manager's threshold. Implication: the (rid × ps)
+    ///      verificationKeysPerRollup the registry sees is uniformly non-zero.
+    /// @param proofSystems Allowed proof-system addresses in strictly increasing order, meeting the threshold.
+    /// @return vkeys Nonzero verification keys in the same order as proofSystems.
+    function checkProofSystemsAndGetVkeys(address[] calldata proofSystems)
+        external
+        view
+        returns (bytes32[] memory vkeys)
+    {
+        if (proofSystems.length < threshold) revert ThresholdNotMet(proofSystems.length, threshold);
+        vkeys = new bytes32[](proofSystems.length);
+        // Strictly-increasing check: rejects address(0) AND duplicates in one pass. The registry
+        // already enforces the same invariant on the batch's global PS list and on each
+        // rollup's `proofSystemIndexes[]` (so the resolved subset reaches us already sorted),
+        // but checking here keeps this manager safe for callers that don't pre-sort.
+        address prev = address(0);
+        for (uint256 i = 0; i < proofSystems.length; i++) {
+            address ps = proofSystems[i];
+            if (uint160(ps) <= uint160(prev)) revert ProofSystemNotAllowed(ps);
+            bytes32 vk = verificationKey[ps];
+            if (vk == bytes32(0)) revert ProofSystemNotAllowed(ps);
+            vkeys[i] = vk;
+            prev = ps;
+        }
+    }
+
+    // EEZ snapshots proof policy before executing hooks and separately gates
+    // setRoot during an active batch. Owner changes cannot alter that snapshot.
+    /// @notice Adds a proof system to this rollup's allowed set. The owner is responsible
+    ///         for verifying that `proofSystem` is a contract conforming to `IProofSystem`.
+    /// @param proofSystem Address to add; it must not already have a verification key.
+    /// @param vkey Nonzero verification key for the proof system.
+    function addProofSystem(address proofSystem, bytes32 vkey) external onlyOwner {
+        _addProofSystem(proofSystem, vkey);
+    }
+
+    /// @notice Removes a proof system. Owner is responsible for ensuring the remaining set
+    ///         can still meet `threshold`; otherwise the rollup will be locked until more
+    ///         PSes are added or `setThreshold` is lowered.
+    /// @param proofSystem Currently allowed proof system to remove.
+    function removeProofSystem(address proofSystem) external onlyOwner {
+        if (verificationKey[proofSystem] == bytes32(0)) revert ProofSystemNotAdded(proofSystem);
+        delete verificationKey[proofSystem];
+        emit ProofSystemRemoved(proofSystem);
+    }
+
+    /// @notice Rotates the verification key for an already-allowed proof system
+    /// @param proofSystem Currently allowed proof system whose key is replaced.
+    /// @param newVkey Nonzero replacement verification key.
+    function updateVerificationKey(address proofSystem, bytes32 newVkey) external onlyOwner {
+        if (newVkey == bytes32(0)) revert InvalidConfig();
+        if (verificationKey[proofSystem] == bytes32(0)) revert ProofSystemNotAdded(proofSystem);
+        verificationKey[proofSystem] = newVkey;
+        emit VerificationKeyUpdated(proofSystem, newVkey);
+    }
+
+    /// @notice Updates the threshold. Any value is accepted, including values above the
+    ///         current PS count (locks the rollup) or zero (any batch passes the threshold
+    ///         check). Owner is responsible for picking a sane value.
+    /// @param newThreshold Minimum number of distinct allowed proof systems required per batch.
+    function setThreshold(uint256 newThreshold) external onlyOwner {
+        _setThreshold(newThreshold);
+    }
+
+    /// @notice Owner escape hatch — directly sets the rollup's root via the central
+    ///         registry. Single state-mutating call from this contract back into EEZ.
+    /// @dev Passes `rollupId` explicitly so the registry doesn't need a reverse lookup. The
+    ///      registry validates `msg.sender == rollups[rollupId].rollupContract` and reverts
+    ///      `RollupBatchActiveThisBlock` if `lastVerifiedBlock(rollupId) == block.number` (i.e.,
+    ///      a postAndVerifyBatch has touched this rollup in the current block) — the escape hatch
+    ///      is locked out for the rest of the block once a verified state transition lands.
+    /// @param newRoot Replacement state root for this rollup.
+    function setRoot(bytes32 newRoot) external onlyOwner {
+        IEEZRegistry(EEZContract).setRoot(rollupId, newRoot);
+        emit RootEscape(newRoot);
+    }
+
+    /// @dev Stores a nonzero key for a previously unconfigured proof system and emits ProofSystemAdded.
+    /// @param proofSystem Address to add; address validity and interface conformance are not checked here.
+    /// @param vkey Nonzero verification key for the proof system.
+    function _addProofSystem(address proofSystem, bytes32 vkey) internal {
+        if (vkey == bytes32(0)) revert InvalidConfig();
+        if (verificationKey[proofSystem] != bytes32(0)) revert ProofSystemAlreadyAllowed(proofSystem);
+        verificationKey[proofSystem] = vkey;
+        emit ProofSystemAdded(proofSystem, vkey);
+    }
+
+    /// @dev Stores the threshold without range checks and emits ThresholdChanged.
+    /// @param newThreshold Minimum proof-system count; zero and values above the allowed set size are accepted.
+    function _setThreshold(uint256 newThreshold) internal {
+        threshold = newThreshold;
+        emit ThresholdChanged(newThreshold);
     }
 }

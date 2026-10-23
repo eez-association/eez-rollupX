@@ -27,7 +27,7 @@ def write_manifest():
         sources.append(ROOT / f"crates/{package}/Cargo.toml")
         sources.extend((ROOT / f"crates/{package}/src").rglob("*.rs"))
     sources.extend((ROOT / "crates/eez-control-rpc/proto").glob("*.proto"))
-    sources.extend([ROOT / "eez-core-protocol/src/L2/L1BlockhashContract.sol",
+    sources.extend([ROOT / "contracts/src/L2/L1BlockhashContract.sol",
                     ROOT / "contracts/src/OfflineRollup.sol",
                     ROOT / "crates/eez-protocol/src/l1_history/runtime.bin"])
     fixtures = []

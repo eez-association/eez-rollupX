@@ -11,7 +11,13 @@ than L1's 256-block window, not a required exhaustive load test. The acceptance
 gate is therefore a complete expired-source multipart/offline/follower exercise.
 The larger optional run was intentionally stopped with its partial evidence retained.
 
-## Current validation summary
+The subsequent [PR-readiness review](../2026-10-23-offline-proving-pr-readiness/README.md)
+supersedes the private protocol dependency below: the current pin is the published
+`feature/e2e_edge_cases` commit `84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+History and offline manager code now live in RollupX. The bundle is retained only
+to reproduce the earlier source checkpoint and test results.
+
+## Implementation-checkpoint validation summary
 
 Commands run from the isolated worktree with Rust 1.95.0, Foundry 1.7.1,
 `--locked`, the owned `TMPDIR` and LLVM 22. Builds now use one Cargo job after
@@ -49,17 +55,18 @@ their corrections are retained later in this record.
 | Dependency checks | `cargo deny` and `cargo audit` exited zero with existing warnings; no external dependency identity changed. |
 | Documentation | Final check: 441 local links/anchors across 33 edited Markdown files resolved; 49 shell examples passed `bash -n`; no issues (`offline-final-documentation-check.json`). Git whitespace checks passed, and the protocol bundle verified against its recorded prerequisite. |
 
-## Current protocol artifact
+## Historical protocol artifact
 
-The isolated protocol commit is `b5d94eafab15eb3fdd08a73ad9a693f7a3fcb820`,
+At implementation checkpoint `b6dca63a`, the isolated protocol commit was `b5d94eafab15eb3fdd08a73ad9a693f7a3fcb820`,
 based on `84a5b5207880f192a6a5896cbfe0bac5249db47f`. It is not published to
 the protocol remote. The verified [Git bundle](protocol.bundle) retains the
 commit and its branch for review/reproduction; SHA-256
 `64e21287757b47154803a08d0728c63dc2bd4696a937615d905751608d7d8562`.
 After initializing the starting pin, import it with
 `git -C eez-core-protocol fetch ../docs/audits/2026-10-22-l1-history-offline-proving/protocol.bundle codex/l1-history-offline-proving`,
-then check out the recorded commit before submodule validation. Remote-only
-submodule initialization cannot retrieve this unpublished commit.
+then check out the recorded commit to reproduce that historical checkpoint.
+Remote-only initialization could not retrieve it. This procedure is not required
+for the current published pin.
 
 ### Review regressions and multipart validation
 
