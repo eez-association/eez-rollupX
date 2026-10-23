@@ -130,3 +130,11 @@ release artifacts. The harness rebuilt the standalone signer before use; its
 pre-run binary hash is not the identity of the signer that executed the tests. Large logs and
 datadirs under ignored `artifacts/` are local-only, not retrievable from another
 checkout. This record does not replace the earlier dated protocol/E2E evidence.
+
+## Continuous-production requirement
+
+A subsequent user requirement makes uninterrupted ordinary L2 production during
+L1 delivery failures mandatory. The [continuity investigation](../2026-10-23-l2-continuity/README.md)
+identifies baseline production gates and a proposed protocol revision. It supersedes
+PR readiness for that expanded scope; the passing checks here remain evidence for
+this record's source, not proof that the new liveness requirement is implemented.

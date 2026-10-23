@@ -2,12 +2,192 @@
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented and locally validated for new networks only, with both anchor modes active from genesis. The implementation audit records evidence and excluded checks; upstream adoption and deployment are separate. |
+| Design status | Baseline implemented and locally validated at `d2f3d7c5`. Continuous L2 production during L1 delivery failures is an additional accepted requirement (2026-10-23); the proposed revision below is not implemented. The baseline is not ready to merge against that requirement. |
 | Date | 2026-10-22 |
 | Source baseline | Latest `origin/main` at `a50c326d99f7cd1c21406eedbf370a344015a6b5`, with the required unmerged v2 streaming backport `00fe7bc2541a56f26f088d0a7baf567dac5059de` integrated by merge `8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd`. |
 | Protocol pin | Published `feature/e2e_edge_cases` at `84a5b5207880f192a6a5896cbfe0bac5249db47f`, without local protocol changes. RollupX owns the history predeploy and offline manager. |
 | Design input | [Protocol feedback](https://hackmd.io/@Yu7RfKfWRP6MwaKqIFALjw/HygKZD8hMg), reviewed 2026-10-21 |
 | Existing contracts | [Core public inputs](../../eez-core-protocol/docs/MULTI_PROVER_SPEC.md), [streaming RPC v2](../../crates/eez-control-rpc/STREAMING_SPEC.md), [fork timing and eligibility](../../crates/eez-protocol/src/l2/derivation.rs) |
+
+## Required revision: production independent of L1 delivery
+
+Status: the user requires uninterrupted L2 block production during missed L1
+slots or delayed/unavailable L1 delivery. That requirement is accepted. The
+following protocol revision is a proposed implementation, not shipped behavior.
+[The investigation](../audits/2026-10-23-l2-continuity/README.md) records the exact
+baseline and production gates. The remaining sections describe the implemented
+baseline; their latest-source and pause rules must be revised together before
+this branch can satisfy the new requirement.
+
+### Observable contract and necessary tradeoff
+
+A running, bootstrapped sequencer with available local execution/storage resources
+continues the configured L2 clock and ordinary local execution without waiting
+for a new L1 head, an L1 RPC, a prover response, settlement, or a particular number
+of unsettled blocks. Work requiring new L1 effects or a live cross-chain context
+remains owned and pending. Canonical settlement/finality still requires L1;
+a local block or receipt must not be reported as accepted there.
+
+No fixed delay can establish that an unseen L1 block does not exist. Before new
+information arrives, an actually empty slot and a produced-but-delayed block are
+indistinguishable to the sequencer. Continuous production therefore replaces
+mandatory latest-at-cutoff selection with an explicitly recorded, monotone origin.
+The selected origin can remain old. The prover must still authenticate every
+selected hash; it no longer proves a claim about the producer's receipt time or
+that every eligible canonical header was already available.
+
+This permits a producer to postpone origin advancement, including PREVRANDAO
+changes. Maximum freshness cannot be a block-validity condition during an
+unbounded L1 outage. Expose origin age/backlog operationally; do not describe this
+as unpredictable randomness, finality, or guaranteed prompt import by a malicious
+producer. True L1 reorg recovery and conditional cross-chain replacement remain.
+
+### Deterministic origin recorded in existing public metadata
+
+Proposed minimal encoding for this new-network profile:
+
+- Reserve the entire L2 header `extraData` for exactly eight bytes: the selected
+  L1 execution block number as unsigned big-endian u64. Genesis records its
+  configured bootstrap number. No omitted/default/alternate encoding is accepted.
+- Every block carries that number, including repeats and Sync variants.
+  [V0 operations already publish extraData](../../crates/eez-driver/src/derivation/encoding.rs);
+  their canonical metadata runs compress repeats without changing the codec.
+  The number is also bound by the L2 block hash carried into settlement.
+- Headers/witnesses resolve the number to its exact hash and PREVRANDAO.
+  The inherited state endpoint must match the header chain. A number alone
+  never authenticates a header.
+- Keep the existing update positions `U(T)`. At other positions the number must
+  equal the parent's. At an update, it may remain equal or advance through at
+  most 64 consecutive produced L1 blocks. The selected header must satisfy
+  `timestamp(source) <= T`. No global latest-source/successor test applies.
+- At every update position execute the existing system call, including an empty
+  import when the origin repeats. Empty imports advance the scheduled cutoff,
+  preserve the endpoint and use the same PREVRANDAO. Advance imports every hash
+  in `oldEndpoint + 1 .. selected`; missing intermediates invalidate the block.
+- Keep the selected origin and PREVRANDAO synchronized in storage, the L2 header
+  and the actual EVM environment. Parent state/header authentication and full
+  replay remain mandatory. Inherited origin data is available locally; a repeat
+  must not consult L1 or require a newly resolved cutoff.
+- A malformed advertised advance is invalid. A verifier must never replace it
+  with a repeat, choose a different origin, shift its execution position, or
+  repair missing evidence with RPC.
+
+The producer policy can choose the newest eligible header in its prepared,
+linked snapshot, capped to the import limit. If no valid advance is prepared,
+it deliberately records a repeat as a valid block input. The public sequence of
+choices, rather than different nodes' network arrival times, determines replay.
+
+This uses the existing `Block.rlp`, `ExecutionWitness.l1_headers_rlp` and public
+operations metadata. No new gRPC version, protobuf field, outer native-blob
+message, or raw-hash import list in DA is needed. Existing configurable/free-form
+extraData is superseded for this fresh-network profile. All producers and
+consumers must apply the same exact encoding; do not ship a mixed interpretation.
+
+### Delay, late arrival and recovery
+
+The existing delay becomes the minimum age/earliest update opportunity.
+For a 12-second interval and 6-second offset:
+
+| Wall time / L2 timestamp | Available evidence and recorded result |
+| --- | --- |
+| 0 | H100 is the installed origin. |
+| 12 | No new header is available locally. |
+| 18 | Required update executes an empty import; record H100 and its PREVRANDAO. Local transactions continue. |
+| 21 | H101, timestamp 12, arrives and is prepared off the execution path. Already produced blocks remain unchanged. |
+| 30 | Next scheduled update may install H101 (or a newer eligible linked endpoint within the import budget); both values change together. |
+
+If the slot at 12 was actually empty, the same repeated choice remains valid.
+When several headers arrive, retain their exact consecutive chain and import in
+bounded updates. Do not rewrite past selections merely because a newer eligible
+header arrived late. Actual canonical reorgs can invalidate previously imported
+history, and cross-chain proposals still have their original exact-target rules;
+this revision is not a promise of immutable unsettled L2 receipts.
+
+### Production clock and settlement must have separate ownership
+
+Changing source selection alone does not satisfy the requirement:
+
+1. Drive ordinary production from the immutable L2 grid and local head, including
+   ordinary Sync boundaries. Bootstrap the clock from local genesis/state; it
+   cannot require the first live L1 notification or stop when the watcher closes.
+2. L1 notifications schedule acquisition and settlement opportunities. Reconnection
+   and RPC preparation run in bounded owned tasks; they cannot hold a production
+   lock or make the clock await remote responses.
+3. The existing four additional same-parent replacements bound proving/submission
+   work only. Preserve that bound, old attempt identities and queue ownership.
+   Exhaustion must stop those attempts while ordinary block production continues.
+4. The current global speculative-depth gate cannot halt ordinary production.
+   Bound cross-chain speculation, concurrent work and memory separately. Retain
+   produced blocks and reconstruction inputs on disk; proof quotas and slow
+   prevalidation must not require retaining an unlimited RAM session.
+5. If a live cross-chain proposal is not ready at the relevant deadline, seal an
+   ordinary block and keep the requests pending. Preserve whole groups, nonce
+   dependencies and typed failure accounting. Never fabricate an L1 observation,
+   mark uncertainty as successful execution, or evict work because L1 is unavailable.
+6. Reconcile settlement independently. A returning L1 head must not pull the local
+   production target backward. Existing accepted-prefix/partial-consumption rules
+   and real reorg handling remain authoritative.
+
+Local production is distinct from the L1-derived safe head: a follower that only
+consumes published L1 data cannot advance that safe head during an L1 publication
+outage. Restart still has the repository's volatile request-queue limits; this
+proposal adds no durable queue guarantee. Disk exhaustion and local execution
+failure are not solved by changing the L1-origin rule.
+
+### Prover and on-chain boundary
+
+The stateless prover checks the recorded selections, canonical header encodings,
+contiguous imports, delay eligibility, execution, DA, public inputs and mode
+binding. Finalize must retain complete applicable ancestry authentication against
+the on-chain anchor and accepted parent; agreeing on a recorded number is not
+authorization to sign. Missing proof evidence rejects the proof without blocking
+the independent production clock.
+
+Keep both anchor modes and the absence of signer L1/L2 RPC. `getCustomData` still
+binds the actual accepted L2 commitment, deployment/profile, active rules and
+actual-parent or historical anchor. Historical mode stays ordinary-only and its
+terminal-time/age checks remain; freshness/maximality checks tied to the old
+selection rule must be reviewed explicitly, never bypassed.
+
+Revise the committed execution-profile semantics and validation specification
+version atomically, with regenerated genesis and affected fixtures. Keep identity
+schema 6 and wire v2. This is a fresh-network protocol revision, not a runtime
+configuration toggle or an existing-network upgrade. The core's opaque operations
+and manager interface appear sufficient; confirm this through integration tests
+before claiming that no dependency change is required.
+
+Bounded settlement parts remain required after recovery. The existing 131,072
+header/aggregate witness limits still constrain a complete old-to-recent bridge;
+splitting only L2 blocks does not remove that constraint. Continuous production
+must not depend on enlarging these limits. Recovery beyond them needs an explicit
+bounded ancestry-authentication design and validation; this proposal does not
+claim arbitrary-duration recovery or permission to truncate evidence.
+
+### Acceptance before implementation can be declared complete
+
+| ID | Required evidence |
+| --- | --- |
+| L1 | Produce and execute local transactions through one and multiple missed slots, beyond four replacement opportunities and beyond the previous 64-block depth cap. Assert cadence/progress, not only eventual catch-up. |
+| L2 | Withhold L1 headers at an update, deliver a timestamp-eligible header at 9 seconds and after a whole interval, and prove old L2 block hashes/receipts are unchanged by late delivery alone. |
+| L3 | Close/stall the L1 watcher and RPC, and stall the prover/settlement worker. Ordinary production continues; bounded workers shut down and retries retain ownership. |
+| L4 | Every block type, including an empty or ordinary Sync, repeats or advances the exact encoded origin; actual PREVRANDAO, history state, receipts and roots agree. |
+| L5 | Reject short/long metadata, decreasing origins, off-schedule advances, too-new sources, jumps over 64 records, omitted/conflicting headers, altered PREVRANDAO and malformed updates without fallback normalization. |
+| L6 | Replay the same public operations with different local header-delivery timing and a cold network-denied signer. Composer/prover/follower reproduce identical block hashes for both anchor modes. |
+| L7 | Resume settlement in bounded parts after a delivery outage. Preserve pending whole cross-chain groups, original attempts, partial consumption and accepted-root continuity; do not imply finality from local production. |
+| L8 | A real L1 reorg still invalidates incompatible origins/proofs. A merely delayed canonical descendant does not rewrite recorded historical selections. |
+| L9 | Check genesis/profile identity, new metadata admission, old-profile rejection, wire-v2 conformance, production feature selection and all affected process/contract suites. |
+| L10 | Exercise the retained-evidence bound and document the supported recovery envelope. A proof-limit error cannot freeze production or silently drop a bridge. |
+
+Implementation must update the shared origin/history rules, EVM hook, producer
+metadata, public replay, witness capture, streaming signer, scheduler,
+settlement/queue integration and owning specs together. The old latest-at-cutoff
+tests must become explicit baseline evidence and be replaced by the new
+selection guarantees, not simply deleted to make validation pass.
+
+## Implemented baseline
+
+The following design and its existing O1–O15 evidence describe `d2f3d7c5`.
+They do not demonstrate the continuous-production acceptance criteria above.
 
 ## Scope
 
