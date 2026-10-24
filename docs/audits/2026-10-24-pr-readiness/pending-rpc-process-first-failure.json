@@ -1,0 +1,35 @@
+{
+  "source_recorded_in_commit": "a9bfb99a7e5318255ae3ea511309d7a62f01b94f",
+  "compile_baseline_head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "test": "e2e::pending_history_import_requires_executed_state",
+  "started_at": "2026-10-24T12:00:54.062105+00:00",
+  "finished_at": "2026-10-24T12:01:01.409798+00:00",
+  "exit_code": 101,
+  "test_duration_seconds": 7.31,
+  "selected": 1,
+  "passed": 0,
+  "failed": 1,
+  "ignored": 0,
+  "filtered_out": 178,
+  "rpc_blocking_permits": 1,
+  "signer_no_network": true,
+  "failure": "eth_call observation 27: RPC error 3 execution reverted",
+  "cause": "The test called nextCutoff(), but contracts/src/L2/L1BlockhashContract.sol:15 declares internal storage at slot 3 and the ABI has no such getter. The unknown selector correctly reverted.",
+  "reached": "Node produced L2 blocks 1 and 2; standalone offline signer validated both. No test success is inferred from startup.",
+  "correction": "Test-only reader code override executes SLOAD(3) after the real prefix and preserves both next-cutoff assertions, including explicit block overrides. No production, ABI/runtime or genesis change.",
+  "production_adapter_sha256": "b49a0af32d69dcdee043113ad5d08933e815ed15f5938462b20270b8a7db83c1",
+  "first_test_source_sha256": "49a2af2c7b8521fd8c2eaae47e240ec251ea2f28a9115fe966a02479690973e0",
+  "corrected_test_source_sha256": "e5686c59473ca18cee444261d1268371f45424ab43e56fae4207c54d3ce19287",
+  "executables": {
+    "node_e2e": "10e051f6599e1d8dca8c7a124beb4ac57037de4c90d0d88e5aec853d67a9670c",
+    "eez-follower": "ac7806064e9fa6f77d4bf44513db4b4e253b593165a8b194ea411b9da1e4be2a",
+    "eez-composer": "d051a6c7eba99d8627e804c297d6268c357196e84127548c05cc49d4735ef8b3",
+    "eez-proof-signer": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f"
+  },
+  "local_only_logs": {
+    "artifacts/pr-readiness/pending-rpc/process/test.log": "8a636c9c511d461768a31029317e8b5d83b47cafa86d9d9d9728a420eabc1816",
+    "artifacts/pr-readiness/pending-rpc/process/result.json": "c1e0f0ebc646a76c5f5171762a8714cc637ef410869e978515a7e7465b77e937"
+  },
+  "status": "Corrected test not yet compiled or rerun; wait for serial build handoff. This first failure remains recorded, not reported as a flake."
+}

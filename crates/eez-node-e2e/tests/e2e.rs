@@ -57,9 +57,11 @@ async fn pending_history_import_requires_executed_state() {
         .to(probe)
         .input(Bytes::copy_from_slice(&keccak256(b"observe()")[..4]).into());
     let overrides = json!({probe.to_string(): {"code": artifact["deployedBytecode"]["object"]}});
-    let cutoff_request = TransactionRequest::default()
-        .to(HISTORY_ADDRESS)
-        .input(Bytes::copy_from_slice(&keccak256(b"nextCutoff()")[..4]).into());
+    // nextCutoff is internal slot 3, without a public getter. Replace only its
+    // reader code after the real prefix; the simulated history storage remains.
+    let cutoff_request = TransactionRequest::default().to(HISTORY_ADDRESS);
+    let cutoff_override =
+        json!({HISTORY_ADDRESS.to_string(): {"code": "0x60035460005260206000f3"}});
     let counter: serde_json::Value = serde_json::from_slice(
         &std::fs::read(eez_testkit::repo_root().join("contracts/out/Counter.sol/Counter.json"))
             .unwrap(),
@@ -113,7 +115,10 @@ async fn pending_history_import_requires_executed_state() {
         let env_override =
             json!({env_probe.to_string(): {"code": "0x43600052426020524460405260606000f3"}});
         requests.extend([
-            ("eth_call", json!([cutoff_request, "pending"])),
+            (
+                "eth_call",
+                json!([cutoff_request, "pending", cutoff_override]),
+            ),
             ("eth_call", json!([request])),
             ("eth_call", json!([request, "latest"])),
             (
@@ -122,7 +127,7 @@ async fn pending_history_import_requires_executed_state() {
             ),
             (
                 "eth_call",
-                json!([cutoff_request, "pending", null, block_overrides]),
+                json!([cutoff_request, "pending", cutoff_override, block_overrides]),
             ),
             (
                 "eth_call",

@@ -86,11 +86,31 @@ available at launch, and cancels its own process group if availability falls
 below 5 GiB. No unrelated services were restarted. This is a build-resource
 failure, not a successful test or a flaky application test.
 
+The serial build completed with Cargo's `build-finished: success=true`. Its
+initial monitor exited on TERM while the child Cargo continued; the replacement
+monitor retained the memory guard through completion. The original monitor's
+exit is not presented as Cargo's exit status. The three resulting executables
+are retained under `artifacts/pr-readiness/pending-rpc/executables/`, with source
+and binary hashes in `source-freeze.json` and `candidate-executables.json`.
+
+The first process invocation selected exactly one test with one RPC blocking
+permit and the standalone signer in a network namespace without external
+network access. It **failed in 7.31 seconds**: observation 27 called the nonexistent
+`nextCutoff()` getter. The contract stores `nextCutoff` internally at slot 3, so
+its unknown selector correctly reverted (RPC error 3). Startup reached L2 block
+2 and the signer validated blocks 1 and 2; this was not a transport failure or
+the old missing-prefix rejection. The corrected test reads slot 3 using a
+state override of reader code, applied after the real prefix, and retains both
+cutoff assertions. Production, contract ABI/runtime and genesis remain identical.
+The [first-failure record](pending-rpc-process-first-failure.json) retains this
+test defect; it is not counted as a flaky application pass. Rebuilding only the
+test executable waits for the separate shipping build to release the host.
+
 The process regression retains a stable-parent check, tests advancing history,
 actual PREVRANDAO, `nextCutoff`, named/positional parameters, latest/hash controls,
 Counter creation, application revert propagation and explicit diagnostic
 overrides. RPC errors panic immediately; only a changed parent permits another
 observation. Unit coverage includes repeat imports and malformed parent history,
 and preserves the test proving that an environment without executed history is
-invalid. Results and final source identities will be appended after execution;
+invalid. Corrected process results will be appended after execution;
 no live or full-suite candidate pass is asserted here.
