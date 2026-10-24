@@ -1,6 +1,6 @@
 # Validation of the native-v1 profile on a fresh Kurtosis network
 
-Status: the R03 release is running in the preserved owned container. Its RPC regression, maintenance catch-up, ordinary EIP-7702 and all 34 default protocol cases have passed. Both additional L1 static cases now have semantic evidence, with the corrected staticLocalWrite oracle recorded as a read-only continuation of its first failure. All four wave modes, the corrected state-chaining stage and the partial-consumption canary have passed; the corrected cold follower replay has also passed all 183 selected batches and 719 receipts. The first native-receipt decoder failure remains recorded separately. The first canary consumed the full batch and remains a failed attempt, with its fixture bid correction documented separately. The clean shipping candidate is being rebuilt by CI after the development-feature correction; current live results identify the earlier R03 bytes and do not claim final artifact compliance.
+Status: the verified CI candidate from run `40104687331` remains installed in the preserved owned node and signer containers. Its image/archive comparisons, nine genesis/profile checks, RPC probe, ordinary settlement and cold replay passed. All 34 original protocol executions now have independent evidence: 33 passed initially; `revertCounter` passed a read-only continuation after correcting the standalone prefix helper. The initial full campaign remains recorded as FAIL. The final follower checked 206 complete batches, 3,558 selected block heights and 814 receipts at endpoint 9816. Earlier R03 campaigns retain their original identities and results.
 
 | Field | Value |
 | --- | --- |
@@ -569,9 +569,8 @@ consumption. It then failed at the first selected native receipt: Alloy’s
 standard Ethereum provider could not decode transaction type `0x45`. This is
 a test-consumer gap, not a passing receipt suite or a timeout. The unchanged
 719-receipt selection, first log and failing datadir are retained in the
-[diagnostic record](cold-replay-diagnostic.json). Receipt comparison and the
-final clean-artifact run remain pending; native receipts must not be excluded
-to make the test pass.
+[diagnostic record](cold-replay-diagnostic.json). That attempt did not validate receipt comparison or the final clean-artifact
+run; native receipts were retained when correcting its consumer.
 
 The native-receipt consumer correction then passed **1/1** in 24.30 seconds
 (28 seconds including the wrapper), using the exact same input SHA-256
@@ -582,5 +581,83 @@ output independently confirms 3,384 distinct selected block heights, 3,384
 derived-block checks and all 719 receipt status/canonical-membership checks at
 endpoint 7194. These counts match the assembly inventory, including all 112
 maintenance parts and the three ordinary EIP-7702 operations. This validates
-R03 replay; the final clean-feature CI runtime must still run the closing live
-smoke, eligible protocol suite and cold replay.
+R03 replay. The final clean-feature CI runtime was validated separately in
+the closing live smoke, eligible protocol campaign and cold replay below.
+
+
+## Verified final CI runtime
+
+The producer for `319ebc2d` passed as CI run `40104687331`; its synthetic checkout
+`08e16333` has the same source tree. All seven runtime binaries were verified
+against its archive and compared with R03. Every binary present in the node,
+signer and deploy images matched the archive. The deploy image also carried the
+expected history runtime and both genesis files. All nine genesis/profile helper
+outputs were unchanged. The [portable final-runtime record](final-runtime-validation.json)
+binds these checks to the payload and image digests.
+
+Only this enclave's node and signer were stopped, both with exit zero. Complete
+snapshots of `/data`, the embedded L1, bundle captures, L1 genesis and deployment
+output passed compressed readback and hash checks. Five installed role/helper
+binaries were replaced; both standalone verifiers initially ran from the verified CI
+archive. The later prefix continuation uses the separately identified local correction. Container identities, configuration, mounts and genesis were retained.
+The recorded image metadata remains the original metadata, so this is a verified
+byte installation rather than a claim that immutable final images were deployed.
+
+The first start order was too eager: node contacted signer while signer was still
+initializing KZG, then exited with `UNAVAILABLE`. The audit's readiness wait timed
+out after 180 seconds. Both failures are preserved. The explicit continuation
+checked a successful Capabilities response, byte-for-byte identical to baseline,
+before restarting only node. The previous safe commitment at 8946 kept its hash
+and state root; none of the 18 captured unsafe blocks changed. The first RPC head
+8965 was already persisted during shutdown, so actual recovery is established by
+the subsequent advancing head and safe observations. This deliberate maintenance
+interval is separate from the earlier L1-loss liveness tests.
+
+The final RPC probe passed 60 samples, including ten stable import-boundary samples
+on six distinct parents. One ordinary transaction then passed exact nonce,
+transfer-value, gas and FeeVault accounting, canonical settlement and KZG checks.
+Its receipt is retained for the closing replay. The final campaign executed all
+34 eligible scenarios successfully; independent verification passed 33 and failed
+`revertCounter`. The missing history configuration is in the standalone prefix
+verification helper, and the exact input fails identically with both the R03 and
+CI helper. No validation guard is being removed. The first suite result remains
+FAIL; a canonical DA-only record of the affected full batch is available for
+replay, while its intermediate lookup-root check was still pending at that stage. The same-run cold replay then passed **1/1** in 29.94 seconds (33 seconds
+including the wrapper). It independently derived the chain from genesis and
+checked 206 complete batches, 3,558 distinct selected block heights and all 814
+selected receipts at canonical endpoint 9816. The exact 112 maintenance parts
+and three ordinary EIP-7702 receipts remain selected, together with the final
+ordinary transfer. The [final replay record](cold-replay-final.json) preserves
+input, executable and result hashes. Its coverage through the real partial
+consumption does not assert a direct comparison of that canary receipt, nor
+does it replace the intermediate lookup-root oracle verified separately below.
+
+
+A final read-only health check kept endpoint 9816 canonical, observed safe 10272
+and latest 10273, and rehashed all five installed node/signer executable files
+against the CI package. Both owned containers remain running. The enclave is
+left active; no further workloads or restarts are planned. Current local URLs
+are L1 RPC `http://127.0.0.1:32835`, L2 RPC `http://127.0.0.1:32879`,
+L1 front `http://127.0.0.1:32881`, L2 front `http://127.0.0.1:32880`, and signer
+gRPC `127.0.0.1:32873`.
+
+
+## Read-only closure of the intermediate lookup-root check
+
+The corrected standalone helper passed the exact expanded input that still fails
+with the original CI helper. All original fields were retained; only the L1
+chain configuration, bounded L1 header bytes and deployed profile commitment
+were added. It reconstructed the original on-chain lookup root at the two-
+transaction prefix, then the complete existing collector passed on the same
+trigger and post without broadcasting. That check also revalidated canonical
+receipts, KZG/native semantics, the exact reverted call trace and absence of an
+L2 delivery over blocks 9463–10567.
+
+The [continuation record](protocol-prefix-continuation.json) combines the original
+33 independently verified cases with this corrected case. The first full campaign
+is preserved as FAIL; this is an explicit read-only correction, not a fresh full
+suite pass. The collector's refreshed witness changed only the ordering of the
+same code, state and key elements, while the standalone A/B used identical bytes.
+The corrected helper has its own local build identity; node, signer and final
+replay follower remain the verified CI `319ebc2d` binaries. No additional workload
+or service restart was performed.

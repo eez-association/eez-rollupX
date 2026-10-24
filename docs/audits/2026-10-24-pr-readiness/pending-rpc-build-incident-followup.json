@@ -1,0 +1,50 @@
+{
+  "checked_at": "2026-10-24T15:02:43.334988+00:00",
+  "incident_at": "2026-10-24T11:35:28Z",
+  "finding": "The OOM interrupted services outside this task. Their replacement processes are currently active/running. This is process-level recovery evidence only.",
+  "services": [
+    {
+      "category": "verifier service",
+      "current_state": "active/running",
+      "process_started_at": "Sat 2026-10-24 11:36:09 UTC",
+      "active_since": "Sat 2026-10-24 11:36:09 UTC"
+    },
+    {
+      "category": "user session manager",
+      "current_state": "active/running",
+      "process_started_at": "Sat 2026-10-24 11:36:08 UTC",
+      "active_since": "Sat 2026-10-24 11:36:09 UTC"
+    },
+    {
+      "category": "session message bus",
+      "current_state": "active/running",
+      "process_started_at": "Sat 2026-10-24 11:42:33 UTC",
+      "active_since": "Sat 2026-10-24 11:42:33 UTC"
+    }
+  ],
+  "container_observation": {
+    "retained_containers": 970,
+    "running_at_snapshot": 50,
+    "oom_killed_flags": 0,
+    "retained_containers_with_start_or_finish_after_incident": 2,
+    "incident_window_events_returned": 0,
+    "note": "The 12:59 restart belongs to this task and is documented maintenance. One other retained container has a later start and accumulated restarts; no relationship to the OOM was established and its operation was not investigated.",
+    "task_owned_restart": {
+      "started_at": "2026-10-24T12:59:01.827435042Z",
+      "reason": "Authorized task maintenance, documented separately; not evidence of collateral OOM impact.",
+      "evidence": "kurtosis/runtime-rpc-correction.json"
+    }
+  },
+  "limitations": [
+    "No application requests or semantic health checks were performed. Active/running does not establish correct application operation or absence of other effects.",
+    "Current metadata and the empty Docker event window do not establish complete history, deleted-container state, or absence of interrupted child processes.",
+    "The retained kernel victims for this incident were in host user-session cgroups; no container victim was identified in that retained log.",
+    "Recovery mechanism, exact downtime and possible lost work were not determined."
+  ],
+  "operations": "Read-only process/service/container inspection; no restart, recovery, deployment, credential inspection or configuration changes.",
+  "local_evidence": {
+    "path": "artifacts/pr-readiness/pending-rpc/oom-impact-check/observations.json",
+    "sha256": "9e4bef228b069f632b28c8dfb01eff55324cbbf4f4a2dfb4c1848ec0df31e452",
+    "availability": "local-only; exact service names, PIDs and container identifiers are retained only under artifacts"
+  }
+}

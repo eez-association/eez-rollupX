@@ -14,6 +14,24 @@ use eez_testkit::{
 
 const TIMEOUT: Duration = Duration::from_mins(3);
 
+fn assert_no_capacity_split(signals: &[eez_testkit::NodeSignal]) {
+    // Retained ordinary settlement uses the historical path even when the
+    // whole range fits. Capacity rejection, rather than that path's name,
+    // distinguishes a split; each caller also checks the canonical batch.
+    for event in signals
+        .iter()
+        .filter(|event| event.name == "eez.composer.emission.historical_chunk")
+    {
+        assert_eq!(
+            event.fields["split_reasons"].as_str(),
+            Some("{\"retained_ordinary\"}"),
+            "a fitting range must not use a capacity fallback: {:?}",
+            event.fields
+        );
+        assert_eq!(event.u64("over_budget").unwrap(), 0);
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
     use eez_testkit::{IValue, l2_value, onchain_nonce, sign_and_send, wait_for};
@@ -1713,15 +1731,7 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
         1,
         "derivable ordinary blocks must not force a second physical blob"
     );
-    assert!(
-        !world
-            .node
-            .signals_since(0)
-            .unwrap()
-            .iter()
-            .any(|event| { event.name == "eez.composer.emission.historical_chunk" }),
-        "the old size limit must not schedule a historical prefix"
-    );
+    assert_no_capacity_split(&world.node.signals_since(0).unwrap());
     world.node.assert_no_divergence_failure_logs();
     follower.assert_no_divergence_failure_logs();
 }
@@ -2880,14 +2890,7 @@ async fn retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_repl
             .unwrap(),
         1
     );
-    assert!(
-        !world
-            .node
-            .signals_since(0)
-            .unwrap()
-            .iter()
-            .any(|signal| signal.name == "eez.composer.emission.historical_chunk")
-    );
+    assert_no_capacity_split(&world.node.signals_since(0).unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3364,6 +3367,9 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     wait_for_latest_height(&world.node, covered + 12, TIMEOUT)
         .await
         .unwrap();
+    let retained_height = l2.get_block_number().await.unwrap();
+    let blocks_per_sync = u64::from(world.dep.profile.syncInterval);
+    let retained_boundary = retained_height / blocks_per_sync * blocks_per_sync;
     assert_eq!(
         batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
             .await
@@ -3374,6 +3380,7 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         .restart_composer_with_env(&[("EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "1000".into())])
         .await
         .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let post = latest_post(&world).await;
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let tx = l1
@@ -3386,6 +3393,37 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         2,
         "a soft threshold must not cut a fitting two-blob range into one-blob posts"
     );
+    let receipt = l1
+        .get_transaction_receipt(post.transaction_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(receipt.status());
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input()).unwrap();
+    let updates: Vec<_> = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .collect();
+    assert_eq!(updates.len(), 1);
+    let update = updates[0];
+    assert_eq!(update.rollupId, world.dep.rollup_id);
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    assert!(receipt.logs().iter().any(|log| {
+        log.address() == world.dep.eez_address
+            && log
+                .log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
+                .is_ok_and(|event| {
+                    event.inner.data.rollupId == update.rollupId
+                        && event.inner.data.newRoot == update.newRoot
+                })
+    }));
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    assert!(
+        terminal.header.number >= retained_boundary,
+        "the fitting committed tail must be included with both large transactions"
+    );
     let follower = NodeHandle::start(
         "fullness-follower",
         &NodeConfig {
@@ -3396,13 +3434,39 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     )
     .await
     .unwrap();
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], terminal.header.number, TIMEOUT)
         .await
         .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(terminal.header.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        update.newRoot
+    );
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for hash in hashes {
+        let original = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+        let derived = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
+        assert!(original.status());
+        assert!(derived.status());
+        assert!(original.block_number.unwrap() <= terminal.header.number);
+        assert_eq!(original.block_hash, derived.block_hash);
+    }
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        1,
+        "fullness must settle the fitting range in a single canonical post"
+    );
     let signals = world.node.signals_since(0).unwrap();
     assert!(signals.iter().any(|event| {
         event.name == "eez.composer.settlement.decision"
             && event.fields["due"] == true
+            && event.fields["reasons"].as_str() == Some("{\"blob_fullness\"}")
             && event.fields["settlement_age_ms"]
                 .as_u64()
                 .is_some_and(|age| age < 900_000)
@@ -3410,11 +3474,7 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
                 .as_u64()
                 .is_some_and(|blocks| blocks < 10_000)
     }));
-    assert!(
-        !signals
-            .iter()
-            .any(|event| event.name == "eez.composer.emission.historical_chunk")
-    );
+    assert_no_capacity_split(&signals);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

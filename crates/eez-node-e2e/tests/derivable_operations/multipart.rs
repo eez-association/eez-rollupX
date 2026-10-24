@@ -234,9 +234,8 @@ async fn catch_up(
         .unwrap()
         .header
         .inner;
-    let end_timestamp = genesis.timestamp + history_seconds;
     // Ordinary applications commit the delayed source into their own state
-    // while the long historical chain is being built. Sequential receipts
+    // while local production catches up and continues. Sequential receipts
     // spread these writes across blocks and exercise nonce/receipt/DA replay.
     let mut application_blocks = Vec::new();
     if history_seconds > 120 {
@@ -245,6 +244,13 @@ async fn catch_up(
             .await
             .unwrap();
         for index in 0..32 {
+            if index == 31 {
+                // Force an application past the original catch-up boundary so
+                // this regression cannot pass by outrunning block production.
+                wait_for_latest_height(&world.node, history_seconds, Duration::from_mins(90))
+                    .await
+                    .unwrap();
+            }
             let hash = eez_testkit::sign_and_send(
                 &world.l2_rpc(),
                 key,
@@ -264,14 +270,27 @@ async fn catch_up(
             .unwrap();
             assert!(receipt.status());
             let number = receipt.block_number.unwrap();
-            assert!(
-                number <= history_seconds,
-                "application missed catch-up range"
-            );
             application_blocks.push(number);
         }
         assert!(application_blocks.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(
+            application_blocks.last().copied().unwrap() > history_seconds,
+            "final application did not execute after the catch-up boundary"
+        );
     }
+    // The local clock can finish catch-up before all sequential RPC writes do.
+    // Fix one terminal that covers both the minimum history and every included
+    // application; later live blocks cannot extend this proving range.
+    let terminal_number = history_seconds
+        .max(application_blocks.last().copied().unwrap_or(0))
+        .next_multiple_of(5);
+    let end_timestamp = genesis.timestamp + terminal_number;
+    eprintln!(
+        "{}",
+        serde_json::json!({"checkpoint":"offline_catchup_range",
+        "minimum_history_seconds":history_seconds, "terminal_number":terminal_number,
+        "terminal_timestamp":end_timestamp, "application_blocks":application_blocks})
+    );
     // The bridge for the FIRST bounded part must already reach the present.
     // Mining alongside each proof alone would only exercise short ancestry.
     let head = wait_for(Duration::from_mins(90), || async {
@@ -353,11 +372,11 @@ async fn catch_up(
         .unwrap();
     let mut sources = std::collections::BTreeMap::from([(0_u64, bootstrap_source.clone())]);
     let mut parent = genesis.clone();
-    let mut expected = Vec::with_capacity(history_seconds as usize);
+    let mut expected = Vec::with_capacity(terminal_number as usize);
     let mut parts = 0;
     let mut first_source_age = None;
-    while parent.number < history_seconds {
-        let to = (parent.number + part_blocks).min(history_seconds);
+    while parent.number < terminal_number {
+        let to = (parent.number + part_blocks).min(terminal_number);
         wait_for_latest_height(&world.node, to, part_timeout)
             .await
             .unwrap();
@@ -506,7 +525,7 @@ async fn catch_up(
             offline_profile: profile.clone(),
             header_rules,
         };
-        let actual_target = if to == history_seconds {
+        let actual_target = if to == terminal_number {
             // Leave one exact future inclusion slot for the final ordinary
             // range. Skipped slots add no fabricated headers. Arm this only
             // after the cold signer build, so compilation cannot use its time.
@@ -588,7 +607,7 @@ async fn catch_up(
     }
     let source = |block: &Header| &sources[&block.number];
     assert!(parts >= 3);
-    assert_eq!(parent.timestamp - genesis.timestamp, history_seconds);
+    assert_eq!(parent.timestamp - genesis.timestamp, terminal_number);
     let follower = NodeHandle::start(
         "multipart-clean-follower",
         &NodeConfig {
@@ -664,7 +683,8 @@ async fn catch_up(
         "historical_parts":parts - 1, "actual_parent_parts":1,
         "l1_rule_change_timestamp":rule_change,
         "first_part_terminal_source_age":first_source_age,
-        "l2_blocks":parent.number, "elapsed_seconds":history_seconds, "imported_l1_headers":selected.number + 1,
+        "l2_blocks":parent.number, "elapsed_seconds":terminal_number,
+        "minimum_history_seconds":history_seconds, "imported_l1_headers":selected.number + 1,
         "ordinary_transactions":application_blocks.len(),
         "l2_hash":parent.hash_slow(), "l2_state_root":parent.state_root, "wall_ms":started.elapsed().as_millis()})
     );

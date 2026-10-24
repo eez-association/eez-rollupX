@@ -371,6 +371,11 @@ print("RESULT injected: PASS")'''))
 case "$1 $2" in
     'port print') echo 'http://beacon';;
     'files download')
+        mkdir -p "$5"
+        if [ "$4" = el_cl_genesis_data ]; then
+            echo '{"source":"l1-deployment-fixture"}' > "$5/genesis.json"
+            exit 0
+        fi
         echo 'EEZ_REGISTRY_ADDRESS=registry' > "$5/deployments.env"
         if [ "${OMIT_DEPLOYED_GENESIS:-0}" != 1 ]; then
             echo '{"source":"deployment-fixture"}' > "$5/l2-genesis.json"
@@ -392,6 +397,9 @@ esac
         (scripts / "collect-protocol-e2e-evidence.sh").write_text('''set -eu
 [[ -s "$3" && "$3" == */network.*/* ]] || exit 9
 jq -e '.source == "deployment-fixture"' "$EEZ_L2_GENESIS" >/dev/null
+if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" != 1 || "$EEZ_L1_CHAIN_CONFIG" != chiado ]]; then
+    jq -e '.source == "l1-deployment-fixture"' "$EEZ_L1_CHAIN_CONFIG" >/dev/null
+fi
 [[ "$1" != "${BAD_EVIDENCE:-}" ]] || exit 17
 jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified: true},
     blob_da: {verified: true}, claims: {blob_kzg_authenticated: true,
@@ -400,7 +408,8 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
         self.env.update(EEZ_CI_RESULT_DIR=str(self.root / "artifacts"), PK="source-key",
                         EEZ_PROTOCOL_MAX_PARALLEL="2",
                         FIXTURE_PREPARED=str(self.root / "prepared"),
-                        EEZ_L2_GENESIS=str(self.root / "unrelated-genesis.json"))
+                        EEZ_L2_GENESIS=str(self.root / "unrelated-genesis.json"),
+                        EEZ_L1_CHAIN_CONFIG="chiado")
         return scripts / "run-protocol-e2e.sh"
 
     def run_outer(self, wrapper):
@@ -427,6 +436,33 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("genesis", result.stderr)
                 self.assertFalse((self.root / "prepared").exists())
+
+    def test_local_l1_profile_is_required_and_reaches_the_collector(self):
+        self.add_scenarios("one")
+        wrapper = self.set_up_outer_wrapper()
+        deployments = self.root / "local-deployments.env"
+        deployments.write_text("EEZ_REGISTRY_ADDRESS=registry\n")
+        genesis = self.root / "deployed-genesis.json"
+        genesis.write_text('{"source":"deployment-fixture"}')
+        l1_genesis = self.root / "deployed-l1-genesis.json"
+        l1_genesis.write_text('{"source":"l1-deployment-fixture"}')
+        self.env.update(EEZ_USE_LOCAL_DEPLOYMENTS="1", EEZ_DEPLOYMENTS_FILE=str(deployments),
+                        EEZ_L2_GENESIS=str(genesis))
+        for supplied in (None, "", "missing.json", str(self.root)):
+            with self.subTest(supplied=supplied):
+                self.env.pop("EEZ_L1_CHAIN_CONFIG", None)
+                if supplied is not None:
+                    self.env["EEZ_L1_CHAIN_CONFIG"] = supplied
+                result = self.run_outer(wrapper)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("L1", result.stderr)
+                self.assertFalse((self.root / "prepared").exists())
+        for supplied in ("chiado", str(l1_genesis)):
+            with self.subTest(supplied=supplied):
+                self.env["EEZ_L1_CHAIN_CONFIG"] = supplied
+                result = self.run_outer(wrapper)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.summary()["passed"], ["one"])
 
     def test_full_wrapper_accounts_for_every_pinned_scenario_and_keeps_evidence_gate(self):
         # Discovery and default eligibility follow the current pin.

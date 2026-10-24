@@ -1,6 +1,7 @@
 # Native-v1 and offline history: PR closure and extended validation
 
-Status: in progress, 2026-10-24 UTC. This record supersedes the implementation
+Status: local and extended live validation closed, 2026-10-24 UTC; merge gates
+remain unresolved. This record supersedes the implementation
 snapshot in the [compliance review](../2026-10-24-specs-compliance/README.md) only
 where a correction and new result are recorded. It does not turn earlier failed
 or unexecuted checks into successful coverage.
@@ -128,7 +129,8 @@ No production bytes changed for that probe correction. The R03 release has since
 samples at five history-update boundaries. The original smoke also deployed and
 executed through Forge successfully; its final summary then exposed an oversized
 command-line argument, corrected below. These R03 binaries precede the later
-shipping-feature correction; the corrected final release payload remains pending.
+shipping-feature correction; the final CI payload and its separate live repetition
+are recorded in [the artifact record](ci-runtime-consumption.md).
 Existing frozen process executables and live images below precede that RPC-only
 correction. [Dependency comparison](pending-rpc-dependency-edge.json) confirms
 one direct edge to an existing dependency, with no external version or public
@@ -183,11 +185,13 @@ collects after a fresh accepted idle cutoff. Its four focused tests and the live
 state-chaining repetition passed, preserving same-block and ordered-return
 assertions. The first complete wrapper remains failed; details are retained in
 the [wave record](kurtosis/cross-chain-waves.json) and
-[barrier regression](kurtosis/state-chaining-regression.json). The combined tooling suite then passed
+[barrier regression](kurtosis/state-chaining-regression.json). Before that later
+barrier change, the combined tooling suite passed
 **406 tests**, with **7 opt-in infrastructure/artifact exclusions** (413 selected),
 in 293.54 seconds using the private temporary-directory bind. All changed tooling
 input hashes remained unchanged during the run. This validates the YAML, lookup
-and blob-summary corrections together; it does not replace live execution.
+and blob-summary corrections together; the later barrier has the four focused
+tests and live repetition above. Neither selection replaces the other.
 
 The live [partial-consumption canary](kurtosis/partial-consumption.json) first
 failed to induce its scenario: the original three-user bundle settled completely.
@@ -208,7 +212,9 @@ it is not rewritten into an applied-prefix claim. The later full endpoint requir
 derivation through that earlier partial execution. This is state reconstruction
 with the same follower implementation, not implementation diversity. The
 [contract review](closure-review.json) explains the selection and receipt limits.
-Final CI shipping artifacts and their live repetition remain pending.
+The final CI binaries have since been verified and installed into the owned
+network. Their independent replay is recorded separately in
+[the final runtime record](kurtosis/final-runtime-validation.json).
 
 At 11:35:28 UTC, overlapping host and Docker compilation exhausted host memory.
 Kernel diagnostics confirm a global OOM killed the host `eez-node` compiler and
@@ -218,6 +224,11 @@ No unrelated service was deliberately stopped or restarted. Subsequent builds
 are serialized with one Cargo job, an available-memory precheck and monitoring.
 The first build and kernel diagnostics remain local evidence under
 `artifacts/pr-readiness/pending-rpc/`; private machine details are not committed.
+The [15:02 UTC follow-up](pending-rpc-build-incident-followup.json) found the
+affected service processes active again and no `OOMKilled` marker among the
+970 retained containers. This does not establish service health, preservation of
+unrelated work or the history of removed containers. No unrelated recovery action
+was performed.
 
 ## Validation tracks
 
@@ -230,14 +241,16 @@ The first build and kernel diagnostics remain local evidence under
 | Workspace Rust | `cargo +1.95.0 test --locked --offline --workspace --exclude eez-node-e2e -- --test-threads=2`: **1585 passed, 3 ignored**, both before and after final regeneration/recapture, including integration oracles and doctests. Ignored cases are a manual timing profile and the two explicit fixture generation/inventory utilities, not runtime validation; the latter two were separately invoked for the final corpus. Process tests are separate. |
 | Genesis | Initial check passed with state root `0xbf4ddb74585d342600860a07cebac1774c86c0fabfdde683fe696ac701d7e896`. After the NatSpec regeneration above, `bash scripts/update-eezl2-genesis.sh --check` passed again with root `0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf`. |
 | Configuration / tooling | Initial discovery: **390 passed, 8 skipped** (398 total); after canary/genesis changes: **393 passed, 6 skipped** (399 total). Final packaging/permission snapshot: **395 passed, 7 skipped** (402 total). The added opt-in Docker-context probe passed separately; the other six opt-in infrastructure/artifact probes remain exclusions. An intervening run without the private `/tmp` bind failed with quota/I/O errors and missing downstream outputs (400 selected, 41 subtest failures, 13 errors); its log is retained. Repeating with the established private bind passed. Settlement-policy configuration passes for Ethereum, Chiado and Kurtosis. CI's pinned Gitleaks 8.30.1 scanner is installed only in task artifacts, with its download checksum verified. |
-| Candidate secret scan | Initial scan reported four SHA-256 source digests as API keys because of their adjacent path names. All four were independently verified against the named files. The audit manifest now labels every digest `sha256`, preserving all 1,725 recorded values; a repeat scan of 367 candidate files passed with no findings. All nine existing branch commits were also scanned with no findings. No scanner exclusion was added. The pre-draft scan covered 387 candidate files with no findings; staged blob hashes matched the scanned inputs. The test-probe correction was separately scanned. Final evidence-file and new-commit scans remain pending. |
+| Candidate secret scan | Initial scan reported four SHA-256 source digests as API keys because of their adjacent path names. All four were independently verified against the named files. The audit manifest now labels every digest `sha256`, preserving all 1,725 recorded values; a repeat scan of 367 candidate files passed with no findings. All nine existing branch commits were also scanned with no findings. No scanner exclusion was added. The pre-draft scan covered 387 candidate files with no findings; staged blob hashes matched the scanned inputs. The test-probe correction was separately scanned. Later scans at the example-fixture and receipt corrections also passed. The final
+test/helper candidate is scanned again before publication; check results and
+source identities are retained under `artifacts/pr-readiness/closure/`. |
 | Dependency gate | **Failed on both the candidate and the fetched main lockfile.** `cargo deny --locked check advisories bans sources` passes bans/sources but fails advisories; `cargo audit --no-fetch` exits 1 for both lockfiles. [Comparison and identities](dependency-gate.json). Existing versions `crypto-bigint 0.5.5` and `tokio 1.52.3` are unchanged. This remains an integration blocker, not a successful check. |
 | SDK / indexer fees | Node SDK **7 passed**; separate indexer workspace `--test l2_fees`: **6 passed**. Indexer evidence uses simulated RPC, not a production database. |
 | Final native captures / signer | Bidirectional, caught-revert lookup and changing-static process captures passed with the final genesis and signer network denial. The rebuilt signer suite passed **320 tests**, with its two explicit generation utilities ignored. All 29 input-derived conformance cases and 24 proof expectations were preserved. A stale embedded test fixture initially caused three failures; byte-level inspection established that Cargo had reused a binary containing the old genesis after a timestamp-preserving fixture copy. Updating the fixture mtime and rebuilding corrected this without any content/assertion change; both executions are retained in the [fixture provenance record](final-fixtures.md). |
 | Format / wire / shell | Rust workspace format passes, all **29** conformance vectors/fixture inputs/schemas match, and `bash -n` passes for all three edited shell scripts. |
 | Clippy / full process suite | Final workspace format and `cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings` passed. The first complete `node_e2e` attempt exposed the collection-barrier defect above and was interrupted for correction. Fresh captures and process validation use cleared prebuilt overrides, `EEZ_TEST_PROOF_SIGNER_NO_NETWORK=1`, and retained logs/datadirs. The [completed frozen process run](native-process-suite.json) exited 101 in 9845.87 seconds: **172 passed, 2 failed, 5 ignored**, with zero filtered cases. Both failures are investigated above. All four executable hashes were rechecked after completion. Four ignores require optional large-history/retained-history/four-day inputs; the fifth requires a live Kurtosis enclave and belongs to that validation track. These executables precede R03; its changed positive RPC test has separate evidence. |
 | Kurtosis | [Dedicated live-validation record](kurtosis/README.md). New fee-enabled enclave with source-built images; existing enclaves and the old network are preserved. Optional UI/explorers are outside this run. |
-| PR / final diff | [Draft PR #101](https://github.com/eez-association/eez-rollupX/pull/101), based on `main`. Integration commit `a9bfb99a7e5318255ae3ea511309d7a62f01b94f`; test-probe correction `d1838526480b89651f759d34e27bfbcfca43fb55`. Final validation updates remain pending; the PR is not merge-ready. |
+| PR / final diff | [Draft PR #101](https://github.com/eez-association/eez-rollupX/pull/101), based on `main`. Verified release candidate `319ebc2dbfdace3d5e708a2c9881cc741529aec4` includes the release-feature, example-genesis and native-receipt test corrections. The subsequent test/helper corrections and local/live results are recorded below. The PR is not merge-ready because final CI and dependency gates remain unresolved. |
 
 Logs are local-only ignored artifacts under `artifacts/pr-readiness/`; the
 [portable check results](validation-results.json) retain commands, counts and log
@@ -292,8 +305,16 @@ invalid reference and three inconsistent history slots. The same example command
 reproduced **10 passed, 2 failed** before editing and passed **13/13** afterwards.
 Production validation is unchanged. The earlier workspace and lib/bin selections
 did not run these example tests; their passing totals did not cover this fixture.
-The next release producer and final artifact/replay validation remain required,
-separately from the unresolved dependency advisories.
+The next release producer was superseded by the native-receipt test correction
+after its shipping build passed. The [final artifact verification record](ci-runtime-consumption.md)
+tracks run `40104687331` and its exact synthetic checkout, whose tree equals
+candidate `319ebc2d`. The producer and exact-payload verification passed. The eight
+process partitions selected 174 distinct tests: **172 passed and 2 failed**, with
+five explicit exclusions and no duplicate or unexplained missing selections.
+The two failures are the fitting-batch and multipart fixtures described below;
+they are distinct from the earlier frozen debug-suite failures. Kurtosis CI also passed its waves, state chaining and all 34 selected protocol
+scenarios with independent checks. Its 30 default exclusions and successful-run
+log-only evidence are recorded there. Dependency advisories remain unresolved.
 
 After the RPC and cost-test corrections, the complete workspace Clippy command
 passed again with all targets and `-D warnings` in 39.62 seconds. This invocation
@@ -318,6 +339,61 @@ No dependency upgrade or new advisory exception was introduced. The
 [remediation assessment](dependency-remediation.md) identifies a compatible Tokio
 candidate and the unresolved cryptographic-family migration/backport requirement;
 it does not claim that either future update has been built or validated.
+
+## Final-candidate validation corrections
+
+The verified release payload from CI run `40104687331` was installed in the
+owned Kurtosis node/signer containers, preserving configuration and chain data.
+The new executable hashes match the verified archive. This is a binary update
+inside existing containers, not a claim that their image metadata changed. The
+[final runtime record](kurtosis/final-runtime-validation.json) separates the first
+startup ordering failure from the successful readiness-gated continuation,
+60 RPC probes and exact ordinary-transfer/FeeVault accounting.
+A [fresh follower using that same verified CI payload](kurtosis/cold-replay-final.json)
+passed **206 selected complete batches**, **3558 selected block heights** and
+**814 receipts**, retaining all **112** original maintenance parts. It reconstructed
+from genesis and matched endpoint **9816**; the selected checks and the wider
+startup-derived range are distinguished in the record. The final read-only health
+observation found safe **10272**, latest **10273** and the same canonical endpoint.
+
+The final protocol campaign executed all 34 eligible scenarios, but its semantic
+collector passed only 33: `revertCounter` reached an intermediate-root verifier
+whose EVM lacked the mandatory L1 history source. The complete block's DA and
+canonical checks passed; they do not replace this independent prefix check.
+The failed input and both prior helper failures are retained. The
+[helper correction](prefix-history-verifier.json) supplies bounded checked L1
+evidence and binds its rules to the original manager commitment. All **20 example
+tests** and **105 affected Python tests** pass, with no skips. The old and new
+helpers were then compared on byte-identical evidence: only the corrected helper
+reconstructed the exact published prefix root. A [complete read-only collector
+continuation](kurtosis/protocol-prefix-continuation.json) also passed on the same
+original transaction. This uses the local
+corrected helper with the verified CI node/signer roles; it is not a new CI payload
+or a fresh all-scenario campaign. The original campaign remains 33 passes and
+one failure, with that failure closed by the separate correction evidence.
+
+The [fitting-batch regression](fullness-regression.md) replaces an obsolete
+rejection of every historical-path event with exact capacity and canonical
+settlement checks. All three focused process checks passed using a rebuilt test
+harness and unchanged verified CI production roles. The local repetitions did
+not emit the retained-only event seen in CI; that coverage limit remains explicit.
+
+The [multipart fixture correction](multipart-terminal-regression.md) fixes its
+terminal once after every application receipt. The history age remains a minimum,
+and the endpoint covers all 32 operations while production continues. The proof
+cap, expired-source and ancestry negatives, cold offline signers, fork transition
+and independent replay assertions are preserved. The final directed regression
+forces the last application to arrive after the old boundary: it executed at
+block **2008**, and the fixed terminal **2010** settled in **five parts**. All
+**32 application records**, **403 L1 headers** and the block/state/PREVRANDAO
+comparisons passed with cold network-denied signers and a fresh follower. The
+first-part source was **304 L1 blocks old**. The original CI failure and the
+first diagnostic pass, which did not force the late-arrival path, remain separate.
+
+The [final independent change review](final-change-review.json) records the
+reviewed source hashes, invariant checks and remaining coverage limits. This
+review does not waive dependency policy or replace the subsequent CI run for
+the corrected helper/test archive.
 
 ## Completion obligations
 

@@ -61,6 +61,7 @@ def fixture(scenario):
         "decoded": [[[], [] if static else [mutable], [static_entry] if static else [], 0, 0]],
         "blob": {
             "verified": True,
+            "l1_block_hash": L1_HASH,
             "settlement_claim": dict(pre_block_hash=PARENT, post_block_hash=ROOT),
             "payload": {
                 "block_count": 1,
@@ -160,6 +161,9 @@ if pathlib.Path(sys.argv[0]).name == "blob":
     assert request["genesis"] == {"config": {}, "timestamp": "0x1234"}, request
     assert request["genesis_hash"] == "0x" + "8"*64, request
     assert request["chain_config"] == {}, request
+    assert request["l1_chain_config"] == f.get("l1_chain_config", {"config": {"chainId": 7331}, "timestamp": "0x1230"}), request
+    assert request["protocol_config_hash"] == "0x" + "9"*64, request
+    assert request["l1_headers_rlp"] == f.get("expected_l1_headers", ["0xc001"]), request
     print(json.dumps({"verified":True, "block_hash":request["block_hash"], "prefixes":f.get("prefixes", [])}))
     sys.exit(0)
 command = args[0]
@@ -207,6 +211,13 @@ elif command == "call":
         value = f.get("target_counter", "0")
     elif sig == "lastRead()(uint256)":
         value = f.get("last_read", "1")
+    elif sig == "rollups(uint64)(address,bytes32,uint256)":
+        assert args[args.index("--block") + 1] == "0x" + "3"*64, args
+        value = "0x" + "c"*40 + "\n" + "0x" + "8"*64 + "\n0"
+    elif sig == "protocolConfigHash()(bytes32)":
+        assert args[1] == "0x" + "c"*40, args
+        assert args[args.index("--block") + 1] == "0x" + "3"*64, args
+        value = "0x" + "9"*64
     else:
         assert sig == "counter()(uint256)", args
         value = f.get("counter", "1")
@@ -218,7 +229,12 @@ elif command == "rpc":
         value = dict(hash="0x" + "8"*64, number="0x0") if args[2] == "0x0" else f["block"]
     elif rpc == "eth_getBlockByHash":
         value = (dict(hash="0x" + "8"*64, number="0x63") if args[2] == "0x" + "8"*64
-                 else dict(hash=f["l2_hash"], number=hex(f["l2_head"])))
+                 else dict(hash=f["l2_hash"], number=hex(f["l2_head"]), parentHash="0x" + "8"*64))
+    elif rpc == "eth_getStorageAt":
+        assert args[2:4] == ["0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077", "0x2"], args
+        value = f.get("history_first" if args[4] == "0x" + "8"*64 else "history_last", "0x" + f"{1:064x}")
+    elif rpc == "debug_getRawHeader":
+        value = f.get("raw_l1_headers", {}).get(args[2], "0xc0" + f"{int(args[2], 16):02x}")
     elif rpc == "debug_traceTransaction":
         assert args[2] == "0x" + "4"*64 and json.loads(args[3])["tracer"] == "callTracer", args
         if f.get("trace_unavailable"): sys.exit(1)
@@ -272,6 +288,8 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
         self.calls = self.root / "calls.jsonl"
         self.genesis = self.root / "genesis.json"
         self.genesis.write_text(json.dumps({"config": {}, "timestamp": "0x1234"}))
+        self.l1_genesis = self.root / "l1-genesis.json"
+        self.l1_genesis.write_text(json.dumps({"config": {"chainId": 7331}, "timestamp": "0x1230"}))
         self.env = {**os.environ, "PATH": str(tools) + os.pathsep + os.environ["PATH"],
                     "LOOKUP_FIXTURE": str(self.data), "LOOKUP_CALLS": str(self.calls),
                     "L1_RPC": "http://l1.invalid", "L2_RPC": "http://l2.invalid",
@@ -279,7 +297,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                     "MANAGER_L2": MANAGER, "ROLLUP_ID": "1", "PROTOCOL_COMMIT": "fixture-pin",
                     "CAUSAL_VERIFIER": str(tools / "causal"),
                     "BEACON_URL": "http://beacon.invalid", "BLOB_VERIFIER": str(tools / "blob"),
-                    "EEZ_L2_GENESIS": str(self.genesis)}
+                    "EEZ_L2_GENESIS": str(self.genesis), "EEZ_L1_CHAIN_CONFIG": str(self.l1_genesis)}
 
     def run_fixture(self, scenario, data=None, complete=True, log_transform=None):
         self.data.write_text(json.dumps(data or (local_write_fixture() if scenario == "staticLocalWrite" else fixture(scenario))))
@@ -757,7 +775,7 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
 
     def test_lookup_accepts_reconstructed_prefix_but_not_an_unbound_pin(self):
         for scenario in ("revertCounter", "topLevelStaticCounter"):
-            for failure in (None, "empty_prefix", "missing", "duplicate", "replay_failure", "missing_genesis"):
+            for failure in (None, "empty_prefix", "missing", "duplicate", "replay_failure", "missing_genesis", "missing_l1_genesis"):
                 with self.subTest(scenario=scenario, failure=failure):
                     data = fixture(scenario)
                     data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
@@ -770,6 +788,8 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                     if failure == "replay_failure": data["prefix_failure"] = True
                     self.env["EEZ_L2_GENESIS"] = str(
                         self.root / "absent-genesis.json" if failure == "missing_genesis" else self.genesis)
+                    self.env["EEZ_L1_CHAIN_CONFIG"] = str(
+                        self.root / "absent-l1-genesis.json" if failure == "missing_l1_genesis" else self.l1_genesis)
                     result = self.run_fixture(scenario, data)
                     if failure not in (None, "empty_prefix"):
                         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -785,6 +805,54 @@ jq '.blob' "$LOOKUP_FIXTURE" >"$3"
                         for call in calls:
                             if any(method in call for method in ("debug_getRawBlock", "debug_getRawReceipts", "debug_chainConfig")):
                                 self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L2_RPC"])
+                            if any(method in call for method in ("debug_getRawHeader", "protocolConfigHash()(bytes32)")):
+                                self.assertEqual(call[call.index("--rpc-url") + 1], self.env["L1_RPC"])
+
+    def test_prefix_history_collection_is_bounded_and_preserves_replay_inputs(self):
+        for first, last, expected in ((1, 3, True), (1, 65, True), (1, 66, False),
+                                      (2, 1, False), (2**64, 2**64, False), ("0x1", 1, False)):
+            with self.subTest(first=first, last=last):
+                self.calls.unlink(missing_ok=True)
+                data = fixture("revertCounter")
+                data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
+                data["l2_hash"] = ZERO
+                data["prefixes"] = [dict(hash=ROOT, transaction_index=3, transaction_count=4)]
+                data["history_first"] = f"0x{first:064x}" if isinstance(first, int) else first
+                data["history_last"] = f"0x{last:064x}"
+                if expected:
+                    data["expected_l1_headers"] = [f"0xc0{n:02x}" for n in range(first, last + 1)]
+                result = self.run_fixture("revertCounter", data)
+                self.assertEqual(result.returncode == 0, expected, result.stdout + result.stderr)
+                calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+                fetched = [call[2] for call in calls if call[1] == "rpc" and call[2] == "debug_getRawHeader"]
+                self.assertEqual(len(fetched), last - first + 1 if expected else 0)
+                if not expected:
+                    self.assertFalse(any(call[0] == "blob" for call in calls))
+
+        # A rejected replay must retain the complete, unmodified evidence input.
+        data = fixture("revertCounter")
+        data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
+        data["l2_hash"] = ZERO
+        data["raw_l1_headers"] = {"0x1": "0x00"}
+        data["prefix_failure"] = True
+        result = self.run_fixture("revertCounter", data)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        retained = json.loads(next(self.root.glob("*.lookup-root.input.json")).read_text())
+        self.assertEqual(retained["l1_headers_rlp"], ["0x00"])
+        self.assertEqual(retained["protocol_config_hash"], "0x" + "9" * 64)
+        self.assertEqual(retained["l1_chain_config"], json.loads(self.l1_genesis.read_text()))
+
+    def test_prefix_collector_preserves_public_l1_presets(self):
+        for preset in ("mainnet", "sepolia", "hoodi", "chiado"):
+            with self.subTest(preset=preset):
+                data = fixture("revertCounter")
+                data["blob"]["settlement_claim"]["post_block_hash"] = ZERO
+                data["l2_hash"] = ZERO
+                data["prefixes"] = [dict(hash=ROOT, transaction_index=3, transaction_count=4)]
+                data["l1_chain_config"] = preset
+                self.env["EEZ_L1_CHAIN_CONFIG"] = preset
+                result = self.run_fixture("revertCounter", data)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_static_callback_is_bound_in_table_trace_blob_and_fold(self):
         scenario = "topLevelStaticReentrantCounter"
