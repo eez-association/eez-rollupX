@@ -1,0 +1,138 @@
+{
+  "scope": "Only the synchronization barrier in the live state-chaining harness changed; original same-block, ordered-return, fee, proof and commitment assertions remain.",
+  "before_unit": {
+    "phase": "state-boundary-before",
+    "exit_code": 1,
+    "start_epoch": 1792850903,
+    "seconds": 2,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/state-boundary-before.log",
+    "log_sha256": "37511d0b14a9f76793d9ae45a170603c1118f9d0928bb3ae8995d9bb56e76a67"
+  },
+  "after_unit": {
+    "phase": "state-boundary-after",
+    "exit_code": 0,
+    "start_epoch": 1792851135,
+    "seconds": 12,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/state-boundary-after.log",
+    "log_sha256": "9c7af0b896d412ae967687aa083d7448842fecc889a03bc5ce51a3faaefceb39"
+  },
+  "unit_counts": {
+    "before_failed": 1,
+    "after_passed": 4,
+    "after_skipped": 0
+  },
+  "first_live": {
+    "first_trigger": "0x474f460605b799dd8e2ebc54247e568a2eec0162e1eebb899f1cd7b9ed354d50",
+    "admission_error": "quote_limit",
+    "message": "ordinary history exceeds posting window",
+    "safe_before_rejection": 6270,
+    "new_unsettled_sync": 6294,
+    "ordinary_blocks": 24,
+    "signer_request_block_limit": 24,
+    "events": [
+      {
+        "logged_at": "2026-10-24T14:08:10.357619Z",
+        "fields": {
+          "message": "advanced L2 safe head from L1-confirmed batch",
+          "event_name": "eez.deriver.safe.advanced",
+          "from_block": 6247,
+          "to_block": 6270,
+          "applied_entries": 1,
+          "l1_settled_root": "0xae70aff6ff5be2dc5c62f5465c909437173f5f1ae41470c2327d7270f59cfeaa",
+          "l1_block_number": 1039,
+          "tx_hash": "0xffef863ab67830cc532e1124e8982124e2acea3de46a1bf880fcaf60d03e207c",
+          "submitter": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "new_safe_hash": "0xae70aff6ff5be2dc5c62f5465c909437173f5f1ae41470c2327d7270f59cfeaa",
+          "l2_safe_block_hash": "0xae70aff6ff5be2dc5c62f5465c909437173f5f1ae41470c2327d7270f59cfeaa",
+          "l2_safe_state_root": "0x2d10dbf59c555eb836d7f675119d016666ccaf3dac4553ed3f6d61f4e3683074"
+        }
+      },
+      {
+        "logged_at": "2026-10-24T14:08:56.006615Z",
+        "fields": {
+          "message": "signed source failed settlement admission",
+          "event_name": "eez.xchain_front.funding_rejected",
+          "tx_hash": "0x474f460605b799dd8e2ebc54247e568a2eec0162e1eebb899f1cd7b9ed354d50",
+          "direction": "Inbound",
+          "error": "{\"code\":\"quote_limit\",\"message\":\"quote work limit: ordinary history exceeds posting window\"}"
+        }
+      },
+      {
+        "logged_at": "2026-10-24T14:08:58.356778Z",
+        "fields": {
+          "message": "advanced L2 safe head from L1-confirmed batch",
+          "event_name": "eez.deriver.safe.advanced",
+          "from_block": 6271,
+          "to_block": 6294,
+          "applied_entries": 1,
+          "l1_settled_root": "0xe122d531e604bb89983e4d4e7ddb0c2609a584dc0a36cf8aae0ab13aeb1a2f6f",
+          "l1_block_number": 1043,
+          "tx_hash": "0x49497abf0b639b865dc61144174cbb8b73cdf3f693019c5569606ddbe5ea0aa8",
+          "submitter": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+          "new_safe_hash": "0xe122d531e604bb89983e4d4e7ddb0c2609a584dc0a36cf8aae0ab13aeb1a2f6f",
+          "l2_safe_block_hash": "0xe122d531e604bb89983e4d4e7ddb0c2609a584dc0a36cf8aae0ab13aeb1a2f6f",
+          "l2_safe_state_root": "0x59ceb8d8d93cafae3bffa13271e44b318909cced48a50cdb62e42d0436cdb5bf"
+        }
+      }
+    ],
+    "scope": "The old barrier opened after an empty/pure 24-block Sync was produced but before it was settled. That consumes the whole request bound before the additional application block. No accepted ownership or quota change."
+  },
+  "implementation": {
+    "files": {
+      "testing/kurtosis/scripts/verify-state-chaining.sh": "18d1d531bbcda908dc691dcf602d22e7f1cb7f79147ffef396ef240be0f49394",
+      "scripts/ci/tests/test_sync_boundary.py": "469855257aa252f9696515fca71e9440c85b1ef8756715667fe3015f85e49ce6"
+    },
+    "barrier": "eez.sequencer.slot.decision with prepare=false and skip_post=true, observed after the baseline log count",
+    "negative_cases": [
+      "active prepare",
+      "skip_post=false uncertainty or failure",
+      "missing prepare or skip_post",
+      "string false instead of boolean",
+      "produced sync/live blocks and pool-drain events alone"
+    ]
+  },
+  "repeat_phase": "state-chaining-idle-cutoff",
+  "repeat_status": "PASS",
+  "limits": [
+    "Changing the barrier alone does not establish that every admission context fits the unchanged 24-block signer request bound.",
+    "First full waves invocation remains FAIL because its fifth stage failed."
+  ],
+  "repeat_result": {
+    "phase": "state-chaining-idle-cutoff",
+    "exit_code": 0,
+    "start_epoch": 1792851194,
+    "seconds": 489,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/state-chaining-idle-cutoff.log",
+    "log_sha256": "4e049354a29d1597ac39f3ebaa443ae50016cae51a8c35bef13ecbb1077fc695",
+    "complete": true,
+    "directional_groups": 6,
+    "proof_and_commitment_heights": [
+      6480,
+      6498,
+      6516,
+      6534,
+      6552,
+      6570,
+      6594,
+      6612,
+      6618,
+      6660
+    ],
+    "mixed_direction": {
+      "fee_collection": true,
+      "inbound_sync": 6612,
+      "outbound_sync": 6618,
+      "fifo_ordered": true,
+      "same_sync_required": false
+    },
+    "poison_survivors_sync": 6594,
+    "repeated_inbound": {
+      "sync": 6660,
+      "post_and_source_l1_block": 1104,
+      "ordered_results": "changed=true then changed=false"
+    },
+    "unchanged_limit_blocks": 24,
+    "runtime_changed": false,
+    "admission_retries_added": false
+  }
+}

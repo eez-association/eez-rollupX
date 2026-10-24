@@ -57,7 +57,7 @@ This covers normal/build features for the shipping package selection; it does
 not replace the release producer's exact-artifact/archive checks. Full trees and
 comparison JSON are local-only under `artifacts/pr-readiness/pending-rpc/`.
 
-## Validation in progress
+## Focused validation
 
 Commands use Rust 1.95.0, `--locked --offline`, LLVM 22 and a private `/tmp` mounted
 with `bwrap`. Unit/check runs use two Cargo jobs; the process build now uses one
@@ -94,8 +94,9 @@ are retained under `artifacts/pr-readiness/pending-rpc/executables/`, with sourc
 and binary hashes in `source-freeze.json` and `candidate-executables.json`.
 
 The first process invocation selected exactly one test with one RPC blocking
-permit and the standalone signer in a network namespace without external
-network access. It **failed in 7.31 seconds**: observation 27 called the nonexistent
+permit and the standalone signer under the existing seccomp launcher, which
+denies outbound networking while allowing inbound gRPC. It **failed in 7.31
+seconds**: observation 27 called the nonexistent
 `nextCutoff()` getter. The contract stores `nextCutoff` internally at slot 3, so
 its unknown selector correctly reverted (RPC error 3). Startup reached L2 block
 2 and the signer validated blocks 1 and 2; this was not a transport failure or
@@ -103,14 +104,28 @@ the old missing-prefix rejection. The corrected test reads slot 3 using a
 state override of reader code, applied after the real prefix, and retains both
 cutoff assertions. Production, contract ABI/runtime and genesis remain identical.
 The [first-failure record](pending-rpc-process-first-failure.json) retains this
-test defect; it is not counted as a flaky application pass. Rebuilding only the
-test executable waits for the separate shipping build to release the host.
+test defect; it is not counted as a flaky application pass.
 
-The process regression retains a stable-parent check, tests advancing history,
+After the shipping build released the host, rebuilding only `eez-node-e2e`
+passed in 43.33 seconds with one Cargo job. Both role executables remained
+byte-for-byte identical. The corrected process passed **1/1 in 9.78 seconds**,
+exit 0, with one RPC permit and `EEZ_TEST_PROOF_SIGNER_NO_NETWORK=1`. Its
+[portable validation record](pending-rpc-validation.json) contains the source
+commit, exact source/executable hashes, command, checks and local log digests.
+The test executable is retained separately, preserving the original failure's
+binary and datadirs.
+
+The process regression retains a stable-parent check, tests scheduled history,
 actual PREVRANDAO, `nextCutoff`, named/positional parameters, latest/hash controls,
 Counter creation, application revert propagation and explicit diagnostic
 overrides. RPC errors panic immediately; only a changed parent permits another
 observation. Unit coverage includes repeat imports and malformed parent history,
 and preserves the test proving that an environment without executed history is
-invalid. Corrected process results will be appended after execution;
-no live or full-suite candidate pass is asserted here.
+invalid.
+
+This process exercises public HTTP. WS/IPC registration uses the reviewed shared
+module, without a separate transport probe. Delegation to an already executed
+pending payload remains Reth's path; no controlled process fixture holds such a
+payload open. This test neither settles a new batch nor performs independent
+follower replay. The broader baseline suite and shipping/live checks are
+separate tracks; no live or full-suite candidate pass is asserted here.

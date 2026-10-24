@@ -158,7 +158,7 @@
   },
   "local_only_evidence": "artifacts/pr-readiness/ci-runtime-archive/",
   "limits": [
-    "Unit-graph equivalence does not establish successful release cache reuse or a passing archive guard.",
+    "The unit-graph diagnosis was subsequently confirmed by a passing remote release archive guard in run40098162224; the same producer then failed separate example fixture tests.",
     "Pre-fix shipping binaries contain the diagnosed Tokio feature; live results retain their original executable identity.",
     "A fresh corrected producer and verified shipping artifacts are required before final promotion.",
     "No production Rust, Cargo.lock, feature-gate exception, wire schema, protocol pin or fixture expectation changed."
@@ -258,5 +258,13 @@
     "test-suite-result.json": "d73e9e11343e7e2405bc713ca2acdef3e36dc8ff05f21f5a8c54e63e70f6e43c",
     "unit-graph-comparison.json": "fea8bfdabfdd5ec0efbc933296fe1bfe4b6942c64a26c82af158ab3a1dcdaa02",
     "unit-graph-commands.json": "c0765ff8dcec291d39eaeeef2aee04d824986a4f4f9916f92d980489c7fe0b9f"
+  },
+  "followup_remote_gate": {
+    "run_id": 40098162224,
+    "producer_job_id": 120884663004,
+    "archive_dependency_guard": "passed",
+    "producer_tests": "28 passed,2 failed on independent genesis fixture",
+    "payload_publication": "skipped",
+    "evidence": "ci-final-runtime.json"
   }
 }

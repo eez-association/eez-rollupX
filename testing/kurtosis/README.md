@@ -736,10 +736,13 @@ identical proxy calls from one source transaction, verifies the ordered
 transaction landed in the same builder-produced L1 block. The suite also
 places a deployed non-proxy between two valid inbound calls and verifies that
 only the poison transaction is evicted while both ordered survivors settle. A
-final mixed-direction drain verifies that an outbound source transaction and
-inbound delivery share the canonical L2 Sync block. Every scenario also
-verifies bundle settlement, proof-signer acceptance, and L1/L2 state-root
-convergence.
+final mixed-direction case verifies separate, FIFO-ordered Sync blocks when
+fee collection is enabled; with fees disabled it requires the outbound source
+transaction and inbound delivery to share one canonical L2 Sync block. Every
+scenario also verifies bundle settlement, proof-signer acceptance, and L1/L2
+block-hash commitment convergence. Prepared groups begin collection after a
+fresh accepted idle cutoff, independent of whether the settlement policy posts
+an empty batch.
 
 ### Validate partial consumption
 

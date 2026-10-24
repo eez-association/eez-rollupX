@@ -58,8 +58,10 @@ directory; the memory guard observed at least 15.25 GiB available. Workspace
 format and whitespace checks also passed. The source hashes stayed unchanged
 through both runs.
 
-Release archive cache reuse and the actual guard still require the corrected
-remote producer. Existing live
-results identify the previous shipping binaries and do not validate new
-shipping bytes. No guard, exception, production Rust, lockfile, version,
-protocol pin, schema or fixture expectation changed.
+The subsequent [remote producer](ci-final-runtime.md) confirmed release archive
+cache reuse and passed the actual dependency guard. It then failed two unrelated
+example fixture tests before publishing runtime/test payloads; that failure and
+its [local correction](ci-prefix-fixture.md) remain explicit. Existing live
+results identify the previous shipping binaries and do not validate new shipping
+bytes. This feature correction changed no guard, exception, production Rust,
+lockfile, version, protocol pin, schema or fixture expectation.

@@ -210,21 +210,40 @@ mod tests {
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Signature, U256};
     use eez_primitives::EezTxType;
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, HistorySchedule, bootstrap_storage};
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
+
+    const REFERENCE_TIMESTAMP: u64 = 1_687_223_762;
 
     fn profile_input() -> Value {
         let mut genesis: alloy_genesis::Genesis =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
-        // A deployed genesis on a private L1: the production base references
-        // Ethereum mainnet's block zero, whose timestamp is zero, while these
-        // tests need a genesis that starts after a nonzero L1 reference.
-        let reference_timestamp = 1_687_223_762;
-        genesis.timestamp = reference_timestamp;
+        // Keep the nonzero private-L1 reference at the bootstrap cutoff, one
+        // complete interval before genesis, and install the matching storage.
+        genesis.timestamp = REFERENCE_TIMESTAMP + 4;
         let rollup_x = genesis.config.extra_fields.get_mut("rollupX").unwrap();
         rollup_x["l1Reference"]["chainId"] = json!(1337);
-        rollup_x["l1Reference"]["timestamp"] = json!(reference_timestamp);
+        rollup_x["l1Reference"]["timestamp"] = json!(REFERENCE_TIMESTAMP);
         rollup_x["blockIntervalSeconds"] = json!(1);
         rollup_x["syncIntervalBlocks"] = json!(4);
+        rollup_x["historyUpdateOffset"] = json!(2);
+        let config: eez_protocol::l2::DerivationConfig =
+            serde_json::from_value(rollup_x.clone()).unwrap();
+        let history = HistorySchedule::new(
+            genesis.timestamp,
+            config.block_interval_seconds,
+            config.sync_interval_blocks,
+            config.history_update_offset,
+        )
+        .unwrap();
+        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
+            bootstrap_storage(
+                config.l1_reference.number,
+                config.l1_reference.hash,
+                history,
+            )
+            .unwrap(),
+        );
         let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
         let mut config = genesis.config.clone();
         for fork in ["cancun", "prague", "osaka"] {
@@ -241,9 +260,20 @@ mod tests {
         let input = profile_input();
         let spec = replay_spec(&input).unwrap();
         let mut header = spec.genesis_header.clone().into_header();
-        assert!(header.timestamp > 0);
+        assert_eq!(header.timestamp, REFERENCE_TIMESTAMP + 4);
+        assert_eq!(
+            spec.genesis,
+            serde_json::from_value::<alloy_genesis::Genesis>(input["genesis"].clone()).unwrap()
+        );
         let schedule = eez_evm::profile::schedule(spec.as_ref()).unwrap();
+        assert_eq!(schedule.l1_slot_seconds(), 4);
+        let history = schedule.history().unwrap();
+        assert_eq!(history.bootstrap_cutoff(), REFERENCE_TIMESTAMP);
+        assert_eq!(history.first_cutoff(), REFERENCE_TIMESTAMP + 4);
+        assert_eq!(history.interval(), 4);
+        assert_eq!(history.delay(), 3);
         let (number, timestamp) = schedule.next(&header).unwrap();
+        assert_eq!((number, timestamp), (1, REFERENCE_TIMESTAMP + 5));
         header.number = number;
         header.timestamp = timestamp;
         schedule.validate_position(&header).unwrap();
@@ -267,6 +297,11 @@ mod tests {
                 json!("0x0"),
                 "genesis precedes its L1 reference",
             ),
+            (
+                "/genesis/timestamp",
+                json!(format!("{REFERENCE_TIMESTAMP:#x}")),
+                "genesis reference is after bootstrap cutoff",
+            ),
             ("/genesis/gasLimit", json!("0x1"), "gas limit"),
             (
                 "/chain_config/blobSchedule/cancun/max",
@@ -279,6 +314,37 @@ mod tests {
             assert!(
                 replay_spec(&input).unwrap_err().to_string().contains(error),
                 "{pointer}"
+            );
+        }
+    }
+
+    #[test]
+    fn replay_rejects_inconsistent_history_bootstrap_without_repair() {
+        use eez_protocol::l1_history::{INTERVAL_SLOT, NEXT_CUTOFF_SLOT, UPDATE_DELAY_SLOT};
+
+        for (slot, value) in [
+            (NEXT_CUTOFF_SLOT, REFERENCE_TIMESTAMP + 8),
+            (INTERVAL_SLOT, 12),
+            (UPDATE_DELAY_SLOT, 6),
+        ] {
+            let mut input = profile_input();
+            let mut genesis: alloy_genesis::Genesis =
+                serde_json::from_value(input["genesis"].clone()).unwrap();
+            genesis
+                .alloc
+                .get_mut(&HISTORY_ADDRESS)
+                .unwrap()
+                .storage
+                .as_mut()
+                .unwrap()
+                .insert(U256::from(slot).into(), U256::from(value).into());
+            input["genesis"] = serde_json::to_value(genesis).unwrap();
+            assert!(
+                replay_spec(&input)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("L1 history genesis code, account or bootstrap storage"),
+                "slot {slot}"
             );
         }
     }
