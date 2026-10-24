@@ -1,6 +1,6 @@
 # Validation of the native-v1 profile on a fresh Kurtosis network
 
-Status: the R03 release is running in the preserved owned container. Its RPC regression, maintenance catch-up, ordinary EIP-7702 and all 34 default protocol cases have passed. Both additional L1 static cases now have semantic evidence, with the corrected staticLocalWrite oracle recorded as a read-only continuation of its first failure. All four wave modes and the corrected state-chaining stage have passed; partial consumption and cold follower replay are still in progress. The clean shipping candidate is being rebuilt by CI after the development-feature correction; current live results identify the earlier R03 bytes and do not claim final artifact compliance.
+Status: the R03 release is running in the preserved owned container. Its RPC regression, maintenance catch-up, ordinary EIP-7702 and all 34 default protocol cases have passed. Both additional L1 static cases now have semantic evidence, with the corrected staticLocalWrite oracle recorded as a read-only continuation of its first failure. All four wave modes, the corrected state-chaining stage and the partial-consumption canary have passed; the corrected cold follower replay has also passed all 183 selected batches and 719 receipts. The first native-receipt decoder failure remains recorded separately. The first canary consumed the full batch and remains a failed attempt, with its fixture bid correction documented separately. The clean shipping candidate is being rebuilt by CI after the development-feature correction; current live results identify the earlier R03 bytes and do not claim final artifact compliance.
 
 | Field | Value |
 | --- | --- |
@@ -514,3 +514,73 @@ source transaction at Sync 6660/L1 block 1104. The original wrapper remains a
 failed invocation; the later result covers the corrected fifth stage. The
 [barrier record](state-chaining-regression.json) separates this evidence from the
 original admission failure.
+
+## Real partial consumption and bounded replacement bid
+
+The first fee-enabled canary failed in 239 seconds: all three users committed,
+so no partial-consumption assertion was reached. Its audit copy had raised source
+priority fees from the original profile’s 1 gwei to 100 gwei but retained the
+500 gwei replacement. Canonical receipts show 0.02754093 ETH of bundle tips;
+the pinned builder selected an `mp-ordering` block worth
+0.019473239999853 ETH after refund and transfer costs. The replacement offered
+only 0.0105 ETH. Its RPC acceptance was asserted, but the first copy did not
+record the exact arrival time; INFO logs alone cannot reconstruct that detail.
+
+A second audit copy changed only the replacement bid and added public progress
+timestamps. At 10,000 gwei priority, 10,001 gwei max fee and 21,000 gas, its maximum
+cost is 0.210021 fixture ETH. Together with the later transaction’s maximum
+0.6 ETH reserve, this remains below the funded sender’s 1 ETH balance. The
+repository canary’s original partial-consumption profile and runtime fee rules
+were unchanged.
+
+That attempt passed in 105 seconds. The replacement was observed pending in the
+builder 0.544 seconds after proof dispatch, before canonical inclusion. In L1
+block 1183 it preceded the post, first successful user and final reverted user;
+the middle source had no receipt. The exact dispositions were `Committed`,
+`SourceNonceSpent`, and `SourceReverted`, with attempt counts `[0,0,0]`. L2 7134
+adopted the consumed prefix, distinct from the full proposed block hash. A later
+nonce-1 source from the replaced user committed, and safe height 7146 retained
+the earlier prefix. [The sanitized record](partial-consumption.json) preserves
+both outcomes, budgets, hashes and timing limitations.
+
+The partial post’s original KZG-authenticated claim is retained separately; its
+full proposed endpoint is never rewritten to the applied prefix. Cold replay
+selects complete canonical later posts, so reaching their endpoint requires
+executing the intervening partial history. Explicit canary receipt/order/state
+checks remain live evidence; the existing follower harness checks selected
+receipt statuses and canonical block membership, not their logs or gas.
+
+## First cold replay and native receipt decoding gap
+
+The diagnostic follower used the retained R03 release binary and existing
+`node_e2e` harness, with a new database and canonical L1/Beacon data only. Its
+input selected 183 unique complete batches, 3,384 unique block heights and 719
+receipts. Assembly checked the exact 112 maintenance parts and all their
+endpoint/state-root continuations; the follower harness does not enforce that
+selection itself. The first input-assembly attempt was rejected before launch
+because the static oracles store raw L1 transaction objects without a normalized
+`chain` label. The correction requires their explicit chain ID 7331; no L2
+receipt or canonical claim was dropped.
+
+The process **failed** after 22.69 seconds. It had passed the final hash at L2
+7194 and the complete loop over 183 batch payloads and 3,384 blocks; its startup
+log reports replay from genesis through 7290, including the real partial
+consumption. It then failed at the first selected native receipt: Alloy’s
+standard Ethereum provider could not decode transaction type `0x45`. This is
+a test-consumer gap, not a passing receipt suite or a timeout. The unchanged
+719-receipt selection, first log and failing datadir are retained in the
+[diagnostic record](cold-replay-diagnostic.json). Receipt comparison and the
+final clean-artifact run remain pending; native receipts must not be excluded
+to make the test pass.
+
+The native-receipt consumer correction then passed **1/1** in 24.30 seconds
+(28 seconds including the wrapper), using the exact same input SHA-256
+`a1a120fb46d0b52e61be3eb6360b38f1aafc52e817a193f10840d6d4f25c68f6`
+and the same R03 follower. Only the response decoder changed to
+`AnyTransactionReceipt`; block handling and all assertions stayed intact. The
+output independently confirms 3,384 distinct selected block heights, 3,384
+derived-block checks and all 719 receipt status/canonical-membership checks at
+endpoint 7194. These counts match the assembly inventory, including all 112
+maintenance parts and the three ordinary EIP-7702 operations. This validates
+R03 replay; the final clean-feature CI runtime must still run the closing live
+smoke, eligible protocol suite and cold replay.

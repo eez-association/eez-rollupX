@@ -1,5 +1,5 @@
 {
-  "status": "partial; source and harness regressions pass; the release producer fixture is corrected locally, with final CI artifact validation and independent live follower replay pending",
+  "status": "partial; applicable local source/harness checks and extended R03 live validation pass after recorded corrections; final exact CI shipping-artifact/live validation remains pending",
   "source": {
     "branch": "codex/l1-history-offline-proving",
     "initial_head": "3e23955dc477c9e675364776f118b1cecda75774",
@@ -251,13 +251,17 @@
     "kurtosis/yaml-workload-regression.json",
     "ci-prefix-fixture.json",
     "kurtosis/state-chaining-regression.json",
-    "kurtosis/cross-chain-waves.json"
+    "kurtosis/cross-chain-waves.json",
+    "replay-receipt-fix.json",
+    "closure-review.json",
+    "kurtosis/partial-consumption.json",
+    "kurtosis/cold-replay-diagnostic.json"
   ],
   "unresolved": [
     "Dependency advisory gates fail on both candidate and target main; no waiver or upgrade included.",
     "The frozen process suite completed with two classified failures: a diagnosed port-collision flake and an obsolete cost predicate corrected with a separately passing regression.",
     "The second CI release producer passed the archive guard but failed two example fixture tests. Those failures were reproduced and corrected locally; the next exact release payload and downstream validation remain pending.",
     "Live default protocol scenarios pass; two MissingProxy negative scenarios were rejected before reaching the intended terminal queue oracle, and unsupported signer-profile scenarios remain excluded.",
-    "The original wave wrapper failed at admission; the corrected state-chaining repetition passes separately. Partial-consumption and independent follower replay of the final release remain in progress."
+    "The original wave wrapper failed at admission; corrected state-chaining, partial-consumption and same-input R03 cold replay pass separately. Exact final shipping artifacts and their live replay remain pending."
   ]
 }

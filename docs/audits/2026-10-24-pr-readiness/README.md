@@ -189,6 +189,27 @@ in 293.54 seconds using the private temporary-directory bind. All changed toolin
 input hashes remained unchanged during the run. This validates the YAML, lookup
 and blob-summary corrections together; it does not replace live execution.
 
+The live [partial-consumption canary](kurtosis/partial-consumption.json) first
+failed to induce its scenario: the original three-user bundle settled completely.
+The fee-enabled audit copy had raised source tips without raising its replacement
+bid. A bounded higher replacement bid, with captured dispatch/pool timing, then
+passed the unchanged assertions: committed first source, spent nonce for the
+second, reverted third, distinct canonical applied prefix, and healthy next-nonce
+progress. No runtime or repository canary bid was changed.
+
+The first [cold follower replay](kurtosis/cold-replay-diagnostic.json) reconstructed
+from genesis and checked all 183 selected full batches, but the test's Ethereum
+receipt decoder rejected native type `0x45`. The [test-only correction](replay-receipt-fix.json)
+uses Alloy's existing open receipt type for that RPC response. The same input and
+R03 follower then passed **1/1** in 24.30 seconds: **3384 unique selected block
+heights and 719 receipts**, through canonical endpoint 7194. All 112 maintenance
+parts are preserved. The partial post's original full claim is retained separately;
+it is not rewritten into an applied-prefix claim. The later full endpoint requires
+derivation through that earlier partial execution. This is state reconstruction
+with the same follower implementation, not implementation diversity. The
+[contract review](closure-review.json) explains the selection and receipt limits.
+Final CI shipping artifacts and their live repetition remain pending.
+
 At 11:35:28 UTC, overlapping host and Docker compilation exhausted host memory.
 Kernel diagnostics confirm a global OOM killed the host `eez-node` compiler and
 other user-session processes. The owned Docker build was cancelled with exit 130;
@@ -283,6 +304,9 @@ Clippy passed again in 160.02 seconds with one job and at least 15.52 GiB
 available; no memory cancellation occurred. After the example fixture correction,
 the same full-workspace check passed in 3.00 seconds with one job and at least
 15.83 GiB available. The changed Rust file hash was unchanged during that check.
+The later receipt-only test correction passed full-workspace Clippy in 4.00
+seconds and compiled its test target in 41.01 seconds, one job with at least
+15.01 GiB available; only the workspace test target was recompiled.
 
 The dependency findings are [RUSTSEC-2026-0387](https://github.com/RustSec/advisory-db/blob/21d909e4c8bd4e14c7aea58bf980c881a0053ab1/crates/crypto-bigint/RUSTSEC-2026-0387.md)
 (constant-time arithmetic) and [RUSTSEC-2026-0386](https://github.com/RustSec/advisory-db/blob/21d909e4c8bd4e14c7aea58bf980c881a0053ab1/crates/tokio/RUSTSEC-2026-0386.md)
