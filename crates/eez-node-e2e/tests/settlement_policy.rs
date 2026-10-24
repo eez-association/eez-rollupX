@@ -2577,15 +2577,25 @@ async fn restart_reevaluates_current_interval_without_resetting_the_l1_timer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn general_block_rule_consolidates_empty_history_before_the_pure_interval() {
+    use alloy_eips::Decodable2718 as _;
+    use alloy_primitives::{B256, Bytes, keccak256};
+    use eez_primitives::EezTxEnvelope;
+    use eez_protocol::{
+        l1_history::{HistorySchedule, IMPORT_GAS_LIMIT, decode_import},
+        native_source::HistorySourceContext,
+    };
+    use serde_json::json;
+
     let mut env = policy_env(Vec::new(), "interval");
     env.push(("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "30".into()));
-    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    // No application deployments: the mandatory history imports must not count
+    // as pure activity, but they remain included transactions for cost reporting.
+    let world = setup_native_history(&env).await.unwrap();
     let cost = eez_testkit::wait_for(TIMEOUT, || async {
         Ok(world.node.signals_since(0)?.into_iter().find(|signal| {
             signal.name == "eez.composer.postbatch.actual_cost"
                 && signal.fields["action"] == "apply"
                 && signal.fields["post_included"] == true
-                && signal.fields["included_l2_transactions"] == 0
                 && signal.fields["settled_l2_blocks"]
                     .as_u64()
                     .is_some_and(|blocks| blocks >= 30)
@@ -2598,19 +2608,174 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
             world.settlement_diagnostics()
         )
     });
-    assert!(
-        cost.fields["post_cost_per_l2_transaction"]
-            .as_str()
-            .is_some_and(|value| value == "None")
+
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let post_hash: B256 = cost.fields["post_batch_hash"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let post = l1
+        .get_transaction_by_hash(post_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    let receipt = l1
+        .get_transaction_receipt(post_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(receipt.status());
+    assert_eq!(post.inner.to(), Some(world.dep.eez_address));
+    assert_eq!(
+        l1.get_block_by_number(receipt.block_number.unwrap().into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        receipt.block_hash.unwrap()
     );
-    assert!(cost.fields["post_blob_gas_used"].as_u64().unwrap() > 0);
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(post.inner.input()).unwrap();
+    let updates: Vec<_> = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .collect();
+    assert_eq!(updates.len(), 1);
+    let update = updates[0];
+    assert_eq!(update.rollupId, world.dep.rollup_id);
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    assert!(receipt.logs().iter().any(|log| {
+        log.address() == world.dep.eez_address
+            && log
+                .log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
+                .is_ok_and(|event| {
+                    event.inner.data.rollupId == update.rollupId
+                        && event.inner.data.newRoot == update.newRoot
+                })
+    }));
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    let blocks = terminal.header.number;
+    assert!(blocks >= 30);
+    assert_eq!(cost.fields["settled_l2_blocks"], blocks);
+    wait_for_safe_prefix_convergence(&[&world.node], blocks, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(blocks.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        update.newRoot
+    );
+
+    let profile = &world.dep.profile;
+    let schedule = HistorySchedule::new(
+        profile.genesisTimestamp,
+        profile.blockInterval,
+        profile.syncInterval,
+        profile.updateOffset,
+    )
+    .unwrap();
+    let source = HistorySourceContext::new(
+        profile.l1ChainId.try_into().unwrap(),
+        world.l2_chain_id,
+        world.cfg.initial_state,
+    )
+    .unwrap();
+    let mut included = 0u64;
+    let mut hash = update.newRoot;
+    // Follow the applied commitment, rather than sampling a moving latest range
+    // or deriving the transaction count from the metric under test.
+    for number in (1..=blocks).rev() {
+        let block = l2.get_block_by_hash(hash).await.unwrap().unwrap();
+        assert_eq!(block.header.hash, hash);
+        assert_eq!(block.header.number, number);
+        let cutoff = schedule.source_cutoff(block.header.timestamp).unwrap();
+        let updating = cutoff + schedule.delay() == block.header.timestamp;
+        let mut transactions = Vec::new();
+        for tx_hash in block.transactions.hashes() {
+            let raw: Bytes = l2
+                .raw_request("eth_getRawTransactionByHash".into(), json!([tx_hash]))
+                .await
+                .unwrap();
+            assert_eq!(keccak256(&raw), tx_hash);
+            let tx = EezTxEnvelope::decode_2718_exact(&raw).unwrap();
+            assert!(
+                tx.is_history(),
+                "an application-free range must only contain history imports"
+            );
+            let EezTxEnvelope::System(native) = &tx else {
+                unreachable!()
+            };
+            assert_eq!(native.chain_id, world.l2_chain_id);
+            assert_eq!(
+                native.gas_limit,
+                IMPORT_GAS_LIMIT.min(block.header.gas_limit)
+            );
+            assert_eq!(decode_import(tx.input()).unwrap().cutoff, cutoff);
+            assert_eq!(
+                native.source_hash,
+                source
+                    .source_hash(
+                        block.header.parent_hash,
+                        number,
+                        block.header.timestamp,
+                        tx.input(),
+                    )
+                    .unwrap()
+            );
+            transactions.push(tx);
+        }
+        assert_eq!(transactions.len(), usize::from(updating));
+        assert_eq!(
+            alloy_consensus::proofs::calculate_transaction_root(&transactions),
+            block.header.transactions_root
+        );
+        included += transactions.len() as u64;
+        hash = block.header.parent_hash;
+    }
+    assert_eq!(hash, update.currentRoot);
+    assert!(included > 0);
+    assert_eq!(cost.fields["included_l2_transactions"], included);
+
+    let blob_gas = receipt.blob_gas_used.unwrap();
+    assert!(blob_gas > 0);
+    assert_eq!(cost.fields["post_blob_gas_used"], blob_gas);
+    let measured = U256::from(receipt.gas_used) * U256::from(receipt.effective_gas_price)
+        + U256::from(blob_gas) * U256::from(receipt.blob_gas_price.unwrap());
+    assert_eq!(cost.fields["post_total_cost"], measured.to_string());
+    assert_eq!(
+        cost.fields["post_cost_per_l2_transaction"],
+        format!("Some({})", measured / U256::from(included))
+    );
+    assert_eq!(
+        cost.fields["post_cost_per_l2_block"],
+        format!("Some({})", measured / U256::from(blocks))
+    );
+    // Later observations may extend the head while a finite drain is retained.
+    // Bind the trigger to the same anchor and threshold, not a later head size.
     assert!(world.node.signals_since(0).unwrap().iter().any(|signal| {
         signal.name == "eez.composer.settlement.decision"
             && signal.fields["due"] == true
+            && signal.fields["reasons"]
+                .as_str()
+                .is_some_and(|reasons| reasons.contains("general"))
+            && signal.fields["anchor_l2_hash"] == world.cfg.initial_state.to_string()
+            && signal.fields["unsettled_blocks"]
+                .as_u64()
+                .is_some_and(|pending| pending >= 30)
+            && signal.fields["pending_pure_l2_transactions"] == 0
             && signal.fields["settlement_age_ms"]
                 .as_u64()
                 .is_some_and(|age| age < 900_000)
     }));
+    world.node.assert_no_process_death();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

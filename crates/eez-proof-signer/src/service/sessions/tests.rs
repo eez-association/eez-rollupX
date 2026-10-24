@@ -152,8 +152,7 @@ vectors! {
 #[tokio::test]
 async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch() {
     let (vector, fixture) = vector_service("sync-range-proof");
-    let service = ProveSvc::new(Arc::clone(&fixture.state), fixture.limits);
-    let runtime = &service.sessions;
+    let mut service = ProveSvc::new(Arc::clone(&fixture.state), fixture.limits);
     let mut bound: Option<BoundSession> = None;
     let mut finalize = None;
     for event in vector["events"].as_array().unwrap() {
@@ -176,21 +175,28 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
             // the complete range. Exercise the deadline with that valid request.
             continue;
         }
-        runtime.handle_frame(&mut bound, frame).await.unwrap();
+        service
+            .sessions
+            .handle_frame(&mut bound, frame)
+            .await
+            .unwrap();
     }
     let frame = finalize.expect("fixture must exercise Finalize");
     let binding = bound.unwrap();
-    let retained = runtime.session(binding.id).await.unwrap();
+    let retained = service.sessions.session(binding.id).await.unwrap();
     let tip = retained.lock().await.tip();
     let occupied = Arc::clone(&service.active_request_slot)
         .acquire_owned()
         .await
         .unwrap();
-    // Only admission is waiting: no blocking worker exists while the permit
-    // is held. Advance its timer deterministically, then restore real time for
-    // the retry's actual replay instead of requiring it to finish in one second.
-    tokio::time::pause();
-    let (_, error) = runtime
+    // The held permit makes admission the only possible wait. Bound that wait
+    // independently of the real replay budget, with no worker racing the timer.
+    Arc::get_mut(&mut service.sessions)
+        .expect("test owns the session runtime")
+        .limits
+        .request_timeout = Duration::from_millis(50);
+    let (_, error) = service
+        .sessions
         .handle_frame(&mut bound, frame.clone())
         .await
         .unwrap_err();
@@ -199,10 +205,16 @@ async fn finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch()
     assert_eq!(bound, Some(binding));
     assert_eq!(retained.lock().await.tip(), tip);
     assert_eq!(service.state.attester.signing_calls(), 0);
-    tokio::time::resume();
+    Arc::get_mut(&mut service.sessions)
+        .expect("test owns the session runtime")
+        .limits = fixture.limits;
     drop(occupied);
     // Retry without Resume/Rewind: a failed attempt cannot poison its attachment.
-    let (response, closed) = runtime.handle_frame(&mut bound, frame).await.unwrap();
+    let (response, closed) = service
+        .sessions
+        .handle_frame(&mut bound, frame)
+        .await
+        .unwrap();
     assert!(closed);
     let Some(server_frame::Kind::Proof(proof)) = response.kind else {
         panic!("same-epoch retry did not return Proof");

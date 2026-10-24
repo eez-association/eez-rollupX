@@ -99,7 +99,7 @@ reth-codecs                     = { version = "=0.8.1" }
 reth-rpc-traits                 = { version = "=0.8.1" }
 reth-tasks                      = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-trie                       = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
-reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-trie-common                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0", default-features = false, features = ["std"] }
 # libmdbx (reth's own mdbx binding) — backs the persistent witness store in a
 # DEDICATED env (never reth's node DB). Same rev so we don't link a 2nd mdbx build.
 reth-libmdbx                    = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }

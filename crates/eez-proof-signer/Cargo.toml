@@ -56,8 +56,6 @@ reth-trie-common.workspace = true
 hex.workspace = true
 # Client-side of the in-process Prove round-trip tests.
 tokio-stream = { workspace = true, features = ["net"] }
-# Advance admission deadlines without imposing a short wall-clock replay budget.
-tokio = { workspace = true, features = ["test-util"] }
 
 [lints]
 workspace = true
