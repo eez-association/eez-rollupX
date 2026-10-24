@@ -75,7 +75,8 @@ impl CheckpointPlan {
         let mut system_sender_flags = Vec::with_capacity(transaction_count);
         let mut sync_system_transaction_flags = Vec::with_capacity(transaction_count);
         for transaction in block.transactions_recovered() {
-            let is_system_sender = transaction.signer() == expected_l2_system_address;
+            let is_system_sender = transaction.signer() == expected_l2_system_address
+                && !transaction.inner().is_history();
             system_sender_flags.push(is_system_sender);
             sync_system_transaction_flags.push(is_system_tx(
                 alloy_consensus::Typed2718::ty(&transaction),
@@ -159,6 +160,8 @@ pub(crate) struct Backend {
     chain_document_digest: B256,
     #[cfg(test)]
     pub(super) derivation_enabled: bool,
+    #[cfg(test)]
+    checkpoint_replays: std::sync::atomic::AtomicUsize,
 }
 
 impl Backend {
@@ -229,6 +232,8 @@ impl Backend {
             chain_document_digest,
             #[cfg(test)]
             derivation_enabled: true,
+            #[cfg(test)]
+            checkpoint_replays: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -237,7 +242,11 @@ impl Backend {
         &self,
         blocks: &[AdmittedBlock],
     ) -> Result<BackendWindowOutput, ValidationError> {
-        self.validate_blocks(&mut blocks.to_vec(), &CancellationToken::default())
+        self.validate_blocks(
+            &mut blocks.to_vec(),
+            &CancellationToken::default(),
+            crate::testkit::checked_history(blocks)?,
+        )
     }
 
     /// Replay every admitted block and return associated per-block output. The
@@ -246,7 +255,13 @@ impl Backend {
         &self,
         blocks: &mut [AdmittedBlock],
         cancellation: &CancellationToken,
+        history: Arc<eez_protocol::l1_history::HeaderChain>,
     ) -> Result<BackendWindowOutput, ValidationError> {
+        let evm_config = self
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory(history)))
+            .map_err(|error| ValidationError::Rejected(error.to_string()))?;
         let validation_started = Instant::now();
         let total_blocks = blocks.len();
         let mut block_outputs = Vec::<BackendBlockOutput>::with_capacity(total_blocks);
@@ -285,7 +300,14 @@ impl Backend {
                 })?;
                 (
                     prepared.block,
-                    Some(prepared.checkpoint_plan),
+                    // Ordinary (including empty) terminals use their fully
+                    // validated block hash as the ordinary-prefix commitment.
+                    // Only native effect boundaries need intermediate roots.
+                    prepared
+                        .system_sender_flags
+                        .iter()
+                        .any(|&native| native)
+                        .then_some(prepared.checkpoint_plan),
                     prepared.system_sender_flags,
                 )
             } else {
@@ -328,11 +350,14 @@ impl Backend {
             let (stateless_output, replay_state_checkpoints, pre_transaction_state_root) =
                 match checkpoint_plan {
                     Some(plan) => {
+                        #[cfg(test)]
+                        self.checkpoint_replays
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         let output = stateless_validation_recovered_with_state_checkpoints(
                             recovered_block,
                             witness,
                             Arc::clone(&self.chain_spec),
-                            self.evm_config.clone(),
+                            evm_config.clone(),
                             &plan.transaction_indices,
                         )
                         .map_err(|error| map_stateless_error(block_number, error))?;
@@ -357,7 +382,7 @@ impl Backend {
                             recovered_block,
                             witness,
                             Arc::clone(&self.chain_spec),
-                            self.evm_config.clone(),
+                            evm_config.clone(),
                         )
                         .map_err(|error| map_stateless_error(block_number, error))?;
                         (output, Vec::new(), None)
@@ -367,7 +392,7 @@ impl Backend {
             let reconstruction = reconstruction_input
                 .map(|(block, parent)| {
                     reconstruction::reconstruct(
-                        &self.evm_config,
+                        &evm_config,
                         &block,
                         &admitted.rlp,
                         parent.as_ref().map(AsRef::as_ref),
@@ -417,8 +442,9 @@ impl Backend {
                             .position(|&native| native)
                             .unwrap_or(transaction_count);
                         let base = if ordinary == 0 {
-                            // The checkpoint backend ran pre-execution changes even for
-                            // an empty block. The parent state root cannot stand in for it.
+                            // The checkpoint backend ran pre-execution changes before
+                            // the first native transaction; the parent state root
+                            // cannot stand in for that state.
                             let state_root = pre_transaction_state_root.ok_or_else(|| {
                                 ValidationError::InvalidBackendOutput(
                                     "missing pre-transaction state root".into(),
@@ -483,6 +509,10 @@ impl Backend {
                 post_state_root,
                 settlement_evidence: SettlementBlockEvidence {
                     ordinary_prefix_hash,
+                    cumulative_gas_used: validated_receipts
+                        .iter()
+                        .map(alloy_consensus::TxReceipt::cumulative_gas_used)
+                        .collect(),
                     system_sender_flags,
                     observed_outbound_events,
                 },
@@ -515,8 +545,9 @@ impl Backend {
         &self,
         window: &ValidatedWindow,
         claims: &[FifoObservationClaim],
+        history: Arc<eez_protocol::l1_history::HeaderChain>,
     ) -> Result<(), ObservationValidationError> {
-        let outcomes = self.replay_observations(window, claims)?;
+        let outcomes = self.replay_observations(window, claims, history)?;
         for (index, (claim, outcome)) in claims.iter().zip(outcomes).enumerate() {
             if claim.expected_success != outcome.success || claim.expected_output != outcome.output
             {
@@ -530,6 +561,7 @@ impl Backend {
         &self,
         window: &ValidatedWindow,
         claims: &[FifoObservationClaim],
+        history: Arc<eez_protocol::l1_history::HeaderChain>,
     ) -> Result<Vec<ObservedOutcome>, ObservationValidationError> {
         let settling = window.settling_block();
         let replay = settling.replay_input();
@@ -601,7 +633,12 @@ impl Backend {
             .with_bundle_update()
             .with_bal_builder_if(has_bal)
             .build();
-        replay_block_with_observations(&mut state, &self.evm_config, &block, &observations)
+        let evm_config = self
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory(history)))
+            .map_err(|error| ObservationValidationError::Replay(error.to_string()))?;
+        replay_block_with_observations(&mut state, &evm_config, &block, &observations)
             .map_err(|error| ObservationValidationError::Replay(error.to_string()))
     }
 }
@@ -852,7 +889,9 @@ fn system_sender_flags(
 ) -> Vec<bool> {
     block
         .transactions_recovered()
-        .map(|transaction| transaction.signer() == expected_l2_system_address)
+        .map(|transaction| {
+            transaction.signer() == expected_l2_system_address && !transaction.inner().is_history()
+        })
         .collect()
 }
 

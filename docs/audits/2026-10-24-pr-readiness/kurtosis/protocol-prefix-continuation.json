@@ -1,0 +1,187 @@
+{
+  "status": "PASS after explicit read-only verifier correction; initial campaign remains FAIL",
+  "recorded_at": "2026-10-24T16:34:05.289388+00:00",
+  "original_suite": {
+    "path": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final/protocol-e2e/summary.json",
+    "sha256": "3de5e09e5d83fba8a8504a8028f4902cafa3303accb299b258cebdb7d2cca271",
+    "executed": 34,
+    "independent_passes": 33,
+    "independent_failures": [
+      "revertCounter"
+    ],
+    "unchanged": true
+  },
+  "continuation": {
+    "kind": "read_only_after_verifier_correction",
+    "original_summary": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final/protocol-e2e/summary.json",
+    "original_summary_sha256": "3de5e09e5d83fba8a8504a8028f4902cafa3303accb299b258cebdb7d2cca271",
+    "original_suite_result": "FAIL",
+    "original_independent_passes": 33,
+    "new_scenarios_executed": 0,
+    "new_broadcasts": 0,
+    "revalidated_scenarios": [
+      "revertCounter"
+    ],
+    "live_runtime_ci_run": 40104687331,
+    "live_runtime_pr_head": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+    "helper_origin": "locally built corrected standalone helper; not a new CI payload",
+    "helper_sha256": "2afb9adcaa1a08a2196d88e7fde1b0c6980710fe84f648da0d48ea4777511622",
+    "original_33_records_unchanged": true
+  },
+  "combined_coverage": {
+    "executed": 34,
+    "independently_verified": 34,
+    "fresh_upstream_rerun": false,
+    "evidence_complete": true,
+    "causal_coverage_complete": true,
+    "semantic_blob_coverage_complete": true,
+    "scenarios": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "bridge",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertCounter",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ],
+    "default_exclusions_unchanged": 30
+  },
+  "phase": {
+    "phase": "protocol-ci-final-prefix-continuation",
+    "exit_code": 0,
+    "start_epoch": 1792859481,
+    "seconds": 4,
+    "log": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/pr-readiness/kurtosis/live/phases/protocol-ci-final-prefix-continuation.log",
+    "log_sha256": "3d6cd23b643d376b475a5135278964b2b4594d416173d4773e0964228f1209d0"
+  },
+  "exact_input_ab": {
+    "recorded_at": "2026-10-24T16:29:32.786024+00:00",
+    "original_input": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final/protocol-e2e/evidence/revertCounter.lookup-root.input.json",
+    "original_input_sha256": "df23a707a15b02f76a873e016f24479cdba391cbf51e812bcac18961fbd8bfbe",
+    "expanded_input": "artifacts/pr-readiness/kurtosis/live/prefix-history-diagnostic/same-expanded-input/input.json",
+    "expanded_input_sha256": "4c97f4dac55d51aafa65efad8fa048b1eb03849e2e2df3d6b5bd87c8bb4c9346",
+    "all_original_fields_identical": true,
+    "added_fields": [
+      "l1_chain_config",
+      "l1_headers_rlp",
+      "protocol_config_hash"
+    ],
+    "old_ci_helper_sha256": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489",
+    "old_ci_helper_exit_code": 1,
+    "old_ci_helper_seconds": 0.011753976927138865,
+    "old_ci_helper_error": "blob evidence verification failed: stateless block execution failed: mandatory L1 history evidence source is not configured",
+    "expected_lookup_root": "0xe889943a26b2ec20ef054994650839c1b6f12b2b51b762d9360f4c7cc0c87873",
+    "new_helper_result": "PASS",
+    "broadcasts": 0,
+    "new_helper_sha256": "2afb9adcaa1a08a2196d88e7fde1b0c6980710fe84f648da0d48ea4777511622",
+    "new_helper_exit_code": 0,
+    "new_helper_seconds": 0.01985106198117137,
+    "new_helper_stderr": "",
+    "corrected_at": "2026-10-24T16:30:58.263937+00:00",
+    "identity_note": "Corrected standalone local helper; live runtime roles remain the verified CI 319ebc2d candidate, not a new CI payload.",
+    "original_published_lookup_root_match": {
+      "hash": "0xe889943a26b2ec20ef054994650839c1b6f12b2b51b762d9360f4c7cc0c87873",
+      "state_root": "0x03323c72db233a266ef280152822aa6641467a17200b35e92dd200965a93c630",
+      "transaction_count": 2,
+      "transaction_index": 1
+    },
+    "new_helper_result_sha256": "0a2311f45152379f6d614d1f6a7fbc9ad21572304d8536c540a88f3e5c156f7b",
+    "expanded_input_still_identical": true
+  },
+  "collector": {
+    "result_path": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final-prefix-continuation/revertCounter.json",
+    "result_sha256": "43443c8eac9efc5f105b38fc5a85a2449e71a24b9a0e6304220aca40bb1d1871",
+    "summary_path": "artifacts/pr-readiness/kurtosis/live/protocol-ci-final-prefix-continuation/summary.json",
+    "summary_sha256": "d264be397082f71771bd89efe0e8f6b14c8f1a7b2c07bb3900c01060040a6d15",
+    "input_sha256": "dd915cb894add8f526216299aa5b4cafae7c70c51572558f3e0fa4e8889621fc",
+    "only_difference_from_expanded_ab_input": "Order of witness codes/state/keys; each complete multiset is identical. Neither input was normalized for execution.",
+    "witness_comparison": {
+      "codes": {
+        "count": 9,
+        "same_multiset": true,
+        "same_order": false
+      },
+      "headers": {
+        "count": 1,
+        "same_multiset": true,
+        "same_order": true
+      },
+      "keys": {
+        "count": 66,
+        "same_multiset": true,
+        "same_order": false
+      },
+      "state": {
+        "count": 123,
+        "same_multiset": true,
+        "same_order": false
+      }
+    },
+    "trigger": "0x6913f6e0571e0d95cc109a1e974dad491619781154fbbe939718fc80d0e95fee",
+    "settlement": "0x6285916cdcdcf33d17891c9721670b3b847671c50286f78e02b5ba6c37e5e99d",
+    "lookup_root": {
+      "verified": true,
+      "root": "0xe889943a26b2ec20ef054994650839c1b6f12b2b51b762d9360f4c7cc0c87873",
+      "kind": "execution_prefix",
+      "terminal_block_hash": "0xde7123f6602d51f3e59d24de49d3129848eb1f580cd310315e4eb3b4b08f981f",
+      "transaction_index": 1,
+      "transaction_count": 2,
+      "state_root_source": "stateless_execution_witness_replay"
+    },
+    "claims": {
+      "upstream_pass_required": true,
+      "receipts_revalidated": true,
+      "post_batch_preceded_trigger": true,
+      "no_destination_delivery_required": true,
+      "l2_absence_verified": true,
+      "blob_kzg_authenticated": true,
+      "native_semantics_decoded": true,
+      "semantic_trigger_bound": true,
+      "actual_lookup_result_traced": true,
+      "lookup_root_bound": true
+    },
+    "l2_absence_range": {
+      "from": 9463,
+      "to": 10567
+    },
+    "all_trigger_bytes_bound": false
+  },
+  "code": {
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": "fe6b8912b7e9a3c4aed45c7915ebfd56ed6e06a97ebac00f68b40ef8ff67686a",
+    "testing/kurtosis/scripts/verify-lookup-root.sh": "a7b2dd03fde25dfc54bf087c81f02c4a490505cb5cac0589b318aa4ee58697e2",
+    "testing/kurtosis/scripts/verify-l1-lookup.sh": "78e712818e70df067f2c52cda76e0510f52361b40c851b44cac13ed2e5e8bff0"
+  },
+  "limits": [
+    "The initial full protocol command still failed; this record closes its one missing oracle through a deliberate correction and read-only continuation, not a fresh clean full-suite run.",
+    "The corrected helper was built locally. The live Composer, signer and independently replayed follower retain the verified CI 319ebc2d identities.",
+    "L1-origin trigger bytes are bound through the exact settlement table and trace; all_trigger_bytes_bound remains false because that blob bracket carries no signed transaction bytes.",
+    "Raw witnesses, post calldata, traces and sidecars remain local-only ignored artifacts; portable identities and semantic conclusions are retained here."
+  ]
+}

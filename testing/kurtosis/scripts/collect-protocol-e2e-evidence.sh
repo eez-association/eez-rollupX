@@ -33,7 +33,7 @@ case "$SCENARIO_NAME" in
     staticCounterL2|topLevelStaticReentrantCounterL2)
         exec bash "$(dirname "$0")/verify-static-counter-l2.sh" "$SCENARIO_LOG" "$OUTPUT_JSON" "$SCENARIO_NAME"
         ;;
-    topLevelStaticCounter|topLevelStaticReentrantCounter|revertCounter)
+    topLevelStaticCounter|topLevelStaticReentrantCounter|staticLocalWrite|revertCounter)
         exec bash "$(dirname "$0")/verify-l1-lookup.sh" \
             "$SCENARIO_NAME" "$SCENARIO_SOL" "$SCENARIO_LOG" "$OUTPUT_JSON"
         ;;

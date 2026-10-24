@@ -10,6 +10,232 @@ use std::time::Duration;
 
 const TIMEOUT: Duration = Duration::from_mins(4);
 
+/// A fork can invalidate imported history without removing any settlement.
+/// Recovered ordinary transactions must retain local pool capacity and execute
+/// once on the replacement history, without client resubmission.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement() {
+    use alloy_primitives::Bytes;
+    use alloy_rpc_types_eth::{BlockNumberOrTag, TransactionRequest};
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
+    use eez_testkit::{ANVIL_ADDR_3, ANVIL_KEY_1};
+
+    let mut world = setup_cross_chain_with_l1_reorg(&[
+        ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
+        ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+        ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
+        ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
+    ])
+    .await
+    .unwrap();
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let setup_tip = l1.get_block_number().await.unwrap();
+    let current = TransactionRequest::default()
+        .to(HISTORY_ADDRESS)
+        .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into());
+    // Fork only history produced after every fixture contract was installed.
+    wait_for(TIMEOUT, || async {
+        let source = l2.call(current.clone()).latest().await?;
+        let source = IL1BlockhashContract::currentCall::abi_decode_returns(&source)?;
+        Ok((source.number > setup_tip).then_some(()))
+    })
+    .await
+    .unwrap();
+    let before_chain = world.chain().snapshot().await.unwrap();
+    assert_eq!(
+        before_chain.batches_posted, 0,
+        "fixture must have no accepted batch to remove"
+    );
+    assert_eq!(before_chain.state_root, world.cfg.initial_state);
+    let balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
+    let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
+    let mut hashes = Vec::new();
+    // Twenty exceeds Reth's external per-sender capacity of sixteen. Losing
+    // local origin during rollback would drop a suffix of this nonce chain.
+    for offset in 0..20 {
+        hashes.push(
+            sign_and_send(
+                &world.l2_rpc(),
+                ANVIL_KEY_1,
+                world.l2_chain_id,
+                nonce + offset,
+                Some(ANVIL_ADDR_3),
+                U256::from(9),
+                vec![],
+                21_000,
+            )
+            .await
+            .unwrap(),
+        );
+    }
+    let mut before = Vec::new();
+    for hash in &hashes {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(*hash).await?)
+        })
+        .await
+        .unwrap();
+        assert!(receipt.status());
+        before.push(receipt);
+    }
+    let original_origin = l2
+        .call(
+            TransactionRequest::default()
+                .to(HISTORY_ADDRESS)
+                .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into()),
+        )
+        .block(before[0].block_hash.unwrap().into())
+        .await
+        .unwrap();
+    let original_origin =
+        IL1BlockhashContract::currentCall::abi_decode_returns(&original_origin).unwrap();
+    assert!(
+        original_origin.number > 1,
+        "must fork an imported non-bootstrap source"
+    );
+    let old_source = l1
+        .get_block_by_number(original_origin.number.into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(old_source.header.hash, original_origin.hash);
+    let ancestor = l1
+        .get_block_by_number((original_origin.number - 1).into())
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+    assert!(ancestor.number >= setup_tip);
+    let replacement = world
+        .l1_reorg_control
+        .as_mut()
+        .unwrap()
+        .reorg_to(ancestor.number, ancestor.hash)
+        .await
+        .unwrap();
+    assert_ne!(
+        replacement["replacement"]["hash"],
+        original_origin.hash.to_string()
+    );
+    world.node.wait_for_reorg_seen(TIMEOUT).await.unwrap();
+
+    let mut repaired = Vec::new();
+    for (hash, old) in hashes.iter().zip(&before) {
+        let receipt = wait_for(TIMEOUT, || async {
+            Ok(l2.get_transaction_receipt(*hash).await?
+                .filter(|receipt| receipt.block_hash != old.block_hash))
+        }).await.unwrap_or_else(|error| panic!(
+            "ordinary source {hash} was not recovered after imported-history reorg: {error:#}{}",
+            world.settlement_diagnostics()));
+        assert!(receipt.status());
+        repaired.push(receipt);
+    }
+    assert_eq!(
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap(),
+        nonce + 20
+    );
+    assert_eq!(
+        l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        balance + U256::from(180)
+    );
+    let after_chain = world.chain().snapshot().await.unwrap();
+    assert_eq!(after_chain.batches_posted, 0);
+    assert_eq!(after_chain.state_root, before_chain.state_root);
+
+    let replaced = l1
+        .get_block_by_number(original_origin.number.into())
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+    assert_ne!(replaced.hash, original_origin.hash);
+    let lookup = TransactionRequest::default().to(HISTORY_ADDRESS).input(
+        Bytes::from(
+            IL1BlockhashContract::getL1BlockHashCall {
+                number: original_origin.number,
+            }
+            .abi_encode(),
+        )
+        .into(),
+    );
+    let history = l2.call(lookup.clone()).latest().await.unwrap();
+    assert_eq!(
+        IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&history).unwrap(),
+        replaced.hash
+    );
+
+    // A live outbound action makes the repaired ordinary prefix due. A fresh
+    // follower has no access to the abandoned blocks or the producer's pool.
+    let trigger = sign_and_send(
+        &world.l2_xchain(),
+        ANVIL_KEY_4,
+        world.l2_chain_id,
+        onchain_nonce(&world.l2_rpc(), ANVIL_KEY_4).await.unwrap(),
+        Some(world.outbound_proxy),
+        U256::ZERO,
+        IValue::setValueCall { v: U256::from(73) }.abi_encode(),
+        400_000,
+    )
+    .await
+    .unwrap();
+    let settled = wait_for(TIMEOUT, || async {
+        let Some(receipt) = l2.get_transaction_receipt(trigger).await? else {
+            return Ok(None);
+        };
+        let safe = l2.get_block_by_number(BlockNumberOrTag::Safe).await?;
+        Ok(safe
+            .filter(|safe| safe.header.number >= receipt.block_number.unwrap())
+            .map(|_| receipt))
+    })
+    .await
+    .unwrap_or_else(|error| {
+        panic!(
+            "repaired ordinary prefix was not settled: {error:#}{}",
+            world.settlement_diagnostics()
+        )
+    });
+    assert!(settled.status());
+    let follower = NodeHandle::start(
+        "history-reorg-ordinary-follower",
+        &NodeConfig {
+            binary: NodeBinary::Follower,
+            genesis_path: Some(&world.cfg.l2_genesis.0),
+        },
+        &world.partial_follower_env(),
+    )
+    .await
+    .unwrap();
+    wait_for_safe_prefix_convergence(
+        &[&world.node, &follower],
+        settled.block_number.unwrap(),
+        TIMEOUT,
+    )
+    .await
+    .unwrap();
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for (hash, receipt) in hashes.iter().zip(&repaired) {
+        let replayed = replay
+            .get_transaction_receipt(*hash)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(replayed.status());
+        assert_eq!(replayed.block_hash, receipt.block_hash);
+    }
+    assert_eq!(
+        replay.get_balance(ANVIL_ADDR_3).await.unwrap(),
+        balance + U256::from(180)
+    );
+    let replayed_history = replay.call(lookup).latest().await.unwrap();
+    assert_eq!(
+        IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&replayed_history).unwrap(),
+        replaced.hash
+    );
+    world.node.assert_no_divergence_failure_logs();
+    follower.assert_no_divergence_failure_logs();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order() {
     let env = [

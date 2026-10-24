@@ -1,4 +1,4 @@
-"""The state-ordering fixture follows Sync execution independently of posting."""
+"""The state-ordering fixture collects after an accepted idle cutoff."""
 import os
 from pathlib import Path
 import subprocess
@@ -67,18 +67,31 @@ refresh_node_log() {
             return subprocess.run(["bash", "-c", harness + function + "\nwait_for_sync_boundary"],
                                   env=env, capture_output=True, text=True, timeout=5)
 
-    def test_committed_empty_sync_advances_without_a_drain_or_post(self):
-        event = '[eez-node] {"fields":{"message":"produced block 12 hash=0x00 ts=24 kind=sync",' \
-                '"slot.kind":"sync","block.number":12},"target":"eez_driver::sequencer"}'
+    def test_accepted_idle_cutoff_opens_collection_without_a_drain_or_post(self):
+        event = '[eez-node] {"fields":{"event_name":"eez.sequencer.slot.decision",' \
+                '"prepare":false,"skip_post":true},"target":"eez_driver::sequencer"}'
         result = self.wait_for_boundary(event)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_live_execution_and_pool_drain_do_not_claim_a_committed_sync(self):
+    def test_active_or_incomplete_decisions_do_not_open_collection(self):
+        for fields in ('"prepare":true,"skip_post":true',
+                       '"prepare":false,"skip_post":false',
+                       '"prepare":false', '"skip_post":true',
+                       '"prepare":"false","skip_post":true'):
+            with self.subTest(fields=fields):
+                event = '[eez-node] {"fields":{"event_name":"eez.sequencer.slot.decision",' \
+                        + fields + '}}'
+                result = self.wait_for_boundary(event)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("timed out waiting for a fresh", result.stderr)
+
+    def test_execution_and_pool_drain_do_not_open_collection(self):
         event = '[eez-node] {"fields":{"message":"produced block 13 kind=live","slot.kind":"live"}}\n' \
+                '[eez-node] {"fields":{"message":"produced block 18 kind=sync","slot.kind":"sync"}}\n' \
                 '[eez-node] {"fields":{"event_name":"eez.composer.sync_slot.drain"}}'
         result = self.wait_for_boundary(event)
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("timed out waiting for a fresh Sync-slot boundary", result.stderr)
+        self.assertIn("timed out waiting for a fresh accepted idle cutoff", result.stderr)
 
 
 if __name__ == "__main__":

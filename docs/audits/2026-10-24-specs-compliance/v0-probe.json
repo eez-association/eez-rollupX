@@ -1,0 +1,21 @@
+{
+  "compiler_command": [
+    "rustup",
+    "run",
+    "1.95.0",
+    "rustc",
+    "--edition=2024",
+    "artifacts/specs-review-2026-10-24/v0_probe.rs",
+    "-L",
+    "dependency=target/debug/deps",
+    "--extern",
+    "eez_payload_codec=target/debug/deps/libeez_payload_codec-a4a5735393a856d2.rlib",
+    "-o",
+    "artifacts/specs-review-2026-10-24/v0_probe"
+  ],
+  "rlib": "target/debug/deps/libeez_payload_codec-a4a5735393a856d2.rlib",
+  "rlib_sha256": "f723e7c90470eaabf8cef7c46728e658077419c3b7dc8e78bc93522f6438f3ef",
+  "source_sha256": "b27194f6e50df6014209632f7bacaf41eb8074de9bf9f947eb7480e91ab98bdf",
+  "executable_sha256": "550b4856d77eaea7ad613ccfff5bdb81b81d7cb5bf8cac8927138944d6f0ee27",
+  "output": "draft_vector_1: 31 bytes -> Counts (rejected)\nrollupx_equivalent: 26 bytes -> 6 blocks (accepted)\nlocal_hex: 0006c40600000000000000000000000000000000000000000600\n"
+}

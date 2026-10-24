@@ -403,5 +403,53 @@ L2 call exec: {other["hash"]}
                         self.assertFalse(output.exists())
 
 
+class BlobSmokeSummaryTest(unittest.TestCase):
+    def test_large_backlog_keeps_every_batch_and_correlation(self):
+        # Exercise the real final assembly with evidence larger than Linux's
+        # per-argument limit. This does not broadcast or mock protocol checks.
+        script = (REPO / "testing/kurtosis/scripts/verify-blob-da.sh").read_text()
+        assembly = script[script.index("\nbatches_"):script.index(
+            '\necho "==> blob DA smoke test passed"')]
+        with tempfile.TemporaryDirectory(prefix="eez-blob-summary.") as temporary:
+            root = Path(temporary)
+            batches = [dict(verified=True, l1_transaction_hash=word(n),
+                            payload=dict(block_count=24, evidence="x" * 150_000))
+                       for n in (1, 2)]
+            for n, batch in enumerate(batches):
+                (root / f"batch{n}.json").write_text(json.dumps(batch))
+            correlation = [dict(l2_transaction=word(3), l2_to_l1=dict(
+                l1TransactionHash=word(1), complete_evidence="y" * 300_000))]
+            (root / "correlation-input.json").write_text(json.dumps(correlation))
+            setup = r'''
+set -euo pipefail
+RUN_DIR="$1"
+temp_dir="$1"
+verified_batch_files=("$1/batch0.json" "$1/batch1.json")
+correlation_evidence="$(cat "$1/correlation-input.json")"
+ENCLAVE=test
+sender=sender
+counter=counter
+deploy_hash=deploy
+increment_hash=increment
+add_hash=add
+safe_block_hash=settled
+registry_root=settled
+ROLLUP_ID=1
+safe_number=48
+safe_count=42
+expected_hashes=(deploy increment add)
+declare -A covered_by=([deploy]=batch0 [increment]=batch1 [add]=batch1)
+'''
+            result = subprocess.run(["bash", "-c", setup + assembly, "summary", str(root)],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads((root / "summary.json").read_text())
+            self.assertTrue(summary["verified"])
+            self.assertEqual(summary["verified_blob_batches"], batches)
+            self.assertEqual(summary["correlation_rpc"], correlation)
+            self.assertEqual(summary["l2_transaction_to_l1_blob_batch"],
+                             dict(deploy="batch0", increment="batch1", add="batch1"))
+
+
 if __name__ == "__main__":
     unittest.main()

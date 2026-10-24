@@ -1,0 +1,267 @@
+{
+  "status": "partial; applicable local source/harness checks and extended R03 live validation pass after recorded corrections; final exact CI shipping-artifact/live validation remains pending",
+  "source": {
+    "branch": "codex/l1-history-offline-proving",
+    "initial_head": "3e23955dc477c9e675364776f118b1cecda75774",
+    "target_main": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "description": "Reviewed working-tree patch; exact final captures and executable identity are recorded separately."
+  },
+  "checks": [
+    {
+      "id": "workspace",
+      "command": "cargo +1.95.0 test --locked --offline --workspace --exclude eez-node-e2e -- --test-threads=2",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-tests-final.log",
+        "sha256": "bd33ae22e568d73b1f10295b9e95738de1ba46cb3536f83b0c6386ae4a1ff17f",
+        "availability": "local-only"
+      },
+      "passed": 1585,
+      "ignored_or_skipped": 3,
+      "limits": "Pre-R03 production snapshot; manual timing profile and two explicitly invoked fixture utilities. Later RPC production is covered by exact-tree CI lib/bin units and focused process validation. Process tests run separately."
+    },
+    {
+      "id": "clippy",
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-clippy-final.log",
+        "sha256": "fc778225e6534e2d0dfec1ebcd2c4e5476469cdcff42bf341d3011fef3949c34",
+        "availability": "local-only"
+      },
+      "limits": "Pre-R03 snapshot; later full-workspace Clippy is recorded separately."
+    },
+    {
+      "id": "rust_format",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-format-final.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only"
+      }
+    },
+    {
+      "id": "integration_contracts",
+      "command": "forge test --root contracts",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/contracts-tests-final.log",
+        "sha256": "e7dc0cc533d99d27a59037263fe23ff5eb882ef14d62e11a25a61bb547fe7f54",
+        "availability": "local-only"
+      },
+      "passed": 142,
+      "ignored_or_skipped": 0
+    },
+    {
+      "id": "genesis",
+      "command": "bash scripts/update-eezl2-genesis.sh --check",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/genesis-check-final.log",
+        "sha256": "44ac04de0e1ad33c3d30d977e1bf115b32312da549707eec40722e8054ad88d8",
+        "availability": "local-only"
+      },
+      "limits": "Final fixture root 0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf."
+    },
+    {
+      "id": "tooling",
+      "command": "bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\" python3 -m unittest discover -s scripts/ci/tests -v",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/tooling-tests-packaging-corrected.log",
+        "sha256": "e060efcc21cb793dcf816ae1478e9ccada1bf3289a0e173ba1e98eb6a7a0279a",
+        "availability": "local-only"
+      },
+      "passed": 395,
+      "ignored_or_skipped": 7,
+      "limits": "402 selected; seven opt-in probes skipped. The new Docker-context probe separately passed (1/1); six other opt-in probes remain unexecuted. An intervening run without the private /tmp bind failed and is retained separately."
+    },
+    {
+      "id": "branch_history_secret_scan",
+      "command": "gitleaks git . --config .gitleaks.toml --log-opts='origin/main..HEAD -m' --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/secret-scan-branch-history.log",
+        "sha256": "33faf85b55a8cfc58f2a3c3d1c1cc67cd318362fdb89bed49b3e29b893e23717",
+        "availability": "local-only"
+      },
+      "limits": "Nine existing branch commits scanned; uncommitted candidate scan is separate."
+    },
+    {
+      "id": "tooling_without_private_tmp",
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v (TMPDIR set, but no private /tmp bind)",
+      "exit_code": 1,
+      "log": {
+        "path": "artifacts/pr-readiness/tooling-tests-packaging-final.log",
+        "sha256": "0df3c2173325f61ef8d5c4d169f76b9a3242e85f28289b56e18d0c240156fb01",
+        "availability": "local-only"
+      },
+      "selected": 400,
+      "subtest_failures": 41,
+      "errors": 13,
+      "ignored_or_skipped": 6,
+      "limits": "Shared /tmp quota/I/O failures and missing downstream outputs. This is a failed invocation; the later private-bind result does not replace it."
+    },
+    {
+      "id": "clippy_rpc_final",
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "started_utc": "2026-10-24T13:03:19.703339+00:00",
+      "elapsed_seconds": 40.006,
+      "cargo_build_jobs": 1,
+      "minimum_mem_available_bytes": 17268711424,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-clippy-rpc-final.log",
+        "sha256": "121d4b21e79b5bf5bba6f7e62787fae17f276c4e055b473508e7dc4e31cf2960",
+        "availability": "local-only"
+      },
+      "source": "d1838526480b89651f759d34e27bfbcfca43fb55 plus the test-only general-block cost regression; no later production source change",
+      "test_source_sha256": "9d36d9ea7f3d5672d35a80d563b6b8f19d4843b276c8061f4d9789a30552707c"
+    },
+    {
+      "id": "rust_format_pr_closure",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0,
+      "source": "d1838526480b89651f759d34e27bfbcfca43fb55 plus the test-only general-block cost regression",
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-format-pr-closure.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only"
+      }
+    },
+    {
+      "id": "clippy_feature_final",
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "started_utc": "2026-10-24T13:23:14.156116+00:00",
+      "elapsed_seconds": 160.023,
+      "cargo_build_jobs": 1,
+      "minimum_mem_available_bytes": 16667254784,
+      "source": "0e34a326536befc31ee62a92647bfc3dca9ddee2 Rust/manifests; compilation began on the identical reviewed patch before commit",
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-clippy-feature-final.log",
+        "sha256": "1232c58806f5135c683d86df1163828ed5e43f42718b73ae18f7706afb25d086",
+        "availability": "local-only"
+      }
+    },
+    {
+      "id": "tooling_integration_final",
+      "source_head": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+      "started_utc": "2026-10-24T14:00:02.333364+00:00",
+      "elapsed_seconds": 293.535,
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "private_tmp_bind": "artifacts/tmp/tooling-integration-final",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/tooling-integration-final.log",
+        "sha256": "92cfd5b7c8b18e43e3a40f21f4cdbe59c7af04a23ecb11664c5b823af79cc8ef",
+        "availability": "local-only"
+      },
+      "selected": 413,
+      "skipped": 7,
+      "skip_reasons": [
+        "'opt-in real data-only Docker image'",
+        "'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'"
+      ],
+      "changed_tooling_inputs": [
+        {
+          "path": "scripts/ci/tests/fixtures/protocol-lookup/README.md",
+          "sha256": "1e93528bfe3f21f19233d99ed289c5801da93ac3388d3700e1ab0a6b880fd5bb"
+        },
+        {
+          "path": "scripts/ci/tests/fixtures/protocol-lookup/staticLocalWrite-trace.json",
+          "sha256": "d1af05807590efa1b5baf65f5c906932b8d5d5d21cc4df890d131398eac3550b"
+        },
+        {
+          "path": "scripts/ci/tests/fixtures/protocol-lookup/staticLocalWrite.txt",
+          "sha256": "0a751ad9a47ff304079918294a4ce5eb447d98bed014f45f55b66a827c242cbe"
+        },
+        {
+          "path": "scripts/ci/tests/test_kurtosis_fee_quotes.py",
+          "sha256": "8e0b8ec719d703503da96e6d9e6ed1ca1360a674d42b9773e7bf18c4a004f60f"
+        },
+        {
+          "path": "scripts/ci/tests/test_protocol_lookup_evidence.py",
+          "sha256": "cf9374623328af86880fd6e1f68af7ef6f217fd2f594847c08541e98cfdc16d3"
+        },
+        {
+          "path": "testing/kurtosis/scripts/collect-protocol-e2e-evidence.sh",
+          "sha256": "bd699f014a7f8958c0a2d04f654f3ce7a133da88ae04a20f8edbc39fdfe7edd8"
+        },
+        {
+          "path": "testing/kurtosis/scripts/lib.sh",
+          "sha256": "ab87c083d2879cfff1b7d630ccd8d8731c38d3d03a405c633ab715d66aab245f"
+        },
+        {
+          "path": "testing/kurtosis/scripts/lookup-entry.jq",
+          "sha256": "b7b3656b6ab1b289f45aecdd71b9c6273b67ff8bb342ccf24d7eeeb702411345"
+        },
+        {
+          "path": "testing/kurtosis/scripts/lookup-trace.jq",
+          "sha256": "fb5f219cbf83ce60aba7e6f8e932b13ea8bcf9f2438af41e477d37b422eb038a"
+        },
+        {
+          "path": "testing/kurtosis/scripts/verify-l1-lookup.sh",
+          "sha256": "78e712818e70df067f2c52cda76e0510f52361b40c851b44cac13ed2e5e8bff0"
+        }
+      ],
+      "inputs_unchanged": true,
+      "passed": 406,
+      "limits": "Seven opt-in infrastructure/artifact checks were skipped by their existing selectors. The deploy-context check has separate prior passing evidence; the other six remain unexecuted. This suite uses mocked infrastructure where specified by each test and does not replace live or cold replay evidence."
+    },
+    {
+      "id": "clippy_prefix_final",
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "elapsed_seconds": 3.002,
+      "started_utc": "2026-10-24T14:22:50.297784+00:00",
+      "cargo_build_jobs": 1,
+      "minimum_mem_available_bytes": 17000632320,
+      "source_head": "0e34a326536befc31ee62a92647bfc3dca9ddee2",
+      "changed_rust_source": "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs",
+      "source_sha256_before": "e6d0c87d2724d9b8d45929b506549a82b099ef2d11297b20ec72fb90cbfdb384",
+      "source_sha256_after": "e6d0c87d2724d9b8d45929b506549a82b099ef2d11297b20ec72fb90cbfdb384",
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-clippy-prefix-final.log",
+        "sha256": "2c3a3b1e19224f795110d7e6343edb3f2d4e88be8482fbcea6fee52f3d5907e7",
+        "availability": "local-only"
+      }
+    }
+  ],
+  "related_evidence": [
+    "final-fixture-evidence.json",
+    "dependency-gate.json",
+    "signer-port-collision.json",
+    "native-process-suite.json",
+    "pending-rpc-validation.json",
+    "general-rule-native-history.json",
+    "ci-draft-observation.json",
+    "ci-unit-validation.json",
+    "ci-runtime-archive.json",
+    "ci-final-runtime.json",
+    "fee-accounting-review.json",
+    "static-local-write-oracle.json",
+    "kurtosis/yaml-workload-regression.json",
+    "ci-prefix-fixture.json",
+    "kurtosis/state-chaining-regression.json",
+    "kurtosis/cross-chain-waves.json",
+    "replay-receipt-fix.json",
+    "closure-review.json",
+    "kurtosis/partial-consumption.json",
+    "kurtosis/cold-replay-diagnostic.json"
+  ],
+  "unresolved": [
+    "Dependency advisory gates fail on both candidate and target main; no waiver or upgrade included.",
+    "The frozen process suite completed with two classified failures: a diagnosed port-collision flake and an obsolete cost predicate corrected with a separately passing regression.",
+    "The second CI release producer passed the archive guard but failed two example fixture tests. Those failures were reproduced and corrected locally; the next exact release payload and downstream validation remain pending.",
+    "Live default protocol scenarios pass; two MissingProxy negative scenarios were rejected before reaching the intended terminal queue oracle, and unsupported signer-profile scenarios remain excluded.",
+    "The original wave wrapper failed at admission; corrected state-chaining, partial-consumption and same-input R03 cold replay pass separately. Exact final shipping artifacts and their live replay remain pending."
+  ]
+}

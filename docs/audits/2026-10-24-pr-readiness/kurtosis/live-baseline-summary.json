@@ -1,0 +1,426 @@
+{
+  "candidate": "baseline shipping binaries before pending-RPC correction",
+  "network_uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+  "local_evidence_root": "artifacts/pr-readiness/kurtosis/live",
+  "l2_fees": {
+    "status": "pass",
+    "evidence_sha256": "4ba433de0a0d730ef7896b86cb157bc77e0617b4698edb7d4738779ee58707ad",
+    "underfunding_code": "l2_tip_underfunded",
+    "same_native_block": true,
+    "sources": [
+      {
+        "hash": "0x2a3fdc92a83fbc2037ad8afa248242c5171374d6b1f07ea904475d3af0fb621a",
+        "block": 438,
+        "gas_used": 116406,
+        "gross_l2_tip": "592568468108406",
+        "required_l2_tip_quote": "592568467999642",
+        "target_value": "123",
+        "ownership": {
+          "canonical": {
+            "hash": "0x59eb2354063ce5c684f16b2f56e323964d199e56eebefe7110d8fe0430b01e33",
+            "number": 74
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      },
+      {
+        "hash": "0x11fe859ba8dc426cb7852e47f2f603ce6f69685ab54a5d41fd3377289a40b0ab",
+        "block": 438,
+        "gas_used": 116406,
+        "gross_l2_tip": "592568468108406",
+        "required_l2_tip_quote": "592568467999642",
+        "target_value": "124",
+        "ownership": {
+          "canonical": {
+            "hash": "0x59eb2354063ce5c684f16b2f56e323964d199e56eebefe7110d8fe0430b01e33",
+            "number": 74
+          },
+          "reason": "Committed",
+          "state": "terminal"
+        }
+      }
+    ],
+    "postings": [
+      {
+        "hash": "0x9967cadca894768c538d37c403614cbcd01890a67626df059241f282c73d10b6",
+        "actualPostingCostL1": "850456801595012",
+        "requiredL2": "1020548161914015",
+        "paidL2": "1185136936216812"
+      }
+    ]
+  },
+  "l1_fees": {
+    "status": "pass",
+    "evidence_sha256": "6cf6a24fca1e90c028a03c7ca7051176065052edc816e098901ab338646792a7",
+    "completed": true,
+    "scope": "Exact largest-payer refund accounting, single-source cost recovery, and deliberately subsidized multi-source continuation; not guaranteed full batch cost recovery or automatic quote repricing.",
+    "sources": [
+      {
+        "name": "nested-0x0",
+        "hash": "0x815700b994c2d49e0d5c5fe7d0752505ea0a9e16c9bf66937802461c9591deca",
+        "type": "0x0",
+        "postHash": "0x2cca79682779e77838f1ef4e1b18b6e80c5933e02245f39a9d789e41dc6dfc9a",
+        "payoutHash": "0x167b6b4476a62acc3dca13790d20ead0496e5ce1790c17bba8142888a76773ca",
+        "actualPostingCostL1": "378112427751274",
+        "receivedRefundL1": "474749313762255",
+        "grossUserTipL1": "527499819306950"
+      },
+      {
+        "name": "nested-0x2",
+        "hash": "0x7643691a9cb111f29b37ce82a29da856dddf7e9eb306c5fbfdbe04d574e8263a",
+        "type": "0x2",
+        "postHash": "0x359b72cd4cb76da752d97a9094df8c042dea1bef21867a7ca38662a588698fe3",
+        "payoutHash": "0xb9683a63e15d8bbcf7c027ac3c1ccc0cfb742c1eefdcd002ce255d82ebb94ed6",
+        "actualPostingCostL1": "193069695800444",
+        "receivedRefundL1": "252713126473437",
+        "grossUserTipL1": "280792809394930"
+      },
+      {
+        "name": "safe-create-0x0",
+        "hash": "0x0b8b66890e1b0ee82756a29dcdb7769bd440f9ec252e015cbe1554fb39aae4c8",
+        "type": "0x0",
+        "postHash": "0xe806d5e6809f0e0684df14efba5f586cf3b9fb9940b2484792eb9256fde6f2f3",
+        "payoutHash": "0xbe39a18dce7ceb7224ac43e8ea633266b752b0db0cf2ff2f78aa1b240eb7ecd1",
+        "actualPostingCostL1": "194072854124492",
+        "receivedRefundL1": "253901825235305",
+        "grossUserTipL1": "282113482290339"
+      },
+      {
+        "name": "safe-create-0x2",
+        "hash": "0x85267641a164aa31bfaa3dfb18ce7540de6867365ec8d75c8195002b10936960",
+        "type": "0x2",
+        "postHash": "0x10e4042afaad5c1177b6e1e0ea2f10a7367f6017999ff82ec19c6f6dab5c1a16",
+        "payoutHash": "0x6172b967d565868ba9a02979080da204bf9d0064606d94afc43de8b58d2312bd",
+        "actualPostingCostL1": "190865152683986",
+        "receivedRefundL1": "250038586069440",
+        "grossUserTipL1": "277820914341600"
+      }
+    ],
+    "batches": [
+      {
+        "postHash": "0xebca0b7abb4731fdb7e6f23419e99955ac18472c180b691d4aedc4bbd4b4d1e4",
+        "selectedPayer": "0x28b211354be2a423eca05c18cf9ff7dedc3069fb37112dc86c876c08a65ac5e4",
+        "actualPostingCostL1": "937845763425511",
+        "receivedRefundL1": "279978384507124",
+        "shortfallL1": "657867378918387",
+        "expectedL2Value": "903"
+      },
+      {
+        "postHash": "0x7cc7d09c441dcd794e1466259f89cfde4c6030ba31e4f19507870dcf47304959",
+        "selectedPayer": "0xaaf89db82af78ab781e86830ee2d1de7de21f5827e0c546b23ec3d3849bf1f3b",
+        "actualPostingCostL1": "360103234200626",
+        "receivedRefundL1": "252708962334477",
+        "shortfallL1": "107394271866149",
+        "expectedL2Value": "905"
+      }
+    ]
+  },
+  "blob_control": {
+    "status": "pass",
+    "scope": "Explicit latest gas estimation; does not validate pending RPC compatibility or independent EVM replay",
+    "evidence_sha256": "63b97d9de8d9608d7467e9e366cc4888a44de4ad4b8bff318fbc11de3d9adaec",
+    "summary": {
+      "verified": true,
+      "enclave": "eez-native-v1-review-20261024",
+      "rollup_id": 1,
+      "sender": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "contract": {
+        "address": "0x5F1e91d509cFEB544809B0749284DEB25C3a113a",
+        "deployment_tx": "0xeaf8a7523c896a3e249011c273eabd4fde30225fe323f2f7ac3178f2c3c2e6d8",
+        "increment_tx": "0xc9c7032595c3050f4f00db1dda5591b75045a1d473ddef07b9bf24a35f77f00c",
+        "add_41_tx": "0x6251270033fbe68f2296c83a466df6c2d8f17c050ee09e6568a0ca61e4041c08",
+        "value_at_safe": 42
+      },
+      "settlement": {
+        "safe_l2_block": 612,
+        "safe_l2_block_hash": "0x7d6011ba9c890d22dc638a4c4f89218b866c89de48813431f881b773774d318e",
+        "l1_registry_commitment": "0x7d6011ba9c890d22dc638a4c4f89218b866c89de48813431f881b773774d318e"
+      },
+      "l2_transaction_to_l1_blob_batch": {
+        "0xeaf8a7523c896a3e249011c273eabd4fde30225fe323f2f7ac3178f2c3c2e6d8": "0xbb07ed72b3ce6c0dc431fa314aaf2a02d3108918283744c21a1fb4a540f3316b",
+        "0xc9c7032595c3050f4f00db1dda5591b75045a1d473ddef07b9bf24a35f77f00c": "0xbb07ed72b3ce6c0dc431fa314aaf2a02d3108918283744c21a1fb4a540f3316b",
+        "0x6251270033fbe68f2296c83a466df6c2d8f17c050ee09e6568a0ca61e4041c08": "0xbb07ed72b3ce6c0dc431fa314aaf2a02d3108918283744c21a1fb4a540f3316b"
+      },
+      "verified_blob_batches": [
+        {
+          "blob_count": 1,
+          "l1_block_hash": "0xec82618deeb0759ccd7f2d38ae7ac25cd2edb184a0dd3f323fe0170f79383293",
+          "l1_block_number": 103,
+          "l1_transaction_hash": "0xbb07ed72b3ce6c0dc431fa314aaf2a02d3108918283744c21a1fb4a540f3316b",
+          "verified": true,
+          "payload": {
+            "block_count": 24,
+            "transaction_count": 7,
+            "execution_verified": false,
+            "semantic_transaction_count": 0
+          },
+          "settlement_claim": {
+            "post_block_hash": "0x7d6011ba9c890d22dc638a4c4f89218b866c89de48813431f881b773774d318e",
+            "pre_block_hash": "0xf461f52ed28c367375b98d55b3afd337f0cef1cf8a8068d2e03d496d03ccf8f4"
+          }
+        }
+      ],
+      "correlation_rpc_checked": 3
+    }
+  },
+  "bridge_fees": {
+    "status": "pass",
+    "evidence_sha256": "b33adc2f7f03916e4d187da2f92b3a3c2aeb8079e61277f8107a75d1f558837d",
+    "inbound_hash": "0xe595afa63643339fb1e80ad7396730673aa02789b005d6ea53789c8f73b12f48",
+    "sources": [
+      {
+        "hash": "0xef51902a4587de68de34c10a39df9c2a81ce3bc9a5c21f98ee0511e481b4898d",
+        "l1Cost": "510938210637528",
+        "requiredL2Tip": "613125852765034",
+        "grossL2Tip": "613125888638536",
+        "gasDifference": "0"
+      },
+      {
+        "hash": "0x876583fa04a05f8bee0aeea84b5befe3c0377d3386ae498575bf2908a8567f8d",
+        "l1Cost": "201060063867092",
+        "requiredL2Tip": "241272076640511",
+        "grossL2Tip": "241272119962890",
+        "gasDifference": "0"
+      }
+    ]
+  },
+  "history_and_vault": {
+    "verified": true,
+    "estimation_control": "explicit latest; synthetic pending compatibility is not covered",
+    "history": [
+      {
+        "transaction": "0x4f689e54d374ae7982d4ff968fc6bd729769a0375b271bdcbf78108241378ec1",
+        "l2_number": 704,
+        "l2_hash": "0x208b9e3b619d8c08d9f1a674a4626120ca73d1eb1e211d7a3e650ebe49c4a584",
+        "l1_number": 117,
+        "l1_hash": "0xd75876192e8e1beed571ac8afa9847831016586669170b928b44c6e023c639a7",
+        "randao": "0x29ab00a6c1a8a5c24f22cfadfb8aba0bd6520c512848677d01c1bf9331ef2a9a"
+      },
+      {
+        "transaction": "0x8374df5e50e1402251df09e52190fe6d3f1b803264968d73700e13dd2c2a1585",
+        "l2_number": 711,
+        "l2_hash": "0x07c7d000752cf5dc7507a0bfa2953da368fd7f45139e2199e68704239db26313",
+        "l1_number": 119,
+        "l1_hash": "0x3665c27fe0d08bdb46f702ed62147feee95b3c109ff69ab1bb213bf2c9c8e471",
+        "randao": "0xb6e0f724cd49ca35c02a4d71737244aa5fe67b900af22d13c5ea0cd46c3f5b0d"
+      },
+      {
+        "transaction": "0xaf90ec6bb7ad941a0575effcb4386540e33df6d99df04ceea427051fd7a8ffa4",
+        "l2_number": 721,
+        "l2_hash": "0x5ee72db79e27196608c6dfd511ae249969ae0276942fab4d21feac3888234f76",
+        "l1_number": 120,
+        "l1_hash": "0x62f633340443664ebf7accc995346e9c78564e615a4d748c6583ce3bf6d7d076",
+        "randao": "0xcbb8345a74ab83e4f973df41894724bea5ab95dac9d6a587b0a3cc9b63118de0"
+      }
+    ],
+    "history_range": {
+      "first": 0,
+      "endpoint": 121,
+      "checked_hashes": 122,
+      "delay": 6,
+      "interval": 12,
+      "updates": [
+        {
+          "number": 699,
+          "transaction": "0x4d712b320fea796663cee60c17a0ca758f9827807f4e5e4ed4897e30e1dada02",
+          "imported": 1
+        },
+        {
+          "number": 705,
+          "transaction": "0xd094c64d85e2dac5608dfab3dbacd83e7f7766c6c8f903a9565b6b6fa497657b",
+          "imported": 1
+        },
+        {
+          "number": 711,
+          "transaction": "0xacf8353916ccb95cdf4e1e24e5f98f8f83513695600efe1d8d01f1997d5e9af0",
+          "imported": 1
+        },
+        {
+          "number": 717,
+          "transaction": "0xa27fefa28f5a99668b4d220a5b910a5efb63509c9e66b7df9ae5e9c2fb14aae9",
+          "imported": 1
+        },
+        {
+          "number": 723,
+          "transaction": "0xce6aa3775faa2bbdc41fcd3dcb22211db6ac5ea13e796bf93131d4b49c126890",
+          "imported": 1
+        }
+      ],
+      "blocks": 31,
+      "native_receipts": 5,
+      "receipts": 9
+    },
+    "vault": {
+      "credit": {
+        "start_balance": "1605613824394300",
+        "end_balance": "1605614263174915",
+        "expected_delta": "438780615",
+        "from_block": 697,
+        "to_block": 727
+      },
+      "recipient_update": {
+        "owner": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "before": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+        "after": "0x8888888888888888888888888888888888888878",
+        "unauthorized_transaction": "0x1296f4488a9cccbafc652219f49d693e5fd82a6de92ca3bd6bf3617c1e986777",
+        "authorized_transaction": "0xff172e7c1d9b81c9b9f99700818893029bbde74269a544b5bfe09277c087acd2"
+      },
+      "withdrawal": {
+        "transaction": "0x612af6b6596f1c5a1ec1b6ff46cb30549e5097bf81b7c9d502509bb99cb7ff1f",
+        "amount": "1605614286866719",
+        "recipient_delta": "1605614286866719",
+        "remaining_balance": "25477475"
+      },
+      "restore_transaction": "0x8821cf1a202c8bfc52855d08f06d422e9836f162df02c87e873bd98228f4a5fa"
+    },
+    "canonical_safe_block": 744,
+    "evidence_sha256": "88a8b8a42c519b3ced0d5e6a26e29a49fe0f141c4350897025d577074af7f4d2"
+  },
+  "protocol_first_attempt": {
+    "result": "FAIL: bootstrap gas estimation rejected synthetic pending history boundary",
+    "eligible": 34,
+    "selected": 34,
+    "passed": [
+      "bridge"
+    ],
+    "not_executed": [
+      "multi-call-twice",
+      "multi-call-two-diff",
+      "multi-call-twiceL2",
+      "multi-call-two-diffL2",
+      "counter-multi-tx",
+      "deepNested",
+      "flash-loan",
+      "multi-call-nested",
+      "nestedCounter",
+      "multi-call-nestedL2",
+      "nestedCounterL2",
+      "counter",
+      "bridgeL2",
+      "counterL2",
+      "reentrant",
+      "nestedCallRevert",
+      "revertCounter",
+      "revertFromOtherChain",
+      "nestedCallRevertL2",
+      "revertCounterL2",
+      "revertFromOtherChainAndCallAgainL2",
+      "revertFromOtherChainL2",
+      "revertFromOtherChainNested",
+      "nestedStaticCounter",
+      "staticReadWrite",
+      "staticReadX2Write",
+      "topLevelStaticCounter",
+      "topLevelStaticReentrantCounter",
+      "nestedStaticCounterL2",
+      "staticCounterL2",
+      "staticReadWriteL2",
+      "staticReadX2WriteL2",
+      "topLevelStaticReentrantCounterL2"
+    ],
+    "default_exclusions": [
+      "catchNestedRevertAfterCallback",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "catchRemoteRevertAfterCallback",
+      "catchNestedRevertAfterCallbackL2",
+      "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "catchRemoteRevertAfterCallbackL2",
+      "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "nestedRollbackRestoresInnerThenOuterStateL2",
+      "rollbackGroupWithStaticReadThenWriteL2",
+      "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "mutableCallMakesReadThatCallsBack",
+      "nestedStaticLocalWriteL2",
+      "staticLocalWrite",
+      "staticReadCallsBackAndReadsAgain",
+      "staticThenNestedWrites",
+      "topLevelStaticReentrantMissingProxy",
+      "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "mutableCallMakesReadThatCallsBackL2",
+      "nestedStaticLocalWriteL1",
+      "staticLocalWriteL2",
+      "staticReadCallsBackAndReadsAgainL2",
+      "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "staticReadHandlesFailedCallbackL2",
+      "staticReadPropagatesFailedCallbackL2",
+      "staticReadThenCatchFailedWriteL2",
+      "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "staticReadThenRollbackWriteL2",
+      "staticReadThenWriteWithCallbackL2",
+      "staticThenNestedWritesL2",
+      "topLevelStaticReentrantMissingProxyL2"
+    ],
+    "failure": "L1 derivation source unavailable: pending L1 history import has not executed",
+    "failure_stage": "parallel phase L2 faucet funding before any of 33 scenario results",
+    "bridge": {
+      "seconds": 66.78,
+      "claims": {
+        "upstream_completed": true,
+        "receipts_revalidated": true,
+        "scenario_tables_selected_from_canonical_calldata": true,
+        "upstream_summary_blocks_match_receipts": true,
+        "causal_graph_bijection": true,
+        "blob_kzg_authenticated": true,
+        "native_semantics_decoded": true,
+        "semantic_trigger_bound": true,
+        "l1_settlement_verified": true,
+        "posted_table_field_match": true,
+        "rolling_hashes_replayed": true,
+        "l2_table_field_match": true,
+        "l2_calls_verified": true
+      },
+      "trigger_transaction": "0xbb6347736a7a964857ff6da822eb9b2483d83af137025f6b47837580074299c8",
+      "settlement_transaction": "0xba7f7487ab3b06b6e78ca531f5b074975b37a7364d08e23ade7b38eb9d18cc65",
+      "delivery_transaction": "0xd0526babd67e65377aa7e25320be98b5f75819019d4351b8eb4bf3e6dc65586b",
+      "l1_block": 201,
+      "l2_block": 1242
+    },
+    "evidence": {
+      "phases/protocol-baseline.log": "d474902cd6c529b292d9b49851c1f0cd5a54604d1647798fa3c1df60ef4c25c3",
+      "protocol-baseline/protocol-e2e/summary.json": "b830e6cdeb26968ae2b69163317a7374de2fc9a48949264ba06b4d10b0db1314",
+      "protocol-baseline/protocol-e2e/network.ATox82mJ/execution.json": "2ce25d32f846c8880d360709553dbd3ed050167206a47fb7cd86c9089c6faa61",
+      "protocol-baseline/protocol-e2e/network.ATox82mJ/parallel.log": "d68916e31934794ed779c7919e5d0e44b9d54057a4a6d8b15fc26b8a6f80837a"
+    }
+  },
+  "expired_blockhash_window": {
+    "verified": true,
+    "candidate": "baseline release before pending-RPC correction",
+    "method": "read-only eth_call at pinned block numbers; L1 code override executes CALLDATALOAD/BLOCKHASH, with a recent-parent calibration; no contract deployed",
+    "l1_block": {
+      "number": 264,
+      "hash": "0xf00a45327a71da71ab9c9da441bbd40f637767b01173ff884e13e241502ae500"
+    },
+    "probe_runtime": "0x6000354060005260206000f3",
+    "recent_parent_blockhash": "0x0e4a895cc647d20f6d77633730ad15bd4a3128ff974211930a66f44fdef21767",
+    "expired_l1_number": 1,
+    "expired_l1_opcode_result": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "expired_l2_stored_hash": "0x8761de53330ebb0c255ba4f205b79f64f5742f2deeb9c64e3994099017c4e408",
+    "safe_l2": {
+      "number": 1602,
+      "hash": "0xbe1fe8955cd9f549d5527c6f9413cb54f4981bd12630416780acde1793e7afc4",
+      "state_root": "0x3d5162347ded4d13194fd22b2c6fbea00354cec364b362b718f7d80ed350e2f5"
+    },
+    "history_origin": 260,
+    "checked_hashes": 261,
+    "limitations": "Checks retained L1 history on L2 after expiration of the L1 BLOCKHASH window; does not prove a newly submitted historical-anchor request at that old height.",
+    "evidence_sha256": "6ec8a7141b63178f4d55cb2e92ee2ab34ad0d5edbd2431504100a9212c2cc850"
+  },
+  "network_after_build_oom": {
+    "verified": true,
+    "source": "artifacts/pr-readiness/kurtosis/live/memory-incident-network-health.json",
+    "last_l1": 310,
+    "last_l2": 1898,
+    "safe_l2": 1878,
+    "preserved_earlier_safe": {
+      "number": 1602,
+      "hash": "0xbe1fe8955cd9f549d5527c6f9413cb54f4981bd12630416780acde1793e7afc4",
+      "state_root": "0x3d5162347ded4d13194fd22b2c6fbea00354cec364b362b718f7d80ed350e2f5"
+    },
+    "node_signer_restarts": {
+      "/eez-node--5bb8ddb73c3c4b389b1080fd4a193400": 0,
+      "/eez-proof-signer--7745082b80fa4bbcaefff968474e3c85": 0
+    },
+    "limit": "Post-incident observations; no continuous timing measurement during host OOM."
+  }
+}

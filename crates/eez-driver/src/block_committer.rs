@@ -22,8 +22,8 @@ use std::sync::{Arc, RwLock};
 use alloy_consensus::BlockHeader as _;
 use alloy_primitives::B256;
 use alloy_rpc_types_engine::{ForkchoiceState, ForkchoiceUpdateError, ForkchoiceUpdated};
+use eez_primitives::engine::EezPayloadAttributes as EthPayloadAttributes;
 use reth_engine_primitives::{BeaconForkChoiceUpdateError, ConsensusEngineHandle};
-use reth_ethereum_engine_primitives::EthPayloadAttributes;
 use reth_payload_builder::PayloadBuilderHandle;
 use reth_payload_primitives::{BuiltPayload, ExecutionPayload, PayloadKind, PayloadTypes};
 use reth_primitives_traits::{HeaderTy, NodePrimitives, SealedHeader, SealedHeaderFor};
@@ -70,6 +70,7 @@ enum CommitCommand<T: PayloadTypes> {
         response: oneshot::Sender<()>,
     },
     Sequence {
+        parent_hash: B256,
         attrs: EthPayloadAttributes,
         response: oneshot::Sender<DriverResult<CommitOutcome<T>>>,
     },
@@ -132,12 +133,11 @@ pub struct BlockCommitterHandle<T: PayloadTypes> {
 pub(crate) fn test_committer(
     initial: SealedHeader<alloy_consensus::Header>,
 ) -> (
-    BlockCommitterHandle<reth_ethereum_engine_primitives::EthEngineTypes>,
+    BlockCommitterHandle<eez_primitives::engine::EezEngineTypes>,
     Arc<std::sync::Mutex<Vec<&'static str>>>,
 ) {
-    let (sender, mut receiver) = mpsc::channel::<
-        CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
-    >(COMMAND_BUFFER);
+    let (sender, mut receiver) =
+        mpsc::channel::<CommitCommand<eez_primitives::engine::EezEngineTypes>>(COMMAND_BUFFER);
     let last_header = Arc::new(RwLock::new(initial));
     let head = Arc::clone(&last_header);
     let commands = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -148,14 +148,35 @@ pub(crate) fn test_committer(
                 CommitCommand::Barrier { response } => {
                     let _ = response.send(());
                 }
-                CommitCommand::Sequence { attrs, response } => {
-                    recorded.lock().unwrap().push("pool");
+                CommitCommand::RefreshForkchoice { response } => {
+                    let _ = response.send(Ok(()));
+                }
+                CommitCommand::Sequence {
+                    parent_hash,
+                    attrs,
+                    response,
+                } => {
+                    let current = head.read().unwrap().hash();
+                    if parent_hash != current {
+                        let _ = response.send(Err(DriverError::stale_parent(parent_hash, current)));
+                        continue;
+                    }
+                    recorded.lock().unwrap().push(if attrs.no_tx_pool {
+                        "ordinary_sync"
+                    } else {
+                        "pool"
+                    });
                     let parent = head.read().unwrap().clone();
                     let header = SealedHeader::seal_slow(alloy_consensus::Header {
                         parent_hash: parent.hash(),
                         number: parent.number + 1,
                         timestamp: attrs.timestamp,
-                        transactions_root: B256::with_last_byte(1),
+                        transactions_root: if attrs.no_tx_pool {
+                            alloy_consensus::constants::EMPTY_ROOT_HASH
+                        } else {
+                            B256::with_last_byte(1)
+                        },
+                        mix_hash: attrs.prev_randao,
                         ..Default::default()
                     });
                     *head.write().unwrap() = header.clone();
@@ -372,6 +393,7 @@ where
             let attrs = build_attributes()?;
             self.sender
                 .send(CommitCommand::Sequence {
+                    parent_hash,
                     attrs,
                     response: response_tx,
                 })
@@ -565,8 +587,12 @@ where
                 CommitCommand::Barrier { response } => {
                     let _ = response.send(());
                 }
-                CommitCommand::Sequence { attrs, response } => {
-                    let result = self.process_sequence(attrs).await;
+                CommitCommand::Sequence {
+                    parent_hash,
+                    attrs,
+                    response,
+                } => {
+                    let result = self.process_sequence(parent_hash, attrs).await;
                     let _ = response.send(result);
                 }
                 CommitCommand::RefreshForkchoice { response } => {
@@ -797,9 +823,16 @@ where
 
     async fn process_sequence(
         &mut self,
+        parent_hash: B256,
         attrs: EthPayloadAttributes,
     ) -> DriverResult<CommitOutcome<T>> {
         let head_block_hash = self.last_header.read().unwrap().hash();
+        // Another producer can enqueue against the same completed head while
+        // its predecessor is still executing. Admission's lock only covers
+        // enqueueing; fence again at execution before touching the Engine.
+        if parent_hash != head_block_hash {
+            return Err(DriverError::stale_parent(parent_hash, head_block_hash));
+        }
         let state = ForkchoiceState {
             head_block_hash,
             safe_block_hash: self.safe_header.hash(),
@@ -884,9 +917,8 @@ mod reconciliation_tests {
     async fn execution_inputs_are_captured_after_reconciliation_releases_the_same_parent() {
         use std::sync::atomic::{AtomicU64, Ordering};
         let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
-        let (sender, mut receiver) = mpsc::channel::<
-            CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
-        >(COMMAND_BUFFER);
+        let (sender, mut receiver) =
+            mpsc::channel::<CommitCommand<eez_primitives::engine::EezEngineTypes>>(COMMAND_BUFFER);
         let handle = BlockCommitterHandle {
             sender,
             last_header: Arc::new(RwLock::new(initial.clone())),
@@ -895,11 +927,12 @@ mod reconciliation_tests {
         let seed = AtomicU64::new(1);
         let guard = handle.reconcile_lock.lock().await;
         let mut sequence = std::pin::pin!(handle.commit_sequenced(initial.hash(), || {
-            Ok(EthPayloadAttributes {
+            Ok(alloy_rpc_types_engine::PayloadAttributes {
                 timestamp: 1,
                 prev_randao: B256::with_last_byte(seed.load(Ordering::Relaxed) as u8),
                 ..Default::default()
-            })
+            }
+            .into())
         }));
         let ready = std::future::poll_fn(|cx| {
             std::task::Poll::Ready(std::future::Future::poll(sequence.as_mut(), cx).is_ready())
@@ -914,7 +947,10 @@ mod reconciliation_tests {
         })
         .await;
         assert!(!ready);
-        let CommitCommand::Sequence { attrs, response } = receiver.recv().await.unwrap() else {
+        let CommitCommand::Sequence {
+            attrs, response, ..
+        } = receiver.recv().await.unwrap()
+        else {
             panic!("expected a dispatched sequence");
         };
         assert_eq!(attrs.prev_randao, B256::with_last_byte(2));
@@ -925,11 +961,72 @@ mod reconciliation_tests {
     }
 
     #[tokio::test]
+    async fn queued_sequence_rechecks_parent_before_any_engine_call() {
+        type Types = eez_primitives::engine::EezEngineTypes;
+        let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
+        let (sender, mut receiver) = mpsc::channel::<CommitCommand<Types>>(COMMAND_BUFFER);
+        let head = Arc::new(RwLock::new(initial.clone()));
+        let handle = BlockCommitterHandle {
+            sender,
+            last_header: Arc::clone(&head),
+            reconcile_lock: Arc::new(tokio::sync::Mutex::new(())),
+        };
+        let mut sequence = std::pin::pin!(handle.commit_sequenced(initial.hash(), || {
+            Ok(alloy_rpc_types_engine::PayloadAttributes {
+                timestamp: 1,
+                ..Default::default()
+            }
+            .into())
+        }));
+        let ready = std::future::poll_fn(|cx| {
+            std::task::Poll::Ready(std::future::Future::poll(sequence.as_mut(), cx).is_ready())
+        })
+        .await;
+        assert!(!ready);
+        let CommitCommand::Sequence {
+            parent_hash,
+            attrs,
+            response,
+        } = receiver.recv().await.unwrap()
+        else {
+            panic!("expected a dispatched sequence");
+        };
+        assert_eq!(parent_hash, initial.hash());
+        // The earlier producer finishes after this request was admitted.
+        let advanced = SealedHeader::seal_slow(alloy_consensus::Header {
+            parent_hash: initial.hash(),
+            number: 1,
+            timestamp: 1,
+            ..Default::default()
+        });
+        *head.write().unwrap() = advanced.clone();
+        let (engine, engine_rx) = mpsc::unbounded_channel();
+        let (payloads, payload_rx) = mpsc::unbounded_channel();
+        drop(engine_rx);
+        drop(payload_rx);
+        let mut actor = Actor::<Types> {
+            receiver,
+            to_engine: ConsensusEngineHandle::new(engine),
+            payload_builder: PayloadBuilderHandle::new(payloads),
+            last_header: head,
+            unsafe_head_hash: advanced.hash(),
+            safe_header: initial.clone(),
+            finalized_hash: initial.hash(),
+            witness_sender: None,
+        };
+        let result = actor.process_sequence(parent_hash, attrs).await;
+        // Calling the closed Engine would yield EngineRpc, not StaleParent.
+        assert!(matches!(&result, Err(error) if error.is_stale_candidate()));
+        response.send(result).unwrap();
+        assert!(sequence.await.unwrap_err().is_stale_candidate());
+        assert_eq!(handle.last_header().hash(), advanced.hash());
+    }
+
+    #[tokio::test]
     async fn reconciliation_waits_for_an_already_dispatched_sequence() {
         let initial = SealedHeader::seal_slow(alloy_consensus::Header::default());
-        let (sender, mut receiver) = mpsc::channel::<
-            CommitCommand<reth_ethereum_engine_primitives::EthEngineTypes>,
-        >(COMMAND_BUFFER);
+        let (sender, mut receiver) =
+            mpsc::channel::<CommitCommand<eez_primitives::engine::EezEngineTypes>>(COMMAND_BUFFER);
         let handle = BlockCommitterHandle {
             sender,
             last_header: Arc::new(RwLock::new(initial.clone())),
@@ -940,7 +1037,7 @@ mod reconciliation_tests {
         let sequence = tokio::spawn(async move {
             producer
                 .commit_sequenced(parent, || {
-                    Ok(EthPayloadAttributes {
+                    Ok(alloy_rpc_types_engine::PayloadAttributes {
                         timestamp: 1,
                         prev_randao: B256::ZERO,
                         suggested_fee_recipient: Default::default(),
@@ -948,7 +1045,8 @@ mod reconciliation_tests {
                         parent_beacon_block_root: None,
                         slot_number: None,
                         target_gas_limit: None,
-                    })
+                    }
+                    .into())
                 })
                 .await
         });

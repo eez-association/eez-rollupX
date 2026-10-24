@@ -1,0 +1,68 @@
+{
+  "initial_utc": "2026-10-23T16:32:19.616361+00:00",
+  "final_utc": "2026-10-23T17:16:44.043515+00:00",
+  "head_unchanged": true,
+  "gitlink_unchanged": true,
+  "protocol_clean": true,
+  "initial_tracked_diff_sha256": "b2100cdff66cd8644599f690691a93da6869d2e322d0dd5b894a46d351fab3b3",
+  "final_tracked_diff_sha256": "9e935dcd4abfc9629ac396e8ab981da02e205f652ab632e3ad70c74260fe62c5",
+  "changed_files": [
+    {
+      "path": "crates/eez-composer/src/local/build.rs",
+      "start_sha256": "8f216f5bc359b625cf0d58b880a3fe4589fde46b1d77b5c0e53171f4105a470e",
+      "end_sha256": "437e688c50c7fb4c017ba25bc43a6cdeee7bfca9eee9bbf76c4335c232c3ba4c"
+    },
+    {
+      "path": "crates/eez-control-rpc/conformance/IMPLEMENTING.md",
+      "start_sha256": "27c716075e5ff2bc8edd2c06ced8d04f2763a3c2a24002e97038746195dd521f",
+      "end_sha256": "82a1c3cc086d458fd0e121c04c3bfc88dc73b411ca973ac6fc2f98ad34535f44"
+    },
+    {
+      "path": "crates/eez-deriver/src/deriver.rs",
+      "start_sha256": "20898d62b985fcf32e4f5119f29818bcd79a774e36c9eaf56a3381fb130fd833",
+      "end_sha256": "ba8d826b9e15e85c366ea663bf7496ebc4d87842ddabe49f93c94844d09f6515"
+    },
+    {
+      "path": "crates/eez-driver/src/block_committer.rs",
+      "start_sha256": "611f788239eb827f7dfa4a696fea54a5d15ee11e6966817bd97674b87a0ad34d",
+      "end_sha256": "8fd4fe84ce0b674d786d2923f23c42045bb2099fc44dd9b1adf5f839969280aa"
+    },
+    {
+      "path": "crates/eez-driver/src/sequencer.rs",
+      "start_sha256": "3705e2e7adc101eac649ddd9ff394e8d7360eaa0bb9655bf30153fccd350f522",
+      "end_sha256": "4cbeac52c5a6f94487ecc84003f70dd78f63117f8928416d331ddaba2d563300"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history.rs",
+      "start_sha256": "21618f57af195aa8db1f48732505fd80517c66db90552f6ff164e449ed8c8ade",
+      "end_sha256": "5c3a7cf87f10ab211cc68233cfc2d37158cef30388b438832e78bc350a60a4a6"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history/tests.rs",
+      "start_sha256": "3e9a868345dbd771c5e94aeb4ab6c9f233e920d583967973d65e6bb0c6adf3ab",
+      "end_sha256": "176d18962d72802d1f40532d4f7adce268758a454972a5df430d168b9b9d5973"
+    },
+    {
+      "path": "crates/eez-node-common/src/payload_builder.rs",
+      "start_sha256": "fb0f3ee7d882ece09da0026a182ad1675dc0a18ab235220f4f74565258f55402",
+      "end_sha256": "deb42caf6c7a4fbfe30deaae4f20a823c235f648b3b6fca6748ee8be9915063a"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/derivable_operations.rs",
+      "start_sha256": null,
+      "end_sha256": "e650e294eb9fb9310707749a07a31cc8426164d1f8b3696b6721efd2017bb175"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/settlement_policy.rs",
+      "start_sha256": "29721bfd3ea50704a6b4ba7d8161aa14452fca07ab45f281a8c24e5cb57636a7",
+      "end_sha256": "12372c41040c056da846c47571c08cd436fe876c0156816191b1295c15ecb2e1"
+    },
+    {
+      "path": "crates/eez-testkit/src/lib.rs",
+      "start_sha256": null,
+      "end_sha256": "ce60156b62feafac52973ed36f7c30f8068459f97d81f8710eb982e694b1ed43"
+    }
+  ],
+  "changed_since_source_evidence": [],
+  "limitation": "Concurrent parent implementation/test repairs. Static audit only; no runtime/E2E pass attributed to either snapshot. Final reread focuses on consensus conclusions, not validation of all concurrent changes."
+}

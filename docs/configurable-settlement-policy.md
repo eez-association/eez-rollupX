@@ -1,8 +1,20 @@
 # Configurable settlement policy
 
-Implemented and validated on Ethereum and native Gnosis profiles, including
-Kurtosis and the [live Chiado deployment](audits/2026-09-13-chiado-settlement-policy/README.md). The [proposal](proposals/configurable-settlement-policy.md)
-defines the requirements; the
+For the fresh-network history profile, ordinary production has its own local clock.
+L1 RPC, proof and settlement delays cannot gate that clock. The speculative-depth
+and four same-parent replacement limits apply to settlement preparation only;
+retained ordinary prefixes settle independently in bounded parts. History-only
+Sync blocks are ordinary checkpoints despite having a nonempty transaction root.
+See the [current execution proposal](proposals/l1-origin-and-offline-proving.md).
+
+
+This policy runs within the [fresh offline-history profile](proposals/l1-origin-and-offline-proving.md).
+Current implementation and validation are recorded in the
+[feature audit](audits/2026-10-22-l1-history-offline-proving/README.md).
+Earlier Ethereum/Gnosis, Kurtosis and
+[Chiado deployment results](audits/2026-09-13-chiado-settlement-policy/README.md)
+establish the preceding policy implementation, not deployment of this new profile.
+The [policy proposal](proposals/configurable-settlement-policy.md) defines the requirements; the
 [coverage ledger](proposals/configurable-settlement-policy-implementation.md)
 records implementation, tests, evidence, and deployment limitations.
 
@@ -35,7 +47,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_PREPARATION_TIME_MS` | Removed | Must be absent, including from inherited environment and Compose inputs. Even an empty value fails startup. Choose P explicitly; no automatic migration of the old millisecond budget. |
 | `EEZ_SETTLEMENT_START_AFTER_BLOCK` | Required | Conditional production after position P, `1 <= P < K`. Proof seed + slack + delay + the shared 150 ms post-proof reserve must be strictly less than `(K-P) * L2`. See [conditional slot production](#conditional-slot-production). |
 | `EEZ_SETTLEMENT_START_DELAY_MS` | 0 | Optional nonnegative integer milliseconds, strictly less than one L2 interval. Delays the preparation decision from P's scheduled time, not its actual completion time. Empty is invalid. |
-| `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
+| `EEZ_MAX_SPECULATIVE_DEPTH` | Default 64; Compose profiles default to 0 | Caps speculative cross-chain preparation; ordinary production and retained ordinary settlement continue. Existing validation requires 0 or at least `N + K - 1`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
@@ -49,26 +61,31 @@ from an empty string. Restart is required to change settings.
 | `EEZ_L1_POSTBATCH_EXECUTION_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to sampled execution base fee before adding priority fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_BLOB_HEADROOM_BPS` | 10000 | Nonnegative integer margin added to the active network's blob base fee; bounded by the ceiling. |
 | `EEZ_L1_POSTBATCH_GAS_MARGIN_BPS` | 500 | Nonnegative integer margin on pre-refund execution gas (at least the calldata floor). The final ordered bundle is checked again at the selected gas limit. |
-| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for signer; optional for follower | `mainnet`, `chiado`, or a reviewed Ethereum-format genesis path. Every proof request supplies a matching L1 chain ID and exact target timestamp. Historical followers use the containing block's fork. |
+| `EEZ_L1_CHAIN_CONFIG` (signer and follower) | Required for both | Supported public-network preset or a reviewed complete Ethereum-format genesis path. The offline profile binds chain identity and rule epochs. Actual-parent proofs carry an exact posting context; historical proofs carry an explicit anchor and no posting context. Followers also check the actual inclusion block's rules. |
 
 Execution, blob, and gas margins use checked
 `ceil(x * (10000 + margin) / 10000)` arithmetic. Fee ceilings are per-unit
 prices, not currency budgets or maximum transaction costs. A
 required price above its ceiling keeps work pending as `fee_cap_blocked`.
 
-The gas-margin default is now 500 basis points (5%). Explicit values, including
-zero and the former 2000 default, override it; empty or malformed values are
+The gas-margin default is 500 basis points (5%). Explicit values, including
+zero, override it; empty or malformed values are
 errors. Compose forwards the operator value to the node and leaves an absent
 setting to the runtime. Shipped Kurtosis profiles explicitly use 500, and its
 Starlark transport preserves supplied strings for runtime validation. Shell
 environment takes precedence over `.env`. Signers
-do not consume this operator margin. For mixed versions, explicitly set 500 to
-keep older Composers consistent. This changes future gas planning/signing only;
-no wire, database or follower-replay migration is required. Rollback restores
-the older default if the setting is absent, so preserve explicit operator values.
+do not consume this operator margin. Changing the margin affects future gas
+planning/signing; it does not change the network's fixed execution profile.
 
-Requests without L1 posting context are rejected.
-The batch, DA and signature formats remain unchanged.
+Actual-parent requests require the exact L1 posting context. Historical-mode
+ordinary catch-up requires that field to be absent and binds its explicit
+header anchor instead. Composer uses historical mode only when that anchor and
+the intended inclusion share a rule period; at a known transition it selects
+actual-parent mode before proving. The attempt's operational parent and submission cutoff
+remain distinct from that proof anchor; retry and replacement accounting are
+unchanged. See the [offline profile](proposals/l1-origin-and-offline-proving.md)
+for its context commitment and fresh-genesis boundary. Native batch/DA encoding
+and ECDSA signature encoding remain unchanged.
 
 Signed execution fee caps are checked against the pinned L1 target and L2 draft
 base fees before allocating the finite selection window. An underpriced nonce
@@ -235,11 +252,10 @@ failed poster cannot charge a singleton's retry counter.
 Transport, proof deadlines, missing balances and uncertain chain observations
 do not authorize this reduction or penalty. Final native validation always runs.
 
-This is in-memory scheduling behavior, not a protocol or storage change. Old
-Composers lack this backoff and the expanded history/pending-L1 quote profile.
-Drain accepted work before upgrade or rollback; restart does not preserve its
-ownership or learned limits. No signer, contract, genesis or historical follower
-replay migration is needed.
+This is in-memory scheduling behavior within the fixed offline profile.
+Drain accepted work before a same-profile runtime replacement; restart does not
+preserve its ownership or learned limits. Changing scheduling settings does not
+migrate contracts, genesis or follower replay rules.
 
 Automatic submitted-attempt reconciliation permits six cumulative charged
 failures per source, allowing a smaller retry after the fifth failure. Numeric
@@ -341,9 +357,9 @@ allowed independent younger sources to pass it. Empty candidates still run
 normal simulation/classification. Cheap checks do not train
 execution timing samples. No execution estimate is cached across changed state.
 
-Estimator `candidate-framing-9` replaces the fixed 600,000 admission reserve
-with a bound on each candidate's calldata. It counts the native single-rollup
-ECDSA envelope/anchor, up to 128 proof bytes, and the target fork/operator's
+Estimator `candidate-framing-11` bounds each candidate's calldata. It counts the
+native single-rollup ECDSA envelope/anchor, its mandatory accepted-root pin,
+up to 128 proof bytes, and the target fork/operator's
 maximum permitted blob indices. Each source adds its encoded entries plus
 allowance for one root update per mutable entry, one pin per static entry,
 position/rolling hashes and dynamic offsets. Actual payload bytes remain in
@@ -355,7 +371,7 @@ against the margin-adjusted transaction budget and the original ordered
 companion start requirements. Static pools revoke the same execution discounts
 as final batch sizing, including the cheaper anchor. Unsupported entry shapes
 retain general execution pins; metadata costs grow with their actual arrays.
-Estimator `candidate-framing-10` checks both inbound possibilities before a
+It checks both inbound possibilities before a
 cheap rejection: the minimum mutable entry and a static-only group with zero
 mutable entries that restores general execution pins. Empty calls are rejected
 by composition, so every valid source belongs to one of these possibilities.
@@ -383,11 +399,11 @@ Version 4 candidate `started` records add nullable `submission_failure_streak`
 and `submission_backoff_threshold` details, displayed in Grafana's preparation
 table. Numeric admission leaves these null. Existing collectors accept these
 details without a schema change; historical candidates remain null. Version 7
-uses the existing gas fields. Upgrading or downgrading Composer changes future
-admission and in-memory retry behavior only; mixed-version signers/followers
-retain the same protocol contract and historical replay. Preserve monitoring
-history and checkpoints on rollback. A restart still requires clients to
-reconcile and potentially resubmit unsettled work.
+uses the existing gas fields. These admission-only revisions do not change the
+protocol contract. Runtime replacement still requires the same offline network
+profile and matching prover validation identity; an older proving profile is
+incompatible. Preserve monitoring history and checkpoints on rollback. A restart
+still requires clients to reconcile and potentially resubmit unsettled work.
 
 Deploy the additive collector/schema/dashboard before the new Composer. Collectors
 that understand admission events but predate `source_capacity_check` reject that
@@ -439,7 +455,12 @@ Calldata, the fork-specific calldata floor, companion execution and the
 configured gas margin remain separate. These versioned reserves describe the
 tested native ECDSA batch family; they are not network gas limits.
 
-The 160,000 base already includes the leading anchor. Queue replacement now
+The 190,000 base includes the leading anchor, the offline manager context and its
+accepted-root check. It is pinned with 64 cold rule epochs and up to 64 blob
+references; the calldata bound also includes the mandatory root pin. Incremental
+and final sizing retain the same discounts for exactly one nonzero own-rollup
+pin; missing, foreign, zero or duplicate pins keep conservative reserves and still
+face the independent settlement validation. Queue replacement
 resets active bounds without deleting old mapping values, so there is no
 per-entry cleanup reserve. A later post can overwrite those retained values;
 the slot check above determines whether the measured return-size reserve is
@@ -904,10 +925,11 @@ or proof-time configuration.
 
 The composer uses the embedded node's actual fork configuration and executor,
 including Gnosis fee collection and fork transitions. It resolves outgoing
-limits at the intended target timestamp. The signer independently verifies that
-context against its configured L1 profile; followers resolve historical limits
-at each containing L1 block. The Chiado and Kurtosis Compose profiles pass the
-corresponding L1 profile to the signer.
+limits at the intended target timestamp. The signer uses its fixed local L1
+profile at the actual-parent target or historical anchor timestamp. The manager
+binds the actual inclusion rule epoch, invalidating historical proofs across
+rule transitions; followers check the same inclusion condition. The Chiado and
+Kurtosis Compose profiles supply the corresponding local L1 profile to the signer.
 
 Final preflight executes `[postBatch, inbound companions...]` in order against
 local canonical L1 state. It checks active intrinsic/floor/transaction/block gas,
@@ -947,6 +969,15 @@ block **inclusively**; without a valid checkpoint it falls back toward deploymen
 Required logs, transaction bodies, headers and native blob data must still be
 available for the selected recovery range. Missing history fails recovery; it
 does not authorize skipping blocks or declaring settlement complete.
+
+Each correlation retains the accepted endpoint's executed history state and
+header. Same-height partial consumption can replace its Reth state; recovery
+uses the retained record and rechecks its canonical L1 occurrence and origin.
+The fresh-network index format is `eez-batch-correlation-recorded-history-v1`;
+older formats are rejected, without an in-place migration. Ordinary production
+persists the exact parent witness locally before advancing, so rapid catch-up
+cannot outrun witness capture into pruned trie state. This does not wait for the
+prover or an L1 response, but local storage failures still fail closed.
 
 See the [recovery and rollback requirements](runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
 

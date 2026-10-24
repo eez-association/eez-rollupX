@@ -1,7 +1,5 @@
 //! Outbound event binding and settlement-effect authorization.
 
-use eez_protocol::entries::InboundSidecar;
-
 use std::fmt;
 use std::num::NonZeroU64;
 
@@ -9,9 +7,7 @@ use alloy_primitives::{Address, B256, I256, U256};
 use alloy_sol_types::{SolCall as _, SolValue as _};
 use eez_protocol::RollupId;
 use eez_protocol::abi::{ExecutionEntrySol, loadExecutionTableCall};
-use eez_protocol::entries::{
-    NestedPairDirection, NestedPairVerification, verify_nested_group, verify_outbound_source_group,
-};
+use eez_protocol::entries::{NestedPairVerification, verify_outbound_source_group};
 use eez_protocol::system_tx::{
     OutboundSourceEntry, check_entry_shape, check_l2_static_entry_shape, lift_entry_from_l2,
 };
@@ -316,7 +312,6 @@ pub(super) struct AuthorizedOutboundEffect {
     load_transaction_index: usize,
     user_transaction_index: usize,
     derived_da_entry: OutboundSourceEntry,
-    derived_callback_entries: Vec<InboundSidecar>,
 }
 
 impl AuthorizedOutboundEffects {
@@ -364,10 +359,6 @@ impl AuthorizedOutboundEffect {
     pub(super) const fn derived_source_entry(&self) -> &OutboundSourceEntry {
         &self.derived_da_entry
     }
-
-    pub(super) fn derived_callback_entries(&self) -> &[InboundSidecar] {
-        &self.derived_callback_entries
-    }
 }
 
 /// Authorize outbound effects from re-executed transaction events and
@@ -390,11 +381,6 @@ pub(crate) fn authorize_outbound_effects(
     let loads = bound_effects
         .settling_observations()
         .outbound_load_candidates();
-    let mut incoming = bound_effects
-        .settling_observations()
-        .inbound_candidates()
-        .iter()
-        .peekable();
     let mut authorized_bindings = Vec::with_capacity(bound_effects.outbound_count());
     let mut saw_inbound = false;
 
@@ -491,22 +477,6 @@ pub(crate) fn authorize_outbound_effects(
                         reason: "mixed outbound host must cover the complete source load".into(),
                     });
                 }
-                let mut callback_entries = Vec::new();
-                while let Some(candidate) = incoming.next_if(|candidate| {
-                    candidate.transaction_index >= effect.callback_start_transaction_index()
-                        && candidate.transaction_index <= effect.transaction_index()
-                }) {
-                    let observation = candidate.inspection.as_ref().map_err(|source| {
-                        OutboundEffectError::ExecutionTableMismatch {
-                            entry_index: effect.entry_index(),
-                            reason: format!(
-                                "callback delivery at transaction {} is invalid: {source}",
-                                candidate.transaction_index,
-                            ),
-                        }
-                    })?;
-                    callback_entries.push(observation.derived_da_entry.as_sidecar().clone());
-                }
                 let mut effect_observations = Vec::new();
                 let host_covers_complete_load =
                     source_start == 0 && source_end == loaded_entries.len();
@@ -525,50 +495,22 @@ pub(crate) fn authorize_outbound_effects(
                         effect_observations.push(observation);
                     }
                 }
-                for (index, observation) in observations.iter().enumerate() {
-                    if observation.transaction_index() >= effect.callback_start_transaction_index()
-                        && observation.transaction_index() <= effect.transaction_index()
-                    {
-                        consumed_observations[index] = true;
-                        effect_observations.push(observation);
-                    }
-                }
-                let verification = authorize_outbound_effect(
+                authorize_outbound_effect(
                     effect,
                     source_entries,
-                    &callback_entries,
                     &effect_observations,
                     expected_rollup_id,
                     expected_l2_system_address,
                 )?;
-                if verification.outbound_callback_counts.len() != source_entries.len() {
-                    return Err(OutboundEffectError::ExecutionTableMismatch {
-                        entry_index: effect.entry_index(),
-                        reason: format!(
-                            "verified callback partition has {} roots, expected {}",
-                            verification.outbound_callback_counts.len(),
-                            source_entries.len(),
-                        ),
-                    });
-                }
-                let mut callback_cursor = 0usize;
-                for (source_entry, callback_count) in source_entries
-                    .iter()
-                    .zip(verification.outbound_callback_counts)
-                {
-                    let callback_end = callback_cursor + callback_count;
+                for source_entry in source_entries {
                     authorized_bindings.push(AuthorizedOutboundEffect {
                         claimed_entry_index: effect.entry_index(),
                         claimed_entry: effect.claimed_entry().clone(),
                         load_transaction_index,
                         user_transaction_index: effect.user_transaction_index(),
                         derived_da_entry: source_entry.clone(),
-                        derived_callback_entries: callback_entries[callback_cursor..callback_end]
-                            .to_vec(),
                     });
-                    callback_cursor = callback_end;
                 }
-                debug_assert_eq!(callback_cursor, callback_entries.len());
             }
         }
     }
@@ -595,7 +537,6 @@ fn unexpected_outbound_observation(observation: &OutboundEventObservation) -> Ou
 fn authorize_outbound_effect(
     effect: &BoundEffect<'_>,
     source_entries: &[OutboundSourceEntry],
-    callback_entries: &[InboundSidecar],
     observations: &[&OutboundEventObservation],
     expected_rollup_id: NonZeroU64,
     expected_l2_system_address: Address,
@@ -632,39 +573,12 @@ fn authorize_outbound_effect(
             });
         }
     }
-    let verification = match source_entries {
-        sources if callback_entries.is_empty() => {
-            verify_outbound_source_group(entry, sources, RollupId(expected_rollup_id.get()))
-        }
-        _ => {
-            let mutable = source_entries
-                .iter()
-                .map(|source| source.as_mutable().cloned())
-                .collect::<Option<Vec<_>>>()
-                .ok_or_else(|| OutboundEffectError::ExecutionTableMismatch {
-                    entry_index,
-                    reason: "mutable outbound group mixes static source entries".into(),
-                })?;
-            let l2_entries = mutable
-                .into_iter()
-                .chain(
-                    callback_entries
-                        .iter()
-                        .map(|entry| entry.as_abi_entry().clone()),
-                )
-                .collect::<Vec<_>>();
-            verify_nested_group(
-                entry,
-                &l2_entries,
-                NestedPairDirection::Outbound,
-                RollupId(expected_rollup_id.get()),
-            )
-        }
-    }
-    .map_err(|error| OutboundEffectError::ExecutionTableMismatch {
-        entry_index,
-        reason: error.to_string(),
-    })?;
+    let verification =
+        verify_outbound_source_group(entry, source_entries, RollupId(expected_rollup_id.get()))
+            .map_err(|error| OutboundEffectError::ExecutionTableMismatch {
+                entry_index,
+                reason: error.to_string(),
+            })?;
 
     let l2_calls = entry.l2ToL1Calls.iter().chain(
         entry

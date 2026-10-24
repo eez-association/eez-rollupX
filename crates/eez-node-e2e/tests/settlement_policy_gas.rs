@@ -889,7 +889,7 @@ async fn heavy_inbound_deliveries_share_a_block_without_reserving_the_native_cap
         .await
         .unwrap_or_else(|error| panic!("{error:#}{}", world.settlement_diagnostics()));
     let number = block.header.number;
-    // Ethereum's typed receipt decoding does not know native type 0x76.
+    // Ethereum's typed receipt decoding does not know native type 0x45.
     let receipts: Vec<serde_json::Value> = l2
         .raw_request("eth_getBlockReceipts".into(), (format!("0x{number:x}"),))
         .await

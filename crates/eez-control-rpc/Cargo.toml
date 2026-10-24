@@ -7,7 +7,7 @@ rust-version.workspace = true
 description            = "Wire contract for the composer → prover `Prove` RPC (tonic/protobuf). Pure wire — no Prover-trait coupling."
 
 [dependencies]
-alloy-primitives.workspace = true
+alloy-primitives = { workspace = true, features = ["rlp"] }
 alloy-rlp.workspace = true
 # tonic 0.14 split: "server" (the signer hosts Prove) + "channel" (the composer dials).
 tonic       = { workspace = true, features = ["server", "channel"] }
@@ -15,11 +15,16 @@ tonic-prost = { workspace = true }
 prost       = { workspace = true }
 
 [build-dependencies]
-# Compiles `proto/prove.proto`. Needs `protoc` on PATH.
+# Compiles the single prove.v2 schema. Needs `protoc` on PATH.
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]
+alloy-primitives = { workspace = true, features = ["k256", "rlp"] }
 proptest = "1"
+hex.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time"] }
+tokio-stream.workspace = true
 
 [lints]
 workspace = true

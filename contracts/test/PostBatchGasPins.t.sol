@@ -14,7 +14,9 @@ import {
     RollupUpdate,
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
-import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
+import {OfflineRollup} from "../src/OfflineRollup.sol";
+import {L1HistoryCode} from "../src/generated/L1HistoryCode.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
@@ -128,8 +130,9 @@ contract PostBatchGasProbe {
 ///      cover the base and the WORST per-entry marginal on the ladder.
 contract PostBatchGasPinsTest is Test {
     /// Mirrors `POSTBATCH_BASE_GAS_PIN` in `crates/eez-composer/src/composer.rs`.
-    /// Measured 139_129; pinned at measured x 1.10 rounded up.
-    uint256 private constant POSTBATCH_BASE_GAS_PIN = 160_000;
+    /// Offline manager, one accepted-root pin, 64 cold rule epochs and up to
+    /// 64 blob references: measured 165_440, plus 10% rounded up to 10,000.
+    uint256 private constant POSTBATCH_BASE_GAS_PIN = 190_000;
 
     /// Mirrors `POSTBATCH_ENTRY_GAS_PIN` in `crates/eez-composer/src/composer.rs`.
     /// Measured 333_730 (worst rung); pinned at measured x 1.10 rounded up.
@@ -179,6 +182,8 @@ contract PostBatchGasPinsTest is Test {
     address[] private touched;
 
     function setUp() external {
+        vm.roll(101);
+        vm.warp(1000);
         probe = new PostBatchGasProbe();
     }
 
@@ -224,27 +229,33 @@ contract PostBatchGasPinsTest is Test {
         // hashes only; native sidecars and KZG remain the Rust tests' concern.
         uint256[6] memory blobCounts = [uint256(0), 1, 2, 6, 10, 64];
         uint256 baseCalldataBytes;
-        for (uint256 i = 0; i < blobCounts.length; i++) {
-            delete touched;
-            (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
-            Rung memory shape = Rung(0, 0, false, false, blobCounts[i]);
-            ProofSystemBatchPerVerificationEntries memory batch = _batch(eez, proofSystem, address(0), shape);
-            assertEq(batch.entries.length, 1, "one leading anchor");
-            assertEq(batch.entries[0].rollupUpdates.length, 1, "one own-rollup update");
-            assertEq(batch.entries[0].l2ToL1Calls.length, 0, "anchor has no calls");
-            assertEq(batch.callData.length, 0, "native DA is not calldata");
-            batch.proofs[0] = _proof(_publicInputsHash(batch));
-            uint256 calldataBytes = abi.encodeCall(EEZ.postAndVerifyBatch, (batch)).length;
-            if (i == 0) baseCalldataBytes = calldataBytes;
-            assertEq(calldataBytes, baseCalldataBytes + 32 * blobCounts[i], "only blob indexes extend calldata");
-            uint256 first = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
-            assertLe(first, POSTBATCH_BASE_GAS_PIN, "first anchor exceeds the base pin");
+        for (uint256 mode; mode < 2; mode++) {
+            for (uint256 i = 0; i < blobCounts.length; i++) {
+                delete touched;
+                (EEZ eez, ECDSAProofSystem proofSystem) = _deployProtocol();
+                Rung memory shape = Rung(0, 0, false, false, blobCounts[i]);
+                ProofSystemBatchPerVerificationEntries memory batch = _batch(eez, proofSystem, address(0), shape);
+                if (mode == 1) batch.blockNumber = uint64(block.number - 1);
+                assertEq(batch.entries.length, 1, "one leading anchor");
+                assertEq(batch.entries[0].rollupUpdates.length, 1, "one own-rollup update");
+                assertEq(batch.entries[0].l2ToL1Calls.length, 0, "anchor has no calls");
+                assertEq(batch.expectedRootPerRollup.length, 1, "one accepted-root pin");
+                assertEq(batch.callData.length, 0, "native DA is not calldata");
+                batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
+                uint256 calldataBytes = abi.encodeCall(EEZ.postAndVerifyBatch, (batch)).length;
+                if (i == 0) baseCalldataBytes = calldataBytes;
+                assertEq(calldataBytes, baseCalldataBytes + 32 * blobCounts[i], "only blob indexes extend calldata");
+                uint256 first = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
+                assertLe(first, POSTBATCH_BASE_GAS_PIN, "first anchor exceeds the base pin");
 
-            vm.roll(block.number + 1);
-            batch = _batch(eez, proofSystem, address(0), shape);
-            uint256 later = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
-            assertLe(later, POSTBATCH_BASE_GAS_PIN, "later cold anchor exceeds the base pin");
-            console.log("anchor blobs / first / later:", blobCounts[i], first, later);
+                vm.roll(block.number + 1);
+                batch = _batch(eez, proofSystem, address(0), shape);
+                if (mode == 1) batch.blockNumber = uint64(block.number - 1);
+                uint256 later = _measure(eez, batch, batch.entries[0].rollupUpdates[0].newRoot);
+                assertLe(later, POSTBATCH_BASE_GAS_PIN, "later cold anchor exceeds the base pin");
+                console.log("anchor mode:", mode);
+                console.log("anchor blobs / first / later:", blobCounts[i], first, later);
+            }
         }
     }
 
@@ -282,7 +293,7 @@ contract PostBatchGasPinsTest is Test {
         touched.push(address(target));
         ProofSystemBatchPerVerificationEntries memory batch =
             _batch(eez, proofSystem, address(target), Rung(1, 2, false, false, 1));
-        batch.proofs[0] = _proof(_publicInputsHash(batch));
+        batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
         bytes memory postCall = abi.encodeCall(EEZ.postAndVerifyBatch, (batch));
         bytes32 expectedRoot = batch.entries[1].rollupUpdates[0].newRoot;
         for (uint256 i = 0; i < touched.length; i++) {
@@ -298,11 +309,14 @@ contract PostBatchGasPinsTest is Test {
         for (uint256 i = 0; i < touched.length; i++) {
             vm.cool(touched[i]);
         }
-        (bool funded,) = address(eez).call{gas: 750_000}(postCall);
+        // Price both possible proxy creations plus the same offline-manager
+        // base. The old fixed forwarding amount omitted the new context work.
+        uint256 headroom = POSTBATCH_BASE_GAS_PIN + 2 * POSTBATCH_ENTRY_GAS_PIN;
+        (bool funded,) = address(eez).call{gas: headroom}(postCall);
         assertTrue(funded, "sufficient forwarding headroom completes the same batch");
         (, bytes32 actualRoot,) = eez.rollups(ROLLUP_ID);
         assertEq(actualRoot, expectedRoot, "complete root is required in addition to outer success");
-        console.log("two new proxies, rejected / successful forwarded gas:", tooSmall, uint256(750_000));
+        console.log("two new proxies, rejected / successful forwarded gas:", tooSmall, headroom);
     }
 
     function testForcedRevertSpanCanDeployTheSameProxyAgain() external {
@@ -535,7 +549,7 @@ contract PostBatchGasPinsTest is Test {
         assertGt(proxy.code.length, 0, "code exists at the deterministic address");
         (bool registered,,) = eez.authorizedProxies(proxy);
         assertFalse(registered, "code alone is not the proxy registry predicate");
-        batch.proofs[0] = _proof(_publicInputsHash(batch));
+        batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
         (bool posted,) = address(eez).call{gas: 1_000_000}(abi.encodeCall(EEZ.postAndVerifyBatch, (batch)));
         (, bytes32 root,) = eez.rollups(ROLLUP_ID);
         assertNotEq(root, batch.entries[1].rollupUpdates[0].newRoot, "unregistered code cannot complete the entry");
@@ -549,7 +563,7 @@ contract PostBatchGasPinsTest is Test {
         ProofSystemBatchPerVerificationEntries memory batch =
             _batch(eez, proofSystem, address(target), Rung(1, 1, true, false, 1));
         batch.entries[1].returnData = _nonzeroBytes(32);
-        batch.proofs[0] = _proof(_publicInputsHash(batch));
+        batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
         vm.expectRevert(abi.encodeWithSelector(EEZ.L2TxEntryNotCanonical.selector, uint256(1)));
         eez.postAndVerifyBatch(batch);
         (, bytes32 root,) = eez.rollups(ROLLUP_ID);
@@ -1068,7 +1082,7 @@ contract PostBatchGasPinsTest is Test {
             }
             entry.rollingHash = rolling;
             uint256 snapshot = vm.snapshotState();
-            batch.proofs[0] = _proof(_publicInputsHash(batch));
+            batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
             eez.postAndVerifyBatch(batch);
             for (uint256 j; j < touched.length; j++) {
                 vm.cool(touched[j]);
@@ -1080,7 +1094,7 @@ contract PostBatchGasPinsTest is Test {
 
             batch.blobIndices = new uint256[](0);
             batch.proofs[0] = hex"";
-            bytes32 conditionalDigest = _publicInputsHash(batch);
+            bytes32 conditionalDigest = _publicInputsHash(eez, batch);
             bytes memory assumedCall = abi.encodeCall(ECDSAProofSystem.verify, (hex"", conditionalDigest));
             vm.mockCall(address(proofSystem), assumedCall, abi.encode(true));
             eez.postAndVerifyBatch(batch);
@@ -1611,7 +1625,7 @@ contract PostBatchGasPinsTest is Test {
         private
         returns (uint256 gasUsed)
     {
-        batch.proofs[0] = _proof(_publicInputsHash(batch));
+        batch.proofs[0] = _proof(_publicInputsHash(eez, batch));
         bytes memory postCall = abi.encodeCall(EEZ.postAndVerifyBatch, (batch));
         for (uint256 i = 0; i < touched.length; i++) {
             vm.cool(touched[i]);
@@ -1634,7 +1648,31 @@ contract PostBatchGasPinsTest is Test {
         proofSystems[0] = address(proofSystem);
         bytes32[] memory vkeys = new bytes32[](1);
         vkeys[0] = bytes32(uint256(uint160(prover)));
-        Rollup manager = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
+        // The production manager authenticates the accepted root and offline
+        // context. Use the maximum rule schedule so cold binary-search reads
+        // are covered by the same base reserve as a small public-chain profile.
+        uint64[] memory times = new uint64[](64);
+        for (uint64 i; i < times.length; i++) {
+            times[i] = i * 10;
+        }
+        OfflineRollup.Profile memory profile = OfflineRollup.Profile(
+            block.chainid,
+            900,
+            GENESIS_ROOT,
+            120,
+            1,
+            5,
+            2,
+            keccak256("fixed L1 gas fixture rules"),
+            L1HistoryCode.HASH,
+            address(0x1234),
+            times
+        );
+        OfflineRollup implementation = new OfflineRollup(address(eez));
+        bytes memory init =
+            abi.encodeCall(OfflineRollup.initializeOffline, (address(this), 1, proofSystems, vkeys, profile));
+        OfflineRollup manager =
+            OfflineRollup(address(new TransparentUpgradeableProxy(address(implementation), address(this), init)));
 
         assertEq(eez.registerRollup(address(manager), GENESIS_ROOT), ROLLUP_ID, "unexpected rollup id");
         touched.push(address(eez));
@@ -1703,8 +1741,11 @@ contract PostBatchGasPinsTest is Test {
             blobIndices[i] = i;
         }
         vm.blobhashes(blobHashes);
+        ExpectedRootPerRollup[] memory pins = new ExpectedRootPerRollup[](1);
+        pins[0] = ExpectedRootPerRollup(ROLLUP_ID, entries[0].rollupUpdates[0].currentRoot);
+        vm.setBlockhash(block.number - 1, keccak256(abi.encode("gas fixture parent", block.number)));
         batch = ProofSystemBatchPerVerificationEntries({
-            expectedRootPerRollup: new ExpectedRootPerRollup[](0),
+            expectedRootPerRollup: pins,
             entries: entries,
             staticEntries: new StaticExecutionEntry[](0),
             immediateEntryCount: entries.length,
@@ -1714,7 +1755,7 @@ contract PostBatchGasPinsTest is Test {
             blobIndices: blobIndices,
             callData: "",
             proofs: proofs,
-            blockNumber: 0,
+            blockNumber: type(uint64).max,
             bindMsgSenderInPublicInput: false
         });
     }
@@ -1790,15 +1831,24 @@ contract PostBatchGasPinsTest is Test {
     }
 
     /// Mirrors `EEZ._verifyProofSystemBatch` for this single-rollup,
-    /// single-proof-system, timeless batch.
-    function _publicInputsHash(ProofSystemBatchPerVerificationEntries memory batch) private view returns (bytes32) {
+    /// single-proof-system, profile-bound batch. Context is fetched before
+    /// cooling every protocol account for the actual measured call.
+    function _publicInputsHash(
+        EEZ eez,
+        ProofSystemBatchPerVerificationEntries memory batch
+    )
+        private
+        view
+        returns (bytes32)
+    {
         bytes32[] memory entryHashes = new bytes32[](batch.entries.length);
         for (uint256 i = 0; i < batch.entries.length; i++) {
             entryHashes[i] = keccak256(abi.encode(batch.entries[i]));
         }
 
         bytes32[] memory customDataHashes = new bytes32[](1);
-        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, bytes("")));
+        (address manager,,) = eez.rollups(ROLLUP_ID);
+        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, OfflineRollup(manager).getCustomData(batch.blockNumber)));
         bytes32[] memory blobHashes = new bytes32[](batch.blobIndices.length);
         for (uint256 i = 0; i < blobHashes.length; i++) {
             blobHashes[i] = blobhash(batch.blobIndices[i]);

@@ -606,6 +606,10 @@ mod tests {
         for (chain_id, step, positions) in [(1, 2, 6), (10200, 1, 5), (1337, 2, 2)] {
             let schedule = Schedule::new(
                 DerivationConfig {
+                    fee_collector: alloy_primitives::address!(
+                        "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                    ),
+                    history_update_offset: 0,
                     block_interval_seconds: step,
                     sync_interval_blocks: positions,
                     l1_reference: GenesisL1Reference {

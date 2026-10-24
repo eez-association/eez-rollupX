@@ -309,7 +309,8 @@ impl L1Reader {
             .map(|b| (b.header.number, b.header.hash)))
     }
 
-    pub(crate) fn eez(&self) -> alloy_primitives::Address {
+    /// Registry whose events this reader authenticates for reconstruction.
+    pub fn eez(&self) -> alloy_primitives::Address {
         self.config.eez
     }
 

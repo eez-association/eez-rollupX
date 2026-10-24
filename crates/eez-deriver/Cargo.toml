@@ -11,7 +11,7 @@ eez-primitives.workspace = true
 eez-evm.workspace = true
 eez-driver = { workspace = true, features = ["derivation"] }
 eez-protocol.workspace      = true
-eez-l1.workspace            = true
+eez-l1 = { workspace = true, features = ["chain-spec"] }
 eez-payload-codec.workspace = true
 
 # Decode postBatch calldata + reconstruct system txs (via

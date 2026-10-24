@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-24",
+  "status": "targeted regression and full signer suite passed; corrected remote release producer remains required",
+  "source_head": "d1838526480b89651f759d34e27bfbcfca43fb55",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "failure": {
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076808",
+    "source_head": "d1838526480b89651f759d34e27bfbcfca43fb55",
+    "ci_merge_tree_equivalent": "83a3af6",
+    "shipping_compile_seconds": 1594,
+    "archive_compile_seconds": 1346,
+    "external_crates_recompiled": 136,
+    "first_recompiled": [
+      "tokio@1.52.3",
+      "reth-trie-common@2.7.0"
+    ],
+    "guard_failed_at_utc": "2026-10-24T12:59:11Z",
+    "failure_log_sha256": "7c8b840acc33967933deeb994f34ac1af0a1750bfb16942684d951ba32f77c18",
+    "ci_failure_build_metadata_exported": false,
+    "downstream_runtime_and_native_validation": "not executed by this failed producer"
+  },
+  "cause_commit": "b6dca63a2c956ddba82ed2874c9286e4b91a146e",
+  "before_feature_differences": [
+    {
+      "package": "tokio@1.52.3",
+      "shipping_only": [
+        "test-util"
+      ],
+      "archive_only": []
+    },
+    {
+      "package": "reth-trie-common@2.7.0",
+      "shipping_only": [
+        "default"
+      ],
+      "archive_only": []
+    }
+  ],
+  "correction": [
+    "Remove signer dev-dependency enabling tokio/test-util; existing normal Tokio dependency remains.",
+    "Constrain only the test admission attempt to 50 ms while its permit is held; restore original fixture replay budget in the same session before retry.",
+    "Normalize reth-trie-common default=[std] to default-features=false, features=[std]; keep independent trie fixtures."
+  ],
+  "graph_comparison": {
+    "external_units_before": 1136,
+    "external_units_after": 1136,
+    "external_direct_attribute_changes_before": 2,
+    "external_packages_transitively_changed_before": 136,
+    "external_attribute_differences_after": 0,
+    "external_dependency_differences_after": 0,
+    "compiled_units_for_diagnostics": 0,
+    "notes": [
+      "Diagnostic RUSTC_BOOTSTRAP=1 permits Cargo --unit-graph; no compiler unit executed.",
+      "All external-unit attributes compared as multisets, preserving duplicate host/build-target units. Dependency indices normalized using recursive SHA-256 of all unit attributes and dependency edges; multisets retain every instance.",
+      "An initial summary counted 1,061 package/target/mode/platform keys and collapsed 75 distinct units. This complete comparison preserves all 1,136 units and supersedes that preliminary count."
+    ],
+    "commands": {
+      "diagnostic_only_RUSTC_BOOTSTRAP": 1,
+      "selections": {
+        "shipping": [
+          "build",
+          "-p",
+          "eez-node",
+          "-p",
+          "eez-follower",
+          "-p",
+          "eez-proof-signer",
+          "-p",
+          "eez-protocol",
+          "-p",
+          "eez-l1",
+          "--bin",
+          "eez-composer",
+          "--bin",
+          "eez-follower",
+          "--bin",
+          "eez-proof-signer",
+          "--example",
+          "genesis_state_root",
+          "--example",
+          "genesis_block_hash",
+          "--example",
+          "e2e-causal-verify",
+          "--example",
+          "verify_blob_evidence"
+        ],
+        "archive": [
+          "test",
+          "--no-run",
+          "-p",
+          "eez-node-e2e",
+          "-p",
+          "eez-l1",
+          "-p",
+          "eez-protocol",
+          "-p",
+          "eez-blob-codec",
+          "-p",
+          "eez-payload-codec",
+          "--example",
+          "verify_blob_evidence",
+          "--test",
+          "node_e2e",
+          "--test",
+          "public_inputs_hash_vectors",
+          "--test",
+          "rolling_hash_vectors",
+          "--test",
+          "causal_evidence",
+          "--test",
+          "ethereum_kzg_compatibility",
+          "--test",
+          "issue35"
+        ]
+      },
+      "common": [
+        "-Z",
+        "unstable-options",
+        "--unit-graph",
+        "--locked",
+        "--offline",
+        "--release"
+      ],
+      "compiled_units": 0
+    },
+    "raw_unit_graph_sha256": {
+      "shipping-unit-graph.json": "5e14c84a6c6c3fe9920ef9093dbb10e5f0ea89f6a182a22b6175545b8f19176f",
+      "archive-unit-graph.json": "42930171b270061b4ad80ad9ebe5ed4c05e67ffe5259b0f2dfae3d6ad639e2e8",
+      "shipping-after-unit-graph.json": "2d0fca252b321521d6300ee27bc2a8aa38dbb93c890b2b62018f84f4481a0746",
+      "archive-after-unit-graph.json": "42930171b270061b4ad80ad9ebe5ed4c05e67ffe5259b0f2dfae3d6ad639e2e8"
+    }
+  },
+  "source_sha256_before": {
+    "Cargo.toml": "55dff95f298b4ea79284f1dafe8f288ee99f60ef0123de4834cf29c27517e46b",
+    "Cargo.lock": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "crates/eez-proof-signer/Cargo.toml": "e63e02d799f35a75f119043673bf467c6eec03055a69811dcf2351b54c08cc89",
+    "crates/eez-proof-signer/src/service/sessions/tests.rs": "f08e25f6909643f44e2392f74a06c24186106245642de8a8d76aff1f0911823d",
+    "Dockerfile.runtime": "1b81da8cb2d58e0559d33a95dcbbed077274820d46429156708c7d5c5dda6b52",
+    "scripts/ci/native-tests.py": "735b65e3b4a89a33da2a4366dc5222e651dcd8a2327916b2f577922b556e4927",
+    "scripts/ci/build-runtime-artifacts.sh": "586df6e94a3a1625cf958ecd02044dc7ef38f5515b6fa8178e5a62da95a97d2d",
+    ".github/workflows/build-runtime.yml": "3b02a48ac85e28c45bbc1cd0110d526b7688e3efe93b561d7fab64bd6244919c",
+    "scripts/ci/prepare-runtime-artifacts.sh": "5fd72b9e6ad0d91d0bd05cf849dc14473fa4baa477d3d03533aa12a407cf5c39"
+  },
+  "source_sha256_after": {
+    "Cargo.toml": "d8924819e605fd92d486e4c7bfc5e711831de81e0ea41e789a9d29b2931a2bdd",
+    "Cargo.lock": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "crates/eez-proof-signer/Cargo.toml": "2e5313c9511ddcd7006f547777b82f3c5ca3929815d48bc736fa7991c8ed8164",
+    "crates/eez-proof-signer/src/service/sessions/tests.rs": "0ad3e5fda6a4fa61b8b37ee80edbe581cc5b4d39bb579139d0852db00d70716f",
+    "Dockerfile.runtime": "1b81da8cb2d58e0559d33a95dcbbed077274820d46429156708c7d5c5dda6b52",
+    "scripts/ci/native-tests.py": "735b65e3b4a89a33da2a4366dc5222e651dcd8a2327916b2f577922b556e4927",
+    "scripts/ci/build-runtime-artifacts.sh": "586df6e94a3a1625cf958ecd02044dc7ef38f5515b6fa8178e5a62da95a97d2d",
+    ".github/workflows/build-runtime.yml": "3b02a48ac85e28c45bbc1cd0110d526b7688e3efe93b561d7fab64bd6244919c",
+    "scripts/ci/prepare-runtime-artifacts.sh": "5fd72b9e6ad0d91d0bd05cf849dc14473fa4baa477d3d03533aa12a407cf5c39"
+  },
+  "toolchain": {
+    "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+    "rustc": "rustc 1.95.0 (59807616e 2026-04-14)"
+  },
+  "local_only_evidence": "artifacts/pr-readiness/ci-runtime-archive/",
+  "limits": [
+    "The unit-graph diagnosis was subsequently confirmed by a passing remote release archive guard in run40098162224; the same producer then failed separate example fixture tests.",
+    "Pre-fix shipping binaries contain the diagnosed Tokio feature; live results retain their original executable identity.",
+    "A fresh corrected producer and verified shipping artifacts are required before final promotion.",
+    "No production Rust, Cargo.lock, feature-gate exception, wire schema, protocol pin or fixture expectation changed."
+  ],
+  "validation": {
+    "targeted": {
+      "cargo_command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-proof-signer",
+        "--bin",
+        "eez-proof-signer",
+        "--message-format=json",
+        "service::sessions::tests::finalize_deadline_preserves_prefix_and_allows_retry_in_the_same_epoch",
+        "--",
+        "--exact",
+        "--test-threads=1"
+      ],
+      "result": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 321,
+        "test_seconds": 2.17
+      },
+      "process": {
+        "finished_at": "2026-10-24T13:21:03.956110+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 218.04,
+        "cancelled": null,
+        "minimum_available_bytes": 16373604352
+      },
+      "build_profile": "debug / test, optimized + debuginfo",
+      "build_reported_seconds": 214,
+      "cargo_build_jobs": 1,
+      "llvm_prefix": "/usr/lib/llvm-22",
+      "private_tmp_bind": true
+    },
+    "full_signer_suite": {
+      "command": [
+        "<retained verified signer unit-test executable>",
+        "--test-threads=1"
+      ],
+      "result": {
+        "passed": 320,
+        "failed": 0,
+        "ignored": 2,
+        "measured": 0,
+        "filtered": 0,
+        "test_seconds": 9.95
+      },
+      "process": {
+        "finished_at": "2026-10-24T13:22:48.739297+00:00",
+        "exit_code": 0,
+        "elapsed_seconds": 10.003,
+        "minimum_available_bytes": 17696505856,
+        "cancelled": null
+      },
+      "ignored_tests": [
+        "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+        "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility"
+      ],
+      "recompiled": false
+    },
+    "test_binary_sha256": "95cb994c094e4470531b987dc47274f1acc88bfba7e273fcbc6f220e9f2cf1d7",
+    "format": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "fmt",
+        "--all",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    "whitespace": {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0
+    },
+    "source_files_unchanged_through_tests": true,
+    "runtime_release_artifact_rebuilt": false
+  },
+  "local_only_evidence_sha256": {
+    "test-focused.stdout.log": "c28263cec97ba3169b5bbf2a31d6b76ed0d6ad30eb48ca566ac137650b2eea6c",
+    "test-focused.stderr.log": "8b1e93a34ea323bb63076cb3affc5f8cb638ff098df947745764ae6f6b52ac38",
+    "test-focused-result.json": "84228cd187778ad781716b670cd778bc7e6207c8a7f0eb17a7975117b5cce93c",
+    "test-suite.log": "195dfd344d5b4337223aa9f595e2070de03dfb1cd071bd785c3268a9e450dd98",
+    "test-suite-result.json": "d73e9e11343e7e2405bc713ca2acdef3e36dc8ff05f21f5a8c54e63e70f6e43c",
+    "unit-graph-comparison.json": "fea8bfdabfdd5ec0efbc933296fe1bfe4b6942c64a26c82af158ab3a1dcdaa02",
+    "unit-graph-commands.json": "c0765ff8dcec291d39eaeeef2aee04d824986a4f4f9916f92d980489c7fe0b9f"
+  },
+  "followup_remote_gate": {
+    "run_id": 40098162224,
+    "producer_job_id": 120884663004,
+    "archive_dependency_guard": "passed",
+    "producer_tests": "28 passed,2 failed on independent genesis fixture",
+    "payload_publication": "skipped",
+    "evidence": "ci-final-runtime.json"
+  }
+}

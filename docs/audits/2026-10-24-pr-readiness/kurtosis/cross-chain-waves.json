@@ -1,0 +1,392 @@
+{
+  "snapshot": "R03 shipping selection before CI test-feature correction",
+  "full_invocation_exit": 1,
+  "completed_wave_modes": [
+    {
+      "phase": "cross-chain-wave-inbound",
+      "seconds": 103,
+      "exit_code": 0,
+      "mode": "inbound",
+      "waves": 1,
+      "cross_chain_operations": 4,
+      "observed_posts": 1,
+      "attestation_public_inputs_hash": "0xc6fdd4cfa6b78907e2418f9c149c0a84bc530002457468f4d0e83bd14434268b",
+      "log_sha256": "9c468931d7b7434f34a462699d87f56e3b51cac8f67a07fc6f8fb78cb90cc52f",
+      "source_transactions": [
+        [
+          "in",
+          "set",
+          "101",
+          "0x66e38379e6d0d2db1082c4aa0bc407b3765cb477d0e93ca6493b0d1fabbc9e29"
+        ],
+        [
+          "in",
+          "noret",
+          "201",
+          "0xf5fad18d0ea672f9782e830d4daedbffabcc3cf11fa3ffe53ae8ba523ac73fa0"
+        ],
+        [
+          "in",
+          "dep",
+          "10000000000000",
+          "0x531929b59bf32a765bd74df4ce2f89101a1686f6476fa81674b22c3697535b54"
+        ],
+        [
+          "in",
+          "wrap",
+          "301",
+          "0x91e93b6cef2248f5c5b6f2b4925b8356620d64705943db947f63300ba1f4dd89"
+        ]
+      ],
+      "bounded_identical_source_admission_retries": 0
+    },
+    {
+      "phase": "cross-chain-wave-outbound",
+      "seconds": 135,
+      "exit_code": 0,
+      "mode": "outbound",
+      "waves": 1,
+      "cross_chain_operations": 4,
+      "observed_posts": 4,
+      "attestation_public_inputs_hash": "0x5b67ac4a756c529e0d151e4d17a87d107e6e4f4816cf770e0edb2d8b9d31e8b9",
+      "log_sha256": "80b898c8ff12a950f8ed7140f9548991f24e6f22fa7b73ada1f7b937cd234feb",
+      "source_transactions": [
+        [
+          "out",
+          "set",
+          "401",
+          "0xf367d3cba75f54263e277c07c5a70ecfb87d2b6b253b2b1b4bb9805072ba771c"
+        ],
+        [
+          "out",
+          "noret",
+          "501",
+          "0x6dbcc64a8bfbe641816e7e396342ac816b816aad57b88f05e5c686e686b34e33"
+        ],
+        [
+          "out",
+          "wd",
+          "5000000000000",
+          "0x10f769aa351340b92e830233fa51e63ae56028a77ad49e0f8776477f955cc3ec"
+        ],
+        [
+          "out",
+          "wrap",
+          "601",
+          "0xcb639200a1f5012af4351ecb9b1d67abd783c391db4626042bb072eed3eb5a12"
+        ]
+      ],
+      "bounded_identical_source_admission_retries": 0
+    },
+    {
+      "phase": "cross-chain-wave-mixed",
+      "seconds": 228,
+      "exit_code": 0,
+      "mode": "mixed",
+      "waves": 1,
+      "cross_chain_operations": 8,
+      "observed_posts": 8,
+      "attestation_public_inputs_hash": "0x3af232cce7dfd1af0c91c2b7166a87ab6d2c5ce8336528dcb90be6991a4c48af",
+      "log_sha256": "245f9fcaae28b12d8029a61d4c7510617eb8611d082af2391e065e556608bada",
+      "source_transactions": [
+        [
+          "in",
+          "set",
+          "101",
+          "0xb8d9291da4bd13666181235cc3c42ac0e285c07ce62f1a1693ce264a11f5b12c"
+        ],
+        [
+          "in",
+          "noret",
+          "201",
+          "0xd17ed90a39e7b1d29703af487f603a26c37a9dca52d8189ab6003172c242667f"
+        ],
+        [
+          "in",
+          "dep",
+          "10000000000000",
+          "0xf15e6b7d23633ade6c4785f3908e306b6c08317782193368bf852ef064244fda"
+        ],
+        [
+          "in",
+          "wrap",
+          "301",
+          "0x89923c0c75fc488aeb6fdedc0681b6c55a5a1630fbf672334d8b30e60ec3875a"
+        ],
+        [
+          "out",
+          "set",
+          "401",
+          "0x30faba47ee2c8acfef25659eb126ca576a3ffe674af7975717834a73dcfd9b2c"
+        ],
+        [
+          "out",
+          "noret",
+          "501",
+          "0x66c1fc42ea13591b8a05f6df40567d1fdd76937d55bef718813116343130cb6c"
+        ],
+        [
+          "out",
+          "wd",
+          "5000000000000",
+          "0x3128f405dae6b296da2b6e4061ac9f3ce872980dd9804b685b9e0490659ec61d"
+        ],
+        [
+          "out",
+          "wrap",
+          "601",
+          "0x01d3ff0264addac11ec8e2bda34e6938f2202b2a9c4e7135c7493009988fe46c"
+        ]
+      ],
+      "bounded_identical_source_admission_retries": 0
+    },
+    {
+      "phase": "cross-chain-wave-mixed-pure",
+      "seconds": 412,
+      "exit_code": 0,
+      "mode": "mixed-pure",
+      "waves": 3,
+      "cross_chain_operations": 24,
+      "observed_posts": 23,
+      "attestation_public_inputs_hash": "0x44077e291f36b6b67f8d6dc8a657f122acc475991a36b4c444a55ab4056f8a32",
+      "log_sha256": "166ad64e40f95612ec5031fcfeb34ef7e90a618dfd364f30cc996d14dbb5f8e1",
+      "source_transactions": [
+        [
+          "in",
+          "set",
+          "101",
+          "0x9e4eb08f720904eaf4635eeced9e989c4d43ffa79a0b760c6dc63234dfc20b5d"
+        ],
+        [
+          "in",
+          "noret",
+          "201",
+          "0xcea89bcf767d1fde98c027e52eff256252213c01b6bd683b96570eecb6a96a26"
+        ],
+        [
+          "in",
+          "dep",
+          "10000000000000",
+          "0x42e2e882b8011c8fed62ab9bfd153db1b0de24d1e3f8ab2c26e2f8ad7ea50b74"
+        ],
+        [
+          "in",
+          "wrap",
+          "301",
+          "0xbf7dd40a9c5f29544b92a1fb042b8669fa5131e5dbac58f1e105d181c25653cc"
+        ],
+        [
+          "out",
+          "set",
+          "401",
+          "0x64b7665e372ed9b009884fd9f71dff8c116399c98e0c8b1a5b90069c6c3bf542"
+        ],
+        [
+          "out",
+          "noret",
+          "501",
+          "0x7c406d7798c5ef92d57ebee43beac2661909b9b3db4d5b615bd137b1ba835a34"
+        ],
+        [
+          "out",
+          "wd",
+          "5000000000000",
+          "0xb81082cd60c616d55073186b45c285a4efe0adb3c0328621b838e0e9ae8ae356"
+        ],
+        [
+          "out",
+          "wrap",
+          "601",
+          "0xf96ba251b7684b754f847a3ecf7773099b5e9f0dcea4dd7c2ee8e83340aa2bab"
+        ],
+        [
+          "in",
+          "set",
+          "102",
+          "0x3a27394925fedbb7e21182f1acca82d20e608e8bff5def7cc583c503a81539b3"
+        ],
+        [
+          "in",
+          "noret",
+          "202",
+          "0xf1903019bb7ae0c1be50a95fa5d6e615b94ea1647e33589677cb0fb84c184651"
+        ],
+        [
+          "in",
+          "dep",
+          "20000000000000",
+          "0xffdefe056a7ef6377e78e7f39861616fe3a2e8a706ee4e5f06b0d7d2f0bf12c1"
+        ],
+        [
+          "in",
+          "wrap",
+          "302",
+          "0xd911e677c992ecdb520ba511f190ea4b539ed74e43c0aad402f14dbe7670ce5d"
+        ],
+        [
+          "out",
+          "set",
+          "402",
+          "0x1d8f782e712ed087910c3b763cddda4f8683b3f919c3455026cced4ba0fb57ba"
+        ],
+        [
+          "out",
+          "noret",
+          "502",
+          "0x2b7ae8cda5c5cdb4d5786e8fd5aad50895ccaa97a7c90b8c7d4dafcd52443889"
+        ],
+        [
+          "out",
+          "wd",
+          "10000000000000",
+          "0xcca1d659ceb52327570e35944845df04544731b4af1fb7ac77dc930d60fb728a"
+        ],
+        [
+          "out",
+          "wrap",
+          "602",
+          "0x84b830d39a164e23f4f6697136880e2da4df6d7a55ecfe630a1b9f18030fdf5f"
+        ],
+        [
+          "in",
+          "set",
+          "103",
+          "0x92fd621be79061b2cfdf2cdbdbbccd6f78a9b15c44adc65801f2cce050f49f0b"
+        ],
+        [
+          "in",
+          "noret",
+          "203",
+          "0x931669faa287b882bf8a49b17d7d3d8b68303dd1d969c0313ab74654170797c3"
+        ],
+        [
+          "in",
+          "dep",
+          "30000000000000",
+          "0x0f2c2190fa25eb478af2e88a243c86b2cebd52b494e0022802e53f87e3fe0945"
+        ],
+        [
+          "in",
+          "wrap",
+          "303",
+          "0x972bc0e4c591205d45c0235f38c6fbbef13d54e61c3ba60bfcc20ae90d9e017d"
+        ],
+        [
+          "out",
+          "set",
+          "403",
+          "0x25a0cbda70860ab066a86b812e3d2f5f64e1f845996bb262e7b2917a5c1fb5a7"
+        ],
+        [
+          "out",
+          "noret",
+          "503",
+          "0xff6cebba10d4129c7c93bd8d708df6bd3c1f083e57ef73bee4cf0e1692f7c3ee"
+        ],
+        [
+          "out",
+          "wd",
+          "15000000000000",
+          "0xbbbe8d182d925c5c22552e90b49de661b9e544be73921bcaeb721e4222782420"
+        ],
+        [
+          "out",
+          "wrap",
+          "603",
+          "0x7dfb5f4f6703308345b71c0a02ff4b065df51a7abe579fd83786553e50e22400"
+        ]
+      ],
+      "bounded_identical_source_admission_retries": 2
+    }
+  ],
+  "same_invocation_state_chaining": {
+    "phase": "state-chaining",
+    "seconds": 77,
+    "exit_code": 1
+  },
+  "state_chaining_failure": {
+    "code": "quote_limit",
+    "trigger": "0x474f460605b799dd8e2ebc54247e568a2eec0162e1eebb899f1cd7b9ed354d50",
+    "source_accepted": false,
+    "cause": "Old produced-Sync barrier opened on an unsettled 24-block ordinary window; admission reserves one of 24 blocks for the application, so 24 history blocks exceed its 23-block history limit."
+  },
+  "authenticated_replay_input": {
+    "path": "artifacts/pr-readiness/kurtosis/live/waves-replay-input/summary.json",
+    "sha256": "2648d4215f7ef5a91c4f8d3b30e8fc190fedbcdfdf494281915b86b5f1743899",
+    "triggers": 40,
+    "full_batches": 36,
+    "linked_l2_receipts": 60,
+    "independent_execution": false
+  },
+  "state_chaining_corrected_repeat": {
+    "phase": "state-chaining-idle-cutoff",
+    "exit_code": 0,
+    "start_epoch": 1792851194,
+    "seconds": 489,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/state-chaining-idle-cutoff.log",
+    "log_sha256": "4e049354a29d1597ac39f3ebaa443ae50016cae51a8c35bef13ecbb1077fc695",
+    "complete": true,
+    "directional_groups": 6,
+    "proof_and_commitment_heights": [
+      6480,
+      6498,
+      6516,
+      6534,
+      6552,
+      6570,
+      6594,
+      6612,
+      6618,
+      6660
+    ],
+    "mixed_direction": {
+      "fee_collection": true,
+      "inbound_sync": 6612,
+      "outbound_sync": 6618,
+      "fifo_ordered": true,
+      "same_sync_required": false
+    },
+    "poison_survivors_sync": 6594,
+    "repeated_inbound": {
+      "sync": 6660,
+      "post_and_source_l1_block": 1104,
+      "ordered_results": "changed=true then changed=false"
+    },
+    "unchanged_limit_blocks": 24,
+    "runtime_changed": false,
+    "admission_retries_added": false
+  },
+  "limits": [
+    "Observed posting counts include all posts during each mode; they do not establish one post per source.",
+    "Matching latest signer/node attestation is an additional signal, not sole proof of source settlement.",
+    "Read-only KZG/receipts collection is distinct from independent follower execution."
+  ],
+  "ordinary_fillers": {
+    "verified": true,
+    "count": 6,
+    "sender_nonces": [
+      83,
+      84,
+      85,
+      86,
+      87,
+      88
+    ],
+    "transaction_hashes": [
+      "0xd506022c5033eb3815dce3b236c31da2fb750cca807797c0e621287e00d212dc",
+      "0x80cfa435767952d4b8114175cb6aebafd5a20c29075ed3dae0523ad11c5bd601",
+      "0xba6465f7a57ffec27f5be79e31900601c228eef1513e43337f4f7d5791c98ed0",
+      "0x3df8f23f77ceae0499e44cfa6da88396efafa69feb3e2f76d81d0054390d4aee",
+      "0x45537dcea79e1b41e892d6130fadd847a3ab6348b7e48e3784cd2a3cee975fd4",
+      "0x48e211ed85d4c9c45ef76efa321e442b293fc802422456e688bf2f10fe06b34c"
+    ],
+    "safe_at_verification": {
+      "number": 6498,
+      "hash": "0xe282488315c957539e967bb0ec61c99d389325d3a2a46b9ccb3b9a6c2f39d187"
+    },
+    "path": "artifacts/pr-readiness/kurtosis/live/waves-replay-input/ordinary-filler-receipts.json",
+    "sha256": "4d7e8112dde6e36d3c79ab02eac6953d852796e7ca341e4993631afc6f3b7db0",
+    "selected_authenticated_payloads": true,
+    "first_audit_read_failure": "Nullable to field on creation transaction; corrected read-only selector and preserved diagnostic, no new broadcasts."
+  }
+}

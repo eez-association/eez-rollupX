@@ -813,13 +813,21 @@ async fn transaction_is_cross_chain(ctx: &Ctx, envelope: &TxEnvelope) -> Result<
         call.insert("to".into(), Value::String(to.to_string()));
     }
 
+    // L2 routing observes an executed state/header pair, as the local gas
+    // classifier does. Reth's derived pending state cannot apply a scheduled
+    // history import; treating that predictable error as cross-chain ownership
+    // strands ordinary calls. L1 retains its pending-state classification.
+    let block = match ctx.direction {
+        Direction::Outbound => "latest",
+        Direction::Inbound => "pending",
+    };
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": 1,
         "method": "debug_traceCall",
         "params": [
             Value::Object(call),
-            "pending",
+            block,
             { "tracer": "callTracer" }
         ],
     });
@@ -1468,6 +1476,84 @@ mod tests {
             }]
         });
         assert!(!trace_contains_cross_chain_call(&trace, dispatch));
+    }
+
+    #[tokio::test]
+    async fn signed_ingress_uses_executed_l2_state_and_keeps_dispatch_guard() {
+        use jsonrpsee::{RpcModule, server::ServerBuilder, types::ErrorObjectOwned};
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+        for (direction, expected_block) in [
+            (Direction::Outbound, "latest"),
+            (Direction::Inbound, "pending"),
+        ] {
+            let dispatcher = Address::repeat_byte(0x42);
+            let (_, _, raw) = signed_eip1559(31337, U256::ZERO, 50_000, 1);
+            let hash = keccak256(raw.as_ref());
+            let dispatch = Arc::new(AtomicBool::new(false));
+            let forwarded = Arc::new(AtomicUsize::new(0));
+            let upstream = ServerBuilder::default().build("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", upstream.local_addr().unwrap());
+            let mut module = RpcModule::new((dispatch.clone(), forwarded.clone()));
+            module
+                .register_method("debug_traceCall", move |params, state, _| {
+                    let params: Vec<Value> = params.parse()?;
+                    if params[1] != expected_block {
+                        return Err(ErrorObjectOwned::owned(
+                            -32603,
+                            "pending L1 history import has not executed",
+                            None::<()>,
+                        ));
+                    }
+                    Ok::<_, ErrorObjectOwned>(if state.0.load(Ordering::Relaxed) {
+                        json!({"type":"CALL", "calls":[{
+                            "to":dispatcher, "input":"0x9af53259", "error":"execution reverted"
+                        }]})
+                    } else {
+                        json!({"type":"CALL", "calls":[]})
+                    })
+                })
+                .unwrap();
+            module
+                .register_method("eth_sendRawTransaction", move |_, state, _| {
+                    state.1.fetch_add(1, Ordering::Relaxed);
+                    json!(hash)
+                })
+                .unwrap();
+            let server = upstream.start(module);
+            let port = free_port();
+            let pool = Arc::new(HeldPool::new(Default::default()));
+            let task = tokio::spawn(run_cross_chain_front(
+                port,
+                url,
+                direction,
+                pool.clone(),
+                ProviderBuilder::default().connect_mocked_client(Asserter::new()),
+                31337,
+                dispatcher,
+                Arc::new(AtomicBool::new(false)),
+                Arc::new(json!({})),
+                None,
+            ));
+            wait_for_front(port).await;
+            let ordinary = send_raw(port, &raw, 1).await;
+            assert_eq!(
+                ordinary["result"],
+                json!(hash),
+                "ordinary L2 work must not enter held ownership at a history boundary: {ordinary}"
+            );
+            assert!(!pool.owns(hash));
+            dispatch.store(true, Ordering::Relaxed);
+            let guarded = send_raw(port, &raw, 2).await;
+            assert_eq!(guarded["error"]["message"], STARTING_UP_MSG);
+            assert_eq!(
+                forwarded.load(Ordering::Relaxed),
+                1,
+                "a caught dispatcher call cannot enter the ordinary mempool"
+            );
+            task.abort();
+            server.stop().unwrap();
+        }
     }
 
     fn free_port() -> u16 {

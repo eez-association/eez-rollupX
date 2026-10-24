@@ -22,8 +22,9 @@ impl LoadedL2Genesis {
         self.digest
     }
 
-    /// Immutable timing/reference configuration. The runtime must authenticate
-    /// the reference against its independently configured settlement RPC.
+    /// Immutable timing/reference configuration. Producers and followers
+    /// authenticate it against canonical L1; the offline signer instead checks
+    /// the complete request ancestry bound to the on-chain settlement anchor.
     pub const fn derivation(&self) -> DerivationConfig {
         self.derivation
     }
@@ -79,6 +80,8 @@ mod tests {
         let mut doc: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         doc["config"]["rollupX"] = serde_json::to_value(DerivationConfig {
+            fee_collector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
+            history_update_offset: 0,
             block_interval_seconds: 1,
             sync_interval_blocks: 5,
             l1_reference: GenesisL1Reference {

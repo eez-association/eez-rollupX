@@ -171,22 +171,22 @@ async fn assert_reconciled(w: &CrossChainWorld) {
     .expect("L1 stored commitment never matched the L2 safe block hash");
 }
 
-/// Return just after the composer starts a sync slot. Transactions submitted
-/// next receive a complete collection interval before the following slot.
-/// Idle slots do not drain now that empty postbatches are forbidden, so the
-/// invocation signal is the scheduling boundary these tests need.
+/// Return after a fresh cutoff accepts an idle decision. Newly submitted work
+/// then waits for the following cutoff and can collect into one attempt.
+/// The ordinary clock does not invoke Composer for this idle slot; requiring
+/// that invocation before enqueueing work would wait indefinitely.
 async fn open_collection_window(w: &CrossChainWorld) {
     let cursor = w.node.signal_cursor().unwrap();
     wait_for(SETTLE_TIMEOUT, || async {
-        let invoked = w
-            .node
-            .signals_since(cursor)?
-            .iter()
-            .any(|signal| signal.name == signals::COMPOSER_SYNC_SLOT_INVOKED);
-        Ok(invoked.then_some(()))
+        let idle = w.node.signals_since(cursor)?.iter().any(|signal| {
+            signal.name == signals::SEQUENCER_SLOT_DECISION
+                && signal.fields["prepare"] == false
+                && signal.fields["skip_post"] == true
+        });
+        Ok(idle.then_some(()))
     })
     .await
-    .expect("composer did not report a fresh sync-slot invocation boundary");
+    .expect("sequencer did not accept a fresh idle cutoff decision");
 }
 
 async fn batches(w: &CrossChainWorld) -> Vec<EvmBatch> {

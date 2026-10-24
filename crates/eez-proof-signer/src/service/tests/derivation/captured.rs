@@ -3,48 +3,68 @@
 use super::*;
 use prost::Message as _;
 
-fn chunks(bytes: &[u8]) -> Vec<ProveChunk> {
+fn chunks(bytes: &[u8]) -> Vec<WindowChunk> {
+    use eez_control_rpc::v2::{ClientFrame, client_frame};
     let mut remaining = bytes;
-    let mut chunks = Vec::new();
+    let mut begin = None;
+    let mut blocks = Vec::new();
+    let mut finalize = None;
     while !remaining.is_empty() {
-        chunks.push(ProveChunk::decode_length_delimited(&mut remaining).unwrap());
+        match ClientFrame::decode_length_delimited(&mut remaining)
+            .unwrap()
+            .kind
+            .unwrap()
+        {
+            client_frame::Kind::Begin(value) => {
+                assert!(begin.replace(value).is_none());
+            }
+            client_frame::Kind::Block(value) => blocks.push(value.data.unwrap()),
+            client_frame::Kind::Finalize(value) => {
+                assert!(finalize.replace(value).is_none());
+            }
+            _ => panic!("capture must be a complete cold Begin/Block/Finalize exchange"),
+        }
     }
-    chunks
-}
-
-#[tokio::test]
-async fn preparation_rejects_a_real_system_and_outbound_terminal_without_signing() {
-    use eez_control_rpc::v1::{PrepareChunk, PrepareHeader, prepare_chunk};
-
-    let fixture = Fixture::load("native-osaka-changing-static");
-    let state = Arc::clone(&fixture.state);
-    let server = TestServer::new(Arc::clone(&state)).await;
-    let Some(prove_chunk::Kind::Block(terminal)) = fixture.input.last().unwrap().kind.clone()
-    else {
-        panic!("captured terminal witness")
+    let begin = begin.unwrap();
+    let finalize = finalize.unwrap();
+    let parent_rlp = blocks[0]
+        .witness
+        .as_ref()
+        .unwrap()
+        .headers
+        .last()
+        .unwrap()
+        .clone();
+    let parent: alloy_consensus::Header = alloy_rlp::decode_exact(&parent_rlp).unwrap();
+    assert_eq!(parent.number, begin.anchor_number);
+    assert_eq!(parent.hash_slow().as_slice(), begin.anchor_hash);
+    assert_eq!(parent.state_root.as_slice(), begin.anchor_state_root);
+    let post = finalize.settlement.unwrap();
+    let header = WindowMetadata {
+        rollup_id: begin.rollup_id,
+        from_block: finalize.from_block,
+        to_block: finalize.to_block,
+        parent_header_rlp: parent_rlp,
+        post_batch: Some(WireSettlement {
+            abi_calldata: post.abi_calldata,
+            blobs: post.blobs,
+            posting_context: post
+                .posting_context
+                .map(|c| eez_control_rpc::v2::L1PostingContext {
+                    chain_id: c.chain_id,
+                    target_timestamp: c.target_timestamp,
+                    parent_number: c.parent_number,
+                    parent_hash: c.parent_hash,
+                }),
+        }),
     };
-    let chunks = [
-        PrepareChunk {
-            kind: Some(prepare_chunk::Kind::Header(PrepareHeader {
-                rollup_id: 1,
-                expected_validation_identity: state.validation_identity.to_vec(),
-                from_block: terminal.number,
-                to_block: terminal.number,
-                lease_id: Vec::new(),
-            })),
-        },
-        PrepareChunk {
-            kind: Some(prepare_chunk::Kind::Block(terminal)),
-        },
-    ];
-    let status = server
-        .client()
-        .await
-        .prepare_ordinary(tokio_stream::iter(chunks))
-        .await
-        .unwrap_err();
-    assert_eq!(status.code(), Code::FailedPrecondition);
-    assert_eq!(state.attester.signing_calls(), 0);
+    std::iter::once(WindowChunk {
+        kind: Some(WindowPart::Metadata(header)),
+    })
+    .chain(blocks.into_iter().map(|block| WindowChunk {
+        kind: Some(WindowPart::Block(block)),
+    }))
+    .collect()
 }
 
 #[test]
@@ -62,7 +82,7 @@ fn inventory_native_proving_fixtures() {
     files.sort();
     for path in files {
         let input = chunks(&std::fs::read(&path).unwrap());
-        let Some(prove_chunk::Kind::Header(header)) = &input[0].kind else {
+        let Some(WindowPart::Metadata(header)) = &input[0].kind else {
             panic!("header")
         };
         let post = header.post_batch.as_ref().unwrap();
@@ -89,7 +109,7 @@ fn inventory_native_proving_fixtures() {
 }
 
 struct Fixture {
-    input: Vec<ProveChunk>,
+    input: Vec<WindowChunk>,
     state: Arc<ServiceState>,
     expected_hash: B256,
     signature: Vec<u8>,
@@ -102,11 +122,11 @@ impl Fixture {
         TestServer::with_limits(
             Arc::clone(&self.state),
             ServiceLimits::new(ServiceLimitsParams {
-                max_window_blocks: nz(128),
+                max_window_blocks: nz(4_096),
                 max_window_bytes: nz(16 * 1024 * 1024),
                 max_window_witness_items: nz(100_000),
                 stream_idle_timeout: Duration::from_secs(5),
-                request_timeout: Duration::from_secs(30),
+                request_timeout: Duration::from_mins(2),
             })
             .unwrap(),
         )
@@ -114,77 +134,30 @@ impl Fixture {
     }
 
     fn load(name: &str) -> Self {
-        macro_rules! fixture {
-            ($name:literal) => {{
-                |file| -> &[u8] {
-                    match file {
-                        "identity.json" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/identity.json"
-                        )),
-                        "response.json" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/response.json"
-                        )),
-                        "request.protobuf" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/request.protobuf"
-                        )),
-                        "l2-genesis.json" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/l2-genesis.json"
-                        )),
-                        "cold-request.protobuf" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/cold-request.protobuf"
-                        )),
-                        "l1-genesis.json" => include_bytes!(concat!(
-                            "../../../../tests/fixtures/",
-                            $name,
-                            "/l1-genesis.json"
-                        )),
-                        _ => panic!("unknown fixture file"),
-                    }
-                }
-            }};
-        }
-        let read: fn(&str) -> &[u8] = match name {
-            "native-osaka-lookup" => fixture!("native-osaka-lookup"),
-            "native-osaka-changing-static" => fixture!("native-osaka-changing-static"),
-            _ => panic!("unknown fixture"),
-        };
-        let identity: serde_json::Value = serde_json::from_slice(read("identity.json")).unwrap();
-        let response: serde_json::Value = serde_json::from_slice(read("response.json")).unwrap();
-        let encoded = read("request.protobuf");
+        let directory = crate::testkit::manifest_dir()
+            .join("tests/fixtures")
+            .join(name);
+        let read = |file: &str| std::fs::read(directory.join(file)).unwrap();
+        let identity: serde_json::Value = serde_json::from_slice(&read("identity.json")).unwrap();
+        let response: serde_json::Value = serde_json::from_slice(&read("response.json")).unwrap();
+        let encoded = read("request.v2.protobuf");
         assert_eq!(
-            keccak256(encoded),
+            encoded.len() as u64,
+            response["request_bytes"].as_u64().unwrap()
+        );
+        assert_eq!(
+            keccak256(&encoded),
             response["request_hash"]
                 .as_str()
                 .unwrap()
                 .parse::<B256>()
                 .unwrap()
         );
-        assert_eq!(
-            encoded.len() as u64,
-            response["request_bytes"].as_u64().unwrap()
-        );
         let system_address = identity["l2_system_address"]
             .as_str()
             .unwrap()
-            .parse::<Address>()
+            .parse()
             .unwrap();
-        assert_eq!(
-            system_address,
-            eez_primitives::SYSTEM_ADDRESS,
-            "fixture must be captured with the native protocol"
-        );
-        assert_eq!(identity["gnosis_l1"], false);
-        // The same intentionally public Anvil account #5 used by Testkit.
         let attester = crate::attest::Attester::new(
             b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
             identity["vkey"].as_str().unwrap().parse().unwrap(),
@@ -192,53 +165,30 @@ impl Fixture {
             system_address,
         )
         .unwrap();
-        let genesis = crate::testkit::manifest_dir()
-            .join("tests/fixtures")
-            .join(name)
-            .join("l2-genesis.json");
-        assert_eq!(std::fs::read(&genesis).unwrap(), read("l2-genesis.json"));
         let state = Arc::new(
             ServiceState::new(
-                crate::service::l1::L1Authority::Synthetic,
-                Validator::stateless(&genesis, system_address).unwrap(),
+                identity["registry_address"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                identity["rollup_manager_address"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                Validator::stateless(&directory.join("l2-genesis.json"), system_address).unwrap(),
                 expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
                 attester,
                 Arc::new(reth_chainspec::ChainSpec::from(
-                    serde_json::from_slice::<alloy_genesis::Genesis>(read("l1-genesis.json"))
+                    serde_json::from_slice::<alloy_genesis::Genesis>(&read("l1-genesis.json"))
                         .unwrap(),
                 )),
             )
             .unwrap(),
         );
-        let input = {
-            // The original request used cached ranges. These are the exact
-            // preparation witnesses expanded for independent full execution;
-            // no cache facts from the capturing process are imported.
-            let cold = read("cold-request.protobuf");
-            assert_eq!(
-                cold.len() as u64,
-                response["cold_request_bytes"].as_u64().unwrap()
-            );
-            assert_eq!(
-                keccak256(cold),
-                response["cold_request_hash"]
-                    .as_str()
-                    .unwrap()
-                    .parse::<B256>()
-                    .unwrap()
-            );
-            let cold = chunks(cold);
-            assert_eq!(cold.first(), chunks(encoded).first());
-            assert_eq!(cold.last(), chunks(encoded).last());
-            assert!(
-                cold[1..]
-                    .iter()
-                    .all(|chunk| matches!(chunk.kind, Some(prove_chunk::Kind::Block(_))))
-            );
-            cold
-        };
         let mut fixture = Self {
-            input,
+            input: chunks(&encoded),
             state,
             expected_hash: B256::from_slice(
                 &hex::decode(response["public_inputs_hash"].as_str().unwrap()).unwrap(),
@@ -251,19 +201,15 @@ impl Fixture {
                 .unwrap();
         let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
             &semantics,
-            eez_protocol::RollupId(1),
+            RollupId(1),
             fixture.state.validator.chain_id(),
         )
         .unwrap();
-        let batch = settlement::decode_canonical_post_batch(
-            header_mut(&mut fixture.input[0])
-                .post_batch
-                .as_ref()
-                .unwrap()
-                .abi_calldata
-                .clone(),
-        )
-        .unwrap();
+        let post = header_mut(&mut fixture.input[0])
+            .post_batch
+            .as_ref()
+            .unwrap();
+        let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
         actions.bind_settlement(&batch).unwrap();
         assert_eq!(fixture.digest(), fixture.expected_hash);
         assert_eq!(
@@ -276,30 +222,12 @@ impl Fixture {
         fixture
     }
 
-    fn digest(&mut self) -> B256 {
-        let header = header_mut(&mut self.input[0]);
-        let post = header.post_batch.as_ref().unwrap();
-        let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
-        let carrier =
-            settlement::verify_da_carrier_with_limit(&batch, &post.blobs, header.rollup_id, 16)
-                .unwrap();
-        settlement::CheckedPublicInputProfile::new(
-            &batch,
-            self.state.expected_rollup_id,
-            batch.proofSystems[0],
-        )
-        .unwrap()
-        .recompute_public_inputs_hash(
-            self.state.attester.proof_system_vkey(),
-            carrier.transaction_blob_hashes(),
-            crate::testkit::target_from_wire(post.posting_context.as_ref().unwrap()),
-        )
-        .unwrap()
-        .into_inner()
+    fn digest(&self) -> B256 {
+        recompute_window_public_inputs_for_state(&self.state, &self.input)
     }
 }
 
-fn native_payload(input: &mut [ProveChunk]) -> eez_blob_codec::NativePayload {
+fn native_payload(input: &mut [WindowChunk]) -> eez_blob_codec::NativePayload {
     let header = header_mut(&mut input[0]);
     let blobs = header
         .post_batch
@@ -313,7 +241,7 @@ fn native_payload(input: &mut [ProveChunk]) -> eez_blob_codec::NativePayload {
     eez_blob_codec::decode_native_payload(&blobs, header.rollup_id).unwrap()
 }
 
-fn replace_native_payload(input: &mut [ProveChunk], native: eez_blob_codec::NativePayload) {
+fn replace_native_payload(input: &mut [WindowChunk], native: eez_blob_codec::NativePayload) {
     let header = header_mut(&mut input[0]);
     let blobs = eez_blob_codec::encode_native_payload(
         header.rollup_id,
@@ -328,65 +256,122 @@ fn replace_native_payload(input: &mut [ProveChunk], native: eez_blob_codec::Nati
     post.blobs = blobs.iter().map(|blob| blob.as_bytes().to_vec()).collect();
 }
 
-fn pipeline_error(state: &ServiceState, input: Vec<ProveChunk>) -> PipelineError {
-    let mut input = input.into_iter();
-    let mut assembler = crate::window::WindowAssembler::start(
-        crate::window::WindowLimits {
-            blocks: 128,
-            payload_bytes: 16 * 1024 * 1024,
-            witness_items: 100_000,
-        },
-        input.next().unwrap(),
-    )
-    .unwrap()
-    .verify_rollup_identity(state.expected_rollup_id)
-    .unwrap();
-    for chunk in input {
-        assembler.push(chunk).unwrap();
-    }
-    let (header, blocks) = assembler.finish().unwrap().into_parts();
-    let maximum_blobs = state.posting_blob_limit(&header.posting_context).unwrap();
-    validate_and_settle(
+fn pipeline_error(state: &ServiceState, input: Vec<WindowChunk>) -> PipelineError {
+    pipeline_error_at(
         state,
-        blocks,
-        header.submitted_post_batch_calldata,
-        header.submitted_blobs,
-        maximum_blobs,
-        header.posting_context,
-        crate::service::l1::CandidateContext::Synthetic,
-        tokio::time::Instant::now() + std::time::Duration::from_secs(30),
-        &CancellationToken::default(),
+        input,
+        tokio::time::Instant::now() + Duration::from_secs(30),
     )
-    .err()
-    .expect("mutated request must fail the full pipeline")
+}
+
+fn pipeline_error_at(
+    state: &ServiceState,
+    input: Vec<WindowChunk>,
+    deadline: tokio::time::Instant,
+) -> PipelineError {
+    use crate::validate::streaming::{BlockAnchor, ValidatedStreamBlock};
+    let Some(WindowPart::Metadata(header)) = &input[0].kind else {
+        panic!("fixture header")
+    };
+    let parent: alloy_consensus::Header =
+        alloy_rlp::decode_exact(&header.parent_header_rlp).unwrap();
+    let initial = BlockAnchor {
+        number: parent.number,
+        hash: parent.hash_slow(),
+        state_root: parent.state_root,
+    };
+    let post = header.post_batch.as_ref().unwrap();
+    let result = (|| {
+        let mut previous = initial;
+        let mut checked: Vec<Arc<ValidatedStreamBlock>> = Vec::new();
+        let mut history = Arc::new(eez_protocol::l1_history::HeaderChain::default());
+        let cancellation = CancellationToken::default();
+        for chunk in &input[1..] {
+            let Some(WindowPart::Block(block)) = &chunk.kind else {
+                panic!("full fixture block")
+            };
+            let admitted = AdmittedBlock::from_wire(
+                block.clone(),
+                &mut 0,
+                crate::window::WindowLimits {
+                    blocks: 65_536,
+                    payload_bytes: 64 * 1024 * 1024,
+                    witness_items: 1_000_000,
+                },
+            )
+            .unwrap();
+            let length = history.headers().len();
+            let (block, next_history) = state.validator.validate_stream_block(
+                previous,
+                admitted,
+                history,
+                length,
+                checked.last().map(Arc::as_ref),
+                &state.offline_rules.headers,
+                131_072,
+                &cancellation,
+            )?;
+            previous = block.as_anchor();
+            checked.push(Arc::new(block));
+            history = next_history;
+        }
+        let window = validate::ValidatedWindow::from_streamed_prefix(initial, &checked)?;
+        let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone())
+            .map_err(SettlementPipelineError::from)?;
+        let context = state
+            .deployment
+            .candidate(
+                state.expected_rollup_id.get(),
+                &batch,
+                post.posting_context
+                    .as_ref()
+                    .map(crate::testkit::target_from_wire),
+                initial,
+                &checked,
+                &history,
+            )
+            .map_err(PipelineError::L1Authorization)?;
+        let maximum_blobs = state.posting_blob_limit(context.rules_timestamp()).unwrap();
+        super::super::super::settlement_job::settle_validated(
+            state,
+            &window,
+            batch,
+            post.blobs.clone(),
+            maximum_blobs,
+            context,
+            deadline,
+            &cancellation,
+        )
+    })();
+    assert_eq!(state.attester.signing_calls(), 0);
+    result
+        .err()
+        .expect("mutated request must fail the full pipeline")
 }
 
 #[test]
-fn previous_signed_system_deployment_is_rejected_before_replay() {
-    let identity: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/derivable-native-mixed/identity.json"
-    ))
-    .unwrap();
-    let system_address = identity["l2_system_address"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert_ne!(system_address, eez_primitives::SYSTEM_ADDRESS);
-    let config = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/derivable-native-mixed/chain-config.json"
-    ))
-    .unwrap();
+fn elapsed_deadline_stops_settlement_after_real_offline_replay() {
+    let fixture = Fixture::load("native-offline-bidirectional");
+    let error = pipeline_error_at(&fixture.state, fixture.input, tokio::time::Instant::now());
+    assert!(
+        matches!(error, PipelineError::DeadlineBeforeSettlement),
+        "{error:?}"
+    );
+    assert_eq!(error.gate(), "deadline");
+    assert_eq!(error.status().code(), Code::DeadlineExceeded);
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[test]
+fn validator_rejects_a_non_protocol_system_identity() {
     let error = ServiceState::new(
-        crate::service::l1::L1Authority::Synthetic,
+        Address::repeat_byte(0x33),
+        Address::repeat_byte(0x44),
         Validator::stateless_for_test(
-            alloy_genesis::Genesis {
-                config,
-                ..Default::default()
-            },
-            system_address,
+            crate::testkit::history::genesis(),
+            Address::repeat_byte(0x12),
         ),
-        expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
+        expected_rollup_id(1),
         test_attester(),
         crate::testkit::l1_chain_spec(),
     )
@@ -398,12 +383,68 @@ fn previous_signed_system_deployment_is_rejected_before_replay() {
 }
 
 #[tokio::test]
+async fn native_offline_cold_request_matches_the_posted_signature() {
+    let fixture = Fixture::load("native-offline-bidirectional");
+    let server = fixture.server().await;
+    let response = server.attest(fixture.input.clone()).await;
+    assert_attestation(
+        &response,
+        fixture.expected_hash,
+        fixture.state.attester.address(),
+    );
+    assert_eq!(response.proof, fixture.signature);
+    // A new server/state has no retained session or earlier witness cache.
+    let cold = Fixture::load("native-offline-bidirectional");
+    let restarted = cold.server().await;
+    assert_eq!(restarted.attest(cold.input).await, response);
+}
+
+#[tokio::test]
+async fn native_offline_request_without_l1_evidence_cannot_sign() {
+    let mut fixture = Fixture::load("native-offline-bidirectional");
+    for chunk in &mut fixture.input[1..] {
+        block_mut(chunk)
+            .witness
+            .as_mut()
+            .unwrap()
+            .l1_headers_rlp
+            .clear();
+    }
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert_eq!(error.gate(), "execution", "{error:?}");
+    let server = fixture.server().await;
+    let rejected = server.prove(fixture.input).await;
+    assert_eq!(rejected.code(), Code::FailedPrecondition);
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[tokio::test]
+async fn an_unrelated_accepted_root_cannot_authorize_a_cold_request() {
+    let mut fixture = Fixture::load("native-offline-bidirectional");
+    let post = header_mut(&mut fixture.input[0])
+        .post_batch
+        .as_mut()
+        .unwrap();
+    let mut batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+    batch.expectedRootPerRollup[0].root = B256::repeat_byte(0x91);
+    post.abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
+    let error = pipeline_error(&fixture.state, fixture.input.clone());
+    assert_eq!(error.gate(), "canonical_registry", "{error:?}");
+    let server = fixture.server().await;
+    assert_eq!(
+        server.prove(fixture.input).await.code(),
+        Code::FailedPrecondition
+    );
+    assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+#[tokio::test]
 async fn native_changing_reads_and_caught_revert_replay_original_execution_with_v0() {
     for name in ["native-osaka-changing-static", "native-osaka-lookup"] {
         let mut fixture = Fixture::load(name);
         let native = native_payload(&mut fixture.input);
         let payload = Payload::decode(&native.operations).unwrap();
-        assert!((1..=128).contains(&payload.block_count()));
+        assert!((1..=4_096).contains(&payload.block_count()));
         let post = header_mut(&mut fixture.input[0])
             .post_batch
             .as_ref()
@@ -459,7 +500,7 @@ async fn native_changing_reads_and_caught_revert_replay_original_execution_with_
             fixture.expected_hash,
             fixture.state.attester.address(),
         );
-        assert_eq!(response.signature, fixture.signature);
+        assert_eq!(response.proof, fixture.signature);
         // Retrying the identical request must recompute the same result.
         let retry = server.attest(fixture.input).await;
         assert_eq!(retry, response);

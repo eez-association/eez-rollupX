@@ -2,7 +2,7 @@ use super::*;
 use crate::abi::{EtherDeltaSol, RootUpdateSol};
 use crate::{CallMode, EntryRollingHash, ExecutedAction, ExecutionOutcome};
 use alloy_consensus::{SignableTransaction, TxLegacy};
-use alloy_primitives::{Address, B256, Bytes, Signature, TxKind, U256};
+use alloy_primitives::{Address, Bytes, Signature, TxKind, U256};
 
 fn action(source: u64, target: u64, marker: u8) -> ExecutedAction {
     ExecutedAction {
@@ -53,7 +53,79 @@ fn decode(
 }
 
 #[test]
-fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identity() {
+fn source_positions_count_original_brackets_and_failed_static_roots() {
+    let mut failed = action(0, 1, 4);
+    failed.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![6],
+        gas_used: 0,
+        success: false,
+    };
+    let mut lookup = action(0, 1, 5);
+    lookup.call_mode = CallMode::Static;
+    lookup.value = U256::ZERO;
+    let delivery = action(0, 1, 6);
+    let stream = [
+        semantic(1, vec![action(1, 0, 3)]),
+        semantic(0, vec![failed, lookup, delivery.clone(), delivery]),
+    ];
+    let actions = decode(&stream).unwrap();
+    assert_eq!(
+        actions.inbound_positions,
+        vec![
+            SourcePosition {
+                manifest_index: 1,
+                top_level_call_index: 2
+            },
+            SourcePosition {
+                manifest_index: 1,
+                top_level_call_index: 3
+            },
+        ]
+    );
+    let live = LiveSourceContext::new(
+        1,
+        Address::with_last_byte(9),
+        RollupId(1),
+        1,
+        144,
+        B256::repeat_byte(8),
+    )
+    .unwrap();
+    let sources = actions.source_hashes(&live);
+    assert_eq!(sources.len(), 3);
+    assert_ne!(
+        sources[1], sources[2],
+        "identical calls at different original roots"
+    );
+    assert_eq!(
+        sources[1],
+        live.inbound(
+            actions.inbound_positions[0],
+            actions.inbound()[0].as_abi_entry().proxyEntryHash
+        )
+    );
+    // A consumed prefix chooses a suffix of these identities. Rebuilding a new
+    // stream without the original bracket changes identity and is not a resume.
+    let renumbered = decode(&stream[1..]).unwrap().source_hashes(&live);
+    assert_ne!(sources[1..], renumbered);
+}
+
+#[test]
+fn failed_foreign_root_is_not_filtered_from_the_semantic_profile() {
+    let mut failed = action(0, 42, 4);
+    failed.outcome = ExecutionOutcome::Resolved {
+        return_data: vec![],
+        gas_used: 0,
+        success: false,
+    };
+    assert!(matches!(
+        decode(&[semantic(0, vec![failed])]),
+        Err(ReconstructionError::Table("foreign action chain"))
+    ));
+}
+
+#[test]
+fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_source_identity() {
     let mut callback = action(0, 1, 4);
     callback.parent_index = Some(0);
     let transactions = [
@@ -76,7 +148,17 @@ fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identi
         actions.outbound(),
         actions.inbound(),
         &cfg,
-        9,
+        &actions.source_hashes(
+            &LiveSourceContext::new(
+                1,
+                Address::with_last_byte(9),
+                RollupId(1),
+                1,
+                144,
+                B256::repeat_byte(8),
+            )
+            .unwrap(),
+        ),
     )
     .unwrap();
     assert_eq!(
@@ -84,11 +166,10 @@ fn semantic_reconstruction_retains_whole_groups_checked_inbound_and_nonce_identi
         3,
         "one load for the complete outbound group and two deliveries"
     );
-    for (index, pair) in pairs.iter().enumerate() {
-        let mut bytes = pair.system_tx.as_ref();
-        let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes).unwrap();
-        assert_eq!(tx.nonce(), 9 + index as u64);
-        assert!(bytes.is_empty());
+    for pair in &pairs {
+        let tx = pair.system_tx.at_position(crate::l2::GAS_LIMIT, 0).unwrap();
+        assert_eq!(tx.version, eez_primitives::SYSTEM_TX_VERSION);
+        assert_ne!(tx.source_hash, B256::ZERO);
     }
 }
 
@@ -118,7 +199,7 @@ fn rejects_foreign_origins_destinations_order_and_noncanonical_origin_bytes() {
     );
     assert_eq!(
         decode(&[semantic(0, vec![action(0, 2, 1)])]).unwrap_err(),
-        ReconstructionError::Table("foreign destination")
+        ReconstructionError::Table("foreign action chain")
     );
     assert_eq!(
         decode(&[
@@ -140,7 +221,9 @@ fn rejects_foreign_origins_destinations_order_and_noncanonical_origin_bytes() {
     );
     tx.tx_data = eez_primitives::SystemTransaction {
         chain_id: 1,
-        nonce: 0,
+        version: eez_primitives::SYSTEM_TX_VERSION,
+        source_hash: B256::repeat_byte(1),
+        gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: eez_primitives::EEZL2_ADDRESS,
         value: U256::ZERO,
         input: Bytes::new(),

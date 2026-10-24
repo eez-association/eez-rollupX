@@ -12,7 +12,7 @@ use std::{
 
 use alloy_consensus::{Header, Transaction, TxEip1559, TxLegacy, Typed2718, TypedTransaction};
 use alloy_eips::{Decodable2718, Encodable2718};
-use alloy_primitives::{Address, Bytes, Signature, TxKind, U256, keccak256};
+use alloy_primitives::{Address, B256, Bytes, Signature, TxKind, U256, keccak256};
 use eez_l1::{BundleTarget, L1BlockRef, L2Endpoint};
 use eez_payload_codec::v0::{BlockRun, PayloadSizer};
 use eez_protocol::{
@@ -28,7 +28,7 @@ use serde_json::{Value, json};
 
 use super::super::{Composer, l1_target_gas, posting::PostingQuote};
 use crate::composer::estimate::EstimateError;
-use crate::local::{L1SlotState, L1TargetSession, LocalChainClient, build::SyncBlockState};
+use crate::local::{L1SlotState, L1TargetSession, LocalChainClient};
 
 mod diagnostics;
 
@@ -811,7 +811,9 @@ where
             .get(&rollup_id)
             .ok_or(FeeQuoteError::Invalid("unknown rollup"))?;
         let cc = &self.inner.cross_chain;
-        let source = cc.local.l2_entry.chain_provider();
+        let gas_estimator = self
+            .gas_estimator(rollup_id)
+            .map_err(compact::estimate_error)?;
         let parent = snapshot.l2_parent.clone();
         let terminal_number = parent
             .number
@@ -829,15 +831,7 @@ where
             self.inner.emission.max_blocks.saturating_sub(1),
             budget,
         )?;
-        let (timestamp, randao) = (snapshot.l2_timestamp, snapshot.l2_randao);
-        let state = source
-            .provider
-            .state_by_block_hash(parent.hash())
-            .map_err(|e| unavailable("L2 state", e))?;
-        let system_nonce = state
-            .account_nonce(&eez_primitives::SYSTEM_ADDRESS)
-            .map_err(|e| unavailable("system nonce", e))?
-            .unwrap_or_default();
+        let timestamp = snapshot.l2_timestamp;
         let maximum_blobs = self
             .remaining_posting_blob_allowance(posting.quote.target, 0)
             .map_err(|e| unavailable("blob allowance", e))?;
@@ -887,16 +881,11 @@ where
         let mut settlement = super::settlement::Estimator::new(runtime, posting);
         for iteration in 1..=MAX_ITERATIONS {
             budget.check()?;
-            let mut draft = SyncBlockState::open(
-                Arc::clone(&source.provider),
-                &self.inner.evm_config,
-                &parent,
-                timestamp,
-                randao,
-                self.inner.fee_recipient,
-                &[],
-            )
-            .map_err(|e| unavailable("L2 draft", e))?;
+            // Gas and fee probes use the same recorded choice even if fresh
+            // L1 evidence arrives while the fixed-point calculation is running.
+            let mut draft = gas_estimator
+                .l2_draft(snapshot)
+                .map_err(compact::estimate_error)?;
             let base = draft.base_fee();
             let cap = if request.signed_fees {
                 request.tx.max_fee_per_gas()
@@ -1030,7 +1019,8 @@ where
                     l2_chain_id: runtime.ctx.l2_chain_id,
                     this_rollup_id: rollup_id,
                 },
-                system_nonce,
+                // This is an unsigned sizing/fee probe, never a publishable body.
+                &[B256::ZERO],
             )
             .map_err(|e| unavailable("native group", e))?;
             // Price the same replay that validates the composed effects. A
@@ -1051,7 +1041,10 @@ where
             let mut source_gas = None;
             let mut source_output_matches = false;
             let mut logs = Vec::new();
-            for raw in eez_protocol::system_tx::interleave_sync_block_txs(&pairs) {
+            for plan in eez_protocol::system_tx::interleave_sync_block_txs(&pairs) {
+                let raw = native
+                    .encode_plan(&plan)
+                    .map_err(|e| unavailable("native gas position", e))?;
                 budget.check()?;
                 let is_source = raw == raw_size;
                 let outcome = if is_source {
@@ -1316,11 +1309,13 @@ fn advisory_parent<L2: BlockReader<Header = Header>>(
             return Err(FeeQuoteError::Stale);
         }
         for tx in block.body().transactions() {
-            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-                || tx
-                    .recover_signer()
-                    .map_err(|e| unavailable("history signer", e))?
-                    == eez_primitives::SYSTEM_ADDRESS
+            if (tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+                && tx.to() != Some(eez_primitives::HISTORY_ADDRESS))
+                || (tx.ty() != eez_primitives::SYSTEM_TX_TYPE
+                    && tx
+                        .recover_signer()
+                        .map_err(|e| unavailable("history signer", e))?
+                        == eez_primitives::SYSTEM_ADDRESS)
             {
                 return Ok(parent);
             }
@@ -1365,11 +1360,13 @@ fn history_size<L2: BlockReader<Header = Header>>(
         }
         let mut txs = Vec::new();
         for tx in block.body().transactions() {
-            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-                || tx
-                    .recover_signer()
-                    .map_err(|e| unavailable("history signer", e))?
-                    == eez_primitives::SYSTEM_ADDRESS
+            if (tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+                && tx.to() != Some(eez_primitives::HISTORY_ADDRESS))
+                || (tx.ty() != eez_primitives::SYSTEM_TX_TYPE
+                    && tx
+                        .recover_signer()
+                        .map_err(|e| unavailable("history signer", e))?
+                        == eez_primitives::SYSTEM_ADDRESS)
             {
                 return Err(FeeQuoteError::Unavailable(
                     "unsettled native history requires reconciliation",
@@ -1444,33 +1441,15 @@ fn outbound_group(
     if roots.iter().sum::<usize>() != source.batch.entries.len() + source.l2_static_entries.len() {
         return Err(FeeQuoteError::Unsupported("incomplete settlement roots"));
     }
-    let callbacks = composition
-        .targets
-        .iter()
-        .filter(|t| t.rollup_id.0 == rollup_id)
-        .flat_map(|t| t.batch.entries.iter())
-        .map(|entry| eez_protocol::entries::InboundSidecar::for_rollup(entry, RollupId(rollup_id)))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| unavailable("callback sidecars", e))?;
-    if source.callback_entry_counts.len() != source.batch.entries.len()
-        || source.callback_entry_counts.iter().sum::<usize>() != callbacks.len()
-    {
-        return Err(FeeQuoteError::Unsupported("incomplete callbacks"));
-    }
-    let mut cursor = 0;
-    let mut effects = Vec::new();
-    for (entry, count) in source
+    let mut effects = source
         .batch
         .entries
         .iter()
-        .zip(&source.callback_entry_counts)
-    {
-        effects.push(OutboundSyncEffect {
-            source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-            callback_entries: callbacks[cursor..cursor + count].to_vec(),
-        });
-        cursor += count;
-    }
+        .cloned()
+        .map(|entry| OutboundSyncEffect {
+            source_entry: OutboundSourceEntry::Mutable(entry),
+        })
+        .collect::<Vec<_>>();
     effects.extend(
         source
             .l2_static_entries
@@ -1478,7 +1457,6 @@ fn outbound_group(
             .cloned()
             .map(|entry| OutboundSyncEffect {
                 source_entry: OutboundSourceEntry::Static(entry),
-                callback_entries: vec![],
             }),
     );
     Ok((

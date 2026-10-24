@@ -4,13 +4,45 @@ use alloy_primitives::Signature;
 
 fn system() -> EezTxEnvelope {
     SystemTransaction {
+        version: SYSTEM_TX_VERSION,
         chain_id: 1,
-        nonce: 0,
+        source_hash: B256::repeat_byte(0x42),
+        gas_limit: SYSTEM_TX_GAS_CAP,
         to: EEZL2_ADDRESS,
         value: U256::ZERO,
         input: Bytes::from_static(&[1, 2, 3, 4]),
     }
     .into()
+}
+
+#[test]
+fn native_v1_reference_vectors_are_canonical() {
+    // Generated independently of the Rust implementation with ABI/RLP encoders
+    // and Foundry. These prove the wire contract, not execution authorization.
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../eez-control-rpc/conformance/native-profile-v1.json"
+    ))
+    .unwrap();
+    let mut checked = 0;
+    for vector in corpus["vectors"].as_array().unwrap() {
+        let id = vector["id"].as_str().unwrap();
+        if !id.starts_with("native-history-") {
+            continue;
+        }
+        let bytes =
+            alloy_primitives::hex::decode(vector["expectedBytes"].as_str().unwrap()).unwrap();
+        let tx = EezTxEnvelope::decode_2718_exact(&bytes)
+            .unwrap_or_else(|error| panic!("{id}: {error}"));
+        assert_eq!(tx.encoded_2718(), bytes, "{id}");
+        assert_eq!(
+            tx.tx_hash().to_string(),
+            vector["expectedKeccak256"].as_str().unwrap(),
+            "{id}"
+        );
+        assert_eq!(tx.recover_signer().unwrap(), SYSTEM_ADDRESS);
+        checked += 1;
+    }
+    assert_eq!(checked, 2);
 }
 
 #[test]
@@ -97,8 +129,9 @@ fn engine_block_conversion_preserves_prague_requests_hash() {
 fn native_wire_sender_hash_and_storage_round_trip() {
     let tx = system();
     let bytes = tx.encoded_2718();
-    let expected =
-        alloy_primitives::hex!("76dd0180944b2760f84b83d6b3829e30a7573b0172b6d6402c808401020304");
+    let expected = alloy_primitives::hex!(
+        "45f8430101a042424242424242424242424242424242424242424242424242424242424242428401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c808401020304"
+    );
     assert_eq!(bytes, expected);
     assert_eq!(tx.tx_hash(), &alloy_primitives::keccak256(expected));
     assert_eq!(tx.recover_signer().unwrap(), SYSTEM_ADDRESS);
@@ -127,10 +160,135 @@ fn rejects_malformed_and_trailing_native_bytes() {
     let mut trailing = bytes.clone();
     trailing.push(0);
     assert!(EezTxEnvelope::decode_2718_exact(&trailing).is_err());
-    let mut wrong_target = bytes;
-    wrong_target[10] ^= 1;
+    let EezTxEnvelope::System(tx) = system() else {
+        unreachable!()
+    };
+    let wrong_target = SystemTransaction {
+        to: Address::ZERO,
+        ..tx.into_inner()
+    }
+    .encoded_2718();
     assert!(EezTxEnvelope::decode_2718_exact(&wrong_target).is_err());
     assert!(<EezTxEnvelope as reth_codecs::Decompress>::decompress(&wrong_target).is_err());
+}
+
+#[test]
+fn native_rejects_unsupported_version_noncanonical_fields_and_unknown_type() {
+    let bytes = system().encoded_2718();
+    let mut payload = &bytes[1..];
+    let header = alloy_rlp::Header::decode(&mut payload).unwrap();
+    assert!(header.list);
+    let mut fields = Vec::<Bytes>::new();
+    while !payload.is_empty() {
+        fields.push(Bytes::decode(&mut payload).unwrap());
+    }
+    assert_eq!(fields.len(), 7);
+    let encode = |fields: &[Bytes]| {
+        let mut bytes = vec![SYSTEM_TX_TYPE];
+        alloy_rlp::Header {
+            list: true,
+            payload_length: fields.iter().map(Encodable::length).sum(),
+        }
+        .encode(&mut bytes);
+        for field in fields {
+            field.encode(&mut bytes);
+        }
+        bytes
+    };
+    let reject = |bytes: &[u8]| {
+        assert!(EezTxEnvelope::decode_2718_exact(bytes).is_err());
+        assert!(<EezTxEnvelope as reth_codecs::Decompress>::decompress(bytes).is_err());
+    };
+    for (index, invalid) in [
+        (0, vec![]),
+        (0, vec![2]),
+        (0, vec![0, 1]),
+        (1, vec![0, 1]),
+        (1, vec![1; 9]),
+        (2, vec![0; 31]),
+        (2, vec![0; 33]),
+        (3, vec![0, 1]),
+        (3, vec![1; 9]),
+        (3, vec![1, 0, 0, 1]),
+        (4, vec![0; 19]),
+        (4, vec![0; 21]),
+        (5, vec![0]),
+        (5, vec![1; 33]),
+    ] {
+        let mut malformed = fields.clone();
+        malformed[index] = invalid.into();
+        reject(&encode(&malformed));
+    }
+    reject(&encode(&fields[..6]));
+    let mut extra = fields.clone();
+    extra.push(Bytes::new());
+    reject(&encode(&extra));
+    let mut unknown_type = bytes;
+    unknown_type[0] = 0x46;
+    reject(&unknown_type);
+}
+
+#[test]
+fn native_rpc_rejects_nonzero_placeholders_and_missing_consensus_fields() {
+    let json = serde_json::to_value(system()).unwrap();
+    for field in [
+        "nonce",
+        "gasPrice",
+        "v",
+        "r",
+        "s",
+        "yParity",
+        "maxFeePerGas",
+        "maxPriorityFeePerGas",
+        "maxFeePerBlobGas",
+    ] {
+        let mut malformed = json.clone();
+        malformed[field] = serde_json::json!("0x1");
+        assert!(
+            serde_json::from_value::<EezTxEnvelope>(malformed).is_err(),
+            "{field}"
+        );
+    }
+    for field in ["version", "sourceHash", "gas"] {
+        let mut malformed = json.clone();
+        malformed.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<EezTxEnvelope>(malformed).is_err(),
+            "{field}"
+        );
+    }
+    for field in ["accessList", "blobVersionedHashes", "authorizationList"] {
+        let mut malformed = json.clone();
+        malformed[field] = serde_json::json!([{}]);
+        assert!(
+            serde_json::from_value::<EezTxEnvelope>(malformed).is_err(),
+            "{field}"
+        );
+    }
+}
+
+#[test]
+fn native_receipt_matches_independent_reference() {
+    let corpus: serde_json::Value = serde_json::from_str(include_str!(
+        "../../eez-control-rpc/conformance/native-profile-v1.json"
+    ))
+    .unwrap();
+    let vector = corpus["vectors"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|v| v["id"] == "native-success-receipt")
+        .unwrap();
+    let bytes = alloy_primitives::hex::decode(vector["expectedBytes"].as_str().unwrap()).unwrap();
+    let receipt = alloy_consensus::ReceiptWithBloom::<Receipt>::decode_2718_exact(&bytes).unwrap();
+    assert_eq!(receipt.receipt.tx_type, EezTxType::System);
+    assert!(receipt.receipt.success);
+    assert_eq!(receipt.receipt.cumulative_gas_used, 21_000);
+    assert_eq!(receipt.encoded_2718(), bytes);
+    assert_eq!(
+        alloy_primitives::keccak256(&bytes).to_string(),
+        vector["expectedKeccak256"]
+    );
 }
 
 #[test]
@@ -167,7 +325,12 @@ fn native_is_not_a_public_pooled_transaction() {
 fn rpc_serialization_has_native_execution_fields_and_zero_signature_placeholders() {
     let tx = system();
     let json = serde_json::to_value(&tx).unwrap();
-    assert_eq!(json["type"], "0x76");
+    assert_eq!(json["type"], "0x45");
+    assert_eq!(json["version"], "0x1");
+    assert_eq!(
+        json["sourceHash"],
+        serde_json::to_value(B256::repeat_byte(0x42)).unwrap()
+    );
     assert_eq!(json["hash"], serde_json::to_value(tx.tx_hash()).unwrap());
     assert_eq!(json["chainId"], "0x1");
     assert_eq!(json["nonce"], "0x0");
@@ -189,11 +352,18 @@ fn rpc_serialization_has_native_execution_fields_and_zero_signature_placeholders
         rpc_json["from"],
         serde_json::to_value(SYSTEM_ADDRESS).unwrap()
     );
-    for field in ["v", "r", "s"] {
+    for field in ["v", "r", "s", "yParity"] {
         assert_eq!(json[field], "0x0");
         assert_eq!(rpc_json[field], "0x0");
     }
-    assert!(json.get("yParity").is_none());
+    for field in ["accessList", "blobVersionedHashes", "authorizationList"] {
+        assert_eq!(json[field], serde_json::json!([]));
+        assert_eq!(rpc_json[field], serde_json::json!([]));
+    }
+    for field in ["maxFeePerGas", "maxPriorityFeePerGas", "maxFeePerBlobGas"] {
+        assert!(json.get(field).is_none());
+        assert!(rpc_json.get(field).is_none());
+    }
     assert_eq!(serde_json::from_value::<EezTxEnvelope>(json).unwrap(), tx);
 }
 
@@ -253,4 +423,59 @@ fn native_budget_is_the_remaining_block_gas_bounded_by_the_osaka_cap() {
     assert_eq!(system_tx_gas_limit(30_000_000, 30_000_000), 0);
     // A corrupt cumulative figure above the limit leaves no budget, never wraps.
     assert_eq!(system_tx_gas_limit(30_000_000, u64::MAX), 0);
+}
+
+#[test]
+fn history_reuses_native_envelope_but_cannot_mint_or_target_an_arbitrary_contract() {
+    let tx = SystemTransaction {
+        version: SYSTEM_TX_VERSION,
+        chain_id: 1337,
+        source_hash: B256::repeat_byte(19),
+        gas_limit: HISTORY_TX_GAS_CAP,
+        to: HISTORY_ADDRESS,
+        value: U256::ZERO,
+        input: Bytes::from_static(&[1, 2, 3, 4]),
+    };
+    let envelope = EezTxEnvelope::from(tx.clone());
+    let decoded = EezTxEnvelope::decode_2718_exact(&envelope.encoded_2718()).unwrap();
+    assert_eq!(decoded, envelope);
+    assert!(decoded.is_history());
+    assert!(!decoded.is_cross_chain_system());
+    assert_eq!(decoded.recover_signer().unwrap(), SYSTEM_ADDRESS);
+    for invalid in [
+        SystemTransaction {
+            value: U256::from(1),
+            ..tx.clone()
+        },
+        SystemTransaction {
+            to: Address::ZERO,
+            ..tx
+        },
+    ] {
+        assert!(EezTxEnvelope::decode_2718_exact(&invalid.encoded_2718()).is_err());
+    }
+}
+
+#[test]
+fn payload_identity_binds_exact_history_choice_even_when_randao_is_unchanged() {
+    use reth_payload_primitives::PayloadAttributes as _;
+    let mut attrs = engine::EezPayloadAttributes::from(alloy_rpc_types_engine::PayloadAttributes {
+        timestamp: 100,
+        prev_randao: B256::repeat_byte(1),
+        suggested_fee_recipient: Address::ZERO,
+        withdrawals: Some(Vec::new()),
+        parent_beacon_block_root: Some(B256::ZERO),
+        slot_number: None,
+        target_gas_limit: None,
+    });
+    let parent = B256::repeat_byte(2);
+    let empty = attrs.payload_id(&parent);
+    attrs.history_transaction = Some(Bytes::from_static(&[0x45, 1]));
+    let first = attrs.payload_id(&parent);
+    attrs.history_transaction = Some(Bytes::from_static(&[0x45, 2]));
+    let other = attrs.payload_id(&parent);
+    assert_ne!(empty, first);
+    assert_ne!(first, other);
+    attrs.no_tx_pool = true;
+    assert_ne!(other, attrs.payload_id(&parent));
 }

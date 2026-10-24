@@ -22,7 +22,7 @@ fn physical_native_blobs(
 #[test]
 fn nonempty_abi_call_data_and_missing_physical_blobs_are_rejected() {
     let mut batch = carrier_batch();
-    batch.callData = Bytes::from_static(b"legacy payload");
+    batch.callData = Bytes::from_static(b"unexpected inline payload");
     assert!(matches!(
         verify_da_carrier(&batch, &[], expected_rollup_id().get()),
         Err(BlobDaError::MissingBlobs)

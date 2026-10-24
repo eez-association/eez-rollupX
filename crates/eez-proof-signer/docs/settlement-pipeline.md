@@ -74,14 +74,18 @@ flowchart LR
    facts. Inner version 0 has no profile selector, full terminal block or raw
    sidecar arrays. Tests use this same gate. Checked inbound sidecars remain
    checked through canonical native byte reconstruction.
-9. The candidate's authenticated L1 context must match the validated parent,
-   complete interval, seed and registry commitment (including an already
-   consumed, independently validated terminal prefix). Observation replay must
-   reproduce the claimed static/reverted results.
+9. Complete checked L1 evidence must match the authenticated parent history,
+   delayed source selections, anchor mode and exact termination. The accepted
+   L2 commitment must identify the replay predecessor or a fully replayed
+   whole-group terminal checkpoint. Observation replay must reproduce the
+   claimed static/reverted results. Historical mode rejects all native actions,
+   including observations without an L2 transaction.
 10. After all gates pass, the job returns `AttestationMaterial` with the locally
     recomputed digest and validated endpoint hashes. The async RPC constructs
     `AttestablePublicInputsHash` and signs under the deadline, without another
-    L1 read. The signature retains the exact authenticated parent/timestamp binding.
+    network read. The signature binds the deployment/profile, active L1 rules,
+    selected anchor and accepted L2 commitment. Actual-parent mode also binds
+    the exact inclusion timestamp.
     Neither a profile-only hash nor Composer's wire digest grants that authority.
 
 ## Why the order matters
@@ -145,6 +149,7 @@ local profile-checked computation, while only the complete settlement job can
 grant the attestable capability after every gate. The signing API accepts
 neither the weaker type nor the Composer-supplied wire hash. The signature
 proves neither that L1 will apply the transition nor that an expected outbound
-call will succeed in the future. Canonical commitment and target checks observe
-the configured L1 source; future inclusion and dispatch remain outside this
-daemon's control.
+call will succeed in the future. The deployed manager's `getCustomData()`
+supplies actual L1 facts and the current accepted L2 commitment at verification.
+The offline daemon proves consistency conditional on that exact context; it
+does not query a chain provider or independently establish L1 consensus.

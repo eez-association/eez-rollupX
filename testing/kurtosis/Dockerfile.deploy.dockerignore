@@ -4,6 +4,7 @@ chiado-db/
 data/
 datadir/
 crates/
+!crates/eez-protocol/src/l1_history/runtime.bin
 prompts/
 explanations/
 *.bak

@@ -748,8 +748,14 @@ where
             .execute_transaction_without_commit(transaction)
             .map_err(|e| PostingError::Transaction(format!("transaction {index}: {e}")))?;
         if !result.result.result.is_success() {
+            let selector = result
+                .result
+                .result
+                .output()
+                .and_then(|bytes| bytes.get(..4))
+                .map(alloy_primitives::hex::encode);
             return Err(effects(format!(
-                "transaction {index} failed: {}",
+                "transaction {index} failed: {}; revert selector: {selector:?}",
                 result.result.result
             )));
         }

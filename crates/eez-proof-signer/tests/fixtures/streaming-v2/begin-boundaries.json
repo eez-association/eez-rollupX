@@ -1,0 +1,221 @@
+{
+  "authority": "Input-side construction; native capture or derived ordinary subrange, never response-derived expectations",
+  "case": "begin-boundaries",
+  "category": "offline-v2",
+  "events": [
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1001222408012220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100142020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1002224508011a1f010101010101010101010101010101010101010101010101010101010101012220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100242020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1003224708011a210101010101010101010101010101010101010101010101010101010101010101012220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100342020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1004222408011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100442020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1005224508011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b221f01010101010101010101010101010101010101010101010101010101010101",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100542020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "client",
+      "protobuf_hex": "1006224708011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2221010101010101010101010101010101010101010101010101010101010101010101",
+      "transport": 0
+    },
+    {
+      "check": "Begin hash/root width",
+      "direction": "server",
+      "protobuf_hex": "100642020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "client",
+      "protobuf_hex": "100722441a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "server",
+      "protobuf_hex": "100742020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "client",
+      "protobuf_hex": "1008224608021a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "server",
+      "protobuf_hex": "10084202080c",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "client",
+      "protobuf_hex": "10092251080110ffffffffffffffffff011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "server",
+      "protobuf_hex": "100942020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100a224608011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "server",
+      "protobuf_hex": "100a42020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "client",
+      "protobuf_hex": "100b1801224608011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Begin profile, overflow or initial binding",
+      "direction": "server",
+      "protobuf_hex": "100b42020803",
+      "transport": 0
+    },
+    {
+      "check": "Unknown unbound operation",
+      "direction": "client",
+      "protobuf_hex": "100c",
+      "transport": 0
+    },
+    {
+      "check": "Unknown unbound operation",
+      "direction": "server",
+      "protobuf_hex": "100c4202080c",
+      "transport": 0
+    },
+    {
+      "check": "Cancel before Begin",
+      "direction": "client",
+      "protobuf_hex": "100d4a00",
+      "transport": 0
+    },
+    {
+      "check": "Cancel before Begin",
+      "direction": "server",
+      "protobuf_hex": "100d42020807",
+      "transport": 0
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "100e224608011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100e18012222122056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "check": "Repeated Begin preserves cursor",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100f1801224608011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Repeated Begin preserves cursor",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100f1801422408032a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "check": "Unknown bound operation preserves cursor",
+      "direction": "client",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110101801",
+      "transport": 0
+    },
+    {
+      "check": "Unknown bound operation preserves cursor",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101101018014224080c2a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "direction": "half_close",
+      "transport": 0
+    },
+    {
+      "direction": "eof",
+      "transport": 0
+    }
+  ],
+  "expected_proofs": 0,
+  "fixture": "native-offline-bidirectional",
+  "format": 2,
+  "normalization": "Distinct session tokens and monotonic epochs rebound; diagnostic wording/reused omitted",
+  "oracle": {
+    "attester": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+  },
+  "server_profile": {
+    "max_window_blocks": 4096,
+    "max_window_bytes": 16777216,
+    "max_window_witness_items": 100000,
+    "request_timeout_secs": 120,
+    "stream_idle_timeout_secs": 30
+  }
+}

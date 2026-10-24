@@ -5,6 +5,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use alloy_eips::BlockNumberOrTag;
+use alloy_network::{AnyTransactionReceipt, ReceiptResponse};
 use alloy_primitives::{B256, Bytes, keccak256};
 use alloy_provider::{Provider, ProviderBuilder};
 use eez_testkit::{NodeBinary, NodeConfig, NodeHandle, wait_for};
@@ -177,11 +178,16 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
         .unwrap();
     assert!(!receipts.is_empty());
     for hash in receipts.keys() {
-        let receipt = rpc
-            .get_transaction_receipt(hash.parse().unwrap())
+        // L2 receipts include native type 0x45, outside Ethereum's closed receipt enum.
+        let receipt: Option<AnyTransactionReceipt> = rpc
+            .client()
+            .request(
+                "eth_getTransactionReceipt",
+                (hash.parse::<B256>().unwrap(),),
+            )
             .await
-            .unwrap()
             .unwrap();
+        let receipt = receipt.expect("replayed receipt missing");
         let expected_status = match evidence.get("l2_transaction_status") {
             Some(statuses) => statuses[hash]
                 .as_bool()

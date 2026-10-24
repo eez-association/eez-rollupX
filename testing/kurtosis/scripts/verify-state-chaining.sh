@@ -72,24 +72,26 @@ refresh_signer_log() { capture_runtime_log eez-proof-signer "$SIGNER_LOG" || tru
 
 wait_for_sync_boundary() {
     # These scenarios assert that all prepared calls share one composed Sync
-    # slot. Wait for the previous committed Sync block before submitting them.
-    # Empty Sync blocks still advance under the settlement policy, even when
-    # the composer skips the held-pool drain and does not post a batch.
+    # slot. An accepted idle cutoff fixes the current slot as ordinary and
+    # opens collection for the next cutoff. Waiting for idle Sync production
+    # would depend on the settlement policy instead of this collection window.
     local baseline count=0 deadline
     refresh_node_log
     baseline=$(strip_ansi <"$NODE_LOG" \
-        | grep -F '"slot.kind":"sync"' \
-        | grep -Fc '"message":"produced block ' || true)
+        | grep -F '"event_name":"eez.sequencer.slot.decision"' \
+        | grep -F '"prepare":false' \
+        | grep -Fc '"skip_post":true' || true)
     deadline=$((SECONDS + ${EEZ_SYNC_BOUNDARY_WAIT_SECS:-60}))
     while (( SECONDS < deadline )); do
         refresh_node_log
         count=$(strip_ansi <"$NODE_LOG" \
-            | grep -F '"slot.kind":"sync"' \
-            | grep -Fc '"message":"produced block ' || true)
+            | grep -F '"event_name":"eez.sequencer.slot.decision"' \
+            | grep -F '"prepare":false' \
+            | grep -Fc '"skip_post":true' || true)
         (( count > baseline )) && return 0
         sleep 1
     done
-    echo "timed out waiting for a fresh Sync-slot boundary" >&2
+    echo "timed out waiting for a fresh accepted idle cutoff" >&2
     return 1
 }
 

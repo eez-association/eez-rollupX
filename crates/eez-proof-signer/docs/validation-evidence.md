@@ -34,9 +34,17 @@ flowchart TB
 
 ## Startup initialization
 
-At startup, [`validate/stateless.rs`](../src/validate/stateless.rs) loads the
-operator-configured Alloy `ChainConfig` or complete `Genesis` document once,
-then builds the Reth `ChainSpec` and EVM configuration shared by every request.
+At startup, the service loads the complete fresh-network L2 `Genesis` and local
+L1 rule profile, then builds the Reth `ChainSpec`, fixed offline profile and
+EVM configuration. Startup does not fetch chain data.
+
+Before block replay, [stream validation](../src/validate/streaming.rs) extends
+the checked raw L1-header chain and freezes its evidence for execution. The
+mandatory history hook authenticates the previous endpoint against L2 storage,
+derives the scheduled import and checks the synchronized PREVRANDAO. Finalize
+still must resolve recorded origin membership, exact anchor termination and the accepted
+L2 commitment through the selected mode. A validated block ACK alone cannot
+authorize a signature.
 
 ## Per-request adapter stages
 
@@ -67,10 +75,13 @@ independently recomputed post-state root. The adapter carries those returned
 values into `BackendWindowOutput`; it does not promote a copied Composer or
 header claim merely by renaming it.
 
-The terminal block always uses checkpoint-enabled replay, including an empty
-selection, to expose its state after mandatory pre-execution. B[0] commits that
-state plus the ordinary transaction prefix. An empty checkpoint vector does
-not authorize an effect position. Preceding blocks use ordinary replay.
+A terminal containing native system transactions uses checkpoint-enabled replay
+to expose its state after mandatory pre-execution. B[0] commits that state plus
+the ordinary transaction prefix. Ordinary and empty terminals use normal replay;
+their fully validated block hash already commits the complete ordinary prefix.
+An empty checkpoint vector does not authorize an effect position. Preceding
+blocks use ordinary replay. V2 retains each block as a possible terminal, then
+checks the actual intermediate-block restrictions again at Finalize.
 
 ## One associated output per block
 

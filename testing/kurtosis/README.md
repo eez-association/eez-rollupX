@@ -658,8 +658,17 @@ omits explorer checks. Native Beacon/KZG verification remains required.
 Independent protocol checks require L1/L2 `debug` APIs, including raw blocks,
 receipts, execution witnesses and chain configuration. Lookup-prefix replay also
 requires the deployed `EEZ_L2_GENESIS` file; the collector checks its genesis hash
-and configuration against the node before replay. Kurtosis supplies this file
-from the deployment artifact. Mined raw transactions missing from
+and configuration against the node before replay. It also requires
+`EEZ_L1_CHAIN_CONFIG`: the deployed Ethereum genesis file or an existing public
+preset (`mainnet`, `sepolia`, `hoodi`, `chiado`). Kurtosis supplies both genesis
+files from its artifacts. The retained prefix input embeds that L1 profile,
+the manager's `protocolConfigHash` read at the original post, and at most 65 raw
+L1 headers (the inherited endpoint and up to 64 imports). The offline helper
+checks the profile commitment, exact header decoding/linkage, parent trie,
+history transaction and PREVRANDAO before reconstructing transaction prefixes.
+It performs no RPC; the surrounding collector still establishes canonical L1/L2
+identities through RPC. Private Gnosis genesis profiles are not supported by
+this prefix helper. Mined raw transactions missing from
 `eth_getRawTransactionByHash` are recovered from the exact raw-block position
 and must hash to the expected canonical transaction before matching blob data.
 Retain transaction lookup indexes and receipt/state history in the L1 client;
@@ -736,10 +745,13 @@ identical proxy calls from one source transaction, verifies the ordered
 transaction landed in the same builder-produced L1 block. The suite also
 places a deployed non-proxy between two valid inbound calls and verifies that
 only the poison transaction is evicted while both ordered survivors settle. A
-final mixed-direction drain verifies that an outbound source transaction and
-inbound delivery share the canonical L2 Sync block. Every scenario also
-verifies bundle settlement, proof-signer acceptance, and L1/L2 state-root
-convergence.
+final mixed-direction case verifies separate, FIFO-ordered Sync blocks when
+fee collection is enabled; with fees disabled it requires the outbound source
+transaction and inbound delivery to share one canonical L2 Sync block. Every
+scenario also verifies bundle settlement, proof-signer acceptance, and L1/L2
+block-hash commitment convergence. Prepared groups begin collection after a
+fresh accepted idle cutoff, independent of whether the settlement policy posts
+an empty batch.
 
 ### Validate partial consumption
 

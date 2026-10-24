@@ -47,6 +47,20 @@ class ChiadoConfigTest(unittest.TestCase):
             text=True, capture_output=True,
         )
 
+    def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)["services"]
+        signer = services["eez-proof-signer"]["environment"]
+        self.assertFalse(any("RPC_URL" in key for key in signer))
+        for key in ("EEZ_L2_TREASURY_OWNER", "EEZ_L2_TREASURY_RECIPIENT"):
+            self.assertNotIn(key, signer)
+            self.assertNotIn(key, services["eez-node"]["environment"])
+        self.assertEqual(signer["EEZ_CHAIN_CONFIG"], "/app/genesis.json")
+        self.assertEqual(signer["EEZ_L1_CHAIN_CONFIG"], "chiado")
+        self.assertEqual(services["eez-node"]["environment"]["EEZ_L1_RPC_URL"],
+                         "http://127.0.0.1:18645")
+
     def test_fee_recipient_is_required_and_reaches_only_the_node(self):
         env_file = self.repo / ".env"
         configured = env_file.read_text()

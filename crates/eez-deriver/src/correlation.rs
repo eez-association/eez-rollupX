@@ -15,7 +15,7 @@ use alloy_primitives::B256;
 use reth_libmdbx::{DatabaseFlags, Environment, Geometry, WriteFlags};
 use serde::{Deserialize, Serialize};
 
-const SCHEMA: &[u8] = b"eez-batch-correlation-native-v0";
+const SCHEMA: &[u8] = b"eez-batch-correlation-recorded-history-v1";
 const META_SCHEMA_KEY: &[u8] = b"schema";
 const RECORDS_DB: &str = "records";
 const L1_ORDER_DB: &str = "l1_order";
@@ -42,8 +42,12 @@ pub struct BatchCorrelation {
     /// Exact canonical L2 hashes covered by the batch's settled portion.
     pub l2_blocks: Vec<L2BlockCorrelation>,
     /// Exact accepted terminal variant. Same-height replacements can orphan it
-    /// in Reth; retain its header to restore live-anchor seed provenance.
+    /// in Reth; retain its header to recover the exact reconstruction predecessor.
     pub endpoint_header: alloy_consensus::Header,
+    /// History read from the executed endpoint state before publishing acceptance.
+    /// A later same-height settlement can remove that state from Reth; restoring
+    /// this record still requires checking its L1 occurrence and selected header.
+    pub endpoint_history: eez_protocol::l1_history::HistoryState,
 }
 
 impl BatchCorrelation {
@@ -56,6 +60,12 @@ impl BatchCorrelation {
             || self.endpoint_header.hash_slow() != endpoint.hash
         {
             return Err("correlation endpoint header differs from its accepted hash".into());
+        }
+        if self.endpoint_history.first_number > self.endpoint_history.endpoint
+            || self.endpoint_history.endpoint > self.l1_block_number
+            || self.endpoint_history.endpoint_hash.is_zero()
+        {
+            return Err("invalid correlation endpoint history".into());
         }
         for pair in self.l2_blocks.windows(2) {
             if pair[1].number != pair[0].number.saturating_add(1) {
@@ -467,6 +477,7 @@ struct StoredRecord {
     l1_transaction_index: u64,
     l2_blocks: Vec<StoredL2Block>,
     endpoint_header: Vec<u8>,
+    endpoint_history: eez_protocol::l1_history::HistoryState,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -480,6 +491,7 @@ impl From<&BatchCorrelation> for StoredRecord {
     fn from(record: &BatchCorrelation) -> Self {
         Self {
             endpoint_header: alloy_rlp::encode(&record.endpoint_header),
+            endpoint_history: record.endpoint_history,
             l1_block_number: record.l1_block_number,
             l1_block_hash: record.l1_block_hash.0,
             l1_transaction_hash: record.l1_transaction_hash.0,
@@ -506,6 +518,7 @@ impl TryFrom<StoredRecord> for BatchCorrelation {
         }
         Ok(Self {
             endpoint_header,
+            endpoint_history: record.endpoint_history,
             l1_block_number: record.l1_block_number,
             l1_block_hash: B256::from(record.l1_block_hash),
             l1_transaction_hash: B256::from(record.l1_transaction_hash),
@@ -888,6 +901,12 @@ mod tests {
             l1_transaction_index: tx_index,
             l2_blocks,
             endpoint_header,
+            endpoint_history: eez_protocol::l1_history::HistoryState {
+                first_number: 0,
+                endpoint: l1_block.saturating_sub(1),
+                endpoint_hash: B256::with_last_byte(l1_block as u8),
+                next_cutoff: 12,
+            },
         }
     }
 
@@ -1020,6 +1039,45 @@ mod tests {
                     .unwrap()
                     .is_none()
             );
+        }
+    }
+
+    #[test]
+    fn replaced_checkpoint_retains_its_own_history_after_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = record(20, 1, 5, &[1]);
+        let replacement = record(21, 1, 5, &[2]);
+        assert_ne!(original.endpoint_history, replacement.endpoint_history);
+        {
+            let store = CorrelationStore::open(dir.path()).unwrap();
+            store.put(&original).unwrap();
+            store.put(&replacement).unwrap();
+        }
+        let store = CorrelationStore::open(dir.path()).unwrap();
+        assert_eq!(store.by_l2_number(5).unwrap().unwrap().batch, replacement);
+        assert_eq!(
+            store.by_endpoint_hash(original.last_l2().hash).unwrap(),
+            Some(original)
+        );
+    }
+
+    #[test]
+    fn invalid_endpoint_history_cannot_be_persisted() {
+        let store = CorrelationStore::in_memory();
+        for change in [
+            |r: &mut BatchCorrelation| r.endpoint_history.endpoint_hash = B256::ZERO,
+            |r: &mut BatchCorrelation| r.endpoint_history.endpoint = r.l1_block_number + 1,
+            |r: &mut BatchCorrelation| {
+                r.endpoint_history.first_number = r.endpoint_history.endpoint + 1;
+            },
+        ] {
+            let mut record = record(20, 1, 5, &[1]);
+            change(&mut record);
+            assert_eq!(
+                store.put(&record).unwrap_err(),
+                "invalid correlation endpoint history"
+            );
+            assert!(store.tail().unwrap().is_none());
         }
     }
 }

@@ -10,6 +10,58 @@ def only_forwarded($input):
   (.calls // []) | length == 0
     or (length == 1 and (.[0] | .type == "DELEGATECALL" and (.from | lower) == $registry
         and (.input | lower) == $input and (.error // "") == "" and ((.calls // []) | length) == 0));
+# staticLocalWrite executes three logical reads but four candidate callbacks.
+# Check the complete frame shape so a failed candidate, an unrelated call or
+# an extra lookup cannot stand in for the selected row. Unlike logical blob
+# actions, this trace includes the callbacks used to reject earlier rows.
+def same_frame($kind; $from; $to; $input; $output):
+  .type == $kind and (.from | lower) == $from and (.to | lower) == $to
+  and (.value // "0x0") == "0x0" and (.error // "") == ""
+  and (.input | lower) == $input and (.output // "0x" | lower) == $output;
+def registry_children:
+  . as $outer | (.calls // [])
+  | if length == 1 and .[0].type == "DELEGATECALL" then
+      select(.[0] | same_frame("DELEGATECALL"; $registry; (.to | lower);
+                              ($outer.input | lower); ($outer.output | lower)))
+      | .[0].calls // []
+    else . end;
+def local_write_trace:
+  $ARGS.named.callback_output as $one
+  | $ARGS.named.result_two as $two
+  | [$one, $two, $one] as $results
+  | $ARGS.named.selected_candidates as $selected
+  | select(.type == "CALL" and (.to | lower) == $source
+      and (.input | lower) == $trigger_input and (.error // "") == ""
+      and (.value // "0x0") == "0x0" and (.output // "0x") == "0x")
+  | select((.calls | length) == 3 and ($selected | length) == 3)
+  | [.calls | to_entries[] | .key as $i | .value
+      | select(same_frame("STATICCALL"; $source; $proxy; $ARGS.named.call_input; $results[$i]))
+      | select((.calls | length) == 3)
+      | .calls as $calls
+      | select($calls[0] | .type == "STATICCALL" and (.from | lower) == $proxy
+          and (.to | lower) == $registry and (.input | lower) == $static_check_gas_input
+          and (.error // "") == "" and (.value // "0x0") == "0x0"
+          and (.output | test("^0x[0-9a-fA-F]{64}$"))
+          and ((registry_children | length) == 0))
+      | select($calls[1] | .type == "CALL" and (.from | lower) == $proxy and (.to | lower) == $proxy
+          and (.input | lower) == "0x9f149e1b" and (.value // "0x0") == "0x0"
+          and (.error // "") != "" and ((.calls // []) | length) == 0)
+      | $calls[2]
+      # staticCrossChainCall returns ABI bytes; the proxy unwraps them.
+      | ("0x" + ("0" * 62) + "20" + ("0" * 62) + "20" + $results[$i][2:]) as $encoded
+      | select(same_frame("STATICCALL"; $proxy; $registry; $lookup_input; $encoded))
+      | registry_children as $callbacks
+      | select(($callbacks | length) == $selected[$i] + 1
+          and all($callbacks[];
+              same_frame("STATICCALL"; $registry; $proxy; $ARGS.named.callback_forward_input; $results[$i])
+              and (.calls | length) == 1
+              and (.calls[0] | same_frame("CALL"; $proxy; $source; $ARGS.named.callback_input; $results[$i])
+                   and ((.calls // []) | length) == 0)))
+      | {selected_candidate_index:$selected[$i], callback_attempts:($callbacks | length), result:$results[$i]}]
+  | select(length == 3)
+  | {verified:true, registry:$registry, proxy:$proxy, reverted:false, callback_traced:true,
+     reads:., first_candidate_reused:(.[0].selected_candidate_index == .[2].selected_candidate_index)};
+if $ARGS.named.scenario == "staticLocalWrite" then local_write_trace else
 # Callback inputs are optional: callback-free lookups omit them.
 ($ARGS.named.callback_proxy // "") as $callback_proxy
 | ($ARGS.named.callback_target // "") as $callback_target
@@ -65,3 +117,5 @@ def only_forwarded($input):
                        and (.output | lower) == $callback_output)))))
 | {verified:true, registry:$registry, proxy:$proxy, input:.input,
    output:.output, reverted:($static | not), callback_traced:($callback_proxy != "")}
+
+end

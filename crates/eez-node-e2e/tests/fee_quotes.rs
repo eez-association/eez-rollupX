@@ -285,8 +285,8 @@ async fn nested_quote_roundtrip(
     margin: Option<u64>,
     exercise: QuoteExercise,
 ) {
-    // Exercise signed tariff admission above the old 5M quote-profile ceiling.
-    // This covers submitted gas limits, not the Falcon verifier's execution cost.
+    // Exercise signed tariff admission across the supported source gas range.
+    // These are transaction limits, not the verifier's execution cost.
     let mut source_gas_limit = if !enforced {
         1_200_000
     } else if legacy {
@@ -315,10 +315,7 @@ async fn nested_quote_roundtrip(
             ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
             ("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "10000".into()),
             ("EEZ_MAX_SPECULATIVE_DEPTH", "0".into()),
-            (
-                "RUST_LOG",
-                "info,eez_composer::composer::fees::quote=debug".into(),
-            ),
+            ("RUST_LOG", "info,eez_composer::composer::fees=debug".into()),
         ],
     );
     if exercise != QuoteExercise::Normal {
@@ -387,20 +384,6 @@ async fn nested_quote_roundtrip(
     .await
     .unwrap();
     assert_eq!(response["error"]["data"]["code"], "quote_limit");
-    for rpc_url in [world.l1_xchain(), world.l2_xchain(), world.l2_rpc()] {
-        let response = quote_rpc(
-            &client,
-            &rpc_url,
-            "eez_quoteL2ToL1Fee",
-            json!([transaction]),
-        )
-        .await
-        .unwrap();
-        assert_eq!(
-            response["error"]["code"], -32601,
-            "removed API must not remain active: {response}"
-        );
-    }
     // Exact-parent quotes can race a new L1 head. Retry only this documented
     // availability condition; unsupported or failed simulation is a test error.
     let last_error = std::sync::Mutex::new(Value::Null);
@@ -443,10 +426,6 @@ async fn nested_quote_roundtrip(
                 anyhow::ensure!(
                     option["requestHash"] == diagnostic["requestHash"],
                     "different binding"
-                );
-                anyhow::ensure!(
-                    option.get("intentHash").is_none() && diagnostic.get("intent").is_none(),
-                    "retired transaction terminology"
                 );
                 anyhow::ensure!(
                     option["gas"] == diagnostic["transaction"]["gas"],

@@ -187,10 +187,14 @@ def run(plan, args):
     deploy = plan.run_sh(
         description="deploy EEZ contracts + generate L2 genesis on the shared L1",
         image=eez.get("deploy_image", "eez-deploy:dev"),
+        files={"/genesis": "el_cl_genesis_data"},
         env_vars={
             "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
+            "EEZ_L1_CHAIN_CONFIG": "/genesis/genesis.json",
             "EEZ_L1_POSTER_KEY": poster_key,
             "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
+            # Public fixture recipient, bound into the rendered genesis/profile.
+            "EEZ_L2_TREASURY_RECIPIENT": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
             "EEZ_L1_BLOCK_TIME_MS": str(eez.get("l1_block_time_ms", 12000)),
             "EEZ_L2_BLOCK_TIME_MS": str(eez.get("l2_block_time_ms", 2000)),
             "EEZ_DEPLOYMENTS_FILE": "/out/deployments.env",
@@ -238,7 +242,6 @@ def run(plan, args):
                 "/genesis": "el_cl_genesis_data",
             },
             env_vars={
-                "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
                 "EEZ_PROOF_SIGNER_KEY": proof_signer_key,
                 "RUST_LOG": eez.get("proof_signer_rust_log", "info"),
             },

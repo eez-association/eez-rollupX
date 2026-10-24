@@ -1,34 +1,31 @@
-//! The `Prove` RPC service: bounded ingestion, validation, and attestation.
+//! Composer-to-prover service: bounded ingestion, validation, and attestation.
 //!
-//! Each RPC consumes one window. [`crate::window::WindowAssembler`] enforces
-//! stream structure and quotas, [`crate::validate`] re-executes its blocks, and
-//! [`crate::settlement`] binds the posted batch to the execution facts. The
-//! attester signs only after every stage succeeds.
+//! V2 retains incremental execution in bounded sessions and uses
+//! [`crate::validate`] and [`crate::settlement`] to bind the native batch to
+//! checked execution. The attester signs only after every stage succeeds.
 
 use std::num::{NonZeroU64, NonZeroUsize};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use alloy_primitives::{Address, B256};
-use eez_control_rpc::v1::prover_server::ProverServer;
+use eez_control_rpc::v2::prover_server::ProverServer;
 use tokio::sync::Semaphore;
 
 use crate::{attest::Attester, settlement, validate, window};
 
 pub(crate) mod l1;
-mod preparation;
-mod rpc;
+mod sessions;
 mod settlement_job;
-mod stream;
+mod worker;
 
-pub(crate) use preparation::MAX_PREPARATION_BLOCKS;
 pub(crate) use settlement_job::AttestablePublicInputsHash;
 
-/// Absolute ceiling for one decoded `ProveChunk`; the configured aggregate
+/// Absolute ceiling for one decoded v2 client frame; the configured aggregate
 /// request-byte limit may lower the effective per-message limit.
 const MAX_DECODING_MESSAGE_BYTES: usize = 256 * 1024 * 1024;
 
-/// `ProveResponse` contains only a 32-byte digest and 65-byte signature.
+/// Capabilities, bounded acknowledgements and proofs carry no execution witness.
 const MAX_ENCODING_MESSAGE_BYTES: usize = 1024;
 
 /// Named construction inputs for [`ServiceLimits`].
@@ -43,8 +40,8 @@ pub(crate) struct ServiceLimitsParams {
 
 /// Runtime limits shared by every service clone.
 ///
-/// The request deadline covers ingestion through signing; the idle timeout
-/// applies to each streamed-message wait.
+/// Deadlines cover each
+/// ordered operation. Idle timeouts bound inactive input and output backpressure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ServiceLimits {
     window_limits: window::WindowLimits,
@@ -73,14 +70,6 @@ impl ServiceLimits {
                 "{name} exceeds the capability millisecond range"
             );
         }
-        let lease_lifetime = request_timeout
-            .checked_mul(2)
-            .ok_or_else(|| eyre::eyre!("twice the request timeout is out of range"))?
-            .max(Duration::from_mins(2));
-        eyre::ensure!(
-            now.checked_add(lease_lifetime).is_some(),
-            "prepared-cache lease lifetime is out of range"
-        );
         Ok(Self {
             window_limits: window::WindowLimits {
                 blocks: max_window_blocks.get().min(u32::MAX as usize),
@@ -105,13 +94,6 @@ impl ServiceLimits {
         self.request_timeout
     }
 
-    pub(crate) fn lease_lifetime(self) -> Duration {
-        self.request_timeout
-            .checked_mul(2)
-            .expect("validated service request timeout")
-            .max(Duration::from_mins(2))
-    }
-
     pub(crate) fn max_decoding_message_bytes(self) -> usize {
         self.window_limits
             .payload_bytes
@@ -129,14 +111,16 @@ pub(crate) struct ServiceState {
     attester: Attester,
     system_transaction_reconstructor: settlement::SystemTransactionReconstructor,
     l1_chain_spec: Arc<reth_chainspec::ChainSpec>,
-    l1_authority: l1::L1Authority,
+    offline_rules: eez_l1::chain_config::OfflineL1Rules,
+    deployment: l1::OfflineDeployment,
 }
 
 impl ServiceState {
     /// Bind system-transaction reconstruction to the same configured L2 chain
     /// and expected rollup identities used by validation and settlement.
     pub(crate) fn new(
-        l1_authority: l1::L1Authority,
+        registry: Address,
+        manager: Address,
         validator: validate::Validator,
         expected_rollup_id: NonZeroU64,
         attester: Attester,
@@ -155,7 +139,11 @@ impl ServiceState {
             validator.chain_id(),
             expected_rollup_id,
         );
-        let validation_identity = validator.validation_identity(expected_rollup_id);
+        let offline_rules = eez_l1::chain_config::offline_l1_rules(&l1_chain_spec)?;
+        let schedule = validator.schedule()?;
+        let profile = offline_rules.profile(schedule, validator.chain_id())?;
+        let deployment = l1::OfflineDeployment::new(registry, manager, profile, schedule)?;
+        let validation_identity = validator.validation_identity(expected_rollup_id, &deployment);
         Ok(Self {
             validator,
             validation_identity,
@@ -164,23 +152,29 @@ impl ServiceState {
             attester,
             system_transaction_reconstructor,
             l1_chain_spec,
-            l1_authority,
+            offline_rules,
+            deployment,
         })
     }
 
-    fn posting_blob_limit(
-        &self,
-        target: &eez_protocol::public_inputs::L1PostingContext,
-    ) -> Result<usize, tonic::Status> {
+    fn posting_blob_limit(&self, timestamp: u64) -> Result<usize, tonic::Status> {
         use reth_chainspec::EthChainSpec as _;
-        let chain_spec = &self.l1_chain_spec;
-        if target.chain_id != chain_spec.chain().id() {
+        // The actual-parent witness ends before inclusion. Its header layout
+        // may still be supported when the target is the first unsupported fork
+        // block; validating supplied headers alone cannot close that boundary.
+        if self
+            .offline_rules
+            .headers
+            .unsupported_time
+            .is_some_and(|at| timestamp >= at)
+        {
             return Err(tonic::Status::invalid_argument(
-                "posting context chain does not match trusted L1 chain",
+                "unsupported L1 rule period at posting target",
             ));
         }
+        let chain_spec = &self.l1_chain_spec;
         let params = chain_spec
-            .blob_params_at_timestamp(target.target_timestamp)
+            .blob_params_at_timestamp(timestamp)
             .ok_or_else(|| {
                 tonic::Status::invalid_argument("posting target has no active blob rules")
             })?;
@@ -196,26 +190,35 @@ impl ServiceState {
 /// The `Prove` service. All cheap clones share state and one active-request slot.
 #[derive(Debug, Clone)]
 pub(crate) struct ProveSvc {
+    sessions: Arc<sessions::SessionRuntime>,
     state: Arc<ServiceState>,
     limits: ServiceLimits,
     active_request_slot: Arc<Semaphore>,
-    preparation_slot: Arc<Semaphore>,
     validation_worker: Arc<Semaphore>,
-    prepared_cache: Arc<Mutex<crate::prepared_cache::PreparedCache>>,
 }
 
 impl ProveSvc {
     pub(crate) fn new(state: Arc<ServiceState>, limits: ServiceLimits) -> Self {
+        let validation_worker = Arc::new(Semaphore::new(1));
+        let active_request_slot = Arc::new(Semaphore::new(1));
+        let sessions = sessions::SessionRuntime::new(
+            Arc::clone(&state),
+            limits,
+            Arc::clone(&validation_worker),
+            Arc::clone(&active_request_slot),
+        );
         Self {
+            sessions,
             state,
             limits,
-            active_request_slot: Arc::new(Semaphore::new(1)),
-            preparation_slot: Arc::new(Semaphore::new(1)),
-            validation_worker: Arc::new(Semaphore::new(1)),
-            prepared_cache: Arc::new(Mutex::new(
-                crate::prepared_cache::PreparedCache::with_defaults(),
-            )),
+            active_request_slot,
+            validation_worker,
         }
+    }
+
+    /// Close long-lived v2 attachments before tonic drains its connections.
+    pub(crate) fn stop_streams(&self) {
+        self.sessions.stop_streams();
     }
 
     /// Wait until no admitted request or detached request worker holds the slot.
@@ -224,17 +227,12 @@ impl ProveSvc {
     /// after the listener stops accepting requests; called while serving it
     /// would briefly occupy the slot and reject an incoming `Prove`.
     pub(crate) async fn wait_until_idle(&self) {
+        self.sessions.wait_until_idle().await;
         drop(
             self.active_request_slot
                 .acquire()
                 .await
                 .expect("the active-request semaphore is never closed"),
-        );
-        drop(
-            self.preparation_slot
-                .acquire()
-                .await
-                .expect("the preparation semaphore is never closed"),
         );
         drop(
             self.validation_worker

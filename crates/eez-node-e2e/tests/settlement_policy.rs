@@ -7,12 +7,30 @@ use alloy_primitives::U256;
 use alloy_provider::{Provider, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use eez_testkit::{
-    ANVIL_ADDR_3, ANVIL_KEY_1, Harness, NodeBinary, NodeConfig, NodeHandle, batches_posted,
-    send_l2_value_transfer_confirmed, setup_cross_chain_with_env, wait_for_latest_height,
-    wait_for_safe_prefix_convergence,
+    ANVIL_ADDR_3, ANVIL_KEY_1, NodeBinary, NodeConfig, NodeHandle, batches_posted,
+    send_l2_value_transfer_confirmed, setup_cross_chain_with_env, setup_native_history,
+    wait_for_latest_height, wait_for_safe_prefix_convergence,
 };
 
 const TIMEOUT: Duration = Duration::from_mins(3);
+
+fn assert_no_capacity_split(signals: &[eez_testkit::NodeSignal]) {
+    // Retained ordinary settlement uses the historical path even when the
+    // whole range fits. Capacity rejection, rather than that path's name,
+    // distinguishes a split; each caller also checks the canonical batch.
+    for event in signals
+        .iter()
+        .filter(|event| event.name == "eez.composer.emission.historical_chunk")
+    {
+        assert_eq!(
+            event.fields["split_reasons"].as_str(),
+            Some("{\"retained_ordinary\"}"),
+            "a fitting range must not use a capacity fallback: {:?}",
+            event.fields
+        );
+        assert_eq!(event.u64("over_budget").unwrap(), 0);
+    }
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
@@ -145,7 +163,7 @@ async fn delayed_start_admits_cross_chain_arrival_after_position_and_replays() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
+async fn delayed_settlement_preserves_ordinary_history_and_replays() {
     use eez_testkit::{IValue, NativeL1Profile, onchain_nonce, sign_and_send, wait_for};
 
     let mut env = policy_env(Vec::new(), "interval");
@@ -161,7 +179,7 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
 
     // Hold submission only long enough to close the canonical log reader.
     // The real batch must still land in its exact target slot; delaying its
-    // observation then lets ordinary transactions enter stale-seed descendants.
+    // observation must not change the independent history/RANDAO schedule.
     world.hold_next_bundle().unwrap();
     sign_and_send(
         &world.l1_xchain(),
@@ -197,11 +215,11 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
         .await
         .unwrap()
         .unwrap();
-    let endpoint = posting_block.header.timestamp - world.cfg.genesis_time;
-    // K=5, L2=1s: a live acceptance changes the seed strictly after this endpoint.
+    let endpoint = posting_block.header.timestamp - world.dep.profile.genesisTimestamp;
+    // K=5, L2=1s: use the L2 bootstrap timestamp, not L1's earlier genesis.
     let initial_balance = l2.get_balance(ANVIL_ADDR_3).await.unwrap();
-    // Exceed Reth's external per-sender capacity (16). A single recovered
-    // transaction cannot detect a local-to-external origin downgrade.
+    // Retain a nonce chain longer than Reth's external per-sender capacity (16),
+    // checking all ordinary effects through delayed canonical acceptance.
     let nonce = onchain_nonce(&world.l2_rpc(), ANVIL_KEY_1).await.unwrap();
     let mut hashes = Vec::new();
     for offset in 0..20 {
@@ -241,37 +259,30 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
         "log-reader fault must delay acceptance"
     );
 
-    // No client resubmission: Reth's reorg notification must return the signed
-    // ordinary transaction to its pool when the accepted seed replaces its block.
+    // Settlement observation no longer selects randomness. These already
+    // executed descendants must keep their exact block hashes after acceptance.
     world.fail_rpc_methods(&[]).unwrap();
-    let mut after = Vec::new();
-    for (hash, before) in hashes.iter().zip(&before) {
-        let receipt = wait_for(TIMEOUT, || async {
-            Ok(l2
-                .get_transaction_receipt(*hash)
-                .await?
-                .filter(|receipt| receipt.block_hash != before.block_hash))
-        })
-        .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "stale-seed transaction {hash} was lost: {error:#}{}",
-                world.settlement_diagnostics()
-            )
-        });
-        assert!(receipt.status());
-        after.push(receipt);
-    }
     wait_for_safe_prefix_convergence(&[&world.node], endpoint, TIMEOUT)
         .await
         .unwrap();
+    let mut after = Vec::new();
+    for (hash, before) in hashes.iter().zip(&before) {
+        let receipt = l2
+            .get_transaction_receipt(*hash)
+            .await
+            .unwrap()
+            .expect("delayed settlement retains the ordinary transaction");
+        assert!(receipt.status());
+        assert_eq!(receipt.block_hash, before.block_hash);
+        after.push(receipt);
+    }
     assert_eq!(
         l2.get_balance(ANVIL_ADDR_3).await.unwrap(),
         initial_balance + U256::from(9 * 20)
     );
 
-    // A second cross-chain opportunity settles the repaired ordinary history.
-    // An independent follower must reconstruct the empty sibling and transfer.
+    // A second cross-chain opportunity settles the retained ordinary history.
+    // An independent follower must reconstruct every transfer identically.
     sign_and_send(
         &world.l1_xchain(),
         ANVIL_KEY_1,
@@ -285,7 +296,7 @@ async fn conditional_settlement_requeues_ordinary_stale_seed_descendants() {
     .await
     .unwrap();
     let follower = NodeHandle::start(
-        "stale-seed-follower",
+        "delayed-settlement-follower",
         &NodeConfig {
             binary: NodeBinary::Follower,
             genesis_path: Some(&world.cfg.l2_genesis.0),
@@ -412,11 +423,13 @@ async fn conditional_position_paces_late_pool_transactions_and_replays() {
     );
     assert!(
         world.node.signals_since(0).unwrap().iter().any(|signal| {
-            signal.name == "eez.composer.sync_slot.invoked"
-                && signal.fields["mode"] == "Ordinary"
+            signal.name == eez_testkit::signals::SEQUENCER_SLOT_DECISION
+                && signal.fields["target"] == target
                 && signal.fields["timestamp"] == boundary.header.timestamp
+                && signal.fields["prepare"] == false
+                && signal.fields["skip_post"] == true
         }),
-        "the successful ordinary decision must reach the non-posting Composer path"
+        "the paced boundary must have an accepted non-posting cutoff decision"
     );
     let follower = NodeHandle::start(
         "conditional-position-follower",
@@ -1718,15 +1731,7 @@ async fn more_than_three_hundred_blocks_settle_in_one_native_batch() {
         1,
         "derivable ordinary blocks must not force a second physical blob"
     );
-    assert!(
-        !world
-            .node
-            .signals_since(0)
-            .unwrap()
-            .iter()
-            .any(|event| { event.name == "eez.composer.emission.historical_chunk" }),
-        "the old size limit must not schedule a historical prefix"
-    );
+    assert_no_capacity_split(&world.node.signals_since(0).unwrap());
     world.node.assert_no_divergence_failure_logs();
     follower.assert_no_divergence_failure_logs();
 }
@@ -2079,11 +2084,10 @@ async fn assert_always_profile(profile: eez_testkit::NativeL1Profile) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn interval_preserves_execution_but_waits_below_all_thresholds() {
-    let harness = Harness::fresh().await.unwrap();
-    let env = policy_env(harness.env().await.unwrap(), "interval");
-    let node = NodeHandle::start("policy-interval", &NodeConfig::default(), &env)
+    let world = setup_native_history(&policy_env(Vec::new(), "interval"))
         .await
         .unwrap();
+    let node = &world.node;
     // L2 RPC binds before the Composer installs its ordinary-transaction
     // sequencing limits. Wait for the later startup event before sending.
     eez_testkit::wait_for(TIMEOUT, || async {
@@ -2128,11 +2132,11 @@ async fn interval_preserves_execution_but_waits_below_all_thresholds() {
     })
     .await
     .expect("test must observe an accepted not-due planning decision after execution");
-    wait_for_latest_height(&node, (height + 12).max(planned_boundary), TIMEOUT)
+    wait_for_latest_height(node, (height + 12).max(planned_boundary), TIMEOUT)
         .await
         .unwrap();
     assert_eq!(
-        harness.chain().batches_posted().await.unwrap(),
+        world.chain().batches_posted().await.unwrap(),
         0,
         "included pure activity waits for an enabled trigger"
     );
@@ -2240,14 +2244,13 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
     world.prune_rpc_history_before(anchor).unwrap();
     let fault_url = world.fault_rpc_url().to_owned();
 
-    // Exercise the signer's independent genesis authentication against the
-    // same pruning boundary as the Composer. The original signer uses direct
-    // L1 RPC and would otherwise hide the live failure after restart.
+    // A fresh offline signer needs only the local profile and request evidence.
+    // Pruning remains an acquisition constraint for the producer/follower.
     let signer = eez_testkit::ProofSignerHandle::spawn(&eez_testkit::ProofSignerConfig {
-        l1_rpc_url: fault_url.clone(),
+        rollup_manager_address: world.cfg.rollup_manager_address,
         registry_address: world.cfg.eez_address,
         chain_config: &world.cfg.l2_genesis.0,
-        l1_chain_config: Some(world.cfg.l1_genesis.0.to_string_lossy().into_owned()),
+        l1_chain_config: world.cfg.l1_genesis.0.to_string_lossy().into_owned(),
         rollup_id: world.cfg.rollup_id,
         signer_key: world.cfg.attester_key,
         vkey: eez_testkit::signer_address(world.cfg.attester_key)
@@ -2276,7 +2279,7 @@ async fn restart_with_pruned_bodies_and_logs_settles_and_replays_from_checkpoint
         ])
         .await
         .unwrap();
-    // The fixture allocates a new public L2 RPC port on every reopen.
+    // The signer retains the same L2 source address across Composer restarts.
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     eez_testkit::wait_for(TIMEOUT, || async {
         Ok((world
@@ -2584,15 +2587,25 @@ async fn restart_reevaluates_current_interval_without_resetting_the_l1_timer() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn general_block_rule_consolidates_empty_history_before_the_pure_interval() {
+    use alloy_eips::Decodable2718 as _;
+    use alloy_primitives::{B256, Bytes, keccak256};
+    use eez_primitives::EezTxEnvelope;
+    use eez_protocol::{
+        l1_history::{HistorySchedule, IMPORT_GAS_LIMIT, decode_import},
+        native_source::HistorySourceContext,
+    };
+    use serde_json::json;
+
     let mut env = policy_env(Vec::new(), "interval");
     env.push(("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "30".into()));
-    let world = setup_cross_chain_with_env(&env).await.unwrap();
+    // No application deployments: the mandatory history imports must not count
+    // as pure activity, but they remain included transactions for cost reporting.
+    let world = setup_native_history(&env).await.unwrap();
     let cost = eez_testkit::wait_for(TIMEOUT, || async {
         Ok(world.node.signals_since(0)?.into_iter().find(|signal| {
             signal.name == "eez.composer.postbatch.actual_cost"
                 && signal.fields["action"] == "apply"
                 && signal.fields["post_included"] == true
-                && signal.fields["included_l2_transactions"] == 0
                 && signal.fields["settled_l2_blocks"]
                     .as_u64()
                     .is_some_and(|blocks| blocks >= 30)
@@ -2605,19 +2618,174 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
             world.settlement_diagnostics()
         )
     });
-    assert!(
-        cost.fields["post_cost_per_l2_transaction"]
-            .as_str()
-            .is_some_and(|value| value == "None")
+
+    let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let post_hash: B256 = cost.fields["post_batch_hash"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let post = l1
+        .get_transaction_by_hash(post_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    let receipt = l1
+        .get_transaction_receipt(post_hash)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(receipt.status());
+    assert_eq!(post.inner.to(), Some(world.dep.eez_address));
+    assert_eq!(
+        l1.get_block_by_number(receipt.block_number.unwrap().into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        receipt.block_hash.unwrap()
     );
-    assert!(cost.fields["post_blob_gas_used"].as_u64().unwrap() > 0);
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(post.inner.input()).unwrap();
+    let updates: Vec<_> = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .collect();
+    assert_eq!(updates.len(), 1);
+    let update = updates[0];
+    assert_eq!(update.rollupId, world.dep.rollup_id);
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    assert!(receipt.logs().iter().any(|log| {
+        log.address() == world.dep.eez_address
+            && log
+                .log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
+                .is_ok_and(|event| {
+                    event.inner.data.rollupId == update.rollupId
+                        && event.inner.data.newRoot == update.newRoot
+                })
+    }));
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    let blocks = terminal.header.number;
+    assert!(blocks >= 30);
+    assert_eq!(cost.fields["settled_l2_blocks"], blocks);
+    wait_for_safe_prefix_convergence(&[&world.node], blocks, TIMEOUT)
+        .await
+        .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(blocks.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        update.newRoot
+    );
+
+    let profile = &world.dep.profile;
+    let schedule = HistorySchedule::new(
+        profile.genesisTimestamp,
+        profile.blockInterval,
+        profile.syncInterval,
+        profile.updateOffset,
+    )
+    .unwrap();
+    let source = HistorySourceContext::new(
+        profile.l1ChainId.try_into().unwrap(),
+        world.l2_chain_id,
+        world.cfg.initial_state,
+    )
+    .unwrap();
+    let mut included = 0u64;
+    let mut hash = update.newRoot;
+    // Follow the applied commitment, rather than sampling a moving latest range
+    // or deriving the transaction count from the metric under test.
+    for number in (1..=blocks).rev() {
+        let block = l2.get_block_by_hash(hash).await.unwrap().unwrap();
+        assert_eq!(block.header.hash, hash);
+        assert_eq!(block.header.number, number);
+        let cutoff = schedule.source_cutoff(block.header.timestamp).unwrap();
+        let updating = cutoff + schedule.delay() == block.header.timestamp;
+        let mut transactions = Vec::new();
+        for tx_hash in block.transactions.hashes() {
+            let raw: Bytes = l2
+                .raw_request("eth_getRawTransactionByHash".into(), json!([tx_hash]))
+                .await
+                .unwrap();
+            assert_eq!(keccak256(&raw), tx_hash);
+            let tx = EezTxEnvelope::decode_2718_exact(&raw).unwrap();
+            assert!(
+                tx.is_history(),
+                "an application-free range must only contain history imports"
+            );
+            let EezTxEnvelope::System(native) = &tx else {
+                unreachable!()
+            };
+            assert_eq!(native.chain_id, world.l2_chain_id);
+            assert_eq!(
+                native.gas_limit,
+                IMPORT_GAS_LIMIT.min(block.header.gas_limit)
+            );
+            assert_eq!(decode_import(tx.input()).unwrap().cutoff, cutoff);
+            assert_eq!(
+                native.source_hash,
+                source
+                    .source_hash(
+                        block.header.parent_hash,
+                        number,
+                        block.header.timestamp,
+                        tx.input(),
+                    )
+                    .unwrap()
+            );
+            transactions.push(tx);
+        }
+        assert_eq!(transactions.len(), usize::from(updating));
+        assert_eq!(
+            alloy_consensus::proofs::calculate_transaction_root(&transactions),
+            block.header.transactions_root
+        );
+        included += transactions.len() as u64;
+        hash = block.header.parent_hash;
+    }
+    assert_eq!(hash, update.currentRoot);
+    assert!(included > 0);
+    assert_eq!(cost.fields["included_l2_transactions"], included);
+
+    let blob_gas = receipt.blob_gas_used.unwrap();
+    assert!(blob_gas > 0);
+    assert_eq!(cost.fields["post_blob_gas_used"], blob_gas);
+    let measured = U256::from(receipt.gas_used) * U256::from(receipt.effective_gas_price)
+        + U256::from(blob_gas) * U256::from(receipt.blob_gas_price.unwrap());
+    assert_eq!(cost.fields["post_total_cost"], measured.to_string());
+    assert_eq!(
+        cost.fields["post_cost_per_l2_transaction"],
+        format!("Some({})", measured / U256::from(included))
+    );
+    assert_eq!(
+        cost.fields["post_cost_per_l2_block"],
+        format!("Some({})", measured / U256::from(blocks))
+    );
+    // Later observations may extend the head while a finite drain is retained.
+    // Bind the trigger to the same anchor and threshold, not a later head size.
     assert!(world.node.signals_since(0).unwrap().iter().any(|signal| {
         signal.name == "eez.composer.settlement.decision"
             && signal.fields["due"] == true
+            && signal.fields["reasons"]
+                .as_str()
+                .is_some_and(|reasons| reasons.contains("general"))
+            && signal.fields["anchor_l2_hash"] == world.cfg.initial_state.to_string()
+            && signal.fields["unsettled_blocks"]
+                .as_u64()
+                .is_some_and(|pending| pending >= 30)
+            && signal.fields["pending_pure_l2_transactions"] == 0
             && signal.fields["settlement_age_ms"]
                 .as_u64()
                 .is_some_and(|age| age < 900_000)
     }));
+    world.node.assert_no_process_death();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -2722,14 +2890,7 @@ async fn retained_backlog_posts_more_than_six_blobs_in_one_prague_batch_and_repl
             .unwrap(),
         1
     );
-    assert!(
-        !world
-            .node
-            .signals_since(0)
-            .unwrap()
-            .iter()
-            .any(|signal| signal.name == "eez.composer.emission.historical_chunk")
-    );
+    assert_no_capacity_split(&world.node.signals_since(0).unwrap());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3206,6 +3367,9 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     wait_for_latest_height(&world.node, covered + 12, TIMEOUT)
         .await
         .unwrap();
+    let retained_height = l2.get_block_number().await.unwrap();
+    let blocks_per_sync = u64::from(world.dep.profile.syncInterval);
+    let retained_boundary = retained_height / blocks_per_sync * blocks_per_sync;
     assert_eq!(
         batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
             .await
@@ -3216,6 +3380,7 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         .restart_composer_with_env(&[("EEZ_SETTLEMENT_BLOB_FULLNESS_BPS", "1000".into())])
         .await
         .unwrap();
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let post = latest_post(&world).await;
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
     let tx = l1
@@ -3228,6 +3393,37 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
         2,
         "a soft threshold must not cut a fitting two-blob range into one-blob posts"
     );
+    let receipt = l1
+        .get_transaction_receipt(post.transaction_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(receipt.status());
+    let call = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(tx.inner.input()).unwrap();
+    let updates: Vec<_> = call
+        .batch
+        .entries
+        .iter()
+        .flat_map(|entry| &entry.rootUpdates)
+        .collect();
+    assert_eq!(updates.len(), 1);
+    let update = updates[0];
+    assert_eq!(update.rollupId, world.dep.rollup_id);
+    assert_eq!(update.currentRoot, world.cfg.initial_state);
+    assert!(receipt.logs().iter().any(|log| {
+        log.address() == world.dep.eez_address
+            && log
+                .log_decode::<eez_protocol::abi::L2ExecutionPerformed>()
+                .is_ok_and(|event| {
+                    event.inner.data.rollupId == update.rollupId
+                        && event.inner.data.newRoot == update.newRoot
+                })
+    }));
+    let terminal = l2.get_block_by_hash(update.newRoot).await.unwrap().unwrap();
+    assert!(
+        terminal.header.number >= retained_boundary,
+        "the fitting committed tail must be included with both large transactions"
+    );
     let follower = NodeHandle::start(
         "fullness-follower",
         &NodeConfig {
@@ -3238,13 +3434,39 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
     )
     .await
     .unwrap();
-    wait_for_safe_prefix_convergence(&[&world.node, &follower], covered, TIMEOUT)
+    wait_for_safe_prefix_convergence(&[&world.node, &follower], terminal.header.number, TIMEOUT)
         .await
         .unwrap();
+    assert_eq!(
+        l2.get_block_by_number(terminal.header.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        update.newRoot
+    );
+    let replay = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for hash in hashes {
+        let original = l2.get_transaction_receipt(hash).await.unwrap().unwrap();
+        let derived = replay.get_transaction_receipt(hash).await.unwrap().unwrap();
+        assert!(original.status());
+        assert!(derived.status());
+        assert!(original.block_number.unwrap() <= terminal.header.number);
+        assert_eq!(original.block_hash, derived.block_hash);
+    }
+    assert_eq!(
+        batches_posted(&world.l1_rpc(), world.dep.eez_address, 0)
+            .await
+            .unwrap(),
+        1,
+        "fullness must settle the fitting range in a single canonical post"
+    );
     let signals = world.node.signals_since(0).unwrap();
     assert!(signals.iter().any(|event| {
         event.name == "eez.composer.settlement.decision"
             && event.fields["due"] == true
+            && event.fields["reasons"].as_str() == Some("{\"blob_fullness\"}")
             && event.fields["settlement_age_ms"]
                 .as_u64()
                 .is_some_and(|age| age < 900_000)
@@ -3252,11 +3474,7 @@ async fn fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_ru
                 .as_u64()
                 .is_some_and(|blocks| blocks < 10_000)
     }));
-    assert!(
-        !signals
-            .iter()
-            .any(|event| event.name == "eez.composer.emission.historical_chunk")
-    );
+    assert_no_capacity_split(&signals);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -3270,6 +3488,8 @@ async fn gnosis_ordinary_burst_is_budgeted_across_sync_intervals() {
 }
 
 async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_blobs: usize) {
+    use alloy_rpc_types_eth::TransactionRequest;
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
     use eez_testkit::{onchain_nonce, sign_and_send, wait_for};
     let mut env = policy_env(vec![], "interval");
     env.push(("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "120000".into()));
@@ -3302,7 +3522,22 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     };
     let l2_seconds = milliseconds("EEZ_L2_BLOCK_TIME_MS") / 1000;
     let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
+    let outage_start = l2.get_block_number().await.unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    let last_available_origin = l1.get_block_number().await.unwrap();
+    let current_origin = || async {
+        let raw = l2
+            .call(
+                TransactionRequest::default().to(HISTORY_ADDRESS).input(
+                    alloy_primitives::Bytes::from(
+                        IL1BlockhashContract::currentCall {}.abi_encode(),
+                    )
+                    .into(),
+                ),
+            )
+            .await?;
+        Ok::<_, anyhow::Error>(IL1BlockhashContract::currentCall::abi_decode_returns(&raw)?)
+    };
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The calldata alone must exceed the
     // network's whole interval capacity even without any encoding overhead.
@@ -3325,37 +3560,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .unwrap(),
         );
     }
-    // Cached scheduling can continue briefly after the reader loses RPC.
-    // Recover only after L1 has actually passed the stalled L2 tip by two
-    // slots; a fixed sleep can leave an empty recovery window on Gnosis.
-    let gap_seconds = 2 * milliseconds("EEZ_L1_BLOCK_TIME_MS") / 1000;
-    let (stalled_l2_timestamp, recovery_l1_timestamp) = wait_for(TIMEOUT, || async {
-        let l2_timestamp = l2
-            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("missing L2 tip during RPC outage"))?
-            .header
-            .timestamp;
-        let l1_tip = l1
-            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("missing L1 tip during RPC outage"))?;
-        let l1_timestamp = l1_tip.header.timestamp;
-        Ok(
-            (l1_tip.header.number >= l1_before + 2 && l1_timestamp >= l2_timestamp + gap_seconds)
-                .then_some((l2_timestamp, l1_timestamp)),
-        )
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "RPC outage did not create a historical gap: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
+    // Advance beyond the same-parent replacement budget while L1 RPC is still
+    // failing. The bounded-depth clock regression runs separately. Ordinary transactions
+    // must receive receipts during the outage, not only after recovery.
+    wait_for_latest_height(&world.node, outage_start + (6 * k).max(18), TIMEOUT)
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "L2 stopped during L1 RPC outage: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+    let outage_tip = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
     assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
-    let recovery_cursor = world.node.signal_cursor().unwrap();
-    world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
     for &hash in &hashes {
         receipts.push(
@@ -3378,6 +3600,13 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     );
     let first = receipts.first().unwrap().block_number.unwrap();
     let covered = receipts.last().unwrap().block_number.unwrap();
+    assert!(
+        current_origin().await.unwrap().number <= last_available_origin,
+        "L1 acquisition was not withheld during the outage"
+    );
+    // New evidence may advance the next history update, never rewrite blocks
+    // just because a fresher eligible origin is now available.
+    world.fail_rpc_methods(&[]).unwrap();
     let mut previous_l1_timestamp = l1
         .get_block_by_number(l1_before.into())
         .await
@@ -3400,7 +3629,12 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         );
         previous_l1_timestamp = timestamp;
     }
-    wait_for_latest_height(&world.node, covered + 2 * k, TIMEOUT)
+    wait_for(TIMEOUT, || async {
+        Ok((current_origin().await?.number > last_available_origin).then_some(()))
+    })
+    .await
+    .expect("history acquisition must resume after healing L1 RPC");
+    wait_for_latest_height(&world.node, outage_tip.number + 2 * k, TIMEOUT)
         .await
         .unwrap();
     let genesis = l2
@@ -3410,50 +3644,19 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         .unwrap()
         .header
         .timestamp;
-    // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
-    // actual empty Sync construction, never assume height % K == 0.
-    // Recovery may finish in Steady mode once it reaches a usable future slot.
-    // Prove that a missing historical boundary was rebuilt after the outage,
-    // rather than requiring a structural-only Catchup terminal. Cached retry
-    // slots can already satisfy the receipt/height waits before RPC recovers;
-    // wait for this recovery event and its committed block explicitly.
-    let (rebuilt_timestamp, rebuilt) = wait_for(TIMEOUT, || async {
-        let rebuilt_timestamp = world
-            .node
-            .signals_since(recovery_cursor)?
-            .iter()
-            .filter(|event| {
-                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Empty"
-            })
-            .filter_map(|event| event.fields["timestamp"].as_u64())
-            .find(|timestamp| *timestamp > stalled_l2_timestamp && *timestamp <= recovery_l1_timestamp);
-        let Some(timestamp) = rebuilt_timestamp else {
-            return Ok(None);
-        };
-        let number = (timestamp - genesis) / l2_seconds;
-        Ok(l2
-            .get_block_by_number(number.into())
-            .full()
-            .await?
-            .map(|block| (timestamp, block)))
-    })
-    .await
-    .unwrap_or_else(|error| panic!(
-        "RPC recovery did not rebuild a missing historical Sync boundary in ({stalled_l2_timestamp}, {recovery_l1_timestamp}]: {error:#}{}",
-        world.settlement_diagnostics(),
-    ));
-    assert_eq!(rebuilt.header.timestamp, rebuilt_timestamp);
-    assert!(
-        rebuilt.transactions.is_empty(),
-        "recovered Sync boundary must be empty on the canonical L2"
+    assert_eq!(
+        l2.get_block_by_number(outage_tip.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        outage_tip.hash,
+        "late L1 delivery rewrote an already valid ordinary prefix"
     );
-    let boundaries = world
-        .node
-        .signals_since(0)
-        .unwrap()
-        .into_iter()
-        .filter(|event| event.name == "eez.composer.sync_slot.invoked")
-        .map(|event| (event.fields["timestamp"].as_u64().unwrap() - genesis) / l2_seconds)
+    let latest = l2.get_block_number().await.unwrap();
+    let boundaries = (k..=latest)
+        .step_by(k as usize)
         .collect::<std::collections::BTreeSet<_>>();
     let base = boundaries.range(..first).next_back().copied().unwrap_or(0);
     let terminal = *boundaries
@@ -3463,18 +3666,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let mut intervals = Vec::new();
     let mut encoded = Vec::new();
     for number in (base + 1)..=terminal {
-        let block = l2
-            .get_block_by_number(number.into())
-            .full()
+        let block: alloy_rpc_types_eth::Block<
+            alloy_rpc_types_eth::Transaction<eez_primitives::EezTxEnvelope>,
+        > = l2
+            .client()
+            .request("eth_getBlockByNumber", (format!("0x{number:x}"), true))
             .await
-            .unwrap()
             .unwrap();
+        assert_eq!(block.header.timestamp, genesis + number * l2_seconds);
         let block = block
             .map_transactions(|tx| tx.inner.into_inner())
             .into_consensus();
         if boundaries.contains(&number) {
             assert!(
-                block.body.transactions.is_empty(),
+                block
+                    .body
+                    .transactions
+                    .iter()
+                    .all(eez_primitives::EezTxEnvelope::is_history),
                 "ordinary data occupied a required settlement boundary {number}"
             );
         }

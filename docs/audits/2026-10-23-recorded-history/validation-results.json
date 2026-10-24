@@ -1,0 +1,902 @@
+{
+  "recorded_at": "2026-10-23T18:37:57.657460+00:00",
+  "branch": "codex/l1-history-offline-proving",
+  "head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "integration_base": "8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd",
+  "protocol_gitlink": "160000 commit 84a5b5207880f192a6a5896cbfe0bac5249db47f\teez-core-protocol",
+  "tracked_diff_sha256": "008d797487f7f5c6b1e341bb821f4e5301c9fe6fae98cc6749b49c2c00267fd4",
+  "source_scope": "Changed tracked files; untracked audit records are separate evidence, not part of this diff digest.",
+  "changed_files": [
+    {
+      "path": "AGENTS.md",
+      "bytes": 30876,
+      "sha256": "44ae26577e7836202b469605e10ce4b15084e6aebf489848d988a7b56f38ab1e"
+    },
+    {
+      "path": "contracts/L1_HISTORY_SPEC.md",
+      "bytes": 4156,
+      "sha256": "219a31f4e060a9b0f414b10e13285c9e9514ad25080f6803a40f8d32b2b60660"
+    },
+    {
+      "path": "contracts/src/L2/L1BlockhashContract.sol",
+      "bytes": 3844,
+      "sha256": "f00460d4cf70938bc0bdab2e788415adb7909ce600f0dc8e702a3a1e303289a8"
+    },
+    {
+      "path": "contracts/src/OfflineRollup.sol",
+      "bytes": 17717,
+      "sha256": "dad7c8974a5341d72497d38e42c80a5219edd820c238a52d37a5e050d5c1ca1b"
+    },
+    {
+      "path": "contracts/src/generated/L1HistoryCode.sol",
+      "bytes": 268,
+      "sha256": "394faaca401408a9b95a838789f10b6801f394b1b89edcada8de6d942992cda2"
+    },
+    {
+      "path": "contracts/test/OfflineRollup.t.sol",
+      "bytes": 16943,
+      "sha256": "24cd355fbcfcf55292f17dad65d95b48088a9feb5572f70e2fdf1e66d3a71337"
+    },
+    {
+      "path": "crates/eez-composer/src/composer.rs",
+      "bytes": 437706,
+      "sha256": "9ef0e6dc4dc150aa487ac649f6b2b979ce07518260b10e4e6f4d3c7ca0bcadc1"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/costs.rs",
+      "bytes": 37950,
+      "sha256": "d667ce5c4cdcd53371943051170106cf410328462779bf1bc464dd478e4fcc09"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/estimate.rs",
+      "bytes": 35341,
+      "sha256": "d6d44fb5bb7a468953acb69fb72946a755f4045d6241bcea7e52ae11dee6f88b"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/fees/quote.rs",
+      "bytes": 63760,
+      "sha256": "b3e786098ced5484eb6a63887ada6847d57e7aa5a07f0b0269cb36b1a9e45b28"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/policy.rs",
+      "bytes": 52906,
+      "sha256": "4fd4314a4e58fbdadf0b666438f1506781bf9a031dc2e9765f28b554d0c43e65"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/sequencing.rs",
+      "bytes": 12828,
+      "sha256": "3b2baabe0c3d1dc68d68c5cbcf37f35d43f7cd9f74e4e027ac555d889fc48484"
+    },
+    {
+      "path": "crates/eez-composer/src/local/build.rs",
+      "bytes": 77671,
+      "sha256": "437e688c50c7fb4c017ba25bc43a6cdeee7bfca9eee9bbf76c4335c232c3ba4c"
+    },
+    {
+      "path": "crates/eez-control-rpc/SPEC.md",
+      "bytes": 41207,
+      "sha256": "7b8f7a54050fa9c17622a49aa4bafe4c5ab0d6cd0f3af1781b1541e658c0de35"
+    },
+    {
+      "path": "crates/eez-control-rpc/STREAMING_SPEC.md",
+      "bytes": 24756,
+      "sha256": "a473979d1f36a9bb6ce04cf28eac1723f1aa5845da21343052f56d29beefcb80"
+    },
+    {
+      "path": "crates/eez-control-rpc/VALIDATION_IDENTITY.md",
+      "bytes": 7338,
+      "sha256": "93d65ad9b2ef14cfaa6fff9c77ab7453d030a3b76906019a613e72f67991f31d"
+    },
+    {
+      "path": "crates/eez-control-rpc/conformance/IMPLEMENTING.md",
+      "bytes": 8535,
+      "sha256": "82a1c3cc086d458fd0e121c04c3bfc88dc73b411ca973ac6fc2f98ad34535f44"
+    },
+    {
+      "path": "crates/eez-control-rpc/conformance/README.md",
+      "bytes": 9891,
+      "sha256": "4e4cb7537f9ac1cbc6ea5c178bb5fdcd72d3b3da157692d7006c58adf7cd66df"
+    },
+    {
+      "path": "crates/eez-control-rpc/conformance/validation-identity.json",
+      "bytes": 4939,
+      "sha256": "1cffdfa9af0350882733c4d4148978c8a5fd039fcc9a7c0238d73a8298863617"
+    },
+    {
+      "path": "crates/eez-control-rpc/src/identity.rs",
+      "bytes": 7523,
+      "sha256": "b1f92f69cd4f4113fd1574b0d2115b15981d56de3e596f1dd75ad8a30e3bfe37"
+    },
+    {
+      "path": "crates/eez-deriver/src/correlation.rs",
+      "bytes": 41499,
+      "sha256": "c7615f9c9cfdf1ba3e95b6bf490d0cc17f7423e2585116f0c2606a414770cff6"
+    },
+    {
+      "path": "crates/eez-deriver/src/deriver.rs",
+      "bytes": 164567,
+      "sha256": "f944b353c1baa562239bb164673638d6dd9a1811875f4899463a35db95fd7977"
+    },
+    {
+      "path": "crates/eez-deriver/src/deriver/inputs.rs",
+      "bytes": 8042,
+      "sha256": "682d2c49cea835b223b66a0d5abed678f282ed83fb2b93338c2da08472041493"
+    },
+    {
+      "path": "crates/eez-driver/src/block_committer.rs",
+      "bytes": 44278,
+      "sha256": "8fd4fe84ce0b674d786d2923f23c42045bb2099fc44dd9b1adf5f839969280aa"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation.rs",
+      "bytes": 8842,
+      "sha256": "f80b00fb2204019989f8cc28963936a5e89f8636c5b347864ae3bf4a0bed90ef"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation/encoding.rs",
+      "bytes": 3565,
+      "sha256": "05ee09f25df08f3c7ee4676d9583b5a9d79894cece9fe93e2becf8d326da5c4f"
+    },
+    {
+      "path": "crates/eez-driver/src/derivation/tests.rs",
+      "bytes": 24371,
+      "sha256": "f99bf575e3c33b8f222d20d2a2910c9919c577c83453b6f0fd811b2d396982e7"
+    },
+    {
+      "path": "crates/eez-driver/src/sequencer.rs",
+      "bytes": 68200,
+      "sha256": "4cbeac52c5a6f94487ecc84003f70dd78f63117f8928416d331ddaba2d563300"
+    },
+    {
+      "path": "crates/eez-driver/src/slot.rs",
+      "bytes": 23539,
+      "sha256": "a26449ecb5b59f21e791757f845ff0ab5e9aba271820b44b17edac335acbfaf1"
+    },
+    {
+      "path": "crates/eez-driver/src/witness.rs",
+      "bytes": 40059,
+      "sha256": "d0d14f84fef87a4d3121f72728567468d855bbcac0ba4e85a00d0266409f2644"
+    },
+    {
+      "path": "crates/eez-evm/src/block.rs",
+      "bytes": 12295,
+      "sha256": "3a0e0854200157a56896b0092f1f6668ac0628a1f74807b438ad36e42a905bd0"
+    },
+    {
+      "path": "crates/eez-evm/src/evm.rs",
+      "bytes": 7088,
+      "sha256": "bc103440f94ca9019ea013ebccfc2aa8019c6111d4652faace631c0fe1b3e892"
+    },
+    {
+      "path": "crates/eez-evm/src/history.rs",
+      "bytes": 7759,
+      "sha256": "0025c86bc5ea5f1c4e9162b0fdd24db3c8cfa1e74888be355aef1ca29cacdd8e"
+    },
+    {
+      "path": "crates/eez-evm/src/history/tests.rs",
+      "bytes": 14968,
+      "sha256": "b27c44d82f43c1db16211c34c62b86da8b0b471e3bd487bba3105629484ef7e6"
+    },
+    {
+      "path": "crates/eez-evm/src/lib.rs",
+      "bytes": 15331,
+      "sha256": "ab58cb3ffe0c9ba994278dc27ea8a6c8583bca4abefa66977740930ed455069b"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history.rs",
+      "bytes": 10436,
+      "sha256": "5c3a7cf87f10ab211cc68233cfc2d37158cef30388b438832e78bc350a60a4a6"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history/tests.rs",
+      "bytes": 15826,
+      "sha256": "176d18962d72802d1f40532d4f7adce268758a454972a5df430d168b9b9d5973"
+    },
+    {
+      "path": "crates/eez-l1/src/l1_canonical_head.rs",
+      "bytes": 31392,
+      "sha256": "fd86bdfc0b7925420eaf2ce0d1b16a2ac8e3b094ee73bff34aab1b581d6b04e4"
+    },
+    {
+      "path": "crates/eez-node-common/src/correlation_rpc.rs",
+      "bytes": 12627,
+      "sha256": "f9e52250c1004b582c5d98bb26956d632324bbd26c458509894d0049a2087a32"
+    },
+    {
+      "path": "crates/eez-node-common/src/node.rs",
+      "bytes": 7599,
+      "sha256": "7152afc57fb72654094916d4a6c80ee2d74e537def89431927be27d8996f357d"
+    },
+    {
+      "path": "crates/eez-node-common/src/payload.rs",
+      "bytes": 20596,
+      "sha256": "f2c0804ec151d5b2c9351287babb52a32608d8031d79b42906a8bfb49b4329c0"
+    },
+    {
+      "path": "crates/eez-node-common/src/payload_builder.rs",
+      "bytes": 16385,
+      "sha256": "deb42caf6c7a4fbfe30deaae4f20a823c235f648b3b6fca6748ee8be9915063a"
+    },
+    {
+      "path": "crates/eez-node-common/src/rpc.rs",
+      "bytes": 18507,
+      "sha256": "2b5696e76462af4819181e535a676148037a2a01c4c170723bd2f1a9f1a1996e"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/derivable_operations.rs",
+      "bytes": 36323,
+      "sha256": "e650e294eb9fb9310707749a07a31cc8426164d1f8b3696b6721efd2017bb175"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/derivable_operations/multipart.rs",
+      "bytes": 27172,
+      "sha256": "7bfa3468a9931d9ce37cd9c4d9d6910c0492ab64431361c3503e2e13ebfb60d5"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/fixtures/genesis.json",
+      "bytes": 41612,
+      "sha256": "77049920c394ce0ea5f9705139502080cc57e2bb77c1bbcd3c17ba6a5b109acd"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/native_system.rs",
+      "bytes": 20959,
+      "sha256": "f7ca54328b0e7da2aa6b96da6ffafd6a1bf263d0a6b99c41eecba4b6064a0c42"
+    },
+    {
+      "path": "crates/eez-node-e2e/tests/settlement_policy.rs",
+      "bytes": 132800,
+      "sha256": "12372c41040c056da846c47571c08cd436fe876c0156816191b1295c15ecb2e1"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/block_size.rs",
+      "bytes": 5644,
+      "sha256": "99cf05e5b1cf70acab0687fdf8490f786da4b44cb71ec77a7bbc951ed777a279"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/v0.rs",
+      "bytes": 17185,
+      "sha256": "f42c59a009c0e0805c048b623365a7821a3ece5124ceb6cf4834272f383bfe89"
+    },
+    {
+      "path": "crates/eez-payload-codec/src/v0/tests.rs",
+      "bytes": 13264,
+      "sha256": "5c39a0172defb949d1d8cd9726df751f5f6cf999170c3cd23d5ba287778d8468"
+    },
+    {
+      "path": "crates/eez-primitives/src/engine.rs",
+      "bytes": 9302,
+      "sha256": "d39e14364c6d3755d9687617bb295a2e8142616115fcebe3e40d6c09f7a14734"
+    },
+    {
+      "path": "crates/eez-primitives/src/lib.rs",
+      "bytes": 15920,
+      "sha256": "07427e5e04ca33c8ab07abdc1356e059052c9ef6929697e9bad67b66bfb1c8dd"
+    },
+    {
+      "path": "crates/eez-primitives/src/tests.rs",
+      "bytes": 11299,
+      "sha256": "5262c541915518058c32c40320d8ebfc43c596c0be005418c37493d10e019ad8"
+    },
+    {
+      "path": "crates/eez-proof-signer/CONTRIBUTING.md",
+      "bytes": 8543,
+      "sha256": "87196245764f577f176f8e3882cf8ce3de0ed2e2207cb33f9be382d342d85bd7"
+    },
+    {
+      "path": "crates/eez-proof-signer/SPEC.md",
+      "bytes": 73253,
+      "sha256": "f451a3cef1d0dc5a3eebc46b9745a0b8f470fdd9d30160d97b069786561ba69c"
+    },
+    {
+      "path": "crates/eez-proof-signer/docs/architecture.md",
+      "bytes": 4781,
+      "sha256": "0e2e105f1666b0c8188f0f72a5317c35158aa18d16bb335c1f7d14f377da70ae"
+    },
+    {
+      "path": "crates/eez-proof-signer/docs/data-provenance.md",
+      "bytes": 7003,
+      "sha256": "48f119970acb9785e4528c0e7a7a96ae46f3b6c3bdeb06182e10f1564ff57303"
+    },
+    {
+      "path": "crates/eez-proof-signer/docs/validation-evidence.md",
+      "bytes": 6807,
+      "sha256": "fd7abbe346e0c7ea47206b3d2d5ea7b44e06094f46de447f9eaf15e5ee031444"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/service/tests/derivation/synthetic.rs",
+      "bytes": 25685,
+      "sha256": "650b986ee5b36cc8f8250865407f46943528bcc1c47fcda49f3d3d2088de1512"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/blocks.rs",
+      "bytes": 15567,
+      "sha256": "a5b2abf48210a271cf25a27c3e4c29cbe9c22274e43ed8dba32391b4d4b1a365"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/tests/blocks.rs",
+      "bytes": 19864,
+      "sha256": "9d4edaf0d6af71d2f1f787ea1fc8f9ea70a95e09f1622d191c26dc3d9a445442"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless.rs",
+      "bytes": 41991,
+      "sha256": "93495f1d7ad6ab1cf8ef99b6f2e7a0fa233225d24ad0205916e349c1863cfa37"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless/tests.rs",
+      "bytes": 39884,
+      "sha256": "858328af80f7899207adb6ef0e339209b0ae1b8a97482fff682622bf47a327ea"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/streaming.rs",
+      "bytes": 7591,
+      "sha256": "68e623213da41d5ab381653ed1b61a7e27bc6d8dca2d93f2bc0b3cfe71ddd459"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/testing.rs",
+      "bytes": 7035,
+      "sha256": "846990975685e02644abf555170541d89cf09eff50341cf8a84811e33c276e85"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/README.md",
+      "bytes": 1092,
+      "sha256": "a48fe88628dcea64a8485c1ff02060a2fdbeb0a89f7d1af1b22716911316e6cd"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/chain-config.json",
+      "bytes": 825,
+      "sha256": "db05a8434a1b1bc0af7adfa0616ed285c073f9baad835343eb866d33b8bbb94a"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l1-genesis.json",
+      "bytes": 40237,
+      "sha256": "7b0145a65465c78e53436e3b013578d6049f45b787fca5d2229468ad351d14a1"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l2-genesis.json",
+      "bytes": 40541,
+      "sha256": "b79dac0439a9bd7cd03328ee2100258fe47cd09cc1527bacdd60c4850ed2e061"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/request.v2.protobuf",
+      "bytes": 1112239,
+      "sha256": "9dee9f40524d8b220bdc287852c3e186021d692642e8614d2ff27277e140a358"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/response.json",
+      "bytes": 359,
+      "sha256": "98c62c9cbc3202b55a676b0ef6878c450a8538b0ec553e937f42a8a870776c56"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/README.md",
+      "bytes": 1015,
+      "sha256": "a1011f6f4809d63bc907ab3a2dc0c078dbd013099b735d5525f405826c199a73"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/chain-config.json",
+      "bytes": 825,
+      "sha256": "68ef3426b5781110a728adc5e6fa8124a6a365502e64cc304466a9f124d24945"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l1-genesis.json",
+      "bytes": 40237,
+      "sha256": "f3c9098cd083684552663fcb1f4681748e5edf671f1b9711fbcd1fa328958567"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l2-genesis.json",
+      "bytes": 40541,
+      "sha256": "229d389fa5a54f8eab7c02fe9752c24f38670e78d03ce56873299d52ce0dd76e"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/request.v2.protobuf",
+      "bytes": 399953,
+      "sha256": "83bad01825027e76c1407a69833f46bd248e1267bd3fc46752c787b315c994f3"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/response.json",
+      "bytes": 358,
+      "sha256": "965a60d7b0321b48a9a6a4f7a3c9cce4406667ffc59fcd5110f1c78b900740b3"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/README.md",
+      "bytes": 969,
+      "sha256": "0faedd4d4da11529db920fc4b8527833cd2277ded7d291b3dc8ff06e122110fe"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/chain-config.json",
+      "bytes": 825,
+      "sha256": "f8faf87fa4e19c166c2336daa8da78dff0f5b394427af326e8dac4c097812419"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l1-genesis.json",
+      "bytes": 40237,
+      "sha256": "04fcf7960fd4ed536d4d3e95043eca0fd5956aac194edef1f6849c157b07bab3"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l2-genesis.json",
+      "bytes": 40541,
+      "sha256": "259c8f56a893c8f0db3157513cbca8c49a633770f9fea28c0c42a3747cc48c67"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/request.v2.protobuf",
+      "bytes": 683200,
+      "sha256": "91c3ad426301a1a1d9108ca767e8c15412c697a21668bf23863de9184d5e01ee"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/response.json",
+      "bytes": 358,
+      "sha256": "ced5822a391791d04c8f88ec745b481df44b4b4d4c9e8c61196d706b38b15095"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/baseline-lookup.json",
+      "bytes": 1411835,
+      "sha256": "224aa4d0c4b66d3626ccc229a53a23f5c0a5ca3422a5c30b7db5b4b32599ab5c"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/baseline-static.json",
+      "bytes": 819162,
+      "sha256": "7f20658742c48468ab8bd6323a1d8591422e8bdc4bc2389df25e29280b886666"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/begin-boundaries.json",
+      "bytes": 7868,
+      "sha256": "b31c574792c710ef281eacd90af4c70a4be12e728f22d7c16996d74d4ace7243"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/block-boundaries.json",
+      "bytes": 301594,
+      "sha256": "58f284e9d5c77dedcdd8d0752588ca49b0ad8fe8b2c8f384dec68048346beab6"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/block-quota.json",
+      "bytes": 101118,
+      "sha256": "213adb7c96f4bedd42cb779589770ab46c9abd82a4229fc2b5c7a631ce1ad0c1"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/byte-quota.json",
+      "bytes": 101117,
+      "sha256": "5414887b8a375a0a43bc1dfd63113d37104b5e135abed9a3473faab4942e6209"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/cancel-session-isolation.json",
+      "bytes": 469527,
+      "sha256": "98bf36e2cc39d1947b06de2f11a87d4c9cb8276742c51975e04d517ce9820011"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/competing-branches.json",
+      "bytes": 524733,
+      "sha256": "384d03a84470870050b66ffe579d402cb473586ad50064bc4bdb4536b3956c3f"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/concurrent-composers.json",
+      "bytes": 888885,
+      "sha256": "db9c9b8b1193e10fcae52240381555221bdbc8127edd54f38eab956808206d35"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/detached-session-eviction.json",
+      "bytes": 212747,
+      "sha256": "de5049b0b03de68e184d3a24db0c909d4c04c8bf8a48e4102eee09f6a493054b"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/finalize-byte-quota.json",
+      "bytes": 710844,
+      "sha256": "1a6c4d06d0edbb3c18740a9b9b48e5ec9f93cd6d20b170ad2d912b47d53c16eb"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/finalize-ranges.json",
+      "bytes": 2572054,
+      "sha256": "fca0034ab98fcf6ae612c182a63956fe95e9ccc4922cc31dc3ffd52278efb67c"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/frame-size-limit.json",
+      "bytes": 24173,
+      "sha256": "b7eedba1c37c913f03fbba8a433870eeb7aec2c89df89531c1e76ef4776d6db4"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/half-close-drains.json",
+      "bytes": 468091,
+      "sha256": "7c5487bd3685c3f1a4c3f8dbf0bdf896bdba6524beab1b1d4959cc12c285056d"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/invalid-witness-retry.json",
+      "bytes": 463336,
+      "sha256": "2ef662fc456e042360558620c967f113ef6fa90415d77964fdceed1c9755ccdf"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/manifest.json",
+      "bytes": 26064,
+      "sha256": "2177b18154af0bcc70cc2547123071904e7d27b46ba1495f4a9cf7ed699ccabd"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/pipelined-gap-recovery.json",
+      "bytes": 454975,
+      "sha256": "42ed6fd654afb047dfa554d7da4740bc9fe1631a5f915bb86facc79ee5d5afc5"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/posting-context-boundaries.json",
+      "bytes": 3525213,
+      "sha256": "1135831baa1415d169119bf6be16a1e7aec36f77f74c1dd60f3c05c46d0cc2db"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/resume-after-proof.json",
+      "bytes": 711516,
+      "sha256": "bcccecabc442db7992ab61b5bef60b32847ff341dc69c5cbb28b66f2092182d0"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/resume-boundaries.json",
+      "bytes": 4606,
+      "sha256": "5f919cd1ca4c3b6b7284b40e089cbe3caab08b26095de627e51c3fc9e4bfdb70"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/resume-takeover-fencing.json",
+      "bytes": 466040,
+      "sha256": "dec5ba1e03074401926f920a7fb1b7bae72102bb299d6ffe63e9c2885ded2e32"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/rewind-boundaries.json",
+      "bytes": 791267,
+      "sha256": "9e56f63165f1fe37a3b7d6830e64c9437bcafac0d492a908ca6808dc89fe48d0"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/settlement-abi-binding.json",
+      "bytes": 3795967,
+      "sha256": "fea5203c4f63e586989d8fedfbb6953c10044dae6575672745530c1c0dd1876b"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/settlement-blob-encoding.json",
+      "bytes": 2434213,
+      "sha256": "9a534496663e944c7a9373868804688e4979854f7665457e9c3a93bdd5d5d85e"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/settlement-required-inputs.json",
+      "bytes": 1091687,
+      "sha256": "02f5421a8e6c26a2ad1cf46626f175bfcda9ad871329328f2cc1d8732e71e122"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/stream-capacity.json",
+      "bytes": 9329,
+      "sha256": "a49ad4cd56f590429c82a8bf1efb9154142e53c330ff01cd60f2c7170f077695"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/subrange-promoted-anchor.json",
+      "bytes": 977990,
+      "sha256": "772fefba6d1861213ba92004a88dff24ee11e81e41f1650244a7f5f35d31f9bb"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/sync-range-proof.json",
+      "bytes": 598515,
+      "sha256": "29af9e57ac42fd944a8908ad02ad3238c6d7a5e03d5b267e45978bccef9ff13d"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/terminal-before-tip.json",
+      "bytes": 654721,
+      "sha256": "7be9a1802c0cc2e16dc72ca7b827d97c14c525604aeef355f105ae2f7b5f8f7f"
+    },
+    {
+      "path": "crates/eez-proof-signer/tests/fixtures/streaming-v2/witness-quota.json",
+      "bytes": 101119,
+      "sha256": "bab67fa5f7cbe7e767e9e375d3ebb5fd7b1013ad8bd12335b7dc63cd121987d7"
+    },
+    {
+      "path": "crates/eez-protocol/src/l1_history.rs",
+      "bytes": 22908,
+      "sha256": "4942dff5de26026e8d3f501691319d3ce0af0a503acce30baf6d7373fbdf7ebf"
+    },
+    {
+      "path": "crates/eez-protocol/src/l1_history/context.rs",
+      "bytes": 18732,
+      "sha256": "375c3e95fd834cca4291718f29972861b50893fb046a855330c04a25f88116f8"
+    },
+    {
+      "path": "crates/eez-protocol/src/l1_history/runtime.bin",
+      "bytes": 1134,
+      "sha256": "52917822c5ed8454683f74ce9443b9d447e83eae393e4eac26f9c7a916099b6e"
+    },
+    {
+      "path": "crates/eez-protocol/src/l1_history/tests.rs",
+      "bytes": 10242,
+      "sha256": "b331f3095b645bac90a8a889bea9a35ca185f6de0b7b0649ec68e837181fd8ae"
+    },
+    {
+      "path": "crates/eez-testkit/src/lib.rs",
+      "bytes": 248252,
+      "sha256": "98822f0ebbb6ce64ff3076c52a32776e0189635e533b10eaa73e87b5f7a2c5b1"
+    },
+    {
+      "path": "docs/configurable-settlement-policy.md",
+      "bytes": 138685,
+      "sha256": "6689315ae312dce16d20d5572d9a24736ea6fc7b0fad3547c7dda2b4a8acab57"
+    },
+    {
+      "path": "docs/proposals/l1-origin-and-offline-proving.md",
+      "bytes": 18294,
+      "sha256": "b8b2798b21220a09ed2b40cee879c36f9a63dd708889305fd04ed3f86a4d4ddf"
+    },
+    {
+      "path": "docs/proposals/native-system-transactions.md",
+      "bytes": 17879,
+      "sha256": "1d0ea2ce6c05c3a7cde6590b9ca97ebd316836fbd5dd77997cb435a4e6aa4525"
+    },
+    {
+      "path": "genesis.dev.json",
+      "bytes": 39211,
+      "sha256": "3fac4df5e4782b8c152ab7d497b73f23a8782231d99a801b0e5e665e888d2975"
+    },
+    {
+      "path": "genesis.json",
+      "bytes": 37172,
+      "sha256": "66c9c56e75686b2b7660ef7d8c1f0a27a6b0178ea99aa44d0f52856c6e1a6449"
+    },
+    {
+      "path": "testing/kurtosis/l2-genesis-profile.json",
+      "bytes": 785,
+      "sha256": "b999f6b37eb82e7edd83956d224714e0432946133de1abd16cd5d026501d6b26"
+    }
+  ],
+  "evidence_scope": "Logs and binaries are local-only ignored artifacts; hashes preserve identity, not availability. Counts overlap between suites and must not be summed as unique tests. Failed precursor logs are retained deliberately.",
+  "logs": [
+    {
+      "path": "artifacts/validation/continuity-core-contracts.log",
+      "bytes": 59150,
+      "sha256": "8deb661580075f5f2aa87de185a5cc9f7209f0a393c64f7c7388ef643527751b",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-contracts.log",
+      "bytes": 11343,
+      "sha256": "f59c8d7aa29e7ce96648e0a8c512fddbe30ea28f744d81bafda1bbd546e61fef",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-genesis-check.log",
+      "bytes": 116,
+      "sha256": "e4ec8ddbd4c7ad048d6c8929ca3cae09718ff7b5ffecc241c6a328f53461b544",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-clippy-11.log",
+      "bytes": 450,
+      "sha256": "ad13b64548bbbe058c1cc6cafa3216cdf4d8d978c07f0bb4b433210e140f86bc",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-unit-4.log",
+      "bytes": 107560,
+      "sha256": "32ba6a1bee5f267ac7fe4d0208a80c7a242fb3322cf442d3478ebe6321aff105",
+      "rust_test_summaries": [
+        {
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 406,
+          "failed": 0,
+          "ignored": 1
+        },
+        {
+          "passed": 7,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 46,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 73,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 27,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 199,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 15,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 11,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 206,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 34,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-signer-unit-3.log",
+      "bytes": 36733,
+      "sha256": "bc9a42b939591fde326185b17fedd836f3703b91f066194ad87cff773f5f7f7a",
+      "rust_test_summaries": [
+        {
+          "passed": 327,
+          "failed": 0,
+          "ignored": 2
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-native-combined.log",
+      "bytes": 144237,
+      "sha256": "85cd365680946f4431b98f23a07613cb7f99836369125e013c4afba54bab3a8f",
+      "rust_test_summaries": [
+        {
+          "passed": 5,
+          "failed": 2,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-native-recovery-2.log",
+      "bytes": 14458,
+      "sha256": "b127f488a5d2c33ef6a133e4d12f65f8f7cd65871e5218e156cc94a9aa6597b0",
+      "rust_test_summaries": [
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-native-final.log",
+      "bytes": 62627,
+      "sha256": "c9864ff11c24e82ccc054db9271b4d64061ae840fbf4a6a830d746ab5f0f144b",
+      "rust_test_summaries": [
+        {
+          "passed": 5,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-protocol-combined.log",
+      "bytes": 23569,
+      "sha256": "707a1b8b14bd0cf739c5ac1e357b0f1058308c26c5b0575f274abf04ac1afb1b",
+      "rust_test_summaries": [
+        {
+          "passed": 21,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 1,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 16,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 206,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 10,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 3,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 2,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        },
+        {
+          "passed": 0,
+          "failed": 0,
+          "ignored": 0
+        }
+      ]
+    },
+    {
+      "path": "artifacts/validation/continuity-kzg-vector.log",
+      "bytes": 2956,
+      "sha256": "121860a796eba050830129b06207fd3aa367782657d3da78eed2c04390bd0105",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-signer-check.log",
+      "bytes": 6285,
+      "sha256": "03c7795a18c568d94578344c40646e119d911b40b8fb4c19ce1d1ec33a2f37f7",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-signer-clippy.log",
+      "bytes": 921,
+      "sha256": "cf732ac5b4f87f00a324ed362bc57152c60d3d19575837d4bdd949b8a3aa26b2",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-signer-doc.log",
+      "bytes": 6118,
+      "sha256": "ec5469c960709bf12158069f156c264b513ff05909d47e510ca6491c8e2dfc13",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-contract-format.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-final-format.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "rust_test_summaries": []
+    },
+    {
+      "path": "artifacts/validation/continuity-vector-final-check.log",
+      "bytes": 48,
+      "sha256": "73a2cb93772fd532e22005ecd61c22035395d290df17042d4a2376539412a426",
+      "rust_test_summaries": []
+    }
+  ],
+  "tested_executables": [
+    {
+      "path": "target/debug/deps/node_e2e-969bf1dbfc9e03d4",
+      "sha256": "6f27eb143256aabc311381cb33641ce6462d27b88f84e3697986aeeb700842a5"
+    },
+    {
+      "path": "target/debug/eez-composer",
+      "sha256": "4d8fdd982b4040f3ad12c2ee798c7c2fb802d01e7475ea53bd1a61f18f485664"
+    },
+    {
+      "path": "target/debug/eez-follower",
+      "sha256": "e1cd335c7f0df563be54a424a4282071e0b9f2b184e1b58415463924f4b89527"
+    },
+    {
+      "path": "target/debug/eez-proof-signer",
+      "sha256": "0e51a80d80c5d910ff1f00b80a24f64399f2101a1dcbf00b6601952491809737"
+    }
+  ],
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)",
+  "forge": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+}

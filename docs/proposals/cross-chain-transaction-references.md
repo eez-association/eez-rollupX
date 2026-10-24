@@ -37,7 +37,7 @@ load, signed source and callback/delivery assigned to that source, in physical
 order. Multiple references on one chain must not be collapsed to one. Internal
 EVM calls have no separate transaction hash and do not create entries.
 
-Native L2 loads and deliveries retain transaction/receipt type `0x76`. Clients
+Native L2 loads and deliveries retain transaction/receipt type `0x45`. Clients
 fetching these receipts need an EEZ-aware or open receipt decoder (for example,
 Alloy's `AnyNetwork`), or raw JSON. Ethereum's closed receipt enum rejects that
 existing native type. Do not relabel native receipts as legacy/type 2.

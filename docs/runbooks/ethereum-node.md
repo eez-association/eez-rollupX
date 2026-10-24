@@ -7,6 +7,11 @@ an L2 whose L1 is a public Ethereum network, using
 selects the same network for all three services, so a Hoodi or Sepolia rehearsal
 uses the mainnet definition unchanged.
 
+The registered contracts and L2 genesis must use the
+[fresh-network offline-history profile](../proposals/l1-origin-and-offline-proving.md).
+Existing older-profile networks need their matching release; this revision
+does not provide an in-place migration.
+
 **Not covered.** Deploying or registering contracts and rendering the L2 genesis
 (`deployments.env` and `datadir/genesis.json` must already exist), explorers and
 monitoring. Registration is irreversible: rehearse it on Hoodi first.
@@ -25,7 +30,8 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
 - `lighthouse` drives that reth through the engine API on `L1_AUTH_PORT` (shared
   `JWT_FILE`) and runs as a **semi-supernode**, so the deriver can read full
   PeerDAS blobs from `127.0.0.1:6152`.
-- `eez-proof-signer` trusts the same network (`EEZ_L1_CHAIN_CONFIG=<network>`).
+- `eez-proof-signer` loads that network's local rules (`EEZ_L1_CHAIN_CONFIG=<network>`)
+  and validates complete v2 witness evidence without an L1 or L2 RPC connection.
 - The schedule is fixed by the genesis profile: 12-second L1 slots, 2-second L2
   blocks (six per slot).
 - Host networking with the Chiado profile's ports: run one packaged network per
@@ -60,15 +66,10 @@ against a synced Ethereum node; no settlement on Ethereum has been observed.
    poster balance is the only total spending limit.
 
 Cross-chain fee collection uses the shared [fee configuration](../configurable-settlement-policy.md#cross-chain-fee-configuration).
-For the 64 KiB calldata profile, upgrade all Composer fronts before enabling
-larger payloads in copied SDKs and applications; follow the
-[calldata compatibility contract](../configurable-settlement-policy.md#calldata-limit-compatibility)
-for mixed versions and rollback.
-Fee policies have no expiration. Remove the obsolete
-`EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` setting before upgrading; its presence,
-including empty, prevents startup. Follow the
-[expiration migration](../configurable-settlement-policy.md#removed-fee-policy-expiration)
-when upgrading an existing deployment or rolling back Composer.
+Use matching Composer fronts and SDKs for the current 64 KiB calldata limit.
+Fee policies have no expiration; the obsolete
+`EEZ_FEES_VALID_UNTIL_L1_TIMESTAMP` setting, including an empty value, prevents
+startup. This runbook does not upgrade an older-profile deployment.
 
 ## First start
 
@@ -100,7 +101,7 @@ cast block-number --rpc-url http://127.0.0.1:18688                              
 
 **Stop conditions:**
 - **Unexpected L1 kind or chain ID:** if the embedded L1 reports a different chain ID or `kind`, stop. `EEZ_L1_CHAIN` must be exactly `mainnet`, `hoodi` or `sepolia`; any other value is a startup error.
-- **Signer refuses to start:** a `prover validation identity differs` error means the node and signer images come from different commits.
+- **Prover preflight rejects:** a `prover validation identity differs` error means the node and signer disagree on validation specification, genesis, profile or deployment identity. Match their artifacts and local configuration before retrying.
 - **Invalid builder signature:** `Invalid signature` replies from BuilderNet mean `EEZ_L1_BUNDLE_SIGNING_KEY` is missing.
 
 Bundle acceptance is not inclusion. Measure the share of settlement slots that

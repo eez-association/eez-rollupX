@@ -499,7 +499,11 @@ fn advisory_parent_keeps_ordinary_history_and_excludes_unsettled_native_effects(
             block.body.transactions.push(
                 eez_primitives::SystemTransaction {
                     chain_id: 1,
-                    nonce: number,
+                    version: eez_primitives::SYSTEM_TX_VERSION,
+                    source_hash: alloy_primitives::B256::from(
+                        alloy_primitives::U256::from(number).to_be_bytes::<32>(),
+                    ),
+                    gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                     to: eez_protocol::EEZL2_ADDRESS,
                     value: U256::ZERO,
                     input: Bytes::new(),
@@ -549,7 +553,9 @@ fn quote_history_uses_the_posting_window_and_ignores_the_native_suffix() {
             block.body.transactions.push(
                 eez_primitives::SystemTransaction {
                     chain_id: 1,
-                    nonce: 0,
+                    version: eez_primitives::SYSTEM_TX_VERSION,
+                    source_hash: alloy_primitives::B256::with_last_byte(0),
+                    gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                     to: eez_protocol::EEZL2_ADDRESS,
                     value: U256::ZERO,
                     input: Bytes::new(),
@@ -649,7 +655,9 @@ fn history_sizing_matches_encoding_and_refuses_unreconciled_native_blocks() {
     block.body.transactions = vec![
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce: 0,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::with_last_byte(0),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_protocol::EEZL2_ADDRESS,
             value: U256::ZERO,
             input: Bytes::new(),

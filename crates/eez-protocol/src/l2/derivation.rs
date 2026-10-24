@@ -2,7 +2,7 @@
 //! require independently authenticated L1 context; they cannot establish it.
 
 use alloy_consensus::Header;
-use alloy_primitives::B256;
+use alloy_primitives::{Address, B256};
 use serde::{Deserialize, Serialize};
 
 use super::ProfileError;
@@ -21,7 +21,7 @@ pub struct GenesisL1Reference {
     pub hash: B256,
     /// Reference timestamp, also fixing the settlement slot phase.
     pub timestamp: u64,
-    /// Copied into genesis and descendants before the first accepted live anchor.
+    /// Bootstrap randomness, retained until the first scheduled history update.
     pub prev_randao: B256,
 }
 
@@ -31,11 +31,16 @@ pub struct GenesisL1Reference {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DerivationConfig {
+    /// Recipient of ordinary L2 base fees, authenticated by the offline profile.
+    #[serde(deserialize_with = "deserialize_fee_collector")]
+    pub fee_collector: Address,
     /// Whole seconds between every pair of consecutive L2 blocks.
     pub block_interval_seconds: u64,
     /// Number of positions in a complete Sync-to-Sync interval, at least two.
     pub sync_interval_blocks: u32,
-    /// Independently authenticated startup reference for timing and initial seed.
+    /// Fixed history/PREVRANDAO update offset; must be less than the Sync interval.
+    pub history_update_offset: u32,
+    /// Independently authenticated startup reference for timing and bootstrap history.
     pub l1_reference: GenesisL1Reference,
 }
 
@@ -49,12 +54,13 @@ pub struct Schedule {
     l1_slot_seconds: u64,
 }
 
-/// Whether an accepted endpoint refreshes the seed for its descendants.
+/// Endpoint eligibility relative to the settlement context. History and randomness
+/// follow their fixed delayed schedule independently of this classification.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnchorKind {
     /// Endpoint timestamp equals its containing L1 block's timestamp.
     Live,
-    /// Historical endpoint; its acceptance retains the previous seed.
+    /// Endpoint predates the settlement context; cross-chain actions are forbidden.
     CatchUp,
 }
 
@@ -62,10 +68,12 @@ impl Schedule {
     /// Reject invalid configuration or genesis values without supplying defaults
     /// or changing phase. This does not check L1 canonicality or finality.
     pub fn new(config: DerivationConfig, genesis: &Header) -> Result<Self, ProfileError> {
+        validate_fee_collector(config.fee_collector)?;
         let step = config.block_interval_seconds;
         let positions = config.sync_interval_blocks;
         if step == 0
             || positions < 2
+            || config.history_update_offset >= positions
             || config.l1_reference.chain_id == 0
             || config.l1_reference.hash == B256::ZERO
         {
@@ -105,6 +113,21 @@ impl Schedule {
             genesis_timestamp: genesis.timestamp,
             l1_slot_seconds,
         })
+    }
+
+    /// Shared delayed-update schedule. Reject a genesis before its bootstrap
+    /// window; no legacy seed path or activation bootstrap is inferred.
+    pub fn history(&self) -> Result<crate::l1_history::HistorySchedule, ProfileError> {
+        let history = crate::l1_history::HistorySchedule::new(
+            self.genesis_timestamp,
+            self.config.block_interval_seconds,
+            self.config.sync_interval_blocks,
+            self.config.history_update_offset,
+        )?;
+        if self.config.l1_reference.timestamp > history.bootstrap_cutoff() {
+            return Err(ProfileError("genesis reference is after bootstrap cutoff"));
+        }
+        Ok(history)
     }
 
     /// Exact genesis identity whose timestamp defines block-number alignment.
@@ -176,8 +199,8 @@ impl Schedule {
         Ok((number, kind))
     }
 
-    /// Classify an independently authenticated accepted endpoint. A live anchor
-    /// refreshes only block numbers greater than this endpoint, never its variants.
+    /// Classify an endpoint against the bound settlement timestamp. Neither
+    /// classification changes the delayed history/PREVRANDAO update schedule.
     pub fn anchor_kind(
         &self,
         number: u64,
@@ -224,6 +247,33 @@ impl Schedule {
     }
 }
 
+/// Reject destinations whose balance is reserved or cleared by the protocol.
+/// Sender and block-beneficiary aliases remain valid ordinary recipients.
+pub fn validate_fee_collector(address: Address) -> Result<(), ProfileError> {
+    if address.is_zero()
+        || address == eez_primitives::SYSTEM_ADDRESS
+        || address == eez_primitives::EEZL2_ADDRESS
+    {
+        return Err(ProfileError("invalid L2 fee collector"));
+    }
+    Ok(())
+}
+
+fn deserialize_fee_collector<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Address, D::Error> {
+    use serde::de::Error as _;
+    let value = String::deserialize(deserializer)?;
+    if value.len() != 42 || !value.starts_with("0x") {
+        return Err(D::Error::custom(
+            "feeCollector must be 0x followed by 40 hex digits",
+        ));
+    }
+    let address = value.parse().map_err(D::Error::custom)?;
+    validate_fee_collector(address).map_err(D::Error::custom)?;
+    Ok(address)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -232,6 +282,10 @@ mod tests {
         let seed = B256::with_last_byte(7);
         (
             DerivationConfig {
+                fee_collector: alloy_primitives::address!(
+                    "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                ),
+                history_update_offset: 0,
                 block_interval_seconds: step,
                 sync_interval_blocks: positions,
                 l1_reference: GenesisL1Reference {
@@ -351,5 +405,54 @@ mod tests {
         let mut document = serde_json::to_value(config).unwrap();
         document["blockIntervalMillis"] = 2000.into();
         assert!(serde_json::from_value::<DerivationConfig>(document).is_err());
+    }
+
+    #[test]
+    fn fee_collector_is_required_exact_and_not_a_protocol_sink() {
+        let (config, genesis) = fixture(1, 2, 6);
+        let document = serde_json::to_value(config).unwrap();
+        let mut absent = document.clone();
+        absent.as_object_mut().unwrap().remove("feeCollector");
+        assert!(serde_json::from_value::<DerivationConfig>(absent).is_err());
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!(""),
+            serde_json::json!(1),
+            serde_json::json!("0x123"),
+            serde_json::json!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
+            serde_json::json!("0xgggggggggggggggggggggggggggggggggggggggg"),
+            serde_json::json!(Address::ZERO),
+            serde_json::json!(eez_primitives::SYSTEM_ADDRESS),
+            serde_json::json!(eez_primitives::EEZL2_ADDRESS),
+        ] {
+            let mut bad = document.clone();
+            bad["feeCollector"] = value;
+            assert!(serde_json::from_value::<DerivationConfig>(bad).is_err());
+        }
+        for address in [
+            Address::ZERO,
+            eez_primitives::SYSTEM_ADDRESS,
+            eez_primitives::EEZL2_ADDRESS,
+        ] {
+            assert!(
+                Schedule::new(
+                    DerivationConfig {
+                        fee_collector: address,
+                        ..config
+                    },
+                    &genesis
+                )
+                .is_err()
+            );
+        }
+        let mut mixed = document.clone();
+        mixed["feeCollector"] = serde_json::json!("0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266");
+        assert_eq!(
+            serde_json::from_value::<DerivationConfig>(mixed).unwrap(),
+            config
+        );
+        let mut extra = document;
+        extra["feeCollectorOverride"] = serde_json::json!(Address::repeat_byte(1));
+        assert!(serde_json::from_value::<DerivationConfig>(extra).is_err());
     }
 }

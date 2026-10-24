@@ -1,0 +1,14 @@
+{
+  "ordinary-sequential.mjs": {
+    "sha256": "4e6a4c5bf81053ce27e4abcfc851dc90ce9297cc5d23dbe23685b037b7a114a4",
+    "purpose": "Exact audit sender source, no embedded wallets, URLs or credentials"
+  },
+  "ordinary-pipeline.mjs": {
+    "sha256": "90c53aeade31c667821fc58281c4b67323bb2b5299230ff788c23463aa633923",
+    "purpose": "Exact audit sender source, no embedded wallets, URLs or credentials"
+  },
+  "ordinary-recovery.mjs": {
+    "sha256": "6528e4ed7ffa0775ef21919912f54bf1dc0375bff08f8af8506e2c2cdb83074c",
+    "purpose": "Exact 24-transfer recovery sender, no embedded wallets or endpoints"
+  }
+}

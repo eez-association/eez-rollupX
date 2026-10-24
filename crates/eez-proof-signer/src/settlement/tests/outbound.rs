@@ -158,15 +158,6 @@ fn outbound_authorizer_accepts_four_hop_nested_tables_and_rejects_row_tampering(
             .len(),
         1
     );
-    assert_eq!(
-        authorized
-            .iter()
-            .next()
-            .unwrap()
-            .derived_callback_entries()
-            .len(),
-        0
-    );
 
     let mut tampered_source = source_entry;
     tampered_source.expectedL1ToL2Calls[0].expectedL1toL2Hash = B256::repeat_byte(0xee);
@@ -465,7 +456,7 @@ fn outbound_bindings_require_a_preceding_load_and_outbound_first_order() {
         &[ClaimedEntryShape::Inbound, ClaimedEntryShape::Outbound],
     );
     mixed_batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
-    let mut inbound_first = settling_with_system_flags(vec![true, true, false]);
+    let mut inbound_first = settling_with_flat_effects(vec![true, true, false]);
     inbound_first
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call(
@@ -473,14 +464,11 @@ fn outbound_bindings_require_a_preceding_load_and_outbound_first_order() {
             0,
             &mixed_batch.entries[2].l2ToL1Calls[0],
         ));
-    let inbound_first_plan = effect_plan(&mixed_batch, &inbound_first);
-    assert_eq!(
-        authorize_outbound_effects(&inbound_first_plan).err(),
-        Some(OutboundEffectError::NonCanonicalEffectOrder {
-            entry_index: 2,
-            transaction_index: 2,
-        })
-    );
+    assert!(matches!(
+        verify_effect_prefix(&mixed_batch, B256::ZERO, &[], &inbound_first),
+        Err(EffectPrefixError::InvalidEffectTransactionLayout { reason })
+            if reason.contains("inbound delivery at 0 is not contiguous")
+    ));
 }
 
 #[test]
@@ -556,7 +544,7 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
     // The system/user pair makes transaction 1 the outbound effect position;
     // an otherwise matching event from the preceding transaction cannot be
     // reassociated with it.
-    let mut early = settling_with_system_flags(vec![true, false]);
+    let mut early = settling_with_outbound_pairs(&outbound_batch);
     early
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call(0, 0, call));
@@ -571,7 +559,7 @@ fn outbound_events_reject_missing_extra_multiple_and_malformed_observations() {
 
     let mut inbound_batch = effect_batch(&[B256::ZERO; 3], &[ClaimedEntryShape::Inbound]);
     inbound_batch.entries[1].rootUpdates[0].etherDelta = EtherDeltaSol::ONE;
-    let mut inbound = settling_with_system_flags(vec![true]);
+    let mut inbound = settling_with_flat_effects(vec![true]);
     inbound
         .outbound_event_candidates_mut_for_test()
         .push(observed_outbound_call(0, 0, call));
@@ -738,7 +726,15 @@ fn outbound_effect_prefix_rejects_unsupported_target_shapes() {
     ] {
         let mut batch = valid.clone();
         enrich(&mut batch.entries[1]);
-        assert!(verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).is_ok());
+        if batch.entries[1].l2ToL1Calls.len() > 1 {
+            assert!(matches!(
+                verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling),
+                Err(EffectPrefixError::InvalidEffectTransactionLayout { reason })
+                    if reason == "outbound host exceeds its source load"
+            ));
+        } else {
+            assert!(verify_effect_prefix(&batch, B256::ZERO, &checkpoints, &settling).is_ok());
+        }
     }
 }
 
@@ -1126,7 +1122,7 @@ fn mixed_outbound_rejects_static_position_tampering() {
 }
 
 #[test]
-fn outbound_load_rejects_the_previous_protocol_selector() {
+fn outbound_load_rejects_an_unsupported_selector() {
     use super::super::outbound::{OutboundLoadObservationError, inspect_outbound_load_candidate};
     use eez_protocol::abi::loadExecutionTableCall;
     let mut calldata = loadExecutionTableCall {
@@ -1134,7 +1130,7 @@ fn outbound_load_rejects_the_previous_protocol_selector() {
         _staticEntries: Vec::new(),
     }
     .abi_encode();
-    calldata[..4].copy_from_slice(&[0xb3, 0x01, 0xbc, 0x80]);
+    calldata[..4].fill(0);
     assert!(matches!(
         inspect_outbound_load_candidate(U256::ZERO, &calldata, true),
         Err(OutboundLoadObservationError::InvalidAbi { .. }

@@ -1,151 +1,86 @@
 # EEZ Composer-to-prover gRPC specification
 
-Status: normative fork Composer profile, adapted from upstream PR #89 (`e4a76aa`)
+Status: fork Composer contract for fresh networks using permanent L1 history,
+delayed synchronized PREVRANDAO and offline v2 proving. Implementation/test status
+is recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
+The current `eez-core-protocol` gitlink and this fork's `OfflineRollup` define the
+accepted on-chain ABI; upstream main is not a substitute.
 
-Protocol baseline: `eez-core-protocol` at
-`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (`v0.1.0-rc.2`). This profile uses native blobs,
-block-hash commitments, and the grouped-call ABI with position-bound L2 static
-entries. Composer MUST preserve each L2 static `expectedEntryIndex` in the load
-and the enclosing semantic DA; the Signer independently binds it to ordered
-execution. Prove now requires parent provenance and the named L1 posting context.
-The obsolete claimed-hash fields are removed. Validation identity schema 4 and the new validator
-revision separate cached facts and reject mixed-version peers. Old L2 call
-selectors and static sidecars are incompatible. See [protocol compatibility](../eez-proof-signer/SPEC.md#mixed-outbound-profile-compatibility)
-for the fresh-network boundary.
+This profile preserves native blobs, block-hash commitments, whole grouped calls
+and position-bound L2 static entries. Composer preserves each static
+`expectedEntryIndex` in its load and semantic DA; the signer independently binds
+it to ordered execution. All rules are active from genesis. Proving uses complete request-local evidence
+and independently provisioned rules.
 
-This document tells Composer implementers how to construct a proving request,
-send it to an EEZ prover, validate the response, and use the returned proof in
-`EEZ.postAndVerifyBatch`.
-
-It does not specify how a prover validates or proves a request. See the
-[`eez-proof-signer` documentation](../eez-proof-signer/docs/README.md) for the
-reference implementation's architecture and validation pipeline.
-[`prove.proto`](proto/prove.proto) is the canonical wire schema.
+[prove.proto](proto/prove.proto) is the single canonical schema for discovery,
+execution witnesses and streaming. The
+[streaming specification](STREAMING_SPEC.md) defines framing, session recovery and
+offline evidence. This document owns native settlement, response validation,
+retry cutoff, failure attribution and canonical queue ownership. The
+[signer specification](../eez-proof-signer/SPEC.md) defines its validation gates.
 
 ## 1. Composer flow
 
-For each settlement interval, the Composer MUST:
+For each admitted, Sync-aligned settlement range, Composer:
 
-1. assemble one canonical L1 settlement batch from its selected effects;
-2. collect the exact L2 block RLP and augmented execution witness for every
-   block in the settlement window;
-3. ABI-encode `EEZ.postAndVerifyBatch(batch)` while `batch.proofs` is empty;
-4. stream one `Prove` request containing that calldata and block window;
-5. validate the returned hash and signature;
-6. set `batch.proofs` to the returned signature without changing any other
-   proven batch fields; and
-7. ABI-encode the final call, sign the L1 transaction with the poster key, and
-   submit it to the configured EEZ contract.
+1. Selects the execution predecessor and exact L1 proof anchor/mode, keeping the
+   submission attempt's operational parent/deadline separate for historical mode.
+2. Collects exact L2 block RLP, augmented execution witnesses and the complete
+   linked L1 header evidence through the anchor, including bridge-only headers.
+3. Builds one canonical native batch and physical blobs with `batch.proofs` empty.
+4. Uses `Begin -> Block* -> Finalize` over `prove.v2.Prover.ProveStream`.
+5. Checks response correlation, exact public-input hash and registered-attester
+   signature, then fills only `batch.proofs`.
+6. Rechecks the actual submission parent, limits and exclusive cutoff, signs the
+   L1 transaction with the poster key and submits the same proved settlement.
+7. Retains ownership until canonical reconciliation proves consumption or gives
+   an explicit disposition; a proof, receipt or relay acknowledgement is insufficient.
 
-If proving cannot complete before the settlement cutoff, the
-[failure-handling fallback](#63-retry-procedure-and-settlement-cutoff) replaces
-steps 5 through 7 for that interval: the Composer commits an empty Sync block
-without submitting an unproved batch and retains the selected effects for a
-later interval.
-
-```text
-batch = assemble_settlement_batch(selected_effects)
-batch.proofs = []
-
-response = Prove(
-    header(abi_encode(EEZ.postAndVerifyBatch(batch))),
-    ordered_block_witnesses,
-)
-validate_response(response, registered_attester, batch)
-
-batch.proofs = [response.signature]
-submit_l1(EEZ_ADDRESS, abi_encode(EEZ.postAndVerifyBatch(batch)))
-```
-
-The prover receives the resulting settlement batch and L2 execution data. It
-does not receive the Composer's internal planning state, database, L2 provider,
-L1 poster key, or an L1 transaction to submit.
+Missing proof/evidence never authorizes an unproved submission. The
+[failure procedure](#63-retry-procedure-and-settlement-cutoff) retains work when
+the attempt cannot finish. The prover receives no poster key and submits no
+transactions. It has no L1 or L2 RPC connection.
 
 ## 2. Service definition
 
-The service provides capability discovery and the proving stream from
-[`prove.proto`](proto/prove.proto):
-
-```protobuf
-service Prover {
-  rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
-  rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
-  rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest)
-      returns (RetainOrdinaryRangesResponse);
-  rpc Prove(stream ProveChunk) returns (ProveResponse);
-}
-```
-
-The Composer SHOULD generate its client and message types directly from the
-canonical protobuf rather than maintaining a second schema. Each stream
-represents one complete preparation or proving request.
+`prove.v2.Prover` is the only service. It exposes `Capabilities` for discovery
+and `ProveStream` for bidirectional proving. Every message belongs to `prove.v2`.
+Generate clients from the single schema; no second service or package is needed.
 
 ### 2.1 Validation identity and capability discovery
 
-`Capabilities` returns tag 0/profile 1, the 32-byte locally computed validation
-identity, the effective logical block/byte/witness-item/message limits, and both
-timeouts in milliseconds. The reported block maximum is the minimum of the local
-request cap and the format's u32::MAX ceiling; the message cap includes the aggregate
-request-byte reduction. The call neither occupies the proof worker nor signs.
+Capabilities returns operations tag 0, offline profile 2, the 32-byte validation
+identity, effective block/byte/witness-item/message limits and timeouts. The call
+neither occupies the expensive worker nor signs. Validation identity binds actual
+loaded L1/L2 configuration, fixed genesis/history profile, registry/manager,
+rollup and validation-contract version. Proof-system/vkey policy is checked
+separately during settlement and response verification. Duplicate JSON keys reject before rules are loaded;
+EIP-155 chain ID alone does not identify a network or its rules. Resource limits
+are separate from the validation identity. The normative
+[portable identity encoding](VALIDATION_IDENTITY.md) and
+[external prover guide](conformance/IMPLEMENTING.md) define the non-Rust boundary.
 
-The exact identity tuple and canonical chain-document rules are defined in
-[the implementation contract §5.1](../../docs/proposals/derivable-chain-operations.md#51-internal-rpc-extensions)
-and implemented in `identity.rs`. Duplicate JSON keys are rejected before loading
-rules. The identity binds the actual loaded source, not a reserialized/defaulted
-Genesis or the EIP-155 ID alone. Limits are not identity components.
+Composer derives its expected identity locally, requires exact agreement before
+node launch and intersects the reported block ceiling with local emission
+settings. A ceiling below one Sync interval fails startup. Each v2 stream carries
+matching `eez-validation-identity-bin` metadata; missing, malformed or mismatching
+identity rejects before witnesses. Configuration-change responses cannot authorize
+candidate eviction, even if they contain extraneous failure details.
 
-The producer derives its expected identity while loading its actual `--chain`
-document, checks it against capabilities before node launch, and intersects the
-reported block ceiling with local emission settings. A cap smaller than one Sync
-interval fails startup. The client shares a channel/snapshot across successful
-proofs and invalidates that snapshot on `Unavailable`, resource rejection, or an
-explicit configuration-change response. An old in-flight failure cannot discard
-a newer connection's snapshot. Capability failures cannot evict cross-chain sources.
+Clients share a capability snapshot across successful requests. UNAVAILABLE
+while opening ProveStream invalidates that connection; a stale in-flight failure
+cannot discard a newer connection. Rediscovery must agree with the initially
+accepted snapshot. Changed rules or limits require a producer restart and
+replanning; a resource/configuration rejection does not silently adopt new limits
+or authorize reuse under changed rules.
 
-Every Prove header carries `expected_validation_identity` as exactly 32 bytes.
-The signer compares it before accepting witnesses. A malformed width is
-`INVALID_ARGUMENT`; a different identity is `FAILED_PRECONDITION` with metadata
-`eez-capabilities-changed: 1`, without actionable details. A configuration-change
-response is never mapped to an actionable source failure, even if extraneous
-failure details are attached.
-
-The server reports a 64-block preparation ceiling. `PrepareOrdinary` validates a
-nonempty contiguous witness range one block per shared-worker acquisition and
-publishes it atomically only after Stateless, exact reconstruction and the full
-intermediate gate pass. It returns endpoints and identity, never a signature.
-The client intersects that ceiling with the negotiated aggregate byte,
-per-message, and witness-item limits for every preparation RPC. It reduces a
-group before dispatch when any resource limit binds and fails explicitly when
-one block cannot fit.
-
-Final `Prove` streams may replace ordinary witnesses with
-`CachedOrdinaryRange`. The signer charges the logical count before cache
-traversal, resolves full hashes in its local namespace, rechecks number/hash,
-parent and state-root continuity, reruns the intermediate gate over the final
-set, and requires a fresh terminal `BlockWitness`. Cold, cached and mixed paths
-share the same settlement job and private attester boundary.
-
-An unavailable fact returns `FAILED_PRECONDITION` with `CacheMiss` field 3. The
-client accepts it only when identity, number and hash name an exact ordinary
-block in that request, then performs bounded preparation repair. Cache misses
-never become actionable cross-chain failures or generic unchanged-request
-retries. `PrepareOrdinary` creates or atomically extends an opaque lease; the
-client uses `RetainOrdinaryRanges` to replace it with the exact final ordinary
-window and leaves it held after signing. The producer releases it only when its
-canonical L1 settlement endpoint `(number, hash)` advances, retreats, or changes
-at the same height, then rebuilds from durable witnesses. An applied partial-block
-prefix may be that endpoint without having a standalone full-block witness; a
-transient missing predecessor cannot block the reconciliation that establishes
-the new floor. The producer renews the exact retained ranges every 30 seconds,
-including while idle or holding a full maximum window. Lost renewal clears all
-local reference hints and immediately rebuilds the last durable endpoint. At most
-up to eight leases share cache accounting; overlap is refcounted and expiry only makes
-facts evictable. A reconnect with changed identity or resource
-limits fails before proof dispatch and requires producer restart so admission can
-be replanned from one immutable snapshot. If expiry or a same-identity signer
-restart makes a release ID unknown, the client forgets only its local reservation
-and cache hints, then rebuilds from durable witnesses. Full restart/native
-recovery evidence remains open release work.
+Optional prevalidation sends bounded v2 Block chunks and receives validated ACKs.
+They are execution facts, not signatures or canonical progress. Finalize always
+checks the exact selected range, full bridge, anchor mode, actions, accepted root,
+DA and public inputs. Resume/Rewind retain exact execution and L1 evidence
+checkpoints under the same identity. On session loss, a cold prover receives the
+complete request from durable Composer witnesses. No prepared-range or lease API
+is required. See the [resource and lifecycle rules](STREAMING_SPEC.md#6-rollupx-runtime-profile).
 
 ## 3. Constructing the request
 
@@ -158,7 +93,7 @@ field order and integer widths.
 
 | Batch field | Composer requirement |
 | --- | --- |
-| `expectedRootPerRollup` | Empty. |
+| `expectedRootPerRollup` | Exactly one nonzero accepted block-hash pin for the configured rollup. |
 | `entries` | One anchor, then outbound hosts, then inbound effect or lookup entries. |
 | `staticEntries` | Supported L1-origin static entries pinned at their exact FIFO positions. |
 | `immediateEntryCount` | Complete leading run with `proxyEntryHash == 0`. |
@@ -168,7 +103,7 @@ field order and integer widths.
 | `blobIndices` | `[0, 1, ..., blob_count - 1]`, selecting all supplied blobs in order. |
 | `callData` | Empty; DA is transported in native blobs. |
 | `proofs` | Empty in the proving request. |
-| `blockNumber` | Zero. |
+| `blockNumber` | `uint64.max` for actual-parent mode or explicit nonzero historical B. |
 | `bindMsgSenderInPublicInput` | `false`. |
 
 Every mutable entry MUST contain exactly one `rootUpdates` item for the expected
@@ -198,22 +133,33 @@ root-dependent rolling hashes only after commitment assignment. The exact entry
 shapes and effect binding are defined in
 [signer section 8](../eez-proof-signer/SPEC.md#8-block-hash-commitment-chain-and-effect-binding).
 
-`post_batch.posting_context` MUST contain the L1 chain ID, canonical parent
-number, exact nonzero 32-byte parent hash, and intended child timestamp. Zero
-chain IDs/timestamps and an overflowing child height are invalid. The signer
-uses its operator-configured L1 profile for chain identity and active blob limits.
-The context must be independently authenticated before attestation; its wire
-shape alone is not evidence of canonicality or accepted L2 ancestry.
+`Finalize.settlement.posting_context` is required only in actual-parent mode.
+Its L1 chain ID, exact child timestamp, parent number and nonzero parent hash
+retain their current meanings. The complete witness chain must end at that
+parent. `batch.blockNumber == uint64.max` binds the actual inclusion parent and
+timestamp through `OfflineRollup.getCustomData`. Live cross-chain work must end
+at the matching target; late inclusion rejects.
 
-The batch MUST use `blockNumber == uint64.max`. The pinned reference manager
-returns `abi.encode(uint256(block.timestamp), blockhash(block.number - 1))` for
-that sentinel; both peers recompute the hash using the requested timestamp and
-parent. Proving and submission MUST use that same target. A changed parent or
-timestamp requires a fresh proof. Timeless and specific-block batches are
-unsupported. Former PostBatch fields 2 and 3 are removed and reserved; the
-response alone carries the independently recomputed public-input hash.
+Historical mode uses explicit B, excluding zero and `uint64.max`, and requires
+`posting_context` to be absent. Evidence ends at B. Only ordinary catch-up is
+allowed: terminal time <= timestamp(B), and timestamp(B) must exceed every source
+cutoff. Static, reverted, failed and nested observations still count as actions.
+The manager requires B to be earlier than inclusion, no more than 256 produced
+blocks old and available through nonzero `blockhash(B)`.
 
-`post_batch.blobs` MUST contain complete 131,072-byte EIP-4844 blobs in transaction
+Both contexts bind the domain, network/deployment, fixed genesis/profile, active
+L1 rule period and actual current accepted L2 block hash. The pin must be the
+replayed predecessor or a permitted fully replayed whole-group terminal checkpoint.
+The prover proves consistency with these inputs; the manager authenticates their
+actual L1 values at inclusion. The [exact context contract](STREAMING_SPEC.md#context-and-authority)
+contains the encoding. A historical proof remains usable only while its anchor,
+root, profile, complete settlement and rule period still match. Never reinterpret
+a live attempt as historical mode after failure.
+Composer checks the intended inclusion's rule period before choosing historical
+mode. If the next inclusion crosses a known transition, it selects actual-parent
+mode and proves under the new target rules from the outset.
+
+`Finalize.settlement.blobs` MUST contain complete 131,072-byte EIP-4844 blobs in transaction
 order, from one up to that target's per-transaction and per-block allowance. Their version-`00` EEZ message stream contains exactly one
 leading `ChainOperation(rollup_id, payload)`, complete native semantic transaction
 brackets, and a final `CloseBlobStream`, with canonical field-element packing
@@ -241,102 +187,77 @@ transaction reconstruction rules are in the
 Calldata-only DA is not accepted by this deployment.
 
 The Composer MUST exact-encode the complete `postAndVerifyBatch` call with
-selector `0xe4a480e4` into `post_batch.abi_calldata`. After proof validation, it
+selector `0xe4a480e4` into `Finalize.settlement.abi_calldata`. After proof validation, it
 MUST submit the same physical blobs in a type-3 transaction with the network's
 configured propagation encoding (EIP-4844 or EIP-7594).
 
-### 3.2 Header and window bounds
+### 3.2 Range and predecessor
 
-The first streamed chunk MUST contain exactly one `ProveHeader`:
+Begin identifies the nonzero registry rollup ID and exact execution predecessor
+number/hash/state root. Finalize selects a nonempty contiguous range and its
+terminal hash; the endpoint must be Sync-aligned. Every selected block and its
+predecessor must belong to the validated session prefix. A partial-consumption
+candidate may retain its original execution predecessor while binding the
+manager's accepted root to a fully replayed whole-group terminal checkpoint.
+Neither a height nor a claimed list of checkpoint hashes is sufficient.
+Advancing the accepted root invalidates the original proof. Re-proving with a
+validated checkpoint pin may retain the original execution and DA, including
+for same-block resumption under the same actual-parent/time binding. The
+checkpoint proof is conditional until the manager observes that exact root.
 
-- `rollup_id` is the nonzero L1 rollup-registry ID, not the L2 EIP-155 chain
-  ID.
-- `from_block` is `posted + 1`, where `posted` is the last L2 block already
-  settled on L1. It MUST be nonzero.
-- `to_block` is the terminal Sync block and MUST be greater than or equal to
-  `from_block`.
-- The range MUST cover every L2 block after the last block settled on L1,
-  through the terminal Sync block. In the ordinary case this is one settlement
-  interval. After a deferred or failed settlement it MAY span multiple
-  intervals, and `[from_block, to_block)` MAY contain a previously committed
-  empty Sync block. Such a block is sent and validated like every other
-  intermediate block; the Composer MUST NOT skip it. For an anchor-only batch,
-  the terminal Sync block MUST contain zero transactions; protocol-level
-  system writes can still change its state root.
-- `expected_validation_identity` MUST contain the locally computed 32-byte identity
-  agreed during capability discovery. Missing values are rejected; there is no
-  older-server or implicit identity mode.
-- `parent_provenance` MUST carry the exact RLP parent header, its accepted L1
-  height (zero for configured genesis), and every accepted endpoint header in
-  the parent's possible live L1 slot in settlement order. These are untrusted
-  hints, independently checked by the signer. The signer bounds each header to
-  1024 bytes and charges all headers against the request byte and item quotas.
-- `post_batch` MUST be present and contain the calldata constructed in section
-  3.1, including the required `posting_context`.
-- The required posting context MUST satisfy section 3.1. There is no claimed
-  public-input hash or separate optional block-hash field.
+An attempt may span multiple intervals and contain prior empty Sync blocks.
+It must replay all those blocks and their original schedule. Partition catch-up
+into admitted Sync-aligned ranges; never split an action group or defer a required
+system import across arbitrary blocks. Advancement between parts requires
+canonical consumption, not proof generation or a successful receipt.
 
-### 3.3 Block chunks
+### 3.3 Block witnesses
 
-After the header, the Composer MUST send exactly
-`to_block - from_block + 1` `BlockWitness` chunks in ascending order. For
-zero-based chunk index `i`:
+Each Block supplies exact number/hash/parent hash, consensus RLP with no trailing
+bytes and a present augmented execution witness. New blocks extend the prefix by
+one with exact hash/state continuity. The witness fields are:
 
-```text
-block.number == from_block + i
-```
+- `state`: account/state-trie nodes and per-account storage-trie removal closures
+  needed for selected intermediate roots;
+- `codes`: bytecodes;
+- `keys`: hashed-key preimages;
+- `headers`: unchanged L2 ancestry and the exact execution parent header;
+- `l1_headers_rlp`: separate canonical raw L1 execution headers extending the
+  session's complete ancestry chain.
 
-For every block:
+The account and state trie are the same global trie; storage tries are separate.
+Witnesses must support deletions hidden by the final endpoint state. L1 evidence
+must also support inherited selections and all intermediate produced headers,
+including headers never selected as origin. Finalize checks recorded origins
+against the exact anchored ancestry. The first transaction at a scheduled update
+is the canonical native history import, including an empty import for a repeat.
+Missing evidence rejects; it never authorizes RPC fetching or rewriting that
+recorded choice. Additional newer headers cannot invalidate a valid repeat.
 
-- `hash` and `parent_hash` MUST each be exactly 32 bytes;
-- for `i > 0`, `parent_hash` MUST equal the preceding chunk's `hash`;
-- `rlp` MUST be the exact consensus block RLP, including header and body, with
-  no trailing bytes; and
-- `witness` MUST be present and contain the complete execution witness for
-  that exact block.
+### 3.4 Stream completion and recovery
 
-The witness fields mirror an Ethereum `ExecutionWitness`:
-
-- `state`: endpoint witness nodes plus the account/state-trie and per-account
-  storage-trie removal closures needed for selected intermediate transaction
-  roots;
-- `codes`: contract bytecodes;
-- `keys`: hashed-key preimages; and
-- `headers`: ancestor headers required by `BLOCKHASH`.
-
-The account trie and state trie are the same global trie; storage tries are
-separate per account. The Composer MUST send the augmented witness regardless
-of the prover's internal state backend because the gRPC API has no capability
-negotiation.
-
-How the Composer gathers and deduplicates these nodes is implementation-defined.
-The wire requirement is that the witness contain enough account-trie and
-storage-trie information to recompute every selected intermediate root,
-including deletions that may be masked in the block's final state.
-
-### 3.4 Stream completion
-
-The first `ProveChunk` MUST contain exactly one `ProveHeader`. Every subsequent
-`ProveChunk` MUST contain exactly one `BlockWitness`, beginning with
-`from_block` and ending with `to_block`, inclusive, in strictly increasing block
-number order. No later chunk may contain a header or have an empty kind, and the
-block sequence MUST contain no missing, extra, duplicated, or reordered blocks.
-After sending the `to_block` witness, the Composer MUST close the request
-stream. A partial stream is not resumable; retrying requires a new complete
-`Prove` call.
+Follow the [v2 framing contract](STREAMING_SPEC.md#2-frames-and-required-validation).
+Exact duplicate blocks/witnesses are idempotent; gaps and conflicting duplicates
+reject without progress. Validated ACKs never authorize signing. Finalize supplies
+settlement and receives a correlated Proof followed by EOF. EOF alone is failure.
+Resume reconciles number and hash; Rewind restores both execution and L1 evidence.
+Unknown sessions require full Begin/backfill. Every recovery shares the original
+settlement deadline and exact proof inputs.
 
 ### 3.5 Prover acceptance checks
 
 The Composer should expect the prover to return a proof only when all of the
 following checks pass:
 
-- the stream has the required header-first shape, declared range, block order,
+- the stream has the required v2 frame sequence, selected range, block order,
   rollup identity, field widths, and resource bounds;
 - every block exact-decodes, matches its submitted number, hash, parent hash,
   and configured chain rules, and re-executes to its committed state root;
+- L1 evidence, parent state, history imports, delayed origin/PREVRANDAO, anchor
+  mode and accepted-root binding all agree;
 - the blocks form one state-continuous window and contain settlement activity
   only in the terminal Sync block;
-- `post_batch.abi_calldata` is the canonical encoding of the supported batch
+- `Finalize.settlement.abi_calldata` is the canonical encoding of the supported batch
   profile and matches the configured rollup and proof system;
 - the entry block-hash updates form the required chain, including validated
   prefix commitments, persistent carriers, lookup-only entries, and static pins;
@@ -353,30 +274,29 @@ rules are defined in the
 
 ## 4. Transport behavior
 
-The reference signer defaults to 65,536 blocks, 512 MiB of aggregate known protobuf
-fields, and 1,000,000 witness items. Its request-message cap is the smaller of
-that aggregate byte limit and 256 MiB; its response cap is 1,024 bytes. Default
-stream-idle and absolute request deadlines are 120 s and 600 s. It admits one
-active validation worker and reports `UNAVAILABLE` while busy; timed-out running
-work retains its slot until it actually exits. See
-[signer transport rules](../eez-proof-signer/SPEC.md#4-service-and-rpc-behavior).
+The signer defaults to 65,536 blocks, 512 MiB of known protobuf fields and
+1,000,000 witness items per session; L1 evidence consumes both byte and item
+quotas. The decode ceiling is at most 256 MiB and never exceeds the aggregate
+byte cap. Default idle/ordered-operation timeouts are 120/600 seconds. The
+[streaming runtime contract](STREAMING_SPEC.md#6-rollupx-runtime-profile) defines
+finite queues, attachment fencing, one expensive worker and permit ownership.
 
-A block witness may exceed gRPC's usual 4 MiB default. Composer implementations
-MUST configure encoding and decoding limits large enough for their generated
-chunks and the deployed prover's advertised limits. They MUST handle
-`ResourceExhausted` when either a per-message or aggregate request limit is
-exceeded.
+Witnesses may exceed gRPC's usual 4 MiB default. Clients must set finite encoding
+and decoding limits consistent with the negotiated profile, enforce aggregate
+admission and handle RESOURCE_EXHAUSTED explicitly. Splitting an L2 range does
+not remove the L1 bridge each part must prove.
 
-The Composer SHOULD apply an end-to-end request deadline that allows time for
-the whole stream and proving operation. A timeout or disconnect does not create
-a resumable job; retry with a complete fresh stream.
+Bound the entire exchange, including lock acquisition, transport, backfill and
+response verification. Composer's exclusive submission cutoff may cancel sooner.
+A timeout does not free a running blocking worker's permit; it retains ownership
+until exit. Reconnect/recovery never resets the settlement deadline.
 
 ## 5. Validating and using the response
 
 The Composer MUST reject the response unless:
 
 - `public_inputs_hash` is exactly 32 bytes;
-- `signature` is exactly 65 bytes encoded as `r[32] || s[32] || v[1]`;
+- `Proof.proof` is exactly 65 bytes encoded as `r[32] || s[32] || v[1]`;
 - the signature is valid secp256k1 ECDSA over the raw 32-byte
   `public_inputs_hash`, without an EIP-191 prefix or EIP-712 domain;
 - `s` is canonical low-`s` and `v` is `27` or `28`; and
@@ -386,7 +306,8 @@ The Composer MUST reject the response unless:
 The Composer MUST also recompute the current profile's sole
 `publicInputsHash` from the exact request batch, registered vkey, and KZG versioned hashes
 independently derived from the physical request blobs, then require
-it to equal `response.public_inputs_hash`. The normative hash construction is
+it to equal `response.public_inputs_hash`. This includes the exact offline context,
+accepted root and selected anchor mode, not just the batch/DA. The normative hash construction is
 in [proof-signer section 12](../eez-proof-signer/SPEC.md#12-public-input-recomputation),
 and cross-language vectors are in
 [`eez-protocol/tests/fixtures`](../eez-protocol/tests/fixtures/README.md). This
@@ -398,7 +319,7 @@ After validation, the Composer MUST change only the proof carrier:
 ```text
 assert batch.proofSystems == [ecdsa_proof_system_address]
 assert batch.rollupIdsWithProofSystems == [{ rollupId, proofSystemIndexes: [0] }]
-batch.proofs = [response.signature]
+batch.proofs = [response.proof]
 ```
 
 The Composer MUST NOT modify entries, root updates, rolling hashes,
@@ -410,7 +331,7 @@ Finally, the Composer ABI-encodes `EEZ.postAndVerifyBatch(batch)`, signs the L1
 transaction with its poster key, and sends it to the deployment's EEZ contract.
 The poster key and proof attester are separate authorities. EEZ recomputes the
 public-input hash and calls
-`ECDSAProofSystem.verify(response.signature, publicInputsHash)`.
+`ECDSAProofSystem.verify(response.proof, publicInputsHash)`.
 
 ## 6. Failure handling
 
@@ -483,8 +404,9 @@ unvalidated external hints cannot authorize it.
 
 ### 6.2 Actionable failed preconditions
 
-A `FAILED_PRECONDITION` status MAY carry a protobuf-encoded
-`prove.v1.ProveFailure` in its gRPC binary status-details field. The Composer
+A `FAILED_PRECONDITION` rejection MAY carry a protobuf-encoded
+`prove.v2.ProveFailure` in `Rejected.details` (or gRPC binary status details for
+a transport-level error). The Composer
 MUST decode the details bytes directly as `ProveFailure`, without a
 `google.rpc.Status` wrapper. The gRPC status code remains authoritative:
 details attached to any other status MUST NOT authorize candidate removal or
@@ -503,7 +425,7 @@ change that status's retry classification.
   `keccak256(abi.encode(PostBatch.entries[entry_index]))`.
 
 The original signed L1 transaction for an inbound effect is not present in the
-`Prove` request. A Composer that supports actionable recovery MUST therefore
+proving request. A Composer that supports actionable recovery MUST therefore
 retain its request-local candidate-to-entry mapping until the RPC completes.
 
 Before changing any candidate or pool state, the Composer MUST bind both fields
@@ -523,7 +445,7 @@ the status message, diagnostic text, an index alone, or a hash alone.
 After a valid detail is resolved, the Composer MUST NOT resend the rejected
 request unchanged. It MAY remove the identified candidate and its same-sender,
 same-direction nonce suffix, then rebuild the batch, terminal Sync block,
-witnesses, and complete `Prove` stream from the remaining candidates. The
+witnesses, and complete v2 request from the remaining candidates. The
 rebuilt attempt is subject to the same settlement cutoff as any other proving
 attempt.
 
@@ -540,7 +462,7 @@ one exclusive deadline: target timestamp minus submission slack. Preparation
 and proof settings are planning allocations. Crossing the preparation allocation
 MUST NOT discard an accepted candidate or substitute an empty L1 posting while
 proving and post-proof work still fit. A proof operation may exceed its planning
-allocation by using time left by preparation. Its timeout, stream/cache repair,
+allocation by using time left by preparation. Its timeout, session recovery,
 and retries share the original remaining window minus the post-proof reserve;
 retries MUST NOT reset the deadline. The monotonic bound MUST NOT be extended by
 a backward wall-clock correction; forward corrections may shorten it.
@@ -551,8 +473,10 @@ dispatch. A timed-out delivery after dispatch is uncertain submission, not
 proof of exclusion. A timed-out signer RPC does not release the server's worker
 permit before that worker exits. No parallel proof race is introduced.
 
-Ordinary-only candidates use the same deadline and post-proof reserve. Native
-proofs bind a known canonical L1 parent, so a preparation estimate MUST NOT
+Ordinary-only candidates use the same operational deadline and post-proof reserve.
+The historical proof anchor is distinct from the actual submission parent.
+Actual-parent proofs bind that exact parent; historical proofs retain B and
+recheck its availability/root/rule period. A preparation estimate MUST NOT
 select a future execution height whose parent does not yet exist. Resolve
 policy targets to the observed head's immediate child; skipped slots may advance
 its timestamp only within the shared bounded replacement allowance. Never
@@ -561,8 +485,9 @@ unsettled history for a fresh attempt. The prior full-proof start reserve could
 reject usable windows and make a slow observation select an unknown parent
 indefinitely. This scheduling correction changes no wire fields or validation.
 
-For a retryable status, each retry MUST open a new `Prove` call and resend the
-complete header and block stream. The Composer SHOULD use exponential backoff
+For a retryable status, each retry opens a new v2 transport and resumes the
+exact retained prefix or sends Begin with complete backfill. Finalize always
+revalidates the complete selected request; ACKs cannot replace authorization. The Composer SHOULD use exponential backoff
 with jitter, a capped delay, and a bound on total attempts or elapsed time.
 It MUST NOT sleep or begin another attempt if the remaining settlement window
 is too short for a complete stream, proving operation, response validation, L1
@@ -724,16 +649,17 @@ settles late, canonical replay replaces the active branch and source
 reconciliation determines which users remain pending. The scheduling deadline
 does not consume a user failure attempt or establish settlement progress.
 
-This is a Composer-only behavior change: protocol encoding, signer validation,
-historical follower replay and database formats are unchanged. Older Composers
-wait for canonical exclusion; followers may run either scheduling version.
-Restart and downgrade retain the in-memory recovery limits below. See the
+This replacement scheduling rule preserves the offline profile's encoding,
+signer validation and historical replay. Every participant must implement that
+profile; it does not permit older seed-based implementations. Restart retains
+the in-memory recovery limits below. See the
 [accepted replacement design](../../docs/proposals/skipped-slot-speculative-retry.md).
 
-On restart, canonical derivation recovers settled state and discards the local
-speculative suffix before new cross-chain submissions are accepted. Pending
-transactions and retry counters are lost; clients may need to resubmit unsettled
-users. Expired postBatch transactions are
+On restart, canonical derivation recovers settled state and rechecks retained
+ordinary history against canonical L1 evidence. It discards unowned cross-chain
+or inconsistent descendants before accepting new cross-chain submissions.
+Held requests and retry counters are lost; clients may need to resubmit unsettled
+cross-chain work. Expired postBatch transactions are
 not replayed. Reorg invalidation within the process follows L1 identity even when
 L2 height is unchanged. Inconclusive finality audits retain history.
 Finalization never releases newer reservations.

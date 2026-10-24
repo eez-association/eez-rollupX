@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use alloy_eips::Encodable2718;
+use alloy_eips::{Encodable2718, Typed2718 as _};
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_provider::Provider as _;
 use async_trait::async_trait;
@@ -110,6 +110,10 @@ pub struct CrossChainExecCtx {
     pub l1_poster_signer: alloy_signer_local::PrivateKeySigner,
     /// L1 chain id for EIP-155 signing of the `postAndVerifyBatch` transaction.
     pub l1_chain_id: u64,
+    /// Fresh-genesis execution and L1 rule identity registered by the manager.
+    pub offline_profile: eez_protocol::l1_history::OfflineProfile,
+    /// Exact OfflineRollup deployment committed by capability preflight.
+    pub rollup_manager: Address,
     /// Physical sidecar encoding for the mandatory native blob DA carrier.
     pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,
     /// Address of the rollup's on-chain proof-system contract, embedded
@@ -165,12 +169,23 @@ struct CompositionGas {
     l1_target: u64,
 }
 
-/// Whether a Sync block carries no transactions, and therefore no cross-chain
-/// group that a deadline replacement would need to remove.
-fn sync_block_is_empty(
+/// A history-only Sync has no conditional cross-chain effects to remove.
+/// Its body must be read because its transaction root is deliberately nonempty.
+fn sync_block_is_empty<P: reth_storage_api::BlockReader>(
+    provider: &P,
     header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
-) -> bool {
-    header.transactions_root() == alloy_consensus::constants::EMPTY_ROOT_HASH
+) -> Result<bool, String> {
+    use alloy_consensus::Transaction as _;
+    use reth_primitives_traits::BlockBody as _;
+    let block = provider
+        .find_block_by_hash(header.hash(), reth_storage_api::BlockSource::Any)
+        .map_err(|err| err.to_string())?
+        .ok_or("missing Sync body")?;
+    Ok(block.body().transactions().iter().all(|tx| {
+        tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+            && tx.to() == Some(eez_primitives::HISTORY_ADDRESS)
+            && tx.value().is_zero()
+    }))
 }
 
 /// Only L1 destination frames execute inside the outbound postBatch. Nested
@@ -379,12 +394,84 @@ pub(crate) const SUBMISSION_BACKOFF_THRESHOLD: u32 = 5;
 /// Stand-in for `proofs[0]` when sizing before the prover runs (ECDSA is 65 B).
 const MAX_PROOF_BYTES: usize = 128;
 
+/// Select the proof mode before proving; submission still owns the exact target.
+fn select_proof_anchor(
+    profile: &eez_protocol::l1_history::OfflineProfile,
+    parent: &alloy_consensus::Header,
+    target_timestamp: u64,
+    terminal_timestamp: u64,
+    has_actions: bool,
+) -> Result<eez_protocol::l1_history::EvidenceAnchor, eez_protocol::l2::ProfileError> {
+    use eez_protocol::l1_history::EvidenceAnchor;
+    Ok(
+        if !has_actions
+            && parent.number != 0
+            && terminal_timestamp <= parent.timestamp
+            // Historical context uses the anchor's rule epoch. When the next
+            // inclusion crosses a known fork, bind its actual parent/time so
+            // the first proof already uses the rules getCustomData will return.
+            && profile.rules_id(parent.timestamp)? == profile.rules_id(target_timestamp)?
+        {
+            EvidenceAnchor::Historical {
+                number: parent.number,
+                hash: parent.hash_slow(),
+            }
+        } else {
+            EvidenceAnchor::ActualParent {
+                number: parent.number,
+                hash: parent.hash_slow(),
+                target_timestamp,
+            }
+        },
+    )
+}
+
+/// Complete only the terminal frame's L1 bridge. Earlier captured segments end
+/// at their selected source and remain reusable across target changes. Preserve
+/// the exact retained bytes; inconsistent canonical evidence is an error.
+fn append_anchor_bridge(
+    blocks: &mut [BlockWitness],
+    history: &eez_protocol::l1_history::HeaderChain,
+    anchor_number: u64,
+    anchor_hash: B256,
+) -> Result<(), String> {
+    let terminal = blocks
+        .last_mut()
+        .ok_or_else(|| "missing terminal witness".to_string())?;
+    let last = terminal
+        .l1_headers_rlp
+        .last()
+        .ok_or_else(|| "missing terminal L1 evidence".to_string())?;
+    let selected: alloy_consensus::Header =
+        alloy_rlp::decode_exact(last).map_err(|e| format!("terminal L1 header: {e}"))?;
+    if history
+        .at(selected.number)
+        .map_err(|e| e.to_string())?
+        .hash()
+        != selected.hash_slow()
+        || history.at(anchor_number).map_err(|e| e.to_string())?.hash() != anchor_hash
+        || selected.number > anchor_number
+    {
+        return Err("terminal witness and canonical proof anchor disagree".into());
+    }
+    if selected.number < anchor_number {
+        terminal.l1_headers_rlp.extend(
+            history
+                .range(selected.number + 1, anchor_number)
+                .map_err(|e| e.to_string())?
+                .raw_headers(),
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 const DEFAULT_MAX_POSTBATCH_GAS: u64 = 16_777_216;
 
 /// Execution for a batch with just the leading immediate entry, calldata aside.
-/// Measured 139k, 10% slack; pinned by `contracts/test/PostBatchGasPins.t.sol`.
-const POSTBATCH_BASE_GAS_PIN: u64 = 160_000;
+/// Offline manager with its root pin, 64 rule epochs and 64 blob references:
+/// measured 165,440, plus 10% rounded up. Pinned by PostBatchGasPins.t.sol.
+const POSTBATCH_BASE_GAS_PIN: u64 = 190_000;
 
 /// One more entry costs EEZ.sol hashing, a state SSTORE, and a CREATE2 proxy
 /// deploy for a new sender. Same pin test; measured 334k worst case, 10% slack.
@@ -1286,6 +1373,33 @@ struct AppendedGroup {
 /// Execute a native group, retaining its logs and charged receipt gas.
 /// On failure the prefix may be half-extended and must be reopened on the
 /// accepted list. Provider failures defer work rather than blaming the source.
+fn candidate_native_sources(
+    accepted: &[eez_protocol::blob_semantics::SemanticTransaction],
+    candidate: &eez_protocol::blob_semantics::SemanticTransaction,
+    rollup_id: u64,
+    l2_chain_id: u64,
+    live: &eez_protocol::native_source::LiveSourceContext,
+    count: usize,
+) -> Result<Vec<B256>, String> {
+    let transactions = accepted
+        .iter()
+        .chain(std::iter::once(candidate))
+        .cloned()
+        .collect::<Vec<_>>();
+    let actions = eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+        &transactions,
+        eez_protocol::RollupId(rollup_id),
+        l2_chain_id,
+    )
+    .map_err(|error| error.to_string())?;
+    let sources = actions.source_hashes(live);
+    let start = sources
+        .len()
+        .checked_sub(count)
+        .ok_or("candidate source count exceeds reconstruction")?;
+    Ok(sources[start..].to_vec())
+}
+
 fn append_and_execute(
     prefix: &mut SyncBlockState,
     txs: &[Bytes],
@@ -1758,6 +1872,139 @@ where
         .map_err(|error| error.to_string())
     }
 
+    async fn settle_retained(&self, rollup_id: u64, head: ParentContext) -> Result<(), String> {
+        let rollup = self.inner.rollups.get(&rollup_id).ok_or("unknown rollup")?;
+        if rollup.optimistic.blocking_height().is_some() {
+            return Ok(());
+        }
+        let cursor = rollup.l1_head.cursor();
+        let k = u64::from(self.inner.emission.timing.k());
+        let boundary = head
+            .header
+            .number()
+            .min(cursor.saturating_add(self.inner.emission.max_blocks))
+            / k
+            * k;
+        if boundary <= cursor {
+            return Ok(());
+        }
+        let provider = Arc::clone(&rollup.l2_provider);
+        let config = self.inner.evm_config.clone();
+        // Rebuild only a committed ordinary checkpoint, off the async executor.
+        // Its recorded history transaction determines the original selection.
+        let (parent, built) = tokio::task::spawn_blocking(move || -> Result<_, String> {
+            let header = provider
+                .sealed_header(boundary)
+                .map_err(|e| e.to_string())?
+                .ok_or("missing retained boundary")?;
+            if !sync_block_is_empty(provider.as_ref(), &header)? {
+                return Err("retained boundary contains conditional effects".into());
+            }
+            let block = provider
+                .find_block_by_hash(header.hash(), BlockSource::Any)
+                .map_err(|e| e.to_string())?
+                .ok_or("missing retained block")?;
+            let txs = block
+                .body()
+                .transactions()
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>();
+            let parent = provider
+                .sealed_header_by_hash(header.parent_hash())
+                .map_err(|e| e.to_string())?
+                .ok_or("missing retained parent")?;
+            let built = build_sync_block(
+                provider.as_ref(),
+                &config,
+                &parent,
+                header.timestamp(),
+                header.beneficiary,
+                &txs,
+            )
+            .map_err(|e| e.to_string())?;
+            if built.header.hash() != header.hash() {
+                return Err("retained checkpoint rebuild mismatch".into());
+            }
+            Ok((parent, built))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let target = self
+            .inner
+            .submitter
+            .next_policy_target()
+            .await
+            .map_err(|e| e.to_string())?;
+        let decision = self
+            .evaluate_settlement_policy(
+                rollup_id,
+                rollup,
+                &parent,
+                &built,
+                target,
+                crate::settlement_policy::CrossChainWork::None,
+                Default::default(),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+        if decision.is_due() && rollup.optimistic.blocking_height().is_none() {
+            self.emit_historical_chunk(
+                &self.inner.cross_chain.exec_ctx,
+                rollup_id,
+                rollup,
+                cursor,
+                &head.header,
+                target,
+                "retained_ordinary",
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn block_attributes(
+        &self,
+        rollup_id: u64,
+        parent: ParentContext,
+        mut attributes: eez_primitives::engine::EezPayloadAttributes,
+    ) -> Result<eez_primitives::engine::EezPayloadAttributes, String> {
+        let provider = Arc::clone(
+            &self
+                .inner
+                .rollups
+                .get(&rollup_id)
+                .ok_or("unknown rollup")?
+                .l2_provider,
+        );
+        let config = self.inner.evm_config.clone();
+        let witnesses = self.inner.witness_source.clone();
+        tokio::task::spawn_blocking(move || {
+            use reth_revm::database::StateProviderDatabase;
+            use reth_storage_api::EvmStateProviderAdapter;
+            // Fast local catch-up can outrun asynchronous capture and Reth's
+            // retained trie overlays. Persist this exact parent before advancing;
+            // the source uses local state/storage, never the remote prover or L1.
+            if parent.header.number != 0
+                && let Some(witnesses) = witnesses
+            {
+                witnesses.block_witness(parent.header.number, parent.header.hash())?;
+            }
+            let state = provider
+                .state_by_block_hash(parent.header.hash())
+                .map_err(|e| e.to_string())?;
+            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            let (history, tx) = config
+                .prepare_history(&mut db, &parent.header, attributes.timestamp)
+                .map_err(|e| e.to_string())?;
+            attributes.prev_randao = history.prev_randao;
+            attributes.history_transaction = tx.map(|tx| tx.encoded_2718().into());
+            Ok(attributes)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    }
+
     fn post_proof_reserve(&self) -> std::time::Duration {
         crate::prover_retry::POST_PROOF_RESERVE
     }
@@ -2160,21 +2407,19 @@ where
         if scanned != parent || endpoint.number >= attempt.sync_height {
             return Ok(());
         }
+        let rechecked_parent = self
+            .inner
+            .submitter
+            .replacement_parent(target, timestamp)
+            .await
+            .map_err(|error| error.to_string())?;
         let _guard = self
             .inner
             .committer
             .begin_reconcile()
             .await
             .map_err(|error| error.to_string())?;
-        if !rollup.l1_head.generation_is(snapshot.generation)
-            || self
-                .inner
-                .submitter
-                .replacement_parent(target, timestamp)
-                .await
-                .map_err(|error| error.to_string())?
-                != Some(parent)
-        {
+        if !rollup.l1_head.generation_is(snapshot.generation) || rechecked_parent != Some(parent) {
             return Ok(());
         }
         // Replace the old cross-chain Sync directly, so Reth reports the whole
@@ -2198,7 +2443,7 @@ where
         // it: an equivalent empty block can still differ by header fields
         // such as the coinbase, and the branch switch would unwind every
         // descendant, possibly far more than the speculative suffix.
-        if !sync_block_is_empty(&own) {
+        if !sync_block_is_empty(rollup.l2_provider.as_ref(), &own)? {
             let built = build_sync_block(
                 rollup.l2_provider.as_ref(),
                 &self.inner.evm_config,
@@ -2208,11 +2453,6 @@ where
                     .timestamp()
                     .checked_add(timing.l2_block_time().as_secs())
                     .ok_or("replacement timestamp overflow")?,
-                rollup
-                    .l1_head
-                    .next_block_context(&attempt.parent)
-                    .map_err(|e| e.to_string())?
-                    .1,
                 Address::ZERO,
                 &[],
             )
@@ -2369,19 +2609,17 @@ where
                 None
             });
         }
+        let rechecked_hash = submitter
+            .canonical_block_hash(at.number)
+            .await
+            .map_err(|error| error.to_string())?;
         let _guard = self
             .inner
             .committer
             .begin_reconcile()
             .await
             .map_err(|error| error.to_string())?;
-        if !rollup.l1_head.generation_is(snapshot.generation)
-            || submitter
-                .canonical_block_hash(at.number)
-                .await
-                .map_err(|error| error.to_string())?
-                != Some(at.hash)
-        {
+        if !rollup.l1_head.generation_is(snapshot.generation) || rechecked_hash != Some(at.hash) {
             return Err("canonical settlement changed during source lookups".into());
         }
         // Read L2 nonces at the deriver's endpoint, never at the optimistic tip.
@@ -2503,9 +2741,10 @@ where
             // Nothing on L2 needs replacing in that case; a rebuild can differ
             // only by header fields such as the coinbase, and switching to it
             // would unnecessarily discard descendants.
-            if own_block.is_some_and(|header| {
-                header.hash() == attempt.manifest.sync_hash && !sync_block_is_empty(&header)
-            }) {
+            if let Some(header) = own_block
+                && header.hash() == attempt.manifest.sync_hash
+                && !sync_block_is_empty(rollup.l2_provider.as_ref(), &header)?
+            {
                 let timestamp = attempt
                     .parent
                     .timestamp()
@@ -2516,11 +2755,6 @@ where
                     &self.inner.evm_config,
                     &attempt.parent,
                     timestamp,
-                    rollup
-                        .l1_head
-                        .next_block_context(&attempt.parent)
-                        .map_err(|e| e.to_string())?
-                        .1,
                     Address::ZERO,
                     &[],
                 )
@@ -2686,20 +2920,26 @@ where
     ) -> Result<Option<SyncSlotBlock>, String> {
         let preparation_started_ms = crate::prover_retry::unix_time_millis();
         let ctx = cc.exec_ctx.as_ref();
-        // Read the base SYSTEM_ADDRESS nonce from parent state. The canonical
-        // builder allocates outbound-load nonces before inbound-delivery nonces.
         let parent_hash = parent_header.hash();
         let rollup =
             self.inner.rollups.get(&rollup_id).ok_or_else(|| {
                 format!("unknown rollup_id {rollup_id} in compose_cross_chain_batch")
             })?;
-        let (expected_timestamp, prev_randao) = rollup
+        let (expected_timestamp, _) = rollup
             .l1_head
             .next_block_context(parent_header)
             .map_err(|e| e.to_string())?;
         if timestamp != expected_timestamp {
             return Err("candidate timestamp differs from the genesis schedule".into());
         }
+        let (evm_config, history, history_prefix) = crate::local::build::prepare_block_history(
+            rollup.l2_provider.as_ref(),
+            &self.inner.evm_config,
+            parent_header,
+            timestamp,
+        )
+        .map_err(|error| error.to_string())?;
+        let prev_randao = history.prev_randao;
         let pool = rollup.held_pool.as_ref();
         admission.witness_count(rollup.l1_head.settlement_snapshot().endpoint.map_or(
             usize::MAX,
@@ -2713,18 +2953,6 @@ where
                 .unwrap_or(usize::MAX)
             },
         ));
-
-        let state = rollup
-            .l2_provider
-            .state_by_block_hash(parent_hash)
-            .map_err(|e| format!("state_by_block_hash({parent_hash}): {e}"))?;
-        let system_address = eez_primitives::SYSTEM_ADDRESS;
-        // Base SYSTEM_ADDRESS nonce; the canonical builder advances it
-        // internally (outbound loads, then inbound deliveries) post-drain.
-        let nonce = state
-            .account_nonce(&system_address)
-            .map_err(|e| format!("account_nonce({system_address}): {e}"))?
-            .unwrap_or(0);
 
         let stf_cfg = eez_protocol::system_tx::SystemTxContext {
             eezl2_address: ctx.eezl2_address,
@@ -2787,8 +3015,6 @@ where
             candidate
         };
 
-        drop(state);
-
         // ── Slot execution contexts (design §2) ──────────────────────
         // One L1 state pinned at the anchor and one live Sync-block prefix,
         // both advanced only by accepted transactions. Failing to open either
@@ -2803,10 +3029,9 @@ where
         let reopen = |txs: &[Bytes]| {
             SyncBlockState::open(
                 l2_dyn.clone(),
-                &self.inner.evm_config,
+                &evm_config,
                 parent_header,
                 timestamp,
-                prev_randao,
                 suggested_fee_recipient,
                 txs,
             )
@@ -2816,7 +3041,7 @@ where
         // invalidates reuse; final block and proof replay stay independent.
         let mut prefix_hashes = SyncPrefixHashes::new(
             rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
+            &evm_config,
             parent_header,
             timestamp,
             prev_randao,
@@ -2862,11 +3087,30 @@ where
                     ctx.l1_poster_signer.address(),
                     composition_quote.quote.estimated_effective_gas_price,
                 ));
+                let eez_l1::BundleTarget::Exact {
+                    timestamp: live_timestamp,
+                    ..
+                } = bundle_target
+                else {
+                    return Err("cross-chain source requires an exact live target".into());
+                };
+                if live_timestamp != timestamp {
+                    return Err("Sync timestamp differs from live source target".into());
+                }
+                let live_source = eez_protocol::native_source::LiveSourceContext::new(
+                    ctx.l1_chain_id,
+                    self.inner.posting.registry,
+                    eez_protocol::RollupId(rollup_id),
+                    ctx.l2_chain_id,
+                    live_timestamp,
+                    state.anchor.hash(),
+                )
+                .map_err(|error| error.to_string())?;
                 reopen(&[])
-                    .map(|draft| (state, draft))
+                    .map(|draft| (state, draft, live_source))
                     .map_err(|e| format!("SyncBlockState::open: {e}"))
             });
-        let (mut l1_state, mut draft) = match slot_ctx {
+        let (mut l1_state, mut draft, live_source) = match slot_ctx {
             Ok(contexts) => contexts,
             Err(e) => {
                 event!(
@@ -2904,14 +3148,8 @@ where
         // The Sync block's txs in canonical order, exactly as accepted: the
         // list the prefix is rebuilt from and the keystone assert compares the
         // canonical rebuild against.
-        let mut sync_txs: Vec<Bytes> = Vec::new();
+        let mut sync_txs: Vec<Bytes> = history_prefix.clone();
         let mut effect_hashes: Vec<(usize, B256)> = Vec::new();
-        // SYSTEM_ADDRESS cursor: one nonce per appended system tx. Phase 1 runs
-        // to completion first, so this counts outbound loads N..N+K-1 and then
-        // inbound deliveries from N+K — `build_cross_chain_sync_pairs`' split,
-        // by construction.
-        let mut system_txs_appended: u64 = 0;
-
         // Drain indices ride along so a re-queue can restore pool order across
         // the two direction phases.
         let mut survivors: Vec<(usize, HeldTx)> = Vec::with_capacity(drained.len());
@@ -3016,10 +3254,9 @@ where
         let mut admission_cut: Option<&str> = None;
         let (ordinary_prefix_hash, mut blob_budget) = match build_sync_block(
             rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
+            &evm_config,
             parent_header,
             timestamp,
-            prev_randao,
             suggested_fee_recipient,
             &[],
         ) {
@@ -3323,72 +3560,20 @@ where
                         push_poison_root(&mut poison, &mut poison_gaps, held);
                         continue;
                     }
-                    let separate_callback_entries = composition
-                        .targets
-                        .iter()
-                        .filter(|target| target.rollup_id == eez_protocol::RollupId(rollup_id))
-                        .flat_map(|target| target.batch.entries.iter().cloned())
-                        .map(|entry| {
-                            eez_protocol::entries::InboundSidecar::for_rollup(
-                                &entry,
-                                eez_protocol::RollupId(rollup_id),
-                            )
-                        })
-                        .collect::<Result<Vec<_>, _>>();
-                    let separate_callback_entries = match separate_callback_entries {
-                        Ok(entries) => entries,
-                        Err(error) => {
-                            event!(Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash,
-                                %error, "invalid outbound callback sidecar; evicting");
-                            selection.block(idx);
-                            push_poison_root(&mut poison, &mut poison_gaps, held);
-                            continue;
-                        }
-                    };
-                    let callback_counts = &composition.source.callback_entry_counts;
-                    if callback_counts.len() != source_entries.len()
-                        || callback_counts.iter().sum::<usize>() != separate_callback_entries.len()
-                    {
-                        event!(
-                            name: "eez.composer.cc_compose.outbound_callback_mismatch",
-                            Level::WARN,
-                            rollup_id,
-                            tx_idx = idx,
-                            tx_hash = %held.hash,
-                            callback_entries = separate_callback_entries.len(),
-                            callback_counts = ?callback_counts,
-                            source_entries = source_entries.len(),
-                            "outbound callback-delivery partition does not match its source roots; evicting",
-                        );
-                        selection.block(idx);
-
-                        push_poison_root(&mut poison, &mut poison_gaps, held);
-                        continue;
-                    }
-                    let mut callback_cursor = 0usize;
                     let mut effects = source_entries
                         .iter()
                         .cloned()
-                        .zip(callback_counts.iter().copied())
-                        .map(|(source_entry, callback_count)| {
-                            let callback_end = callback_cursor + callback_count;
-                            let callback_entries =
-                                separate_callback_entries[callback_cursor..callback_end].to_vec();
-                            callback_cursor = callback_end;
-                            eez_protocol::system_tx::OutboundSyncEffect {
-                                source_entry: eez_protocol::system_tx::OutboundSourceEntry::Mutable(
-                                    source_entry,
-                                ),
-                                callback_entries,
-                            }
+                        .map(|entry| eez_protocol::system_tx::OutboundSyncEffect {
+                            source_entry: eez_protocol::system_tx::OutboundSourceEntry::Mutable(
+                                entry,
+                            ),
                         })
                         .collect::<Vec<_>>();
-                    effects.extend(source_static_entries.iter().cloned().map(|source_entry| {
+                    effects.extend(source_static_entries.iter().cloned().map(|entry| {
                         eez_protocol::system_tx::OutboundSyncEffect {
                             source_entry: eez_protocol::system_tx::OutboundSourceEntry::Static(
-                                source_entry,
+                                entry,
                             ),
-                            callback_entries: Vec::new(),
                         }
                     }));
                     let outbound_group = eez_protocol::system_tx::OutboundSyncGroup {
@@ -3553,12 +3738,27 @@ where
                     // leave the L1 state untouched. `build_outbound_pair` runs
                     // the shape gate itself, so an entry the Sync-block lowering
                     // cannot represent comes back as its `Err`.
-                    let pairs_k = match eez_protocol::system_tx::build_cross_chain_sync_groups(
-                        std::slice::from_ref(&outbound_group),
-                        &[],
-                        &stf_cfg,
-                        nonce + system_txs_appended,
-                    ) {
+                    let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                        origin_chain: eez_protocol::RollupId(rollup_id),
+                        tx_data: held.raw_tx.clone(),
+                        actions: composition.actions.clone(),
+                    };
+                    let pairs_k = match candidate_native_sources(
+                        &semantic_transactions,
+                        &semantic,
+                        rollup_id,
+                        ctx.l2_chain_id,
+                        &live_source,
+                        1,
+                    )
+                    .and_then(|sources| {
+                        eez_protocol::system_tx::build_cross_chain_sync_groups(
+                            std::slice::from_ref(&outbound_group),
+                            &[],
+                            &stf_cfg,
+                            &sources,
+                        )
+                    }) {
                         Ok(pairs) => pairs,
                         Err(e) => {
                             event!(
@@ -3576,12 +3776,7 @@ where
                             continue;
                         }
                     };
-                    let pair_txs = eez_protocol::system_tx::interleave_sync_block_txs(&pairs_k);
-                    let semantic = eez_protocol::blob_semantics::SemanticTransaction {
-                        origin_chain: eez_protocol::RollupId(rollup_id),
-                        tx_data: held.raw_tx.clone(),
-                        actions: composition.actions.clone(),
-                    };
+                    let pair_plans = eez_protocol::system_tx::interleave_sync_block_txs(&pairs_k);
                     let next_blob = match self.extend_blob_admission(
                         rollup_id,
                         blob_budget,
@@ -3619,44 +3814,62 @@ where
                     // The prefix-hash rebuild runs the canonical executor, which
                     // treats a group that does not fit as a hard error. Settle the
                     // fit first, as a capacity decision rather than a fault.
-                    if let Err((at, why)) = draft.capacity_probe(&pair_txs) {
-                        if why.is_provider() {
-                            transient = Some((
-                                format!("outbound capacity probe tx#{idx} at {at}: {why}"),
-                                abort_rest(
-                                    Some((idx, held)),
-                                    &mut out_iter,
-                                    std::mem::take(&mut inbounds),
-                                ),
-                            ));
-                            break;
-                        }
-                        let declared = declared_group_gas(&pair_txs);
-                        if capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable {
-                            event!(
-                                name: "eez.composer.cc_compose.block_gas_unfittable",
-                                Level::WARN,
-                                rollup_id,
-                                tx_idx = idx,
-                                tx_hash = %held.hash,
-                                declared,
-                                refused_at = at,
-                                error = %why,
-                                block_gas_limit = BUILDER_GAS_LIMIT,
-                                "outbound [load, user] pair does not fit an otherwise empty L2 block; no slot can ever take it — evicting",
-                            );
-                            selection.block(idx);
+                    let pair_txs = match draft.prepare_transactions(&pair_plans) {
+                        Ok(transactions) => transactions,
+                        Err((at, why)) => {
+                            if why.is_provider() {
+                                transient = Some((
+                                    format!("outbound capacity probe tx#{idx} at {at}: {why}"),
+                                    abort_rest(
+                                        Some((idx, held)),
+                                        &mut out_iter,
+                                        std::mem::take(&mut inbounds),
+                                    ),
+                                ));
+                                break;
+                            }
+                            if !why.is_capacity() {
+                                event!(Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash,
+                                error = %why, "outbound native execution rejected; evicting");
+                                selection.block(idx);
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+                            let declared = crate::local::build::planned_group_gas(&pair_plans);
+                            if capacity_refusal(sync_txs.len() == history_prefix.len())
+                                == BlockGasFit::Unfittable
+                            {
+                                event!(
+                                    name: "eez.composer.cc_compose.block_gas_unfittable",
+                                    Level::WARN,
+                                    rollup_id,
+                                    tx_idx = idx,
+                                    tx_hash = %held.hash,
+                                    declared,
+                                    refused_at = at,
+                                    error = %why,
+                                    block_gas_limit = BUILDER_GAS_LIMIT,
+                                    "outbound [load, user] pair does not fit an otherwise empty L2 block; no slot can ever take it — evicting",
+                                );
+                                selection.block(idx);
 
-                            push_poison_root(&mut poison, &mut poison_gaps, held);
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+                            block_gas_cut = Some(BlockGasCut {
+                                gas_used: draft.gas_used(),
+                                declared,
+                            });
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
+                            );
                             continue;
                         }
-                        block_gas_cut = Some(BlockGasCut {
-                            gas_used: draft.gas_used(),
-                            declared,
-                        });
-                        capacity.defer(&mut selection, &candidate, idx, held, "l2_block_capacity");
-                        continue;
-                    }
+                    };
                     let group_hashes = match hash_group(
                         &sync_txs,
                         &pair_txs,
@@ -3706,8 +3919,9 @@ where
                             // a defensive path; it keeps a capacity refusal from
                             // ever being charged to the tx.
                             if why.is_capacity() {
-                                let unfittable = capacity_refusal(sync_txs.is_empty())
-                                    == BlockGasFit::Unfittable;
+                                let unfittable =
+                                    capacity_refusal(sync_txs.len() == history_prefix.len())
+                                        == BlockGasFit::Unfittable;
                                 draft = match reopen(&sync_txs) {
                                     Ok(rebuilt) => rebuilt,
                                     Err(e) => {
@@ -3948,8 +4162,6 @@ where
                     blob_budget = next_blob;
                     effect_hashes.extend(group_hashes);
                     sync_txs.extend(pair_txs);
-                    system_txs_appended +=
-                        eez_protocol::system_tx::sync_pair_system_tx_count(&pairs_k) as u64;
                     // Debit at accept, not at the check above: a tx evicted in
                     // between never draws the escrow down on L1, and a budget
                     // reduced for it would evict later legitimate withdrawals.
@@ -4340,11 +4552,26 @@ where
                         continue;
                     }
                     // ── ACCEPT ───────────────────────────────────────
-                    let deliveries = match eez_protocol::system_tx::build_inbound_system_txs(
-                        &target_entries,
-                        &stf_cfg,
-                        nonce + system_txs_appended,
-                    ) {
+                    let semantic = eez_protocol::blob_semantics::SemanticTransaction {
+                        origin_chain: eez_protocol::RollupId::MAINNET,
+                        tx_data: held.raw_tx.clone(),
+                        actions: composition.actions.clone(),
+                    };
+                    let deliveries = match candidate_native_sources(
+                        &semantic_transactions,
+                        &semantic,
+                        rollup_id,
+                        ctx.l2_chain_id,
+                        &live_source,
+                        target_entries.len(),
+                    )
+                    .and_then(|sources| {
+                        eez_protocol::system_tx::build_inbound_system_txs(
+                            &target_entries,
+                            &stf_cfg,
+                            &sources,
+                        )
+                    }) {
                         Ok(deliveries) if deliveries.is_empty() && !target_entries.is_empty() => {
                             event!(
                                 name: "eez.composer.cc_compose.shape_evicted",
@@ -4377,11 +4604,6 @@ where
                             continue;
                         }
                     };
-                    let semantic = eez_protocol::blob_semantics::SemanticTransaction {
-                        origin_chain: eez_protocol::RollupId::MAINNET,
-                        tx_data: held.raw_tx.clone(),
-                        actions: composition.actions.clone(),
-                    };
                     let next_blob = match self.extend_blob_admission(
                         rollup_id,
                         blob_budget,
@@ -4410,41 +4632,63 @@ where
                     };
                     // Same capacity decision as the outbound path, before the
                     // canonical prefix rebuild could refuse the group.
-                    if let Err((at, why)) = draft.capacity_probe(&deliveries) {
-                        if why.is_provider() {
-                            transient = Some((
-                                format!("inbound capacity probe tx#{idx} at {at}: {why}"),
-                                abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
-                            ));
-                            break;
-                        }
-                        let declared = declared_group_gas(&deliveries);
-                        if capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable {
-                            event!(
-                                name: "eez.composer.cc_compose.block_gas_unfittable",
-                                Level::WARN,
-                                rollup_id,
-                                tx_idx = idx,
-                                tx_hash = %held.hash,
-                                declared,
-                                deliveries = deliveries.len(),
-                                refused_at = at,
-                                error = %why,
-                                block_gas_limit = BUILDER_GAS_LIMIT,
-                                "inbound deliveries do not fit an otherwise empty L2 block; no slot can ever take them — evicting (resubmit as separate calls)",
-                            );
-                            selection.block(idx);
+                    let delivery_plans = deliveries
+                        .into_iter()
+                        .map(eez_protocol::system_tx::PlannedTransaction::Native)
+                        .collect::<Vec<_>>();
+                    let deliveries = match draft.prepare_transactions(&delivery_plans) {
+                        Ok(transactions) => transactions,
+                        Err((at, why)) => {
+                            if why.is_provider() {
+                                transient = Some((
+                                    format!("inbound capacity probe tx#{idx} at {at}: {why}"),
+                                    abort_rest(Some((idx, held)), &mut in_iter, Vec::new()),
+                                ));
+                                break;
+                            }
+                            if !why.is_capacity() {
+                                event!(Level::WARN, rollup_id, tx_idx = idx, tx_hash = %held.hash,
+                                error = %why, "inbound native execution rejected; evicting");
+                                selection.block(idx);
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+                            let declared = crate::local::build::planned_group_gas(&delivery_plans);
+                            if capacity_refusal(sync_txs.len() == history_prefix.len())
+                                == BlockGasFit::Unfittable
+                            {
+                                event!(
+                                    name: "eez.composer.cc_compose.block_gas_unfittable",
+                                    Level::WARN,
+                                    rollup_id,
+                                    tx_idx = idx,
+                                    tx_hash = %held.hash,
+                                    declared,
+                                    deliveries = delivery_plans.len(),
+                                    refused_at = at,
+                                    error = %why,
+                                    block_gas_limit = BUILDER_GAS_LIMIT,
+                                    "inbound deliveries do not fit an otherwise empty L2 block; no slot can ever take them — evicting (resubmit as separate calls)",
+                                );
+                                selection.block(idx);
 
-                            push_poison_root(&mut poison, &mut poison_gaps, held);
+                                push_poison_root(&mut poison, &mut poison_gaps, held);
+                                continue;
+                            }
+                            block_gas_cut = Some(BlockGasCut {
+                                gas_used: draft.gas_used(),
+                                declared,
+                            });
+                            capacity.defer(
+                                &mut selection,
+                                &candidate,
+                                idx,
+                                held,
+                                "l2_block_capacity",
+                            );
                             continue;
                         }
-                        block_gas_cut = Some(BlockGasCut {
-                            gas_used: draft.gas_used(),
-                            declared,
-                        });
-                        capacity.defer(&mut selection, &candidate, idx, held, "l2_block_capacity");
-                        continue;
-                    }
+                    };
                     let group_hashes = match hash_group(
                         &sync_txs,
                         &deliveries,
@@ -4483,7 +4727,8 @@ where
                         // capacity refusal to the source.
                         if why.is_capacity() {
                             let unfittable =
-                                capacity_refusal(sync_txs.is_empty()) == BlockGasFit::Unfittable;
+                                capacity_refusal(sync_txs.len() == history_prefix.len())
+                                    == BlockGasFit::Unfittable;
                             draft = match reopen(&sync_txs) {
                                 Ok(rebuilt) => rebuilt,
                                 Err(e) => {
@@ -4553,7 +4798,6 @@ where
                     }
                     blob_budget = next_blob;
                     effect_hashes.extend(group_hashes);
-                    system_txs_appended += deliveries.len() as u64;
                     sync_txs.extend(deliveries);
                     // The source fork carries the L1 user tx's committed writes;
                     // later inbound sims must observe them (design §4 step 6).
@@ -4950,41 +5194,59 @@ where
         // Past the drain the pool's order is all that matters again.
         let mut survivors: Vec<HeldTx> = restore_pool_order(survivors);
 
-        // ── Rebuild the Sync block's system txs via THE canonical builder —
-        // deriver-byte-identical two-phase SYSTEM_ADDRESS nonces (outbound loads
-        // N.., then inbound deliveries N+K..) + interleaved order
-        // [load,user,…,deliveries]. Handles inbound / outbound / mixed
-        // uniformly. A failure is systemic (signing / nonce overflow) →
-        // re-queue survivors, degrade to minimal.
-        let pairs = match eez_protocol::system_tx::build_cross_chain_sync_groups(
-            &pending_out,
-            &pending_in,
-            &stf_cfg,
-            nonce,
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                event!(
-                    name: "eez.composer.phase2.sync_pairs_failed",
-                    Level::WARN,
-                    rollup_id,
-                    error = %e,
-                    "build_cross_chain_sync_pairs failed; re-queueing survivors, degrading to minimal postBatch",
-                );
-                pool.push_front_batch(survivors);
-                return self
-                    .dispatch_minimal_postbatch(
-                        ctx,
+        // Rebuild from original semantic positions and execute plans afresh.
+        // This independently binds every encoded gas limit to its receipt prefix.
+        let (pairs, canonical) =
+            match eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
+                &semantic_transactions,
+                eez_protocol::RollupId(rollup_id),
+                ctx.l2_chain_id,
+            )
+            .map_err(|error| error.to_string())
+            .and_then(|actions| {
+                eez_protocol::system_tx::build_cross_chain_sync_groups(
+                    &pending_out,
+                    &pending_in,
+                    &stf_cfg,
+                    &actions.source_hashes(&live_source),
+                )
+            })
+            .and_then(|pairs| {
+                let plans = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
+                let transactions = reopen(&history_prefix)
+                    .map_err(|error| error.to_string())?
+                    .prepare_transactions(&plans)
+                    .map_err(|(_, error)| error.to_string())?;
+                let canonical = history_prefix
+                    .iter()
+                    .cloned()
+                    .chain(transactions)
+                    .collect::<Vec<_>>();
+                Ok((pairs, canonical))
+            }) {
+                Ok(p) => p,
+                Err(e) => {
+                    event!(
+                        name: "eez.composer.phase2.sync_pairs_failed",
+                        Level::WARN,
                         rollup_id,
-                        rollup,
-                        parent_header,
-                        timestamp,
-                        suggested_fee_recipient,
-                        bundle_target,
-                    )
-                    .await;
-            }
-        };
+                        error = %e,
+                        "build_cross_chain_sync_pairs failed; re-queueing survivors, degrading to minimal postBatch",
+                    );
+                    pool.push_front_batch(survivors);
+                    return self
+                        .dispatch_minimal_postbatch(
+                            ctx,
+                            rollup_id,
+                            rollup,
+                            parent_header,
+                            timestamp,
+                            suggested_fee_recipient,
+                            bundle_target,
+                        )
+                        .await;
+                }
+            };
 
         // ── KEYSTONE ─────────────────────────────────────────────────
         // The block this drain appended tx-by-tx must be exactly what the
@@ -4992,7 +5254,6 @@ where
         // reconstructs from the same entries. Inequality is a composer bug, not
         // an input condition, so it degrades the slot loudly instead of posting
         // a block nobody else can rebuild.
-        let canonical = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
         if canonical != sync_txs {
             let first_divergent = canonical
                 .iter()
@@ -5027,10 +5288,9 @@ where
         // ── re-queue survivors and degrade to minimal.               ──
         let built = match build_sync_block(
             rollup.l2_provider.as_ref(),
-            &self.inner.evm_config,
+            &evm_config,
             parent_header,
             timestamp,
-            prev_randao,
             suggested_fee_recipient,
             &sync_txs,
         ) {
@@ -5628,6 +5888,7 @@ where
             Some(l2_fees),
         );
         Ok(Some(SyncSlotBlock {
+            l1_origin_hash: built.l1_origin_hash,
             payload: built.payload,
             header: built.header,
         }))
@@ -5651,7 +5912,7 @@ where
         suggested_fee_recipient: Address,
         bundle_target: BundleTarget,
     ) -> Result<Option<SyncSlotBlock>, String> {
-        let (expected_timestamp, prev_randao) = rollup
+        let (expected_timestamp, _) = rollup
             .l1_head
             .next_block_context(parent_header)
             .map_err(|e| e.to_string())?;
@@ -5664,7 +5925,6 @@ where
             &self.inner.evm_config,
             parent_header,
             timestamp,
-            prev_randao,
             suggested_fee_recipient,
             &[], // no system_txs — empty Sync block
         ) {
@@ -5720,6 +5980,7 @@ where
                         "settlement policy evidence unavailable; preserving pending work");
                 }
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5755,6 +6016,7 @@ where
             event!(Level::ERROR, rollup_id, %error,
                 "minimal batch unavailable; retaining complete range without capacity splitting");
             return Ok(Some(SyncSlotBlock {
+                l1_origin_hash: empty_built.l1_origin_hash,
                 payload: empty_built.payload,
                 header: empty_built.header,
             }));
@@ -5793,6 +6055,7 @@ where
                     );
                 }
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5812,6 +6075,7 @@ where
             Err(error) => {
                 event!(Level::ERROR, rollup_id, %error, "cannot record minimal submission; committing without emission");
                 return Ok(Some(SyncSlotBlock {
+                    l1_origin_hash: empty_built.l1_origin_hash,
                     payload: empty_built.payload,
                     header: empty_built.header,
                 }));
@@ -5839,6 +6103,7 @@ where
             None,
         );
         Ok(Some(SyncSlotBlock {
+            l1_origin_hash: empty_built.l1_origin_hash,
             payload: empty_built.payload,
             header: empty_built.header,
         }))
@@ -5852,8 +6117,7 @@ where
         parent_header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
         timestamp: u64,
     ) -> Option<SyncSlotBlock> {
-        let (expected_timestamp, prev_randao) =
-            rollup.l1_head.next_block_context(parent_header).ok()?;
+        let (expected_timestamp, _) = rollup.l1_head.next_block_context(parent_header).ok()?;
         if timestamp != expected_timestamp {
             return None;
         }
@@ -5862,11 +6126,11 @@ where
             &self.inner.evm_config,
             parent_header,
             timestamp,
-            prev_randao,
             self.inner.fee_recipient,
             &[],
         ) {
             Ok(built) => Some(SyncSlotBlock {
+                l1_origin_hash: built.l1_origin_hash,
                 payload: built.payload,
                 header: built.header,
             }),
@@ -5904,12 +6168,13 @@ where
             .await?;
         let limits = self.inner.emission;
         let k = u64::from(limits.timing.k());
-        // Under the cap the cap-bounded boundary is the sync height itself, which
-        // is not a PAST block — step one K down so a range too big can still shrink.
-        let snapped = limits
-            .timing
-            .historical_chunk_boundary(cursor, sync_height, limits.max_blocks)
-            .unwrap_or_else(|| sync_height.saturating_sub(k));
+        // Only already committed grid checkpoints are candidates. This also
+        // handles an independently advancing head between two Sync boundaries.
+        let snapped = parent
+            .number()
+            .min(cursor.saturating_add(limits.max_blocks))
+            / k
+            * k;
         if snapped <= cursor {
             return Err(format!(
                 "no on-grid boundary above cursor {cursor} below sync height {sync_height}"
@@ -6035,10 +6300,10 @@ where
         ))
     }
 
-    /// On-grid heights in `(cursor, snapped]` whose block is EMPTY, highest
-    /// first. Empty because the prover binds every settling-block tx to a
-    /// claimed entry, so a tx-bearing terminal is unattestable for an
-    /// anchor-only batch (§7c). Gas is NOT considered here — the caller prices
+    /// On-grid heights in `(cursor, snapped]` with no applications or cross-chain
+    /// actions, highest first. A mandatory history import belongs to the public
+    /// ordinary prefix and remains eligible for anchor-only settlement.
+    /// Gas is not considered here — the caller prices
     /// each candidate on its fully encoded batch.
     fn empty_chunk_boundaries(
         &self,
@@ -6062,8 +6327,7 @@ where
                 .sealed_header_by_hash(hash)
                 .map_err(|e| format!("sealed_header_by_hash({hash}, n={number}): {e}"))?
                 .ok_or_else(|| format!("local L2 header {hash} (n={number}) missing"))?;
-            empty_at
-                .push(header.transactions_root() == alloy_consensus::constants::EMPTY_ROOT_HASH);
+            empty_at.push(sync_block_is_empty(provider, &header)?);
             hash = header.parent_hash();
             number -= 1;
         }
@@ -6390,21 +6654,9 @@ where
                         }
                         eez_protocol::system_tx::OutboundSourceEntry::Static(_) => U256::ZERO,
                     };
-                    effect.callback_entries.iter().try_fold(
-                        total
-                            .checked_add(source_value)
-                            .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())?,
-                        |subtotal, sidecar| {
-                            let value =
-                                eez_protocol::entries::entry_flat_value_sum(sidecar.as_abi_entry())
-                                    .ok_or_else(|| {
-                                        "invalid outbound callback sidecar value shape".to_string()
-                                    })?;
-                            subtotal
-                                .checked_add(value)
-                                .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
-                        },
-                    )
+                    total
+                        .checked_add(source_value)
+                        .ok_or_else(|| "outbound L2 sidecar value sum overflow".to_string())
                 })?;
             effect_ether_deltas.push(net_ether_delta(inflow, outflow)?);
             effect_block_hashes.push(pair_hashes[effect_end - 1]);
@@ -6753,6 +7005,10 @@ where
         // destinationRollupId (e.g. an un-rewritten MAINNET(0) outbound entry).
         ensure_batch_registry_native(&batch, rollup_id)?;
         batch.blockNumber = u64::MAX;
+        batch.expectedRootPerRollup = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+            rollupId: rollup_id,
+            root: pre_block_hash,
+        }];
         batch.proofSystems = vec![ctx.ecdsa_proof_system_address];
         batch.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
             rollupId: rollup_id,
@@ -6821,7 +7077,10 @@ where
             // cannot reintroduce phantom cross-chain effects.
             for enc in &tx_bytes {
                 let is_system = if enc.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    true
+                    use alloy_eips::Decodable2718 as _;
+                    eez_primitives::EezTxEnvelope::decode_2718_exact(enc)
+                        .map_err(|error| format!("invalid native history transaction: {error}"))?
+                        .is_cross_chain_system()
                 } else {
                     use alloy_eips::eip2718::Decodable2718 as _;
                     use reth_primitives_traits::SignerRecoverable as _;
@@ -7019,6 +7278,34 @@ where
         }
         .validate()
         .map_err(|error| error.to_string())?;
+        // Historical anchoring is a deliberate choice for ordinary catch-up.
+        // The submission attempt still targets the actual next L1 block below;
+        // neither proof expiry nor a failed live attempt changes that ownership.
+        let terminal_timestamp = rollup
+            .l1_head
+            .derivation_schedule()
+            .map_err(|error| error.to_string())?
+            .timestamp(sync_block_number)
+            .map_err(|error| error.to_string())?;
+        let proof_anchor = select_proof_anchor(
+            &ctx.offline_profile,
+            &header,
+            timestamp,
+            terminal_timestamp,
+            !semantic_transactions.is_empty(),
+        )
+        .map_err(|error| error.to_string())?;
+        let offline_context = eez_protocol::l1_history::OfflineContext::new(
+            &ctx.offline_profile,
+            posting.registry,
+            ctx.rollup_manager,
+            rollup_id,
+            pre_block_hash,
+            proof_anchor,
+            header.timestamp,
+        )
+        .map_err(|error| error.to_string())?;
+        batch.blockNumber = offline_context.selector();
         if gas_projection.is_none() && semantic_transactions.is_empty() {
             let hash = alloy_consensus::Sealable::hash_slow(&header);
             empty_projection = provider.provider.state_by_block_hash(hash)
@@ -7146,6 +7433,13 @@ where
                         .l2_provider,
                 );
                 let evm_config = self.inner.evm_config.clone();
+                let proof_history = rollup
+                    .l1_head
+                    .prepared_history()
+                    .ok_or_else(|| "canonical proof history is unavailable".to_string())?
+                    .chain();
+                let proof_anchor_number = header.number;
+                let proof_anchor_hash = header.hash_slow();
                 let terminal_block = sync_block.cloned();
                 tokio::task::spawn_blocking(
                     move || -> Result<(Vec<BlockWitness>, Vec<ObservedOutcome>), String> {
@@ -7171,6 +7465,7 @@ where
                                     )
                                 })?;
                                 ws.push(witness);
+                                append_anchor_bridge(&mut ws, &proof_history, proof_anchor_number, proof_anchor_hash)?;
                                 return Ok((ws, outcomes));
                             }
                             // Committed (historical chunk): from the store — an
@@ -7187,6 +7482,7 @@ where
                                 );
                             }
                         }
+                        append_anchor_bridge(&mut ws, &proof_history, proof_anchor_number, proof_anchor_hash)?;
                         Ok((ws, Vec::new()))
                     },
                 )
@@ -7241,76 +7537,16 @@ where
                 observed_output_hash: mismatch.observed_output_hash,
             });
         }
-        let parent_provenance = if let Some(source) = &self.inner.witness_source {
-            // Correlations are complete only after reconciliation has scanned
-            // through the exact L1 parent used by this proof target.
-            if policy_anchor.through
-                != Some(eez_l1::L1BlockRef {
-                    number: l1_posting.parent_number,
-                    hash: l1_posting.parent_hash,
-                })
-            {
-                return Err("candidate provenance is waiting for the canonical L1 scan".into());
-            }
-            let mut live_slot = None;
-            if anchor_header.number != 0 {
-                let schedule = rollup
-                    .l1_head
-                    .derivation_schedule()
-                    .map_err(|e| e.to_string())?;
-                let (mut low, mut high) = (
-                    schedule.config().l1_reference.number,
-                    l1_posting.parent_number,
-                );
-                while low <= high {
-                    let middle = low + (high - low) / 2;
-                    let header = provider
-                        .headers
-                        .header_by_number(middle)
-                        .map_err(|e| e.to_string())?
-                        .ok_or("canonical L1 slot header missing")?;
-                    match header.timestamp.cmp(&anchor_header.timestamp) {
-                        std::cmp::Ordering::Equal => {
-                            live_slot = Some((middle, header.hash_slow()));
-                            break;
-                        }
-                        std::cmp::Ordering::Less => {
-                            let Some(next) = middle.checked_add(1) else {
-                                break;
-                            };
-                            low = next;
-                        }
-                        std::cmp::Ordering::Greater => {
-                            let Some(previous) = middle.checked_sub(1) else {
-                                break;
-                            };
-                            high = previous;
-                        }
-                    }
-                }
-            }
-            let source = Arc::clone(source);
-            let parent = anchor_header.clone().unseal();
-            tokio::task::spawn_blocking(move || source.parent_provenance(parent, live_slot))
-                .await
-                .map_err(|e| format!("parent provenance worker: {e}"))??
-        } else {
-            // Lightweight in-process test provers do not attest remotely.
-            eez_protocol::l2::ParentProvenance {
-                parent: anchor_header.clone().unseal(),
-                accepted_l1_number: 0,
-                live_slot_endpoints: Vec::new(),
-            }
-        };
         let proving_ctx = ProvingContext {
-            parent_provenance,
+            parent: anchor_header.clone().unseal(),
             rollup_id,
             from_block: from,
             to_block: sync_block_number,
             batch: batch.clone(),
             blobs: transaction_blobs.clone(),
             blocks: block_witnesses.into(),
-            l1_posting,
+            l1_posting: (batch.blockNumber == u64::MAX).then_some(l1_posting),
+            offline_context,
         };
         if let Some(attempt) = admission {
             attempt.prepared(rollup_id, semantic_transactions.len());
@@ -7409,7 +7645,6 @@ where
                             eez_prover::RetryableProverError::Aborted => "prover_aborted",
                         },
                         eez_prover::ProverError::Actionable { .. } => "prover_rejected_candidate",
-                        eez_prover::ProverError::CacheMiss { .. } => "prover_cache_miss",
                         eez_prover::ProverError::Backend(_) => "prover_backend",
                     }
                 };
@@ -8118,6 +8353,65 @@ mod tests {
     use super::*;
     use alloy_primitives::TxHash;
     use alloy_sol_types::SolValue as _;
+
+    #[test]
+    fn proof_anchor_uses_inclusion_rules_at_a_known_fork_boundary() {
+        use eez_protocol::l1_history::{
+            EvidenceAnchor, HISTORY_RUNTIME, OfflineContext, OfflineProfile,
+        };
+        let profile = OfflineProfile {
+            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
+            l1ChainId: U256::from(1),
+            l2ChainId: U256::from(31337),
+            genesisHash: B256::repeat_byte(1),
+            genesisTimestamp: 80,
+            blockInterval: 2,
+            syncInterval: 6,
+            updateOffset: 2,
+            l1ConfigHash: B256::repeat_byte(2),
+            historyCodeHash: alloy_primitives::keccak256(HISTORY_RUNTIME),
+            ruleTimes: vec![0, 120],
+        };
+        // A historical proof for parent time 119 binds the old rule epoch,
+        // whereas getCustomData at the exact target 120 returns the new one.
+        for (parent_time, target_time, terminal_time, has_actions, historical) in [
+            (118, 119, 100, false, true),
+            (119, 120, 100, false, false),
+            (119, 121, 100, false, false),
+            (120, 121, 100, false, true),
+            (120, 121, 121, false, false),
+            (120, 121, 121, true, false),
+        ] {
+            let parent = alloy_consensus::Header {
+                number: 10,
+                timestamp: parent_time,
+                ..Default::default()
+            };
+            let anchor =
+                select_proof_anchor(&profile, &parent, target_time, terminal_time, has_actions)
+                    .unwrap();
+            assert_eq!(
+                matches!(anchor, EvidenceAnchor::Historical { .. }),
+                historical,
+                "parent {parent_time}, target {target_time}, terminal {terminal_time}, actions {has_actions}"
+            );
+            let context = OfflineContext::new(
+                &profile,
+                Address::with_last_byte(1),
+                Address::with_last_byte(2),
+                1,
+                B256::repeat_byte(3),
+                anchor,
+                parent_time,
+            )
+            .unwrap();
+            // Word 7 is the rule identity returned by the real manager at inclusion.
+            assert_eq!(
+                &context.custom_data()[7 * 32..8 * 32],
+                profile.rules_id(target_time).unwrap().as_slice()
+            );
+        }
+    }
 
     fn gas_action(
         source: u64,
@@ -8880,7 +9174,6 @@ mod tests {
                         ..Default::default()
                     },
                     entry_traces: Vec::new(),
-                    callback_entry_counts: Vec::new(),
                     outbound_event_hashes: Vec::new(),
                 },
                 targets: Vec::new(),
@@ -8949,7 +9242,6 @@ mod tests {
                     ..Default::default()
                 },
                 entry_traces: Vec::new(),
-                callback_entry_counts: Vec::new(),
                 outbound_event_hashes: Vec::new(),
             },
             targets: Vec::new(),
@@ -9394,11 +9686,15 @@ mod tests {
         assert_eq!(capacity_refusal(false), BlockGasFit::Defer);
     }
 
-    fn native_raw(nonce: u64) -> Bytes {
+    fn native_raw(source_id: u64) -> Bytes {
         use alloy_eips::eip2718::Encodable2718 as _;
         let tx: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::from(
+                alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
+            ),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,
             value: U256::ZERO,
             input: Bytes::new(),

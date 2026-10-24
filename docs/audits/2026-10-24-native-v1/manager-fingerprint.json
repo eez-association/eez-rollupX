@@ -1,0 +1,17 @@
+{
+  "contract": "contracts/src/OfflineRollup.sol",
+  "compiler": "Solidity 0.8.34, via IR, optimizer runs 1",
+  "old_fixture_sha256": "31481f85776702617d226470704fbaba24d82f560aedd8cbcd187ab8f60738d0",
+  "current_fixture_sha256": "7715f6a839952970418e3c542d8a72aaab2a0ea232add6cdfd72fb2863c09d2b",
+  "runtime_bytes": 6616,
+  "executable_bytes": 6563,
+  "immutable_offsets": [
+    475,
+    3527,
+    4134,
+    5213
+  ],
+  "normalized_keccak256": "0x6272def5f66148d107c76ac81fe7fd8c753136852b1d51996a3d0128e17d6fda",
+  "regression": "OfflineRollupTest.testFeeEstimatorFixtureMatchesCompiledRuntime; Composer fingerprint_recognizes_offline_manager_and_rejects_changed_execution",
+  "scope": "The old fixture failed against the compiled current runtime. Only the current runtime fingerprint is accepted; no fallback was added."
+}

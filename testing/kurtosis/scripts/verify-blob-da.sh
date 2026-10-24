@@ -337,7 +337,10 @@ for l2_tx in "${expected_hashes[@]}"; do
     )"
 done
 
-batches_json="$(jq -s . "${verified_batch_files[@]}")"
+batches_file="$temp_dir/batches.json"
+# Catch-up evidence can exceed the OS per-argument limit; retain it through files.
+jq -s . "${verified_batch_files[@]}" >"$batches_file"
+printf '%s\n' "$correlation_evidence" >"$temp_dir/correlation.json"
 coverage_json='{}'
 for expected in "${expected_hashes[@]}"; do
     coverage_json="$(jq -c --arg tx "$expected" --arg batch "${covered_by[$expected]}" '. + {($tx): $batch}' <<<"$coverage_json")"
@@ -357,16 +360,16 @@ jq -n \
     --argjson safe_l2_block "$safe_number" \
     --argjson counter_at_safe "$safe_count" \
     --argjson coverage "$coverage_json" \
-    --argjson correlation_evidence "$correlation_evidence" \
-    --argjson batches "$batches_json" \
+    --slurpfile correlation_evidence "$temp_dir/correlation.json" \
+    --slurpfile batches "$batches_file" \
     '{verified:true, enclave:$enclave, rollup_id:$rollup_id, sender:$sender,
       contract:{address:$counter, deployment_tx:$deploy_hash,
         increment_tx:$increment_hash, add_41_tx:$add_hash, value_at_safe:$counter_at_safe},
       settlement:{safe_l2_block:$safe_l2_block, safe_l2_block_hash:$safe_block_hash,
         l1_registry_commitment:$registry_root},
       l2_transaction_to_l1_blob_batch:$coverage,
-      correlation_rpc:$correlation_evidence,
-      verified_blob_batches:$batches}' >"$summary_file"
+      correlation_rpc:$correlation_evidence[0],
+      verified_blob_batches:$batches[0]}' >"$summary_file"
 
 echo "==> blob DA smoke test passed"
 echo "    Counter:        $counter"

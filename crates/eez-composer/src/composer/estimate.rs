@@ -73,6 +73,8 @@ pub struct GasEstimator {
     poster: Address,
     post_batch_target: Address,
     verifier: Address,
+    offline_profile: eez_protocol::l1_history::OfflineProfile,
+    rollup_manager: Address,
     l1_slot_seconds: u64,
     recipient: Address,
 }
@@ -84,6 +86,7 @@ pub(super) struct Snapshot {
     pub(super) l2_parent: SealedHeader<Header>,
     pub(super) l2_timestamp: u64,
     pub(super) l2_randao: B256,
+    l1_history: Arc<eez_protocol::l1_history::HeaderChain>,
     settled_root: B256,
     generation: Option<u64>,
     // Request-local, natively replayed L1 predecessors. These bytes never enter
@@ -138,6 +141,8 @@ where
             poster: cc.exec_ctx.l1_poster_signer.address(),
             post_batch_target: self.inner.posting.post_batch_target,
             verifier: cc.exec_ctx.ecdsa_proof_system_address,
+            offline_profile: cc.exec_ctx.offline_profile.clone(),
+            rollup_manager: cc.exec_ctx.rollup_manager,
             l1_slot_seconds: self.inner.emission.timing.l1_block_time().as_secs(),
             recipient: self.inner.fee_recipient,
         })
@@ -372,6 +377,52 @@ impl GasEstimator {
         Ok(selected)
     }
 
+    /// Freeze the same native history prefix used by block production. Fee
+    /// probes must include its exact bytes, gas and selected PREVRANDAO.
+    fn history_plan(
+        &self,
+        parent: &SealedHeader<Header>,
+        through: eez_l1::L1BlockRef,
+    ) -> Result<
+        (
+            u64,
+            B256,
+            Arc<eez_protocol::l1_history::HeaderChain>,
+            Vec<Bytes>,
+        ),
+        EstimateError,
+    > {
+        use alloy_eips::Encodable2718 as _;
+        let (timestamp, headers) = self
+            .head
+            .estimation_block_context(parent, through)
+            .map_err(unavailable)?;
+        let chain = self.l2.chain_provider();
+        let config = chain
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(Arc::clone(
+                &headers,
+            ))))
+            .map_err(unavailable)?;
+        let provider = chain
+            .provider
+            .state_by_block_hash(parent.hash())
+            .map_err(unavailable)?;
+        let mut db = reth_revm::database::StateProviderDatabase::new(
+            reth_storage_api::EvmStateProviderAdapter(provider),
+        );
+        let (plan, tx) = config
+            .prepare_history(&mut db, parent, timestamp)
+            .map_err(unavailable)?;
+        Ok((
+            timestamp,
+            plan.prev_randao,
+            headers,
+            tx.into_iter().map(|tx| tx.encoded_2718().into()).collect(),
+        ))
+    }
+
     /// Gas and pricing must use the exact posting target, including skipped-slot
     /// timestamps and the poster's fee environment, rather than independently
     /// choosing a nominal next slot.
@@ -381,9 +432,8 @@ impl GasEstimator {
         l2_parent: SealedHeader<Header>,
         endpoint: eez_l1::L2Endpoint,
     ) -> Result<Snapshot, EstimateError> {
-        let (l2_timestamp, l2_randao) = self
-            .head
-            .estimation_block_context(&l2_parent, posting.quote.sample)
+        let (l2_timestamp, l2_randao, l1_history, l2_prefix) = self
+            .history_plan(&l2_parent, posting.quote.sample)
             .map_err(unavailable)?;
         Ok(Snapshot {
             l1: L1SlotState {
@@ -400,9 +450,10 @@ impl GasEstimator {
             l2_parent,
             l2_timestamp,
             l2_randao,
+            l1_history,
             settled_root: endpoint.hash,
             generation: None,
-            l2_prefix: Vec::new(),
+            l2_prefix,
             l1_prefix_gas: 0,
             prefix_semantic_bytes: 0,
         })
@@ -474,9 +525,8 @@ impl GasEstimator {
                 "L2 branch differs from the reconciled endpoint",
             ));
         }
-        let (l2_timestamp, l2_randao) = self
-            .head
-            .next_block_context(&l2_parent)
+        let (l2_timestamp, l2_randao, l1_history, l2_prefix) = self
+            .history_plan(&l2_parent, through)
             .map_err(unavailable)?;
         let l1 = L1SlotState {
             anchor: parent,
@@ -490,22 +540,29 @@ impl GasEstimator {
             l2_parent,
             l2_timestamp,
             l2_randao,
+            l1_history,
             settled_root: endpoint.hash,
             generation: Some(anchor.generation),
-            l2_prefix: Vec::new(),
+            l2_prefix,
             l1_prefix_gas: 0,
             prefix_semantic_bytes: 0,
         })
     }
 
-    fn l2_draft(&self, s: &Snapshot) -> Result<SyncBlockState, EstimateError> {
+    pub(super) fn l2_draft(&self, s: &Snapshot) -> Result<SyncBlockState, EstimateError> {
         let chain = self.l2.chain_provider();
+        let config = chain
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(Arc::clone(
+                &s.l1_history,
+            ))))
+            .map_err(unavailable)?;
         SyncBlockState::open(
             chain.provider.clone(),
-            &chain.evm_config,
+            &config,
             &s.l2_parent,
             s.l2_timestamp,
-            s.l2_randao,
             self.recipient,
             &s.l2_prefix,
         )

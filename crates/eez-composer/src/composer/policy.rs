@@ -778,18 +778,14 @@ where
                 use alloy_eips::Decodable2718 as _;
                 use reth_primitives_traits::SignerRecoverable as _;
                 let bytes = tx.encoded_2718();
-                if bytes.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    has_system = true;
-                    break;
-                }
-                let tx = eez_primitives::EezTxEnvelope::decode_2718(&mut bytes.as_slice())
-                    .map_err(|error| {
+                let tx =
+                    eez_primitives::EezTxEnvelope::decode_2718_exact(&bytes).map_err(|error| {
                         PolicyError::Unavailable(format!("pending transaction decoding: {error}"))
                     })?;
-                if tx
-                    .recover_signer()
-                    .map_err(|error| PolicyError::Unavailable(format!("pending signer: {error}")))?
-                    == eez_primitives::SYSTEM_ADDRESS
+                if !tx.is_history()
+                    && tx.recover_signer().map_err(|error| {
+                        PolicyError::Unavailable(format!("pending signer: {error}"))
+                    })? == eez_primitives::SYSTEM_ADDRESS
                 {
                     has_system = true;
                     break;
@@ -812,8 +808,13 @@ where
                 pure_transactions: if has_system {
                     0
                 } else {
-                    u64::try_from(transactions.len())
-                        .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
+                    u64::try_from(
+                        transactions
+                            .iter()
+                            .filter(|tx| tx.ty() != eez_primitives::SYSTEM_TX_TYPE)
+                            .count(),
+                    )
+                    .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?
                 },
             })
         });

@@ -3,14 +3,15 @@
 //! <https://github.com/paradigmxyz/reth/blob/444e867155c2a7a4c028e479ca7201b0b6871579/crates/ethereum/payload/src/lib.rs>
 //!
 //! Reth fixes its public builder to Ethereum primitives. This adapter selects
-//! native-capable EEZ storage/receipts, rejects blobs and native transactions in
-//! Live payloads, and retains the current state-provider and state-root task APIs.
+//! native-capable EEZ storage/receipts, prepends the recorded history transaction,
+//! rejects blobs and native transactions from the pool, and retains the current state-provider and state-root task APIs.
 //! The caller retains the fork's DA sizing, ownership and cancellation policy.
 
 use alloy_consensus::{BlockHeader, Transaction, Typed2718, transaction::TxHashRef};
+use alloy_eips::Decodable2718 as _;
 use alloy_primitives::U256;
 use alloy_rlp::Encodable;
-use alloy_rpc_types_engine::PayloadAttributes as EthPayloadAttributes;
+use eez_primitives::engine::EezPayloadAttributes as EthPayloadAttributes;
 use eez_primitives::{EezPrimitives, EezTxEnvelope, engine::EezBuiltPayload};
 use reth_basic_payload_builder::{BuildArguments, BuildOutcome, PayloadConfig, is_better_payload};
 use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
@@ -24,6 +25,7 @@ use reth_evm::{
 };
 use reth_execution_cache::{CachedStateMetrics, CachedStateMetricsSource, CachedStateProvider};
 use reth_payload_primitives::{PayloadAttributes, PayloadBuilderError};
+use reth_primitives_traits::SignedTransaction as _;
 use reth_primitives_traits::transaction::error::InvalidTransactionError;
 use reth_revm::{database::StateProviderDatabase, db::State};
 use reth_storage_api::{EvmStateProvider, StateProvider, StateProviderFactory};
@@ -138,6 +140,23 @@ where
     })?;
 
     let mut block_transactions_rlp_length = 0;
+    if let Some(raw) = &attributes.history_transaction {
+        let tx = EezTxEnvelope::decode_2718_exact(raw).map_err(PayloadBuilderError::other)?;
+        if !tx.is_history() {
+            return Err(PayloadBuilderError::other(std::io::Error::other(
+                "invalid history payload input",
+            )));
+        }
+        block_transactions_rlp_length = tx.length();
+        let recovered = tx.try_into_recovered().map_err(|_| {
+            PayloadBuilderError::other(std::io::Error::other("history signer recovery failed"))
+        })?;
+        let gas = builder
+            .execute_transaction(recovered)
+            .map_err(PayloadBuilderError::other)?;
+        cumulative_tx_gas_used = gas.tx_gas_used();
+        block_regular_gas_used = cumulative_tx_gas_used;
+    }
 
     let is_osaka = chain_spec.is_osaka_active_at_timestamp(attributes.timestamp);
 
@@ -147,109 +166,31 @@ where
         .map(alloy_rlp::Encodable::length)
         .unwrap_or(0);
 
-    while let Some(pool_tx) = best_txs.next() {
-        // ensure we still have capacity for this transaction
-        let exceeds_gas_limit = if is_amsterdam {
-            let regular_available_gas = block_gas_limit.saturating_sub(block_regular_gas_used);
-            let state_available_gas = block_gas_limit.saturating_sub(block_state_gas_used);
-            let regular_tx_gas_limit = pool_tx.gas_limit().min(tx_gas_limit_cap);
+    if !attributes.no_tx_pool {
+        while let Some(pool_tx) = best_txs.next() {
+            // ensure we still have capacity for this transaction
+            let exceeds_gas_limit = if is_amsterdam {
+                let regular_available_gas = block_gas_limit.saturating_sub(block_regular_gas_used);
+                let state_available_gas = block_gas_limit.saturating_sub(block_state_gas_used);
+                let regular_tx_gas_limit = pool_tx.gas_limit().min(tx_gas_limit_cap);
 
-            if regular_tx_gas_limit > regular_available_gas {
-                Some((regular_tx_gas_limit, regular_available_gas))
-            } else if pool_tx.gas_limit() > state_available_gas {
-                Some((pool_tx.gas_limit(), state_available_gas))
-            } else {
-                None
-            }
-        } else {
-            let block_available_gas = block_gas_limit.saturating_sub(cumulative_tx_gas_used);
-            (pool_tx.gas_limit() > block_available_gas)
-                .then_some((pool_tx.gas_limit(), block_available_gas))
-        };
-
-        if let Some((transaction_gas_limit, block_available_gas)) = exceeds_gas_limit {
-            // we can't fit this transaction into the block, so we need to mark it as invalid
-            // which also removes all dependent transaction from the iterator before we can
-            // continue
-            best_txs.mark_invalid(
-                &pool_tx,
-                InvalidPoolTransactionError::ExceedsGasLimit(
-                    transaction_gas_limit,
-                    block_available_gas,
-                ),
-            );
-            continue;
-        }
-
-        // check if the job was cancelled, if so we can exit early
-        if cancel.is_cancelled() {
-            return Ok(BuildOutcome::Cancelled);
-        }
-
-        // convert tx to a signed transaction
-        let tx = pool_tx.to_consensus();
-        // Live payloads contain only user Ethereum transactions. Guard even a
-        // custom pool/iterator that bypassed the public admission validator.
-        if tx.is_eip4844() || matches!(tx.inner(), EezTxEnvelope::System(_)) {
-            best_txs.mark_invalid(
-                &pool_tx,
-                InvalidPoolTransactionError::Consensus(InvalidTransactionError::TxTypeNotSupported),
-            );
-            continue;
-        }
-
-        let tx_rlp_len = tx.inner().length();
-
-        let estimated_block_size_with_tx =
-            block_transactions_rlp_length + tx_rlp_len + withdrawals_rlp_length + 1024; // 1Kb of overhead for the block header
-
-        if is_osaka && estimated_block_size_with_tx > MAX_RLP_BLOCK_SIZE {
-            best_txs.mark_invalid(
-                &pool_tx,
-                InvalidPoolTransactionError::OversizedData {
-                    size: estimated_block_size_with_tx,
-                    limit: MAX_RLP_BLOCK_SIZE,
-                },
-            );
-            continue;
-        }
-
-        let miner_fee = tx.effective_tip_per_gas(base_fee);
-        let tx_hash = *tx.tx_hash();
-
-        let mut tx_regular_gas_used = 0;
-        let gas_output = match builder.execute_transaction_with_result_closure(tx, |result| {
-            tx_regular_gas_used = result.result().result.gas().block_regular_gas_used();
-        }) {
-            Ok(gas_output) => gas_output,
-            Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
-                error, ..
-            })) => {
-                if error.is_nonce_too_low() {
-                    // if the nonce is too low, we can skip this transaction
-                    trace!(target: "payload_builder", %error, ?tx_hash, "skipping nonce too low transaction");
+                if regular_tx_gas_limit > regular_available_gas {
+                    Some((regular_tx_gas_limit, regular_available_gas))
+                } else if pool_tx.gas_limit() > state_available_gas {
+                    Some((pool_tx.gas_limit(), state_available_gas))
                 } else {
-                    // if the transaction is invalid, we can skip it and all of its
-                    // descendants
-                    trace!(target: "payload_builder", %error, ?tx_hash, "skipping invalid transaction and its descendants");
-                    best_txs.mark_invalid(
-                        &pool_tx,
-                        InvalidPoolTransactionError::Consensus(
-                            InvalidTransactionError::TxTypeNotSupported,
-                        ),
-                    );
+                    None
                 }
-                continue;
-            }
-            // The executor is the source of truth for block gas availability. Keep this
-            // non-fatal in case local builder accounting diverges from executor rules.
-            Err(BlockExecutionError::Validation(
-                BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
-                    transaction_gas_limit,
-                    block_available_gas,
-                },
-            )) => {
-                trace!(target: "payload_builder", %transaction_gas_limit, %block_available_gas, ?tx_hash, "skipping transaction exceeding block gas limit");
+            } else {
+                let block_available_gas = block_gas_limit.saturating_sub(cumulative_tx_gas_used);
+                (pool_tx.gas_limit() > block_available_gas)
+                    .then_some((pool_tx.gas_limit(), block_available_gas))
+            };
+
+            if let Some((transaction_gas_limit, block_available_gas)) = exceeds_gas_limit {
+                // we can't fit this transaction into the block, so we need to mark it as invalid
+                // which also removes all dependent transaction from the iterator before we can
+                // continue
                 best_txs.mark_invalid(
                     &pool_tx,
                     InvalidPoolTransactionError::ExceedsGasLimit(
@@ -259,19 +200,102 @@ where
                 );
                 continue;
             }
-            // this is an error that we should treat as fatal for this attempt
-            Err(err) => return Err(PayloadBuilderError::evm(err)),
-        };
 
-        block_transactions_rlp_length += tx_rlp_len;
+            // check if the job was cancelled, if so we can exit early
+            if cancel.is_cancelled() {
+                return Ok(BuildOutcome::Cancelled);
+            }
 
-        // update and add to total fees
-        let gas_used = gas_output.tx_gas_used();
-        let miner_fee = miner_fee.expect("fee is always valid; execution succeeded");
-        total_fees += U256::from(miner_fee) * U256::from(gas_used);
-        cumulative_tx_gas_used += gas_used;
-        block_regular_gas_used += tx_regular_gas_used;
-        block_state_gas_used += gas_output.state_gas_used();
+            // convert tx to a signed transaction
+            let tx = pool_tx.to_consensus();
+            // The pool contributes only user Ethereum transactions. Guard even a
+            // custom pool/iterator that bypassed the public admission validator.
+            if tx.is_eip4844() || matches!(tx.inner(), EezTxEnvelope::System(_)) {
+                best_txs.mark_invalid(
+                    &pool_tx,
+                    InvalidPoolTransactionError::Consensus(
+                        InvalidTransactionError::TxTypeNotSupported,
+                    ),
+                );
+                continue;
+            }
+
+            let tx_rlp_len = tx.inner().length();
+
+            let estimated_block_size_with_tx =
+                block_transactions_rlp_length + tx_rlp_len + withdrawals_rlp_length + 1024; // 1Kb of overhead for the block header
+
+            if is_osaka && estimated_block_size_with_tx > MAX_RLP_BLOCK_SIZE {
+                best_txs.mark_invalid(
+                    &pool_tx,
+                    InvalidPoolTransactionError::OversizedData {
+                        size: estimated_block_size_with_tx,
+                        limit: MAX_RLP_BLOCK_SIZE,
+                    },
+                );
+                continue;
+            }
+
+            let miner_fee = tx.effective_tip_per_gas(base_fee);
+            let tx_hash = *tx.tx_hash();
+
+            let mut tx_regular_gas_used = 0;
+            let gas_output = match builder.execute_transaction_with_result_closure(tx, |result| {
+                tx_regular_gas_used = result.result().result.gas().block_regular_gas_used();
+            }) {
+                Ok(gas_output) => gas_output,
+                Err(BlockExecutionError::Validation(BlockValidationError::InvalidTx {
+                    error,
+                    ..
+                })) => {
+                    if error.is_nonce_too_low() {
+                        // if the nonce is too low, we can skip this transaction
+                        trace!(target: "payload_builder", %error, ?tx_hash, "skipping nonce too low transaction");
+                    } else {
+                        // if the transaction is invalid, we can skip it and all of its
+                        // descendants
+                        trace!(target: "payload_builder", %error, ?tx_hash, "skipping invalid transaction and its descendants");
+                        best_txs.mark_invalid(
+                            &pool_tx,
+                            InvalidPoolTransactionError::Consensus(
+                                InvalidTransactionError::TxTypeNotSupported,
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                // The executor is the source of truth for block gas availability. Keep this
+                // non-fatal in case local builder accounting diverges from executor rules.
+                Err(BlockExecutionError::Validation(
+                    BlockValidationError::TransactionGasLimitMoreThanAvailableBlockGas {
+                        transaction_gas_limit,
+                        block_available_gas,
+                    },
+                )) => {
+                    trace!(target: "payload_builder", %transaction_gas_limit, %block_available_gas, ?tx_hash, "skipping transaction exceeding block gas limit");
+                    best_txs.mark_invalid(
+                        &pool_tx,
+                        InvalidPoolTransactionError::ExceedsGasLimit(
+                            transaction_gas_limit,
+                            block_available_gas,
+                        ),
+                    );
+                    continue;
+                }
+                // this is an error that we should treat as fatal for this attempt
+                Err(err) => return Err(PayloadBuilderError::evm(err)),
+            };
+
+            block_transactions_rlp_length += tx_rlp_len;
+
+            // update and add to total fees
+            let gas_used = gas_output.tx_gas_used();
+            let miner_fee = miner_fee.expect("fee is always valid; execution succeeded");
+            total_fees += U256::from(miner_fee) * U256::from(gas_used);
+            cumulative_tx_gas_used += gas_used;
+            block_regular_gas_used += tx_regular_gas_used;
+            block_state_gas_used += gas_output.state_gas_used();
+        }
     }
 
     // check if we have a better block

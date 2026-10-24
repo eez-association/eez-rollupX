@@ -428,19 +428,17 @@ where
         } else {
             None
         };
+        let rechecked_hash = submitter
+            .canonical_block_hash(at.number)
+            .await
+            .map_err(|error| error.to_string())?;
         let _guard = self
             .inner
             .committer
             .begin_reconcile()
             .await
             .map_err(|error| error.to_string())?;
-        if !rollup.l1_head.generation_is(snapshot.generation)
-            || submitter
-                .canonical_block_hash(at.number)
-                .await
-                .map_err(|error| error.to_string())?
-                != Some(at.hash)
-        {
+        if !rollup.l1_head.generation_is(snapshot.generation) || rechecked_hash != Some(at.hash) {
             return Err("canonical state changed during receipt accounting".into());
         }
         let mut ledger = posting.costs.lock().unwrap();

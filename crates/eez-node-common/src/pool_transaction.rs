@@ -226,7 +226,9 @@ mod tests {
     fn public_raw_decode_and_reorg_conversion_reject_native_envelopes() {
         let native: EezTxEnvelope = SystemTransaction {
             chain_id: 1,
-            nonce: 3,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::with_last_byte(3),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
             value: U256::from(7),
             input: Bytes::new(),
