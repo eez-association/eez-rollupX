@@ -31,7 +31,7 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 # async + tracing + errors
-tokio              = { version = "1", features = ["full"] }
+tokio              = { version = "1.53.3", features = ["full"] }
 async-trait        = "0.1"
 dotenvy            = "0.15"
 futures-util       = "0.3"
