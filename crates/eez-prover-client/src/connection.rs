@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use eez_control_rpc::v1::{CapabilitiesRequest, CapabilitiesResponse, prover_client::ProverClient};
+use eez_control_rpc::v2::{CapabilitiesRequest, CapabilitiesResponse, prover_client::ProverClient};
 use eez_prover::{ProverError, ProverResult, RetryableProverError};
 use tonic::transport::{Channel, Endpoint};
 

@@ -4,16 +4,29 @@ This is the integration boundary for Nethermind/C# or another independently
 implemented prover. Nethermind's team supplies execution and the server. RollupX
 does not require Rust libraries, Rust build metadata or a chain RPC in that server.
 
+The accepted [fresh-network profile](../../../docs/proposals/native-system-transactions.md)
+and pinned core define interoperability. Shared type/version names alone do not:
+
+| Boundary | Exact local contract |
+| --- | --- |
+| Native transactions and receipts | Type `0x45`, envelope version **1**, with the profile's source identities, gas and execution rules; the draft's version 0 is rejected. |
+| `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
+| Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 1, as defined below. |
+
+These are the fixed contracts of one network profile, not selectable compatibility
+modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
+records differences from the reference draft; it does not override these contracts.
+
 ## Minimum service
 
-Generate messages/services from [prove.proto](../proto/prove.proto) and
-[prove_stream.proto](../proto/prove_stream.proto) with your language's protobuf/gRPC
-tooling. Preserve protobuf `uint64` as unsigned 64-bit integers and `bytes` as
+Generate messages/services from the single [prove.proto](../proto/prove.proto)
+with your language's protobuf/gRPC tooling. Preserve protobuf `uint64` as unsigned 64-bit integers and `bytes` as
 raw byte arrays. Do not substitute JSON/hex strings for protobuf bytes.
 
-Expose `prove.v1.Prover/Capabilities` for discovery and the bidirectional
-`prove.v2.Prover/ProveStream` for proving. The v1 package contains shared types;
-there is no v1 proving method. Configure one fresh-network profile locally,
+Expose `prove.v2.Prover/Capabilities` for discovery and the bidirectional
+`prove.v2.Prover/ProveStream` for proving. Both methods and all messages are in
+one package and service. Configure one fresh-network profile locally,
 including genesis/L1 rules, deployment addresses, rollup and proof-system policy.
 
 The Composer already selects its server through `EEZ_PROVER_URL` and checks proof
@@ -24,7 +37,12 @@ effective environment/topology, not assume a different URL in `.env` wins.
 No language/backend selector or new runtime setting is required.
 
 Implement the [portable identity](../VALIDATION_IDENTITY.md) using independent
-local inputs. Advertise profile 2, operations tag 0, that identity, and finite
+local inputs. Its ten-element RLP has one validation-contract version covering
+encoding, canonical JSON and execution/settlement semantics together. The manager
+profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
+or canonicalizer versions to configure. Use the published identity/profile vectors
+before testing streaming; generated protobuf bindings alone do not implement this hash.
+Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 0, that identity, and finite
 positive limits/timeouts as specified by [RPC discovery](../SPEC.md#21-validation-identity-and-capability-discovery).
 The Composer consumes these limits for planning. In particular, a block ceiling
 must fit at least one complete network Sync interval. Limits need not equal the
@@ -82,8 +100,15 @@ engine must implement the same native transaction, system-call, state/receipt,
 rollback, grouped cross-chain and static-position rules. An ordinary Ethereum
 execution engine alone does not implement the RollupX profile.
 
+The [history transaction contract](../../../contracts/L1_HISTORY_SPEC.md) also
+applies to an external engine: execute the recorded first-position `0x45` import
+at every scheduled update, including empty repeats. Bind its version-1 sourceHash,
+check the exact encoded gas limit, preserve the system nonce and meter its gas. Validate its consecutive ancestry and delay, and set
+both the header and opcode PREVRANDAO from that recorded choice. Do not infer a
+new choice from the newest header in the witness or perform an invisible import.
+
 Use [streaming evidence rules](../STREAMING_SPEC.md#3-offline-evidence-and-settlement-input)
-for complete canonical L1 headers, bridge-only headers, source maximality,
+for complete canonical L1 headers, bridge-only headers, recorded origin membership,
 delayed history imports and matching PREVRANDAO. Both modes are required:
 actual-parent binds the exact future parent/time; historical ordinary catch-up
 binds an explicit recent anchor and forbids all cross-chain actions. Every

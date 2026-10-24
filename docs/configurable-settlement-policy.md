@@ -1,5 +1,13 @@
 # Configurable settlement policy
 
+For the fresh-network history profile, ordinary production has its own local clock.
+L1 RPC, proof and settlement delays cannot gate that clock. The speculative-depth
+and four same-parent replacement limits apply to settlement preparation only;
+retained ordinary prefixes settle independently in bounded parts. History-only
+Sync blocks are ordinary checkpoints despite having a nonempty transaction root.
+See the [current execution proposal](proposals/l1-origin-and-offline-proving.md).
+
+
 This policy runs within the [fresh offline-history profile](proposals/l1-origin-and-offline-proving.md).
 Current implementation and validation are recorded in the
 [feature audit](audits/2026-10-22-l1-history-offline-proving/README.md).
@@ -39,7 +47,7 @@ from an empty string. Restart is required to change settings.
 | `EEZ_PREPARATION_TIME_MS` | Removed | Must be absent, including from inherited environment and Compose inputs. Even an empty value fails startup. Choose P explicitly; no automatic migration of the old millisecond budget. |
 | `EEZ_SETTLEMENT_START_AFTER_BLOCK` | Required | Conditional production after position P, `1 <= P < K`. Proof seed + slack + delay + the shared 150 ms post-proof reserve must be strictly less than `(K-P) * L2`. See [conditional slot production](#conditional-slot-production). |
 | `EEZ_SETTLEMENT_START_DELAY_MS` | 0 | Optional nonnegative integer milliseconds, strictly less than one L2 interval. Delays the preparation decision from P's scheduled time, not its actual completion time. Empty is invalid. |
-| `EEZ_MAX_SPECULATIVE_DEPTH` | Existing default 64; Compose profiles default to 0 | Must be 0 (unbounded), or at least `N + K - 1`, using the existing timing grid's `K`. |
+| `EEZ_MAX_SPECULATIVE_DEPTH` | Default 64; Compose profiles default to 0 | Caps speculative cross-chain preparation; ordinary production and retained ordinary settlement continue. Existing validation requires 0 or at least `N + K - 1`. |
 | `EEZ_MAX_BLOCKS_PER_BATCH` | Removed | Must be absent. The payload ceiling and negotiated signer limit bound a post. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_GAS` | Required | Positive integer execution-price ceiling in native base units per gas. |
 | `EEZ_L1_POSTBATCH_MAX_FEE_PER_BLOB_GAS` | Required | Positive integer blob-price ceiling in native base units per blob gas. |
@@ -961,6 +969,15 @@ block **inclusively**; without a valid checkpoint it falls back toward deploymen
 Required logs, transaction bodies, headers and native blob data must still be
 available for the selected recovery range. Missing history fails recovery; it
 does not authorize skipping blocks or declaring settlement complete.
+
+Each correlation retains the accepted endpoint's executed history state and
+header. Same-height partial consumption can replace its Reth state; recovery
+uses the retained record and rechecks its canonical L1 occurrence and origin.
+The fresh-network index format is `eez-batch-correlation-recorded-history-v1`;
+older formats are rejected, without an in-place migration. Ordinary production
+persists the exact parent witness locally before advancing, so rapid catch-up
+cannot outrun witness capture into pruned trie state. This does not wait for the
+prover or an L1 response, but local storage failures still fail closed.
 
 See the [recovery and rollback requirements](runbooks/ethereum-node.md#recovery-with-a-pruned-l1).
 

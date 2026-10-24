@@ -1,4 +1,4 @@
-//! The `Prove` RPC service: bounded ingestion, validation, and attestation.
+//! Composer-to-prover service: bounded ingestion, validation, and attestation.
 //!
 //! V2 retains incremental execution in bounded sessions and uses
 //! [`crate::validate`] and [`crate::settlement`] to bind the native batch to
@@ -9,15 +9,15 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use alloy_primitives::{Address, B256};
-use eez_control_rpc::v1::prover_server::ProverServer;
+use eez_control_rpc::v2::prover_server::ProverServer;
 use tokio::sync::Semaphore;
 
 use crate::{attest::Attester, settlement, validate, window};
 
 pub(crate) mod l1;
-mod rpc;
 mod sessions;
 mod settlement_job;
+mod worker;
 
 pub(crate) use settlement_job::AttestablePublicInputsHash;
 
@@ -240,14 +240,6 @@ impl ProveSvc {
                 .await
                 .expect("the validation-worker semaphore is never closed"),
         );
-    }
-
-    pub(crate) fn streaming_server(
-        &self,
-    ) -> eez_control_rpc::v2::prover_server::ProverServer<Self> {
-        eez_control_rpc::v2::prover_server::ProverServer::new(self.clone())
-            .max_decoding_message_size(self.limits.max_decoding_message_bytes())
-            .max_encoding_message_size(MAX_ENCODING_MESSAGE_BYTES)
     }
 
     /// Build the gRPC server with the configured request and response size limits.

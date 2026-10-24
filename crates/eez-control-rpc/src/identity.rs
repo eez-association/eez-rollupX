@@ -2,18 +2,17 @@
 //!
 //! This is a compatibility check, never authorization to sign or trust a block.
 //! Resource settings are deliberately absent. Changes to validation semantics
-//! require a validation specification version bump even when the wire stays fixed.
+//! require a validation-contract version bump even when the wire stays fixed.
 
 use std::num::NonZeroU64;
 
 use alloy_primitives::{Address, B256, Bytes, keccak256};
 use alloy_rlp::RlpEncodable;
 
-/// Encoding revision of the language-neutral RLP identity tuple.
-pub const IDENTITY_SCHEMA_VERSION: u64 = 6;
-/// Accepted validation semantics, independent of implementation/build metadata.
-/// See VALIDATION_IDENTITY.md for the versioning and dependency-review rules.
-pub const VALIDATION_SPEC_VERSION: u64 = 1;
+/// One contract version for identity encoding, JSON canonicalization and accepted
+/// execution/settlement semantics. These rules cannot be selected independently.
+/// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
+pub const VALIDATION_VERSION: u64 = 1;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]
@@ -23,7 +22,6 @@ pub struct ValidationContext {
     pub system_address: Address,
     pub eez_l2_address: Address,
     pub chain_document_digest: B256,
-    pub canonical_json_version: u64,
     /// Exact profile committed by the deployed manager, including L1 rules.
     pub offline_profile_hash: B256,
     pub registry: Address,
@@ -35,16 +33,14 @@ impl ValidationContext {
     /// key, quota, transport endpoint or caller-supplied block participates.
     #[must_use]
     pub fn identity(self) -> B256 {
-        keccak256(self.preimage(VALIDATION_SPEC_VERSION))
+        keccak256(self.preimage(VALIDATION_VERSION))
     }
 
-    fn preimage(self, spec_version: u64) -> Vec<u8> {
+    fn preimage(self, version: u64) -> Vec<u8> {
         #[derive(RlpEncodable)]
         struct Identity {
             domain: Bytes,
-            schema: u64,
-            spec_version: u64,
-            canonical_json_version: u64,
+            version: u64,
             rollup_id: u64,
             chain_id: u64,
             system_address: Address,
@@ -56,9 +52,7 @@ impl ValidationContext {
         }
         alloy_rlp::encode(Identity {
             domain: Bytes::from_static(b"eez.validation-identity"),
-            schema: IDENTITY_SCHEMA_VERSION,
-            spec_version,
-            canonical_json_version: self.canonical_json_version,
+            version,
             rollup_id: self.rollup_id.get(),
             chain_id: self.chain_id,
             system_address: self.system_address,
@@ -82,7 +76,6 @@ mod tests {
             system_address: Address::repeat_byte(0x11),
             eez_l2_address: Address::repeat_byte(0x22),
             chain_document_digest: B256::repeat_byte(0x33),
-            canonical_json_version: 1,
             offline_profile_hash: B256::repeat_byte(0x55),
             registry: Address::repeat_byte(0x66),
             manager: Address::repeat_byte(0x77),
@@ -93,8 +86,7 @@ mod tests {
     fn portable_identity_vectors() {
         let vectors: serde_json::Value =
             serde_json::from_str(include_str!("../conformance/validation-identity.json")).unwrap();
-        assert_eq!(vectors["schema_version"], IDENTITY_SCHEMA_VERSION);
-        assert_eq!(vectors["spec_version"], VALIDATION_SPEC_VERSION);
+        assert_eq!(vectors["validation_version"], VALIDATION_VERSION);
         assert_eq!(vectors["identities"].as_array().unwrap().len(), 3);
         for vector in vectors["identities"].as_array().unwrap() {
             let context = ValidationContext {
@@ -107,7 +99,6 @@ mod tests {
                     .unwrap()
                     .parse()
                     .unwrap(),
-                canonical_json_version: vectors["canonical_json_version"].as_u64().unwrap(),
                 offline_profile_hash: vector["offline_profile_hash"]
                     .as_str()
                     .unwrap()
@@ -117,7 +108,7 @@ mod tests {
                 manager: vector["manager"].as_str().unwrap().parse().unwrap(),
             };
             assert_eq!(
-                context.preimage(VALIDATION_SPEC_VERSION),
+                context.preimage(VALIDATION_VERSION),
                 hex::decode(vector["rlp"].as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
             );
             assert_eq!(
@@ -170,16 +161,12 @@ mod tests {
                 chain_document_digest: B256::repeat_byte(0x34),
                 ..original
             },
-            ValidationContext {
-                canonical_json_version: 2,
-                ..original
-            },
         ] {
             assert_ne!(identity, changed.identity());
         }
         assert_ne!(
             identity,
-            keccak256(original.preimage(VALIDATION_SPEC_VERSION + 1))
+            keccak256(original.preimage(VALIDATION_VERSION + 1))
         );
     }
 
@@ -192,9 +179,9 @@ mod tests {
         assert_eq!(
             keccak256(include_bytes!("../../../Cargo.lock")),
             alloy_primitives::b256!(
-                "6250a73d002bc15d5dc3724ba268ebcab84c5dd2d64d9f70c46ba2c10cd3327e"
+                "ee4e2fdddf84af928f69b8c730783d67c5edf4836a03ca6bee6cb2e72fb44071"
             ),
-            "review dependency semantics and VALIDATION_SPEC_VERSION before updating this guard"
+            "review dependency semantics and VALIDATION_VERSION before updating this guard"
         );
     }
 }

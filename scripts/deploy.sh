@@ -32,6 +32,7 @@ source "$ENV_FILE"
 : "${EEZ_L1_RPC_URL:?EEZ_L1_RPC_URL not set in .env}"
 : "${EEZ_L1_POSTER_KEY:?EEZ_L1_POSTER_KEY not set in .env}"
 : "${EEZ_PROOF_SIGNER_KEY:?EEZ_PROOF_SIGNER_KEY not set in .env}"
+: "${EEZ_L2_TREASURY_RECIPIENT:?EEZ_L2_TREASURY_RECIPIENT must select the initial L2 treasury recipient}"
 
 configured_initial_block_hash="${EEZ_INITIAL_BLOCK_HASH:-}"
 
@@ -51,10 +52,11 @@ POSTER_ADDRESS="$(cast wallet address --private-key "$EEZ_L1_POSTER_KEY")"
 EEZ_UPGRADE_OWNER="${EEZ_UPGRADE_OWNER:-$OWNER}"
 EEZ_ROLLUP_UPGRADE_OWNER="${EEZ_ROLLUP_UPGRADE_OWNER:-$OWNER}"
 EEZ_L2_UPGRADE_OWNER="${EEZ_L2_UPGRADE_OWNER:-$OWNER}"
+EEZ_L2_TREASURY_OWNER="${EEZ_L2_TREASURY_OWNER-$OWNER}"
 # EEZL2 sweeps ether found at a proxy address during deployment to this L2
 # account. It is baked into the genesis predeploy; default to the L1 poster.
 EEZ_L2_RECOVERY_ADDRESS="${EEZ_L2_RECOVERY_ADDRESS:-$POSTER_ADDRESS}"
-EEZ_L2_SYSTEM_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
+EEZ_L2_SYSTEM_ADDRESS="0xfffffffffffffffffffffffffffffffffffffffe"
 if [[ "${AUTHORIZED_SIGNER,,}" == "${EEZ_L2_SYSTEM_ADDRESS,,}" ]]; then
     echo "deploy: proof attestation address must differ from the reserved native system address" >&2
     exit 1
@@ -237,15 +239,30 @@ with open(output, "w") as destination:
     destination.write("\n")
 ' "$GENESIS_BASE" "$GENESIS_TIMESTAMP_TMP" "$REFERENCE_CHAIN_ID" "$EEZ_L1_BLOCK_TIME_MS" "$EEZ_L2_BLOCK_TIME_MS" "${EEZ_L2_HISTORY_UPDATE_OFFSET-}"
 
+# The renderer preserves its base mode; mktemp's 0600 would hide a public genesis
+# from the non-root signer. Keep the operator-selected base permissions.
+chmod --reference="$GENESIS_BASE" "$GENESIS_TIMESTAMP_TMP"
+
 echo "      rendering L2 genesis (rollupId=$EXPECTED_ROLLUP_ID, system=$EEZ_L2_SYSTEM_ADDRESS, recovery=$EEZ_L2_RECOVERY_ADDRESS)"
 "$REPO/scripts/update-eezl2-genesis.sh" --render \
     --rollup-id "$EXPECTED_ROLLUP_ID" \
     --system-address "$EEZ_L2_SYSTEM_ADDRESS" \
     --recovery-address "$EEZ_L2_RECOVERY_ADDRESS" \
     --upgrade-owner "$EEZ_L2_UPGRADE_OWNER" \
+    --treasury-owner "$EEZ_L2_TREASURY_OWNER" \
+    --treasury-recipient "$EEZ_L2_TREASURY_RECIPIENT" \
     --base "$GENESIS_TIMESTAMP_TMP" \
     --output "$GENESIS_OUT" \
     --profile-output "$GENESIS_PROFILE_OUT"
+
+rendered_collector="$(jq -er '.config.rollupX.feeCollector' "$GENESIS_OUT")"
+profile_collector="$(jq -er '.feeCollector' "$GENESIS_PROFILE_OUT")"
+if [[ "$rendered_collector" != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078" || "$profile_collector" != "$rendered_collector" ]] ||
+    ! jq -e --arg owner "${EEZ_L2_TREASURY_OWNER,,}" --arg recipient "${EEZ_L2_TREASURY_RECIPIENT,,}" \
+        '.treasuryOwner == $owner and .treasuryRecipient == $recipient' "$GENESIS_PROFILE_OUT" >/dev/null; then
+    echo "deploy: rendered treasury profile differs from the explicit deployment inputs" >&2
+    exit 1
+fi
 
 EEZ_L2_GENESIS_STATE_ROOT="$(jq -er '.genesisStateRoot' "$GENESIS_PROFILE_OUT")"
 EEZ_L2_EEZL2_CODE_HASH="$(jq -er '.runtimeCodeHash' "$GENESIS_PROFILE_OUT")"
@@ -385,6 +402,7 @@ EEZL2_ADDRESS=$EEZL2_ADDRESS
 EEZ_L2_IMPLEMENTATION_ADDRESS=$EEZ_L2_IMPLEMENTATION_ADDRESS
 EEZ_L2_PROXY_ADMIN=$EEZ_L2_PROXY_ADMIN
 EEZ_L2_UPGRADE_OWNER=$EEZ_L2_UPGRADE_OWNER
+# Deployment record only; runtime execution reads the authenticated genesis.
 # Reserved native system identity; no L2 system key is used.
 EEZ_L2_SYSTEM_ADDRESS=$EEZ_L2_SYSTEM_ADDRESS
 EEZ_L2_RECOVERY_ADDRESS=$EEZ_L2_RECOVERY_ADDRESS

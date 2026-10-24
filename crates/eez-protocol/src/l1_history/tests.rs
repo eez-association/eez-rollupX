@@ -8,6 +8,51 @@ const RULES: HeaderRules = HeaderRules {
     unsupported_time: None,
 };
 
+#[test]
+fn recorded_import_limits_delay_regression_and_exact_abi_are_enforced() {
+    let evidence = chain(&(0..=70).collect::<Vec<_>>());
+    let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
+    let prior = state(&evidence, 99, 120);
+    let valid = schedule
+        .execution(126, prior, &evidence, Some(163))
+        .unwrap();
+    let raw = valid.import.unwrap();
+    assert_eq!(decode_import(&raw).unwrap().hashes.len(), 64);
+    assert!(
+        schedule
+            .execution(126, prior, &evidence, Some(164))
+            .unwrap_err()
+            .to_string()
+            .contains("bound")
+    );
+    assert!(
+        schedule
+            .execution(126, state(&evidence, 100, 120), &evidence, Some(99))
+            .unwrap_err()
+            .to_string()
+            .contains("regresses")
+    );
+    let future = chain(&[108, 121]);
+    assert!(
+        schedule
+            .execution(126, state(&future, 99, 120), &future, Some(100))
+            .unwrap_err()
+            .to_string()
+            .contains("newer")
+    );
+    for mutation in 0..5 {
+        let mut bad = raw.to_vec();
+        match mutation {
+            0 => bad.push(0),
+            1 => bad[67] = 96,
+            2 => bad[68..100].fill(0xff),
+            3 => bad[4] = 1,
+            _ => bad[0] ^= 1,
+        }
+        assert!(decode_import(&bad).is_err(), "mutation {mutation}");
+    }
+}
+
 fn headers(times: &[u64]) -> Vec<Bytes> {
     let mut parent = B256::ZERO;
     times
@@ -48,12 +93,12 @@ fn delay_retains_origin_and_randao_across_sync_then_updates_together() {
     let chain = chain(&[108, 120, 121, 132, 144]);
     let before = state(&chain, 99, 120);
     for time in [122, 124] {
-        let e = schedule.execution(time, before, &chain).unwrap();
+        let e = schedule.execution(time, before, &chain, None).unwrap();
         assert_eq!(e.origin_number, 99);
         assert_eq!(e.prev_randao, B256::with_last_byte(1));
         assert!(e.import.is_none());
     }
-    let update = schedule.execution(126, before, &chain).unwrap();
+    let update = schedule.execution(126, before, &chain, Some(100)).unwrap();
     assert_eq!(update.origin_number, 100);
     assert_eq!(update.prev_randao, B256::with_last_byte(2));
     let call = IL1BlockhashContract::importHistoryCall::abi_decode(update.import.as_ref().unwrap())
@@ -62,12 +107,12 @@ fn delay_retains_origin_and_randao_across_sync_then_updates_together() {
     assert_eq!(call.hashes, vec![chain.at(100).unwrap().hash()]);
     let after = state(&chain, 100, 132);
     for time in [128, 130, 132, 134, 136] {
-        let e = schedule.execution(time, after, &chain).unwrap();
+        let e = schedule.execution(time, after, &chain, None).unwrap();
         assert_eq!(e.origin_number, 100);
         assert_eq!(e.prev_randao, B256::with_last_byte(2));
         assert!(e.import.is_none());
     }
-    let update = schedule.execution(138, after, &chain).unwrap();
+    let update = schedule.execution(138, after, &chain, Some(102)).unwrap();
     assert_eq!(update.origin_number, 102);
     assert_eq!(update.prev_randao, B256::with_last_byte(4));
     let call = IL1BlockhashContract::importHistoryCall::abi_decode(update.import.as_ref().unwrap())
@@ -88,7 +133,7 @@ fn every_offset_and_exact_cutoff_equality() {
         assert_eq!(schedule.source_cutoff(update).unwrap(), 120);
         assert_eq!(
             schedule
-                .execution(update, state(&chain, 99, 120), &chain)
+                .execution(update, state(&chain, 99, 120), &chain, Some(100))
                 .unwrap()
                 .origin_number,
             100
@@ -104,7 +149,7 @@ fn missed_slots_repeat_source_but_not_cutoff_or_records() {
     let chain = chain(&[108, 144]);
     for (timestamp, cutoff) in [(126, 120), (138, 132)] {
         let e = schedule
-            .execution(timestamp, state(&chain, 99, cutoff), &chain)
+            .execution(timestamp, state(&chain, 99, cutoff), &chain, Some(99))
             .unwrap();
         assert_eq!(e.origin_number, 99);
         let call = IL1BlockhashContract::importHistoryCall::abi_decode(e.import.as_ref().unwrap())
@@ -114,42 +159,30 @@ fn missed_slots_repeat_source_but_not_cutoff_or_records() {
     }
     assert!(
         schedule
-            .execution(138, state(&chain, 99, 120), &chain)
+            .execution(138, state(&chain, 99, 120), &chain, Some(99))
             .is_err()
     );
 }
 
 #[test]
-fn source_maximality_is_deferred_but_never_waived_for_historical_mode() {
+fn recorded_origins_bind_to_both_exact_anchors_without_latest_source_inference() {
     let mut chain = chain(&[108, 120]);
-    let selected = chain.endpoint().unwrap().hash();
+    let selected = chain.at(99).unwrap().hash();
     let actual = EvidenceAnchor::ActualParent {
         number: 100,
-        hash: selected,
+        hash: chain.endpoint().unwrap().hash(),
         target_timestamp: 132,
     };
-    chain.verify_cutoff(120, selected, actual).unwrap();
-    assert!(chain.verify_cutoff(132, selected, actual).is_err());
-    assert!(
-        chain
-            .verify_cutoff(
-                120,
-                selected,
-                EvidenceAnchor::Historical {
-                    number: 100,
-                    hash: selected
-                }
-            )
-            .is_err()
-    );
+    chain.verify_origin(99, selected, actual).unwrap();
+    assert!(chain.verify_origin(100, selected, actual).is_err());
     let later = headers(&[108, 120, 132]);
     chain.append(&later[2..], &RULES, 3).unwrap();
     let historical = EvidenceAnchor::Historical {
         number: 101,
         hash: chain.endpoint().unwrap().hash(),
     };
-    chain.verify_cutoff(120, selected, historical).unwrap();
-    assert!(chain.verify_cutoff(132, selected, historical).is_err());
+    chain.verify_origin(99, selected, historical).unwrap();
+    assert!(chain.verify_origin(99, B256::ZERO, historical).is_err());
     assert!(
         chain.verify_anchor(actual).is_err(),
         "extra endpoint evidence must reject"
@@ -234,17 +267,17 @@ fn header_layout_changes_are_checked_at_exact_fork_boundaries() {
 }
 
 #[test]
-fn stale_inherited_source_and_wrong_parent_state_reject() {
+fn repeated_inherited_source_is_valid_but_wrong_parent_state_rejects() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 120, 132]);
     let mut invalid = state(&chain, 99, 132);
-    assert!(schedule.execution(134, invalid, &chain).is_err());
+    assert!(schedule.execution(134, invalid, &chain, None).is_ok());
     invalid = state(&chain, 100, 132);
     invalid.endpoint_hash = B256::repeat_byte(9);
-    assert!(schedule.execution(134, invalid, &chain).is_err());
+    assert!(schedule.execution(134, invalid, &chain, None).is_err());
     assert!(
         schedule
-            .execution(138, state(&chain, 100, 120), &chain)
+            .execution(138, state(&chain, 100, 120), &chain, Some(100))
             .is_err()
     );
 }

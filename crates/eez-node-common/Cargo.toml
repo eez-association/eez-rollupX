@@ -17,6 +17,7 @@ reth-rpc-eth-api.workspace = true
 serde_json = { workspace = true, optional = true }
 eez-driver.workspace = true
 eez-payload-codec.workspace = true
+eez-protocol.workspace = true
 eez-l1 = { workspace = true, optional = true }
 
 alloy-consensus.workspace                 = true
@@ -35,6 +36,7 @@ reth-node-api.workspace                   = true
 reth-node-builder.workspace               = true
 reth-payload-primitives.workspace         = true
 reth-storage-api.workspace                = true
+reth-tasks.workspace                      = true
 reth-primitives-traits.workspace          = true
 reth-transaction-pool.workspace           = true
 reth-eth-wire-types.workspace             = true
@@ -70,7 +72,6 @@ reth-rpc-eth-types.workspace = true
 revm.workspace = true
 
 [dev-dependencies]
-eez-protocol.workspace = true
 alloy-provider.workspace = true
 alloy-transport = "=2.5.0"
 

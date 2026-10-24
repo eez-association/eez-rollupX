@@ -9,7 +9,9 @@ use alloy_eips::{eip1559::BaseFeeParams, eip7685::EMPTY_REQUESTS_HASH};
 use alloy_primitives::{B64, B256};
 
 mod derivation;
-pub use derivation::{AnchorKind, DerivationConfig, GenesisL1Reference, Schedule};
+pub use derivation::{
+    AnchorKind, DerivationConfig, GenesisL1Reference, Schedule, validate_fee_collector,
+};
 
 /// Ordinary and native transactions share this metered block budget.
 pub const GAS_LIMIT: u64 = 30_000_000;

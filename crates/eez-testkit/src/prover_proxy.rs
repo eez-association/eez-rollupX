@@ -1,11 +1,6 @@
 //! Bounded v2 mutation/capture adapter for the real signer process tests.
 use super::*;
-use eez_control_rpc::v2::{
-    Begin, ClientFrame, Finalize, ServerFrame, client_frame,
-    prover_client::ProverClient as StreamClient,
-    prover_server::{Prover as StreamProver, ProverServer as StreamServer},
-    server_frame,
-};
+use eez_control_rpc::v2::{Begin, ClientFrame, Finalize, ServerFrame, client_frame, server_frame};
 use prost::Message as _;
 use std::collections::{BTreeMap, VecDeque};
 use tokio_stream::wrappers::ReceiverStream;
@@ -105,7 +100,7 @@ struct ProxyCounters {
 #[derive(Debug)]
 struct Capture {
     begin: Begin,
-    blocks: Vec<eez_control_rpc::v1::BlockWitness>,
+    blocks: Vec<eez_control_rpc::v2::BlockWitness>,
     bytes: usize,
     attached_epoch: Option<u64>,
 }
@@ -166,7 +161,7 @@ impl CaptureBook {
 }
 
 impl Capture {
-    fn append(&mut self, block: eez_control_rpc::v1::BlockWitness) -> Result<(), Status> {
+    fn append(&mut self, block: eez_control_rpc::v2::BlockWitness) -> Result<(), Status> {
         if let Some(prior) = self
             .blocks
             .iter()
@@ -264,20 +259,6 @@ struct ProverProxyService {
     counters: Arc<ProxyCounters>,
 }
 
-#[tonic::async_trait]
-impl Prover for ProverProxyService {
-    async fn capabilities(
-        &self,
-        request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
-    ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
-        ProverClient::connect(self.upstream.clone())
-            .await
-            .map_err(|error| Status::unavailable(error.to_string()))?
-            .capabilities(request)
-            .await
-    }
-}
-
 impl ProverProxyService {
     fn rejection(&self, code: tonic::Code) {
         if matches!(
@@ -363,7 +344,17 @@ impl ProverProxyService {
 }
 
 #[tonic::async_trait]
-impl StreamProver for ProverProxyService {
+impl Prover for ProverProxyService {
+    async fn capabilities(
+        &self,
+        request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
+    ) -> Result<Response<eez_control_rpc::v2::CapabilitiesResponse>, Status> {
+        ProverClient::connect(self.upstream.clone())
+            .await
+            .map_err(|error| Status::unavailable(error.to_string()))?
+            .capabilities(request)
+            .await
+    }
     type ProveStreamStream = ReceiverStream<Result<ServerFrame, Status>>;
     async fn prove_stream(
         &self,
@@ -371,7 +362,7 @@ impl StreamProver for ProverProxyService {
     ) -> Result<Response<Self::ProveStreamStream>, Status> {
         let (metadata, extensions, mut input) = request.into_parts();
         let (up_tx, up_rx) = tokio::sync::mpsc::channel(8);
-        let mut client = StreamClient::connect(self.upstream.clone())
+        let mut client = ProverClient::connect(self.upstream.clone())
             .await
             .map_err(|error| Status::unavailable(error.to_string()))?
             .max_encoding_message_size(MAX_MESSAGE_BYTES)
@@ -479,12 +470,7 @@ impl ProverProxyHandle {
         let task = tokio::spawn(async move {
             let _ = tonic::transport::Server::builder()
                 .add_service(
-                    ProverServer::new(service.clone())
-                        .max_decoding_message_size(MAX_MESSAGE_BYTES)
-                        .max_encoding_message_size(MAX_MESSAGE_BYTES),
-                )
-                .add_service(
-                    StreamServer::new(service)
+                    ProverServer::new(service)
                         .max_decoding_message_size(MAX_MESSAGE_BYTES)
                         .max_encoding_message_size(MAX_MESSAGE_BYTES),
                 )
@@ -525,7 +511,7 @@ mod tests {
     use super::*;
     #[test]
     fn cold_capture_retains_exact_prefix_and_replaces_rewound_terminal() {
-        let block = |number, hash, parent| eez_control_rpc::v1::BlockWitness {
+        let block = |number, hash, parent| eez_control_rpc::v2::BlockWitness {
             number,
             hash: vec![hash; 32],
             parent_hash: vec![parent; 32],

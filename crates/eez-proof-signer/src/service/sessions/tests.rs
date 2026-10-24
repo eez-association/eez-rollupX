@@ -86,7 +86,6 @@ async fn vector(name: &str) {
     let (stop, shutdown) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(server_service.streaming_server())
             .add_service(server_service.into_server())
             .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
                 let _ = shutdown.await;
@@ -308,12 +307,12 @@ fn controlled(request_timeout: Duration) -> Controlled {
         },
         Default::default(),
     );
-    let wire = eez_control_rpc::v1::BlockWitness {
+    let wire = eez_control_rpc::v2::BlockWitness {
         number: 1,
         hash: block.header.hash_slow().to_vec(),
         parent_hash: parent.hash_slow().to_vec(),
         rlp: alloy_rlp::encode(block),
-        witness: Some(eez_control_rpc::v1::ExecutionWitness {
+        witness: Some(eez_control_rpc::v2::ExecutionWitness {
             headers: vec![alloy_rlp::encode(&parent)],
             l1_headers_rlp: vec![alloy_rlp::encode(crate::testkit::controlled_l1_header())],
             ..Default::default()
@@ -379,7 +378,7 @@ async fn open_controlled(
     let service = fixture.service.clone();
     let server = tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(service.streaming_server())
+            .add_service(service.clone().into_server())
             .serve_with_incoming(TcpListenerStream::new(listener))
             .await
             .unwrap();
@@ -730,7 +729,7 @@ async fn shutdown_closes_live_rpc_but_waits_for_detached_execution() {
     let (stop, shutdown) = tokio::sync::oneshot::channel();
     let server = tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(service.streaming_server())
+            .add_service(service.clone().into_server())
             .serve_with_incoming_shutdown(TcpListenerStream::new(listener), async {
                 let _ = shutdown.await;
                 service.stop_streams();
@@ -883,7 +882,7 @@ async fn incompatible_validation_identity_is_rejected_before_session_creation() 
     let service = fixture.service.clone();
     let server = tokio::spawn(async move {
         tonic::transport::Server::builder()
-            .add_service(service.streaming_server())
+            .add_service(service.clone().into_server())
             .serve_with_incoming(TcpListenerStream::new(listener))
             .await
             .unwrap();

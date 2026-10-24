@@ -105,7 +105,6 @@ async fn main() -> eyre::Result<()> {
     );
     let shutdown_service = svc.clone();
     let serve_result = tonic::transport::Server::builder()
-        .add_service(svc.streaming_server())
         .add_service(svc.into_server())
         .serve_with_shutdown(listen_addr, async {
             shutdown_signal().await;

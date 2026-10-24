@@ -79,7 +79,9 @@ fn signature_recovery_failures_are_not_system_transactions() {
 fn reserved_system_sender_cannot_masquerade_as_a_user() {
     let native = eez_primitives::SystemTransaction {
         chain_id: 1,
-        nonce: 0,
+        version: eez_primitives::SYSTEM_TX_VERSION,
+        source_hash: alloy_primitives::B256::with_last_byte(0),
+        gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: Address::repeat_byte(0xaa),
         value: U256::ZERO,
         input: Bytes::new(),
@@ -89,7 +91,7 @@ fn reserved_system_sender_cannot_masquerade_as_a_user() {
         inspect_settling_block(&block_rlp(vec![native]), &[true], expected_rollup_id()),
         Err(BlockInspectionError::InvalidRlp {
             block_number: 0,
-            reason: "system transaction must target EEZL2".to_owned()
+            reason: "invalid system transaction destination or value".to_owned()
         })
     );
 }
@@ -418,17 +420,17 @@ fn inbound_binding_rejects_a_candidate_hidden_inside_an_outbound_pair() {
         &[ClaimedEntryShape::Outbound],
     );
 
-    let effect_prefix = verify_effect_prefix(
-        &batch,
-        pre_settling,
-        &[checkpoint(1, effect_root)],
-        &settling,
-    )
-    .unwrap();
     assert_eq!(
-        verify_inbound_effect_entries(&effect_prefix).err(),
-        Some(InboundEffectError::UnexpectedCandidate {
-            transaction_index: 0,
+        verify_effect_prefix(
+            &batch,
+            pre_settling,
+            &[checkpoint(1, effect_root)],
+            &settling
+        )
+        .err(),
+        Some(EffectPrefixError::EffectCountMismatch {
+            claimed: 0,
+            observed: 1
         })
     );
 }

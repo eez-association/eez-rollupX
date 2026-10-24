@@ -125,9 +125,9 @@ pub async fn replay(vector: &Value, endpoint: &str, expected_identity: B256) -> 
         return Err("empty transcript".into());
     }
     let capabilities =
-        eez_control_rpc::v1::prover_client::ProverClient::connect(endpoint.to_owned())
+        eez_control_rpc::v2::prover_client::ProverClient::connect(endpoint.to_owned())
             .await?
-            .capabilities(eez_control_rpc::v1::CapabilitiesRequest {})
+            .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
             .await?
             .into_inner();
     if capabilities.profile_id != eez_control_rpc::OFFLINE_PROFILE_ID

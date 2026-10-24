@@ -439,7 +439,9 @@ fn checkpoint_plan_is_derived_from_recovered_transactions() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce: 0,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::with_last_byte(0),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
             value: U256::ZERO,
             input: Bytes::new(),
@@ -470,7 +472,9 @@ fn checkpoint_plan_includes_every_inbound_boundary() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce: 0,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::with_last_byte(0),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
             value: U256::ZERO,
             input: Bytes::new(),
@@ -579,16 +583,19 @@ fn validates_the_golden_block_through_stateless() {
     let post_root = captured.header.state_root;
     assert_ne!(
         pre_root, post_root,
-        "an empty block still executes history pre-execution hooks"
+        "the recorded history import must change state"
     );
+    assert_eq!(captured.body.transactions.len(), 1);
+    assert!(captured.body.transactions[0].is_history());
+    assert!(captured.header.gas_used > 21_000);
     assert_eq!(output.pre_state_root, pre_root);
     assert_eq!(output.blocks.len(), 1);
     let block = &output.blocks[0];
     assert_eq!(block.computed_hash, expected_hash);
     assert_eq!(block.post_state_root, post_root);
-    assert!(block.receipt_successes.is_empty());
+    assert_eq!(block.receipt_successes, [true]);
     assert!(block.transaction_state_checkpoints.is_empty());
-    assert!(block.settlement_evidence.system_sender_flags.is_empty());
+    assert_eq!(block.settlement_evidence.system_sender_flags, [false]);
     assert!(
         block
             .settlement_evidence
@@ -917,33 +924,6 @@ fn authenticated_observation_replay_rejects_a_mutated_parent_header() {
 }
 
 #[test]
-fn historical_signed_selectors_do_not_become_native_transactions() {
-    let rlp = hex::decode(
-        include_str!(
-            "../../../tests/fixtures/stateless-checkpoint-2175/checkpoint-block-2175.rlp.hex"
-        )
-        .trim()
-        .trim_start_matches("0x"),
-    )
-    .unwrap();
-    let block: Block = alloy_rlp::decode_exact(&rlp).unwrap();
-    assert!(
-        block
-            .body
-            .transactions
-            .iter()
-            .all(|transaction| !matches!(transaction, TransactionSigned::System(_)))
-    );
-    assert!(
-        block
-            .body
-            .transactions
-            .iter()
-            .all(|transaction| transaction.recover_signer().unwrap() != TEST_SYSTEM_ADDRESS)
-    );
-}
-
-#[test]
 fn pre_cancelled_validation_does_not_consume_the_witness() {
     let cancellation = CancellationToken::default();
     cancellation.cancel();
@@ -1046,21 +1026,23 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         user: Address,
         user_nonce: u64,
         balance: U256,
-        native_nonce: u64,
+        collector_balance: U256,
     ) -> (B256, Vec<Bytes>) {
-        crate::testkit::history::state(
-            &[
-                (user, user_nonce, balance),
-                (SYSTEM_ADDRESS, native_nonce, U256::ZERO),
-            ],
-            100,
-        )
+        let mut accounts = vec![(user, user_nonce, balance), (SYSTEM_ADDRESS, 7, U256::ZERO)];
+        if collector_balance != U256::ZERO {
+            accounts.push((
+                alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
+                0,
+                collector_balance,
+            ));
+        }
+        crate::testkit::history::state(&accounts, 100)
     }
     let genesis = crate::testkit::history::genesis();
     let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
     let user = key.address();
     let balance = U256::from(1_000_000_000_000_000_000u64);
-    let (pre_root, witness_nodes) = state(user, 0, balance, 7);
+    let (pre_root, witness_nodes) = state(user, 0, balance, U256::ZERO);
     let parent = Header {
         number: 10,
         timestamp: 100,
@@ -1094,14 +1076,22 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             .unwrap(),
     );
     let mut transactions: Vec<TransactionSigned> = vec![ordinary.into_signed(signature).into()];
-    for nonce in [7, 8] {
+    let selector = eez_protocol::entries::EXECUTE_INCOMING_SELECTOR;
+    let native_gas = 21_000
+        + selector
+            .iter()
+            .map(|byte| if *byte == 0 { 10 } else { 40 })
+            .sum::<u64>();
+    for occurrence in [7, 8] {
         transactions.push(
             SystemTransaction {
                 chain_id: 1,
-                nonce,
+                version: eez_primitives::SYSTEM_TX_VERSION,
+                source_hash: B256::with_last_byte(occurrence),
+                gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                 to: EEZL2_ADDRESS,
                 value: U256::ZERO,
-                input: Bytes::new(),
+                input: Bytes::copy_from_slice(&selector),
             }
             .into(),
         );
@@ -1116,7 +1106,7 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     .map(|(index, tx_type)| EthereumReceipt {
         tx_type,
         success: true,
-        cumulative_gas_used: 21_000 * (index as u64 + 1),
+        cumulative_gas_used: 21_000 + native_gas * index as u64,
         logs: Vec::new(),
     })
     .collect();
@@ -1132,8 +1122,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             timestamp: 102,
             parent_hash: parent.hash_slow(),
             base_fee_per_gas: Some(base_fee),
-            gas_used: 21_000 * count as u64,
-            state_root: state(user, 1, remaining, 6 + count as u64).0,
+            gas_used: 21_000 + native_gas * (count as u64 - 1),
+            state_root: state(user, 1, remaining, balance - remaining).0,
             transactions_root: calculate_transaction_root(&transactions[..count]),
             receipts_root: calculate_receipt_root(&prefix_receipts),
             ..parent.clone()

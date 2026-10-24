@@ -17,6 +17,12 @@ use revm::{
     state::{AccountInfo, Bytecode},
 };
 
+const FEE_COLLECTOR: Address = address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+
+pub(crate) fn factory() -> EezEvmFactory {
+    EezEvmFactory::for_rollup(FEE_COLLECTOR).unwrap()
+}
+
 fn config() -> EezEvmConfig {
     let mut genesis: alloy_genesis::Genesis =
         serde_json::from_slice(include_bytes!("../../../genesis.json")).unwrap();
@@ -31,6 +37,7 @@ fn config() -> EezEvmConfig {
     rollup_x["syncIntervalBlocks"] = serde_json::json!(4);
     let (history, _) = crate::history::tests::fixture();
     let chain = history.source.headers(0).unwrap();
+    rollup_x["feeCollector"] = serde_json::json!(FEE_COLLECTOR);
     rollup_x["historyUpdateOffset"] = serde_json::json!(2);
     rollup_x["l1Reference"]["hash"] = serde_json::json!(chain.at(0).unwrap().hash());
     let account = genesis
@@ -69,9 +76,22 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         proxy_admin,
         alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
         eez_protocol::l1_history::HISTORY_ADDRESS,
+        eez_protocol::fee_vault::FEE_VAULT_ADDRESS,
     ];
     expected.sort();
     assert_eq!(addresses, expected);
+
+    let vault = eez_protocol::fee_vault::FEE_VAULT_ADDRESS;
+    assert_eq!(
+        genesis.config.extra_fields["rollupX"]["feeCollector"],
+        serde_json::json!(vault)
+    );
+    assert!(
+        genesis.alloc[&vault]
+            .code
+            .as_ref()
+            .is_some_and(|code| !code.is_empty())
+    );
 
     // ERC-1967 slots: the proxy delegates to the genesis implementation and is
     // administered by its ProxyAdmin.
@@ -92,13 +112,15 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
     );
 }
 
-fn block(nonce: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {
+fn block(source: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {
     let tx: EezTxEnvelope = SystemTransaction {
         chain_id,
-        nonce,
+        version: eez_primitives::SYSTEM_TX_VERSION,
+        source_hash: B256::from(U256::from(source)),
+        gas_limit: SYSTEM_TX_GAS_CAP,
         to: EEZL2_ADDRESS,
         value: U256::from(13),
-        input: Bytes::new(),
+        input: Bytes::copy_from_slice(&eez_protocol::entries::EXECUTE_INCOMING_SELECTOR),
     }
     .into();
     let block = Block::new(
@@ -174,11 +196,9 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_pri
             let system = bundle
                 .state
                 .get(&SYSTEM_ADDRESS)
-                .unwrap()
-                .info
-                .as_ref()
-                .unwrap();
-            assert_eq!(system.nonce, 1);
+                .and_then(|account| account.info.clone())
+                .unwrap_or_default();
+            assert_eq!(system.nonce, 0);
             // Prior ETH is burned before the block's first transaction. The
             // mint is spent by a successful call and removed on failure.
             assert_eq!(system.balance, U256::ZERO);
@@ -211,40 +231,44 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_pri
 }
 
 #[test]
-fn native_execution_retains_nonce_chain_and_block_gas_validation() {
-    for (nonce, chain, expected) in [
-        (1, 1, "NonceTooHigh"),
-        (0, 2, "InvalidChainId"),
-        (u64::MAX, 1, "NonceOverflowInTransaction"),
-    ] {
-        let error = config()
-            .executor(database(U256::ZERO, bytes!("00")))
-            .execute_one(&block(nonce, chain))
-            .unwrap_err();
-        assert!(
-            format!("{error:?}").contains(expected),
-            "wrong validation error: {error:?}"
-        );
-    }
-    // Native transactions share the 30M block budget without reserving the cap:
-    // the first out-of-gas call burns the cap, the second exactly the remainder,
-    // and a third has no budget left, which invalidates the block.
+fn native_execution_retains_chain_and_exact_block_gas_validation() {
+    let error = config()
+        .executor(database(U256::ZERO, bytes!("00")))
+        .execute_one(&block(0, 2))
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("InvalidChainId"));
+    let remainder = eez_protocol::l2::GAS_LIMIT - SYSTEM_TX_GAS_CAP;
     let mut full = block(0, 1).into_block();
-    full.body.transactions = (0..2).map(|nonce| native_tx(nonce, Bytes::new())).collect();
-    let recovered = SealedBlock::seal_slow(full.clone()).try_recover().unwrap();
+    full.body.transactions = vec![
+        native_tx(SYSTEM_TX_GAS_CAP, Bytes::new()),
+        native_tx(remainder, Bytes::new()),
+    ];
     let output = config()
         .executor(database(U256::ZERO, bytes!("5b600056")))
-        .execute_one(&recovered)
+        .execute_one(&SealedBlock::seal_slow(full.clone()).try_recover().unwrap())
         .unwrap();
     assert_eq!(output.gas_used, eez_protocol::l2::GAS_LIMIT);
-    let cumulative: Vec<_> = output
-        .receipts
-        .iter()
-        .map(|r| r.cumulative_gas_used)
-        .collect();
-    assert_eq!(cumulative, [SYSTEM_TX_GAS_CAP, eez_protocol::l2::GAS_LIMIT]);
+    assert_eq!(
+        output
+            .receipts
+            .iter()
+            .map(|r| r.cumulative_gas_used)
+            .collect::<Vec<_>>(),
+        [SYSTEM_TX_GAS_CAP, eez_protocol::l2::GAS_LIMIT]
+    );
     assert!(output.receipts.iter().all(|receipt| !receipt.success));
-    full.body.transactions.push(native_tx(2, Bytes::new()));
+    let mut mismatched = full.clone();
+    mismatched.body.transactions[1] = native_tx(SYSTEM_TX_GAS_CAP, Bytes::new());
+    let error = config()
+        .executor(database(U256::ZERO, bytes!("5b600056")))
+        .execute_one(&SealedBlock::seal_slow(mismatched).try_recover().unwrap())
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("native gas limit differs from its block position")
+    );
+    full.body.transactions.push(native_tx(0, Bytes::new()));
     let error = config()
         .executor(database(U256::ZERO, bytes!("5b600056")))
         .execute_one(&SealedBlock::seal_slow(full).try_recover().unwrap())
@@ -255,13 +279,20 @@ fn native_execution_retains_nonce_chain_and_block_gas_validation() {
     );
 }
 
-fn native_tx(nonce: u64, input: Bytes) -> EezTxEnvelope {
+fn native_tx(gas_limit: u64, input: Bytes) -> EezTxEnvelope {
     SystemTransaction {
         chain_id: 1,
-        nonce,
+        version: eez_primitives::SYSTEM_TX_VERSION,
+        source_hash: B256::repeat_byte(42),
+        gas_limit,
         to: EEZL2_ADDRESS,
         value: U256::from(13),
-        input,
+        input: [
+            eez_protocol::entries::EXECUTE_INCOMING_SELECTOR.as_slice(),
+            input.as_ref(),
+        ]
+        .concat()
+        .into(),
     }
     .into()
 }
@@ -314,7 +345,7 @@ fn native_budget_is_the_remaining_block_gas_after_ordinary_transactions() {
     // 14M remainder, which an out-of-gas call burns exactly.
     let (user_tx, user) = looping_user_tx(16_000_000);
     let mut body = block(0, 1).into_block();
-    body.body.transactions = vec![user_tx, native_tx(0, Bytes::new())];
+    body.body.transactions = vec![user_tx, native_tx(14_000_000, Bytes::new())];
     let recovered = SealedBlock::seal_slow(body).try_recover().unwrap();
     let run = || {
         config()
@@ -338,12 +369,12 @@ fn native_budget_is_the_remaining_block_gas_after_ordinary_transactions() {
 
 #[test]
 fn native_budget_below_intrinsic_gas_invalidates_the_block() {
-    // 350,000 nonzero calldata bytes cost 14,021,000 under EIP-7623's floor: valid
+    // 350,000 nonzero calldata bytes plus the selector cost 14,021,160 under EIP-7623's floor: valid
     // with the cap in an empty block, but above the 13,222,784 left after a cap-
     // burning call. The transaction is rejected, never executed short.
     let heavy = Bytes::from(vec![1u8; 350_000]);
     let mut alone = block(0, 1).into_block();
-    alone.body.transactions = vec![native_tx(0, heavy.clone())];
+    alone.body.transactions = vec![native_tx(SYSTEM_TX_GAS_CAP, heavy.clone())];
     let output = config()
         .executor(database(U256::ZERO, bytes!("00")))
         .execute_one(&SealedBlock::seal_slow(alone).try_recover().unwrap())
@@ -352,7 +383,10 @@ fn native_budget_below_intrinsic_gas_invalidates_the_block() {
     assert!(output.gas_used > eez_protocol::l2::GAS_LIMIT - SYSTEM_TX_GAS_CAP);
 
     let mut crowded = block(0, 1).into_block();
-    crowded.body.transactions = vec![native_tx(0, Bytes::new()), native_tx(1, heavy)];
+    crowded.body.transactions = vec![
+        native_tx(SYSTEM_TX_GAS_CAP, Bytes::new()),
+        native_tx(eez_protocol::l2::GAS_LIMIT - SYSTEM_TX_GAS_CAP, heavy),
+    ];
     let error = config()
         .executor(database(U256::ZERO, bytes!("5b600056")))
         .execute_one(&SealedBlock::seal_slow(crowded).try_recover().unwrap())
@@ -424,7 +458,7 @@ fn l2_rejects_beacon_withdrawals_during_construction_import_and_engine_replay() 
 fn native_execution_rejects_noncanonical_gas_fields_without_mutating_state() {
     let block = block(0, 1);
     let balance = U256::from(20_000_000);
-    let mut evm = EezEvmFactory.create_evm(
+    let mut evm = factory().create_evm(
         database(balance, bytes!("00")),
         config().evm_env(block.header()).unwrap(),
     );
@@ -461,7 +495,7 @@ fn native_execution_rejects_noncanonical_gas_fields_without_mutating_state() {
     let output = evm.transact_raw(tx).unwrap();
     assert!(output.result.is_success());
     assert_eq!(output.state[&SYSTEM_ADDRESS].info.balance, balance);
-    assert_eq!(output.state[&SYSTEM_ADDRESS].info.nonce, 1);
+    assert_eq!(output.state[&SYSTEM_ADDRESS].info.nonce, 0);
     assert_eq!(output.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
 }
 
@@ -497,7 +531,7 @@ fn native_raw_environment_rejects_non_wire_fields_and_forged_recovery() {
     invalid.push(tx);
     for (index, tx) in invalid.into_iter().enumerate() {
         let balance = U256::from(7);
-        let mut evm = EezEvmFactory.create_evm(
+        let mut evm = factory().create_evm(
             database(balance, bytes!("00")),
             config().evm_env(block.header()).unwrap(),
         );
@@ -508,7 +542,7 @@ fn native_raw_environment_rejects_non_wire_fields_and_forged_recovery() {
         let result = evm.transact_raw(valid.clone()).unwrap();
         assert!(result.result.is_success());
         assert_eq!(result.state[&SYSTEM_ADDRESS].info.balance, balance);
-        assert_eq!(result.state[&SYSTEM_ADDRESS].info.nonce, 1);
+        assert_eq!(result.state[&SYSTEM_ADDRESS].info.nonce, 0);
         assert_eq!(result.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
     }
 }
@@ -517,7 +551,7 @@ fn native_raw_environment_rejects_non_wire_fields_and_forged_recovery() {
 fn failed_validation_and_uncommitted_execution_do_not_leak_minted_value() {
     let block = block(0, 1);
     let env = config().evm_env(block.header()).unwrap();
-    let mut evm = EezEvmFactory.create_evm(database(U256::from(5), bytes!("00")), env);
+    let mut evm = factory().create_evm(database(U256::from(5), bytes!("00")), env);
     let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
     for (nonce, chain) in [(1, 1), (0, 2)] {
         let mut invalid = tx.clone();
@@ -538,12 +572,10 @@ fn failed_validation_and_uncommitted_execution_do_not_leak_minted_value() {
     assert_eq!(replay.state[&SYSTEM_ADDRESS].info.balance, U256::from(5));
     assert_eq!(replay.state[&EEZL2_ADDRESS].info.balance, U256::from(13));
     evm.db_mut().commit(replay.state);
-    assert!(
-        evm.transact_raw(tx.clone()).is_err(),
-        "committed nonce cannot replay"
-    );
-    let next = evm.transact_raw(TxEnv { nonce: 1, ..tx }).unwrap();
-    assert_eq!(next.state[&SYSTEM_ADDRESS].info.nonce, 2);
+    // Source authorization is external to EVM execution. There is no nonce
+    // deduplication: another authorized occurrence can execute on this state.
+    let next = evm.transact_raw(tx).unwrap();
+    assert_eq!(next.state[&SYSTEM_ADDRESS].info.nonce, 0);
     assert_eq!(next.state[&SYSTEM_ADDRESS].info.balance, U256::from(5));
     assert_eq!(next.state[&EEZL2_ADDRESS].info.balance, U256::from(26));
 }
@@ -551,14 +583,14 @@ fn failed_validation_and_uncommitted_execution_do_not_leak_minted_value() {
 #[test]
 fn mint_overflow_does_not_poison_the_next_execution() {
     let block = block(0, 1);
-    let mut evm = EezEvmFactory.create_evm(
+    let mut evm = factory().create_evm(
         database(U256::MAX, bytes!("00")),
         config().evm_env(block.header()).unwrap(),
     );
     let tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
     assert!(
         format!("{:?}", evm.transact_raw(tx.clone()).unwrap_err())
-            .contains("deposit balance overflow")
+            .contains("credit balance overflow")
     );
     let out = evm
         .transact_raw(TxEnv {
@@ -568,7 +600,7 @@ fn mint_overflow_does_not_poison_the_next_execution() {
         .unwrap();
     assert!(out.result.is_success());
     assert_eq!(out.state[&SYSTEM_ADDRESS].info.balance, U256::MAX);
-    assert_eq!(out.state[&SYSTEM_ADDRESS].info.nonce, 1);
+    assert_eq!(out.state[&SYSTEM_ADDRESS].info.nonce, 0);
 }
 
 #[test]
@@ -596,9 +628,9 @@ fn inspection_and_normal_execution_apply_identical_mint_and_rollback_rules() {
                     ..Default::default()
                 },
             );
-            let mut plain = EezEvmFactory.create_evm(db.clone(), env.clone());
+            let mut plain = factory().create_evm(db.clone(), env.clone());
             let mut inspected =
-                EezEvmFactory.create_evm_with_inspector(db, env, CountInspector::default());
+                factory().create_evm_with_inspector(db, env, CountInspector::default());
             let tx = TxEnv {
                 tx_type,
                 caller,
@@ -660,7 +692,7 @@ fn native_gasprice_is_zero_in_nested_calls_including_reimbursement_and_positive_
                 },
             );
             let block = block(0, 1);
-            let mut evm = EezEvmFactory.create_evm(db, config().evm_env(block.header()).unwrap());
+            let mut evm = factory().create_evm(db, config().evm_env(block.header()).unwrap());
             assert_eq!(evm.block().basefee, 1);
             let mut tx = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
             let price = if native { 0 } else { 7 };
@@ -706,7 +738,7 @@ fn ordinary_transactions_still_pay_fees_and_outbound_eth_stays_at_the_system_add
             ..Default::default()
         },
     );
-    let mut evm = EezEvmFactory.create_evm(db, config().evm_env(block.header()).unwrap());
+    let mut evm = factory().create_evm(db, config().evm_env(block.header()).unwrap());
     let native = TxEnv::from_recovered_tx(&block.body().transactions[0], SYSTEM_ADDRESS);
     let mint = evm.transact_raw(native.clone()).unwrap();
     evm.db_mut().commit(mint.state);
@@ -734,7 +766,7 @@ fn ordinary_transactions_still_pay_fees_and_outbound_eth_stays_at_the_system_add
     );
     assert_eq!(out.state[&SYSTEM_ADDRESS].info.balance, U256::from(17));
     evm.db_mut().commit(out.state);
-    let next = evm.transact_raw(TxEnv { nonce: 1, ..native }).unwrap();
+    let next = evm.transact_raw(native).unwrap();
     assert_eq!(next.state[&SYSTEM_ADDRESS].info.balance, U256::from(17));
     assert_eq!(next.state[&EEZL2_ADDRESS].info.balance, U256::from(26));
 }
@@ -898,4 +930,39 @@ fn schedule_cache_preserves_profile_errors_and_l1_simulation() {
     EezEvmConfig::for_l1_simulation(spec)
         .evm_env(&header)
         .unwrap();
+}
+
+#[test]
+fn block_admission_rejects_unsupported_native_selectors() {
+    let native = SystemTransaction {
+        version: eez_primitives::SYSTEM_TX_VERSION,
+        chain_id: 1,
+        source_hash: B256::repeat_byte(1),
+        gas_limit: SYSTEM_TX_GAS_CAP,
+        to: EEZL2_ADDRESS,
+        value: U256::ZERO,
+        input: Bytes::new(),
+    };
+    for input in [Bytes::new(), bytes!("01"), bytes!("deadbeef")] {
+        let tx = EezTxEnvelope::from(SystemTransaction {
+            input,
+            ..native.clone()
+        });
+        assert!(
+            ensure_supported_transaction(&tx).is_err(),
+            "unknown native kind was admitted"
+        );
+    }
+    for selector in [
+        eez_protocol::system_tx::LOAD_EXECUTION_TABLE_SELECTOR,
+        eez_protocol::entries::EXECUTE_INCOMING_SELECTOR,
+    ] {
+        let tx = EezTxEnvelope::from(SystemTransaction {
+            input: Bytes::copy_from_slice(&selector),
+            ..native.clone()
+        });
+        // Kind admission alone does not authorize a table or occurrence; the
+        // complete ABI/execution/source gates validate those before settlement.
+        ensure_supported_transaction(&tx).unwrap();
+    }
 }

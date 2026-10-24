@@ -78,7 +78,7 @@ async fn reject_incomplete_evidence(
     let capabilities = ProverClient::connect(endpoint.to_owned())
         .await
         .unwrap()
-        .capabilities(eez_control_rpc::v1::CapabilitiesRequest {})
+        .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
         .await
         .unwrap()
         .into_inner();
@@ -132,7 +132,7 @@ async fn reject_incomplete_evidence(
         l1_headers_rlp: vec![],
     };
     for (index, (l1_headers_rlp, diagnostic)) in [
-        (vec![], "missing L1 source at cutoff"),
+        (vec![], "missing L1 header evidence"),
         (incomplete_bridge, "nonconsecutive L1 ancestry"),
     ]
     .into_iter()
@@ -347,18 +347,11 @@ async fn catch_up(
             .unwrap()
             .max_blob_count,
     );
-    let source = |block: &Header| {
-        // Independent schedule oracle: the fixture has 1-second L2 blocks,
-        // 5-second periods and installation three seconds after each cutoff.
-        let elapsed = block.timestamp - genesis.timestamp;
-        let cutoff = if elapsed < 3 {
-            genesis.timestamp - 5
-        } else {
-            genesis.timestamp + ((elapsed - 3) / 5) * 5
-        };
-        &historical_headers
-            [historical_headers.partition_point(|header| header.timestamp <= cutoff) - 1]
-    };
+    let bootstrap_source = historical_headers
+        .iter()
+        .rfind(|header| header.timestamp <= genesis.timestamp - 5)
+        .unwrap();
+    let mut sources = std::collections::BTreeMap::from([(0_u64, bootstrap_source.clone())]);
     let mut parent = genesis.clone();
     let mut expected = Vec::with_capacity(history_seconds as usize);
     let mut parts = 0;
@@ -386,8 +379,52 @@ async fn catch_up(
         )
         .await;
         for block in &blocks {
-            assert_eq!(block.header.mix_hash, source(&block.header).mix_hash);
+            let prior = &sources[&(block.header.number - 1)];
+            let elapsed = block.header.timestamp - genesis.timestamp;
+            let cutoff = if elapsed < 3 {
+                genesis.timestamp - 5
+            } else {
+                genesis.timestamp + ((elapsed - 3) / 5) * 5
+            };
+            let recorded: Vec<_> = block
+                .body
+                .transactions
+                .iter()
+                .enumerate()
+                .filter_map(|(position, tx)| match tx {
+                    eez_primitives::EezTxEnvelope::System(tx)
+                        if tx.to == eez_protocol::l1_history::HISTORY_ADDRESS =>
+                    {
+                        Some((position, tx))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut selected = prior.number;
+            if elapsed % 5 == 3 {
+                assert_eq!(recorded.len(), 1);
+                assert_eq!(recorded[0].0, 0);
+                let call =
+                    eez_protocol::l1_history::IL1BlockhashContract::importHistoryCall::abi_decode(
+                        &recorded[0].1.input,
+                    )
+                    .unwrap();
+                assert_eq!(call.abi_encode(), recorded[0].1.input.as_ref());
+                assert_eq!(call.cutoff, cutoff);
+                assert!(call.hashes.len() <= 64);
+                for hash in call.hashes {
+                    selected += 1;
+                    assert_eq!(hash, historical_headers[selected as usize].hash_slow());
+                }
+            } else {
+                assert!(recorded.is_empty());
+            }
+            let source = &historical_headers[selected as usize];
+            assert!(source.timestamp <= cutoff);
+            assert_eq!(block.header.mix_hash, source.mix_hash);
+            sources.insert(block.header.number, source.clone());
         }
+        let source = |block: &Header| &sources[&block.number];
         assert_eq!(
             state_root(&l1_rpc, world.dep.eez_address, world.dep.rollup_id)
                 .await
@@ -549,6 +586,7 @@ async fn catch_up(
             "elapsed_ms":part_started.elapsed().as_millis()})
         );
     }
+    let source = |block: &Header| &sources[&block.number];
     assert!(parts >= 3);
     assert_eq!(parent.timestamp - genesis.timestamp, history_seconds);
     let follower = NodeHandle::start(

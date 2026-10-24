@@ -1,5 +1,10 @@
 # Offline v2 conformance vectors
 
+The corpus uses [native version 1 and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
+Profile and validation-contract version 1. The proving transport remains v2.
+Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
+source identities and profile commitments; they are not execution proofs.
+
 For Nethermind/C# and other external implementations, start with the
 [integration guide](IMPLEMENTING.md) and
 [portable identity vectors](validation-identity.json).
@@ -9,12 +14,12 @@ exercise the [v2 offline profile](../STREAMING_SPEC.md) through the real TCP
 service and Stateless executor. They contain complete L1/L2 witnesses, native
 blobs, exact ABI inputs and the posting context required by actual-parent mode.
 
-The current corpus contains 1,149 requests, 1,148 correlated responses, one
-transport error, one RPC admission error and 24 successful proofs (2,376 events).
-All 29 cases pass against fresh services. The current generation/replay evidence
-and its limits are in the [implementation audit](../../../docs/audits/2026-10-22-l1-history-offline-proving/README.md).
-These results supersede the old seed/RPC-backed recordings; historical results
-remain in the [backport audit](../../../docs/audits/2026-10-19-streaming-backport/README.md).
+The corpus has 24 expected successful proofs across 29 cases. Exact frame/event
+counts and input digests are recorded in its manifest. It was regenerated from
+fresh network-denied process captures with FeeVault in genesis and one prover
+service; all cases pass against the real TCP/Stateless service. The
+[implementation audit](../../../docs/audits/2026-10-24-pr-readiness/final-fixtures.md)
+records executed results and their limits.
 
 ## Coverage
 

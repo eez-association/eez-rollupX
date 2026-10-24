@@ -312,10 +312,14 @@ mod tests {
 
     fn fixture() -> (BuiltSyncBlock, SettlementManifest) {
         let ordinary = |tx| EezTxEnvelope::Ethereum(tx);
-        let native = |nonce| {
+        let native = |source_id: u64| {
             eez_primitives::SystemTransaction {
                 chain_id: 9,
-                nonce,
+                version: eez_primitives::SYSTEM_TX_VERSION,
+                source_hash: alloy_primitives::B256::from(
+                    alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
+                ),
+                gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                 to: eez_primitives::EEZL2_ADDRESS,
                 value: U256::ZERO,
                 input: Default::default(),

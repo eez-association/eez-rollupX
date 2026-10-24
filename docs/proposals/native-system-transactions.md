@@ -1,225 +1,505 @@
-# Native transactions and canonical derivation
+# Native transactions, source identities and fee collection
 
 | Field | Value |
 | --- | --- |
-| Design status | Implemented for the owner-selected RollupX profile; native-format conflict resolved by the task owner on 2026-09-28. This is not acceptance of the upstream draft specification. Validation and wider-draft limits are recorded in the audit. |
-| Date | 2026-09-28 |
-| Source baseline | Merged PR #42: `main` at `de5030c782e29ff07150b2728c7b564fd607f802`, with the same tree as final PR head `cf8500e80cc10b58ab6acd59b2125dd098aa770c` (2026-09-29) |
-| Protocol baseline | `9d13218a355e7d543ca8a9927eea2962600b716d` |
-| Related work | [Upstream #154](https://github.com/eez-association/eez-rollup0/pull/154), [upstream #162](https://github.com/eez-association/eez-rollup0/pull/162), [issue #35](https://github.com/eduadiez/rollupX/issues/35), [implementation audit](../audits/2026-09-28-native-system-backport/README.md) |
+| Status | Accepted fresh-network contract, implemented and locally validated. Results, independent review and CI/external-Nethermind limits are tracked in the [native-v1 audit](../audits/2026-10-24-native-v1/README.md). |
+| Scope | [Accepted branch scope](l1-origin-and-offline-proving.md#accepted-branch-scope-after-divergence-review), requirements A1–A11 |
+| Implementation baseline | RollupX `3e23955dc477c9e675364776f118b1cecda75774` plus the isolated branch's recorded-history changes |
+| Pinned core | `feature/e2e_edge_cases`, `84a5b5207880f192a6a5896cbfe0bac5249db47f` |
+| Draft reference | [System transaction design at 2c6d346](https://github.com/eez-association/specs-draft/blob/2c6d346bea0b3736f7453c35174291495694d1fc/docs/rollup0-spec/F-system-transaction-design.md); the pinned core prevails where its ABI or execution differs |
 
-## Contract and scope
+There is one format and
+one execution profile, active from fresh genesis. No old-format decoder, database
+migration, live-chain activation or mixed-version mode is required. Preserve
+same-profile recovery, whole groups, partial consumption and block-hash commitments.
+The actual fee-recipient address is a mandatory deployment input, not an open
+design decision or a value to invent here.
 
-The task owner explicitly waived backward compatibility and requested the simplest
-implementation on 2026-09-28. Ship one native transaction contract, one V0 DA
-format and one required genesis profile. Remove old-format readers and fallback
-paths rather than maintaining dual operation. Existing networks/databases are
-not upgrade targets; start a new network with fresh genesis and datadirs. No
-historical-format replay, database migration or compatibility mode is required.
-This does not waive authentication, same-format restart/reorg recovery, or #42's
-queue and partial-consumption invariants.
+The [accepted simplification](../audits/2026-10-24-profile-simplification/README.md)
+uses one `Profile`/`OfflineProfile` and one
+`prove.v2.Prover` service. The profile domain has no historical revision suffix.
+One validation-contract version covers the identity encoding, JSON canonicalizer
+and execution/settlement rules together; none can be selected independently.
+Acceptance requires matching Solidity/Rust profile bytes, independent identity
+vectors, rejection of mismatched identities, offline execution/signing and on-chain
+settlement of fresh captures. Protobuf messages, execution rules and the pinned
+core are unchanged. These commitments are for fresh networks only, without old
+domains, alternate endpoints or compatibility decoders.
 
-Replace signed L2 system transactions with canonical, keyless native transactions.
-Preserve the fork's grouped outbound calls, nested callbacks, static lookups,
-reverted frames, independent settlement authorization, and block-hash commitments.
-Implement the remaining canonical derivation requirements of issue #35 on that
-foundation. PR #37's count codec alone does not resolve #35: its surrounding RLP
-envelope, terminal block representation, and environment transport still differ.
+## Fixed profile
 
-**Explicit amendment to #35:** the owner selected #154's nonce-bearing type `0x76`,
-sender `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`, and fixed 2,000,000 metered gas
-(the gas budget is superseded by the [remaining-gas native budget](system-tx-remaining-gas-cap.md)).
-The issue's `0x45`, absent nonce, and remaining-block-dependent gas requirements
-are superseded for this implementation. The remaining issue requirements remain
-in scope. The draft at `7c99bcf923e0ee0f867549a750d1ab1373bf845d` is a design
-reference, not an accepted replacement for the pinned core protocol.
-
-## Requirements and acceptance
-
-| ID | Required invariant | Acceptance evidence |
-| --- | --- | --- |
-| N1 | Canonical `0x76 || rlp([chainId, nonce, to, value, input])`, fixed sender and EEZL2 destination; no signature or key | Independent wire vector, round trip, hash, malformed/target tests |
-| N2 | Fixed 2M gas (superseded: the budget is now the remaining block gas up to 16,777,216, see [remaining-gas native budget](system-tx-remaining-gas-cap.md)), zero fees and nested `GASPRICE`; normal transactions retain fees | Execution, nested guard and reimbursement, paid comparison, noncanonical raw environment tests |
-| N3 | Mint committed inbound value before execution; outer revert/halt removes mint while retaining metered gas and nonce behavior | Success, preexisting balance, revert, OOG, overflow, invalid nonce and preview tests |
-| N4 | Native receipt identity and storage round trip; native admission unavailable to public RPC/pool; blobs excluded from L2 | Receipt/RPC/storage and production admission regressions; L1 blob simulation retained |
-| N5 | Composer, follower, replay and signer agree on bytes and state | Shared reconstruction, consumed-prefix nonce tests, multiple actions/restart, independent process replay |
-| T1 | Supplied inbound ABI becomes a checked shared type at the first meaningful boundary and stays checked | Malformed shapes and wrong destination/source rejected without normalization; production-call trace |
-| T2 | Shape validation is distinct from settlement authorization | Substituted settlement ABI, call/rolling hash, wrong identity and reconstructed bytes rejected |
-| D1 | Direct V0 body, canonical count/metadata runs and transaction length stream over the whole interval including terminal block | #35 exact size vectors and malformed/boundary/fuzz cases; baseline comparison |
-| D2 | Bounded parsing of full u32 wire runs, no eager empty-run expansion or artificial 65,536 wire cap | Allocation/resource-limit and canonical integer tests |
-| D3 | Deterministic headers and fixed timestamp step; delayed origin/PREVRANDAO and recovery follow the current offline-history contract | Header/hash vectors and independent derivation with catch-up, live anchor and rollback |
-| D4 | Canonical terminal pure prefix and authorized native action reconstruction, preserving the fork's richer explicit profile | Signer, DA, partial-consumption, nested/static/reverted process tests |
-| D5 | Fixed L2 execution/header profile including EIP-2935 and empty requests hash, independently of L1 rules | Empty/nonempty block tests, pre-execution state, fee and gas/header checks |
-| B1 | Preserve #42's FIFO prefix rebuilding, candidate-local execution cache, shared deadline and canonical-only queue completion | Existing composer, dynamic admission, queue and prefix equivalence tests |
-| C1 | Fresh-genesis compatibility is explicit; keys removed only from system transaction construction | Genesis generation/check, configuration consumers, deployment and rollback documentation |
-
-## Architecture and upstream mapping
-
-| Upstream change | Classification and target |
+| Item | Value |
 | --- | --- |
-| #154 native envelope, receipt and engine primitives | Adapt into new `eez-primitives` on the existing Reth/Alloy graph |
-| #154 minting EVM and L2 admission | Adapt into `eez-evm` and node integration; retain L1 execution separately |
-| #154 deterministic system reconstruction | Adapt `eez-protocol::system_tx`; preserve whole groups and committed nested value |
-| #154 composer integration | Adapt existing `local/build` and its #42 prefix cache, never replace with upstream's old builder |
-| #154 Stateless generic replay | Adapt to the pinned Reth-aligned Stateless checkpoint API, not the upstream PR's older dependency graph |
-| #154 separate stateful/stateless prover roles | Obsolete here: integrate into the independent proof signer |
-| #154 key and prefunding removal | Applicable across runtime, genesis generation, fixtures and operator configuration |
-| #162 checked inbound sidecar | Adapt to the fork's nested-capable validated profile; preserve independent authorization |
-| #162 explicit inbound/outbound direction | Existing settlement counts and grouped outbound structures already provide direction; retain them |
-| #162 native gas semantics | Port nested gas-price, guard and reimbursement regressions |
-| #35 count tokens | Already partially present via #37; retain canonical codec behavior while replacing the enclosing format |
+| Transaction and receipt type | `0x45` |
+| Native envelope version | Integer `1` |
+| Implicit system sender | `0xfffffffffffffffffffffffffffffffffffffffe` |
+| EEZL2 destination | `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` |
+| History destination | `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077` |
+| Cross-chain native gas cap | `16_777_216` |
+| History native gas cap | `2_000_000` |
+| Manager profile domain | `EEZ_ROLLUPX_OFFLINE_PROFILE` |
+| Prover transport | Existing `prove.v2.Prover.ProveStream` |
+| Portable identity | Validation contract `1` (encoding, canonicalization and semantics) |
 
-The checked inbound type must not erase the distinction between admitted input,
-validated execution, and authorized effects in the signer. An ABI decode or a
-shape check alone never authorizes minting. The fork already verifies nested
-complementary tables; a narrower upstream one-call representation cannot replace
-those checks. Explicit direction comes from the existing grouped reconstruction
-and authenticated settlement framing, not `proxyEntryHash == 0`.
+Version 1 explicitly distinguishes our history, grouped outbound and indexed
+multi-root rules from the draft's inbound-only version 0. The L1 registry remains
+independently configured and authenticated; sharing an address with EEZL2 is not
+a universal assumption. Core proxies, selectors, call hashes and table execution
+remain those of the pinned revision.
 
-Native adapters use the currently pinned Reth, REVM and Alloy interfaces. The
-execution snapshot cache remains candidate-local under the same parent and
-environment. No new queue persistence or unrelated scheduling changes are planned.
+## Exact envelope, execution and RPC
 
-## Compatibility and recovery
+```text
+transaction = 0x45 || RLP([version, chainId, sourceHash, gasLimit, to, value, input])
+transactionHash = Keccak256(transaction)
+receipt = 0x45 || RLP([status, cumulativeGasUsed, logsBloom, logs])
+```
 
-### RollupX action-profile extension
+Require exactly seven fields, complete input consumption and minimal canonical
+RLP. Version is integer 1; chainId is a uint256 equal to the configured L2 chain
+ID (this runtime's configured chain IDs remain u64); gasLimit is uint64; value
+is uint256. Integer zero is the empty RLP byte string. sourceHash is exactly 32
+raw bytes, to exactly 20 raw bytes, and input a byte string. Reject wrong widths,
+leading-zero integers, trailing bytes, unsupported versions/types, destinations
+or selectors, and any decode/re-encode mismatch. Contract creation is unsupported.
 
-The new network retains the pinned fork's outbound, grouped, nested, static and
-caught-revert semantics. It therefore does **not** claim the draft's inbound-only
-candidate V1 profile. Its operations body is the direct columnar V0 specified in
-#35, with the two-byte count amendment. There is exactly one complete local
-`ChainOperation`; no entries, groups, full blocks or environment overrides are
-serialized inside that body.
+The only native kinds are inbound delivery, outbound table load and history
+import. Validate each kind's exact destination, calldata, value, occurrence and
+execution position. Shape validation alone does not authorize execution, temporary
+funding or signing. Do not reinterpret arbitrary calldata as a native kind.
 
-The authenticated enclosing native EEZ stream supplies the existing bracketed
-`InitiateCrossChainTransaction` / call / result / snapshot / revert / finish
-messages. The initiating chain is required for every transaction. The exact
-signed origin transaction is required for an L2 origin, where it is the Sync
-block's user transaction and is published nowhere else; an L1 origin publishes
-empty `tx_data`, because its transaction is already on L1 and cannot be bound
-by the signer or used by followers. The shared semantic materializer derives the
-ordered L1/L2 tables and whole outbound groups from those messages. Both the
-signer and follower must bind those derived tables to the actual settlement,
-origin identities and transaction bytes; decoding an action alone is not
-authorization. No unused table rows or discarded semantic suffix are permitted.
+Immediately before each native transaction, derive remainingBlockGas using the
+existing block executor's gas accounting. The encoded gasLimit MUST equal
+`min(remainingBlockGas, kindGasCap)`; reject a different supplied limit instead
+of rewriting it. Meter actual gas, cumulative receipts and block capacity normally.
+A resumed prefix retains its original gas usage and budget; do not restart the
+position-derived budget. Native transactions pay no base or priority fee; nested
+GASPRICE remains zero.
+Preserve existing whole-group capacity/refusal and transaction-result validation:
+in particular, a history import must succeed. A valid native envelope does not
+make an invalid or mismatched cross-chain execution acceptable.
 
-The terminal operations position contains only its ordinary transaction prefix.
-Authorized actions append canonical native transactions and, for outbound
-groups, the exact signed origin transaction after their native table-load
-transaction. Inbound actions retain checked sidecars through reconstruction.
-Each accepted prefix is independently executed and committed by block hash.
-Failed outer inbound actions append no L2 transaction; caught failures and static
-observations within supported whole groups retain the pinned core's semantics.
-This explicit extension replaces the draft's restriction against outbound or
-nested actions; it does not relax authentication or introduce another wire
-selector. Protocol transaction identity follows the owner's `0x76` amendment.
+Native execution neither checks nor increments the system account nonce on
+success, revert or halt. Disabling nonce validation alone is insufficient: the
+underlying EVM's ordinary Call nonce increment must also be absent. Normal
+user nonces are unchanged. Keep beginning-of-block SYSTEM/EEZL2 balance cleanup,
+EIP-2935 pre-execution calls, checked temporary inbound funding, pooled intra-block
+protocol balances and outer-failure rollback. Do not replace these with the
+draft's per-inbound neutrality or residual-balance policy.
+
+For both EEZL2 deliveries and table loads, value is the checked
+committed_l2_table_value of the lowered table: sum incomingCalls and the
+incomingCalls inside expectedOutgoingCalls with checked arithmetic. It is not
+necessarily root.value, and an outbound load is not necessarily zero-value.
+Inline callbacks still need this committed funding. Only history is always zero.
+
+RPC transactions expose type `0x45`, version `0x1`, sourceHash, implicit from,
+encoded gas, actual to/value/input and the ordinary inclusion fields. For generic
+Ethereum RPC clients, nonce, gasPrice, v, r, s and yParity are `0x0` placeholders;
+accessList, blobVersionedHashes and authorizationList are empty arrays. Omit
+maxFeePerGas, maxPriorityFeePerGas and maxFeePerBlobGas. These compatibility fields
+do not enter the native hash or authorize signing. Native receipts use type
+`0x45`, effectiveGasPrice `0x0`, contractAddress null and ordinary status, gas,
+log and inclusion fields; omit obsolete state-root and blob-gas fields.
+Reject native input at public signing, raw-transaction submission, pool and user
+transaction gossip boundaries. Engine/import paths still validate the full profile.
+
+## Canonical positions and lowering
+
+Positions come from the authenticated, complete native EEZ semantic stream.
+Carry them as checked provenance through parsing/materialization, rather than
+recovering them from filtered tables, hashes, submission queues or L2 tx indexes.
+
+- `manifestIndex` is the zero-based ordinal of the top-level
+  InitiateCrossChainTransaction bracket among all such brackets in that stream.
+  Count both directions and brackets containing failed/static calls. ChainOperation
+  and Close messages are not brackets. Do not reset at a blob boundary, phase,
+  filtered list or canonically consumed prefix.
+- `topLevelCallIndex` is the zero-based ordinal among root Call/StaticCall
+  occurrences within that bracket: the call forest's roots, before filtering.
+  Count failed, static and later-reverted roots. Nested calls do not increment
+  this root counter. Snapshot/Revert/result messages do not erase or renumber it.
+  This is **not** SourceActionManifest.source_index, which counts the mutable queue.
+- Validate the supported two-chain profile. Do not filter foreign-chain brackets
+  into an apparently valid local stream.
+
+Lower L1-origin brackets to one native delivery for each applied, successful,
+mutable root. A failed, reverted or static-only root produces no standalone
+native delivery, but retains its original position and any required table
+validation. The pinned core executes nested callbacks inside the group's tables.
+
+Lower each L2-origin bracket to one native table-load transaction immediately
+followed by its exact signed L2 origin transaction. All of that bracket's supported
+mutable/static roots and cursor-reusing reverted attempts belong to this one
+group. Never produce a separate load per root.
+
+Retain the admitted stream's outbound-first rule: an outbound bracket after an
+inbound bracket is invalid. The terminal native suffix is ordered load/user
+pairs followed by inbound deliveries in their original bracket/root order.
+
+There is no fourth, standalone callback-native kind. Callbacks execute inline
+inside their parent group's tables. Reconstruction rejects independent callback
+deliveries and preserves every inline callback and nested-table validation.
+
+Example: bracket 0 is an outbound group with three roots; bracket 1 is inbound
+with roots failed, static, successful mutable. Emit one load plus its signed user
+transaction for bracket 0, then one delivery identified by `(1, 2)`. Consuming
+bracket 0 does not turn that delivery into `(0, 0)`.
+
+## Exact source identities
+
+Let `K` mean Ethereum Keccak-256, and `ABI` mean Solidity abi.encode with the
+types below. Tags are their exact ASCII bytes, with no trailing NUL. Never use
+abi.encodePacked, RLP, JSON, hexadecimal text or NIST SHA3 for these preimages.
+Validate existing chain/rollup/timestamp/index bounds before widening to uint256.
+
+For cross-chain kinds define:
+
+```solidity
+domain(tag) = K(ABI(
+    bytes32(K(bytes(tag))),
+    uint256(1),                 // native envelope version
+    uint256(l1ChainId),
+    address(l1Registry),
+    uint256(eezRollupId),
+    uint256(l2ChainId)
+))
+```
+
+T is the intended live L1 child timestamp and P its authenticated known parent
+hash from the same verified settlement context. They are not later observed
+inclusion coordinates. Cross-chain actions remain restricted to actual-parent
+mode. The source hash does not replace that mode's exact target validation.
+
+### Inbound delivery
+
+```solidity
+inboundDomain = domain("EEZ_ROLLUP0_INBOUND_SOURCE");
+sourceHash = K(ABI(
+    bytes32(inboundDomain),
+    uint256(T),
+    bytes32(P),
+    uint256(manifestIndex),
+    uint256(topLevelCallIndex),
+    bytes32(crossChainCallHash)
+));
+```
+
+crossChainCallHash is the pinned core hash of the exact admitted root call:
+
+```solidity
+K(ABI(bool isStatic, address sourceAddress, uint64 sourceRollupId,
+      address targetAddress, uint64 targetRollupId, uint256 value,
+      uint64 callGas, bytes data))
+```
+
+The root is mutable, and the currently admitted callGas remains zero. Do not use
+the native envelope's gasLimit as callGas. Exact source/target identity, tables,
+results, calldata, value and authorized execution remain separately validated.
+
+### Outbound table load
+
+```solidity
+outboundDomain = domain("EEZ_ROLLUPX_OUTBOUND_SOURCE");
+sourceHash = K(ABI(
+    bytes32(outboundDomain),
+    uint256(T),
+    bytes32(P),
+    uint256(manifestIndex),
+    bytes32(K(exactSignedL2OriginTransactionBytes))
+));
+```
+
+Require canonical signed origin bytes, valid signature/chain/profile and the exact
+immediately following origin transaction. Table authentication and matching the
+whole group's effects remain mandatory. Inline callbacks have no independent
+source identity or system transaction.
+
+### History import, including an empty repeat
+
+```solidity
+historyDomain = K(ABI(
+    bytes32(K(bytes("EEZ_ROLLUPX_HISTORY_SOURCE"))),
+    uint256(1),
+    uint256(l1ChainId),
+    uint256(l2ChainId),
+    bytes32(l2GenesisBlockHash),
+    address(historyPredeploy)
+));
+sourceHash = K(ABI(
+    bytes32(historyDomain),
+    bytes32(l2ParentBlockHash),
+    uint256(l2BlockNumber),
+    uint256(l2BlockTimestamp),
+    bytes32(K(exactCanonicalImportCalldata))
+));
+```
+
+The calldata is the exact canonical importHistory(uint64,bytes32[]) call, including
+cutoff and the ordered array, even when empty. l2ParentBlockHash is the hash of
+the block at l2BlockNumber minus one: the current block's parent, never the current
+block hash or a same-height prefix variant.
+Check number/timestamp/parent relations, mandatory transaction-zero placement,
+zero value, exact gas, recorded ancestry and delay independently.
+
+This source does not depend on a future settlement target, registry/manager,
+anchor mode, accepted checkpoint, session or catch-up partition. Reposting the
+same recorded history with another anchor or in different parts preserves its
+transaction bytes and source hash. No self-referential block/state hash is used.
+
+### Authorization, retries and partial consumption
+
+sourceHash identifies an occurrence; it is not an L1 inclusion proof, global
+nonce or global deduplication key. Sibling candidates with the same live context
+and occurrence can have the same sourceHash while having different execution
+results, calldata, transaction hashes, receipts or block commitments. The accepted
+root, exact public inputs and semantic execution checks distinguish those states.
+Do not add an acceptedRoot-dependent source hash: re-proving the same candidate
+after partial consumption must preserve its bytes.
+
+For suffix replay of the same candidate, retain the original complete manifest
+positions, and validate the consumed prefix/checkpoint with existing rules.
+When actually recomposing a new candidate, derive its new context, manifest and
+identities together. Retries of the same candidate do not create a new occurrence.
+
+The v2 service can execute Block inputs before Finalize supplies the full
+settlement manifest. A Block ACK is not settlement authorization. Complete all
+source/context, semantic-stream, exact-byte, checkpoint and public-input checks
+before returning Proof. No new protobuf fields or original-L1-transaction replay
+are required.
+
+## Fee collector configuration and execution
+
+### One authenticated configuration source
+
+The accepted treasury amendment routes the shipped network's base fees to a
+`FeeVault` predeploy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078`. The execution
+rule still credits the authenticated `feeCollector` address without calling its
+code. The vault accumulates funds and exposes an ordinary L2 `withdraw()` call
+which anyone may trigger; the complete balance goes only to its stored recipient.
+An empty vault or a failed recipient call reverts without losing funds, and
+withdrawals are protected against reentrancy.
+
+The owner may change the recipient with `setRecipient(address)`; ownership moves
+through OpenZeppelin's two-step transfer. Recipient and ownership changes are
+ordinary L2 state transitions, so followers and the offline prover execute and
+prove them from the existing witness. They change neither `feeCollector`, the
+network profile nor the v2 proving frames, and require no hard fork. Recipient
+selection rejects zero, the vault itself, SYSTEM and EEZL2. Withdrawal is local
+to L2; it adds no bridge, withdrawal-network selector or automatic forwarding.
+
+The existing genesis renderer installs the vault's constructor-derived code and
+storage alongside the other predeploys. Deployment requires
+`EEZ_L2_TREASURY_RECIPIENT`; `EEZ_L2_TREASURY_OWNER` defaults to the deployment
+owner and is passed explicitly to the renderer. `EEZ_L2_FEE_RECIPIENT` retains
+its existing, separate meaning as the block beneficiary for priority fees.
+The collector address is generated, not selected by an environment override.
+Only new networks are in scope. The treasury amendment's executable validation
+is tracked in the [treasury/RPC audit](../audits/2026-10-24-fee-vault-rpc/README.md),
+separately from the earlier native-v1 results.
+
+`config.rollupX.feeCollector` remains the checked execution parameter: exactly
+20 bytes encoded as a `0x`-prefixed hex string, nonzero and distinct from SYSTEM
+and EEZL2. All runtime roles load the same genesis document and propagate this
+value through `DerivationConfig` to their EVM configuration. The shipped renderer
+always selects the vault. Low-level execution rules do not call its code or
+special-case its storage; the exact genesis state root authenticates both.
+JSON canonicalizer 1 preserves string spelling, so the renderer emits lowercase
+hex and every role loads the same document.
+
+The renderer's `--render` mode requires exactly one `--treasury-owner ADDRESS`
+and `--treasury-recipient ADDRESS`. Both must be nonzero 20-byte addresses,
+distinct from the vault, SYSTEM and EEZL2. Missing, empty, malformed and duplicate
+arguments fail before output is written. Deployment uses its `OWNER` only when
+`EEZ_L2_TREASURY_OWNER` is absent; an explicitly empty owner is invalid. The
+recipient is always explicit. Neither setting is a runtime node/signer override.
+
+The update/check path uses the public fixture values in
+`testing/kurtosis/l2-genesis-profile.json` (schema 4). The generated profile records
+`feeCollector`, `treasuryOwner`, `treasuryRecipient`, the vault runtime hash and
+the complete genesis state root. Deployment checks its inputs against that
+profile before broadcasting. Public fixture recipients are not production defaults.
+Changing deployment settings after genesis does not mutate contract state.
+
+Recipient updates take effect in transaction order, including for fees already
+accumulated in the vault. A permissionless withdrawal executed before an owner's
+update pays the previous recipient; one executed afterwards pays the new one.
+The withdrawal transaction's own base fee is credited after execution, so a
+successful withdrawal can leave that fee in the vault. No withdrawal threshold,
+network selector or upgradeable proxy is introduced. Owner-key loss can prevent
+future recipient changes; `Ownable2Step` makes ownership transfer explicit.
+
+### Per-transaction state transition
+
+This rule applies only to L2 execution. The shared factory's L1 simulation mode
+retains L1 fee rules and must not redirect fees to the L2 collector.
+For every ordinary L2 transaction, credit the collector with:
+
+```text
+baseFeePerGas * finalChargedGas
+```
+
+finalChargedGas is the gas charged under the active EVM rules after refunds and
+any applicable floor, including ordinary revert/halt outcomes that consume gas.
+This redirects the base fee already debited from the sender. Do not debit it a
+second time, credit the priority fee twice or change EIP-1559 base-fee updates,
+fee caps, normal transfers or beneficiary rewards.
+
+Credit immediately after each ordinary transaction and before the next
+transaction or prefix checkpoint. A transaction-local execution revert does not
+undo its fee; reverting its containing tentative block/group rolls back the fee
+with the rest of that candidate. Native transactions contribute zero. Use checked
+uint256 multiplication/addition and reject arithmetic failure rather than wrap.
+Balance credit invokes no recipient code. Collector equal to an ordinary sender
+or beneficiary is valid and must combine credits exactly once. Beginning-of-block
+protocol cleanup must not erase collector funds. Apply the credit after the
+transaction's account-deletion effects: if execution deleted the collector,
+recreate an empty account holding the base-fee credit, with no previous code,
+nonce or storage. Retain the active Ethereum rules for beneficiary tips.
+Unsigned advisory execution with relaxed fee admission distributes only the
+base-fee portion actually charged; synthetic uncharged frames distribute zero.
+These simulation settings are never enabled for canonical block execution.
+
+## Manager profile and portable identity
+
+The exact Profile tuple is:
+
+```solidity
+struct Profile {
+    uint256 l1ChainId;
+    uint256 l2ChainId;
+    bytes32 genesisHash;
+    uint64 genesisTimestamp;
+    uint64 blockInterval;
+    uint32 syncInterval;
+    uint32 updateOffset;
+    bytes32 l1ConfigHash;
+    bytes32 historyCodeHash;
+    address feeCollector;
+    uint64[] ruleTimes;
+}
+```
+
+Only one execution profile is supported. Solidity uses `Profile`; Rust uses
+`OfflineProfile`. `feeCollector` precedes the final dynamic array.
+Canonical bytes and protocolConfigHash are exactly:
+
+```solidity
+profileBytes = ABI(
+    bytes32(K(bytes("EEZ_ROLLUPX_OFFLINE_PROFILE"))),
+    address(0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077),
+    uint64(64),
+    uint64(2000000),
+    Profile(profile)
+);
+protocolConfigHash = K(profileBytes);
+```
+
+The domain denotes all fixed native-version-1 rules above, including gas caps,
+sender, cleanup, count codec and fee behavior; these are not additional operator
+selectors. Retain existing profile validity checks and also validate feeCollector
+as above. Mirror this tuple in Solidity/Rust, initializer calldata, event encoding,
+genesis/bootstrap and independently recomputed profile validation.
+OfflineProfileInitialized publishes the complete canonical bytes. A genesis
+header hash alone does not bind arbitrary chain-configuration fields, so explicit
+collector binding is required.
+
+Keep `EEZ_ROLLUPX_L1_HISTORY_V1` context and `EEZ_ROLLUPX_L1_RULES_V1` domains,
+both anchor selectors and existing current-root checks. The context already
+binds protocolConfigHash; require that exact commitment without additional
+context variants. No pinned core ABI change is needed.
+
+Use one ten-element portable identity RLP. Validation-contract version 1 covers
+its encoding, canonical JSON rules and accepted execution/settlement semantics:
+
+```text
+K(RLP(["eez.validation-identity", 1, rollupId, l2ChainId,
+       SYSTEM_ADDRESS, EEZL2_ADDRESS, l2DocumentDigest, protocolConfigHash,
+       registryAddress, managerAddress]))
+```
+
+Use minimal integer RLP and raw address/hash bytes. l2DocumentDigest hashes the
+complete source document, including feeCollector, with the canonical JSON rules in the
+[identity contract](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md).
+No Rust/build fingerprint enters the identity. Independently load and recompute
+it in Composer and prover; compare Capabilities and stream metadata before Block.
+A session cannot resume under another identity. C# uses the same contract and
+vectors; v2 transport and witness fields are unchanged.
+
+## Retained derivation and recovery
 
 ### Direct V0 wire contract
 
+Keep the direct compact V0 body:
+
 ```text
-00 || uvarint32(block_count)
-   || count_tokens
-   || beneficiary_runs
-   || extraData_runs
-   || transaction_lengths
-   || exact_EIP2718_ordinary_transaction_bytes
+00 || uvarint32(block_count) || count_tokens
+   || beneficiary_runs || extraData_runs
+   || transaction_lengths || exact_typed_transaction_bytes
 ```
 
-All columns include the terminal position. There is no profile selector in this
-body. `block_count` is positive and at most u32::MAX. A positive count describes
-one position: bytes `01..7f` encode 1..127; `80..bf` followed by one raw byte
-encode `((first & 63) << 8) | second`, restricted to 128..16,383. `00` is one
-empty position; `c0..fe` encode 2..64 empty positions; `ff` followed by a shortest
-u32 varint encodes 65 or more. Empty runs are maximal, even across metadata
-changes, and must cover exactly `block_count` with no overshoot.
+block_count is positive and at most u32::MAX, including the terminal position.
+Positive counts 1..127 occupy one byte; 128..16,383 use two bytes with first byte
+80..bf. Empty counts use 00 for one position, c0..fe for 2..64, or ff plus shortest
+uvarint32 for at least 65. Empty runs are maximal and exactly cover the range.
+Metadata runs are positive, maximal for equal values and cover the complete range;
+extraData stays at most 32 bytes. Lengths are positive shortest uvarint32; all
+transactions and the complete body must be exhausted. Reject overlong/overflowing
+varints. Bound parsing/allocation by supplied bytes, not expanded empty positions.
 
-Beneficiary runs are `uvarint32(length) || address[20]`. Extra-data runs are
-`uvarint32(length) || u8(byte_length) || bytes`, at most 32 bytes. Each column's
-positive runs cover the whole range, and adjacent equal values are forbidden.
-Each transaction length is a positive shortest u32 varint. The following exact
-EIP-2718 bytes must decode/re-encode canonically, exhaust their length, and belong
-to supported ordinary transaction types. Native and blob transactions cannot
-appear in this column. The whole body must be exhausted. All u32 varints have
-at most five bytes with fifth byte at most 0x0f; overlong encodings are rejected.
+The scheduled history transaction is recorded verbatim in the non-cross-chain
+prefix. Reconstruct cross-chain native transactions and paired outbound users
+from authenticated semantics; neither cross-chain natives nor L2 blob transactions
+belong in that prefix. B[0] includes the terminal ordinary prefix and mandatory
+pre-execution changes; B[i] adds whole authorized groups at the same height.
+Retain failed-outbound carriers, exact tables, independent call/rolling/public
+input/KZG oracles and canonical-only queue completion.
 
-Parsing and terminal lookup are proportional to supplied bytes, not expanded
-empty positions. Transaction counts and lengths are checked before allocation;
-`T <= remaining_bytes / 2` bounds the length/data suffix. Operator replay quotas,
-timeouts and cancellation are separate from wire validity. Exact producer
-summaries merge count and metadata runs at range boundaries before measuring the
-outer native EEZ stream. The signer defaults to 65,536 blocks per request, but
-that quota is configurable and is not the u32 format bound.
+The [history proposal](l1-origin-and-offline-proving.md) owns delay, explicit
+advance/repeat, PREVRANDAO, both anchor modes, bounded imports and multipart
+ancestry. Ordinary local block production must not wait for L1 arrival, proofs or
+settlement. Missing headers select a recorded repeat; later headers cannot make
+that prior choice invalid. Keep stateless v2 witness authentication and exact
+live-target rules, with no prover L1/L2 RPC.
 
-For 600 empty positions with one beneficiary and empty extraData, the complete
-body is `00 d8 04 ff d8 04 d8 04 || address[20] || d8 04 00`: 31 bytes. Persistent
-codec vectors and an independent producer test protect this contract. The
-upstream draft still requires its separate count amendment through the specs
-team's process; this implementation does not publish or imply that acceptance.
+<a id="wider-draft-conformance-dispositions-35-section-f"></a>
 
-The terminal variant B[0] contains its ordinary prefix, including all mandatory
-pre-execution changes. B[i] additionally contains the first i authorized action
-groups. These are block-hash commitments at the same height; B[0] is not the
-preceding block. The fork's existing failed-outbound carrier schedule remains
-necessary because reverted L1 effects cannot persist root updates.
+Queues/counters remain in memory; database persistence is not durable queue
+recovery. General deep-reorg/bootstrap automation and the other explicitly
+[deferred items](l1-origin-and-offline-proving.md#work-deliberately-outside-this-branch)
+remain deferred. Deployment of matching contracts, genesis and binaries is a
+fresh-network operation; reverting binaries cannot decode an incompatible history.
 
-### Delayed history and offline authentication
+## Acceptance and validation
 
-The [L1 history and offline proving contract](l1-origin-and-offline-proving.md)
-supersedes this proposal's settlement-driven seed selection and signer RPC
-provenance. A fixed genesis schedule selects a maximal L1 source and installs
-its history and PREVRANDAO together before applications. Settlement does not
-refresh the seed. The same rules apply to pending calls, terminal variants,
-restart and follower replay.
+[Reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json)
+freeze source/profile/identity/envelope examples. They are synthetic encoding
+oracles, not valid signed execution or settlement fixtures. Runtime and conformance validation status is tracked in the
+[native-v1 audit](../audits/2026-10-24-native-v1/README.md).
 
-The signer receives complete L1 ancestry through v2 witnesses. The deployed
-`OfflineRollup` binds the current accepted block-hash commitment, profile, L1
-rules and chosen anchor in `getCustomData()`. Parent or whole-group checkpoint
-authentication remains required; height equality is insufficient. Actual-parent
-mode retains the exact live target; historical mode is ordinary catch-up only.
-There is no signer chain RPC, v1 fallback or previous seed-selection path.
-The dated audit retains evidence for the earlier implementation; those results
-do not validate the replacement profile.
+Implementation must cover the owning proposal's A1–A11 matrix, including:
 
-### Wider draft conformance dispositions (#35 section F)
+- Exact native bytes/hash/RPC/receipt/storage, malformed RLP, unsupported types/versions,
+  system-nonce absence, gas and temporary-funding/rollback behavior.
+- Identical root calls at different original indexes; failed/static/reverted
+  gaps; inline nested callbacks; standalone-callback rejection; changed live
+  context; replay of a consumed prefix; recomposition and failed outbound carriers.
+- History advance/repeat identity, unchanged bytes across anchors and catch-up
+  partitioning, unavailable/late L1 and prover, and synchronized PREVRANDAO.
+- Missing/invalid/conflicting treasury configuration, fixed vault rendering, full runtime propagation,
+  Solidity/Rust profile equality, and mismatch rejection before signing.
+- Ordinary fee success/revert/refund/floor, sender/beneficiary aliasing, no native
+  fees, collector initially absent from state/witness, checked arithmetic,
+  cleanup separation and every intermediate checkpoint.
+- Generated runtime/genesis/profile outputs, portable identity vectors and v2
+  accept/reject transcripts for the combined profile; stateful/follower/stateless
+  equivalence and the existing full validation matrix.
 
-These are explicit limits of this fork's selected profile, tracked by
-[issue #35](https://github.com/eduadiez/rollupX/issues/35); implementing V0 does
-not claim full draft Rollup0 conformance. Protocol revisions and current validation are recorded in the offline-history audit.
-
-| Requirement | Current contract and disposition |
-| --- | --- |
-| F1: Appendix D.2 manager/wrapper | The fresh-network `OfflineRollup` binds deployment, profile, rules, accepted commitment and both anchor modes. The draft's additional transaction-scoped wrapper, unsigned-prefix enforcement and one-settlement-per-L1-block restriction are not implied by these bindings. The registry still permits another verified batch to replace a same-block queue; whole-group partial consumption remains supported. |
-| F2: Chapter 7 trigger rules | Retain the pinned [registry's](../../eez-core-protocol/src/EEZ.sol) authorized-proxy and verified-this-block gates, exact call/rolling hashes, grouped action boundaries and ordered canonical applied-prefix attribution. This does **not** enforce every draft restriction on who triggers consumption. Broader trigger-policy alignment remains under #35, alongside [#12](https://github.com/eduadiez/rollupX/issues/12) and [#13](https://github.com/eduadiez/rollupX/issues/13); nested/static support is preserved rather than silently narrowed. |
-| F3: Validators, parents and delivery | Offline validation checks complete ancestry, delayed source selection, execution and eligible parent/checkpoints, conditional on the manager's on-chain context. Proof-system membership and threshold still govern attestation; no validator committee or production private-delivery guarantee is introduced. |
-| F4: Announcements/bootstrap/peers | Existing Engine transport, native block/receipt serialization, authenticated bootstrap and source-based late-follower replay are in scope and tested at the revisions recorded in the audit. General draft unsafe-announcement/gossip and peer-distribution conformance remains separate work under #35. The local devnet result is not a production availability or private-delivery claim. |
-
-No external issue was opened or amended by this task. The local specification
-amendments and this table are reviewable dispositions; publishing them or closing
-#35 remains a separate repository action.
-
-### Fresh-network boundary
-
-This is a coordinated fresh-network protocol change. Native envelope/storage
-types and V0 DA bytes are not compatible with the previous signed-system history.
-Mixed composer, follower and signer versions are unsupported. Regenerate genesis
-and deploy mutually matching runtime, signer and contract configuration before
-starting a new chain; do not reuse old node databases or change a live chain's
-genesis. No in-place database migration or historical-format fallback is promised.
-L1 posting and proof attestation still require their own keys.
-
-The implementation must document the precise final dependency changes, genesis
-commitments, upgrade order and rollback boundary in owning specifications and
-runbooks before completion. Reverting binaries cannot restore an incompatible
-history, and database restoration does not restore the volatile request queue.
-
-## Validation and status
-
-Run focused codec/primitives/EVM/protocol tests first, then signer, composer,
-follower and source-based process regressions. Final validation includes locked
-workspace checks, production feature selections, contract/genesis checks and the
-applicable replay/Anvil/devnet lanes. Record unavailable lanes as unverified,
-never as success. The linked audit distinguishes plans from executed evidence.
-
-No deployment is authorized or performed by this implementation task. Larger
-manager/wrapper and operational requirements mentioned in #35 must have explicit
-tracked dispositions rather than being silently credited to the codec change.
+The [code-context regressions](../../contracts/test/CrossChainProxyPolicy.t.sol)
+cover the pinned proxy dispatch on both chains: unauthorized execution contexts
+reject, manager-preserving delegation retains ordinary local forwarding, and
+the `CALLCODE` self-probe can succeed without cross-chain dispatch. The inspector
+does not reinterpret either opcode as CALL/STATICCALL.
+E1/E2 define the implementation contract. E3 closes only after executable
+conformance and integration evidence, not after a documentation or encoding check.
+Actual Nethermind conformance remains unverified until its implementation runs.

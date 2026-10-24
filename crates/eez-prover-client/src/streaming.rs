@@ -36,7 +36,7 @@ fn block_header(block: &BlockWitness) -> ProverResult<alloy_consensus::Header> {
 fn wire_segment(
     block: &BlockWitness,
     tip: &mut Option<alloy_primitives::Bytes>,
-) -> ProverResult<eez_control_rpc::v1::BlockWitness> {
+) -> ProverResult<eez_control_rpc::v2::BlockWitness> {
     let first = block
         .l1_headers_rlp
         .first()
@@ -192,7 +192,7 @@ fn rejection_error(response: &ServerFrame, from_block: u64, to_block: u64) -> Op
 impl RemoteProver {
     /// Best-effort v2 prevalidation using the caller's complete durable range.
     /// A gap retains prior progress; final proving always backfills what is missing.
-    /// Unsupported peers fail explicitly; there is no v1 proving fallback.
+    /// Unsupported peers fail explicitly.
     pub async fn prevalidate_range(
         &self,
         rollup_id: u64,

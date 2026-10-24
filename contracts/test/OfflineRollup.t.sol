@@ -28,7 +28,17 @@ contract OfflineRollupTest is Test {
         uint64[] memory times = new uint64[](2);
         times[1] = 2000;
         p = OfflineRollup.Profile(
-            block.chainid, 900, ROOT, 120, 2, 6, 2, keccak256("fixed L1 rule document"), L1HistoryCode.HASH, times
+            block.chainid,
+            900,
+            ROOT,
+            120,
+            2,
+            6,
+            2,
+            keccak256("fixed L1 rule document"),
+            L1HistoryCode.HASH,
+            address(0x1234),
+            times
         );
     }
 
@@ -50,6 +60,17 @@ contract OfflineRollupTest is Test {
         verifier = new MockProofSystem();
         manager = deploy(profile());
         rid = registry.registerRollup(address(manager), ROOT);
+    }
+
+    function testFeeEstimatorFixtureMatchesCompiledRuntime() public view {
+        // Couple the Rust recognizer fixture to this build so a changed manager
+        // cannot leave fee estimation recognizing an obsolete implementation.
+        bytes memory fixture = vm.parseBytes(
+            string.concat("0x", vm.readLine("../crates/eez-composer/src/composer/estimate/testdata/offline-rollup.hex"))
+        );
+        bytes memory compiled = vm.getDeployedCode("OfflineRollup.sol:OfflineRollup");
+        assertEq(compiled.length, fixture.length);
+        assertEq(keccak256(compiled), keccak256(fixture));
     }
 
     function testBothExactFlatContextEncodings() public view {
@@ -135,7 +156,7 @@ contract OfflineRollupTest is Test {
 
     function testCanonicalProfileCommitmentAndUnregisteredContextRejects() public {
         bytes memory expected = abi.encode(
-            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1"),
+            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"),
             manager.HISTORY_ADDRESS(),
             uint64(64),
             uint64(2_000_000),
@@ -145,6 +166,23 @@ contract OfflineRollupTest is Test {
         OfflineRollup unregistered = deploy(profile());
         vm.expectRevert(OfflineRollup.UnregisteredOfflineRollup.selector);
         unregistered.getCustomData(100);
+    }
+
+    function testCollectorIsRequiredAndChangesTheAuthenticatedProfile() public {
+        OfflineRollup.Profile memory p = profile();
+        address[3] memory invalid = [
+            address(0),
+            address(0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE),
+            address(0x4B2760F84B83d6b3829E30A7573B0172B6d6402C)
+        ];
+        for (uint256 i; i < invalid.length; ++i) {
+            p.feeCollector = invalid[i];
+            vm.expectRevert(OfflineRollup.InvalidOfflineProfile.selector);
+            this.deployExternal(p);
+        }
+        p.feeCollector = address(0x5678);
+        OfflineRollup changed = deploy(p);
+        assertNotEq(changed.protocolConfigHash(), manager.protocolConfigHash());
     }
 
     function testOnlyProfileInitializerExistsAndImplementationIsLocked() public {

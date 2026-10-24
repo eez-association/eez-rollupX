@@ -1665,6 +1665,7 @@ contract PostBatchGasPinsTest is Test {
             2,
             keccak256("fixed L1 gas fixture rules"),
             L1HistoryCode.HASH,
+            address(0x1234),
             times
         );
         OfflineRollup implementation = new OfflineRollup(address(eez));

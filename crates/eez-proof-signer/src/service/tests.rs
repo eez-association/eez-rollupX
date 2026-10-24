@@ -2,7 +2,6 @@
 //! test submodules.
 
 mod derivation;
-mod golden;
 mod pipeline;
 mod runtime;
 mod settlement_checks;
@@ -10,8 +9,8 @@ mod settlement_checks;
 use alloy_consensus::{SignableTransaction as _, Transaction as _};
 use alloy_primitives::{B256, Bytes, Signature, U256, address, b256, keccak256};
 use alloy_sol_types::SolValue as _;
-use eez_control_rpc::v1::prover_client::ProverClient;
-use eez_control_rpc::v1::{BlockWitness, ExecutionWitness, prove_failure};
+use eez_control_rpc::v2::prover_client::ProverClient;
+use eez_control_rpc::v2::{BlockWitness, ExecutionWitness, prove_failure};
 use eez_control_rpc::v2::{Proof, SettlementInput as WireSettlement};
 use eez_protocol::abi::{EtherDeltaSol, ExecutionEntrySol, L2ToL1CallSol, RootUpdateSol};
 use eez_protocol::blob_semantics::SemanticTransaction;
@@ -21,10 +20,10 @@ use tokio::sync::{mpsc, oneshot};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Status};
 
-use super::rpc::WorkerGuard;
 use super::settlement_job::{
     PipelineError, SettlementInput, SettlementPipelineError, run_settlement,
 };
+use super::worker::WorkerGuard;
 use super::*;
 use crate::cancel::CancellationToken;
 use crate::testkit::{
@@ -307,10 +306,10 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
         &[(sidecar.clone(), Bytes::from(user.clone()))],
         &[],
         &system_transaction_context(),
-        0,
+        &[crate::testkit::native_source_context().outbound(0, alloy_primitives::keccak256(&user))],
     )
     .unwrap();
-    let transactions = eez_protocol::system_tx::interleave_sync_block_txs(&pairs)
+    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
         .into_iter()
         .map(|raw| {
             <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
@@ -320,7 +319,13 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
         transactions,
         ..Default::default()
     };
-    let block = eez_primitives::Block::new(Default::default(), body);
+    let block = eez_primitives::Block::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     batch.callData = settlement::encode_da_payload(&[Vec::new()]).into();
     (batch, alloy_rlp::encode(block), user, call_hash)
 }
@@ -352,7 +357,7 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
     let outbound_prefix_hash = B256::repeat_byte(0x44);
     let final_block_hash = B256::repeat_byte(0x05);
     let value = U256::from(9);
-    let (_unused_nonce_zero_tx, inbound_call_hash, return_data, inbound_sidecar) =
+    let (_unused_standalone_tx, inbound_call_hash, return_data, inbound_sidecar) =
         strict_inbound_transaction(value);
 
     let mut inbound_entry = batch.entries[0].clone();
@@ -370,10 +375,19 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
         &[(outbound_sidecar.clone(), Bytes::from(user.clone()))],
         &[eez_protocol::entries::InboundSidecar::try_from(&inbound_sidecar).unwrap()],
         &system_transaction_context(),
-        0,
+        &[
+            crate::testkit::native_source_context().outbound(0, alloy_primitives::keccak256(&user)),
+            crate::testkit::native_source_context().inbound(
+                eez_protocol::native_source::SourcePosition {
+                    manifest_index: 1,
+                    top_level_call_index: 0,
+                },
+                inbound_call_hash,
+            ),
+        ],
     )
     .unwrap();
-    let transactions = eez_protocol::system_tx::interleave_sync_block_txs(&pairs)
+    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
         .into_iter()
         .map(|raw| {
             <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
@@ -383,7 +397,13 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
         transactions,
         ..Default::default()
     };
-    let block = eez_primitives::Block::new(Default::default(), body);
+    let block = eez_primitives::Block::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     batch.callData = settlement::encode_da_payload(&[Vec::new()]).into();
 
     (batch, alloy_rlp::encode(block), outbound_call_hash)
@@ -871,12 +891,19 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
     let raw = eez_protocol::system_tx::build_inbound_system_txs(
         &[eez_protocol::entries::InboundSidecar::try_from(&sidecar).unwrap()],
         &context,
-        0,
+        &[crate::testkit::native_source_context().inbound(
+            eez_protocol::native_source::SourcePosition {
+                manifest_index: 0,
+                top_level_call_index: 0,
+            },
+            call_hash,
+        )],
     )
     .unwrap()
-    .remove(0);
-    let transaction =
-        <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap();
+    .remove(0)
+    .at_position(crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT, 0)
+    .unwrap();
+    let transaction = TestTransaction::from(raw);
     assert_eq!(transaction.input(), input.as_slice());
     (transaction, call_hash, return_data, sidecar)
 }
@@ -918,7 +945,13 @@ fn transactions_block_chunk(
         transactions,
         ..Default::default()
     };
-    let consensus_block = eez_primitives::Block::new(Default::default(), body);
+    let consensus_block = eez_primitives::Block::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     let mut chunk = block_chunk(number, parent, hash);
     block_mut(&mut chunk).rlp = alloy_rlp::encode(consensus_block);
     chunk
@@ -980,7 +1013,6 @@ impl TestServer {
         let (shutdown, shutdown_rx) = oneshot::channel();
         tokio::spawn(async move {
             tonic::transport::Server::builder()
-                .add_service(svc.streaming_server())
                 .add_service(svc.into_server())
                 .serve_with_incoming_shutdown(
                     tokio_stream::wrappers::TcpListenerStream::new(listener),

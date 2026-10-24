@@ -1,4 +1,4 @@
-//! Independent single-account trie and receipt fixtures. No production block
+//! Independent account trie and receipt fixtures. No production block
 //! builder, reconstruction helper, or trie-root helper constructs expected roots.
 
 use super::*;
@@ -26,6 +26,26 @@ fn ordered_leaf(value: Vec<u8>) -> B256 {
         Bytes::from_static(&[0x20, 0x80]),
         Bytes::from(value),
     ]))
+}
+
+fn ordered_root(values: &[Vec<u8>]) -> B256 {
+    match values {
+        [] => alloy_consensus::EMPTY_ROOT_HASH,
+        [value] => ordered_leaf(value.clone()),
+        [first, second] => {
+            // Keys RLP(0)=0x80 and RLP(1)=0x01 diverge at the root. Their
+            // remaining odd leaf paths are 0 and 1 respectively. These fixture
+            // values exceed the MPT inline threshold, so both children hash.
+            let mut branch = vec![Bytes::new(); 17];
+            for (position, path, value) in [(8, 0x30, first), (0, 0x31, second)] {
+                let leaf = alloy_rlp::encode(vec![Bytes::from(vec![path]), value.clone().into()]);
+                assert!(leaf.len() >= 32);
+                branch[position] = keccak256(leaf).as_slice().to_vec().into();
+            }
+            keccak256(alloy_rlp::encode(branch))
+        }
+        _ => panic!("independent fixture supports at most two transactions"),
+    }
 }
 
 fn transaction(kind: usize, nonce: u64) -> TransactionSigned {
@@ -139,11 +159,29 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
     let sender = key.address();
     let mut balance = U256::from(1_000_000_000_000_000_000u64);
     let mut nonce = 0;
+    let state = |nonce, balance, timestamp| {
+        crate::testkit::history::state(&[(sender, nonce, balance)], timestamp)
+    };
+    // Independent ABI construction of the native history occurrence domain.
+    // The fixture does not call the production source-hash builder.
+    use alloy_sol_types::SolValue as _;
+    let l2_spec = reth_chainspec::ChainSpec::from(config.clone());
+    let history_domain = keccak256(
+        (
+            keccak256("EEZ_ROLLUPX_HISTORY_SOURCE"),
+            U256::from(1),
+            U256::from(crate::testkit::history::l1_spec().chain().id()),
+            U256::from(l2_spec.chain().id()),
+            l2_spec.genesis_header().hash_slow(),
+            eez_primitives::HISTORY_ADDRESS,
+        )
+            .abi_encode_params(),
+    );
     let mut parent = Header {
         parent_hash: B256::ZERO,
         ommers_hash: alloy_consensus::EMPTY_OMMER_ROOT_HASH,
         beneficiary: Address::ZERO,
-        state_root: crate::testkit::history::state(&[(sender, nonce, balance)], 104).0,
+        state_root: state(nonce, balance, 104).0,
         transactions_root: alloy_consensus::EMPTY_ROOT_HASH,
         receipts_root: alloy_consensus::EMPTY_ROOT_HASH,
         logs_bloom: Bloom::ZERO,
@@ -180,10 +218,10 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
         env.extra_data = Bytes::from_static(b"last run");
     }
     let mut blocks = Vec::new();
-    let mut raw_transactions = Vec::new();
     for (position, environment) in environments.iter().enumerate() {
-        let (_, pre_state) =
-            crate::testkit::history::state(&[(sender, nonce, balance)], parent.timestamp);
+        let (_, pre_state) = state(nonce, balance, parent.timestamp);
+        let timestamp = parent.timestamp + 2;
+        let updating = (timestamp - 86).is_multiple_of(12);
         let kind = match position {
             0 => Some(0),
             2 => Some(1),
@@ -191,15 +229,40 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             6 => extra_transaction,
             _ => None,
         };
-        let txs = kind
-            .map(|kind| transaction(kind, nonce))
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut txs = Vec::new();
+        if updating {
+            // Construct the fixed ABI independently of the history planner.
+            let mut input = hex::decode("8ea69a3a").unwrap();
+            for word in [timestamp - 6, 64, 0] {
+                input.extend_from_slice(&U256::from(word).to_be_bytes::<32>());
+            }
+            txs.push(
+                eez_primitives::SystemTransaction {
+                    chain_id: 1,
+                    version: eez_primitives::SYSTEM_TX_VERSION,
+                    source_hash: keccak256(
+                        (
+                            history_domain,
+                            parent.hash_slow(),
+                            U256::from(parent.number + 1),
+                            U256::from(timestamp),
+                            keccak256(&input),
+                        )
+                            .abi_encode_params(),
+                    ),
+                    gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
+                    to: eez_primitives::HISTORY_ADDRESS,
+                    value: U256::ZERO,
+                    input: input.into(),
+                }
+                .into(),
+            );
+        }
+        txs.extend(kind.map(|kind| transaction(kind, nonce)));
         let raw = txs
             .iter()
-            .map(|tx| Bytes::from(tx.encoded_2718()))
+            .map(alloy_eips::Encodable2718::encoded_2718)
             .collect::<Vec<_>>();
-        let timestamp = parent.timestamp + 2;
         let mut header = parent.clone();
         header.parent_hash = parent.hash_slow();
         header.number += 1;
@@ -214,7 +277,7 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
         // Reverted CREATE: 53,000 intrinsic + 3 nonzero calldata bytes at 16
         // each + 2 initcode-word gas + two PUSH0 opcodes at 2 each. REVERT
         // consumes no additional gas for empty memory/output.
-        header.gas_used = match kind {
+        let ordinary_gas = match kind {
             Some(4) => 53_054,
             // 21,000 + 25,000 authorization gas. Existing-authority clearing
             // earns 12,500 refund, capped to 46,000 / 5 = 9,200. A wrong-chain
@@ -224,10 +287,23 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             Some(_) => 21_000,
             None => 0,
         };
-        header.transactions_root = raw.first().map_or(alloy_consensus::EMPTY_ROOT_HASH, |tx| {
-            ordered_leaf(tx.to_vec())
-        });
-        header.receipts_root = kind.map_or(alloy_consensus::EMPTY_ROOT_HASH, |kind| {
+        // Fixed independent Anvil/Osaka oracle for these two one-byte cutoffs,
+        // cold slots and the pinned runtime; see the native-v1 audit's
+        // history-gas-oracle.json. Do not learn this value from the validator.
+        let history_gas = if updating { 41_092 } else { 0 };
+        header.gas_used = history_gas + ordinary_gas;
+        header.transactions_root = ordered_root(&raw);
+        let mut receipts = Vec::new();
+        if updating {
+            let receipt = alloy_rlp::encode(Receipt {
+                status: 1,
+                gas_used: history_gas,
+                bloom: Bloom::ZERO,
+                logs: vec![],
+            });
+            receipts.push([&[0x45][..], &receipt].concat());
+        }
+        if let Some(kind) = kind {
             let receipt = alloy_rlp::encode(Receipt {
                 status: u8::from(kind != 4),
                 gas_used: header.gas_used,
@@ -244,16 +320,16 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
                 };
                 [&[receipt_type][..], &receipt].concat()
             };
-            ordered_leaf(encoded)
-        });
+            receipts.push(encoded);
+        }
+        header.receipts_root = ordered_root(&receipts);
         if kind.is_some() {
             nonce += if kind == Some(5) { 2 } else { 1 };
         }
         if kind == Some(3) {
             balance -= U256::from(131_072);
         }
-        header.state_root =
-            crate::testkit::history::state(&[(sender, nonce, balance)], timestamp).0;
+        header.state_root = state(nonce, balance, timestamp).0;
         let block = Block {
             header: header.clone(),
             body: alloy_consensus::BlockBody {
@@ -279,7 +355,6 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
                 },
             }),
         });
-        raw_transactions.push(raw);
         parent = header;
     }
     (config, blocks)
@@ -297,6 +372,34 @@ fn configured_state(config: alloy_genesis::Genesis) -> Arc<ServiceState> {
         )
         .unwrap(),
     )
+}
+
+#[test]
+fn independent_history_fixture_replays_every_block() {
+    let (config, blocks) = fixture_blocks(None);
+    let admitted = blocks
+        .iter()
+        .map(|block| {
+            let raw = block.witness.as_ref().unwrap();
+            AdmittedBlock {
+                l1_headers_rlp: raw.l1_headers_rlp.iter().cloned().map(Into::into).collect(),
+                declared_number: block.number,
+                claimed_hash: B256::from_slice(&block.hash),
+                claimed_parent_hash: B256::from_slice(&block.parent_hash),
+                rlp: block.rlp.clone(),
+                witness: alloy_rpc_types_debug::ExecutionWitness {
+                    state: raw.state.iter().cloned().map(Into::into).collect(),
+                    codes: raw.codes.iter().cloned().map(Into::into).collect(),
+                    keys: raw.keys.iter().cloned().map(Into::into).collect(),
+                    headers: raw.headers.iter().cloned().map(Into::into).collect(),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(admitted.len(), 12);
+    Validator::stateless_for_test(config, TEST_SYSTEM_ADDRESS)
+        .validate(&admitted)
+        .expect("independent history transaction, receipt and state-root oracle");
 }
 
 #[tokio::test]
@@ -492,7 +595,7 @@ async fn independent_7702_authorization_nonce_and_refund_are_reconstructed() {
 }
 
 #[test]
-fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
+fn native_replay_preserves_account_nonce_and_independent_receipt_state_commitments() {
     use alloy_consensus::Typed2718 as _;
     use reth_primitives_traits::Block as _;
 
@@ -514,21 +617,30 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         requests_hash: Some(EMPTY_REQUESTS),
         ..Default::default()
     };
-    for nonce in [7, 8] {
+    let selector = eez_protocol::entries::EXECUTE_INCOMING_SELECTOR;
+    // Osaka's independent calldata-floor formula for a call to a STOP/empty target.
+    let gas = 21_000
+        + selector
+            .iter()
+            .map(|byte| if *byte == 0 { 10 } else { 40 })
+            .sum::<u64>();
+    for occurrence in [7, 8] {
         let transaction: TransactionSigned = eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: B256::with_last_byte(occurrence),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,
             value: U256::ZERO,
-            input: Bytes::new(),
+            input: Bytes::copy_from_slice(&selector),
         }
         .into();
         let raw = transaction.encoded_2718();
         let encoded_receipt = [
-            vec![0x76],
+            vec![0x45],
             alloy_rlp::encode(Receipt {
                 status: 1,
-                gas_used: 21_000,
+                gas_used: gas,
                 bloom: Bloom::ZERO,
                 logs: vec![],
             }),
@@ -538,12 +650,12 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         header.number += 1;
         header.timestamp += 2;
         header.parent_hash = parent.hash_slow();
-        header.gas_used = 21_000;
+        header.gas_used = gas;
         header.base_fee_per_gas = parent.next_block_base_fee(eez_protocol::l2::BASE_FEE_PARAMS);
         header.transactions_root = ordered_leaf(raw);
         header.receipts_root = ordered_leaf(encoded_receipt);
         header.state_root =
-            crate::testkit::history::state(&[(sender, nonce + 1, U256::ZERO)], header.timestamp).0;
+            crate::testkit::history::state(&[(sender, 7, U256::ZERO)], header.timestamp).0;
         let block = Block {
             header: header.clone(),
             body: alloy_consensus::BlockBody {
@@ -554,8 +666,7 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         };
         let recovered = block.try_into_recovered().unwrap();
         let witness = alloy_rpc_types_debug::ExecutionWitness {
-            state: crate::testkit::history::state(&[(sender, nonce, U256::ZERO)], parent.timestamp)
-                .1,
+            state: crate::testkit::history::state(&[(sender, 7, U256::ZERO)], parent.timestamp).1,
             codes: vec![Bytes::copy_from_slice(
                 eez_protocol::l1_history::HISTORY_RUNTIME,
             )],
@@ -586,7 +697,7 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         assert_eq!(output.validation.block_hash, header.hash_slow());
         assert_eq!(
             output.validation.execution_output.result.receipts[0].ty(),
-            0x76
+            0x45
         );
         assert_eq!(
             output.checkpoints.transaction_state_checkpoints[0].state_root,

@@ -20,8 +20,8 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{Level, event, warn};
 
-use super::rpc::WorkerGuard;
 use super::settlement_job::{AttestablePublicInputsHash, PipelineError, settle_validated};
+use super::worker::WorkerGuard;
 use super::{ProveSvc, ServiceLimits, ServiceState};
 use crate::cancel::CancellationToken;
 use crate::validate::streaming::{BlockAnchor, ValidatedStreamBlock};
@@ -1103,6 +1103,30 @@ impl SessionRuntime {
 #[tonic::async_trait]
 impl Prover for ProveSvc {
     type ProveStreamStream = ResponseStream;
+
+    async fn capabilities(
+        &self,
+        _request: Request<eez_control_rpc::v2::CapabilitiesRequest>,
+    ) -> Result<Response<eez_control_rpc::v2::CapabilitiesResponse>, Status> {
+        let limits = self.limits;
+        let window = limits.window_limits();
+        // Use the enforced limits, including the aggregate-byte reduction of
+        // the per-message ceiling. No permit, witness, or attestable value is
+        // acquired/constructed here.
+        Ok(Response::new(eez_control_rpc::v2::CapabilitiesResponse {
+            operations_tag: u32::from(eez_payload_codec::v0::VERSION),
+            profile_id: eez_control_rpc::OFFLINE_PROFILE_ID,
+            validation_identity: self.state.validation_identity.to_vec(),
+            max_window_blocks: window.blocks as u64,
+            max_request_bytes: window.payload_bytes as u64,
+            max_request_witness_items: window.witness_items as u64,
+            max_message_bytes: limits.max_decoding_message_bytes() as u64,
+            stream_idle_timeout_millis: u64::try_from(limits.stream_idle_timeout().as_millis())
+                .map_err(|_| Status::internal("stream idle timeout exceeds capability range"))?,
+            request_timeout_millis: u64::try_from(limits.request_timeout().as_millis())
+                .map_err(|_| Status::internal("request timeout exceeds capability range"))?,
+        }))
+    }
 
     /// Start the v2 RPC handler and return its server-frame response stream.
     async fn prove_stream(

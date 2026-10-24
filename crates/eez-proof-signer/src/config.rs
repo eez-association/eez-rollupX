@@ -101,7 +101,7 @@ struct Args {
     #[arg(
         long = "l2-system-address",
         env = "EEZ_L2_SYSTEM_ADDRESS",
-        default_value = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076"
+        default_value = "0xfffffffffffffffffffffffffffffffffffffffe"
     )]
     expected_l2_system_address: Address,
 
@@ -178,20 +178,7 @@ impl std::fmt::Debug for Config {
 impl Config {
     /// Parse CLI and environment input, then validate keys and service limits.
     pub(crate) fn load() -> eyre::Result<Self> {
-        Self::reject_obsolete_environment()?;
         Self::from_args(Args::parse())
-    }
-
-    fn reject_obsolete_environment() -> eyre::Result<()> {
-        // Presence, including an empty value, is incompatible with this fresh-
-        // network profile. Never echo a retired URL, which may hold credentials.
-        for name in ["EEZ_PROOF_SIGNER_L2_RPC_URL", "EEZ_L1_RPC_URL"] {
-            eyre::ensure!(
-                std::env::var_os(name).is_none(),
-                "{name} is obsolete for the offline signer; remove it"
-            );
-        }
-        Ok(())
     }
 
     fn from_args(args: Args) -> eyre::Result<Self> {

@@ -363,32 +363,15 @@ fn elapsed_deadline_stops_settlement_after_real_offline_replay() {
 }
 
 #[test]
-fn previous_signed_system_deployment_is_rejected_before_replay() {
-    let identity: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/derivable-native-mixed/identity.json"
-    ))
-    .unwrap();
-    let system_address = identity["l2_system_address"]
-        .as_str()
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert_ne!(system_address, eez_primitives::SYSTEM_ADDRESS);
-    let config = serde_json::from_str(include_str!(
-        "../../../../tests/fixtures/derivable-native-mixed/chain-config.json"
-    ))
-    .unwrap();
+fn validator_rejects_a_non_protocol_system_identity() {
     let error = ServiceState::new(
         Address::repeat_byte(0x33),
         Address::repeat_byte(0x44),
         Validator::stateless_for_test(
-            alloy_genesis::Genesis {
-                config,
-                ..Default::default()
-            },
-            system_address,
+            crate::testkit::history::genesis(),
+            Address::repeat_byte(0x12),
         ),
-        expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
+        expected_rollup_id(1),
         test_attester(),
         crate::testkit::l1_chain_spec(),
     )

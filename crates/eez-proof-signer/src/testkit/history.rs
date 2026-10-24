@@ -46,10 +46,13 @@ pub(crate) fn genesis() -> alloy_genesis::Genesis {
     let reference = l1.genesis_header();
     genesis.timestamp = 80;
     genesis.config.extra_fields.insert("rollupX".into(), serde_json::json!({
+        "feeCollector": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
         "blockIntervalSeconds": 2, "syncIntervalBlocks": 6, "historyUpdateOffset": 2,
         "l1Reference": { "chainId": l1.chain().id(), "number": 0,
             "hash": reference.hash_slow(), "timestamp": reference.timestamp, "prevRandao": reference.mix_hash }
     }));
+    genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().code =
+        Some(Bytes::copy_from_slice(HISTORY_RUNTIME));
     genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
         bootstrap_storage(
             0,

@@ -42,7 +42,7 @@ Before block replay, [stream validation](../src/validate/streaming.rs) extends
 the checked raw L1-header chain and freezes its evidence for execution. The
 mandatory history hook authenticates the previous endpoint against L2 storage,
 derives the scheduled import and checks the synchronized PREVRANDAO. Finalize
-still must resolve source maximality, exact anchor termination and the accepted
+still must resolve recorded origin membership, exact anchor termination and the accepted
 L2 commitment through the selected mode. A validated block ACK alone cannot
 authorize a signature.
 

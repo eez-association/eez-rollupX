@@ -71,6 +71,7 @@ pub(crate) fn controlled_schedule() -> eez_protocol::l2::Schedule {
     let reference = controlled_l1_header();
     eez_protocol::l2::Schedule::new(
         eez_protocol::l2::DerivationConfig {
+            fee_collector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             block_interval_seconds: 2,
             sync_interval_blocks: 6,
             history_update_offset: 2,
@@ -97,6 +98,7 @@ pub(crate) fn offline_context(
         EvidenceAnchor, HISTORY_RUNTIME, OfflineContext, OfflineProfile,
     };
     let profile = OfflineProfile {
+        feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
         l1ChainId: alloy_primitives::U256::from(posting.chain_id),
         l2ChainId: alloy_primitives::U256::from(1),
         genesisHash: B256::repeat_byte(0x11),
@@ -132,6 +134,33 @@ pub(crate) fn offline_context(
     .unwrap()
 }
 
+/// Fixed native live context for synthetic settlement fixtures. This supplies
+/// occurrence inputs only; captured service tests establish authenticated context.
+pub(crate) fn native_source_context() -> eez_protocol::native_source::LiveSourceContext {
+    offline_context(
+        &eez_protocol::EvmBatch {
+            blockNumber: u64::MAX,
+            ..Default::default()
+        },
+        l1_target(),
+    )
+    .live_source_context()
+    .unwrap()
+}
+
+/// Synthetic fixtures use a zero-gas backend with a fixed block budget. Real
+/// replay and capacity-boundary tests supply their own measured receipt gas.
+pub(crate) const SYNTHETIC_BLOCK_GAS_LIMIT: u64 = 30_000_000;
+
+pub(crate) fn resolve_synthetic_plans(
+    pairs: &[eez_protocol::system_tx::SyncPair],
+) -> Vec<alloy_primitives::Bytes> {
+    eez_protocol::system_tx::interleave_sync_block_txs(pairs)
+        .into_iter()
+        .map(|plan| plan.at_position(SYNTHETIC_BLOCK_GAS_LIMIT, 0).unwrap())
+        .collect()
+}
+
 /// Native private fixtures activate all supported execution-header fields at genesis.
 pub(crate) fn l1_header_rules() -> eez_protocol::l1_history::HeaderRules {
     eez_protocol::l1_history::HeaderRules {
@@ -163,11 +192,11 @@ pub(crate) fn checked_history(
 }
 
 /// Deterministic system-transaction identity used only by tests.
-pub(crate) const TEST_SYSTEM_ADDRESS_ARG: &str = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076";
+pub(crate) const TEST_SYSTEM_ADDRESS_ARG: &str = "fffffffffffffffffffffffffffffffffffffffe";
 
 /// Parsed form of [`TEST_SYSTEM_ADDRESS_ARG`] for transaction and policy tests.
 pub(crate) const TEST_SYSTEM_ADDRESS: Address =
-    address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076");
+    address!("fffffffffffffffffffffffffffffffffffffffe");
 
 /// Public Anvil account #0 key, used only for ordinary signature tests.
 pub(crate) const LEGACY_USER_PRIVATE_KEY: B256 =
@@ -180,8 +209,8 @@ pub(crate) const LEGACY_USER_PRIVATE_KEY: B256 =
 /// --chain 1 --nonce 0 --gas-price 1 --gas-limit 21000 <EEZL2_ADDRESS>`.
 pub(crate) const LEGACY_USER_TX: &str = "f85f8001825208944b2760f84b83d6b3829e30a7573b0172b6d6402c808025a0e89cbbd24d25863a59a811d77b98a9c2ad4c9ea8712c5f04eeae1b12e1cf53e6a03477c662e64a29190132f5c647ee0e0f40e1589959cdac9951f1afab86652d04";
 
-/// Canonical native wire vector: chain 1, nonce 0, EEZL2, zero value and input.
-pub(crate) const SYSTEM_TX: &str = "76d90180944b2760f84b83d6b3829e30a7573b0172b6d6402c8080";
+/// Independent native-v1 vector: chain 1, source zero, full gas cap, EEZL2, zero value/input.
+pub(crate) const SYSTEM_TX: &str = "45f83f0101a000000000000000000000000000000000000000000000000000000000000000008401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c8080";
 
 /// Canonical context for reconstructing system transactions in tests; tests
 /// that need a noncanonical variant mutate one field of a fresh copy.

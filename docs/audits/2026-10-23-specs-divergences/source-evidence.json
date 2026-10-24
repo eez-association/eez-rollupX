@@ -1,0 +1,1392 @@
+{
+  "captured_utc": "2026-10-23T17:15:37.019436+00:00",
+  "worktree": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving",
+  "sources": [
+    {
+      "tag": "H-PROP",
+      "path": "docs/proposals/l1-origin-and-offline-proving.md",
+      "sha256": "94606c0c663c6c675313ecbfe9082abfe9b8383bb25d9ed9a4d6478ba0012184",
+      "bytes": 17473,
+      "line": 5,
+      "locator": "Status",
+      "locator_found": true,
+      "note": "perfil aceptado de historia/offline para redes nuevas",
+      "excerpt": "| --- | --- |\n| Status | Accepted design; implementation and regression validation in progress. Earlier baseline test results do not validate this revision. |\n| Scope | Fresh networks only, active from genesis; no hardfork switch, legacy execution path or existing-network migration. |\n| Protocol | Published `feature/e2e_edge_cases`, `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Core interfaces are unchanged. |\n| Prover interface | `prove.v2.Prover.ProveStream`; existing witness field `l1_headers_rlp`; identity schema 6, validation specification 2. |"
+    },
+    {
+      "tag": "H-SPEC",
+      "path": "contracts/L1_HISTORY_SPEC.md",
+      "sha256": "219a31f4e060a9b0f414b10e13285c9e9514ad25080f6803a40f8d32b2b60660",
+      "bytes": 4156,
+      "line": 29,
+      "locator": "importHistory",
+      "locator_found": true,
+      "note": "ABI y almacenamiento canónico de historia",
+      "excerpt": "\n`importHistory(cutoff, newHashes)` is callable only by system address\n`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`, at exactly\n`block.timestamp == cutoff + updateDelay`, with `cutoff == nextCutoff`.\nIt appends consecutive nonzero hashes after the current endpoint and advances"
+    },
+    {
+      "tag": "RPC",
+      "path": "crates/eez-control-rpc/SPEC.md",
+      "sha256": "7b8f7a54050fa9c17622a49aa4bafe4c5ab0d6cd0f3af1781b1541e658c0de35",
+      "bytes": 41207,
+      "line": 22,
+      "locator": "## 1",
+      "locator_found": true,
+      "note": "contrato de proving, failure handling y ownership",
+      "excerpt": "\n## 1. Composer flow\n\nFor each admitted, Sync-aligned settlement range, Composer:\n"
+    },
+    {
+      "tag": "SIGNER",
+      "path": "crates/eez-proof-signer/SPEC.md",
+      "sha256": "f451a3cef1d0dc5a3eebc46b9745a0b8f470fdd9d30160d97b069786561ba69c",
+      "bytes": 73253,
+      "line": 42,
+      "locator": "## 1",
+      "locator_found": true,
+      "note": "perfil admitido y límites de la validación",
+      "excerpt": "\n## 1. Purpose and supported profile\n\nThe signer accepts one Composer-supplied L2 block window, validates every block\nwith witness-backed Stateless/Reth execution, binds one canonical"
+    },
+    {
+      "tag": "NATIVE-PROP",
+      "path": "docs/proposals/native-system-transactions.md",
+      "sha256": "1d0ea2ce6c05c3a7cde6590b9ca97ebd316836fbd5dd77997cb435a4e6aa4525",
+      "bytes": 17879,
+      "line": 1,
+      "locator": "Status",
+      "locator_found": false,
+      "note": "decisiones nativas y perfil más amplio que Rollup0 V1",
+      "excerpt": "# Native transactions and canonical derivation\n\n| Field | Value |\n| --- | --- |"
+    },
+    {
+      "tag": "CORE",
+      "path": "eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md",
+      "sha256": "205e89873429685771247766623a2f7b3ed6f7dfc691f6ed3b649d49528ddff0",
+      "bytes": 140634,
+      "line": 1,
+      "locator": "#",
+      "locator_found": true,
+      "note": "core fijado: ABI, hashes, ledger y proxy",
+      "excerpt": "# Core Protocol Specification\n\n**Source**: `src/`\n**Purpose**: Formal reference for implementing the Rust rollup node. Supersedes informal comments in source code."
+    },
+    {
+      "tag": "MULTI",
+      "path": "eez-core-protocol/docs/MULTI_PROVER_SPEC.md",
+      "sha256": "da31cf4147f74f7a1c70f81f9a5248e3a164796b4739816a19675370bdea80d9",
+      "bytes": 22856,
+      "line": 96,
+      "locator": "### Per-PS",
+      "locator_found": true,
+      "note": "digest/threshold/queues/owner escape",
+      "excerpt": "\n### Per-PS publicInputsHash (two-stage)\n\n```\nfor each rollup r in rollupIdsWithProofSystems (rollupId-ascending):"
+    },
+    {
+      "tag": "BLOB-SPEC",
+      "path": "eez-core-protocol/docs/blobs/BLOB_FORMAT_SPEC.md",
+      "sha256": "d2b22c4dd35a352ee56a913c40e3a23a66f03b94b1969989a40077abe40d047b",
+      "bytes": 26792,
+      "line": 27,
+      "locator": "### 1.1",
+      "locator_found": true,
+      "note": "formato físico de mensajes y blobs fijado",
+      "excerpt": "\n### 1.1 Wire encoding\n\nThese conventions apply across the per-type layouts in §2:\n"
+    },
+    {
+      "tag": "ABI",
+      "path": "crates/eez-protocol/src/abi.rs",
+      "sha256": "916ee38ff8d2a89fb3e726ba326ec05f422a7a1a3695374e9ac0d4497e6c6e29",
+      "bytes": 10538,
+      "line": 17,
+      "locator": "struct RootUpdateSol",
+      "locator_found": true,
+      "note": "structs y tests de selectores",
+      "excerpt": "    #[derive(Debug)]\n    struct RootUpdateSol {\n        uint64 rollupId;\n        int192 etherDelta;\n        bytes32 currentRoot;"
+    },
+    {
+      "tag": "CALL-HASH",
+      "path": "crates/eez-protocol/src/action.rs",
+      "sha256": "f1c9eb9b369f38cbe5d8f5e541139d9039c00ea6014cc88993db3dbbce267bd7",
+      "bytes": 6793,
+      "line": 75,
+      "locator": "pub fn common_cross_chain_call_hash",
+      "locator_found": true,
+      "note": "hash con static, gas y uint64",
+      "excerpt": "#[must_use]\npub fn common_cross_chain_call_hash(input: CallHashInput<'_>) -> B256 {\n    cross_chain_call_hash(input, 0)\n}\n"
+    },
+    {
+      "tag": "ROLLING",
+      "path": "crates/eez-protocol/src/rolling_hash.rs",
+      "sha256": "50944f28ada550a478415ea74c882a1f93673037261d6c8a7d9d2805b754a96c",
+      "bytes": 6489,
+      "line": 54,
+      "locator": "pub fn",
+      "locator_found": true,
+      "note": "folds y tags del pin",
+      "excerpt": "    #[must_use]\n    pub fn seed_for_l1(\n        root_updates: impl IntoIterator<Item = (u64, B256)>,\n        proxy_entry_hash: B256,\n    ) -> Self {"
+    },
+    {
+      "tag": "PROXIES",
+      "path": "crates/eez-protocol/src/authorized_proxies.rs",
+      "sha256": "a8fa0510b0e3f3b5be5aafec79ce451b361fc2b4c5413febf918f2a1618405d3",
+      "bytes": 7426,
+      "line": 43,
+      "locator": "pub const EEZ_AUTHORIZED_PROXIES_SLOT",
+      "locator_found": true,
+      "note": "lookup de proxies autorizado por estado/layout",
+      "excerpt": "/// `EEZBase` subclass — including `EEZ` (L1).\npub const EEZ_AUTHORIZED_PROXIES_SLOT: u8 = 0;\n\n/// Storage slot of `authorizedProxies` on `EEZL2.sol` (L2).\n///"
+    },
+    {
+      "tag": "CORE-BASE",
+      "path": "eez-core-protocol/src/base/EEZBase.sol",
+      "sha256": "78dd692f6156ef5067770b0d2271662c64ee7a1139b4a92532614a97bdb4ad2e",
+      "bytes": 30015,
+      "line": 250,
+      "locator": "function computeCrossChainProxyAddress",
+      "locator_found": true,
+      "note": "CREATE2 y call hash en Solidity",
+      "excerpt": "    /// @return Predicted proxy address, whether or not the proxy has been deployed.\n    function computeCrossChainProxyAddress(\n        address originalAddress,\n        uint64 originalRollupId\n    )"
+    },
+    {
+      "tag": "PUBLIC-INPUTS",
+      "path": "crates/eez-protocol/src/public_inputs.rs",
+      "sha256": "c71f94b299b2494d290a8954528c5f30f7304fba81152fe7dbae879bd85e17a5",
+      "bytes": 26688,
+      "line": 18,
+      "locator": "pub fn",
+      "locator_found": true,
+      "note": "recomputación Rust del public input",
+      "excerpt": "#[must_use]\npub fn entry_hash(entry: &ExecutionEntrySol) -> B256 {\n    keccak256(SolValue::abi_encode(entry))\n}\n"
+    },
+    {
+      "tag": "CORE-ECDSA",
+      "path": "eez-core-protocol/src/proofSystems/ECDSAProofSystem.sol",
+      "sha256": "29fbc3bad98e14d0c5e42a54945e9085c61cfbcc64aab32bbda81bd0ec26a322",
+      "bytes": 4356,
+      "line": 67,
+      "locator": "function verify",
+      "locator_found": true,
+      "note": "Generic pinned core verifier, not the local deployed proof system",
+      "excerpt": "    /// @return True if the recovered address equals signer, false otherwise.\n    function verify(bytes calldata proof, bytes32 publicInputsHash) external view returns (bool) {\n        address recovered = ECDSA.recover(publicInputsHash, proof);\n        return recovered == signer;\n    }"
+    },
+    {
+      "tag": "SCAN",
+      "path": "crates/eez-l1/src/scan.rs",
+      "sha256": "257537afed573a8603998d144c2a739e51d8898c7881f1d1dc62c2f4a89098bc",
+      "bytes": 90652,
+      "line": 523,
+      "locator": "let input = tx.inner.input()",
+      "locator_found": true,
+      "note": "scanner usa input de transacción exterior y atribuye root logs",
+      "excerpt": "        let submitter = tx.inner.signer();\n        let input = tx.inner.input();\n        let decoded_event = BatchPosted::decode_log(&alloy_primitives::Log {\n            address: log.address(),\n            data: log.data().clone(),"
+    },
+    {
+      "tag": "PARTIAL-TESTS",
+      "path": "crates/eez-node-e2e/tests/partial_consumption.rs",
+      "sha256": "45c9f34ee5502fa55b80d3bb34b3aa11fa2be6fe5f76fbaa6bd2337e839bfa83",
+      "bytes": 38039,
+      "line": 554,
+      "locator": "async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+      "locator_found": true,
+      "note": "tests de consumo parcial, reanudación y reinicio; no ejecutados",
+      "excerpt": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 2)]\nasync fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {\n    valid_same_block_resume().await;\n}\n"
+    },
+    {
+      "tag": "STATIC",
+      "path": "eez-core-protocol/docs/STATIC_ENTRY.md",
+      "sha256": "6beffd57303ffe8d3b4b2533fc11612e059f97ce69b163b59fda9f8aa87c987b",
+      "bytes": 34323,
+      "line": 111,
+      "locator": "## 3.",
+      "locator_found": true,
+      "note": "static/reverted tables y límites de contexto",
+      "excerpt": "\n## 3. The position key (`expectedL1toL2Hash`)\n\nEvery reentrant-table row is content-addressed by one value\n(`EEZBase._computeExpectedL1toL2Hash`):"
+    },
+    {
+      "tag": "ENTRY",
+      "path": "eez-core-protocol/docs/EXECUTION_ENTRY_SPEC.md",
+      "sha256": "135f3881763e32b09458ee59785c0a01171782afd341c09670fa5d29450535a0",
+      "bytes": 67694,
+      "line": 1,
+      "locator": "#",
+      "locator_found": true,
+      "note": "semántica de entries del pin",
+      "excerpt": "# Execution Entry Specification\n\nHow to correctly build execution entries for L1 (`postAndVerifyBatch`) and L2 (`loadExecutionTable` / `executeIncomingCrossChainCall`).\n"
+    },
+    {
+      "tag": "CORE-EEZ",
+      "path": "eez-core-protocol/src/EEZ.sol",
+      "sha256": "afadfb09882a6f724c6686bf09184e6b742f63745fb7f93a246d87288cab9178",
+      "bytes": 103692,
+      "line": 371,
+      "locator": "function postAndVerifyBatch",
+      "locator_found": true,
+      "note": "post/guards/consumo y root pins",
+      "excerpt": "    ///        and the L1 `blockNumber` the batch binds to.\n    function postAndVerifyBatch(ProofSystemBatchPerVerificationEntries calldata batch) external {\n        // Reentrancy guard: block a nested `postAndVerifyBatch` (e.g. from the meta hook, or from an\n        // immediate L2Tx's proxy target) so it can't corrupt the shared transient tables. The two flags\n        // cover every window in which a STATE-MUTATING external call is in flight: `_insideExecution()`"
+    },
+    {
+      "tag": "MANAGER",
+      "path": "contracts/src/OfflineRollup.sol",
+      "sha256": "dad7c8974a5341d72497d38e42c80a5219edd820c238a52d37a5e050d5c1ca1b",
+      "bytes": 17717,
+      "line": 200,
+      "locator": "function getCustomData",
+      "locator_found": true,
+      "note": "dominio/profile/rules/currentRoot y dos anchors",
+      "excerpt": "    ///      changes invalidate a historical proof even while its blockhash is available.\n    function getCustomData(uint64 selector) external view override returns (bytes memory) {\n        if (protocolConfigHash == bytes32(0) || rollupId == 0) revert UnregisteredOfflineRollup();\n        if (block.timestamp > type(uint64).max || block.number == 0 || block.number > type(uint64).max) {\n            revert InvalidAnchorCoordinates();"
+    },
+    {
+      "tag": "SCHEDULE",
+      "path": "crates/eez-protocol/src/l2/derivation.rs",
+      "sha256": "e54c87aac41a5dcb0d8bedb5050e5102d6bdb2c21c4194cf44b2609e12f607dc",
+      "bytes": 14565,
+      "line": 15,
+      "locator": "pub struct",
+      "locator_found": true,
+      "note": "grid, genesis, range y tiempos de derivación",
+      "excerpt": "#[serde(rename_all = \"camelCase\", deny_unknown_fields)]\npub struct GenesisL1Reference {\n    /// Settlement network's EIP-155 identity.\n    pub chain_id: u64,\n    /// Reference execution block number (zero is valid on private fixtures)."
+    },
+    {
+      "tag": "L2-PROFILE",
+      "path": "crates/eez-evm/src/profile.rs",
+      "sha256": "e547084bc155324dda392305b037890a3da539baa41abaff6e4837bf490cad33",
+      "bytes": 8840,
+      "line": 76,
+      "locator": "pub fn chain_spec",
+      "locator_found": true,
+      "note": "Osaka cerrado, génesis y parámetros",
+      "excerpt": "/// This constructor is never used for L1 Ethereum or Gnosis configuration.\npub fn chain_spec(genesis: Genesis) -> Result<ChainSpec, ProfileError> {\n    let config = &genesis.config;\n    if config.osaka_time != Some(0)\n        || config.amsterdam_time.is_some()"
+    },
+    {
+      "tag": "GENESIS",
+      "path": "genesis.json",
+      "sha256": "66c9c56e75686b2b7660ef7d8c1f0a27a6b0178ea99aa44d0f52856c6e1a6449",
+      "bytes": 37172,
+      "line": 2,
+      "locator": "\"config\"",
+      "locator_found": true,
+      "note": "plantilla base de producción sin fondos",
+      "excerpt": "{\n  \"config\": {\n    \"chainId\": 696990,\n    \"daoForkSupport\": false,\n    \"homesteadBlock\": 0,"
+    },
+    {
+      "tag": "EVM-TESTS",
+      "path": "crates/eez-evm/src/tests.rs",
+      "sha256": "471486b1c0e228c314867cbad89eb6c7249c271b37f3bfbcddaff14a392f3b19",
+      "bytes": 33812,
+      "line": 152,
+      "locator": "fn native_mints_without_prefunding",
+      "locator_found": true,
+      "note": "tests mint/burn/nonce/gas/EIP2935/fields; no ejecutados",
+      "excerpt": "#[test]\nfn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_prior_system_eth() {\n    for balance in [U256::ZERO, U256::from(5), U256::from(1_000_000)] {\n        for (code, success, out_of_gas) in [\n            // Store CALLER; revert after the store; loop until out of gas."
+    },
+    {
+      "tag": "L2-RULES",
+      "path": "crates/eez-protocol/src/l2.rs",
+      "sha256": "bebfa03ff3b2f0d91958f6a8ca43c0f100a9e8f3f02bb7b90a232f6f31b8591e",
+      "bytes": 5207,
+      "line": 15,
+      "locator": "pub const",
+      "locator_found": true,
+      "note": "campos fijos/gas/base fee compartidos",
+      "excerpt": "/// Ordinary and native transactions share this metered block budget.\npub const GAS_LIMIT: u64 = 30_000_000;\n/// Genesis base fee in wei. Later fees are derived from the actual parent.\npub const GENESIS_BASE_FEE: u64 = 1_000_000_000;\n/// EIP-1559 denominator 50 and elasticity 2, independently of L1's parameters."
+    },
+    {
+      "tag": "EVM-BLOCK",
+      "path": "crates/eez-evm/src/block.rs",
+      "sha256": "3a0e0854200157a56896b0092f1f6668ac0628a1f74807b438ad36e42a905bd0",
+      "bytes": 12295,
+      "line": 133,
+      "locator": "fn apply_pre_execution_changes",
+      "locator_found": true,
+      "note": "EIP2935, burn, history, native budget y finish",
+      "excerpt": "\n    fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {\n        if self.layer == ExecutionLayer::L1Simulation {\n            return self.inner.apply_pre_execution_changes();\n        }"
+    },
+    {
+      "tag": "PAYLOAD-BUILDER",
+      "path": "crates/eez-node-common/src/payload_builder.rs",
+      "sha256": "deb42caf6c7a4fbfe30deaae4f20a823c235f648b3b6fca6748ee8be9915063a",
+      "bytes": 16385,
+      "line": 18,
+      "locator": "MAX_RLP_BLOCK_SIZE",
+      "locator_found": true,
+      "note": "construcción local y límite Osaka",
+      "excerpt": "use reth_chainspec::{ChainSpecProvider, EthereumHardforks};\nuse reth_consensus_common::validation::MAX_RLP_BLOCK_SIZE;\nuse reth_errors::{BlockExecutionError, BlockValidationError, ConsensusError};\nuse reth_ethereum_payload_builder::EthereumBuilderConfig;\nuse reth_evm::{"
+    },
+    {
+      "tag": "TX",
+      "path": "crates/eez-primitives/src/lib.rs",
+      "sha256": "07427e5e04ca33c8ab07abdc1356e059052c9ef6929697e9bad67b66bfb1c8dd",
+      "bytes": 15920,
+      "line": 13,
+      "locator": "pub const SYSTEM_TX_TYPE",
+      "locator_found": true,
+      "note": "envelope0x76, destinos/recovery/nonce/RPC",
+      "excerpt": "/// Reserved EIP-2718 type for EEZ's unsigned system transactions.\npub const SYSTEM_TX_TYPE: u8 = 0x76;\n/// Upper bound of a native transaction's execution budget: Osaka's EIP-7825\n/// per-transaction cap. Native transactions carry no gas field. In an L2 block\n/// each one executes with [`system_tx_gas_limit`] of the block's remaining gas,"
+    },
+    {
+      "tag": "TX-TESTS",
+      "path": "crates/eez-primitives/src/tests.rs",
+      "sha256": "5262c541915518058c32c40320d8ebfc43c596c0be005418c37493d10e019ad8",
+      "bytes": 11299,
+      "line": 97,
+      "locator": "fn native_wire_sender_hash_and_storage_round_trip",
+      "locator_found": true,
+      "note": "tests wire/RPC/storage/receipts/Engine; no ejecutados",
+      "excerpt": "#[test]\nfn native_wire_sender_hash_and_storage_round_trip() {\n    let tx = system();\n    let bytes = tx.encoded_2718();\n    let expected ="
+    },
+    {
+      "tag": "SYSTEM-TX",
+      "path": "crates/eez-protocol/src/system_tx.rs",
+      "sha256": "19e201aee95fdf79b28f9cedad8f12c0f691050ce51b5d51ae6e20f5709f484d",
+      "bytes": 60592,
+      "line": 33,
+      "locator": "pub fn",
+      "locator_found": true,
+      "note": "lowering y reconstrucción native",
+      "excerpt": "/// must agree on this sum.\npub fn committed_l2_table_value(entries: &[L2ExecutionEntrySol]) -> Result<U256, String> {\n    let mut total = U256::ZERO;\n    for call in entries.iter().flat_map(|entry| {\n        entry.incomingCalls.iter().chain("
+    },
+    {
+      "tag": "EVM",
+      "path": "crates/eez-evm/src/evm.rs",
+      "sha256": "bc103440f94ca9019ea013ebccfc2aa8019c6111d4652faace631c0fe1b3e892",
+      "bytes": 7088,
+      "line": 61,
+      "locator": "fn transact_raw",
+      "locator_found": true,
+      "note": "Ethereum ordinary y mint nativo",
+      "excerpt": "    /// so all paths below preserve the inspector installed by our factory.\n    fn transact_raw(&mut self, tx: TxEnv) -> Result<ResultAndState, Self::Error> {\n        if tx.tx_type != SYSTEM_TX_TYPE {\n            if tx.caller == SYSTEM_ADDRESS {\n                return Err(EVMError::Custom("
+    },
+    {
+      "tag": "H-EVM",
+      "path": "crates/eez-evm/src/history.rs",
+      "sha256": "0025c86bc5ea5f1c4e9162b0fdd24db3c8cfa1e74888be355aef1ca29cacdd8e",
+      "bytes": 7759,
+      "line": 16,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "validación y ejecución de import grabado",
+      "excerpt": "\npub use eez_protocol::l1_history::{L1HistorySource, WitnessHistory};\n\n#[derive(Debug, Clone)]\npub(crate) struct HistoryConfig {"
+    },
+    {
+      "tag": "H-RULES",
+      "path": "crates/eez-protocol/src/l1_history.rs",
+      "sha256": "5d8dbe63686e57329a892c7bf7a18a02c2ea5cad9ca87ce7d06a05d97e94baef",
+      "bytes": 22884,
+      "line": 18,
+      "locator": "pub const",
+      "locator_found": true,
+      "note": "límites/perfil/storage y headers de historia",
+      "excerpt": "/// Canonical runtime generated by scripts/update-eezl2-genesis.sh.\npub const HISTORY_RUNTIME: &[u8] = include_bytes!(\"l1_history/runtime.bin\");\n\n/// Dedicated predeploy, distinct from the EIP-2935 L2 block-hash ring.\npub use eez_primitives::HISTORY_ADDRESS;"
+    },
+    {
+      "tag": "H-TESTS",
+      "path": "crates/eez-evm/src/history/tests.rs",
+      "sha256": "b27c44d82f43c1db16211c34c62b86da8b0b471e3bd487bba3105629484ef7e6",
+      "bytes": 14968,
+      "line": 226,
+      "locator": "fn repeat_is_valid_after_late_headers_arrive",
+      "locator_found": true,
+      "note": "tests repeat/update/gas/malformed/invisible; no ejecutados",
+      "excerpt": "#[test]\nfn repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_update() {\n    let (mut config, db) = fixture();\n    let full = config.source.headers(4).unwrap();\n    config.source = Arc::new(WitnessHistory(Arc::new(full.range(0, 0).unwrap())));"
+    },
+    {
+      "tag": "DA-SEMANTICS",
+      "path": "crates/eez-protocol/src/blob_semantics.rs",
+      "sha256": "4c59cc9f379b4040c8204a24964fecb0b99a80b00b43f779081677072ec50f5a",
+      "bytes": 23244,
+      "line": 17,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "validación semántica EEZ DA",
+      "excerpt": "mod reconstruction;\npub use reconstruction::{ReconstructionActions, ReconstructionError};\n\n/// One cross-chain transaction represented by the native semantic messages.\n#[derive(Clone, Debug)]"
+    },
+    {
+      "tag": "CHAINED-TESTS",
+      "path": "crates/eez-node-e2e/tests/chained_interstate.rs",
+      "sha256": "c13a4e851c37391cc8eec91f2e130d76c8876cedc8cc187fffa4f906c7ee1a49",
+      "bytes": 30571,
+      "line": 336,
+      "locator": "async fn three_order_dependent_inbound_calls_in_one_bundle",
+      "locator_found": true,
+      "note": "grupos y llamadas dependientes; no ejecutados",
+      "excerpt": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 4)]\nasync fn three_order_dependent_inbound_calls_in_one_bundle() {\n    let w = setup_cross_chain_with_env(&cap_env()).await.unwrap();\n    let (l1_rpc, l2_rpc) = (w.l1_rpc(), w.l2_rpc());\n"
+    },
+    {
+      "tag": "SEQUENCER",
+      "path": "crates/eez-driver/src/sequencer.rs",
+      "sha256": "4cbeac52c5a6f94487ecc84003f70dd78f63117f8928416d331ddaba2d563300",
+      "bytes": 68200,
+      "line": 967,
+      "locator": "async fn advance_ordinary_at",
+      "locator_found": true,
+      "note": "reloj ordinario y tests source/generation",
+      "excerpt": "    /// Proof deadlines, same-parent replacements and unsettled depth do not gate it.\n    async fn advance_ordinary_at(&mut self, now_ms: u64) -> DriverResult<()> {\n        let k = u64::from(self.timing.k());\n        for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {\n            let parent = self.committer.last_header();"
+    },
+    {
+      "tag": "SLOT",
+      "path": "crates/eez-driver/src/slot.rs",
+      "sha256": "a26449ecb5b59f21e791757f845ff0ab5e9aba271820b44b17edac335acbfaf1",
+      "bytes": 23539,
+      "line": 31,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "scheduler y reemplazos/settlement",
+      "excerpt": "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]\npub enum SlotKind {\n    /// Normal block at current wall-clock cadence.\n    Live,\n    /// Proof-window padding block — timestamp is in the future"
+    },
+    {
+      "tag": "BLOB-CODEC",
+      "path": "crates/eez-blob-codec/src/lib.rs",
+      "sha256": "3e9b57bf1532b3f2f49cc6eb0022060cde69976f86e1ff1022c7b34ab14ca9e9",
+      "bytes": 35616,
+      "line": 16,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "codec lógico/físico de blobs",
+      "excerpt": "\npub use limits::{BlobLimitError, BlobLimits};\n\npub use transport::{\n    BlobSidecarEncoding, BlobTransactionParams, MAX_BLOBS_PER_TRANSACTION, PreparedBlobSidecar,"
+    },
+    {
+      "tag": "BLOB-TRANSPORT",
+      "path": "crates/eez-blob-codec/src/transport.rs",
+      "sha256": "262f3f58529299039b8a6bdaf2ee332ab595738fe7f740ef3751b33250a5df7d",
+      "bytes": 21170,
+      "line": 30,
+      "locator": "pub enum",
+      "locator_found": true,
+      "note": "EIP4844/7594 y sidecars",
+      "excerpt": "#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum BlobSidecarEncoding {\n    /// Original EIP-4844 wrapper: blobs, commitments, and one proof per blob.\n    Eip4844,\n    /// Fulu EIP-7594 wrapper: blobs, commitments, and cell proofs."
+    },
+    {
+      "tag": "V0",
+      "path": "crates/eez-payload-codec/src/v0.rs",
+      "sha256": "f42c59a009c0e0805c048b623365a7821a3ece5124ceb6cf4834272f383bfe89",
+      "bytes": 17185,
+      "line": 83,
+      "locator": "pub fn decode",
+      "locator_found": true,
+      "note": "columnas V0 y canonicidad",
+      "excerpt": "    /// supplied bytes, including for a u32::MAX empty span.\n    pub fn decode(wire: &'a [u8]) -> Result<Self, Error> {\n        let mut input = wire;\n        if take(&mut input, 1)? != [VERSION] {\n            return Err(Error::Version);"
+    },
+    {
+      "tag": "COUNT-TOKENS",
+      "path": "crates/eez-payload-codec/src/v0/counts.rs",
+      "sha256": "6722d87be7162821146920d435d047827565e487c4fa3da89e798cd4efa32d80",
+      "bytes": 9573,
+      "line": 58,
+      "locator": "pub(crate) fn read",
+      "locator_found": true,
+      "note": "gramática count tokens y runs",
+      "excerpt": "\npub(crate) fn read(input: &mut &[u8], previous_empty: &mut bool) -> Result<Token, Error> {\n    let byte = take(input)?;\n    let token = match byte {\n        0 => Token::Empty(1),"
+    },
+    {
+      "tag": "DERIVATION-TESTS",
+      "path": "crates/eez-driver/src/derivation/tests.rs",
+      "sha256": "f99bf575e3c33b8f222d20d2a2910c9919c577c83453b6f0fd811b2d396982e7",
+      "bytes": 24371,
+      "line": 198,
+      "locator": "fn issue_35_six_hundred_empty_blocks_use_the_exact_direct_31_byte_body",
+      "locator_found": true,
+      "note": "vector independiente de 600 vacíos y headers; no ejecutados",
+      "excerpt": "#[test]\nfn issue_35_six_hundred_empty_blocks_use_the_exact_direct_31_byte_body() {\n    let config = config(EthereumHardfork::Osaka);\n    let anchor = parent();\n    let mut parent = anchor.clone();"
+    },
+    {
+      "tag": "V0-TESTS",
+      "path": "crates/eez-payload-codec/src/v0/tests.rs",
+      "sha256": "5c39a0172defb949d1d8cd9726df751f5f6cf999170c3cd23d5ba287778d8468",
+      "bytes": 13264,
+      "line": 6,
+      "locator": "fn ",
+      "locator_found": true,
+      "note": "casos canónicos/malformed/overflow/runs; no ejecutados",
+      "excerpt": "\nfn tx(nonce: u64) -> Bytes {\n    TxEip1559 {\n        chain_id: 1,\n        nonce,"
+    },
+    {
+      "tag": "DERIVATION",
+      "path": "crates/eez-driver/src/derivation.rs",
+      "sha256": "f80b00fb2204019989f8cc28963936a5e89f8636c5b347864ae3bf4a0bed90ef",
+      "bytes": 8842,
+      "line": 30,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "reconstrucción y ejecución de bloques",
+      "excerpt": "mod no_state;\npub use encoding::{encode_operations, operations_size, ordinary_prefix};\n\n/// Published variable metadata from V0. The source of PREVRANDAO and the\n/// fixed timing fields come exclusively from checked L1 evidence and genesis."
+    },
+    {
+      "tag": "PUBLIC-VECTORS",
+      "path": "crates/eez-protocol/tests/public_inputs_hash_vectors.rs",
+      "sha256": "0146b3f11a0070740a2b94b47799c34f58a505261c645508b003dfd3add64b0c",
+      "bytes": 8983,
+      "line": 75,
+      "locator": "fn ",
+      "locator_found": true,
+      "note": "oráculo independiente de digest; no ejecutado",
+      "excerpt": "\nfn parse_b256(value: &str) -> B256 {\n    value\n        .parse()\n        .unwrap_or_else(|error| panic!(\"parse B256 `{value}`: {error}\"))"
+    },
+    {
+      "tag": "ROLLING-VECTORS",
+      "path": "crates/eez-protocol/tests/rolling_hash_vectors.rs",
+      "sha256": "fd151775fa3900b1b68c4041f701ff353a98bd021ddd08696e2385eeb61a63ee",
+      "bytes": 4003,
+      "line": 33,
+      "locator": "fn ",
+      "locator_found": true,
+      "note": "oráculo independiente de rolling hash; no ejecutado",
+      "excerpt": "\nfn load_vectors() -> Vectors {\n    let path = PathBuf::from(\n        std::env::var_os(\"CARGO_MANIFEST_DIR\").unwrap_or_else(|| env!(\"CARGO_MANIFEST_DIR\").into()),\n    )"
+    },
+    {
+      "tag": "KZG-VECTORS",
+      "path": "crates/eez-blob-codec/tests/ethereum_kzg_compatibility.rs",
+      "sha256": "1838d2c4219d7db4a3c88871cea934369266c4f1eddc9f125b2876fa65f7ccc5",
+      "bytes": 1222,
+      "line": 7,
+      "locator": "fn ",
+      "locator_found": true,
+      "note": "oráculo KZG Ethereum; no ejecutado",
+      "excerpt": "#[test]\nfn pinned_eez_layout_produces_a_valid_ethereum_blob() {\n    let mut operations = vec![0_u8; 32];\n    operations[20] = 0xff;\n    let encoded = encode(&["
+    },
+    {
+      "tag": "CONTEXT",
+      "path": "crates/eez-protocol/src/l1_history/context.rs",
+      "sha256": "375c3e95fd834cca4291718f29972861b50893fb046a855330c04a25f88116f8",
+      "bytes": 18732,
+      "line": 102,
+      "locator": "pub fn validate_inclusion",
+      "locator_found": true,
+      "note": "perfil/epoch/currentRoot y actual-parent/historical",
+      "excerpt": "    /// future inclusion header: the manager enforces these same constraints there.\n    pub fn validate_inclusion(\n        &self,\n        anchor: EvidenceAnchor,\n        endpoint: &alloy_consensus::Header,"
+    },
+    {
+      "tag": "MANAGER-TESTS",
+      "path": "contracts/test/OfflineRollup.t.sol",
+      "sha256": "24cd355fbcfcf55292f17dad65d95b48088a9feb5572f70e2fdf1e66d3a71337",
+      "bytes": 16943,
+      "line": 127,
+      "locator": "function testAcceptedRootAndAnchorBranchAreBound",
+      "locator_found": true,
+      "note": "tests flat ABI/anchor/root/rules/registry; no ejecutados",
+      "excerpt": "\n    function testAcceptedRootAndAnchorBranchAreBound() public {\n        bytes memory beforeRoot = manager.getCustomData(100);\n        manager.setRoot(bytes32(uint256(0x456)));\n        assertNotEq(manager.getCustomData(100), beforeRoot);"
+    },
+    {
+      "tag": "SUBMITTER",
+      "path": "crates/eez-l1/src/submitter.rs",
+      "sha256": "9af7452a00f9813a6d003c6b11cd5178aa40a8dbb71419be5bfc4530bde67dd4",
+      "bytes": 187429,
+      "line": 2052,
+      "locator": "fn bundle_request",
+      "locator_found": true,
+      "note": "bundle target/prefix/allowlist de reverts",
+      "excerpt": "\nfn bundle_request(\n    raw_tx_hexes: &[&str],\n    target_block: u64,\n    pin_timestamp: u64,"
+    },
+    {
+      "tag": "QUEUE-PROP",
+      "path": "docs/proposals/cross-chain-queue-liveness.md",
+      "sha256": "fb5613b7c8303cfbc7c47062ace2bbd9bb733a361ea1da3bdb5c2f1bb897f9ec",
+      "bytes": 28483,
+      "line": 3,
+      "locator": "Status",
+      "locator_found": true,
+      "note": "ownership, límites de cola y persistencia",
+      "excerpt": "\nStatus: implemented, validated locally and on Chiado, and deployed on\n2026-09-15.\nThe [implementation audit](../audits/2026-09-15-cross-chain-queue-liveness/README.md)\nmaps requirements to code and tests. The prototype evidence below describes"
+    },
+    {
+      "tag": "INGRESS",
+      "path": "crates/eez-node/src/ingress.rs",
+      "sha256": "7271489d3fbd7e4dff24d00e6369d70b8cf5ec4ab985885ea66b920331d9b42f",
+      "bytes": 90313,
+      "line": 177,
+      "locator": "fn validate_front_envelope",
+      "locator_found": true,
+      "note": "rechazo de L1 EIP7702",
+      "excerpt": "/// Admission policy: reject envelopes cross-chain fronts won't hold.\nfn validate_front_envelope(\n    envelope: &TxEnvelope,\n    direction: Direction,\n    expected_source_chain_id: u64,"
+    },
+    {
+      "tag": "POST-BATCH",
+      "path": "crates/eez-proof-signer/src/settlement/post_batch.rs",
+      "sha256": "b161a5faa7862d7ae31af4b1edbc8eebb2911314fe29d588ff051b550c3241c9",
+      "bytes": 11499,
+      "line": 192,
+      "locator": "let [proof_system]",
+      "locator_found": true,
+      "note": "perfil de único PS/rollup",
+      "excerpt": ") -> Result<(), PublicInputError> {\n    let [proof_system] = batch.proofSystems.as_slice() else {\n        return Err(invalid_structure(format!(\n            \"expected exactly one proof system, got {}\",\n            batch.proofSystems.len()"
+    },
+    {
+      "tag": "STREAM",
+      "path": "crates/eez-control-rpc/STREAMING_SPEC.md",
+      "sha256": "a473979d1f36a9bb6ce04cf28eac1723f1aa5845da21343052f56d29beefcb80",
+      "bytes": 24756,
+      "line": 335,
+      "locator": "## 6",
+      "locator_found": true,
+      "note": "streaming/runtime v2",
+      "excerpt": "\n## 6. RollupX runtime profile\n\nThis profile is active from a new network's genesis. The signer serves only v2\nproving plus the shared capability query. Startup uses local L2 genesis, local"
+    },
+    {
+      "tag": "PROTO",
+      "path": "crates/eez-control-rpc/proto/prove_stream.proto",
+      "sha256": "682178307eecbe8dd15d5cd187c0344ed058a0990b06f2567dff427b49972b90",
+      "bytes": 6452,
+      "line": 58,
+      "locator": "message Block",
+      "locator_found": true,
+      "note": "frames v2; witness se importa desde prove.proto",
+      "excerpt": "\nmessage Block {\n  // One block per frame. Baseline clients wait for each ACK. Clients that pipeline\n  // must drain responses while sending; servers may execute sequentially and\n  // apply backpressure/resource limits. The complete witness is required."
+    },
+    {
+      "tag": "SIGNER-MAIN",
+      "path": "crates/eez-proof-signer/src/main.rs",
+      "sha256": "21fd3c38fe5cc3f9b8da0f38dba6f4d59e1e8b33d916e1f80209afaa9094ed1a",
+      "bytes": 7096,
+      "line": 107,
+      "locator": "let serve_result",
+      "locator_found": true,
+      "note": "servidor tonic sin TLS nativo configurado",
+      "excerpt": "    let shutdown_service = svc.clone();\n    let serve_result = tonic::transport::Server::builder()\n        .add_service(svc.streaming_server())\n        .add_service(svc.into_server())\n        .serve_with_shutdown(listen_addr, async {"
+    },
+    {
+      "tag": "IDENTITY",
+      "path": "crates/eez-control-rpc/src/identity.rs",
+      "sha256": "b1f92f69cd4f4113fd1574b0d2115b15981d56de3e596f1dd75ad8a30e3bfe37",
+      "bytes": 7523,
+      "line": 13,
+      "locator": "pub const IDENTITY_SCHEMA_VERSION",
+      "locator_found": true,
+      "note": "schema6/spec2/offline profile",
+      "excerpt": "/// Encoding revision of the language-neutral RLP identity tuple.\npub const IDENTITY_SCHEMA_VERSION: u64 = 6;\n/// Accepted validation semantics, independent of implementation/build metadata.\n/// See VALIDATION_IDENTITY.md for the versioning and dependency-review rules.\npub const VALIDATION_SPEC_VERSION: u64 = 2;"
+    },
+    {
+      "tag": "CONFORMANCE",
+      "path": "crates/eez-control-rpc/conformance/IMPLEMENTING.md",
+      "sha256": "82a1c3cc086d458fd0e121c04c3bfc88dc73b411ca973ac6fc2f98ad34535f44",
+      "bytes": 8535,
+      "line": 1,
+      "locator": "#",
+      "locator_found": true,
+      "note": "contrato de implementación independiente",
+      "excerpt": "# Implementing an external v2 prover\n\nThis is the integration boundary for Nethermind/C# or another independently\nimplemented prover. Nethermind's team supplies execution and the server. RollupX"
+    },
+    {
+      "tag": "UNSAFE",
+      "path": "crates/eez-follower/src/unsafe_head.rs",
+      "sha256": "309473d35448dad6e0784517d31cfba182adc6e895db1de52526288fa21f1f51",
+      "bytes": 17503,
+      "line": 26,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "overlay por RPC, ancestry y safe",
+      "excerpt": "\n/// Keepalive cadence: re-publish the current forkchoice state so reth's\n/// engine view does not drift during quiet periods.\nconst FCU_REFRESH: Duration = Duration::from_secs(1);\n"
+    },
+    {
+      "tag": "FOLLOWER",
+      "path": "crates/eez-follower/src/lib.rs",
+      "sha256": "cd3bcd09f36bd57bad83b50566e1540e9c5b6f5236d632fe58e2cd0858fdd056",
+      "bytes": 11552,
+      "line": 170,
+      "locator": "catch_up_with_seed",
+      "locator_found": true,
+      "note": "bootstrap/reconciliación antes de L1 tasks",
+      "excerpt": "    let (l1_seed_number, l1_seed_hash) = loop {\n        match deriver.catch_up_with_seed().await {\n            Ok(seed) => break seed,\n            Err(err)\n                if err.is_l1_transport() && {"
+    },
+    {
+      "tag": "ENGINE",
+      "path": "crates/eez-primitives/src/engine.rs",
+      "sha256": "d39e14364c6d3755d9687617bb295a2e8142616115fcebe3e40d6c09f7a14734",
+      "bytes": 9302,
+      "line": 26,
+      "locator": "pub",
+      "locator_found": true,
+      "note": "tipos Engine y native block conversion",
+      "excerpt": "#[derive(Debug, Clone)]\npub struct EezBuiltPayload(EthBuiltPayload<EezPrimitives>);\n\nimpl EezBuiltPayload {\n    pub fn new("
+    },
+    {
+      "tag": "NODE-PAYLOAD",
+      "path": "crates/eez-node-common/src/payload.rs",
+      "sha256": "f2c0804ec151d5b2c9351287babb52a32608d8031d79b42906a8bfb49b4329c0",
+      "bytes": 20596,
+      "line": 123,
+      "locator": "pub struct EezPayloadBuilder",
+      "locator_found": true,
+      "note": "builder de payload en proceso",
+      "excerpt": "#[non_exhaustive]\npub struct EezPayloadBuilder {\n    data_guard: Option<Arc<SequencingDataGuard>>,\n}\n"
+    },
+    {
+      "tag": "DERIVER",
+      "path": "crates/eez-deriver/src/deriver.rs",
+      "sha256": "ba8d826b9e15e85c366ea663bf7496ebc4d87842ddabe49f93c94844d09f6515",
+      "bytes": 164465,
+      "line": 538,
+      "locator": "pub async fn catch_up_with_seed",
+      "locator_found": true,
+      "note": "canonical replay/checkpoints/reconciliación",
+      "excerpt": "    /// L1 source cannot yet serve the seed block's hash.\n    pub async fn catch_up_with_seed(&self) -> DeriverResult<(u64, B256)> {\n        self.catch_up_with_seed_inner(false).await\n    }\n"
+    },
+    {
+      "tag": "L1-WATCHER",
+      "path": "crates/eez-l1/src/l1_watcher.rs",
+      "sha256": "d96fa38b816f1c25fab1dc3235fb519ba98754a44d3957f1c4d8d0ce148128d9",
+      "bytes": 77052,
+      "line": 159,
+      "locator": "pub reorg_max_depth",
+      "locator_found": true,
+      "note": "ventana configurable y ReorgTooDeep",
+      "excerpt": "    /// loosen.\n    pub reorg_max_depth: usize,\n}\n\nimpl L1WatcherConfig {"
+    },
+    {
+      "tag": "REORG-TESTS",
+      "path": "crates/eez-node-e2e/tests/queue_reorg.rs",
+      "sha256": "a9ca1e909756a1b321c4fc407e102733197c977c2f11ce551471701ed07a78cf",
+      "bytes": 15803,
+      "line": 17,
+      "locator": "async fn ",
+      "locator_found": true,
+      "note": "escenarios reorg/restart; no ejecutados",
+      "excerpt": "#[tokio::test(flavor = \"multi_thread\", worker_threads = 4)]\nasync fn imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement() {\n    use alloy_primitives::Bytes;\n    use alloy_rpc_types_eth::{BlockNumberOrTag, TransactionRequest};\n    use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};"
+    },
+    {
+      "tag": "POLICY",
+      "path": "docs/configurable-settlement-policy.md",
+      "sha256": "778905a7dddecd4df366efb65feba4a6a03d231d7fb4ccd9cf3e701d923bb886",
+      "bytes": 138064,
+      "line": 1,
+      "locator": "#",
+      "locator_found": true,
+      "note": "triggers separados de admission y quotes advisory",
+      "excerpt": "# Configurable settlement policy\n\nFor the fresh-network history profile, ordinary production has its own local clock.\nL1 RPC, proof and settlement delays cannot gate that clock. The speculative-depth"
+    },
+    {
+      "tag": "MONITORING",
+      "path": "monitoring/README.md",
+      "sha256": "a97f52fccc4283c423dc9b1c51b384a1392eef8c0090577c27c6621197547597",
+      "bytes": 25418,
+      "line": 1,
+      "locator": "#",
+      "locator_found": true,
+      "note": "métricas operativas, no durable ownership",
+      "excerpt": "# Composer queue and settlement monitoring\n\nThis optional stack runs Grafana and Prometheus on the same Linux machine as the\npackaged Chiado Composer. Prometheus scrapes Reth's existing localhost metrics"
+    },
+    {
+      "tag": "INSPECTOR",
+      "path": "crates/eez-evm-inspector/src/inspector.rs",
+      "sha256": "24841d69e2ecfc72e98ea47216ddc5e037f02e895eac2c0f8367fe3f308f984c",
+      "bytes": 29212,
+      "line": 283,
+      "locator": "if !matches!(inputs.scheme",
+      "locator_found": true,
+      "note": "CALL/STATICCALL frente a delegate/callcode",
+      "excerpt": "        // delegate/callcode shapes to the EVM.\n        if !matches!(inputs.scheme, CallScheme::Call | CallScheme::StaticCall) {\n            return None;\n        }\n"
+    },
+    {
+      "tag": "CROSS-PROXY",
+      "path": "eez-core-protocol/src/base/CrossChainProxy.sol",
+      "sha256": "ff2badf587ec60a22a7999e557789fc84bf9658919cc0959c72328aee4709e3e",
+      "bytes": 8154,
+      "line": 67,
+      "locator": "fallback() external payable",
+      "locator_found": true,
+      "note": "routing normal/static del proxy fijado",
+      "excerpt": "    ///      still reach the remote fallback. Use ICrossChainProxy for the manager forwarding ABI.\n    fallback() external payable {\n        // Allow executeOnBehalf only when called by the EEZ manager.\n        if (msg.sender == EEZ && msg.sig == ICrossChainProxy.executeOnBehalf.selector) {\n            (address destination, uint64 callGas, bytes memory data) ="
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "44ae26577e7836202b469605e10ce4b15084e6aebf489848d988a7b56f38ab1e",
+      "bytes": 30876,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "55dff95f298b4ea79284f1dafe8f288ee99f60ef0123de4834cf29c27517e46b",
+      "bytes": 14507,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "53fa3e897a06b1ddbac3a742630befae3e2cff45b15b7cdb6ceb37c991d1f696",
+      "bytes": 320540,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "eez-core-protocol/AGENTS.md",
+      "sha256": "5094f89e09244f58995bceca93446839117cd38abbd9d532b28fd709f23de45e",
+      "bytes": 7976,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "eez-core-protocol/docs/CAVEATS.md",
+      "sha256": "3ac65fdad77ba1b9f84fa3d39100249b40fa317c7b71765c994d60ac2537560b",
+      "bytes": 10041,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "eez-core-protocol/docs/CALL_PATTERN_LIMITS.md",
+      "sha256": "ddd3729c408817abf6b89edeb25fb3a975f3104c56851838b6448694e01b90c4",
+      "bytes": 18815,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "eez-core-protocol/src/L2/EEZL2.sol",
+      "sha256": "38a08426ad933eaf213ae24a9b019baca71aa587c2313a5e98ca877c3b259046",
+      "bytes": 46637,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-proof-signer/CONTRIBUTING.md",
+      "sha256": "87196245764f577f176f8e3882cf8ce3de0ed2e2207cb33f9be382d342d85bd7",
+      "bytes": 8543,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/inbound.rs",
+      "sha256": "f70fb685bfa58dfab98334d9c6fb8051c1fddd91f84d941348cc8c75f77c4b72",
+      "bytes": 22598,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/settlement/blocks.rs",
+      "sha256": "a5b2abf48210a271cf25a27c3e4c29cbe9c22274e43ed8dba32391b4d4b1a365",
+      "bytes": 15567,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/stateless.rs",
+      "sha256": "93495f1d7ad6ab1cf8ef99b6f2e7a0fa233225d24ad0205916e349c1863cfa37",
+      "bytes": 41991,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-proof-signer/src/validate/streaming.rs",
+      "sha256": "68e623213da41d5ab381653ed1b61a7e27bc6d8dca2d93f2bc0b3cfe71ddd459",
+      "bytes": 7591,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-control-rpc/proto/prove.proto",
+      "sha256": "f117bef5c35989a1575e25c05f87506a24801dd91aa5668db0d0012fd62dacaa",
+      "bytes": 3016,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-protocol/src/blob_semantics/reconstruction.rs",
+      "sha256": "37e8ced817b14b82fe0d36ee9927660973d2a263a024d9318ed220ac3024420b",
+      "bytes": 13131,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-protocol/src/l1_history/tests.rs",
+      "sha256": "b331f3095b645bac90a8a889bea9a35ca185f6de0b7b0649ec68e837181fd8ae",
+      "bytes": 10242,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history.rs",
+      "sha256": "5c3a7cf87f10ab211cc68233cfc2d37158cef30388b438832e78bc350a60a4a6",
+      "bytes": 10436,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-l1/src/derivation/history/tests.rs",
+      "sha256": "176d18962d72802d1f40532d4f7adce268758a454972a5df430d168b9b9d5973",
+      "bytes": 15826,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-composer/src/composer.rs",
+      "sha256": "34ca40d48099754e661ccf8b948a58a5a053aca15c3a2943f8e6ff1b6372f4d2",
+      "bytes": 437197,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/policy.rs",
+      "sha256": "4fd4314a4e58fbdadf0b666438f1506781bf9a031dc2e9765f28b554d0c43e65",
+      "bytes": 52906,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/costs.rs",
+      "sha256": "d667ce5c4cdcd53371943051170106cf410328462779bf1bc464dd478e4fcc09",
+      "bytes": 37950,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-composer/src/composer/sequencing.rs",
+      "sha256": "3b2baabe0c3d1dc68d68c5cbcf37f35d43f7cd9f74e4e027ac555d889fc48484",
+      "bytes": 12828,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "docs/runbooks/chiado-deployment.md",
+      "sha256": "3b74465f4c1469367a519cc54e337c6a9739466dfad7d66d640086d7d71a72e5",
+      "bytes": 47828,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "contracts/foundry.toml",
+      "sha256": "2168317be8afba3568e204e784c06f0399200013fecfc5f43ec54f9c771fafc3",
+      "bytes": 1810,
+      "kind": "additional_inspected_source"
+    },
+    {
+      "path": "crates/eez-protocol/tests/fixtures/README.md",
+      "sha256": "79a446fec4bcff8dfaa3d27f9e5fab7b7a47a9277b780d5ff2dcff7d023b51cb",
+      "bytes": 1032,
+      "kind": "vector_provenance_followup"
+    },
+    {
+      "path": "crates/eez-protocol/tests/fixtures/public_inputs_hash_vectors.json",
+      "sha256": "7c32994f1535e4a3978bd1a27d4716b44baaa82e7b312ba7c56874ac4182a064",
+      "bytes": 4297,
+      "kind": "vector_provenance_followup"
+    },
+    {
+      "path": "crates/eez-protocol/tests/fixtures/rolling_hash_vectors.json",
+      "sha256": "c35937e2cba6d0658d921d3a624a55e57f7d4b9273c3589d4db63d17444b72ce",
+      "bytes": 957,
+      "kind": "vector_provenance_followup"
+    },
+    {
+      "path": "contracts/test/PublicInputsHashVectors.t.sol",
+      "sha256": "d6349d91a185241b69c1fb6fa512f15f05715db22a7d12fbe883971ad16ebcdf",
+      "bytes": 25790,
+      "kind": "vector_provenance_followup"
+    },
+    {
+      "path": "contracts/test/RollingHashVectors.t.sol",
+      "sha256": "a792b2ab6007e8d16d7af05579a098646ee41ebd85cc060e300f1debf52cbbc1",
+      "bytes": 4532,
+      "kind": "vector_provenance_followup"
+    },
+    {
+      "tag": "ECDSA",
+      "path": "contracts/src/ECDSAProofSystem.sol",
+      "sha256": "32917751eb795c6a3ab417e665d86d31bbff11a8fe18dbaf7cd33bc1ef97a7f7",
+      "bytes": 3517,
+      "line": 45,
+      "note": "Production local verifier: low-s and ecrecover, immutable signer",
+      "kind": "verifier_production_caller_followup"
+    },
+    {
+      "tag": "ECDSA-TESTS",
+      "path": "contracts/test/ECDSAProofSystem.t.sol",
+      "sha256": "35a99f30150118e8f76d13dc15207bd28aa4790d851091f40bf8da7ddc117619",
+      "bytes": 1764,
+      "line": 14,
+      "note": "hash/signer/high-s regressions; not run",
+      "kind": "verifier_production_caller_followup"
+    },
+    {
+      "tag": "ECDSA-DEPLOY",
+      "path": "contracts/script/DeployECDSAProofSystem.s.sol",
+      "sha256": "dc733730284c7a2527a9913b1f257194e578206adfd839f01ed2ccb36444cbcf",
+      "bytes": 993,
+      "line": 6,
+      "note": "deployment imports workspace-local verifier",
+      "kind": "verifier_production_caller_followup"
+    }
+  ],
+  "spec_citation_lines": [
+    {
+      "tag": "A-112",
+      "path": "docs/rollup0-spec/A-reference.md",
+      "line": 112,
+      "text": "## A.4 Validator Policy"
+    },
+    {
+      "tag": "A-5",
+      "path": "docs/rollup0-spec/A-reference.md",
+      "line": 5,
+      "text": "## A.1 Production Rule Summary"
+    },
+    {
+      "tag": "A-87",
+      "path": "docs/rollup0-spec/A-reference.md",
+      "line": 87,
+      "text": "## A.2 Development Cadence"
+    },
+    {
+      "tag": "B-109",
+      "path": "docs/rollup0-spec/B-gas-cost-analysis.md",
+      "line": 109,
+      "text": "## B.4 Settlement and Bundle Scaling"
+    },
+    {
+      "tag": "C-23",
+      "path": "docs/rollup0-spec/C-open-questions.md",
+      "line": 23,
+      "text": "## C.2 Asynchronous Withdrawals"
+    },
+    {
+      "tag": "C-30",
+      "path": "docs/rollup0-spec/C-open-questions.md",
+      "line": 30,
+      "text": "## C.3 Deployment and Capacity Validation"
+    },
+    {
+      "tag": "C-7",
+      "path": "docs/rollup0-spec/C-open-questions.md",
+      "line": 7,
+      "text": "## C.1 Conformance and Contract Work"
+    },
+    {
+      "tag": "D-131",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 131,
+      "text": "### D.2.1 Initial Settlement Wrapper"
+    },
+    {
+      "tag": "D-22",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 22,
+      "text": "!!! danger \"PRODUCTION BLOCKER: pin the complete EEZ Core wire and digest version\""
+    },
+    {
+      "tag": "D-221",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 221,
+      "text": "### D.4.1 EEZ Message Profile"
+    },
+    {
+      "tag": "D-305",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 305,
+      "text": "### D.4.3 Linear V0 Grammar"
+    },
+    {
+      "tag": "D-36",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 36,
+      "text": "## D.1 ECDSA Attestation"
+    },
+    {
+      "tag": "D-530",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 530,
+      "text": "## D.5 Inbound Protocol Transaction"
+    },
+    {
+      "tag": "D-617",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 617,
+      "text": "## D.6 Unsafe-Block Announcement"
+    },
+    {
+      "tag": "D-75",
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "line": 75,
+      "text": "## D.2 Candidate Domain"
+    },
+    {
+      "tag": "E01-5",
+      "path": "docs/eez-protocol-spec/01-architecture.md",
+      "line": 5,
+      "text": "## 1.1 Contracts"
+    },
+    {
+      "tag": "E02-77",
+      "path": "docs/eez-protocol-spec/02-evm-and-proxies.md",
+      "line": 77,
+      "text": "## 2.5 Call-scheme rules"
+    },
+    {
+      "tag": "E03-85",
+      "path": "docs/eez-protocol-spec/03-execution-model.md",
+      "line": 85,
+      "text": "## 3.3 Consumption"
+    },
+    {
+      "tag": "E05-133",
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "line": 133,
+      "text": "## 5.2 Cross-chain call hash"
+    },
+    {
+      "tag": "E05-14",
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "line": 14,
+      "text": "## 5.1 Core struct layouts"
+    },
+    {
+      "tag": "E05-156",
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "line": 156,
+      "text": "## 5.3 Cross-chain proxy CREATE2 derivation"
+    },
+    {
+      "tag": "E05-224",
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "line": 224,
+      "text": "## 5.5 Public-inputs hash"
+    },
+    {
+      "tag": "F-138",
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "line": 138,
+      "text": "### F.3.1 JSON-RPC Transaction Representation"
+    },
+    {
+      "tag": "F-209",
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "line": 209,
+      "text": "The source identifier must distinguish otherwise identical actions without relying on a system"
+    },
+    {
+      "tag": "F-340",
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "line": 340,
+      "text": "## F.5 Value and Failure"
+    },
+    {
+      "tag": "F-83",
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "line": 83,
+      "text": "## F.3 Exact Envelope"
+    },
+    {
+      "tag": "G-116",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 116,
+      "text": "## G.3 Selected Block Organization"
+    },
+    {
+      "tag": "G-252",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 252,
+      "text": "### Candidate-wide execution work"
+    },
+    {
+      "tag": "G-381",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 381,
+      "text": "## G.6 Action Manifest from EEZ Brackets"
+    },
+    {
+      "tag": "G-510",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 510,
+      "text": "## G.8 Execution Outputs and Block Storage"
+    },
+    {
+      "tag": "G-582",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 582,
+      "text": "## G.10 Conformance Boundary"
+    },
+    {
+      "tag": "G-68",
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "line": 68,
+      "text": "## G.2 V0 Compression Policy"
+    },
+    {
+      "tag": "GN-1",
+      "path": "docs/gnosis-chain-spec/index.md",
+      "line": 1,
+      "text": "# Gnosis Chain Network Specification"
+    },
+    {
+      "tag": "GN-101",
+      "path": "docs/gnosis-chain-spec/index.md",
+      "line": 101,
+      "text": "## Block authorization"
+    },
+    {
+      "tag": "GN-14",
+      "path": "docs/gnosis-chain-spec/index.md",
+      "line": 14,
+      "text": "## Network settings"
+    },
+    {
+      "tag": "GN-52",
+      "path": "docs/gnosis-chain-spec/index.md",
+      "line": 52,
+      "text": "## Fork transition"
+    },
+    {
+      "tag": "R01-3",
+      "path": "docs/rollup0-spec/01-overview.md",
+      "line": 3,
+      "text": "Rollup0 uses EEZ to settle synchronous cross-network execution on Ethereum. The"
+    },
+    {
+      "tag": "R01-61",
+      "path": "docs/rollup0-spec/01-overview.md",
+      "line": 61,
+      "text": "## 1.2 Sequencers, Composers, and L2 Views"
+    },
+    {
+      "tag": "R02-93",
+      "path": "docs/rollup0-spec/02-architecture.md",
+      "line": 93,
+      "text": "## 2.3 Engine API Profile"
+    },
+    {
+      "tag": "R03-3",
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "line": 3,
+      "text": "## 3.1 EVM Profile"
+    },
+    {
+      "tag": "R03-428",
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "line": 428,
+      "text": "## 3.4 Call Rules"
+    },
+    {
+      "tag": "R03-56",
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "line": 56,
+      "text": "## 3.2 EEZ Proxies"
+    },
+    {
+      "tag": "R03-87",
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "line": 87,
+      "text": "## 3.3 Inbound Protocol Transaction"
+    },
+    {
+      "tag": "R04-170",
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "line": 170,
+      "text": "### Previous-Ethereum-Block `prevRandao`"
+    },
+    {
+      "tag": "R04-259",
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "line": 259,
+      "text": "## 4.4 Unsafe Blocks"
+    },
+    {
+      "tag": "R04-3",
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "line": 3,
+      "text": "## 4.1 Production Cadence"
+    },
+    {
+      "tag": "R04-89",
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "line": 89,
+      "text": "## 4.2 Block Construction"
+    },
+    {
+      "tag": "R05-1",
+      "path": "docs/rollup0-spec/05-execution-model.md",
+      "line": 1,
+      "text": "# 5. Execution Profile"
+    },
+    {
+      "tag": "R06-1",
+      "path": "docs/rollup0-spec/06-composer.md",
+      "line": 1,
+      "text": "# 6. Composer and Candidate Competition"
+    },
+    {
+      "tag": "R06-191",
+      "path": "docs/rollup0-spec/06-composer.md",
+      "line": 191,
+      "text": "## 6.5 Failure and Retry"
+    },
+    {
+      "tag": "R06-28",
+      "path": "docs/rollup0-spec/06-composer.md",
+      "line": 28,
+      "text": "## 6.2 Candidate Lifecycle"
+    },
+    {
+      "tag": "R07-191",
+      "path": "docs/rollup0-spec/07-da-batches-bundles.md",
+      "line": 191,
+      "text": "## 7.4 Ethereum Bundle"
+    },
+    {
+      "tag": "R07-3",
+      "path": "docs/rollup0-spec/07-da-batches-bundles.md",
+      "line": 3,
+      "text": "## 7.1 Rollup0 DA Payload"
+    },
+    {
+      "tag": "R07-56",
+      "path": "docs/rollup0-spec/07-da-batches-bundles.md",
+      "line": 56,
+      "text": "## 7.2 Range Correspondence"
+    },
+    {
+      "tag": "R08-140",
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "line": 140,
+      "text": "## 8.4 Settlement Rule"
+    },
+    {
+      "tag": "R08-200",
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "line": 200,
+      "text": "## 8.5 Safety Boundary"
+    },
+    {
+      "tag": "R08-3",
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "line": 3,
+      "text": "## 8.1 Proof Policy"
+    },
+    {
+      "tag": "R08-99",
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "line": 99,
+      "text": "## 8.2 Producer-Neutral Validation"
+    },
+    {
+      "tag": "R09-17",
+      "path": "docs/rollup0-spec/09-l1-to-l2.md",
+      "line": 17,
+      "text": "## 9.2 Candidate Construction"
+    },
+    {
+      "tag": "R10-147",
+      "path": "docs/rollup0-spec/10-derivation-following.md",
+      "line": 147,
+      "text": "## 10.6 Ethereum Reorganizations"
+    },
+    {
+      "tag": "R10-84",
+      "path": "docs/rollup0-spec/10-derivation-following.md",
+      "line": 84,
+      "text": "## 10.3 Standard Block and State Synchronization"
+    },
+    {
+      "tag": "R11-105",
+      "path": "docs/rollup0-spec/11-gas-economics.md",
+      "line": 105,
+      "text": "## 11.3 Data Availability Cost"
+    },
+    {
+      "tag": "R11-167",
+      "path": "docs/rollup0-spec/11-gas-economics.md",
+      "line": 167,
+      "text": "## 11.5 Inbound Transaction Gas and Value"
+    },
+    {
+      "tag": "R11-3",
+      "path": "docs/rollup0-spec/11-gas-economics.md",
+      "line": 3,
+      "text": "## 11.1 Rollup0 Execution Gas"
+    },
+    {
+      "tag": "R12-121",
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "line": 121,
+      "text": "## 12.4 Interoperability Boundary"
+    },
+    {
+      "tag": "R12-3",
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "line": 3,
+      "text": "## 12.1 Accepted Protocol Limitations"
+    },
+    {
+      "tag": "R12-68",
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "line": 68,
+      "text": "## 12.2 Production Blockers and Launch Parameters"
+    },
+    {
+      "tag": "R12-97",
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "line": 97,
+      "text": "## 12.3 Possible Rollup0.x L2 Contract Changes"
+    }
+  ]
+}

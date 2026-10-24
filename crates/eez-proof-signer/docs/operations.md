@@ -62,9 +62,9 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-Validation identity schema 6 and offline profile 2 require agreement between
-Composer and signer before any work is dispatched. Old peers fail capability
-preflight; no v1 proving fallback is offered. The profile requires fresh contracts,
+Validation-contract version 1 and capability profile 2
+require exact agreement between Composer and signer before any work is dispatched.
+The profile requires fresh contracts,
 genesis and datadirs. Do not attach these binaries to an existing network or
 reinterpret an old database. See the [fresh-network contract](../SPEC.md).
 
@@ -115,11 +115,9 @@ signer updates its commit pin; the pin update must then pass the signer checks.
 
 ## Offline configuration and recovery
 
-The daemon requires neither an L1 nor an L2 RPC source. The removed
-`--l1-rpc-url` and `--l2-rpc-url` options reject. Presence of `EEZ_L1_RPC_URL` or
-`EEZ_PROOF_SIGNER_L2_RPC_URL`, including an empty value, fails startup with a
-redacted error. Supply only signer-owned settings to its service; Composer,
-follower and transaction sender services still need their own chain connections.
+The daemon validates using local chain profiles and complete request witnesses.
+It has no L1 or L2 RPC configuration. Supply signer-owned settings to its
+service; Composer, follower and transaction senders use their own connections.
 
 Set `EEZ_CHAIN_CONFIG`, `EEZ_L1_CHAIN_CONFIG`, `EEZ_REGISTRY_ADDRESS`,
 `EEZ_ROLLUP_MANAGER_ADDRESS` and the proof identities documented in

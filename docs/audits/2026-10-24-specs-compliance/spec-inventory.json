@@ -1,0 +1,405 @@
+{
+  "repository": "https://github.com/eez-association/specs-draft",
+  "commit": "2c6d346bea0b3736f7453c35174291495694d1fc",
+  "verified_ref": "HEAD = refs/heads/main",
+  "normative_and_informative_docs_count": 28,
+  "matrix_rows": 58,
+  "documents": [
+    {
+      "path": "docs/eez-protocol-spec/01-architecture.md",
+      "sha256": "d22eb0f3abe3988c2b411eebfe69397acc22822fa5acf5e5aa24488239c820c4",
+      "rows": [
+        "C04",
+        "C08",
+        "P01",
+        "P02"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/eez-protocol-spec/02-evm-and-proxies.md",
+      "sha256": "25145068625c16d04420bbdff9fed3196d114bb9fbdfc7b216773c7ecaaafaf5",
+      "rows": [
+        "C02",
+        "C03",
+        "C04",
+        "C07",
+        "C09",
+        "X02",
+        "X12",
+        "X13"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/eez-protocol-spec/03-execution-model.md",
+      "sha256": "78f61a8a0902d9862233f10ef4e17e671421378b1482c858c90c4c81dea45875",
+      "rows": [
+        "C02",
+        "C03",
+        "C06",
+        "C07",
+        "C08",
+        "X13",
+        "S04",
+        "S05",
+        "S06",
+        "S07"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/eez-protocol-spec/04-proving-and-settlement.md",
+      "sha256": "ae021fddab00759425a70b9f92fc7fb30ca43a21e946a1bf2ba40f5f43bae8cb",
+      "rows": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "D07",
+        "P01",
+        "P02",
+        "P03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/eez-protocol-spec/05-wire-formats.md",
+      "sha256": "f10b98071eba12feae53aa7dceddfd61adfacfa35f54505905cab35431634f7d",
+      "rows": [
+        "C01",
+        "C02",
+        "C03",
+        "C04",
+        "C05",
+        "C06",
+        "D07",
+        "P01",
+        "P02",
+        "P03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/eez-protocol-spec/index.md",
+      "sha256": "23d5ae04b13899f14b08afad165465e2af16f5ad14dbdf01281ec25d431b23e0",
+      "rows": [
+        "C01",
+        "N03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/gnosis-chain-spec/index.md",
+      "sha256": "daca746504cb39cd92d13a0043f4b43e53449586ecf281fb7363c485cc78a0d5",
+      "rows": [
+        "G01",
+        "G02",
+        "G03",
+        "G04"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/index.md",
+      "sha256": "11ea6743d5429a675edd134c050652e96e0dc3fcdaf21d3939503df3ca75da4b",
+      "rows": [
+        "C01",
+        "N03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/01-overview.md",
+      "sha256": "d4f970f73f48278b821ff09da9caa8099cd9ea183850d3da490987728989fb9e",
+      "rows": [
+        "X01",
+        "X13",
+        "X14",
+        "P04",
+        "P05",
+        "O01",
+        "O02",
+        "O03",
+        "O06"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/02-architecture.md",
+      "sha256": "1e9c00ee1dd4d2ac6fd32bf05174a45d2c252a3d9462f9f3203a2b050ac2b871",
+      "rows": [
+        "X01",
+        "X13",
+        "X14",
+        "P04",
+        "P05",
+        "O01",
+        "O02",
+        "O03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/03-evm-proxy-systemtx.md",
+      "sha256": "732b271aac47f6a45fdf373423bc861408b8e5920c212917548b4eb1d0c6c11a",
+      "rows": [
+        "X02",
+        "X03",
+        "X04",
+        "X05",
+        "X06",
+        "X07",
+        "X08",
+        "X09",
+        "X12",
+        "X13"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/04-block-production.md",
+      "sha256": "ce5b5857254440b3618aceafc6ec53167ba3283d056d0ee2a7e53695e0c5e3b5",
+      "rows": [
+        "X01",
+        "X02",
+        "X03",
+        "X10",
+        "X11",
+        "X14",
+        "O01"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/05-execution-model.md",
+      "sha256": "fb8cacc5e4321719cfadf8e15263bdeba888d5a68d694382239e2a17c00595bd",
+      "rows": [
+        "C07",
+        "X13",
+        "D04",
+        "D05",
+        "S01",
+        "S05",
+        "S06",
+        "S07"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/06-composer.md",
+      "sha256": "92f51f147c5ae6d95dbebb0e6fcd294b2972aabd19b1c641c889a8527702b12a",
+      "rows": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08",
+        "P03",
+        "O06",
+        "O07"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/07-da-batches-bundles.md",
+      "sha256": "aa60b33722db2c44b4406747f772733481bda08396d22024ebe34e7b6d97c8e8",
+      "rows": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/08-proving-settlement.md",
+      "sha256": "75077be69d1e29bd5d58e750775929b1701a42eb65ae1f5317299abf92977205",
+      "rows": [
+        "S01",
+        "S02",
+        "S03",
+        "S05",
+        "S07",
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/09-l1-to-l2.md",
+      "sha256": "dab8168ba495010e860d0f968963593d22905e482fc044ec3902ad517f7e0ca6",
+      "rows": [
+        "S06",
+        "S08",
+        "P03",
+        "P06"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/10-derivation-following.md",
+      "sha256": "730697b693dbbc858c1b69ba42e9e6477c8c0250a688b2b8a2e9826e0b8d689d",
+      "rows": [
+        "D05",
+        "P06",
+        "O01",
+        "O02",
+        "O03",
+        "O04"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/11-gas-economics.md",
+      "sha256": "906631826b04c20dff18d933df0f8d46d76b07a02c380a11889b3f0bf4c23791",
+      "rows": [
+        "X07",
+        "X08",
+        "X09",
+        "O05",
+        "O06"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/12-open-issues.md",
+      "sha256": "5c5a01d22a4a0359b511c0c42b4965776eb84b1a97a11b61fa6d3974747c364a",
+      "rows": [
+        "N01",
+        "N02",
+        "N03",
+        "O07",
+        "O04"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/A-reference.md",
+      "sha256": "88013bc6efcc741c92dd1b1e36300a23793175653d285453123e371b12131073",
+      "rows": [
+        "X01",
+        "X02",
+        "X03",
+        "X04",
+        "X07",
+        "X09",
+        "P01",
+        "N03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/B-gas-cost-analysis.md",
+      "sha256": "5f224e5b5c68f6b689ee633699c31c04ca691713dfbff45f9ac10c047ad05732",
+      "rows": [
+        "O05"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/C-open-questions.md",
+      "sha256": "ba731e9138edce5fd0e65589a2c79c4bc2a005fa8a8d9276f2b54676a899998d",
+      "rows": [
+        "C01",
+        "D07",
+        "S04",
+        "O05",
+        "O06",
+        "N01",
+        "N02",
+        "N03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/D-wire-formats.md",
+      "sha256": "00a8bd9549c484d0a51e1a06fe3165444db070a01dd91871ac22af8203f1d2f0",
+      "rows": [
+        "C01",
+        "X04",
+        "X05",
+        "X06",
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07",
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "P01",
+        "P02",
+        "O01"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/E-implementation-divergences.md",
+      "sha256": "0384a3584ebdb49b15b8243e30835f27e709204ac6792c6156c7c382c7198f80",
+      "rows": [
+        "C01"
+      ],
+      "status": "informative"
+    },
+    {
+      "path": "docs/rollup0-spec/F-system-transaction-design.md",
+      "sha256": "1b442e4b284c7529e614fb91c0a155a9044a096e5b76b01e1f349f197ccf0d4a",
+      "rows": [
+        "X04",
+        "X05",
+        "X06",
+        "X07",
+        "X08"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    },
+    {
+      "path": "docs/rollup0-spec/G-blob-payload-design.md",
+      "sha256": "edb49acb25e1f0f6c93b5fc5b6169b3ed4b7288e4e7cc5681b0a393666516f7c",
+      "rows": [
+        "D01",
+        "D02",
+        "D03",
+        "D04",
+        "D05",
+        "D06",
+        "D07"
+      ],
+      "status": "informative"
+    },
+    {
+      "path": "docs/rollup0-spec/index.md",
+      "sha256": "a705a450b9dc5722a5b071b189f2fdd38637244fd8ab97c1de8e749db7e6dc69",
+      "rows": [
+        "C01",
+        "N03"
+      ],
+      "status": "draft; section-specific normative/decision/open-issue status applies"
+    }
+  ]
+}

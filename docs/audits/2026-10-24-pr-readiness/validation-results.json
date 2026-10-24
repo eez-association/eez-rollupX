@@ -1,0 +1,116 @@
+{
+  "status": "partial; process/live validation and final candidate scan remain in progress",
+  "source": {
+    "branch": "codex/l1-history-offline-proving",
+    "initial_head": "3e23955dc477c9e675364776f118b1cecda75774",
+    "target_main": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "description": "Reviewed working-tree patch; exact final captures and executable identity are recorded separately."
+  },
+  "checks": [
+    {
+      "id": "workspace",
+      "command": "cargo +1.95.0 test --locked --offline --workspace --exclude eez-node-e2e -- --test-threads=2",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-tests-final.log",
+        "sha256": "bd33ae22e568d73b1f10295b9e95738de1ba46cb3536f83b0c6386ae4a1ff17f",
+        "availability": "local-only"
+      },
+      "passed": 1585,
+      "ignored_or_skipped": 3,
+      "limits": "Manual timing profile and two explicitly invoked fixture utilities; process tests run separately."
+    },
+    {
+      "id": "clippy",
+      "command": "cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-clippy-final.log",
+        "sha256": "fc778225e6534e2d0dfec1ebcd2c4e5476469cdcff42bf341d3011fef3949c34",
+        "availability": "local-only"
+      }
+    },
+    {
+      "id": "rust_format",
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/workspace-format-final.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only"
+      }
+    },
+    {
+      "id": "integration_contracts",
+      "command": "forge test --root contracts",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/contracts-tests-final.log",
+        "sha256": "e7dc0cc533d99d27a59037263fe23ff5eb882ef14d62e11a25a61bb547fe7f54",
+        "availability": "local-only"
+      },
+      "passed": 142,
+      "ignored_or_skipped": 0
+    },
+    {
+      "id": "genesis",
+      "command": "bash scripts/update-eezl2-genesis.sh --check",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/genesis-check-final.log",
+        "sha256": "44ac04de0e1ad33c3d30d977e1bf115b32312da549707eec40722e8054ad88d8",
+        "availability": "local-only"
+      },
+      "limits": "Final fixture root 0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf."
+    },
+    {
+      "id": "tooling",
+      "command": "bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\" python3 -m unittest discover -s scripts/ci/tests -v",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/tooling-tests-packaging-corrected.log",
+        "sha256": "e060efcc21cb793dcf816ae1478e9ccada1bf3289a0e173ba1e98eb6a7a0279a",
+        "availability": "local-only"
+      },
+      "passed": 395,
+      "ignored_or_skipped": 7,
+      "limits": "402 selected; seven opt-in probes skipped. The new Docker-context probe separately passed (1/1); six other opt-in probes remain unexecuted. An intervening run without the private /tmp bind failed and is retained separately."
+    },
+    {
+      "id": "branch_history_secret_scan",
+      "command": "gitleaks git . --config .gitleaks.toml --log-opts='origin/main..HEAD -m' --redact=100 --ignore-gitleaks-allow --gitleaks-ignore-path /dev/null",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/pr-readiness/secret-scan-branch-history.log",
+        "sha256": "33faf85b55a8cfc58f2a3c3d1c1cc67cd318362fdb89bed49b3e29b893e23717",
+        "availability": "local-only"
+      },
+      "limits": "Nine existing branch commits scanned; uncommitted candidate scan is separate."
+    },
+    {
+      "id": "tooling_without_private_tmp",
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v (TMPDIR set, but no private /tmp bind)",
+      "exit_code": 1,
+      "log": {
+        "path": "artifacts/pr-readiness/tooling-tests-packaging-final.log",
+        "sha256": "0df3c2173325f61ef8d5c4d169f76b9a3242e85f28289b56e18d0c240156fb01",
+        "availability": "local-only"
+      },
+      "selected": 400,
+      "subtest_failures": 41,
+      "errors": 13,
+      "ignored_or_skipped": 6,
+      "limits": "Shared /tmp quota/I/O failures and missing downstream outputs. This is a failed invocation; the later private-bind result does not replace it."
+    }
+  ],
+  "related_evidence": [
+    "final-fixture-evidence.json",
+    "dependency-gate.json",
+    "signer-port-collision.json"
+  ],
+  "unresolved": [
+    "Dependency advisory gates fail on both candidate and target main; no waiver or upgrade included.",
+    "Final source process suite and isolated live validation are still running."
+  ]
+}

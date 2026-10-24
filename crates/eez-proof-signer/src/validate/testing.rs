@@ -15,22 +15,24 @@ impl SettlementBlockEvidence {
     /// RLP itself and rejects such a block, so no manufactured facts cross the
     /// checked boundary.
     pub(crate) fn from_rlp_for_test(rlp: &[u8]) -> Self {
-        let system_sender_flags = alloy_rlp::decode_exact::<EezBlock>(rlp)
+        let system_sender_flags: Vec<bool> = alloy_rlp::decode_exact::<EezBlock>(rlp)
             .map(|block| {
                 block
                     .body
                     .transactions
                     .iter()
                     .map(|transaction| {
-                        transaction
-                            .recover_signer()
-                            .is_ok_and(|signer| signer == crate::testkit::TEST_SYSTEM_ADDRESS)
+                        transaction.recover_signer().is_ok_and(|signer| {
+                            signer == crate::testkit::TEST_SYSTEM_ADDRESS
+                                && !transaction.is_history()
+                        })
                     })
                     .collect()
             })
             .unwrap_or_default();
         Self {
             ordinary_prefix_hash: B256::ZERO,
+            cumulative_gas_used: vec![0; system_sender_flags.len()],
             system_sender_flags,
             observed_outbound_events: Vec::new(),
         }
@@ -43,6 +45,7 @@ impl BackendBlockOutput {
     pub(crate) fn set_transaction_results_for_test(&mut self, receipt_successes: Vec<bool>) {
         self.decoded_transaction_count = receipt_successes.len();
         self.receipt_successes = receipt_successes;
+        self.settlement_evidence.cumulative_gas_used = vec![0; self.decoded_transaction_count];
     }
 }
 

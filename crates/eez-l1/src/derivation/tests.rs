@@ -19,6 +19,7 @@ pub(super) fn fixture() -> (Schedule, alloy_rpc_types_eth::Block) {
     let reference = block(10, 1000, 7);
     let schedule = Schedule::new(
         DerivationConfig {
+            fee_collector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             history_update_offset: 0,
             block_interval_seconds: 1,
             sync_interval_blocks: 4,
@@ -388,6 +389,7 @@ async fn l1_genesis_reference_needs_no_finalized_checkpoint_but_must_be_canonica
     let reference = block(0, 1000, 7);
     let schedule = Schedule::new(
         DerivationConfig {
+            fee_collector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             history_update_offset: 0,
             block_interval_seconds: 1,
             sync_interval_blocks: 4,

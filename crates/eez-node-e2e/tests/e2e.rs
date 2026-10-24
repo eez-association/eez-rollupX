@@ -17,10 +17,11 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_mins(5);
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pending_history_import_requires_executed_state() {
-    use alloy_primitives::Bytes;
-    use alloy_rpc_types_eth::TransactionRequest;
-    use alloy_sol_types::SolCall as _;
+    use alloy_primitives::{Address, B256, Bytes, keccak256};
+    use alloy_rpc_types_eth::{AccessListResult, TransactionRequest};
+    use alloy_sol_types::{SolCall as _, SolValue as _};
     use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
+    use serde_json::json;
 
     let world = setup_native_history(&[
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
@@ -41,37 +42,177 @@ async fn pending_history_import_requires_executed_state() {
     let request = TransactionRequest::default()
         .to(HISTORY_ADDRESS)
         .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into());
-    let parent = wait_for(DEFAULT_TIMEOUT, || async {
+    // Inject the existing observation fixture only into the RPC simulation; it
+    // reads history and PREVRANDAO together without a deployment transaction.
+    let artifact: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            eez_testkit::repo_root()
+                .join("contracts/out/OfflineHistoryProbe.sol/OfflineHistoryProbe.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let probe = Address::with_last_byte(90);
+    let observe = TransactionRequest::default()
+        .to(probe)
+        .input(Bytes::copy_from_slice(&keccak256(b"observe()")[..4]).into());
+    let overrides = json!({probe.to_string(): {"code": artifact["deployedBytecode"]["object"]}});
+    let cutoff_request = TransactionRequest::default()
+        .to(HISTORY_ADDRESS)
+        .input(Bytes::copy_from_slice(&keccak256(b"nextCutoff()")[..4]).into());
+    let counter: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(eez_testkit::repo_root().join("contracts/out/Counter.sol/Counter.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let counter_code: Bytes =
+        serde_json::from_value(counter["bytecode"]["object"].clone()).unwrap();
+    let deploy = TransactionRequest::default().input(counter_code.into());
+    let (parent, pending_origin, pending_randao) = wait_for(DEFAULT_TIMEOUT, || async {
         let parent = l2
             .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
+            .await
+            .expect("latest header before pending observations")
             .unwrap()
             .header;
         if parent.number % 5 != 2 {
             return Ok(None);
         }
-        let pending = l2.call(request.clone()).pending().await;
+        let mut requests = Vec::new();
+        for tag in [
+            json!("pending"),
+            json!("latest"),
+            json!({"blockHash": parent.hash}),
+        ] {
+            for method in ["eth_call", "eth_estimateGas", "eth_createAccessList"] {
+                let (snake, camel) = if method == "eth_call" {
+                    ("state_overrides", "stateOverrides")
+                } else {
+                    ("state_override", "stateOverride")
+                };
+                requests.extend([
+                    (method, json!([observe, tag, overrides])),
+                    (
+                        method,
+                        json!({"request": observe, "block_number": tag, (snake): overrides}),
+                    ),
+                    (
+                        method,
+                        json!({"request": observe, "blockNumber": tag, (camel): overrides}),
+                    ),
+                ]);
+            }
+        }
+        let hypothetical = B256::repeat_byte(42);
+        let block_overrides =
+            json!({"time": "0x2345", "number": "0x1234", "prevRandao": hypothetical});
+        // NUMBER, TIMESTAMP and PREVRANDAO expose the counterfactual environment;
+        // the history reads below must still see the already executed prefix.
+        let env_probe = Address::with_last_byte(91);
+        let env_request = TransactionRequest::default().to(env_probe);
+        let env_override =
+            json!({env_probe.to_string(): {"code": "0x43600052426020524460405260606000f3"}});
+        requests.extend([
+            ("eth_call", json!([cutoff_request, "pending"])),
+            ("eth_call", json!([request])),
+            ("eth_call", json!([request, "latest"])),
+            (
+                "eth_call",
+                json!([observe, "pending", overrides, block_overrides]),
+            ),
+            (
+                "eth_call",
+                json!([cutoff_request, "pending", null, block_overrides]),
+            ),
+            (
+                "eth_call",
+                json!([env_request, "pending", env_override, block_overrides]),
+            ),
+            ("eth_estimateGas", json!([deploy, "pending"])),
+            ("eth_estimateGas", json!([deploy, "latest"])),
+        ]);
+        // Parallel requests fit within a normal L2 slot. wait_for retries Err,
+        // so RPC errors deliberately panic instead; only a changed parent is
+        // an inconclusive observation that authorizes another selection.
+        let mut calls = tokio::task::JoinSet::new();
+        let mut results = vec![None; requests.len()];
+        for (index, (method, params)) in requests.into_iter().enumerate() {
+            let l2 = l2.clone();
+            calls.spawn(async move {
+                (
+                    index,
+                    method,
+                    l2.raw_request::<_, serde_json::Value>(method.into(), params)
+                        .await,
+                )
+            });
+        }
+        while let Some(result) = calls.join_next().await {
+            let (index, method, response) = result.expect("RPC observation task panicked");
+            results[index] =
+                Some(response.unwrap_or_else(|error| {
+                    panic!("{method} observation {index} failed: {error}")
+                }));
+        }
         let after = l2
             .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?
+            .await
+            .expect("latest header after pending observations")
             .unwrap()
             .header;
         if after.hash != parent.hash {
             return Ok(None);
         }
-        // This specific error is emitted only after the source evidence has
-        // resolved. Missing evidence or another RPC error does not pass.
-        Ok(pending
-            .err()
-            .filter(|error| {
-                error
-                    .to_string()
-                    .contains("pending L1 history import has not executed")
-            })
-            .map(|_| parent))
+        let results: Vec<_> = results.into_iter().map(Option::unwrap).collect();
+        for group in results[..27].chunks_exact(9) {
+            for method in group.chunks_exact(3) {
+                assert_eq!(method[0], method[1], "snake_case named/positional parity");
+                assert_eq!(method[0], method[2], "camelCase named/positional parity");
+            }
+            let gas: U256 = serde_json::from_value(group[3].clone()).unwrap();
+            assert!(gas > U256::from(21_000));
+            let access: AccessListResult = serde_json::from_value(group[6].clone()).unwrap();
+            assert!(access.error.is_none(), "{access:?}");
+            assert!(
+                access
+                    .access_list
+                    .0
+                    .iter()
+                    .any(|item| item.address == HISTORY_ADDRESS)
+            );
+        }
+        let bytes = |index: usize| serde_json::from_value::<Bytes>(results[index].clone()).unwrap();
+        let (number, hash, randao) = <(u64, B256, U256)>::abi_decode(&bytes(0)).unwrap();
+        let expected_cutoff = U256::from(parent.timestamp - 2 + 5);
+        assert_eq!(U256::abi_decode(&bytes(27)).unwrap(), expected_cutoff);
+        assert_eq!(results[28], results[29], "default tag remains latest");
+        assert_eq!(
+            <(u64, B256, U256)>::abi_decode(&bytes(30)).unwrap(),
+            (number, hash, U256::from_be_slice(hypothetical.as_slice()))
+        );
+        assert_eq!(
+            U256::abi_decode(&bytes(31)).unwrap(),
+            expected_cutoff,
+            "block overrides do not reschedule or repeat history execution"
+        );
+        assert_eq!(
+            <(U256, U256, U256)>::abi_decode(&bytes(32)).unwrap(),
+            (
+                U256::from(0x1234),
+                U256::from(0x2345),
+                U256::from_be_slice(hypothetical.as_slice())
+            )
+        );
+        let creation_gas: U256 = serde_json::from_value(results[33].clone()).unwrap();
+        assert!(creation_gas > U256::from(53_000));
+        assert_eq!(
+            results[33], results[34],
+            "Counter creation estimate at the import boundary"
+        );
+        Ok(Some((parent, (number, hash), randao)))
     })
     .await
-    .expect("pending call did not reach the scheduled-import gate");
+    .expect("pending simulation did not execute the scheduled import on a stable parent");
     let before = l2
         .call(request.clone())
         .block(parent.hash.into())
@@ -85,6 +226,19 @@ async fn pending_history_import_requires_executed_state() {
         .unwrap();
     assert_eq!(before.hash, previous_source.header.hash);
     assert_eq!(parent.mix_hash, previous_source.header.mix_hash);
+    let selected_pending = l1
+        .get_block_by_number(pending_origin.0.into())
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
+    assert!(pending_origin.0 >= before.number);
+    assert_eq!(pending_origin.1, selected_pending.hash);
+    assert_eq!(
+        pending_randao,
+        U256::from_be_slice(selected_pending.mix_hash.as_slice())
+    );
+    assert!(selected_pending.timestamp <= parent.timestamp - 2);
 
     let next = wait_for(DEFAULT_TIMEOUT, || async {
         Ok(l2.get_block_by_number((parent.number + 1).into()).await?)
@@ -111,6 +265,27 @@ async fn pending_history_import_requires_executed_state() {
     assert!(selected.timestamp <= cutoff && successor.timestamp > cutoff);
     assert_eq!(after.hash, selected.hash);
     assert_eq!(next.mix_hash, selected.mix_hash);
+
+    let revert = TransactionRequest::default().to(probe);
+    let reverting_code = json!({probe.to_string(): {"code": "0x60006000fd"}});
+    for method in ["eth_call", "eth_estimateGas"] {
+        let error = l2
+            .raw_request::<_, serde_json::Value>(
+                method.into(),
+                json!([revert, "pending", reverting_code]),
+            )
+            .await
+            .expect_err("application reverts must propagate through the pending adapter");
+        assert_eq!(error.as_error_resp().unwrap().code, 3, "{method}: {error}");
+    }
+    let access: AccessListResult = l2
+        .raw_request(
+            "eth_createAccessList".into(),
+            json!([revert, "pending", reverting_code]),
+        )
+        .await
+        .expect("access-list RPC returns application reverts in its result");
+    assert!(access.error.is_some_and(|error| error.contains("revert")));
     world.node.assert_no_process_death();
 }
 

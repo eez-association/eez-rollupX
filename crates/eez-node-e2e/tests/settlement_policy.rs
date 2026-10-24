@@ -405,11 +405,13 @@ async fn conditional_position_paces_late_pool_transactions_and_replays() {
     );
     assert!(
         world.node.signals_since(0).unwrap().iter().any(|signal| {
-            signal.name == "eez.composer.sync_slot.invoked"
-                && signal.fields["mode"] == "Ordinary"
+            signal.name == eez_testkit::signals::SEQUENCER_SLOT_DECISION
+                && signal.fields["target"] == target
                 && signal.fields["timestamp"] == boundary.header.timestamp
+                && signal.fields["prepare"] == false
+                && signal.fields["skip_post"] == true
         }),
-        "the successful ordinary decision must reach the non-posting Composer path"
+        "the paced boundary must have an accepted non-posting cutoff decision"
     );
     let follower = NodeHandle::start(
         "conditional-position-follower",
@@ -3261,6 +3263,8 @@ async fn gnosis_ordinary_burst_is_budgeted_across_sync_intervals() {
 }
 
 async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_blobs: usize) {
+    use alloy_rpc_types_eth::TransactionRequest;
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
     use eez_testkit::{onchain_nonce, sign_and_send, wait_for};
     let mut env = policy_env(vec![], "interval");
     env.push(("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "120000".into()));
@@ -3293,7 +3297,22 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     };
     let l2_seconds = milliseconds("EEZ_L2_BLOCK_TIME_MS") / 1000;
     let k = milliseconds("EEZ_L1_BLOCK_TIME_MS") / milliseconds("EEZ_L2_BLOCK_TIME_MS");
+    let outage_start = l2.get_block_number().await.unwrap();
     world.fail_rpc_methods(&["eth_getBlockByNumber"]).unwrap();
+    let last_available_origin = l1.get_block_number().await.unwrap();
+    let current_origin = || async {
+        let raw = l2
+            .call(
+                TransactionRequest::default().to(HISTORY_ADDRESS).input(
+                    alloy_primitives::Bytes::from(
+                        IL1BlockhashContract::currentCall {}.abi_encode(),
+                    )
+                    .into(),
+                ),
+            )
+            .await?;
+        Ok::<_, anyhow::Error>(IL1BlockhashContract::currentCall::abi_decode_returns(&raw)?)
+    };
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The calldata alone must exceed the
     // network's whole interval capacity even without any encoding overhead.
@@ -3316,37 +3335,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .unwrap(),
         );
     }
-    // Cached scheduling can continue briefly after the reader loses RPC.
-    // Recover only after L1 has actually passed the stalled L2 tip by two
-    // slots; a fixed sleep can leave an empty recovery window on Gnosis.
-    let gap_seconds = 2 * milliseconds("EEZ_L1_BLOCK_TIME_MS") / 1000;
-    let (stalled_l2_timestamp, recovery_l1_timestamp) = wait_for(TIMEOUT, || async {
-        let l2_timestamp = l2
-            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("missing L2 tip during RPC outage"))?
-            .header
-            .timestamp;
-        let l1_tip = l1
-            .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("missing L1 tip during RPC outage"))?;
-        let l1_timestamp = l1_tip.header.timestamp;
-        Ok(
-            (l1_tip.header.number >= l1_before + 2 && l1_timestamp >= l2_timestamp + gap_seconds)
-                .then_some((l2_timestamp, l1_timestamp)),
-        )
-    })
-    .await
-    .unwrap_or_else(|error| {
-        panic!(
-            "RPC outage did not create a historical gap: {error:#}{}",
-            world.settlement_diagnostics()
-        )
-    });
+    // Advance beyond the same-parent replacement budget while L1 RPC is still
+    // failing. The bounded-depth clock regression runs separately. Ordinary transactions
+    // must receive receipts during the outage, not only after recovery.
+    wait_for_latest_height(&world.node, outage_start + (6 * k).max(18), TIMEOUT)
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "L2 stopped during L1 RPC outage: {error:#}{}",
+                world.settlement_diagnostics()
+            )
+        });
+    let outage_tip = l2
+        .get_block_by_number(alloy_eips::BlockNumberOrTag::Latest)
+        .await
+        .unwrap()
+        .unwrap()
+        .header;
     assert!(l1.get_block_number().await.unwrap() >= l1_before + 2);
-    let recovery_cursor = world.node.signal_cursor().unwrap();
-    world.fail_rpc_methods(&[]).unwrap();
     let mut receipts = Vec::new();
     for &hash in &hashes {
         receipts.push(
@@ -3369,6 +3375,13 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     );
     let first = receipts.first().unwrap().block_number.unwrap();
     let covered = receipts.last().unwrap().block_number.unwrap();
+    assert!(
+        current_origin().await.unwrap().number <= last_available_origin,
+        "L1 acquisition was not withheld during the outage"
+    );
+    // New evidence may advance the next history update, never rewrite blocks
+    // just because a fresher eligible origin is now available.
+    world.fail_rpc_methods(&[]).unwrap();
     let mut previous_l1_timestamp = l1
         .get_block_by_number(l1_before.into())
         .await
@@ -3391,7 +3404,12 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         );
         previous_l1_timestamp = timestamp;
     }
-    wait_for_latest_height(&world.node, covered + 2 * k, TIMEOUT)
+    wait_for(TIMEOUT, || async {
+        Ok((current_origin().await?.number > last_available_origin).then_some(()))
+    })
+    .await
+    .expect("history acquisition must resume after healing L1 RPC");
+    wait_for_latest_height(&world.node, outage_tip.number + 2 * k, TIMEOUT)
         .await
         .unwrap();
     let genesis = l2
@@ -3401,50 +3419,19 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
         .unwrap()
         .header
         .timestamp;
-    // The scheduler can have a nonzero residue relative to L2 genesis. Inspect
-    // actual empty Sync construction, never assume height % K == 0.
-    // Recovery may finish in Steady mode once it reaches a usable future slot.
-    // Prove that a missing historical boundary was rebuilt after the outage,
-    // rather than requiring a structural-only Catchup terminal. Cached retry
-    // slots can already satisfy the receipt/height waits before RPC recovers;
-    // wait for this recovery event and its committed block explicitly.
-    let (rebuilt_timestamp, rebuilt) = wait_for(TIMEOUT, || async {
-        let rebuilt_timestamp = world
-            .node
-            .signals_since(recovery_cursor)?
-            .iter()
-            .filter(|event| {
-                event.name == "eez.composer.sync_slot.invoked" && event.fields["mode"] == "Empty"
-            })
-            .filter_map(|event| event.fields["timestamp"].as_u64())
-            .find(|timestamp| *timestamp > stalled_l2_timestamp && *timestamp <= recovery_l1_timestamp);
-        let Some(timestamp) = rebuilt_timestamp else {
-            return Ok(None);
-        };
-        let number = (timestamp - genesis) / l2_seconds;
-        Ok(l2
-            .get_block_by_number(number.into())
-            .full()
-            .await?
-            .map(|block| (timestamp, block)))
-    })
-    .await
-    .unwrap_or_else(|error| panic!(
-        "RPC recovery did not rebuild a missing historical Sync boundary in ({stalled_l2_timestamp}, {recovery_l1_timestamp}]: {error:#}{}",
-        world.settlement_diagnostics(),
-    ));
-    assert_eq!(rebuilt.header.timestamp, rebuilt_timestamp);
-    assert!(
-        rebuilt.transactions.is_empty(),
-        "recovered Sync boundary must be empty on the canonical L2"
+    assert_eq!(
+        l2.get_block_by_number(outage_tip.number.into())
+            .await
+            .unwrap()
+            .unwrap()
+            .header
+            .hash,
+        outage_tip.hash,
+        "late L1 delivery rewrote an already valid ordinary prefix"
     );
-    let boundaries = world
-        .node
-        .signals_since(0)
-        .unwrap()
-        .into_iter()
-        .filter(|event| event.name == "eez.composer.sync_slot.invoked")
-        .map(|event| (event.fields["timestamp"].as_u64().unwrap() - genesis) / l2_seconds)
+    let latest = l2.get_block_number().await.unwrap();
+    let boundaries = (k..=latest)
+        .step_by(k as usize)
         .collect::<std::collections::BTreeSet<_>>();
     let base = boundaries.range(..first).next_back().copied().unwrap_or(0);
     let terminal = *boundaries
@@ -3454,18 +3441,24 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
     let mut intervals = Vec::new();
     let mut encoded = Vec::new();
     for number in (base + 1)..=terminal {
-        let block = l2
-            .get_block_by_number(number.into())
-            .full()
+        let block: alloy_rpc_types_eth::Block<
+            alloy_rpc_types_eth::Transaction<eez_primitives::EezTxEnvelope>,
+        > = l2
+            .client()
+            .request("eth_getBlockByNumber", (format!("0x{number:x}"), true))
             .await
-            .unwrap()
             .unwrap();
+        assert_eq!(block.header.timestamp, genesis + number * l2_seconds);
         let block = block
             .map_transactions(|tx| tx.inner.into_inner())
             .into_consensus();
         if boundaries.contains(&number) {
             assert!(
-                block.body.transactions.is_empty(),
+                block
+                    .body
+                    .transactions
+                    .iter()
+                    .all(eez_primitives::EezTxEnvelope::is_history),
                 "ordinary data occupied a required settlement boundary {number}"
             );
         }

@@ -16,7 +16,7 @@ pub fn ordinary_prefix(block: &Block) -> &[TransactionSigned] {
         .body
         .transactions
         .iter()
-        .position(|tx| matches!(tx, TransactionSigned::System(_)))
+        .position(TransactionSigned::is_cross_chain_system)
         .unwrap_or(block.body.transactions.len());
     &block.body.transactions[..end]
 }

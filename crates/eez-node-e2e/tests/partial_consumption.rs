@@ -610,12 +610,12 @@ async fn reprove_checkpoint(
         );
     }
     let (frames, mut batch) = selected.expect("held bundle has complete captured v2 evidence");
-    let capabilities = eez_control_rpc::v1::prover_client::ProverClient::connect(
+    let capabilities = eez_control_rpc::v2::prover_client::ProverClient::connect(
         world.proof_signer.endpoint().to_owned(),
     )
     .await
     .unwrap()
-    .capabilities(eez_control_rpc::v1::CapabilitiesRequest {})
+    .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
     .await
     .unwrap()
     .into_inner();

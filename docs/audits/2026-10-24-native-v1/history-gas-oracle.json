@@ -1,0 +1,25 @@
+{
+  "oracle": "Anvil 1.7.1 Osaka ordinary zero-price call to generated L1BlockhashContract runtime; native nonce behavior is tested separately",
+  "runtime_sha256": "413a8c8b0afa3130dc489cca41d6159736aa6745175d4184c699d2ea00f0e5ce",
+  "initial_storage": {
+    "mapping_hash_0": "0x1111111111111111111111111111111111111111111111111111111111111111",
+    "next_cutoff": 104,
+    "interval": 12,
+    "delay": 6,
+    "maximum": 64
+  },
+  "cases": [
+    {
+      "cutoff": 104,
+      "timestamp": 110,
+      "gas_used": 41092,
+      "next_cutoff": 116
+    },
+    {
+      "cutoff": 116,
+      "timestamp": 122,
+      "gas_used": 41092,
+      "next_cutoff": 128
+    }
+  ]
+}

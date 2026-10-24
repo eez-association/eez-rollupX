@@ -90,6 +90,7 @@ fn parent() -> SealedHeader {
     SealedHeader::seal_slow(Header {
         number: 10,
         timestamp: 100,
+        mix_hash: B256::repeat_byte(0x22),
         gas_limit: 30_000_000,
         base_fee_per_gas: Some(1_000_000_000),
         // Fixed-profile empty parent for the independent assembly oracle.
@@ -311,7 +312,7 @@ fn metadata_binds_assembly_and_wrong_history_randao_or_fixed_fields_are_rejected
 #[test]
 fn rejects_pre_merge_and_future_forks_including_boundary() {
     for fork in [EthereumHardfork::London, EthereumHardfork::Amsterdam] {
-        let error = next_attributes(&config(fork), &parent(), &environment()).unwrap_err();
+        let error = next_attributes(&config(fork), &parent(), &environment(), None).unwrap_err();
         assert!(error.to_string().contains("unsupported L2 execution"));
     }
     let mut spec = config(EthereumHardfork::Osaka)
@@ -323,7 +324,7 @@ fn rejects_pre_merge_and_future_forks_including_boundary() {
     let config = EezEvmConfig::new(Arc::new(spec));
     let env = environment();
     // The first child is exactly at the unsupported fork activation.
-    assert!(next_attributes(&config, &parent(), &env).is_err());
+    assert!(next_attributes(&config, &parent(), &env, None).is_err());
 }
 
 #[test]
@@ -331,15 +332,15 @@ fn arithmetic_and_invalid_environment_fail_before_reth() {
     let config = config(EthereumHardfork::Osaka);
     let mut header = parent().header().clone();
     header.number = u64::MAX;
-    assert!(next_attributes(&config, &header, &environment()).is_err());
+    assert!(next_attributes(&config, &header, &environment(), None).is_err());
     header.number = 10;
     header.timestamp = u64::MAX - 1;
-    assert!(next_attributes(&config, &header, &environment()).is_err());
+    assert!(next_attributes(&config, &header, &environment(), None).is_err());
     let env = Environment {
         extra_data: vec![0; 33].into(),
         ..environment()
     };
-    assert!(next_attributes(&config, &parent(), &env).is_err());
+    assert!(next_attributes(&config, &parent(), &env, None).is_err());
 }
 
 #[test]
@@ -497,7 +498,7 @@ fn empty_derived_blocks_execute_history_but_no_beacon_updates() {
     // Merely advancing numbers/hashes would omit the parent-history writes.
     for timestamp in [102, 104] {
         let env = environment();
-        let attrs = next_attributes(&config, &parent, &env).unwrap();
+        let attrs = next_attributes(&config, &parent, &env, None).unwrap();
         assert_eq!(attrs.timestamp, timestamp);
         let mut builder = config
             .builder_for_next_block(&mut state, &parent, attrs)
@@ -577,7 +578,7 @@ fn nonempty_derived_block_uses_executed_transactions_receipts_and_gas() {
         .with_bundle_update()
         .build();
     let parent = parent_for(EthereumHardfork::Osaka);
-    let attrs = next_attributes(&config, &parent, &environment()).unwrap();
+    let attrs = next_attributes(&config, &parent, &environment(), None).unwrap();
     let mut builder = config
         .builder_for_next_block(&mut state, &parent, attrs)
         .unwrap();

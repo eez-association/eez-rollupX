@@ -18,10 +18,17 @@ impl ExecutionInputs<'_> {
         self,
         config: &EezEvmConfig,
         parent: &SealedHeader,
+        transactions: &[alloy_primitives::Bytes],
     ) -> DeriverResult<NextBlockEnvAttributes> {
         match self {
             Self::Derived(environment) => {
-                eez_driver::derivation::next_attributes(config, parent, environment)
+                use alloy_eips::Decodable2718 as _;
+                let first = transactions
+                    .first()
+                    .map(|raw| eez_primitives::EezTxEnvelope::decode_2718_exact(raw))
+                    .transpose()
+                    .map_err(DeriverError::l2_provider)?;
+                eez_driver::derivation::next_attributes(config, parent, environment, first.as_ref())
                     .map_err(DeriverError::l2_provider)
             }
         }
@@ -35,7 +42,14 @@ impl ExecutionInputs<'_> {
         parent: &SealedHeader,
         block: &Block,
     ) -> DeriverResult<bool> {
-        let expected = self.attributes(config, parent)?;
+        use alloy_eips::Encodable2718 as _;
+        let txs = block
+            .body
+            .transactions
+            .iter()
+            .map(|tx| tx.encoded_2718().into())
+            .collect::<Vec<_>>();
+        let expected = self.attributes(config, parent, &txs)?;
         let Ok(actual) = eez_driver::derivation::full_attributes(config, parent, block) else {
             return Ok(false);
         };
@@ -113,6 +127,7 @@ mod tests {
         let parent = SealedHeader::seal_slow(Header {
             number: 10,
             timestamp: 100,
+            mix_hash: B256::repeat_byte(0x22),
             gas_limit: 30_000_000,
             base_fee_per_gas: Some(1_000_000_000),
             withdrawals_root: Some(EMPTY_ROOT_HASH),
@@ -156,7 +171,7 @@ mod tests {
     fn published_inputs_supply_every_variable_execution_attribute() {
         let (config, parent, env, block) = fixture();
         let derived = ExecutionInputs::Derived(&env);
-        let attrs = derived.attributes(&config, &parent).unwrap();
+        let attrs = derived.attributes(&config, &parent, &[]).unwrap();
         assert_eq!(attrs.timestamp, block.header.timestamp);
         assert_eq!(attrs.suggested_fee_recipient, block.header.beneficiary);
         assert_eq!(attrs.prev_randao, block.header.mix_hash);

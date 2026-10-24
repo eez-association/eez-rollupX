@@ -8,7 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use alloy_consensus::{Block, Header, TxEnvelope};
+use alloy_consensus::Header;
 use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{Address, B256, Bytes, Signature, U256};
 use alloy_provider::{Provider as _, ProviderBuilder};
@@ -16,9 +16,10 @@ use eez_blob_codec::{
     BlobSidecarEncoding, BlobTransactionParams, prepare_blob_sidecar,
     prepare_blob_transaction_with_sidecar, sign_blob_transaction,
 };
-use eez_control_rpc::v1::{BlockWitness, ExecutionWitness, prover_client::ProverClient};
 use eez_control_rpc::v2::{self, ClientFrame, L1PostingContext, client_frame, server_frame};
+use eez_control_rpc::v2::{BlockWitness, ExecutionWitness, prover_client::ProverClient};
 use eez_payload_codec::v0::{self, BlockRun};
+use eez_primitives::Block;
 use eez_protocol::abi::{
     EtherDeltaSol, ExecutionEntrySol, RollupIdWithProofSystemsSol, RootUpdateSol,
 };
@@ -37,7 +38,7 @@ mod multipart;
 
 /// Independent dense test writer: only actual metadata and exact ordinary
 /// transaction bytes. The signer must reconstruct all omitted outputs.
-fn encode(_parent: &Header, blocks: &[Block<TxEnvelope>]) -> Vec<u8> {
+fn encode(_parent: &Header, blocks: &[Block]) -> Vec<u8> {
     let transactions = blocks
         .iter()
         .map(|block| {
@@ -186,7 +187,12 @@ async fn native_replay(profile: NativeL1Profile, history_ceiling: Option<u64>) {
         let mut count = ceiling.map_or(blocks.len(), |count| {
             native_grid_boundary(count, k) as usize
         });
-        while !blocks[count - 1].body.transactions.is_empty() {
+        while blocks[count - 1]
+            .body
+            .transactions
+            .iter()
+            .any(|tx| !tx.is_history())
+        {
             count = count
                 .checked_sub(k as usize)
                 .filter(|count| *count != 0)
@@ -195,7 +201,7 @@ async fn native_replay(profile: NativeL1Profile, history_ceiling: Option<u64>) {
         if let Err(error) = prove_native_window(
             &world,
             profile,
-            &genesis,
+            &genesis.header,
             &blocks[..count],
             ceiling,
             &follower_env,
@@ -236,7 +242,7 @@ async fn load_history(
     terminal: u64,
     hash: B256,
     genesis: B256,
-) -> Vec<Block<TxEnvelope>> {
+) -> Vec<Block> {
     load_range(store, 0, terminal, hash, genesis, TIMEOUT).await
 }
 
@@ -247,7 +253,7 @@ async fn load_range(
     mut hash: B256,
     parent_hash: B256,
     capture_timeout: Duration,
-) -> Vec<Block<TxEnvelope>> {
+) -> Vec<Block> {
     tokio::task::spawn_blocking(move || {
         let mut blocks = Vec::new();
         let deadline = Instant::now() + capture_timeout;
@@ -262,7 +268,7 @@ async fn load_range(
                 );
                 std::thread::sleep(Duration::from_millis(10));
             };
-            let block: Block<TxEnvelope> = alloy_rlp::decode_exact(&witness.rlp).unwrap();
+            let block: Block = alloy_rlp::decode_exact(&witness.rlp).unwrap();
             assert_eq!(block.header.number, number);
             assert_eq!(block.header.hash_slow(), hash);
             hash = block.header.parent_hash;
@@ -307,7 +313,7 @@ async fn exchange(
 async fn prove_cold_window(
     context: &NativeProofContext<'_>,
     parent: &Header,
-    blocks: &[Block<TxEnvelope>],
+    blocks: &[Block],
     history_ceiling: Option<u64>,
     store: Arc<eez_node::WitnessDb>,
     actual_target: Option<L1PostingContext>,
@@ -397,7 +403,7 @@ async fn prove_cold_window(
     let capabilities = ProverClient::connect(context.endpoint.to_owned())
         .await
         .unwrap()
-        .capabilities(eez_control_rpc::v1::CapabilitiesRequest {})
+        .capabilities(eez_control_rpc::v2::CapabilitiesRequest {})
         .await?
         .into_inner();
     assert_eq!(capabilities.profile_id, eez_control_rpc::OFFLINE_PROFILE_ID);
@@ -619,8 +625,8 @@ async fn read_l1_headers(rpc: &str, from: u64, through: u64) -> Vec<Header> {
 async fn prove_native_window(
     world: &eez_testkit::NativeWorld,
     profile: NativeL1Profile,
-    genesis: &Block<TxEnvelope>,
-    blocks: &[Block<TxEnvelope>],
+    genesis: &Header,
+    blocks: &[Block],
     history_ceiling: Option<u64>,
     follower_env: &[(&'static str, String)],
     l1_step: u64,
@@ -644,7 +650,7 @@ async fn prove_native_window(
         state_root(&world.l1_rpc(), world.dep.eez_address, world.dep.rollup_id)
             .await
             .unwrap(),
-        genesis.header.hash_slow()
+        genesis.hash_slow()
     );
     let l1_rpc = world.l1_rpc();
     let context = NativeProofContext {
@@ -669,15 +675,8 @@ async fn prove_native_window(
         .unwrap()
         .headers,
     };
-    let (batch, sidecar, target) = prove_cold_window(
-        &context,
-        &genesis.header,
-        blocks,
-        history_ceiling,
-        store,
-        None,
-    )
-    .await?;
+    let (batch, sidecar, target) =
+        prove_cold_window(&context, genesis, blocks, history_ceiling, store, None).await?;
     if !post_and_follow {
         return Ok(());
     }
@@ -959,7 +958,12 @@ async fn retained_native_history_cold_checkpoint() {
     let mut failures = Vec::new();
     for ceiling in [512, 1_024, 4_096, 10_000, 43_200, 65_536] {
         let mut count = native_grid_boundary(ceiling, context.k) as usize;
-        while !blocks[count - 1].body.transactions.is_empty() {
+        while blocks[count - 1]
+            .body
+            .transactions
+            .iter()
+            .any(|tx| !tx.is_history())
+        {
             count = count
                 .checked_sub(context.k as usize)
                 .filter(|count| *count != 0)

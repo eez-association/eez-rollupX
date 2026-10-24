@@ -12,7 +12,7 @@ use alloy_primitives::{B256, keccak256};
 use eyre::WrapErr as _;
 
 mod canonical;
-pub use canonical::{CANONICAL_JSON_VERSION, canonicalize_chain_json};
+pub use canonical::canonicalize_chain_json;
 mod l2;
 pub use l2::{LoadedL2Genesis, load_l2_genesis, parse_l2_genesis};
 #[cfg(feature = "chain-spec")]

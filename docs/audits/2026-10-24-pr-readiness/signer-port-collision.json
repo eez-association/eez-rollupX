@@ -1,0 +1,138 @@
+{
+  "recorded_at": "2026-10-24T10:43:44.931055+00:00",
+  "test": "cross_chain::real_signer_attester_mismatch_never_submits_a_batch",
+  "initial_result": "failed during fixture setup; attester assertions not reached",
+  "failure_location": "crates/eez-node-e2e/tests/cross_chain.rs:710",
+  "initial_logs": [
+    {
+      "path": "artifacts/pr-readiness/native-final/logs/eez-proof-signer-3221217-127.log",
+      "sha256": "efe780c8ea797476aee94ac2cc90e6b829f9bd184a75d85e86781b1f4e56f29f",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/pr-readiness/native-final/logs/eez-node-node-3221217-129.log",
+      "sha256": "51aca68c8eb16d20b29389544c6fb294db1a556ce01f11453709a2bca625fb57",
+      "availability": "local-only"
+    }
+  ],
+  "binaries": {
+    "artifacts/pr-readiness/runtime-bin/node_e2e-final": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+    "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+    "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+  },
+  "container": {
+    "id": "449d59445aa534d7ab342d961b178d1421e074e411ba49d61f365fc313f8a877",
+    "enclave": "eez-native-v1-review-20261024",
+    "service": "el-2-reth-builder-lighthouse",
+    "created": "2026-10-24T10:38:29.188669183Z",
+    "started_at": "2026-10-24T10:38:29.212486411Z",
+    "engine_rpc_bindings": [
+      {
+        "HostIp": "0.0.0.0",
+        "HostPort": "32843"
+      },
+      {
+        "HostIp": "::",
+        "HostPort": "32843"
+      }
+    ]
+  },
+  "timeline": [
+    {
+      "time": "2026-10-24T10:38:27.523491Z",
+      "event": "signer loaded configuration before KZG initialization"
+    },
+    {
+      "time": "2026-10-24T10:38:29.212486411Z",
+      "event": "Docker publishes host port 32843 to Engine RPC 8551"
+    },
+    {
+      "time": "2026-10-24T10:38:29.548412Z",
+      "event": "testkit has accepted TCP readiness and launched composer"
+    },
+    {
+      "time": "2026-10-24T10:38:29.688946Z",
+      "event": "composer capability discovery fails with Unknown transport error"
+    },
+    {
+      "time": "2026-10-24T10:38:29.760382Z",
+      "event": "signer KZG initialization completes"
+    },
+    {
+      "time": "2026-10-24T10:38:29.760426Z",
+      "event": "signer attempts serving; bind reports EADDRINUSE"
+    }
+  ],
+  "mechanism": "Testkit releases PortLease before signer initialization and tests only TCP connectivity. Docker allocated the released port during KZG initialization; the engine listener satisfied readiness before the signer attempted bind. No attester or proof rejection was exercised.",
+  "source_locations": {
+    "lease_release": "crates/eez-testkit/src/lib.rs:895",
+    "tcp_readiness": "crates/eez-testkit/src/lib.rs:900",
+    "capability_handshake": "crates/eez-node/src/lib.rs:124",
+    "signer_bind": "crates/eez-proof-signer/src/main.rs:109",
+    "process_local_lease_registry": "crates/eez-testkit/src/ports.rs:7"
+  },
+  "coordination": "Kurtosis agent confirmed no new services or published ports for 10 minutes before diagnostic repetition; existing network remained running.",
+  "limits": "No source change or Cargo build. Original full-suite failure remains. A successful diagnostic repetition is not an initial pass or a fix for the non-atomic port handoff.",
+  "diagnostic_repeat": {
+    "status": "passed diagnostic repetition after coordinated topology freeze; original run remains failed",
+    "log": "artifacts/pr-readiness/signer-port-collision/repeat.log",
+    "signer_outbound_network_denied": true,
+    "exit_code": 0,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filtered": 178,
+    "duration_seconds": 37.71,
+    "started_at": "2026-10-24T10:43:44Z",
+    "finished_at": "2026-10-24T10:44:22Z",
+    "log_sha256": "4e9ad520fe4266672786d0ed004e667428375b58b6bf05aaa23c1192270df920",
+    "command": "bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\" \"$PWD/artifacts/pr-readiness/runtime-bin/node_e2e-final\" cross_chain::real_signer_attester_mismatch_never_submits_a_batch --exact --test-threads=1 --nocapture",
+    "environment": {
+      "EEZ_TEST_PREBUILT": "unset",
+      "EEZ_TEST_RUNTIME_BIN_DIR": "unset",
+      "EEZ_TEST_PROOF_SIGNER_BIN": "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final",
+      "NEXTEST_BIN_EXE_eez_composer": "artifacts/pr-readiness/runtime-bin/final-source/eez-composer",
+      "NEXTEST_BIN_EXE_eez_follower": "artifacts/pr-readiness/runtime-bin/final-source/eez-follower",
+      "EEZ_TEST_PROOF_SIGNER_NO_NETWORK": "1",
+      "EEZ_TEST_LOG_DIR": "artifacts/pr-readiness/signer-port-collision/logs",
+      "EEZ_TEST_DATADIR_DIR": "artifacts/pr-readiness/signer-port-collision/datadirs",
+      "TMPDIR": "artifacts/pr-readiness/signer-port-collision/tmp"
+    },
+    "process_logs": [
+      {
+        "path": "artifacts/pr-readiness/signer-port-collision/logs/builder-stub-548914-1.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only"
+      },
+      {
+        "path": "artifacts/pr-readiness/signer-port-collision/logs/eez-node-node-548914-2.log",
+        "sha256": "a8388c3625dd5ee88dcc1831ce76c169d6c9e25d9983bdf2b165ae9411df9a54",
+        "availability": "local-only"
+      },
+      {
+        "path": "artifacts/pr-readiness/signer-port-collision/logs/eez-proof-signer-548914-0.log",
+        "sha256": "50da0805ca54c8cea83cf8bd4ba13cc16f5f07a0589b8c2e297bdd56fde20622",
+        "availability": "local-only"
+      }
+    ],
+    "signer_window_signed_events": 2,
+    "node_attester_mismatch_log_lines": 2,
+    "semantic_assertions": [
+      "at least two successful attestations from real signer",
+      "no signer rejection",
+      "zero posted batches",
+      "unchanged registered L1 commitment",
+      "unsettled source transaction absent from receipts",
+      "unchanged source nonce",
+      "node alive"
+    ],
+    "result_policy": "Diagnostic retry does not make the original full-suite result green; no assertions, code or binaries were changed."
+  },
+  "existing_coordination_review": {
+    "port_registry": "process-local HashSet and temporary bound sockets; no cross-process Docker handshake",
+    "nextest": "integration group serializes native cases within one Nextest run only",
+    "protocol_flock": "protects protocol suite/wallet orchestration, not native subprocess ports or Docker publication",
+    "remaining_limit": "PortLease release-to-child-bind gap and TCP-only readiness remain unchanged; coordinate external service creation during process startup."
+  }
+}

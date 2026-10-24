@@ -47,6 +47,7 @@ impl OfflineL1Rules {
             updateOffset: config.history_update_offset,
             l1ConfigHash: self.config_hash,
             historyCodeHash: keccak256(HISTORY_RUNTIME),
+            feeCollector: config.fee_collector,
             ruleTimes: self.rule_times.clone(),
         };
         profile.validate(U256::from(self.chain_id), keccak256(HISTORY_RUNTIME))?;

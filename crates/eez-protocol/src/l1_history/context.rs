@@ -24,6 +24,7 @@ sol! {
         uint32 updateOffset;
         bytes32 l1ConfigHash;
         bytes32 historyCodeHash;
+        address feeCollector;
         uint64[] ruleTimes;
     }
 
@@ -42,6 +43,7 @@ impl OfflineProfile {
     /// Check the complete shape against independently loaded chain/code identity.
     /// The caller additionally checks bootstrap and the canonical L1 schedule.
     pub fn validate(&self, l1_chain_id: U256, history_code_hash: B256) -> Result<(), ProfileError> {
+        crate::l2::validate_fee_collector(self.feeCollector)?;
         if self.l1ChainId.is_zero()
             || self.l1ChainId != l1_chain_id
             || self.l2ChainId.is_zero()
@@ -66,7 +68,7 @@ impl OfflineProfile {
     /// arbitrary operator label participates in this commitment.
     pub fn canonical_bytes(&self) -> Bytes {
         (
-            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1"),
+            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"),
             HISTORY_ADDRESS,
             MAX_IMPORT_HEADERS as u64,
             IMPORT_GAS_LIMIT,
@@ -217,6 +219,35 @@ impl OfflineContext {
         }
     }
 
+    /// Native occurrence context for this exact live target. Historical proofs
+    /// cannot contain cross-chain actions and therefore have no such context.
+    pub fn live_source_context(
+        &self,
+    ) -> Result<crate::native_source::LiveSourceContext, ProfileError> {
+        let EvidenceAnchor::ActualParent {
+            hash,
+            target_timestamp,
+            ..
+        } = self.anchor
+        else {
+            return Err(ProfileError(
+                "historical context cannot authorize native cross-chain actions",
+            ));
+        };
+        crate::native_source::LiveSourceContext::new(
+            self.l1_chain_id
+                .try_into()
+                .map_err(|_| ProfileError("unsupported L1 chain id"))?,
+            self.registry,
+            crate::RollupId(self.rollup_id),
+            self.l2_chain_id
+                .try_into()
+                .map_err(|_| ProfileError("unsupported L2 chain id"))?,
+            target_timestamp,
+            hash,
+        )
+    }
+
     /// Exact flat Solidity ABI tuple returned by OfflineRollup.getCustomData.
     pub fn custom_data(&self) -> Bytes {
         let mut encoded = (
@@ -275,6 +306,7 @@ mod tests {
 
     fn profile() -> OfflineProfile {
         OfflineProfile {
+            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             l1ChainId: U256::from(1),
             l2ChainId: U256::from(900),
             genesisHash: B256::repeat_byte(1),
@@ -297,7 +329,7 @@ mod tests {
         // abi.encode(domain, address, limit, gas, Profile): five outer
         // arguments, followed by the dynamic struct and its rule-time array.
         let expected = [
-            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1").0,
+            keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE").0,
             address,
             word(64),
             word(2_000_000),
@@ -311,13 +343,62 @@ mod tests {
             word(2),
             p.l1ConfigHash.0,
             p.historyCodeHash.0,
-            word(10 * 32),
+            p.feeCollector.into_word().0,
+            word(11 * 32),
             word(2),
             word(0),
             word(144),
         ]
         .concat();
         assert_eq!(p.canonical_bytes().as_ref(), expected);
+    }
+
+    #[test]
+    fn profile_matches_independent_abi_and_keccak_vectors() {
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../eez-control-rpc/conformance/native-profile-v1.json"
+        ))
+        .unwrap();
+        for (id, collector) in [("profile-collector-a", 0x11), ("profile-collector-b", 0x12)] {
+            let profile = OfflineProfile {
+                l1ChainId: U256::from(1),
+                l2ChainId: U256::from(901),
+                genesisHash: B256::repeat_byte(0x33),
+                genesisTimestamp: 120,
+                blockInterval: 2,
+                syncInterval: 6,
+                updateOffset: 2,
+                l1ConfigHash: B256::repeat_byte(0x55),
+                historyCodeHash: B256::repeat_byte(0x44),
+                feeCollector: Address::repeat_byte(collector),
+                ruleTimes: vec![0, 1000],
+            };
+            profile
+                .validate(U256::from(1), profile.historyCodeHash)
+                .unwrap();
+            let vector = corpus["vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["id"] == id)
+                .unwrap();
+            assert_eq!(
+                profile.canonical_bytes(),
+                vector["expectedBytes"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<Bytes>()
+                    .unwrap()
+            );
+            assert_eq!(
+                profile.commitment(),
+                vector["expectedKeccak256"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<B256>()
+                    .unwrap()
+            );
+        }
     }
 
     #[test]

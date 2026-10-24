@@ -7,34 +7,32 @@
 mod generated;
 pub mod identity;
 
-/// Tonic-generated protobuf module for the `prove.v1` package.
-pub use generated::v1;
 /// Shared streaming contract; execution and settlement profiles remain deployment-specific.
 pub use generated::v2;
 
 use prost::Message;
 
-/// Max size of a single `Prove` gRPC message, applied to BOTH the client
-/// (encode) and server (decode).
+/// Absolute client-side ceiling for a gRPC frame; negotiated server limits
+/// can impose a smaller bound.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024 * 1024;
 
 /// Fresh-network L1 history, synchronized randomness and offline v2 proving.
 pub const OFFLINE_PROFILE_ID: u32 = 2;
 
-/// Encode one typed [`v1::ProveFailure`] for the gRPC status-details field.
+/// Encode one typed [`v2::ProveFailure`] for the gRPC status-details field.
 #[must_use]
-pub fn encode_prove_failure(failure: &v1::ProveFailure) -> Vec<u8> {
+pub fn encode_prove_failure(failure: &v2::ProveFailure) -> Vec<u8> {
     failure.encode_to_vec()
 }
 
-/// Decode a typed [`v1::ProveFailure`] from the gRPC status-details field.
+/// Decode a typed [`v2::ProveFailure`] from the gRPC status-details field.
 ///
 /// # Errors
 ///
 /// Returns [`prost::DecodeError`] when the details are not a valid
-/// `prove.v1.ProveFailure` protobuf payload.
-pub fn decode_prove_failure(details: &[u8]) -> Result<v1::ProveFailure, prost::DecodeError> {
-    v1::ProveFailure::decode(details)
+/// `prove.v2.ProveFailure` protobuf payload.
+pub fn decode_prove_failure(details: &[u8]) -> Result<v2::ProveFailure, prost::DecodeError> {
+    v2::ProveFailure::decode(details)
 }
 
 #[cfg(test)]
@@ -42,8 +40,8 @@ mod tests {
     use proptest::prelude::*;
     use prost::Message;
 
-    use super::v1::{OutboundFailure, ProveFailure, prove_failure};
     use super::v2::{Begin, ClientFrame, Proof, client_frame};
+    use super::v2::{OutboundFailure, ProveFailure, prove_failure};
     use super::{MAX_MESSAGE_BYTES, decode_prove_failure, encode_prove_failure};
 
     #[test]

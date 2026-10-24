@@ -42,6 +42,9 @@ impl Fixture {
         };
         let schedule = Schedule::new(
             DerivationConfig {
+                fee_collector: alloy_primitives::address!(
+                    "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                ),
                 block_interval_seconds: 1,
                 sync_interval_blocks: 4,
                 history_update_offset: 2,
@@ -141,11 +144,11 @@ impl Fixture {
 }
 
 #[tokio::test]
-async fn canonical_history_drives_delayed_selection_and_keeps_bridge_only_headers() {
+async fn prepared_history_keeps_every_header_and_does_not_choose_the_blocks_origin() {
     let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
     let source = fixture.source().await;
     let prepared = source
-        .prepare_history(1004, fixture.reference(4), fixture.rules(), None)
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
         .await
         .unwrap();
     assert_eq!(prepared.chain().headers().len(), 5);
@@ -157,127 +160,174 @@ async fn canonical_history_drives_delayed_selection_and_keeps_bridge_only_header
     }
     let head = crate::L1CanonicalHead::default();
     head.initialize_history(fixture.schedule);
-    assert!(head.next_block_context(&fixture.genesis).is_err());
-    head.publish_history(prepared).unwrap();
+    assert!(
+        head.headers(1004).is_err(),
+        "execution still requires the inherited header"
+    );
+    head.publish_history(prepared, head.policy_anchor_snapshot().generation)
+        .unwrap();
     assert_eq!(
         head.next_block_context(&fixture.genesis).unwrap(),
         (1005, B256::with_last_byte(1))
     );
-    assert_eq!(head.derivation_randao(2).unwrap(), B256::with_last_byte(1));
-    assert_eq!(head.derivation_randao(3).unwrap(), B256::with_last_byte(4));
     assert_eq!(
-        head.derivation_randao(4).unwrap(),
-        B256::with_last_byte(4),
-        "Sync retains the source"
-    );
-    assert_eq!(head.derivation_randao(7).unwrap(), B256::with_last_byte(5));
-    assert!(
-        head.headers(1012).is_err(),
-        "late evidence cannot select an older source"
+        head.headers(1012).unwrap().headers().len(),
+        5,
+        "no successor is required to repeat an origin"
     );
 }
 
 #[tokio::test]
-async fn late_delivery_waits_and_missed_slots_do_not_create_headers() {
-    let fixture = Fixture::new(&[1000, 1003, 1006]).await;
+async fn fee_context_history_stays_at_its_sampled_boundary_after_new_evidence() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
     let source = fixture.source().await;
-    let error = source
-        .prepare_history(1007, fixture.reference(1), fixture.rules(), None)
-        .await
-        .unwrap_err();
-    assert!(matches!(
-        error,
-        DerivationError::Unavailable("canonical L1 has not resolved the source cutoff")
-    ));
-    let prepared = source
-        .prepare_history(1007, fixture.reference(2), fixture.rules(), None)
-        .await
-        .unwrap();
-    assert_eq!(prepared.chain().select(1004).unwrap().header().number, 1);
-    assert_eq!(
-        prepared.chain().headers().len(),
-        2,
-        "the selected predecessor plus its actual successor"
-    );
-    let mut history = CanonicalHistory::new(fixture.schedule);
-    history.publish(prepared).unwrap();
-    assert_eq!(history.prev_randao(3).unwrap(), B256::with_last_byte(2));
-    assert!(
-        history.prev_randao(7).is_err(),
-        "future unresolved cutoff still waits"
-    );
-}
-
-#[tokio::test]
-async fn owned_replacement_has_a_bounded_parent_exception_and_new_evidence_revokes_it() {
-    let fixture = Fixture::new(&[1000, 1004, 1008]).await;
-    let source = fixture.source().await;
-    let prepared = source
-        .prepare_history(1004, fixture.reference(0), fixture.rules(), None)
-        .await
-        .unwrap();
     let head = crate::L1CanonicalHead::default();
     head.initialize_history(fixture.schedule);
-    head.publish_history(prepared).unwrap();
-    let endpoint = crate::L2Endpoint {
-        number: 0,
-        hash: fixture.genesis.hash_slow(),
+    let through = fixture.reference(1);
+    let prepared = source
+        .prepare_history(0, through, fixture.rules(), None)
+        .await
+        .unwrap();
+    head.publish_history(prepared.clone(), head.policy_anchor_snapshot().generation)
+        .unwrap();
+    let parent = Header {
+        number: 1,
+        timestamp: 1005,
+        ..fixture.genesis.clone()
     };
-    let parent = fixture.reference(0);
-    head.mark_scanned(parent, endpoint);
-    let generation = head.settlement_snapshot().generation;
-    assert!(head.derivation_randao(3).is_err());
-    for (generation, parent, target) in [
-        (generation + 1, parent, 1008),
-        (generation, fixture.reference(1), 1008),
-        (generation, parent, 1004),
-        (generation, parent, 1009),
-        (generation, parent, 1024),
-    ] {
-        assert!(
-            head.authorize_replacement_history(generation, parent, target)
-                .is_err()
+    let (timestamp, frozen) = head.estimation_block_context(&parent, through).unwrap();
+    assert_eq!(timestamp, 1006);
+    assert_eq!(frozen.headers().len(), 2);
+    let fresh = source
+        .prepare_history(
+            0,
+            fixture.reference(4),
+            fixture.rules(),
+            Some(prepared.chain()),
+        )
+        .await
+        .unwrap();
+    head.publish_history(fresh, head.policy_anchor_snapshot().generation)
+        .unwrap();
+    assert_eq!(head.headers(timestamp).unwrap().headers().len(), 5);
+    assert_eq!(frozen.endpoint().unwrap().hash(), through.hash);
+    assert_eq!(frozen.headers().len(), 2);
+    let (same_time, resampled) = head.estimation_block_context(&parent, through).unwrap();
+    assert_eq!(same_time, timestamp);
+    assert_eq!(resampled.headers().len(), 2);
+    assert_eq!(resampled.endpoint().unwrap().hash(), through.hash);
+    for number in 0..=through.number {
+        assert_eq!(
+            frozen.at(number).unwrap().header(),
+            resampled.at(number).unwrap().header()
         );
-        assert!(head.derivation_randao(3).is_err());
     }
-    head.authorize_replacement_history(generation, parent, 1008)
+}
+
+#[tokio::test]
+async fn late_delivery_and_missing_slots_keep_ready_evidence_for_unbounded_repeats() {
+    let fixture = Fixture::new(&[1000, 1003, 1006]).await;
+    let source = fixture.source().await;
+    let mut history = CanonicalHistory::new(fixture.schedule);
+    history
+        .publish(
+            source
+                .prepare_history(0, fixture.reference(0), fixture.rules(), None)
+                .await
+                .unwrap(),
+        )
         .unwrap();
-    assert_eq!(head.derivation_randao(3).unwrap(), B256::with_last_byte(1));
-    assert!(
-        head.headers(1008).is_err(),
-        "the exception ends before its target"
+    for cutoff in [1004, 1024, 1_000_000] {
+        assert_eq!(history.headers(cutoff).unwrap().headers().len(), 1);
+    }
+    let old = history.headers(1004).unwrap();
+    history
+        .publish(
+            source
+                .prepare_history(0, fixture.reference(2), fixture.rules(), Some(old.clone()))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        old.headers().len(),
+        1,
+        "an in-flight selection owns its immutable evidence"
     );
-    head.authorize_replacement_history(generation, parent, 1020)
+    assert_eq!(
+        history.headers(1004).unwrap().headers().len(),
+        3,
+        "missed slots never become fabricated headers"
+    );
+    assert_eq!(
+        history
+            .headers(1004)
+            .unwrap()
+            .select(1004)
+            .unwrap()
+            .header()
+            .number,
+        1
+    );
+}
+
+#[tokio::test]
+async fn older_replay_keeps_ready_descendants_and_stale_acquisition_cannot_publish() {
+    let fixture = Fixture::new(&[1000, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    let ready = source
+        .prepare_history(0, fixture.reference(2), fixture.rules(), None)
+        .await
         .unwrap();
-    assert_eq!(head.headers(1016).unwrap().headers().len(), 1);
-    assert!(head.headers(1020).is_err());
-    assert!(
-        head.authorize_replacement_history(generation, parent, 1008)
-            .is_err()
+    let old = source
+        .prepare_history(0, fixture.reference(0), fixture.rules(), None)
+        .await
+        .unwrap();
+    let generation = head.policy_anchor_snapshot().generation;
+    head.publish_history(ready, generation).unwrap();
+    head.publish_history(old.clone(), generation).unwrap();
+    assert_eq!(
+        head.headers(1024).unwrap().endpoint().unwrap().hash(),
+        fixture.reference(2).hash
     );
     head.invalidate_scan();
-    assert!(
-        head.headers(1004).is_err(),
-        "incomplete reconciliation revokes the exception"
+    let error = head.publish_history(old, generation).unwrap_err();
+    assert!(matches!(
+        error,
+        DerivationError::Unavailable("canonical generation changed during history acquisition")
+    ));
+    assert_eq!(
+        head.headers(1024).unwrap().endpoint().unwrap().hash(),
+        fixture.reference(2).hash
     );
-    head.mark_scanned(parent, endpoint);
-    head.authorize_replacement_history(head.settlement_snapshot().generation, parent, 1020)
-        .unwrap();
+}
 
-    // A delayed original can arrive without changing the previous parent's
-    // hash. Its source replaces the provisional repeat, even with no settled
-    // L2 blocks removed and regardless of the PREVRANDAO field.
+#[tokio::test]
+async fn incomplete_scan_does_not_remove_evidence_but_real_reorg_does() {
+    let fixture = Fixture::new(&[1000, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
     head.publish_history(
         source
-            .prepare_history(1004, fixture.reference(1), fixture.rules(), None)
+            .prepare_history(0, fixture.reference(0), fixture.rules(), None)
             .await
             .unwrap(),
+        head.policy_anchor_snapshot().generation,
     )
     .unwrap();
-    assert_eq!(head.derivation_randao(3).unwrap(), B256::with_last_byte(2));
-    assert!(head.headers(1008).is_err());
+    head.invalidate_scan();
+    assert!(
+        head.headers(1024).is_ok(),
+        "temporary reconciliation uncertainty must not gate repeat execution"
+    );
     head.retreat_on_l1_reorg(0);
-    assert!(head.headers(1004).is_err());
+    assert!(
+        head.headers(1024).is_err(),
+        "a real reorg invalidates potentially incompatible ancestry"
+    );
 }
 
 #[tokio::test]
@@ -285,31 +335,31 @@ async fn reorg_invalidates_evidence_without_any_settlement_or_randomness_change(
     let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
     let source = fixture.source().await;
     let old = source
-        .prepare_history(1004, fixture.reference(4), fixture.rules(), None)
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
         .await
         .unwrap();
     let head = crate::L1CanonicalHead::default();
     head.initialize_history(fixture.schedule);
-    head.publish_history(old.clone()).unwrap();
-    let seed = head.derivation_randao(3).unwrap();
+    head.publish_history(old.clone(), head.policy_anchor_snapshot().generation)
+        .unwrap();
+    let seed = head.headers(1004).unwrap().at(3).unwrap().header().mix_hash;
     fixture.reorg_from(1);
     assert_eq!(head.retreat_on_l1_reorg(0), (0, 0, 0));
-    assert!(head.derivation_randao(3).is_err());
+    assert!(head.headers(1004).is_err());
     let fresh = source
-        .prepare_history(
-            1004,
-            fixture.reference(4),
-            fixture.rules(),
-            Some(old.chain()),
-        )
+        .prepare_history(0, fixture.reference(4), fixture.rules(), Some(old.chain()))
         .await
         .unwrap();
     assert_ne!(
         fresh.chain().at(1).unwrap().hash(),
         old.chain().at(1).unwrap().hash()
     );
-    head.publish_history(fresh).unwrap();
-    assert_eq!(head.derivation_randao(3).unwrap(), seed);
+    head.publish_history(fresh, head.policy_anchor_snapshot().generation)
+        .unwrap();
+    assert_eq!(
+        head.headers(1004).unwrap().at(3).unwrap().header().mix_hash,
+        seed
+    );
 }
 
 #[tokio::test]
@@ -337,7 +387,7 @@ async fn broken_bridge_missing_header_and_wrong_fork_layout_fail_before_publicat
         }
         assert!(
             source
-                .prepare_history(1004, fixture.reference(4), fixture.rules(), None)
+                .prepare_history(0, fixture.reference(4), fixture.rules(), None)
                 .await
                 .is_err()
         );
@@ -349,16 +399,11 @@ async fn canonical_cache_reuses_prefix_but_never_substitutes_a_claimed_anchor() 
     let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008, 1012]).await;
     let source = fixture.source().await;
     let old = source
-        .prepare_history(1004, fixture.reference(4), fixture.rules(), None)
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
         .await
         .unwrap();
     let fresh = source
-        .prepare_history(
-            1008,
-            fixture.reference(5),
-            fixture.rules(),
-            Some(old.chain()),
-        )
+        .prepare_history(1, fixture.reference(5), fixture.rules(), Some(old.chain()))
         .await
         .unwrap();
     assert_eq!(
@@ -376,9 +421,11 @@ async fn canonical_cache_reuses_prefix_but_never_substitutes_a_claimed_anchor() 
     };
     assert!(matches!(
         source
-            .prepare_history(1008, wrong, fixture.rules(), Some(fresh.chain()))
+            .prepare_history(0, wrong, fixture.rules(), Some(fresh.chain()))
             .await,
-        Err(DerivationError::Mismatch("L1 block is no longer canonical"))
+        Err(DerivationError::Profile(ProfileError(
+            "canonical history boundary or source selection mismatch"
+        )))
     ));
 }
 
@@ -390,18 +437,25 @@ async fn accepted_commitments_do_not_refresh_randomness_and_bad_bindings_do_not_
     head.initialize_history(fixture.schedule);
     head.publish_history(
         source
-            .prepare_history(1004, fixture.reference(5), fixture.rules(), None)
+            .prepare_history(0, fixture.reference(5), fixture.rules(), None)
             .await
             .unwrap(),
+        head.policy_anchor_snapshot().generation,
     )
     .unwrap();
     let l1 = source.canonical_header(fixture.reference(4)).await.unwrap();
     let endpoint = Header {
         number: 4,
         timestamp: 1008,
-        mix_hash: head.derivation_randao(4).unwrap(),
+        mix_hash: B256::with_last_byte(4),
         difficulty: U256::ZERO,
         ..Default::default()
+    };
+    let origin = eez_protocol::l1_history::HistoryState {
+        first_number: 0,
+        endpoint: 3,
+        endpoint_hash: fixture.reference(3).hash,
+        next_cutoff: 1008,
     };
     let evidence = crate::ReconciledBatchSettlement {
         l1_block: fixture.reference(4),
@@ -431,15 +485,19 @@ async fn accepted_commitments_do_not_refresh_randomness_and_bad_bindings_do_not_
                 invalid.endpoint.as_mut().unwrap().hash = header.hash_slow();
             }
         }
-        assert!(head.publish_accepted(invalid, &l1, &header).is_err());
+        assert!(
+            head.publish_accepted(invalid, &l1, &header, origin)
+                .is_err()
+        );
         assert_eq!(head.cursor(), 0);
     }
-    let before = head.derivation_randao(5).unwrap();
-    head.publish_accepted(evidence.clone(), &l1, &endpoint)
+    let before = head.next_block_context(&endpoint).unwrap().1;
+    head.publish_accepted(evidence.clone(), &l1, &endpoint, origin)
         .unwrap();
-    head.publish_accepted(evidence, &l1, &endpoint).unwrap();
+    head.publish_accepted(evidence, &l1, &endpoint, origin)
+        .unwrap();
     assert_eq!(head.cursor(), 4);
-    assert_eq!(head.derivation_randao(5).unwrap(), before);
+    assert_eq!(head.next_block_context(&endpoint).unwrap().1, before);
     assert_ne!(
         before,
         l1.header().mix_hash,

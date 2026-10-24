@@ -517,7 +517,6 @@ async fn launch_composer(
         system_address,
         eez_l2_address: eez_protocol::EEZL2_ADDRESS,
         chain_document_digest,
-        canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
         offline_profile_hash: offline_profile.commitment(),
         registry: eez_registry,
         manager: rollup_manager,
@@ -812,11 +811,6 @@ async fn launch_composer(
                      overwrite the L1 entry"
             ));
         }
-        // CrossChainExecCtx: signer + L2 addresses needed to wrap
-        // EvmComposer's `(load_table, execute)` calldata pairs
-        // into signed legacy L2 system txs at Sync-slot time.
-        // Constructed only when EvmComposer is constructed —
-        // both are tied to embedded L1 mode.
         // Submission RPC for postBatch and inbound source-chain reads.
         // This can differ from the embedded L1 used for local source
         // simulation (the E2E harness deliberately uses Anvil here), so

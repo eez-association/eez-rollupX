@@ -3,7 +3,7 @@
 use std::num::NonZeroU64;
 
 use alloy_primitives::{Address, B256};
-use eez_control_rpc::v1::{InboundFailure, OutboundFailure, ProveFailure, prove_failure};
+use eez_control_rpc::v2::{InboundFailure, OutboundFailure, ProveFailure, prove_failure};
 use tokio::time::Instant;
 use tonic::Status;
 
@@ -444,6 +444,8 @@ fn run_settlement_with_observations(
         &authorized_outbound_effects,
         &authorized_inbound_effects,
         system_transaction_reconstructor,
+        verified_da.semantic_transactions(),
+        &posting_context,
     )?;
     let observation_claims = settlement::verify_native_semantics_with_observations(
         verified_da.semantic_transactions(),

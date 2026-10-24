@@ -12,6 +12,12 @@ request Keccak, byte count, native signature and public-input digest. Deployment
 identities and complete local genesis documents are public test inputs. The
 signer used no L1/L2 RPC or prior preparation cache.
 
-The owning implementation audit records source identity, commands and limits.
-Old preparation/expanded-v1 artifacts are obsolete and are removed once their
-remaining fixture consumers have been migrated to this transcript.
+The [implementation audit](../../../../../docs/audits/2026-10-24-pr-readiness/final-fixtures.md)
+records source identity, commands and limits. This capture uses the fresh-network
+Profile with 0x45/version-1 transactions, authenticated fee collection and
+recorded, metered native history imports. Native transactions have a sourceHash
+and no nonce.
+
+This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
+the single `Profile` commitment and validation-contract version 1. The sole
+prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.

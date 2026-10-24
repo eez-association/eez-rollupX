@@ -12,8 +12,8 @@ const TEST_ATTESTER_KEY: &str = "59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8
 const PREFIXED_TEST_ATTESTER_KEY: &str =
     "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 const TEST_ATTESTER_ADDRESS: &str = "70997970c51812dc3A010C7d01b50e0d17dc79C8";
-// Deterministic deployment identity used only by configuration tests.
-const TEST_SYSTEM_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+// Public Anvil account #0 exercises a second ordinary attester identity.
+const OTHER_ATTESTER_KEY: &str = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
 const TEST_PROOF_SYSTEM: &str = "00000000000000000000000000000000000000aa";
 
 /// Parse a normal valid baseline while keeping each test focused on the option
@@ -565,7 +565,7 @@ fn malformed_and_invalid_attestation_keys_are_rejected_without_echoing_them() {
 }
 
 #[test]
-fn legacy_system_key_has_no_native_privilege() {
+fn ordinary_account_key_is_usable_for_attestation() {
     let args = parse_args([
         "eez-proof-signer",
         "--chain-config",
@@ -573,7 +573,7 @@ fn legacy_system_key_has_no_native_privilege() {
         "--rollup-id",
         "1",
         "--signer-key",
-        TEST_SYSTEM_KEY,
+        OTHER_ATTESTER_KEY,
         "--attester-address",
         "f39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
     ])
@@ -648,22 +648,6 @@ fn native_system_identity_needs_no_key_and_is_not_configurable() {
     .unwrap();
     let error = Config::from_args(args).unwrap_err().to_string();
     assert!(error.contains("native protocol address"), "{error}");
-}
-
-#[test]
-fn removed_system_key_option_is_rejected() {
-    assert!(
-        parse_args([
-            "eez-proof-signer",
-            "--chain-config",
-            "chain-config.json",
-            "--rollup-id",
-            "1",
-            "--l2-system-key",
-            TEST_SYSTEM_KEY,
-        ])
-        .is_err()
-    );
 }
 
 #[test]
@@ -789,22 +773,6 @@ fn zero_resource_limits_are_rejected() {
 }
 
 #[test]
-fn the_removed_concurrency_option_is_rejected() {
-    assert!(
-        parse_args([
-            "eez-proof-signer",
-            "--chain-config",
-            "chain-config.json",
-            "--rollup-id",
-            "1",
-            "--max-concurrent-requests",
-            "1",
-        ])
-        .is_err()
-    );
-}
-
-#[test]
 fn l1_profile_is_mandatory() {
     let args = [
         "eez-proof-signer",
@@ -872,73 +840,5 @@ fn deployment_addresses_are_nonzero_and_malformed_values_are_rejected() {
                 .is_err()
             );
         }
-    }
-}
-
-#[test]
-fn obsolete_rpc_environment_is_rejected_even_when_empty_and_never_echoed() {
-    const CHILD: &str = "EEZ_OFFLINE_CONFIG_TEST_CHILD";
-    if let Ok(name) = std::env::var(CHILD) {
-        let result = Config::reject_obsolete_environment();
-        if name == "absent" {
-            result.unwrap();
-            let args = parse_args([
-                "eez-proof-signer",
-                "--chain-config",
-                "genesis.json",
-                "--rollup-id",
-                "1",
-            ])
-            .unwrap();
-            Config::from_args(args).unwrap();
-        } else {
-            assert_eq!(
-                result.unwrap_err().to_string(),
-                format!("{name} is obsolete for the offline signer; remove it")
-            );
-        }
-        eprintln!("offline-config-ok:{name}");
-        return;
-    }
-    for name in ["absent", "EEZ_L1_RPC_URL", "EEZ_PROOF_SIGNER_L2_RPC_URL"] {
-        for value in [
-            "",
-            "invalid",
-            "https://fixture-user:fixture-password@example.invalid/rpc",
-        ] {
-            let mut child = Command::new(std::env::current_exe().unwrap());
-            child.args(["--exact","config::tests::obsolete_rpc_environment_is_rejected_even_when_empty_and_never_echoed","--nocapture"]);
-            for (key, _) in std::env::vars_os() {
-                if key.to_string_lossy().starts_with("EEZ_") {
-                    child.env_remove(key);
-                }
-            }
-            child.env(CHILD, name);
-            if name != "absent" {
-                child.env(name, value);
-            }
-            let output = child.output().unwrap();
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(output.status.success(), "{name}: {stderr}");
-            assert!(stderr.contains(&format!("offline-config-ok:{name}")));
-            assert!(!stderr.contains("fixture-password"));
-        }
-    }
-}
-
-#[test]
-fn obsolete_rpc_flags_are_rejected() {
-    for flag in ["--l1-rpc-url", "--l2-rpc-url"] {
-        let error = parse_args([
-            "eez-proof-signer",
-            "--chain-config",
-            "genesis.json",
-            "--rollup-id",
-            "1",
-            flag,
-            "http://127.0.0.1:8545",
-        ])
-        .unwrap_err();
-        assert_eq!(error.kind(), clap::error::ErrorKind::UnknownArgument);
     }
 }

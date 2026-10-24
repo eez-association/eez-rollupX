@@ -7,7 +7,7 @@ use super::*;
 use alloy_eips::Encodable2718 as _;
 use alloy_primitives::{Bytes, Signature, U256};
 use alloy_sol_types::SolCall as _;
-use eez_control_rpc::{v1::BlockWitness, v2::*};
+use eez_control_rpc::v2::*;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use tonic::Code;

@@ -1,35 +1,19 @@
-//! Engine-API consumer that advances the chain on a 2s cadence aligned to
-//! wall-clock time, with **greedy backfill** of any timestamp slots that
-//! were missed due to a reorg or downtime.
+//! Produce ordinary blocks on the configured local time grid, with bounded
+//! backfill after downtime or a reorg. A separate owned worker prepares
+//! L1-triggered conditional candidates and settlement; waiting for that work
+//! never occupies the ordinary clock. The loop also refreshes forkchoice.
 //!
-//! [`Sequencer::run`] is the long-running loop. Each iteration handles one
-//! of:
-//!
-//! 1. A scheduler tick. `Sequencer::advance` runs in a loop, producing
-//!    blocks at deterministic `parent.timestamp() + BLOCK_TIME_SECS`
-//!    slots until the chain catches up to the tick's wall-clock target.
-//!    Most ticks produce a single block (the chain is on cadence); after
-//!    a reorg or a stall, the same tick may produce several filler
-//!    blocks to backfill the slots that passed during the rewind.
-//! 2. A slower FCU-refresh timer, used to keep reth's engine view alive
-//!    during quiet periods.
-//!
-//! The Sequencer does **not** keep a local mirror of the canonical head.
-//! Every iteration of `advance` reads the current head from the
-//! [`BlockCommitterHandle::last_header`] — the actor is the single source
-//! of truth, updated synchronously inside every Sequence + Derive command.
-//! This is what fixes the race where the Deriver-driven canonical change
-//! was visible to the actor immediately, but the Sequencer's own mirror
-//! lagged behind reth's `CanonStateNotification` broadcast — producing
-//! "invalid payload attributes" errors when the Sequencer issued FCU+attrs
-//! based on a stale parent.
+//! Every attempt reads its current parent from
+//! [`BlockCommitterHandle::last_header`]. Sequence and Derive update that head
+//! synchronously, and commits fence the exact parent so a delayed candidate
+//! cannot overwrite a newer block or a reconciled branch.
 
 use core::fmt;
 use std::{sync::Arc, time::Duration};
 
 use alloy_primitives::{Address, B256};
+use eez_primitives::engine::EezPayloadAttributes as EthPayloadAttributes;
 use reth_chainspec::{EthChainSpec, EthereumHardforks};
-use reth_ethereum_engine_primitives::EthPayloadAttributes;
 use reth_payload_primitives::{BuiltPayload, PayloadTypes};
 use reth_primitives_traits::{
     AlloyBlockHeader, HeaderTy, NodePrimitives, SealedHeader, SealedHeaderFor,
@@ -50,9 +34,8 @@ use crate::timing::{RollupTiming, SlotComposition};
 /// miner uses.
 const FCU_REFRESH: Duration = Duration::from_secs(1);
 
-/// Max speculative gap the Sequencer can run ahead of L1-confirmed
-/// cursor. Pauses beyond this so reth's state-retention
-/// window keeps recent ancestors alive for the Deriver's replay.
+/// Maximum speculative gap for preparing conditional cross-chain candidates.
+/// Ordinary block production continues independently of this bound.
 pub const DEFAULT_MAX_SPECULATIVE_DEPTH: u64 = 64;
 
 /// Reconciliation can replace the parent or its authenticated execution seed
@@ -128,6 +111,21 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SyncSlotComposer for PolicyComposer {
+        async fn recover_failed(&self, _: u64) {
+            if self.result == "recover-pending" {
+                struct Active(Arc<std::sync::atomic::AtomicBool>);
+                impl Drop for Active {
+                    fn drop(&mut self) {
+                        self.0.store(false, std::sync::atomic::Ordering::SeqCst);
+                    }
+                }
+                self.prepare
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                let _active = Active(self.prepare.clone());
+                std::future::pending::<()>().await;
+            }
+        }
+
         async fn should_prepare(
             &self,
             _: u64,
@@ -293,519 +291,184 @@ mod tests {
         }
     }
     #[tokio::test]
-    async fn delay_waits_for_grid_time_not_commit_time_and_samples_new_work_once() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        for late_tick in [false, true] {
-            let now = crate::slot::now_unix_millis() / 1000;
-            let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-                number: 1,
-                timestamp: now - 1,
+    async fn ordinary_clock_crosses_missing_slots_and_speculative_cap_without_l1_context() {
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            timestamp: 1000,
+            ..Default::default()
+        });
+        let (committer, commands) = crate::block_committer::test_committer(parent);
+        let (_, receiver) = mpsc::channel(1);
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let mut sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100, 2),
+            1,
+            Arc::new(PolicyComposer {
+                result: "plan-error",
+                calls: calls.clone(),
                 ..Default::default()
-            });
-            let l1_head = test_history_head(&parent).await;
-            let l1_parent = eez_l1::L1BlockRef {
-                number: 7,
-                hash: B256::repeat_byte(7),
-            };
-            l1_head.mark_scanned(
-                l1_parent,
-                eez_l1::L2Endpoint {
-                    number: 0,
-                    hash: B256::ZERO,
-                },
-            );
-            let (committer, _) = crate::block_committer::test_committer(parent);
-            let plans = Arc::new(Mutex::new(Vec::new()));
-            let calls = Arc::new(Mutex::new(Vec::new()));
-            let available = Arc::new(AtomicBool::new(false));
-            let (_, receiver) = mpsc::channel(1);
-            let mut sequencer = Sequencer::composer(
-                EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
-                committer.clone(),
-                receiver,
-                RollupTiming::new(5000, 1000, 100, 100, 2).with_start_delay_ms(500),
-                1,
-                Arc::new(PolicyComposer {
-                    result: "empty",
-                    calls: calls.clone(),
-                    plans: plans.clone(),
-                    prepare: available.clone(),
-                }),
-                0,
-                l1_head,
-            );
-            // An early trigger may publish the target, but cannot inspect the
-            // queue or freeze a not-due decision before P's scheduled time + delay.
+            }),
+            4,
+            Arc::new(eez_l1::L1CanonicalHead::default()),
+        );
+        for second in 1..=100 {
             sequencer
-                .advance_position_slot_at(5, now + 3, l1_parent, now * 1000 + 499)
-                .await
-                .unwrap();
-            assert!(plans.lock().unwrap().is_empty());
-            if !late_tick {
-                sequencer
-                    .advance_anchored_live_tick_at(5, now * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(committer.last_header().number(), 2, "P is not delayed");
-                assert!(plans.lock().unwrap().is_empty());
-            }
-            available.store(true, Ordering::SeqCst);
-            if late_tick {
-                // The P tick was dropped. Catch it up after the cutoff, then
-                // plan immediately; do not start a fresh 500ms wait at commit.
-                sequencer
-                    .advance_anchored_live_tick_at(5, (now + 1) * 1000)
-                    .await
-                    .unwrap();
-            } else {
-                sequencer
-                    .advance_position_slot_at(5, now + 3, l1_parent, now * 1000 + 500)
-                    .await
-                    .unwrap();
-            }
-            assert_eq!(*plans.lock().unwrap(), vec![2]);
-            assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Steady]);
-            assert_eq!(committer.last_header().number(), 5);
-            sequencer
-                .advance_position_slot_at(5, now + 3, l1_parent, (now + 1) * 1000)
+                .advance_ordinary_at((1000 + second) * 1000)
                 .await
                 .unwrap();
             assert_eq!(
-                plans.lock().unwrap().len(),
-                1,
-                "duplicate wake cannot replan"
+                committer.last_header().number(),
+                second,
+                "cadence at {second}"
             );
         }
+        assert_eq!(commands.lock().unwrap().len(), 100);
+        assert!(
+            calls.lock().unwrap().is_empty(),
+            "ordinary clock cannot invoke settlement"
+        );
+        sequencer.advance_ordinary_at(1_100_999).await.unwrap();
+        assert_eq!(
+            committer.last_header().number(),
+            100,
+            "no future block on the ordinary clock"
+        );
     }
 
     #[tokio::test(start_paused = true)]
-    async fn pending_planner_yields_by_next_future_tick_and_keeps_boundary_recovery() {
-        for k in [5, 6, 12] {
-            for entry_offset_ms in [750, 1750] {
-                // Tokio's paused clock does not freeze SystemTime. Keep the
-                // injected timeline ahead so setup crossing a wall-clock second
-                // cannot change which future tick bounds the planner wait.
-                let now = crate::slot::now_unix_millis() / 1000 + 3600;
-                let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-                    number: 2,
-                    timestamp: now,
-                    ..Default::default()
-                });
-                let l1_head = test_history_head(&parent).await;
-                let l1_parent = eez_l1::L1BlockRef {
-                    number: 7,
-                    hash: B256::repeat_byte(7),
-                };
-                l1_head.mark_scanned(
-                    l1_parent,
-                    eez_l1::L2Endpoint {
-                        number: 0,
-                        hash: B256::ZERO,
-                    },
-                );
-                let (committer, _) = crate::block_committer::test_committer(parent);
-                let plans = Arc::new(Mutex::new(Vec::new()));
-                let calls = Arc::new(Mutex::new(Vec::new()));
-                let (_, receiver) = mpsc::channel(1);
-                let mut sequencer = Sequencer::composer(
-                    EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
-                    committer.clone(),
-                    receiver,
-                    RollupTiming::new(u32::try_from(k * 1000).unwrap(), 1000, 100, 100, 2)
-                        .with_start_delay_ms(750),
-                    1,
-                    Arc::new(PolicyComposer {
-                        result: "plan-pending",
-                        calls: calls.clone(),
-                        plans: plans.clone(),
-                        ..Default::default()
-                    }),
-                    0,
-                    l1_head,
-                );
-                let started = tokio::time::Instant::now();
-                sequencer
-                    .advance_position_slot_at(
-                        k,
-                        now + k - 2,
-                        l1_parent,
-                        now * 1000 + entry_offset_ms,
-                    )
-                    .await
-                    .unwrap();
-                let elapsed = started.elapsed();
-                assert!(
-                    elapsed > Duration::ZERO,
-                    "late entry must still get a planning opportunity"
-                );
-                assert!(
-                    elapsed <= Duration::from_millis(251),
-                    "planner blocked the next grid tick: {elapsed:?}"
-                );
-                assert_eq!(*plans.lock().unwrap(), vec![2]);
-                assert!(
-                    calls.lock().unwrap().is_empty(),
-                    "timeout cannot start a settlement burst"
-                );
-                assert!(!sequencer.slot_decision.unwrap().skip_post);
-                let next_tick_ms = (now + entry_offset_ms / 1000 + 1) * 1000;
-                sequencer
-                    .advance_anchored_live_tick_at(k, next_tick_ms)
-                    .await
-                    .unwrap();
-                assert!(
-                    committer.last_header().number() >= 3,
-                    "ordinary production resumes at the next tick"
-                );
-                sequencer
-                    .advance_anchored_live_tick_at(k, (now + k - 2) * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(committer.last_header().number(), k);
-                assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Empty]);
-                assert_eq!(plans.lock().unwrap().len(), 1);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn position_cutoff_orders_ticks_and_defers_late_work_without_a_burst() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        for prepare in [false, true] {
-            for tick_first in [false, true] {
-                let now = crate::slot::now_unix_millis() / 1000;
-                let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-                    number: 1,
-                    timestamp: now - 1,
-                    ..Default::default()
-                });
-                let l1_head = test_history_head(&parent).await;
-                let l1_parent = eez_l1::L1BlockRef {
-                    number: 7,
-                    hash: B256::repeat_byte(7),
-                };
-                l1_head.mark_scanned(
-                    l1_parent,
-                    eez_l1::L2Endpoint {
-                        number: 0,
-                        hash: B256::ZERO,
-                    },
-                );
-                let (committer, commands) = crate::block_committer::test_committer(parent);
-                let calls = Arc::new(Mutex::new(Vec::new()));
-                let plans = Arc::new(Mutex::new(Vec::new()));
-                let available = Arc::new(AtomicBool::new(prepare));
-                let (_, receiver) = mpsc::channel(1);
-                let mut sequencer = Sequencer::composer(
-                    EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
-                    committer.clone(),
-                    receiver,
-                    RollupTiming::new(5000, 1000, 100, 100, 2),
-                    1,
-                    Arc::new(PolicyComposer {
-                        result: "empty",
-                        calls: calls.clone(),
-                        plans: plans.clone(),
-                        prepare: available.clone(),
-                    }),
-                    0,
-                    l1_head,
-                );
-                if tick_first {
-                    sequencer
-                        .advance_anchored_live_tick_at(5, now * 1000)
-                        .await
-                        .unwrap();
-                }
-                sequencer
-                    .advance_position_slot(5, now + 3, l1_parent)
-                    .await
-                    .unwrap();
-                assert_eq!(
-                    *plans.lock().unwrap(),
-                    vec![2],
-                    "cutoff must be committed before planning"
-                );
-                if prepare {
-                    assert_eq!(committer.last_header().number(), 5);
-                    assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Steady]);
-                } else {
-                    assert_eq!(committer.last_header().number(), 2);
-                    available.store(true, Ordering::SeqCst);
-                    sequencer
-                        .advance_position_slot(5, now + 3, l1_parent)
-                        .await
-                        .unwrap();
-                    assert_eq!(
-                        plans.lock().unwrap().len(),
-                        1,
-                        "duplicate trigger cannot reopen cutoff"
-                    );
-                    sequencer
-                        .advance_anchored_live_tick_at(5, now * 1000 + 999)
-                        .await
-                        .unwrap();
-                    assert_eq!(
-                        committer.last_header().number(),
-                        2,
-                        "no future ordinary block"
-                    );
-                    for offset in 1..=3 {
-                        sequencer
-                            .advance_anchored_live_tick_at(5, (now + offset) * 1000)
-                            .await
-                            .unwrap();
-                        assert_eq!(committer.last_header().number(), 2 + offset);
-                    }
-                    assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Ordinary]);
-                }
-                assert_eq!(
-                    *commands.lock().unwrap(),
-                    vec!["pool", "pool", "pool", "prebuilt"]
-                );
-                sequencer
-                    .advance_anchored_live_tick_at(5, (now + 10) * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(
-                    committer.last_header().number(),
-                    5,
-                    "cannot outrun known target"
-                );
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn position_end_tick_finishes_empty_and_stale_evidence_never_opens_the_suffix() {
-        use std::sync::atomic::{AtomicBool, Ordering};
-        for result in ["end-steady", "plan-error", "empty"] {
-            let now = crate::slot::now_unix_millis() / 1000;
-            let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-                number: 2,
-                timestamp: now,
-                ..Default::default()
-            });
-            let l1_head = test_history_head(&parent).await;
-            let l1_parent = eez_l1::L1BlockRef {
-                number: 7,
-                hash: B256::repeat_byte(7),
-            };
-            let anchor = eez_l1::L2Endpoint {
-                number: 0,
-                hash: B256::ZERO,
-            };
-            l1_head.mark_scanned(l1_parent, anchor);
-            let (committer, commands) = crate::block_committer::test_committer(parent);
-            let calls = Arc::new(Mutex::new(Vec::new()));
-            let plans = Arc::new(Mutex::new(Vec::new()));
-            let available = Arc::new(AtomicBool::new(result == "end-steady"));
-            let (_, receiver) = mpsc::channel(1);
-            let mut sequencer = Sequencer::composer(
-                EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
-                committer.clone(),
-                receiver,
-                RollupTiming::new(5000, 1000, 100, 100, 2),
-                1,
-                Arc::new(PolicyComposer {
-                    result,
-                    calls: calls.clone(),
-                    plans: plans.clone(),
-                    prepare: available.clone(),
-                }),
-                0,
-                l1_head.clone(),
-            );
-            let stale = eez_l1::L1BlockRef {
-                hash: B256::repeat_byte(8),
-                ..l1_parent
-            };
-            sequencer
-                .advance_position_slot(5, now + 3, stale)
-                .await
-                .unwrap();
-            assert!(plans.lock().unwrap().is_empty());
-            let planned = sequencer.advance_position_slot(5, now + 3, l1_parent).await;
-            if result == "plan-error" {
-                planned.unwrap();
-                sequencer
-                    .advance_anchored_live_tick_at(5, (now + 3) * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(committer.last_header().number(), 5);
-                assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Empty]);
-            } else if result == "end-steady" {
-                planned.unwrap();
-                assert_eq!(committer.last_header().number(), 4);
-                sequencer
-                    .advance_anchored_live_tick_at(5, (now + 3) * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(committer.last_header().number(), 5);
-                assert_eq!(
-                    *calls.lock().unwrap(),
-                    vec![SyncSlotMode::Steady, SyncSlotMode::Empty]
-                );
-                assert_eq!(*commands.lock().unwrap(), vec!["pool", "pool", "prebuilt"]);
-            } else {
-                planned.unwrap();
-                let decision = sequencer.slot_decision.unwrap();
-                assert!(!decision.matches(
-                    5,
-                    B256::repeat_byte(99),
-                    l1_head.policy_anchor_snapshot()
-                ));
-                l1_head.mark_scanned(l1_parent, anchor);
-                available.store(true, Ordering::SeqCst);
-                sequencer
-                    .advance_anchored_live_tick_at(5, (now + 3) * 1000)
-                    .await
-                    .unwrap();
-                assert_eq!(committer.last_header().number(), 5);
-                // A generation change invalidates the ordinary decision. At
-                // the expired boundary no new queue plan is admissible; Empty
-                // keeps canonical settlement/recovery maintenance available.
-                assert_eq!(*plans.lock().unwrap(), vec![2]);
-                assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Empty]);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn position_ticks_retry_scan_lag_and_preserve_the_prior_boundary_before_replacement_prefix()
-     {
+    async fn closed_source_and_stalled_preparation_do_not_stop_local_ticks_and_worker_is_owned() {
+        use std::sync::atomic::Ordering;
         let now = crate::slot::now_unix_millis() / 1000;
         let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-            number: 2,
-            timestamp: now,
+            timestamp: now - 100,
             ..Default::default()
         });
-        let l1_head = test_history_head(&parent).await;
-        let l1_parent = eez_l1::L1BlockRef {
-            number: 7,
-            hash: B256::repeat_byte(7),
-        };
         let (committer, _) = crate::block_committer::test_committer(parent);
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let plans = Arc::new(Mutex::new(Vec::new()));
-        let (_, receiver) = mpsc::channel(1);
-        let mut sequencer = Sequencer::composer(
+        let (sender, receiver) = mpsc::channel(1);
+        let composer = Arc::new(PolicyComposer {
+            result: "recover-pending",
+            ..Default::default()
+        });
+        let sequencer = Sequencer::composer(
             EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
             committer.clone(),
             receiver,
             RollupTiming::new(5000, 1000, 100, 100, 2),
             1,
-            Arc::new(PolicyComposer {
-                result: "empty",
-                calls: calls.clone(),
-                plans: plans.clone(),
-                ..Default::default()
-            }),
-            0,
-            l1_head.clone(),
+            composer.clone(),
+            4,
+            Arc::new(eez_l1::L1CanonicalHead::default()),
         );
-        sequencer
-            .advance_position_slot(5, now + 3, l1_parent)
+        sender
+            .send(SlotEvent::SyncSlot {
+                block_height: 105,
+                timestamp: now,
+                l1_head: 1,
+                l1_hash: B256::ZERO,
+            })
             .await
             .unwrap();
+        drop(sender);
+        let task = tokio::spawn(sequencer.run());
+        for _ in 0..100 {
+            if composer.prepare.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
         assert!(
-            plans.lock().unwrap().is_empty(),
-            "incomplete scan cannot decide"
+            composer.prepare.load(Ordering::SeqCst),
+            "controlled preparation stall reached"
         );
-        l1_head.mark_scanned(
-            l1_parent,
+        for _ in 0..4 {
+            tokio::time::advance(Duration::from_secs(1)).await;
+            for _ in 0..500 {
+                tokio::task::yield_now().await;
+            }
+        }
+        assert!(
+            committer.last_header().number() >= 100,
+            "closed source and blocked worker must not freeze the clock"
+        );
+        assert!(!task.is_finished());
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        for _ in 0..100 {
+            if !composer.prepare.load(Ordering::SeqCst) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            !composer.prepare.load(Ordering::SeqCst),
+            "worker is cancelled with its owner"
+        );
+    }
+
+    #[tokio::test]
+    async fn preparation_waits_for_grid_cutoff_and_stale_decisions_cannot_rewrite_local_progress() {
+        let now = crate::slot::now_unix_millis() / 1000;
+        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
+            number: 1,
+            timestamp: now - 1,
+            ..Default::default()
+        });
+        let head = test_history_head(&parent).await;
+        let l1 = eez_l1::L1BlockRef {
+            number: 7,
+            hash: B256::repeat_byte(7),
+        };
+        head.mark_scanned(
+            l1,
             eez_l1::L2Endpoint {
                 number: 0,
                 hash: B256::ZERO,
             },
         );
+        let (committer, _) = crate::block_committer::test_committer(parent);
+        let (_, receiver) = mpsc::channel(1);
+        let composer = Arc::new(PolicyComposer {
+            result: "empty",
+            ..Default::default()
+        });
+        let mut sequencer = Sequencer::composer(
+            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
+            committer.clone(),
+            receiver,
+            RollupTiming::new(5000, 1000, 100, 100, 2).with_start_delay_ms(500),
+            1,
+            composer.clone(),
+            0,
+            head.clone(),
+        );
         sequencer
-            .advance_anchored_live_tick_at(5, (now + 1) * 1000)
+            .advance_position_slot_at(5, now + 3, l1, now * 1000 + 499)
             .await
             .unwrap();
-        assert_eq!(*plans.lock().unwrap(), vec![2]);
-        assert_eq!(committer.last_header().number(), 3);
-        // No new L1 head: scheduler has published a bounded replacement at T.
-        sequencer.position_target = Some((10, now + 8, l1_parent));
+        assert!(composer.plans.lock().unwrap().is_empty());
+        sequencer.advance_ordinary_at(now * 1000).await.unwrap();
+        assert_eq!(committer.last_header().number(), 2);
         sequencer
-            .advance_anchored_live_tick_at(10, (now + 3) * 1000)
+            .advance_position_slot_at(5, now + 3, l1, now * 1000 + 500)
+            .await
+            .unwrap();
+        assert_eq!(*composer.plans.lock().unwrap(), vec![2]);
+        // A no-work decision leaves the independent ordinary clock free.
+        sequencer
+            .advance_ordinary_at((now + 3) * 1000)
             .await
             .unwrap();
         assert_eq!(committer.last_header().number(), 5);
-        assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Ordinary]);
+        let prior = committer.last_header().hash();
+        head.invalidate_scan();
         sequencer
-            .advance_anchored_live_tick_at(10, (now + 4) * 1000)
+            .advance_position_slot_at(5, now + 3, l1, (now + 3) * 1000)
             .await
             .unwrap();
-        assert_eq!(
-            committer.last_header().number(),
-            6,
-            "replacement position 1 does not wait for the cutoff"
-        );
-        assert_eq!(
-            *plans.lock().unwrap(),
-            vec![2],
-            "replacement cutoff is not due yet"
-        );
-    }
-
-    #[tokio::test]
-    async fn replacement_trigger_preserves_an_unfinished_ordinary_checkpoint() {
-        let now = crate::slot::now_unix_millis() / 1000;
-        let parent = SealedHeader::seal_slow(alloy_consensus::Header {
-            number: 2,
-            timestamp: now - 10,
-            ..Default::default()
-        });
-        let l1_head = test_history_head(&parent).await;
-        let l1_parent = eez_l1::L1BlockRef {
-            number: 7,
-            hash: B256::repeat_byte(7),
-        };
-        l1_head.mark_scanned(
-            l1_parent,
-            eez_l1::L2Endpoint {
-                number: 0,
-                hash: B256::ZERO,
-            },
-        );
-        let decision = SlotDecision {
-            target: 5,
-            l1_parent,
-            tip: parent.hash(),
-            generation: l1_head.policy_anchor_snapshot().generation,
-            skip_post: true,
-        };
-        let (committer, _) = crate::block_committer::test_committer(parent);
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let (_, receiver) = mpsc::channel(1);
-        let mut sequencer = Sequencer::composer(
-            EthAttributesBuilder::new(Arc::new(reth_chainspec::ChainSpec::default())),
-            committer.clone(),
-            receiver,
-            RollupTiming::new(5000, 1000, 100, 100, 2),
-            1,
-            Arc::new(PolicyComposer {
-                result: "empty",
-                calls: calls.clone(),
-                ..Default::default()
-            }),
-            0,
-            l1_head,
-        );
-        // An authenticated earlier decision survived while ordinary ticks were delayed.
-        sequencer.slot_decision = Some(decision);
-        sequencer
-            .advance_position_slot(10, now - 2, l1_parent)
-            .await
-            .unwrap();
-        assert_eq!(committer.last_header().number(), 7);
-        assert_eq!(*calls.lock().unwrap(), vec![SyncSlotMode::Ordinary]);
-        assert_eq!(sequencer.slot_decision.unwrap().target, 10);
-        assert!(
-            !sequencer.slot_decision.unwrap().skip_post,
-            "expired replacement retains recovery posting"
-        );
+        assert_eq!(committer.last_header().hash(), prior);
+        assert!(composer.calls.lock().unwrap().is_empty());
     }
 
     async fn test_history_head(parent: &alloy_consensus::Header) -> Arc<eez_l1::L1CanonicalHead> {
@@ -827,6 +490,9 @@ mod tests {
         };
         let schedule = Schedule::new(
             DerivationConfig {
+                fee_collector: alloy_primitives::address!(
+                    "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                ),
                 history_update_offset: 0,
                 block_interval_seconds: 1,
                 sync_interval_blocks: 5,
@@ -865,15 +531,13 @@ mod tests {
         .await
         .unwrap();
         // Endpoint read, binary search, contiguous acquisition, canonical recheck.
-        for value in [
-            &endpoint, &reference, &endpoint, &reference, &endpoint, &endpoint,
-        ] {
+        for value in [&reference, &reference, &endpoint, &endpoint] {
             replies.push_success(value);
         }
         head.publish_history(
             source
                 .prepare_history(
-                    parent.timestamp,
+                    0,
                     eez_l1::L1BlockRef {
                         number: endpoint.header.number,
                         hash: endpoint.header.hash,
@@ -889,6 +553,7 @@ mod tests {
                 )
                 .await
                 .unwrap(),
+            head.policy_anchor_snapshot().generation,
         )
         .unwrap();
         head
@@ -1073,8 +738,8 @@ mod tests {
     }
 }
 
-/// Builds payload attributes from captured, parent-derived time and RANDAO.
-/// The sequencer obtains both together from authenticated canonical history.
+/// Builds base payload attributes on the immutable time grid. The Composer
+/// freezes the recorded history transaction and its RANDAO before sequencing.
 #[derive(Debug, Clone)]
 pub struct EthAttributesBuilder<ChainSpec> {
     chain_spec: Arc<ChainSpec>,
@@ -1106,7 +771,7 @@ where
     /// Build with the exact checked position; never clamp or normalize time.
     #[must_use]
     pub fn build(&self, timestamp: u64, prev_randao: B256) -> EthPayloadAttributes {
-        EthPayloadAttributes {
+        reth_ethereum_engine_primitives::EthPayloadAttributes {
             timestamp,
             prev_randao,
             suggested_fee_recipient: self.suggested_fee_recipient,
@@ -1122,6 +787,7 @@ where
             slot_number: None,
             target_gas_limit: None,
         }
+        .into()
     }
 }
 
@@ -1134,7 +800,7 @@ where
     T: PayloadTypes<PayloadAttributes = EthPayloadAttributes>,
 {
     attributes: EthAttributesBuilder<ChainSpec>,
-    schedule_rx: mpsc::Receiver<SlotEvent>,
+    schedule_rx: Option<mpsc::Receiver<SlotEvent>>,
     committer: BlockCommitterHandle<T>,
     /// Per-rollup timing (L1/L2 cadence, proof window, slack). Used to
     /// compute per-trigger Live/Future/Sync block composition and per-
@@ -1148,7 +814,6 @@ where
     /// next trigger; a run of them is a stall and must be loud (invariant 7).
     off_grid_skips: u32,
     slot_decision: Option<SlotDecision>,
-    position_target: Option<(u64, u64, eez_l1::L1BlockRef)>,
 }
 
 impl<T, ChainSpec> fmt::Debug for Sequencer<T, ChainSpec>
@@ -1198,7 +863,7 @@ where
     ) -> Self {
         Self {
             attributes,
-            schedule_rx,
+            schedule_rx: Some(schedule_rx),
             committer,
             timing,
             rollup_id,
@@ -1207,47 +872,148 @@ where
             l1_head,
             off_grid_skips: 0,
             slot_decision: None,
-            position_target: None,
         }
     }
 
-    /// Runs the sequencer loop until cancellation. Errors during advance
-    /// are logged and the loop continues; channel-closed = Scheduler
-    /// task exited, Sequencer exits cleanly.
+    /// Local block time is independent of settlement. One owned preparation
+    /// worker may run ahead for a live candidate; ordinary ticks never await it.
+    /// Shared commit operations still fence the exact parent under reconciliation.
     pub async fn run(mut self) {
-        let mut fcu_interval = tokio::time::interval(FCU_REFRESH);
+        let mut schedule = self
+            .schedule_rx
+            .take()
+            .expect("run owns the schedule receiver");
+        let mut schedule_open = true;
+        let mut workers = tokio::task::JoinSet::new();
+        let mut pending = None;
+        let mut fcu = tokio::time::interval(FCU_REFRESH);
+        let mut clock = tokio::time::interval_at(
+            tokio::time::Instant::now()
+                + crate::slot::next_grid_tick_delay(
+                    crate::slot::now_unix_millis(),
+                    self.committer.last_header().timestamp(),
+                    self.timing,
+                ),
+            self.timing.l2_block_time(),
+        );
+        clock.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
-                maybe_event = self.schedule_rx.recv() => {
-                    let Some(event) = maybe_event else {
-                        event!(
-                            name: "eez.sequencer.schedule_rx.closed",
-                            Level::ERROR,
-                            "schedule channel closed; sequencer task exiting",
-                        );
-                        break;
-                    };
-                    if let Err(err) = self.advance(event).await {
-                        event!(
-                            name: "eez.sequencer.advance.failed",
-                            Level::ERROR,
-                            error = %err,
-                            "advance failed: {{error}}",
-                        );
+                event = schedule.recv(), if schedule_open => {
+                    match event {
+                        Some(event @ SlotEvent::SyncSlot { .. }) => pending = Some(event),
+                        None => {
+                            schedule_open = false;
+                            event!(Level::WARN, "L1 scheduler closed; local block production continues");
+                        }
                     }
                 }
-                _ = fcu_interval.tick() => {
-                    if let Err(err) = self.committer.refresh_forkchoice().await {
-                        event!(
-                            name: "eez.sequencer.fcu.failed",
-                            Level::WARN,
-                            error = %err,
-                            "forkchoice refresh failed: {{error}}",
-                        );
+                result = workers.join_next(), if !workers.is_empty() => {
+                    if let Some(Err(error)) = result { event!(Level::ERROR, %error, "settlement preparation worker failed"); }
+                }
+                _ = clock.tick() => {
+                    if let Err(error) = self.advance_ordinary_at(crate::slot::now_unix_millis()).await {
+                        event!(Level::ERROR, %error, "ordinary block production failed");
+                    }
+                }
+                _ = fcu.tick() => {
+                    if let Err(error) = self.committer.refresh_forkchoice().await {
+                        event!(Level::WARN, %error, "forkchoice refresh failed");
                     }
                 }
             }
+            if workers.is_empty()
+                && let Some(event) = pending.take()
+            {
+                let mut worker = self.preparation_worker();
+                workers.spawn(async move {
+                    if let Err(error) = worker.advance(event).await {
+                        event!(Level::WARN, %error, "settlement opportunity deferred");
+                    }
+                    let head = crate::ParentContext {
+                        header: worker.committer.last_header(),
+                    };
+                    if let Err(error) = worker
+                        .composer
+                        .settle_retained(worker.rollup_id, head)
+                        .await
+                    {
+                        event!(Level::WARN, %error, "retained ordinary settlement deferred");
+                    }
+                });
+            }
         }
+    }
+
+    /// An isolated scheduling decision with shared, single-owner settlement and
+    /// commit handles. It owns no event receiver and cannot start another worker.
+    fn preparation_worker(&self) -> Self {
+        Self {
+            attributes: EthAttributesBuilder {
+                chain_spec: Arc::clone(&self.attributes.chain_spec),
+                suggested_fee_recipient: self.attributes.suggested_fee_recipient,
+            },
+            schedule_rx: None,
+            committer: self.committer.clone(),
+            timing: self.timing,
+            rollup_id: self.rollup_id,
+            composer: Arc::clone(&self.composer),
+            max_speculative_depth: self.max_speculative_depth,
+            l1_head: Arc::clone(&self.l1_head),
+            off_grid_skips: 0,
+            slot_decision: None,
+        }
+    }
+
+    /// Produce due ordinary blocks using only local state and prepared evidence.
+    /// Proof deadlines, same-parent replacements and unsettled depth do not gate it.
+    async fn advance_ordinary_at(&mut self, now_ms: u64) -> DriverResult<()> {
+        let k = u64::from(self.timing.k());
+        for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {
+            let parent = self.committer.last_header();
+            let next = parent
+                .number()
+                .checked_add(1)
+                .ok_or_else(|| DriverError::provider("L2 height overflow"))?;
+            let timestamp = parent
+                .timestamp()
+                .checked_add(self.timing.l2_block_time().as_secs())
+                .ok_or_else(|| DriverError::provider("L2 timestamp overflow"))?;
+            if timestamp > now_ms / 1000 {
+                break;
+            }
+            let boundary = next
+                .checked_add((k - next % k) % k)
+                .ok_or_else(|| DriverError::provider("L2 boundary overflow"))?;
+            self.composer
+                .set_sequencing_target(self.rollup_id, boundary);
+            let mut attributes = self.attributes.build(timestamp, parent.mix_hash);
+            attributes.no_tx_pool = next == boundary;
+            let attributes = self
+                .composer
+                .block_attributes(
+                    self.rollup_id,
+                    crate::ParentContext {
+                        header: parent.clone(),
+                    },
+                    attributes,
+                )
+                .await
+                .map_err(DriverError::provider)?;
+            match self
+                .committer
+                .commit_sequenced(parent.hash(), || Ok(attributes))
+                .await
+            {
+                Ok(outcome) => event!(name: "eez.sequencer.block.produced", Level::INFO,
+                    slot.kind = if next == boundary { "sync" } else { "live" },
+                    block.number = outcome.header.number(), block.hash = %outcome.header.hash(),
+                    block.timestamp = outcome.header.timestamp(), "produced ordinary block"),
+                Err(error) if error.is_stale_candidate() => break,
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(())
     }
 
     /// Dispatch on slot event variant.
@@ -1269,130 +1035,6 @@ where
                 )
                 .await
             }
-            SlotEvent::LiveTick {
-                sync_slot_block_height,
-                timestamp,
-                l1_head,
-                l1_hash,
-            } => {
-                self.position_target = Some((
-                    sync_slot_block_height,
-                    timestamp,
-                    eez_l1::L1BlockRef {
-                        number: l1_head,
-                        hash: l1_hash,
-                    },
-                ));
-                self.advance_anchored_live_tick(sync_slot_block_height)
-                    .await
-            }
-        }
-    }
-
-    /// Ticks catch up only already-due blocks, bounded by MAX_BLOCKS_PER_CATCHUP,
-    /// and retry an unavailable cutoff without requiring another L1 head.
-    async fn advance_anchored_live_tick(
-        &mut self,
-        sync_slot_block_height: u64,
-    ) -> DriverResult<()> {
-        self.advance_anchored_live_tick_at(sync_slot_block_height, crate::slot::now_unix_millis())
-            .await
-    }
-
-    async fn advance_anchored_live_tick_at(
-        &mut self,
-        sync_slot_block_height: u64,
-        now_ms: u64,
-    ) -> DriverResult<()> {
-        for _ in 0..crate::MAX_BLOCKS_PER_CATCHUP {
-            let before = self.committer.last_header().hash();
-            self.advance_one_anchored_tick(sync_slot_block_height, now_ms)
-                .await?;
-            if before == self.committer.last_header().hash() {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    async fn advance_one_anchored_tick(
-        &mut self,
-        mut sync_slot_block_height: u64,
-        now_ms: u64,
-    ) -> DriverResult<()> {
-        let rollup_id = self.rollup_id;
-        let composer = Arc::clone(&self.composer);
-        // Before the head read: a mid-slot verdict would otherwise wait K
-        // blocks, and recovery can reorg + substitute under us.
-        composer.recover_failed(rollup_id).await;
-        {
-            let parent = self.committer.last_header();
-            let snapshot = self.l1_head.policy_anchor_snapshot();
-            if let Some(decision) = self.slot_decision.filter(|d| {
-                parent.number() < d.target && d.matches(d.target, parent.hash(), snapshot)
-            }) {
-                // A newly armed target must not overwrite the previous
-                // interval's authenticated non-posting boundary decision.
-                sync_slot_block_height = decision.target;
-            } else if let Some((target, timestamp, l1_parent)) = self.position_target
-                && target == sync_slot_block_height
-                && parent.number() < target
-                && parent.number()
-                    >= target.saturating_sub(u64::from(self.timing.future_count()) + 1)
-                && now_ms
-                    >= timestamp.saturating_mul(1000).saturating_sub(
-                        self.timing
-                            .l1_block_time()
-                            .saturating_sub(self.timing.proof_window_open())
-                            .as_millis() as u64,
-                    )
-            {
-                self.advance_position_slot_at(target, timestamp, l1_parent, now_ms)
-                    .await?;
-            }
-        }
-        let last_header = self.committer.last_header();
-        let head = last_header.number();
-        // Reserve = Future blocks + the Sync block itself. Mirrors
-        // `live_region_end` in `RollupTiming::per_trigger_composition`.
-        let reserve = u64::from(self.timing.future_count()) + 1;
-        let live_region_end = sync_slot_block_height.saturating_sub(reserve);
-        let limit = {
-            let snapshot = self.l1_head.policy_anchor_snapshot();
-            if self.slot_decision.is_some_and(|decision| {
-                decision.matches(sync_slot_block_height, last_header.hash(), snapshot)
-            }) {
-                sync_slot_block_height
-            } else {
-                self.slot_decision = None;
-                live_region_end
-            }
-        };
-        if head >= limit {
-            // Live region full (steady state between anchor fire and
-            // the next L1 head). Future + Sync come from the anchor.
-            return Ok(());
-        }
-        if last_header
-            .timestamp()
-            .saturating_add(self.timing.l2_block_time().as_secs())
-            > now_ms / 1000
-        {
-            return Ok(());
-        }
-        if self.speculative_limit_paused(head) {
-            return Ok(());
-        }
-        match self
-            .commit_one(SlotKind::Live, &last_header, sync_slot_block_height)
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(err) if err.is_stale_candidate() => {
-                log_stale_candidate("live_tick");
-                Ok(())
-            }
-            Err(err) => Err(err),
         }
     }
 
@@ -1439,7 +1081,6 @@ where
         l1_parent: eez_l1::L1BlockRef,
         now_ms: u64,
     ) -> DriverResult<()> {
-        self.position_target = Some((target, timestamp, l1_parent));
         // Delay is anchored to the immutable grid, never to when P finishes.
         // Normal ticks remain free to commit P before this instant. In
         // particular, do not query queued work or freeze a decision early.
@@ -1880,17 +1521,22 @@ where
         if current_head != built_parent {
             return Err(DriverError::stale_parent(built_parent, current_head));
         }
-        let (timestamp, seed) = self
+        let schedule = self
             .l1_head
-            .next_block_context(&self.committer.last_header())
+            .derivation_schedule()
             .map_err(DriverError::provider)?;
-        let origin = self
+        let (_, timestamp) = schedule
+            .next(&self.committer.last_header())
+            .map_err(DriverError::provider)?;
+        let snapshot = self
             .l1_head
-            .derivation_origin(built.header.number)
+            .prepared_history()
+            .ok_or_else(|| DriverError::stale_context(built_parent))?;
+        let origin = snapshot.chain();
+        let origin = origin
+            .by_hash(built.l1_origin_hash)
             .map_err(DriverError::provider)?;
-        if built.header.timestamp != timestamp
-            || built.header.mix_hash != seed
-            || built.l1_origin_hash != origin
+        if built.header.timestamp != timestamp || built.header.mix_hash != origin.header().mix_hash
         {
             return Err(DriverError::stale_context(built_parent));
         }
@@ -1973,15 +1619,20 @@ where
                 )),
             };
         }
+        let attributes = self
+            .composer
+            .block_attributes(
+                self.rollup_id,
+                crate::ParentContext {
+                    header: parent.clone(),
+                },
+                self.attributes.build(next_ts, parent.mix_hash),
+            )
+            .await
+            .map_err(DriverError::provider)?;
         let outcome = self
             .committer
-            .commit_sequenced(parent_hash, || {
-                let (timestamp, seed) = self
-                    .l1_head
-                    .next_block_context(parent)
-                    .map_err(DriverError::provider)?;
-                Ok(self.attributes.build(timestamp, seed))
-            })
+            .commit_sequenced(parent_hash, || Ok(attributes))
             .await?;
         let timestamp = outcome.header.timestamp();
         let block_number = outcome.header.number();

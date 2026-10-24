@@ -1,12 +1,12 @@
 # Composer-to-prover streaming RPC
 
-Status: the v2 transport is retained with the fresh-network offline profile
-specified below. [prove_stream.proto](proto/prove_stream.proto) defines its frames;
-[prove.proto](proto/prove.proto) owns the shared execution-witness messages and
-capability query. The `prove.v1` namespace of those shared types does not enable
-a v1 proving service. [SPEC.md](SPEC.md) defines Composer settlement ownership,
+Status: one fresh-network offline service, `prove.v2.Prover`.
+[prove.proto](proto/prove.proto) defines both methods (`Capabilities` and
+`ProveStream`) and every execution-witness, framing and error message.
+[SPEC.md](SPEC.md) defines Composer settlement ownership,
 retry policy and native settlement validation. Implementation and validation
-status are recorded in the [feature audit](../../docs/audits/2026-10-22-l1-history-offline-proving/README.md).
+status are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md)
+and [single-profile amendment](../../docs/audits/2026-10-24-profile-simplification/README.md).
 
 The contract separates three things: required streaming behavior, optional
 session controls, and settlement inputs. A prover may support blob settlement
@@ -176,9 +176,11 @@ Every produced intermediate header is required, including headers used only to
 bridge to the proof anchor. Skipped L1 slots have no invented headers.
 
 Block execution checks history storage/code, schedule and the selected source.
-It derives the system import and uses the same header's `prevRandao` for both
-L2 header and EVM. Finalize verifies inherited and new source maximality against
-the complete bridge and exact anchor. The terminal Block's witness carries any
+It exact-validates the history transaction in `Block.rlp`, including repeat,
+position, version, sourceHash, zero value, exact gas and canonical calldata, and uses the selected
+header's `prevRandao` for both L2 header and EVM. Finalize authenticates every
+recorded selection against the complete bridge and exact anchor. No latest-source
+or arrival-time inference can replace the transaction's choice. The terminal Block's witness carries any
 remaining bridge; Finalize does not introduce an unchecked evidence channel.
 Each ACK checkpoints the exact evidence prefix as well as L2 execution. Rewind
 restores both. A duplicate is idempotent only when the whole Block/witness is
@@ -335,19 +337,19 @@ their test harness separate from this protocol proposal.
 This profile is active from a new network's genesis. The signer serves only v2
 proving plus the shared capability query. Startup uses local L2 genesis, local
 L1 chain rules, registry/manager identities and proof policy. It has no L1/L2
-provider, provenance lookup, prepared-range cache, lease API or v1 fallback.
+provider, provenance lookup, prepared-range cache or lease API.
 Obsolete signer RPC settings reject, including explicitly empty environment
 values. Composer, followers and transaction senders retain their own chain
 connections.
 
 Capabilities must advertise offline profile 2, operations tag 0 and an exact
-matching validation identity. Identity schema 6 binds the fixed offline profile,
-L1/L2 rules, runtime, registry/manager, rollup and portable validation specification
+matching validation identity. Validation identity binds the fixed offline profile,
+L1/L2 rules, runtime, registry/manager, rollup and the validation-contract
 version. The exact language-neutral encoding is defined in
 [the identity contract](VALIDATION_IDENTITY.md); build dependencies are not wire inputs.
 The signer separately checks its configured proof-system policy during settlement;
 the client checks the returned digest and configured attester's signature.
-Every v2 RPC must carry matching `eez-validation-identity-bin` metadata. Missing
+Every ProveStream call must carry matching `eez-validation-identity-bin` metadata. Missing
 or mismatching metadata rejects before frames are admitted. Identity agreement
 establishes compatible validation rules; it never authorizes a signature.
 
@@ -380,7 +382,7 @@ of at most 64 and releases the exchange lock between chunks. Failure defers this
 optional work without blocking commitment or durable witness capture. Complete
 proving backfills missing blocks and final evidence. Each exchange opens a new
 transport and attempts Resume. Missing sessions or unsupported optional controls
-cause Begin/backfill of the same complete request. There is no fallback to v1.
+cause Begin/backfill of the same complete request.
 The client remembers the oldest retained predecessor from Begin and successful
 subrange proofs. If a requested predecessor predates that point or has another
 hash at the same height, it opens a complete new session before Finalize. This

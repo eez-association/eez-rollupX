@@ -48,27 +48,18 @@ class ChiadoConfigTest(unittest.TestCase):
         )
 
     def test_offline_signer_has_local_profiles_and_no_chain_rpc(self):
-        key = "EEZ_PROOF_SIGNER_L2_RPC_URL"
-        for overrides in (
-            {},
-            {key: "http://127.0.0.1:29999"},
-            {key: ""},
-            {key: "invalid"},
-        ):
-            with self.subTest(overrides=overrides):
-                result = self.render(overrides)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                services = json.loads(result.stdout)["services"]
-                signer = services["eez-proof-signer"]["environment"]
-                self.assertNotIn(key, signer)
-                self.assertNotIn("EEZ_L1_RPC_URL", signer)
-                self.assertEqual(signer["EEZ_CHAIN_CONFIG"], "/app/genesis.json")
-                self.assertEqual(signer["EEZ_L1_CHAIN_CONFIG"], "chiado")
-                self.assertEqual(services["eez-node"]["environment"]["EEZ_L1_RPC_URL"],
-                                 "http://127.0.0.1:18645")
-                self.assertNotIn(key, services["eez-node"]["environment"])
-        # Obsolete shell settings cannot create an RPC-backed Compose path.
-        # Standalone signer configuration tests separately assert their rejection.
+        result = self.render()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        services = json.loads(result.stdout)["services"]
+        signer = services["eez-proof-signer"]["environment"]
+        self.assertFalse(any("RPC_URL" in key for key in signer))
+        for key in ("EEZ_L2_TREASURY_OWNER", "EEZ_L2_TREASURY_RECIPIENT"):
+            self.assertNotIn(key, signer)
+            self.assertNotIn(key, services["eez-node"]["environment"])
+        self.assertEqual(signer["EEZ_CHAIN_CONFIG"], "/app/genesis.json")
+        self.assertEqual(signer["EEZ_L1_CHAIN_CONFIG"], "chiado")
+        self.assertEqual(services["eez-node"]["environment"]["EEZ_L1_RPC_URL"],
+                         "http://127.0.0.1:18645")
 
     def test_fee_recipient_is_required_and_reaches_only_the_node(self):
         env_file = self.repo / ".env"

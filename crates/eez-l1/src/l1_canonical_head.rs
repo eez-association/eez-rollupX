@@ -187,79 +187,25 @@ impl L1CanonicalHead {
             .and_then(crate::derivation::history::CanonicalHistory::prepared)
     }
 
-    /// Publish under the caller's engine reconciliation lock after canonical checks.
+    /// Publish after canonical checks only if the acquisition's generation survives.
     pub fn publish_history(
         &self,
         prepared: crate::derivation::history::PreparedHistory,
+        generation: u64,
     ) -> Result<(), crate::derivation::DerivationError> {
-        self.state
-            .lock()
-            .unwrap()
+        let mut state = self.state.lock().unwrap();
+        if state.evidence.generation != generation {
+            return Err(crate::derivation::DerivationError::Unavailable(
+                "canonical generation changed during history acquisition",
+            ));
+        }
+        state
             .derivation
             .as_mut()
             .ok_or(crate::derivation::DerivationError::Unavailable(
                 "L1 history not initialized",
             ))?
             .publish(prepared)
-    }
-
-    /// Permit only conditional execution for an already owned replacement.
-    /// The Composer holds the engine reconciliation guard, has checked the
-    /// replacement deadline and unchanged L1 parent, and retains the original
-    /// submission. The shared slot bound still applies; new evidence revokes
-    /// the exception, and on-chain actual-parent binding decides validity.
-    pub fn authorize_replacement_history(
-        &self,
-        generation: u64,
-        parent: L1BlockRef,
-        target_timestamp: u64,
-    ) -> Result<(), crate::derivation::DerivationError> {
-        use crate::derivation::DerivationError;
-        let mut state = self.state.lock().unwrap();
-        if state.evidence.generation != generation || state.evidence.through != Some(parent) {
-            return Err(DerivationError::Unavailable("replacement evidence changed"));
-        }
-        state
-            .derivation
-            .as_mut()
-            .ok_or(DerivationError::Unavailable("L1 history not initialized"))?
-            .authorize_replacement(parent, target_timestamp)
-    }
-
-    /// Fixed-time selection, independent of which settlements were accepted.
-    pub fn derivation_randao(
-        &self,
-        number: u64,
-    ) -> Result<B256, crate::derivation::DerivationError> {
-        self.state
-            .lock()
-            .unwrap()
-            .derivation
-            .as_ref()
-            .ok_or(crate::derivation::DerivationError::Unavailable(
-                "L1 history not initialized",
-            ))?
-            .prev_randao(number)
-    }
-
-    /// Exact source identity for a prebuilt candidate's reorg fence.
-    pub fn derivation_origin(
-        &self,
-        number: u64,
-    ) -> Result<B256, crate::derivation::DerivationError> {
-        let state = self.state.lock().unwrap();
-        let history =
-            state
-                .derivation
-                .as_ref()
-                .ok_or(crate::derivation::DerivationError::Unavailable(
-                    "L1 history not initialized",
-                ))?;
-        let cutoff = history
-            .schedule()
-            .history()?
-            .source_cutoff(history.schedule().timestamp(number)?)?;
-        Ok(history.headers(cutoff)?.select(cutoff)?.hash())
     }
 
     /// The immutable schedule initialized by derivation startup.
@@ -277,7 +223,7 @@ impl L1CanonicalHead {
             ))
     }
 
-    /// Capture exact next-block time and randomness under one lock. The caller
+    /// Capture the next grid time and inherited randomness. The caller
     /// authenticates the parent and fences execution against canonical reconciliation.
     pub fn next_block_context(
         &self,
@@ -301,6 +247,7 @@ impl L1CanonicalHead {
         evidence: &ReconciledBatchSettlement,
         l1: &crate::derivation::AuthenticatedL1Header,
         endpoint: &alloy_consensus::Header,
+        origin: eez_protocol::l1_history::HistoryState,
     ) -> Result<(), crate::derivation::DerivationError> {
         use crate::derivation::DerivationError;
         let state = self.state.lock().unwrap();
@@ -324,7 +271,11 @@ impl L1CanonicalHead {
             ));
         }
         schedule.anchor_kind(endpoint.number, endpoint.timestamp, l1.header().timestamp)?;
-        if endpoint.mix_hash != history.prev_randao(endpoint.number)? {
+        let chain = history.headers(schedule.history()?.source_cutoff(endpoint.timestamp)?)?;
+        let selected = chain.at(origin.endpoint)?;
+        if endpoint.mix_hash != selected.header().mix_hash
+            || origin.endpoint_hash != selected.hash()
+        {
             return Err(DerivationError::Mismatch("accepted endpoint randomness"));
         }
         if let Some(previous) = state.evidence.settlements.get(&evidence.tx_hash) {
@@ -352,8 +303,9 @@ impl L1CanonicalHead {
         evidence: ReconciledBatchSettlement,
         l1: &crate::derivation::AuthenticatedL1Header,
         endpoint: &alloy_consensus::Header,
+        origin: eez_protocol::l1_history::HistoryState,
     ) -> Result<(), crate::derivation::DerivationError> {
-        self.validate_accepted(&evidence, l1, endpoint)?;
+        self.validate_accepted(&evidence, l1, endpoint, origin)?;
         let mut state = self.state.lock().unwrap();
         self.publish_locked(&mut state, evidence);
         Ok(())
@@ -452,9 +404,6 @@ impl L1CanonicalHead {
 
     pub fn invalidate_scan(&self) {
         let mut state = self.state.lock().unwrap();
-        if let Some(history) = &mut state.derivation {
-            history.invalidate_replacement();
-        }
         state.evidence.through = None;
         state.evidence.generation = state
             .evidence
@@ -492,10 +441,8 @@ impl L1CanonicalHead {
         &self,
         parent: &alloy_consensus::Header,
         through: L1BlockRef,
-    ) -> Result<
-        (u64, B256, Arc<eez_protocol::l1_history::HeaderChain>),
-        crate::derivation::DerivationError,
-    > {
+    ) -> Result<(u64, Arc<eez_protocol::l1_history::HeaderChain>), crate::derivation::DerivationError>
+    {
         use crate::derivation::DerivationError;
         let state = self.state.lock().unwrap();
         let history = state
@@ -508,14 +455,11 @@ impl L1CanonicalHead {
         let chain = prepared.chain();
         let boundary = chain.at(through.number)?;
         let (_, timestamp) = history.schedule().next(parent)?;
-        let cutoff = history.schedule().history()?.source_cutoff(timestamp)?;
-        if boundary.hash() != through.hash || boundary.header().timestamp < cutoff {
+        if boundary.hash() != through.hash {
             return Err(DerivationError::Mismatch(
                 "estimation history boundary or cutoff",
             ));
         }
-        // Increasing timestamps ensure the selection precedes this sampled boundary.
-        let seed = chain.select(cutoff)?.header().mix_hash;
         let snapshot = if prepared.through() == through {
             chain
         } else {
@@ -527,7 +471,7 @@ impl L1CanonicalHead {
                 .number;
             Arc::new(chain.range(first, through.number)?)
         };
-        Ok((timestamp, seed, snapshot))
+        Ok((timestamp, snapshot))
     }
 
     /// Recheck immediately before changing ownership under the engine

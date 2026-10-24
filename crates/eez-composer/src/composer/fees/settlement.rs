@@ -269,14 +269,7 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
                     }
                     OutboundSourceEntry::Static(_) => Some(U256::ZERO),
                 }?;
-                effect.callback_entries.iter().try_fold(
-                    total.checked_add(source)?,
-                    |total, callback| {
-                        total.checked_add(eez_protocol::entries::entry_flat_value_sum(
-                            callback.as_abi_entry(),
-                        )?)
-                    },
-                )
+                total.checked_add(source)
             })
             .ok_or(FeeQuoteError::Unsupported("settlement inflow shape"))?;
         let delta = I256::try_from(inflow)

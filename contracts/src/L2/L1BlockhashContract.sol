@@ -3,10 +3,10 @@ pragma solidity 0.8.34;
 
 /// @notice Permanent L1 number-to-hash history installed by the L2 execution protocol.
 /// @dev Genesis installs runtime and slots 0..6 directly; there is no public initializer.
-///      The execution engine authenticates ancestry and selects the endpoint. This
+///      The execution engine authenticates the recorded native transaction and its ancestry. This
 ///      contract enforces caller, schedule and append-only storage, not L1 consensus.
 contract L1BlockhashContract {
-    address public constant SYSTEM_ADDRESS = 0xEeEEEEeeeEEeeeEeeEEeEEEeeEeeeeeeeeEe0076;
+    address public constant SYSTEM_ADDRESS = 0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE;
 
     // Full-width scalar slots deliberately make the genesis/executor layout explicit.
     mapping(uint64 number => bytes32 hash) internal hashes; // slot 0
@@ -41,9 +41,12 @@ contract L1BlockhashContract {
     }
 
     /// @notice Append consecutive hashes and advance one scheduled cutoff, even on an empty import.
-    /// @dev Called exactly once, before applications, at cutoff + updateDelay. The
-    ///      engine checks code identity and derived calldata and invalidates the
-    ///      entire block on failure. This emits no logs and makes no external calls.
+    /// @dev Transaction zero at cutoff + updateDelay, sent by the native system
+    ///      address with zero value. It consumes transaction gas without advancing
+    ///      the system account nonce.
+    ///      The engine checks canonical calldata, ancestry, delay and PREVRANDAO;
+    ///      failure invalidates the block. Empty imports explicitly repeat the origin.
+    ///      This emits no logs and makes no external calls.
     function importHistory(uint64 cutoff, bytes32[] calldata newHashes) external {
         if (msg.sender != SYSTEM_ADDRESS) revert UnauthorizedHistoryImport();
         if (

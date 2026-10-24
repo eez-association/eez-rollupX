@@ -759,7 +759,7 @@ mod posting_frame_tests {
         let mut inspector = SkipTopFrame::new(NoOpInspector {});
         inspector.top_caller = Some(manager);
         inspector.top_gas_price = Some(37);
-        let mut result = EezEvmConfig::new(reth_chainspec::MAINNET.clone())
+        let mut result = EezEvmConfig::for_l1_simulation(reth_chainspec::MAINNET.clone())
             .evm_with_env_and_inspector(database, env, inspector)
             .transact(TxEnv {
                 caller: poster,

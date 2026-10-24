@@ -80,6 +80,7 @@ mod tests {
         let mut doc: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         doc["config"]["rollupX"] = serde_json::to_value(DerivationConfig {
+            fee_collector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             history_update_offset: 0,
             block_interval_seconds: 1,
             sync_interval_blocks: 5,

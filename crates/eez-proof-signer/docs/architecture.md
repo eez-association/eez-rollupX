@@ -25,8 +25,8 @@ flowchart LR
 | Module | Owns |
 | --- | --- |
 | [main](../src/main.rs), [config](../src/config.rs) | Local profile loading, strict configuration, listener and shutdown |
-| [service](../src/service.rs), [RPC](../src/service/rpc.rs) | Capability identity, quotas, shared execution permit and transport lifetime |
-| [sessions](../src/service/sessions.rs) | Begin/Block/Finalize, duplicates, Resume/Rewind, epochs and retained ownership |
+| [service](../src/service.rs), [worker](../src/service/worker.rs) | Quotas, shared execution permit and blocking-worker cancellation ownership |
+| [sessions](../src/service/sessions.rs) | Capabilities, Begin/Block/Finalize, duplicates, Resume/Rewind, epochs, transport lifetime and retained ownership |
 | [window](../src/window.rs) | Bounded structural admission; decoding does not authorize execution or signing |
 | [stream validation](../src/validate/streaming.rs) | Canonical L1 evidence, authenticated L2 state and incremental checked execution |
 | [Stateless adapter](../src/validate/stateless.rs) | Transaction recovery, exact replay, receipts, roots and whole-group checkpoints |
@@ -51,7 +51,7 @@ selected PREVRANDAO for stateful production and stateless replay.
    for target-dependent observation replay and L1 evidence checkpoints. Quotas
    cover this retained data. Exact duplicates cannot change evidence; Rewind
    restores the corresponding evidence prefix.
-4. Finalize checks maximality and exact anchor termination, verifies both the
+4. Finalize checks recorded origin membership and exact anchor termination, verifies both the
    selected range and settlement eligibility, and independently recomputes
    observations, effects, blob commitments and public inputs. The accepted L2
    hash must match the replay predecessor or a fully replayed whole-group
@@ -72,7 +72,7 @@ listener; session IDs are not authentication credentials.
 The ECDSA signature attests execution and settlement consistency **conditional
 on the bound context**. It does not establish L1 consensus, future inclusion,
 future canonicality, successful dispatch or ZK security. No RPC-backed authority,
-preparation lease or v1 execution path supplements it.
+preparation lease supplements it.
 
 See [request lifecycle](request-lifecycle.md), [data provenance](data-provenance.md)
 and [settlement pipeline](settlement-pipeline.md) for detailed invariants.

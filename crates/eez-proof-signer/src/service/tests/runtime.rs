@@ -22,7 +22,6 @@ async fn capabilities_report_offline_identity_and_effective_limits_while_worker_
             system_address: TEST_SYSTEM_ADDRESS,
             eez_l2_address: crate::EEZL2_ADDRESS,
             chain_document_digest: digest,
-            canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
             offline_profile_hash: state.deployment.profile.commitment(),
             registry: Address::repeat_byte(0x33),
             manager: Address::repeat_byte(0x44),
@@ -50,7 +49,7 @@ async fn capabilities_report_offline_identity_and_effective_limits_while_worker_
             server
                 .client()
                 .await
-                .capabilities(eez_control_rpc::v1::CapabilitiesRequest {}),
+                .capabilities(eez_control_rpc::v2::CapabilitiesRequest {}),
         )
         .await
         .unwrap()

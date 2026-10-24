@@ -17,7 +17,7 @@ interface IOfflineRegistry is IEEZRegistry {
 ///      is mandatory and has a single atomic initializer.
 contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     bytes32 public constant CONTEXT_DOMAIN = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1");
-    bytes32 public constant PROFILE_DOMAIN = keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE_V1");
+    bytes32 public constant PROFILE_DOMAIN = keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE");
     bytes32 public constant RULES_DOMAIN = keccak256("EEZ_ROLLUPX_L1_RULES_V1");
     address public constant HISTORY_ADDRESS = 0xeeeeEeeeEeeeEeEeEEEeEeeeeEEEEeeEEEee0077;
     uint64 public constant MAX_IMPORT_HEADERS = 64;
@@ -37,6 +37,7 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
         uint32 updateOffset;
         bytes32 l1ConfigHash;
         bytes32 historyCodeHash;
+        address feeCollector;
         uint64[] ruleTimes;
     }
 
@@ -152,6 +153,9 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
                 || uint256(profile.genesisTimestamp) + delay > type(uint64).max
                 || profile.historyCodeHash != L1HistoryCode.HASH || profile.ruleTimes.length == 0
                 || profile.ruleTimes.length > MAX_RULE_EPOCHS || profile.ruleTimes[0] != 0
+                || profile.feeCollector == address(0)
+                || profile.feeCollector == 0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE
+                || profile.feeCollector == 0x4B2760F84B83d6b3829E30A7573B0172B6d6402C
         ) revert InvalidOfflineProfile();
         for (uint256 i; i < profile.ruleTimes.length; ++i) {
             if (i != 0 && profile.ruleTimes[i] <= profile.ruleTimes[i - 1]) revert InvalidOfflineProfile();

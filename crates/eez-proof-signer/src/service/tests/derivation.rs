@@ -207,15 +207,12 @@ async fn terminal_metadata_is_published_and_independently_bound() {
 }
 
 #[tokio::test]
-async fn new_network_rejects_every_previous_operations_tag_before_signing() {
+async fn unsupported_operations_tags_are_rejected_before_signing() {
     let blocks = blocks(2);
-    // Historical tag-0 projected shape is not the new RollupX V0 either.
-    let previous = [vec![0, 0xc3, 0xc0, 0xc0, 0xc0], vec![1], vec![2], vec![3]];
-    // This uses the shipping service path, without the separate old-fixture
-    // oracle selected by the original regression-test helpers.
+    let unsupported = [vec![1], vec![2], vec![3], vec![0xff]];
     let state = state();
     let server = TestServer::new(state.clone()).await;
-    for operations in previous {
+    for operations in unsupported {
         assert_eq!(
             server
                 .prove(request(&state, blocks.clone(), operations))

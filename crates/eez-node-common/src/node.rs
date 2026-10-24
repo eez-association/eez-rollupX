@@ -6,8 +6,9 @@
 //! <https://github.com/paradigmxyz/reth/blob/444e867155c2a7a4c028e479ca7201b0b6871579/crates/ethereum/node/src/engine.rs>.
 
 use crate::{EezPayloadBuilder, EezPoolBuilder};
-use alloy_rpc_types_engine::{ExecutionData, PayloadAttributes};
+use alloy_rpc_types_engine::ExecutionData;
 use eez_evm::EezEvmConfig;
+use eez_primitives::engine::EezPayloadAttributes as PayloadAttributes;
 use eez_primitives::{Block, EezPrimitives, EezTxEnvelope, engine::EezEngineTypes};
 use reth_chainspec::ChainSpec;
 use reth_engine_primitives::{EngineApiValidator, PayloadValidator};
@@ -82,7 +83,9 @@ impl<N: FullNodeComponents<Types = Self>> DebugNode<N> for EezNode {
     fn local_payload_attributes_builder(
         chain_spec: &ChainSpec,
     ) -> impl PayloadAttributesBuilder<PayloadAttributes> {
-        reth_engine_local::LocalPayloadAttributesBuilder::new(Arc::new(chain_spec.clone()))
+        let builder =
+            reth_engine_local::LocalPayloadAttributesBuilder::new(Arc::new(chain_spec.clone()));
+        move |parent: reth_primitives_traits::SealedHeader| builder.build(&parent).into()
     }
 }
 
@@ -151,7 +154,17 @@ impl EngineApiValidator<EezEngineTypes> for EezEngineValidator {
         version: EngineApiMessageVersion,
         payload: PayloadOrAttributes<'_, ExecutionData, PayloadAttributes>,
     ) -> Result<(), EngineObjectValidationError> {
-        <EthereumEngineValidator as EngineApiValidator<EezEngineTypes>>::validate_version_specific_fields(&self.api, version, payload)
+        let payload = match payload {
+            PayloadOrAttributes::ExecutionPayload(payload) => {
+                PayloadOrAttributes::ExecutionPayload(payload)
+            }
+            PayloadOrAttributes::PayloadAttributes(attrs) => {
+                PayloadOrAttributes::PayloadAttributes(&attrs.ethereum)
+            }
+        };
+        <EthereumEngineValidator as EngineApiValidator<
+            reth_ethereum_engine_primitives::EthEngineTypes,
+        >>::validate_version_specific_fields(&self.api, version, payload)
     }
 
     fn ensure_well_formed_attributes(
@@ -159,7 +172,9 @@ impl EngineApiValidator<EezEngineTypes> for EezEngineValidator {
         version: EngineApiMessageVersion,
         attrs: &PayloadAttributes,
     ) -> Result<(), EngineObjectValidationError> {
-        <EthereumEngineValidator as EngineApiValidator<EezEngineTypes>>::ensure_well_formed_attributes(&self.api, version, attrs)
+        <EthereumEngineValidator as EngineApiValidator<
+            reth_ethereum_engine_primitives::EthEngineTypes,
+        >>::ensure_well_formed_attributes(&self.api, version, &attrs.ethereum)
     }
 }
 

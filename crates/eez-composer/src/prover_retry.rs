@@ -543,7 +543,6 @@ mod tests {
                         ..Default::default()
                     },
                     entry_traces: Vec::new(),
-                    callback_entry_counts: Vec::new(),
                     outbound_event_hashes: Vec::new(),
                 },
                 targets: Vec::new(),
@@ -627,7 +626,6 @@ mod tests {
                         ..Default::default()
                     },
                     entry_traces: vec![Default::default()],
-                    callback_entry_counts: vec![0],
                     outbound_event_hashes: Vec::new(),
                 },
                 targets: Vec::new(),
@@ -865,6 +863,9 @@ mod tests {
             parent: Default::default(),
             offline_context: eez_protocol::l1_history::OfflineContext::new(
                 &eez_protocol::l1_history::OfflineProfile {
+                    feeCollector: alloy_primitives::address!(
+                        "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                    ),
                     l1ChainId: alloy_primitives::U256::from(1),
                     l2ChainId: alloy_primitives::U256::from(1),
                     genesisHash: B256::repeat_byte(1),

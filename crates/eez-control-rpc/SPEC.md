@@ -2,18 +2,18 @@
 
 Status: fork Composer contract for fresh networks using permanent L1 history,
 delayed synchronized PREVRANDAO and offline v2 proving. Implementation/test status
-is recorded in the [feature audit](../../docs/audits/2026-10-22-l1-history-offline-proving/README.md).
+is recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 The current `eez-core-protocol` gitlink and this fork's `OfflineRollup` define the
 accepted on-chain ABI; upstream main is not a substitute.
 
 This profile preserves native blobs, block-hash commitments, whole grouped calls
 and position-bound L2 static entries. Composer preserves each static
 `expectedEntryIndex` in its load and semantic DA; the signer independently binds
-it to ordered execution. All rules are active from genesis. Prior seed rules,
-v1 proving, preparation leases and provider-backed signer authorization are retired.
+it to ordered execution. All rules are active from genesis. Proving uses complete request-local evidence
+and independently provisioned rules.
 
-[prove_stream.proto](proto/prove_stream.proto) and the shared messages in
-[prove.proto](proto/prove.proto) are the canonical schemas. The
+[prove.proto](proto/prove.proto) is the single canonical schema for discovery,
+execution witnesses and streaming. The
 [streaming specification](STREAMING_SPEC.md) defines framing, session recovery and
 offline evidence. This document owns native settlement, response validation,
 retry cutoff, failure attribution and canonical queue ownership. The
@@ -43,18 +43,17 @@ transactions. It has no L1 or L2 RPC connection.
 
 ## 2. Service definition
 
-`prove.v2.Prover.ProveStream` is the only proving endpoint. The
-`prove.v1.Prover.Capabilities` query remains a shared discovery endpoint; its
-namespace and shared witness messages do not enable v1 proving. Generate clients
-from these schemas, not a second codec.
+`prove.v2.Prover` is the only service. It exposes `Capabilities` for discovery
+and `ProveStream` for bidirectional proving. Every message belongs to `prove.v2`.
+Generate clients from the single schema; no second service or package is needed.
 
 ### 2.1 Validation identity and capability discovery
 
 Capabilities returns operations tag 0, offline profile 2, the 32-byte validation
 identity, effective block/byte/witness-item/message limits and timeouts. The call
-neither occupies the expensive worker nor signs. Identity schema 6 binds actual
+neither occupies the expensive worker nor signs. Validation identity binds actual
 loaded L1/L2 configuration, fixed genesis/history profile, registry/manager,
-rollup and validation specification version. Proof-system/vkey policy is checked
+rollup and validation-contract version. Proof-system/vkey policy is checked
 separately during settlement and response verification. Duplicate JSON keys reject before rules are loaded;
 EIP-155 chain ID alone does not identify a network or its rules. Resource limits
 are separate from the validation identity. The normative
@@ -229,9 +228,11 @@ one with exact hash/state continuity. The witness fields are:
 The account and state trie are the same global trie; storage tries are separate.
 Witnesses must support deletions hidden by the final endpoint state. L1 evidence
 must also support inherited selections and all intermediate produced headers,
-including headers never selected as origin. Finalize checks maximality and exact
-anchor termination. Missing evidence is a rejection, never permission to fetch
-it from an RPC source or assume an older source.
+including headers never selected as origin. Finalize checks recorded origins
+against the exact anchored ancestry. The first transaction at a scheduled update
+is the canonical native history import, including an empty import for a repeat.
+Missing evidence rejects; it never authorizes RPC fetching or rewriting that
+recorded choice. Additional newer headers cannot invalidate a valid repeat.
 
 ### 3.4 Stream completion and recovery
 
@@ -404,7 +405,7 @@ unvalidated external hints cannot authorize it.
 ### 6.2 Actionable failed preconditions
 
 A `FAILED_PRECONDITION` rejection MAY carry a protobuf-encoded
-`prove.v1.ProveFailure` in `Rejected.details` (or gRPC binary status details for
+`prove.v2.ProveFailure` in `Rejected.details` (or gRPC binary status details for
 a transport-level error). The Composer
 MUST decode the details bytes directly as `ProveFailure`, without a
 `google.rpc.Status` wrapper. The gRPC status code remains authoritative:

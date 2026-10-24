@@ -87,6 +87,26 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ## Implementation boundaries and invariants
 
+- The [2026-10-23 branch amendment](docs/proposals/l1-origin-and-offline-proving.md#accepted-branch-scope-after-divergence-review)
+  is the owner-selected fresh-network profile: native `0x45`, reserved system sender, source identity
+  without a system-account nonce, and ordinary base fees credited to a collector.
+  The [exact native/profile specification](docs/proposals/native-system-transactions.md)
+  owns E1/E2; the [native-v1 audit](docs/audits/2026-10-24-native-v1/README.md)
+  tracks implementation and E3 evidence. There is one version-1 native profile;
+  do not add fallback execution, migration or old-format validation paths.
+  Preserve history, execution and ownership invariants and keep owning runtime
+  specifications, identities and fixtures consistent.
+
+- The fresh-network history update is transaction zero at its scheduled position:
+  native `0x45` version 1, zero value, history predeploy destination, authenticated
+  source identity, no system-account nonce and a normal metered receipt. It belongs to public V0 ordinary data, not cross-chain framing.
+  Replay validates its recorded choice; later headers cannot invalidate a repeat.
+  Keep v2 and the offline prover. Ordinary local production must not wait for L1,
+  proof/settlement work or the speculative-depth/replacement bounds. Keep remote
+  reads outside the shared production lock and retain local generation/parent
+  fences inside it. See the [current proposal](docs/proposals/l1-origin-and-offline-proving.md).
+
+
 - Keep ABI types, commitments, and shared protocol rules in `eez-protocol` and the
   codec crates, without dependencies on runtime roles. Put role-neutral bootstrap
   in `eez-node-common`, request scheduling/ownership in `eez-composer`, runtime
@@ -136,7 +156,11 @@ its Solidity implementation/tests and the applicable fork contract:
   including independent provenance retrieval, shared worker ownership and epoch fencing.
   Run the frozen native session transcripts without regenerating expectations.
   Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
-  language-neutral. Dependency changes require the local review guard and a
+  language-neutral. One `VALIDATION_VERSION` covers identity encoding, canonical
+  JSON and validation semantics; there are no separately selectable versions.
+  The manager uses one `Profile`/`OfflineProfile` and the domain
+  `EEZ_ROLLUPX_OFFLINE_PROFILE`. Keep the single `prove.v2.Prover` service.
+  Dependency changes require the local review guard and a
   protocol-version change only when validation semantics change.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
   triggers from gas/blob/timing admission limits. Derive budgets from active network
@@ -172,11 +196,9 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ### Generated files
 
-- Edit v1 in [prove.proto](crates/eez-control-rpc/proto/prove.proto) and the shared
-  v2 schema in [prove_stream.proto](crates/eez-control-rpc/proto/prove_stream.proto).
-  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` and
-  `$OUT_DIR/prove.v2.rs` using `protoc`; the
-  [include module](crates/eez-control-rpc/src/generated.rs) loads them. Regenerate
+- Edit the single v2 schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
+  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v2.rs` using `protoc`; the
+  [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
 - The core pin tracks published `feature/e2e_edge_cases`; RollupX's
   [history predeploy](contracts/src/L2/L1BlockhashContract.sol) and
@@ -187,7 +209,9 @@ its Solidity implementation/tests and the applicable fork contract:
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production
   base `genesis.json` (predeploys only, with EEZL2 as an `EEZProxy`, its
-  implementation and ProxyAdmin at fixed addresses; it fails if that file allocates ETH), the
+  implementation and ProxyAdmin, plus the non-upgradeable FeeVault with
+  constructor-derived owner/recipient storage, at fixed addresses; it fails if
+  that file allocates ETH), the
   development base `genesis.dev.json` (public test accounts; Kurtosis and Chiado
   test networks select it with `EEZ_GENESIS_BASE`),
   `crates/eez-node-e2e/tests/fixtures/genesis.json`, and

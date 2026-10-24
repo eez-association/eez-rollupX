@@ -82,7 +82,7 @@ pub fn block_witness<P>(
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
-    let (evm_config, l1_headers_rlp) = capture_history(evm_config, block.header())?;
+    let (evm_config, l1_headers_rlp) = capture_history(provider, evm_config, block)?;
     let witness = block_execution_witness(provider, &evm_config, block, mode)?;
     Ok(BlockWitness {
         l1_headers_rlp,
@@ -112,7 +112,7 @@ pub fn block_witness_with_observations<P>(
 where
     P: StateProviderFactory + HeaderProvider<Header = Header>,
 {
-    let (evm_config, l1_headers_rlp) = capture_history(evm_config, block.header())?;
+    let (evm_config, l1_headers_rlp) = capture_history(provider, evm_config, block)?;
     let (witness, outcomes) = block_execution_witness_with_observations(
         provider,
         &evm_config,
@@ -136,25 +136,29 @@ where
 /// Persist only the immutable range needed by this block. The final candidate
 /// adds its anchor bridge later; capture does not duplicate four days of future
 /// headers in every block. Freeze the same checked snapshot for re-execution.
-fn capture_history(
+fn capture_history<P: StateProviderFactory>(
+    provider: &P,
     config: &EezEvmConfig,
-    header: &Header,
+    block: &RecoveredBlock<Block>,
 ) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
-    let schedule = eez_evm::profile::schedule(config.chain_spec().as_ref())?;
-    let timing = schedule.history()?;
-    let parent_timestamp = header
-        .timestamp
-        .checked_sub(schedule.config().block_interval_seconds)
-        .ok_or_else(|| eyre::eyre!("witness parent timestamp underflow"))?;
+    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS, decode_import};
+    let header = block.header();
+    let state = provider.state_by_block_hash(header.parent_hash)?;
+    let first = u64::try_from(
+        state
+            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT).into())?
+            .unwrap_or_default(),
+    )?;
+    let count = match block.body().transactions.first() {
+        Some(eez_primitives::EezTxEnvelope::System(tx)) if tx.to == HISTORY_ADDRESS => {
+            decode_import(&tx.input)?.hashes.len() as u64
+        }
+        _ => 0,
+    };
+    let last = first
+        .checked_add(count)
+        .ok_or_else(|| eyre::eyre!("history witness range overflow"))?;
     let chain = config.l1_headers(header.timestamp)?;
-    let first = chain
-        .select(timing.source_cutoff(parent_timestamp)?)?
-        .header()
-        .number;
-    let last = chain
-        .select(timing.source_cutoff(header.timestamp)?)?
-        .header()
-        .number;
     let range = std::sync::Arc::new(chain.range(first, last)?);
     let raw = range.raw_headers().collect();
     let config = config
@@ -648,7 +652,12 @@ mod tests {
             ..Default::default()
         };
         let parent_hash = parent.hash_slow();
-        provider.add_header(parent_hash, parent);
+        provider.add_header(parent_hash, parent.clone());
+        let state = reth_storage_api::StateProviderFactory::latest(&provider).unwrap();
+        let mut db =
+            super::StateProviderDatabase::new(super::EvmStateProviderAdapter(state.as_ref()));
+        let (_, transaction) = evm_config.prepare_history(&mut db, &parent, 1_012).unwrap();
+        let transaction = transaction.unwrap();
         let block = RecoveredBlock::new_unhashed(
             Block::new(
                 Header {
@@ -665,11 +674,12 @@ mod tests {
                     ..Default::default()
                 },
                 alloy_consensus::BlockBody {
+                    transactions: vec![transaction],
                     withdrawals: Some(Default::default()),
                     ..Default::default()
                 },
             ),
-            Vec::new(),
+            vec![eez_primitives::SYSTEM_ADDRESS],
         );
         (provider, evm_config, block, parent_hash)
     }
@@ -710,7 +720,7 @@ mod tests {
                 } else {
                     parent.number += 1;
                 }
-                provider.add_header(parent_hash, parent);
+                provider.add_header(parent_hash, parent.clone());
             }
             let error = block_execution_witness(
                 &provider,
@@ -813,7 +823,7 @@ mod tests {
         );
 
         let observation = BlockObservation {
-            after_transactions: 0,
+            after_transactions: 1,
             manager_address: MANAGER,
             claim: FifoObservationClaim {
                 pinned_block_hash: parent_hash,
@@ -900,7 +910,7 @@ mod tests {
                 &block,
                 ExecutionWitnessMode::Legacy,
                 &[BlockObservation {
-                    after_transactions: 0,
+                    after_transactions: 1,
                     manager_address: MANAGER,
                     claim: FifoObservationClaim {
                         pinned_block_hash: parent_hash,

@@ -15,7 +15,7 @@ tonic-prost = { workspace = true }
 prost       = { workspace = true }
 
 [build-dependencies]
-# Compiles the v1 and shared v2 schemas. Needs `protoc` on PATH.
+# Compiles the single prove.v2 schema. Needs `protoc` on PATH.
 tonic-prost-build = { workspace = true }
 
 [dev-dependencies]

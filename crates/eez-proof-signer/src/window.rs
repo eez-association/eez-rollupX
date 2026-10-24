@@ -2,7 +2,7 @@
 //! remain separate trust transitions; decoded claims never authorize either.
 use alloy_primitives::B256;
 use alloy_rpc_types_debug::ExecutionWitness;
-use eez_control_rpc::v1::{BlockWitness, ExecutionWitness as WireExecutionWitness};
+use eez_control_rpc::v2::{BlockWitness, ExecutionWitness as WireExecutionWitness};
 use thiserror::Error;
 
 /// Resource quotas for one structurally admitted window.

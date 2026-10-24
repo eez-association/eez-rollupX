@@ -470,7 +470,7 @@ facts, but enforced operation does.
 
 The first implementation changes the optional standalone settlement indexer's
 [L2 fee collector](../../monitoring/indexer/src/l2_fees.rs). It records native
-type `0x76` gas at zero price, ordinary receipt gas and fees, and gross priority
+type `0x45` gas at zero price, ordinary receipt gas and fees, and gross priority
 payments grouped by the actual block beneficiary. All receipts still participate
 in inclusion and cumulative/block-gas validation; native prices must be zero.
 Reverted ordinary transactions remain fee-paying. Unsupported or incomplete
@@ -843,7 +843,7 @@ multi-user qualification a prerequisite for the first single-group trial.
 | L1-origin source transaction, included after the post | User pays its L1 receipt charge; execution priority payment goes to the L1 block beneficiary | Its gas estimate/tip is not poster revenue |
 | L1 `postAndVerifyBatch` transaction | Poster pays execution plus native blob charges | Includes protocol framing/verification/storage and any work executed inside that transaction |
 | L2-origin ordinary signed transaction | User pays ordinary L2 execution fees; tip goes to the L2 header beneficiary | Collectable only when the beneficiary belongs to the fee treasury and the transaction is canonically retained |
-| Native L2 system transactions, type `0x76` | Metered execution with zero gas price, no priority fee | Incoming L2 work does not automatically produce user fee revenue; budget its compute/DA costs explicitly |
+| Native L2 system transactions, type `0x45` | Metered execution with zero gas price, no priority fee | Incoming L2 work does not automatically produce user fee revenue; budget its compute/DA costs explicitly |
 | Bridged call value and pooled system inventory | Protocol value accounting | Principal transfers are neither service revenue nor operating expense |
 
 The [fronts](../../crates/eez-node/src/ingress.rs) currently forward ordinary

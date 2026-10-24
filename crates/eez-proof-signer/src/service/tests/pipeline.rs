@@ -270,7 +270,13 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         transactions: vec![transaction],
         ..Default::default()
     };
-    let block = eez_primitives::Block::new(Default::default(), body);
+    let block = eez_primitives::Block::new(
+        alloy_consensus::Header {
+            gas_limit: crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+            ..Default::default()
+        },
+        body,
+    );
     let block_rlp = alloy_rlp::encode(block);
     let settling_block = validate::ValidatedBlock::for_test(
         5,

@@ -24,6 +24,9 @@ fn execute_empty_blocks(
     let mut factory = EezBlockExecutorFactory::new(spec, layer);
     let (history, mut db) = crate::history::tests::fixture();
     factory.history = Some(history);
+    if layer == ExecutionLayer::Rollup {
+        factory.evm = crate::tests::factory();
+    }
     for (address, raw) in [
         (HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE.clone()),
         // These adversarial predeploys make unwanted calls observable even

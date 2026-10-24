@@ -46,6 +46,7 @@ pub fn next_attributes(
     config: &EezEvmConfig,
     parent: &Header,
     environment: &Environment,
+    first_transaction: Option<&TransactionSigned>,
 ) -> eyre::Result<NextBlockEnvAttributes> {
     ensure!(
         environment.extra_data.len() <= 32,
@@ -61,7 +62,7 @@ pub fn next_attributes(
     Ok(NextBlockEnvAttributes {
         timestamp,
         suggested_fee_recipient: environment.fee_recipient,
-        prev_randao: config.history_prev_randao(timestamp)?,
+        prev_randao: config.history_prev_randao(parent, timestamp, first_transaction)?,
         gas_limit: eez_protocol::l2::GAS_LIMIT,
         parent_beacon_block_root: chain_spec
             .is_cancun_active_at_timestamp(timestamp)
@@ -94,7 +95,7 @@ pub fn reassemble(
     post_state_root: B256,
     state_provider: &dyn StateProvider,
 ) -> eyre::Result<Block> {
-    let attributes = next_attributes(config, parent, environment)?;
+    let attributes = next_attributes(config, parent, environment, transactions.first())?;
     assemble(
         config,
         parent,
@@ -135,7 +136,7 @@ pub fn full_attributes(
         fee_recipient: header.beneficiary,
         extra_data: header.extra_data.clone(),
     };
-    let attributes = next_attributes(config, parent, &env)?;
+    let attributes = next_attributes(config, parent, &env, block.body.transactions.first())?;
     ensure!(
         attributes.prev_randao == header.mix_hash,
         "full block PREVRANDAO differs from its scheduled L1 origin"

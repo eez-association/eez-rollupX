@@ -36,7 +36,7 @@ use alloy_sol_types::{SolCall, SolError, SolEvent, SolValue, sol};
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use eez_control_rpc::{
     MAX_MESSAGE_BYTES, encode_prove_failure,
-    v1::{
+    v2::{
         InboundFailure, ProveFailure, prove_failure,
         prover_client::ProverClient,
         prover_server::{Prover, ProverServer},
@@ -2882,6 +2882,14 @@ fn bind_l2_genesis_reference(
 ) -> Result<()> {
     use eez_protocol::l2::{DerivationConfig, GenesisL1Reference};
     let mut genesis: alloy_genesis::Genesis = serde_json::from_slice(&std::fs::read(path)?)?;
+    let selected: DerivationConfig = serde_json::from_value(
+        genesis
+            .config
+            .extra_fields
+            .get("rollupX")
+            .context("fixture base lacks its derivation profile")?
+            .clone(),
+    )?;
     genesis.mix_hash = reference.mix_hash;
     let interval = block_interval_seconds
         .checked_mul(u64::from(sync_interval_blocks))
@@ -2891,6 +2899,7 @@ fn bind_l2_genesis_reference(
         .checked_add(interval)
         .context("fixture history bootstrap timestamp overflow")?;
     let config = DerivationConfig {
+        fee_collector: selected.fee_collector,
         history_update_offset: sync_interval_blocks
             .checked_sub(1)
             .context("fixture requires a nonzero Sync interval")?
@@ -3461,11 +3470,10 @@ pub async fn deploy_setter_wrapper(
     deploy_raw(rpc_url, key, chain_id, &artifact, proxy.abi_encode()).await
 }
 
-/// Wait until the outbound fixture is readable and Composer observes an L2
-/// parent after that state is deployed. Deployment receipts alone are not a
-/// sufficient hand-off boundary: ingress reads latest state, while composition
-/// executes against the parent selected for its Sync block. Observe invocation
-/// rather than drain because catch-up and in-flight slots return before draining.
+/// Check the deployed fixture and let one complete Sync interval pass. Ordinary
+/// production now progresses without invoking the Composer when policy is not
+/// due. Waiting for a new interval also expires any live preparation started
+/// before deployment, so subsequent requests have a parent containing the code.
 async fn wait_for_outbound_fixture_parent(
     node: &NodeHandle,
     l2_rpc: &str,
@@ -3498,18 +3506,14 @@ async fn wait_for_outbound_fixture_parent(
     }
 
     let fixture_height = provider.get_block_number().await?;
-    let cursor = node.signal_cursor()?;
-    wait_for(SETUP_TIMEOUT, || async {
-        let covered = node
-            .signals_since(cursor)?
-            .into_iter()
-            .any(|signal| signal.name == signals::COMPOSER_SYNC_SLOT_INVOKED);
-        Ok(covered.then_some(()))
-    })
+    wait_for_latest_height(
+        node,
+        fixture_height + CROSS_CHAIN_SYNC_INTERVAL,
+        SETUP_TIMEOUT,
+    )
     .await
-    .with_context(|| {
-        format!("Composer did not start a Sync slot after outbound fixture height {fixture_height}")
-    })
+    .map(|_| ())
+    .with_context(|| format!("L2 did not advance beyond outbound fixture height {fixture_height}"))
 }
 
 /// Deploy `Counter` (no constructor args) on either chain.
@@ -3672,7 +3676,7 @@ pub async fn account_code(rpc_url: &str, addr: Address) -> Result<Bytes> {
 
 pub async fn receipt_ok(rpc_url: &str, hash: alloy_primitives::TxHash) -> Result<Option<bool>> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
-    // Native receipts use type 0x76, outside Ethereum's closed receipt enum.
+    // Native receipts use type 0x45, outside Ethereum's closed receipt enum.
     let receipt: Option<
         TransactionReceipt<alloy_consensus_any::AnyReceiptEnvelope<alloy_rpc_types_eth::Log>>,
     > = provider
@@ -6437,6 +6441,33 @@ mod mined_revert_tests {
 #[cfg(test)]
 mod framework_tests {
     use super::*;
+
+    #[test]
+    fn rebinding_fixture_l1_reference_preserves_selected_fee_collector() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("genesis.json");
+        let collector = Address::with_last_byte(0xf1);
+        let mut genesis = fixture_genesis().unwrap();
+        genesis.config.extra_fields.get_mut("rollupX").unwrap()["feeCollector"] =
+            serde_json::json!(collector);
+        std::fs::write(&path, serde_json::to_vec(&genesis).unwrap()).unwrap();
+        for timestamp in [1_000, 2_000] {
+            let reference = alloy_consensus::Header {
+                timestamp,
+                mix_hash: B256::with_last_byte(7),
+                ..Default::default()
+            };
+            bind_l2_genesis_reference(&path, &reference, 1, 5).unwrap();
+            let rebound: alloy_genesis::Genesis =
+                serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            let config: eez_protocol::l2::DerivationConfig =
+                serde_json::from_value(rebound.config.extra_fields["rollupX"].clone()).unwrap();
+            assert_eq!(config.fee_collector, collector);
+            assert_eq!(config.l1_reference.hash, reference.hash_slow());
+            assert_eq!(rebound.timestamp, timestamp + 5);
+            assert_eq!(rebound.mix_hash, reference.mix_hash);
+        }
+    }
 
     #[test]
     fn failure_log_tail_bounds_large_unicode_records_without_losing_selection() {

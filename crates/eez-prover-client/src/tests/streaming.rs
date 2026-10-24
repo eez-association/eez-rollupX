@@ -31,6 +31,8 @@ struct Model {
 }
 #[derive(Clone)]
 pub(super) struct StreamStub {
+    pub(super) capabilities: v2::CapabilitiesResponse,
+    pub(super) capability_calls: Arc<std::sync::atomic::AtomicUsize>,
     signer: PrivateKeySigner,
     finalizes: Option<tokio::sync::mpsc::UnboundedSender<v2::Finalize>>,
     pub(super) unavailable: bool,
@@ -49,6 +51,8 @@ impl StreamStub {
         finalizes: Option<tokio::sync::mpsc::UnboundedSender<v2::Finalize>>,
     ) -> Self {
         Self {
+            capabilities: test_capabilities(),
+            capability_calls: Arc::default(),
             signer,
             hash,
             finalizes,
@@ -62,23 +66,26 @@ impl StreamStub {
         }
     }
     fn new(ctx: &ProvingContext) -> Self {
-        Self {
-            signer: test_key(),
-            finalizes: None,
-            unavailable: false,
-            model: Arc::default(),
-            hash: request_hash(ctx, test_key().address().into_word()).unwrap(),
-            capacity: 512,
-            unsupported: None,
-            corrupt: None,
-            stall: None,
-            pipeline: false,
-        }
+        Self::response(
+            test_key(),
+            request_hash(ctx, test_key().address().into_word()).unwrap(),
+            None,
+        )
     }
 }
 #[tonic::async_trait]
 impl v2::prover_server::Prover for StreamStub {
     type ProveStreamStream = Pin<Box<dyn Stream<Item = Result<v2::ServerFrame, Status>> + Send>>;
+
+    async fn capabilities(
+        &self,
+        _request: Request<v2::CapabilitiesRequest>,
+    ) -> Result<Response<v2::CapabilitiesResponse>, Status> {
+        self.capability_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(Response::new(self.capabilities.clone()))
+    }
+
     async fn prove_stream(
         &self,
         request: Request<Streaming<v2::ClientFrame>>,
@@ -292,13 +299,8 @@ impl Drop for ServerTask {
 async fn serve(stub: StreamStub) -> (RemoteProver, ServerTask) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
-    let capabilities = CapabilityStub {
-        capabilities: test_capabilities(),
-        capability_calls: Arc::default(),
-    };
     let task = tokio::spawn(async move {
         Server::builder()
-            .add_service(ProverServer::new(capabilities))
             .add_service(
                 v2::prover_server::ProverServer::new(stub)
                     .max_decoding_message_size(eez_control_rpc::MAX_MESSAGE_BYTES),

@@ -75,7 +75,8 @@ impl CheckpointPlan {
         let mut system_sender_flags = Vec::with_capacity(transaction_count);
         let mut sync_system_transaction_flags = Vec::with_capacity(transaction_count);
         for transaction in block.transactions_recovered() {
-            let is_system_sender = transaction.signer() == expected_l2_system_address;
+            let is_system_sender = transaction.signer() == expected_l2_system_address
+                && !transaction.inner().is_history();
             system_sender_flags.push(is_system_sender);
             sync_system_transaction_flags.push(is_system_tx(
                 alloy_consensus::Typed2718::ty(&transaction),
@@ -508,6 +509,10 @@ impl Backend {
                 post_state_root,
                 settlement_evidence: SettlementBlockEvidence {
                     ordinary_prefix_hash,
+                    cumulative_gas_used: validated_receipts
+                        .iter()
+                        .map(alloy_consensus::TxReceipt::cumulative_gas_used)
+                        .collect(),
                     system_sender_flags,
                     observed_outbound_events,
                 },
@@ -884,7 +889,9 @@ fn system_sender_flags(
 ) -> Vec<bool> {
     block
         .transactions_recovered()
-        .map(|transaction| transaction.signer() == expected_l2_system_address)
+        .map(|transaction| {
+            transaction.signer() == expected_l2_system_address && !transaction.inner().is_history()
+        })
         .collect()
 }
 

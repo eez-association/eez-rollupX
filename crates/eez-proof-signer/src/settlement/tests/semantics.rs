@@ -72,12 +72,12 @@ fn authorized_outbound_fixture() -> (
         &[(sidecar, raw_user.clone())],
         &[],
         &system_transaction_context(),
-        11,
+        &[B256::repeat_byte(0x11)],
     )
     .unwrap();
-    let transactions = eez_protocol::system_tx::interleave_sync_block_txs(&pairs)
+    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
         .into_iter()
-        .map(|raw| alloy_rlp::decode_exact(raw.as_ref()).unwrap())
+        .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
         .collect();
     let window = validated_window(block_rlp(transactions));
     let call = batch.entries[1].l2ToL1Calls[0].clone();

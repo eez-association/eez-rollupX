@@ -28,7 +28,7 @@ pub(crate) struct ValidatedStreamBlock {
     l1_checkpoint_len: usize,
     // Both inherited and newly selected sources were checked against the
     // authenticated execution state. Later headers cannot rewrite either.
-    l1_selections: [(u64, B256); 2],
+    l1_evidence_endpoint: (u64, B256),
 }
 
 impl ValidatedStreamBlock {
@@ -70,11 +70,10 @@ impl ValidatedStreamBlock {
         chain: &HeaderChain,
         anchor: EvidenceAnchor,
     ) -> Result<(), ValidationError> {
-        for (cutoff, hash) in self.l1_selections {
-            chain
-                .verify_cutoff(cutoff, hash, anchor)
-                .map_err(|error| ValidationError::Rejected(error.to_string()))?;
-        }
+        let (number, hash) = self.l1_evidence_endpoint;
+        chain
+            .verify_origin(number, hash, anchor)
+            .map_err(|error| ValidationError::Rejected(error.to_string()))?;
         Ok(())
     }
 
@@ -139,11 +138,9 @@ impl Validator {
                 .map_err(|error| ValidationError::Rejected(error.to_string()))?;
         }
         if let Some(previous) = previous {
-            // Earlier unresolved cutoffs are no greater than the most recent
-            // one. Checked linkage makes resolved selections immutable.
-            let (cutoff, hash) = previous.l1_selections[1];
+            let (number, hash) = previous.l1_evidence_endpoint;
             if history
-                .select(cutoff)
+                .at(number)
                 .map_err(|error| ValidationError::Rejected(error.to_string()))?
                 .hash()
                 != hash
@@ -153,35 +150,10 @@ impl Validator {
                 ));
             }
         }
-        let schedule = self
-            .schedule()
+        let endpoint = history
+            .endpoint()
             .map_err(|error| ValidationError::Rejected(error.to_string()))?;
-        let timing = schedule
-            .history()
-            .map_err(|error| ValidationError::Rejected(error.to_string()))?;
-        let parent_timestamp = block
-            .header
-            .timestamp
-            .checked_sub(schedule.config().block_interval_seconds)
-            .ok_or_else(|| {
-                ValidationError::Rejected("execution parent timestamp underflow".into())
-            })?;
-        let mut selections = [(0, B256::ZERO); 2];
-        for (slot, timestamp) in selections
-            .iter_mut()
-            .zip([parent_timestamp, block.header.timestamp])
-        {
-            let cutoff = timing
-                .source_cutoff(timestamp)
-                .map_err(|error| ValidationError::Rejected(error.to_string()))?;
-            *slot = (
-                cutoff,
-                history
-                    .select(cutoff)
-                    .map_err(|error| ValidationError::Rejected(error.to_string()))?
-                    .hash(),
-            );
-        }
+        let evidence_endpoint = (endpoint.header().number, endpoint.hash());
         let validated =
             self.validate_cold_window(vec![admitted], cancellation, Arc::clone(&history))?;
         if validated.settling_block.replay_input.pre_state_root != parent.state_root {
@@ -196,7 +168,7 @@ impl Validator {
                 settling: validated.settling_block,
                 l1_segment: segment,
                 l1_checkpoint_len: history.headers().len(),
-                l1_selections: selections,
+                l1_evidence_endpoint: evidence_endpoint,
             },
             history,
         ))

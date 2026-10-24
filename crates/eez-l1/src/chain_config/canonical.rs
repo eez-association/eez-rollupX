@@ -1,4 +1,4 @@
-//! Version 1 chain-document canonicalization for validation namespaces.
+//! Chain-document canonicalization for the single validation contract.
 //!
 //! Object keys are decoded, sorted by UTF-8 bytes and emitted exactly once.
 //! Arrays retain order, strings use compact serde_json UTF-8 escaping, and
@@ -11,9 +11,6 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, de};
 use serde_json::value::RawValue;
-
-/// Canonicalizer version; changes to these rules change the identity schema.
-pub const CANONICAL_JSON_VERSION: u64 = 1;
 
 /// Canonicalize a complete JSON document without rounding scalar numbers or
 /// silently overwriting duplicate keys at any nesting level.
@@ -103,7 +100,6 @@ mod tests {
             "../../../eez-control-rpc/conformance/validation-identity.json"
         ))
         .unwrap();
-        assert_eq!(vectors["canonical_json_version"], CANONICAL_JSON_VERSION);
         for vector in vectors["canonical_json"].as_array().unwrap() {
             let actual =
                 canonicalize_chain_json(vector["input"].as_str().unwrap().as_bytes()).unwrap();

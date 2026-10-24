@@ -1,6 +1,6 @@
 {
   "gnosis_l1": false,
-  "l2_system_address": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076",
+  "l2_system_address": "0xfffffffffffffffffffffffffffffffffffffffe",
   "proof_system": "0x948b3c65b89df0b4894abe91e6d02fe579834f8f",
   "registry_address": "0x71c95911e9a5d330f4d621842ec243ee1343292e",
   "rollup_id": 1,

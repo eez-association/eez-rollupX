@@ -167,11 +167,16 @@ pub(crate) struct SettlementBlockEvidence {
     /// Whether each transaction's fork-aware recovered signer is the reserved
     /// system address, in exact block order.
     pub(in crate::validate) system_sender_flags: Vec<bool>,
+    /// Charged cumulative gas from the independently replayed receipts.
+    pub(in crate::validate) cumulative_gas_used: Vec<u64>,
     /// Outbound event candidates, in transaction and receipt-log order.
     pub(in crate::validate) observed_outbound_events: Vec<OutboundEventObservation>,
 }
 
 impl SettlementBlockEvidence {
+    pub(crate) fn cumulative_gas_used(&self) -> &[u64] {
+        &self.cumulative_gas_used
+    }
     pub(crate) const fn ordinary_prefix_hash(&self) -> B256 {
         self.ordinary_prefix_hash
     }
@@ -200,6 +205,7 @@ impl SettlementBlockEvidence {
     ) -> Self {
         Self {
             ordinary_prefix_hash: B256::ZERO,
+            cumulative_gas_used: vec![0; system_sender_flags.len()],
             system_sender_flags,
             observed_outbound_events,
         }
@@ -483,7 +489,6 @@ impl Validator {
             system_address: self.expected_l2_system_address(),
             eez_l2_address: crate::EEZL2_ADDRESS,
             chain_document_digest,
-            canonical_json_version: eez_l1::chain_config::CANONICAL_JSON_VERSION,
             offline_profile_hash: deployment.profile.commitment(),
             registry: deployment.registry,
             manager: deployment.manager,
@@ -681,6 +686,14 @@ fn check_backend_window_output(
             transaction_count,
         );
         let settlement_evidence = &output.settlement_evidence;
+        eyre::ensure!(
+            settlement_evidence.cumulative_gas_used.len() == transaction_count
+                && settlement_evidence
+                    .cumulative_gas_used
+                    .windows(2)
+                    .all(|pair| pair[0] <= pair[1]),
+            "backend receipt gas does not cover the ordered transaction sequence",
+        );
         eyre::ensure!(
             settlement_evidence.system_sender_flags.len() == transaction_count,
             "system-sender flags for block {} cover {} transactions, expected {}",

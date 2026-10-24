@@ -545,6 +545,55 @@ mod tests {
     }
 
     #[test]
+    fn proxy_code_context_calls_are_left_to_the_evm_without_dispatch() {
+        use revm::interpreter::CallValue;
+        // Register both the code and execution-context addresses. Even an
+        // authorized context must not be mistaken for a normal proxy CALL by
+        // the composition hook; the actual manager call remains EVM execution.
+        for scheme in [CallScheme::DelegateCall, CallScheme::CallCode] {
+            let mut db = State::builder().with_database(EmptyDB::default()).build();
+            let mut context = Context::mainnet().with_db(&mut db);
+            context.journal_mut().load_account(EEZ_ADDRESS).unwrap();
+            for address in [PROXY_ADDR, DESTINATION_ADDR] {
+                context
+                    .journal_mut()
+                    .sstore(
+                        EEZ_ADDRESS,
+                        proxy_mapping_key(address, EEZ_AUTHORIZED_PROXIES_SLOT).into(),
+                        packed_proxy_value(DESTINATION_ADDR, TARGET_ROLLUP),
+                    )
+                    .unwrap();
+            }
+            let mut dispatcher = CompositionBuilder::new(RollupId::MAINNET, Default::default());
+            let factory = SessionInspectorFactory::new(
+                lookup(EEZ_ADDRESS, EEZ_AUTHORIZED_PROXIES_SLOT),
+                RollupId::MAINNET,
+                crate::overlay::new_overlay_channel(),
+            );
+            let mut inspector = factory.build(&mut dispatcher);
+            let mut inputs = CallInputs {
+                input: Default::default(),
+                return_memory_offset: 0..0,
+                gas_limit: 100_000,
+                reservoir: 0,
+                bytecode_address: PROXY_ADDR,
+                known_bytecode: Default::default(),
+                target_address: DESTINATION_ADDR,
+                caller: Address::with_last_byte(7),
+                value: CallValue::Apparent(U256::ZERO),
+                scheme,
+                is_static: false,
+                charged_new_account_state_gas: false,
+            };
+            assert!(inspector.call(&mut context, &mut inputs).is_none());
+            assert!(inspector.take_error().is_none());
+            assert_eq!(inspector.dispatcher.recorded_count(), 0);
+            assert_eq!(inspector.frame_boundaries.len(), 1);
+            assert!(!inspector.frame_boundaries[0].intercepted_cross_chain);
+        }
+    }
+
+    #[test]
     fn unregistered_address_returns_none() {
         let mut ctx = fresh_context();
         ctx.journal_mut()

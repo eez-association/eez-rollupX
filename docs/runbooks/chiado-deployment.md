@@ -95,7 +95,7 @@ proxies, as in the pinned protocol's
 [deployment procedure](../../eez-core-protocol/deployment/README.md). Their
 ProxyAdmin owners, `EEZ_UPGRADE_OWNER` and `EEZ_ROLLUP_UPGRADE_OWNER`, default to
 the deployer and can replace the implementations; set them to dedicated
-accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x76` sender;
+accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x45` sender;
 they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
@@ -106,6 +106,8 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | --- | --- |
 | `.env` | Private RPC/keys, node/signer/deploy images, and Compose settings; copied from `.env.chiado.example`, used by deployment and startup; preserve |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
+| `EEZ_L2_TREASURY_RECIPIENT` | Required initial L2 recipient of FeeVault withdrawals. Must be nonzero and differ from FeeVault, SYSTEM and EEZL2. Deployment writes it into genesis storage. The vault owner may later call `setRecipient(address)` on L2; editing `.env` does not change deployed state. |
+| `EEZ_L2_TREASURY_OWNER` | Initial FeeVault owner; defaults to `OWNER` only when absent. Use an L2 governance/multisig address in production. Ownership transfers require `transferOwnership(address)` followed by `acceptOwnership()` from the proposed owner. Deployment input only, with the same address restrictions as the recipient. |
 | `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: coinbase of every Live and Sync L2 block, which receives priority fees. Compose refuses to start while it is unset or empty; set the zero address to choose the historical zero coinbase deliberately. Not a consensus value: it can change at any restart, and followers take each block's published beneficiary. |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
@@ -193,7 +195,8 @@ supplies matching contracts and tools; host builds and submodules are unnecessar
 The deploy image bundles two base genesis files:
 
 - `/repo/genesis.json`, the default production base. It contains only the EEZL2
-  (proxy, implementation and ProxyAdmin) and EIP-2935 predeploys and allocates no
+  (proxy, implementation and ProxyAdmin), EIP-2935, L1 history and FeeVault
+  predeploys and allocates no
   ETH: all L2 ETH is minted against value locked on L1. Its default L1 reference
   is Ethereum mainnet's genesis block and its L2 chain ID is 696990; deployment
   replaces the reference with the live finalized L1 block.
@@ -528,7 +531,7 @@ docker run --rm --platform linux/amd64 --entrypoint eez-genesis-state-root \
   -v "$PWD/datadir/genesis.json:/genesis.json:ro" "$EEZ_DEPLOY_IMAGE" /genesis.json
 cast wallet address --private-key "$EEZ_PROOF_SIGNER_KEY"
 cast call "$EEZ_ECDSA_PROOF_SYSTEM_ADDRESS" 'signer()(address)' --rpc-url "$EEZ_L1_RPC_URL"
-test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+test "${EEZ_L2_SYSTEM_ADDRESS,,}" = 0xfffffffffffffffffffffffffffffffffffffffe
 ```
 
 The two hashes must equal `EEZ_INITIAL_BLOCK_HASH` and `EEZ_L2_GENESIS_STATE_ROOT`.
@@ -792,7 +795,7 @@ refund requests.
 The signer consumes local L1/L2 profiles and complete witness evidence, with no
 L1 or L2 RPC. Configure `EEZ_ROLLUP_MANAGER_ADDRESS` for the deployed offline
 manager; keep node, follower and sender RPC settings on their own services.
-Obsolete signer RPC variables fail startup, including empty values. Follow the
+Follow the
 [signer operations guide](../../crates/eez-proof-signer/docs/operations.md#offline-configuration-and-recovery)
 for limits, configuration and loss of volatile sessions.
 
@@ -802,3 +805,30 @@ outside its compatibility boundary. There is no upgrade, database migration or
 legacy execution mode in these binaries. Do not rerun deployment or delete
 operator state to convert an existing network. Source and private fixture tests
 do not establish a public deployment or restart rehearsal.
+
+### L2 fee treasury
+
+New genesis files contain the non-upgradeable FeeVault at
+`0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078`, the authenticated `feeCollector`.
+The EVM credits ordinary base fees directly to its balance. Anyone may call
+`withdraw()` on L2; the complete current balance goes only to `recipient()`.
+The caller cannot choose the destination. Empty or failed payments revert,
+and a successful payment can leave the withdrawal transaction's own base fee.
+A recipient change applies to accumulated funds and subsequent withdrawals.
+
+Deployment follows `deploy.sh`'s existing precedence: explicit assignments in
+`.env` override inherited shell values. When the owner is absent from both, it
+defaults to the deployment `OWNER`; an empty value is invalid. These are initial
+genesis values, not startup overrides.
+
+The owner can change the recipient without a hard fork. Followers and the offline
+signer validate these ordinary transactions using their normal execution witness.
+This contract does not bridge funds to L1. A recipient contract must accept ETH;
+if it reverts, the owner must select a usable recipient before withdrawal succeeds.
+Lost or renounced ownership prevents subsequent administrative changes.
+
+The vault is present only in newly rendered networks. Adding it changes genesis
+code/storage, the genesis state root and validation identity. There is no migration,
+activation switch, mixed-genesis mode or rollback to an older genesis on an existing
+datadir. Prepare all node/follower/signer/deploy artifacts from the same revision
+before starting a new network. Existing networks are outside this change's scope.

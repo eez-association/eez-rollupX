@@ -8,7 +8,7 @@ EEZ protocol.
 
 The protocol sources are this checkout's `eez-core-protocol` gitlink and the fork's
 [`OfflineRollup`](../../contracts/src/OfflineRollup.sol). Source revisions and current
-validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-22-l1-history-offline-proving/README.md).
+validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 This profile is for fresh networks, active from genesis. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
 pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
@@ -190,7 +190,7 @@ The CLI value takes precedence.
 | `--vkey` | `EEZ_VKEY` | none | Nonzero 32-byte proof-system vkey. |
 | `--signer-key` | `EEZ_PROOF_SIGNER_KEY` | none | Valid secp256k1 attestation private key. |
 | `--attester-address` | `EEZ_ATTESTER_ADDRESS` | none | MUST equal the address derived from `--signer-key`. |
-| `--l2-system-address` | `EEZ_L2_SYSTEM_ADDRESS` | `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076` | MUST equal the fixed native system address embedded in EEZL2. |
+| `--l2-system-address` | `EEZ_L2_SYSTEM_ADDRESS` | `0xfffffffffffffffffffffffffffffffffffffffe` | MUST equal the fixed native system address embedded in EEZL2. |
 | `--proof-system` | `EEZ_PROOF_SYSTEM` | none | Nonzero expected proof-system contract address. |
 | `--max-request-blocks` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` | `65536` | Nonzero; lower explicit limits remain effective. |
 | `--max-request-bytes` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BYTES` | `536870912` | Nonzero. |
@@ -198,11 +198,8 @@ The CLI value takes precedence.
 | `--stream-idle-timeout-secs` | `EEZ_PROOF_SIGNER_STREAM_IDLE_TIMEOUT_SECS` | `120` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
 | `--request-timeout-secs` | `EEZ_PROOF_SIGNER_REQUEST_TIMEOUT_SECS` | `600` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
 
-The removed `--l1-rpc-url` and `--l2-rpc-url` flags reject. Presence of
-`EEZ_L1_RPC_URL` or `EEZ_PROOF_SIGNER_L2_RPC_URL`, even empty, fails startup
-without printing its value. Remove these settings only from the signer; other
-roles still need their chain connections. Startup, Block, Finalize and restart
-use local configuration plus complete request evidence, never a provider/cache fallback.
+Startup, Block, Finalize and restart use local configuration plus complete
+request evidence. The signer has no chain-provider settings or RPC fallback.
 
 Private-key syntax errors MUST be reported without echoing the supplied secret.
 Debug formatting MUST NOT reveal private keys.
@@ -229,7 +226,7 @@ same read. The digest precedes spelling normalization/defaults; see the
 The active deployment bindings are:
 
 ```text
-SYSTEM_ADDRESS = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+SYSTEM_ADDRESS = 0xfffffffffffffffffffffffffffffffffffffffe
 EEZL2_ADDRESS  = 0x4B2760F84B83d6b3829E30A7573B0172B6d6402C
 L1_HISTORY    = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077
 ```
@@ -250,26 +247,41 @@ manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
 
-Native transactions are `0x76 || rlp([chainId, nonce, to, value, input])` with
-the fixed sender, EEZL2 destination and zero gas price. Their metered gas budget
-is position-dependent: `min(16,777,216, block gas limit - cumulative gas used by
-the preceding transactions)`, where the cap is Osaka's EIP-7825 per-transaction
-limit. The budget is not reserved against the block; only metered use counts. A
-budget below the transaction's intrinsic gas (including EIP-7623's floor) makes
-the block invalid. Replay derives the budget from block contents alone, so the
-signer's stateless execution and the Composer agree without any carried field.
-The nonce and chain ID MUST match execution state/rules. Encoding contains no
-signature or configurable gas fields. Ordinary Ethereum transactions retain
-normal fees. Receipts retain type `0x76`. Public RPC/txpool admission MUST reject
-native transactions; only independently authorized reconstruction can supply
-them for settlement.
+Native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
+to, value, input])`, with version 1, the fixed implicit sender and zero fees.
+The [native contract](../../docs/proposals/native-system-transactions.md) defines
+canonical RLP, occurrence domains, RPC placeholders and exact gas/value rules.
+The signer independently recomputes each sourceHash from authenticated context
+and original semantic positions. Decoding a native transaction does not authorize
+its execution or minting. EEZL2 actions target EEZL2; scheduled history imports
+target the history predeploy with zero value.
 
-A native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
+The encoded gas limit MUST equal `min(16_777_216, remaining block gas)` for
+cross-chain actions, or `min(2_000_000, remaining block gas)` for history. Prior
+cumulative gas comes from replayed receipts. Reject a mismatched encoded limit;
+never clamp or normalize received bytes. A budget below intrinsic gas, including
+the active EIP-7623 floor, invalidates the block. Only actual charged gas counts
+toward block usage. Native execution never checks or increments the SYSTEM
+account nonce, even temporarily. Receipts have type `0x45`. Public RPC/txpool
+admission rejects native transactions.
+
+Ordinary Ethereum transactions retain normal nonce checks and fee deductions.
+Their final charged base-fee portion is credited after each transaction to the
+required genesis `config.rollupX.feeCollector`, including revert and halt; tips
+retain the active Ethereum beneficiary rules. Every prefix commitment includes
+the credit. Profile authenticates the collector, with no runtime override.
+The genesis renderer selects the fixed FeeVault predeploy. Its owner-controlled
+recipient and permissionless withdrawals are ordinary witnessed L2 execution;
+neither changes the network profile nor requires a chain RPC in the signer.
+Collector deletion, aliases, overflow and synthetic execution follow the
+[native fee contract](../../docs/proposals/native-system-transactions.md#fee-collector-configuration-and-execution).
+
+An EEZL2 native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
 execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value but can spend only freshly minted value, and an EEZL2 table is
+outbound value and retains pooled inventory within the block, and an EEZL2 table is
 consumable only in the block that loaded it, so both balances are dead at the
 next block start. Proxy recovery sweeps go to EEZL2's separate
 `RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
@@ -288,21 +300,19 @@ root shape and call identity. Flat rolling hashes are checked at conversion;
 nested/reverted tables additionally require complementary settlement
 verification. A checked shape alone never authorizes signing or value minting.
 
-This native format and its genesis are a fresh-network compatibility boundary.
-Old signed-system captures do not establish native authorization, mixed-version
-nodes are unsupported, and no in-place database migration is provided. See the
-[operator compatibility contract](../../docs/runbooks/chiado-deployment.md#recovery-and-upgrades).
+Deploy the native-v1 contracts, genesis and matching execution/proving binaries
+on a fresh network. This profile has no migration or activation switch.
 
 ## 4. Service and RPC behavior
 
 The daemon serves `prove.v2.Prover.ProveStream` and the shared Capabilities query.
-There is no v1 proving, PrepareOrdinary or lease endpoint. The
+`ProveStream` is the only proving method. The
 [v2 runtime contract](../eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile)
 is normative for attachment epochs, queues, byte accounting, duplicates,
 Resume/Rewind/Cancel and subrange finalization.
 
 Capabilities reports operations tag 0, offline profile 2, validation identity
-schema 6 and effective limits without acquiring an expensive worker or signing.
+and effective limits without acquiring an expensive worker or signing.
 Every stream requires matching `eez-validation-identity-bin` metadata before
 admission. Identity binds loaded chain/deployment/profile and proof rules, not
 request truth. Missing or mismatching identities never reach execution.
@@ -394,8 +404,8 @@ history endpoint. Exact fork-aware RLP decoding, hash computation, consecutive
 numbers, parent links and strictly increasing timestamps are mandatory. Headers
 are individually bounded to 2048 bytes; aggregate quotas also apply. Every
 produced bridge-only header remains required. Finalize verifies exact termination
-and maximality of inherited/new selections; it applies the actual-parent endpoint
-exception only under the shared checked rule.
+at the chosen anchor and membership of every recorded origin in that ancestry.
+A later eligible header does not invalidate an earlier recorded repeat.
 
 There is no separate provenance claim, canonical-state RPC, seed-history cache or
 registration-to-tip scan. Execution facts remain separate from conditional
@@ -411,29 +421,38 @@ chain ID; the Composer cannot override either.
 ### L1 history and synchronized PREVRANDAO
 
 The shared schedule is `I = delta * k`, `T(n) = T0 + n * I` and
-`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. Select the latest produced
-canonical L1 header at or before T. At U(T), import every newly covered hash
-and use that same selected header's `prevRandao` in both the L2 header and EVM.
-Keep both values until the next update, including across Sync boundaries.
-The delay accommodates delivery latency; it adds no finality guarantee.
-Missing evidence waits or rejects, never shifts the schedule or selects an
-older substitute. Repeated sources advance the cutoff without duplicate records.
+`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At every U(T), transaction
+zero MUST be native `0x45`, from the fixed system address to the history
+predeploy, with zero value and canonical `importHistory(T, hashes)` calldata.
+There is exactly one such transaction; outside U(T) it is forbidden. Its array
+contains zero to 64 consecutive headers after the inherited endpoint. Zero
+records repeat that endpoint while advancing the scheduled cutoff. A chosen
+endpoint cannot regress and its timestamp MUST be at most T. The exact calldata
+MUST match the authenticated parent state and checked ancestry byte for byte.
+The source need not be the latest eligible header. Missing acquisition therefore
+permits a producer to record a repeat; missing evidence for a recorded choice
+still rejects a proof. Replay follows the recorded choice, never arrival time.
 
-Pre-execution ordering is EIP-2935 parent history, existing balance cleanup, then
-required L1 history import before applications. Calldata is derived from checked
-parent storage, schedule and header chain. The fixed system caller performs one
-bounded call (at most 64 hashes, 2,000,000 gas) to the exact history runtime.
-The call has no transaction receipt/fee/nonce increment or transaction-gas charge.
-Required account nonce/balance preservation, exact output and successful execution
-are checked. Missing/wrong runtime, unauthorized/duplicate/conflicting writes,
-revert or budget exhaustion invalidate the block atomically. An import cannot
-be deferred or split into arbitrary later blocks. Prefix commitments include
-these changes exactly once.
+The selected header's `prevRandao` MUST match both the L2 header and actual EVM
+PREVRANDAO. Keep it and the origin until the next scheduled update, including
+across Sync boundaries. The delay is a minimum age, not finality, freshness or
+unpredictability. The sequencer may defer an otherwise eligible advance.
 
-The permanent contract stores only numbered hashes, current endpoint and fixed
-schedule/bootstrap bookkeeping. History is append-only from the configured
-starting block, including never-selected headers; absent lookup rejects explicitly.
-The same execution hook is used by Composer, follower and Stateless replay.
+Pre-execution applies EIP-2935 parent history and protocol balance cleanup.
+The recorded history transaction then executes before applications. It preserves
+the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
+Wrong code/state, missing/duplicate/misplaced transactions, malformed calldata,
+wrong version/source/chain/value/gas, conflicting imports, unexpected output/logs, revert or
+budget exhaustion invalidate the block. The prover cannot substitute a hidden
+call or silently repair the input. Prefix commitments include the transaction
+exactly once and retain its bytes when reconstructing cross-chain groups.
+
+The permanent contract stores every numbered hash from the configured starting
+block to the recorded endpoint, including never-selected intermediate headers.
+Absence rejects explicitly. Public V0 operations carry the exact history
+transaction in their ordinary prefix; it is not a cross-chain action and is
+allowed in historical mode. EEZL2 native actions retain terminal-only framing
+and all existing settlement authorization checks.
 
 ### 6.1 Decode and identity binding
 
@@ -453,7 +472,7 @@ Only the terminal block may request transaction-state checkpoints. For each
 recovered terminal transaction define:
 
 ```text
-system[i] = tx[i].type == 0x76
+system[i] = tx[i].type == 0x45
             && signer(tx[i]) == SYSTEM_ADDRESS
             && tx[i].to == EEZL2_ADDRESS
 ```
@@ -644,7 +663,7 @@ call's exact FIFO position.
 
 Every preceding block MUST contain neither:
 
-- a native transaction of reserved type `0x76`;
+- a native transaction of reserved type `0x45`;
 - a transaction recovered from `SYSTEM_ADDRESS`; nor
 - an observed EEZL2 outbound event.
 
@@ -866,9 +885,8 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Identity
-schema 6/offline profile 2 rejects incompatible peers before proving. Old selectors,
-wire inputs and genesis profiles fail explicitly. Restart may require client
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 1 and capability profile 2 identify the
+current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
 
@@ -906,23 +924,25 @@ into a valid candidate.
 
 V0 MUST cover exactly the independently replayed window. Published metadata and
 ordinary transaction bytes MUST match every block's reconstruction evidence. For
-the terminal, operations contain the ordinary prefix before its first native
-transaction. The remaining actions MUST reconstruct byte for byte to the exact
-validated suffix. B[0] includes the ordinary prefix and pre-execution history
+the terminal, operations contain the ordinary prefix, including the recorded history
+transaction, before its first EEZL2 native action. The remaining actions MUST reconstruct byte for byte to the exact
+validated suffix. B[0] includes the ordinary prefix and its recorded history
 updates; it is a terminal-height block hash, not the H-1 parent hash.
 
 Native reconstruction uses the fixed contract:
 
 ```text
-type         = 0x76
-sender       = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+type         = 0x45
+sender       = 0xfffffffffffffffffffffffffffffffffffffffe
 signature    = none
 target       = EEZL2_ADDRESS
 chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
 gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
-first nonce  = nonce of the first validated native transaction
+version      = 1
+sourceHash   = independently recomputed occurrence identity
+system nonce = neither checked nor changed
 ```
 
 The canonical order is:
@@ -936,8 +956,10 @@ The canonical order is:
  inbound delivery M-1]
 ```
 
-System nonces increase through that order. Outbound loads carry zero native
-value. Inbound deliveries carry their authorized inbound value. The reconstructed
+Each sourceHash retains its original manifest and root positions. A complete
+outbound bracket has one load followed by the exact signed origin, with callbacks
+inline in the source table. Each load/delivery value equals the checked sum of
+its committed L2 incoming calls, including nested callbacks. The reconstructed
 suffix length and every raw transaction byte MUST equal the validated
 terminal block after its published ordinary prefix.
 
@@ -1233,13 +1255,9 @@ attestation and one node-side acceptance of a remote attestation while running
 the inbound, outbound, and mixed settlement modes. A wave-only success is not
 sufficient end-to-end proof evidence.
 
-The current captured `fresh-chain-inbound-2175` PostBatch uses a legacy selector
-and is a rejection regression, not a positive current-protocol fixture. The
-captured `nonzero-outbound-630` receipts use the former five-field outbound
-event and likewise test rejection by the current six-field decoder. The
-`stateless-block-13` and `stateless-checkpoint-2175` fixtures validate execution
-and checkpoint behavior only; they do not by themselves establish a positive
-current-protocol settlement attestation.
+Current native-v1 captures and portable v2 transcripts are required for positive
+settlement evidence; exact fixture provenance and executed checks are recorded in
+[the current treasury/RPC audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 
 Updating either pinned external revision MUST include:
 

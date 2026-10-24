@@ -4,7 +4,7 @@
 //! must bind the exact chain endpoint through the manager's on-chain context.
 
 use alloy_consensus::Header;
-use alloy_primitives::{Address, B256, Bytes, U256, address, keccak256};
+use alloy_primitives::{B256, Bytes, U256, keccak256};
 use alloy_sol_types::{SolCall as _, SolValue as _, sol};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc};
@@ -18,11 +18,11 @@ pub use context::{OfflineContext, OfflineProfile, initializeOfflineCall};
 pub const HISTORY_RUNTIME: &[u8] = include_bytes!("l1_history/runtime.bin");
 
 /// Dedicated predeploy, distinct from the EIP-2935 L2 block-hash ring.
-pub const HISTORY_ADDRESS: Address = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077");
+pub use eez_primitives::HISTORY_ADDRESS;
 /// Maximum consecutive records in one mandatory scheduled import.
 pub const MAX_IMPORT_HEADERS: usize = 64;
-/// Separate system-call budget; excluded from transaction gas accounting.
-pub const IMPORT_GAS_LIMIT: u64 = 2_000_000;
+/// Maximum metered gas for a history transaction; included in block gas.
+pub const IMPORT_GAS_LIMIT: u64 = eez_primitives::HISTORY_TX_GAS_CAP;
 /// Maximum L1 rule epochs in the committed offline profile.
 pub const MAX_RULE_EPOCHS: usize = 64;
 /// Pre-decode byte ceiling for supported L1 execution headers.
@@ -262,9 +262,8 @@ impl HeaderChain {
             .ok_or(ProfileError("L1 header outside supplied evidence"))
     }
 
-    /// Select the latest eligible header. When there is no successor yet,
-    /// execution is provisional: Finalize must call `verify_cutoff` before any
-    /// signature. Later contradictory evidence never rewrites executed facts.
+    /// Producer policy: select the latest locally available eligible header.
+    /// Verifiers follow recorded transactions instead of applying this policy.
     pub fn select(&self, cutoff: u64) -> Result<&CheckedHeader, ProfileError> {
         let count = self
             .headers
@@ -275,28 +274,27 @@ impl HeaderChain {
             .ok_or(ProfileError("missing L1 source at cutoff"))
     }
 
-    /// Complete maximality against the selected mode's exact endpoint. Only
-    /// actual-parent mode has the last-produced-block exception.
-    pub fn verify_cutoff(
+    /// Bind a previously executed origin to the complete, anchored ancestry.
+    /// Later descendants cannot change a recorded selection.
+    pub fn verify_origin(
         &self,
-        cutoff: u64,
+        number: u64,
         selected: B256,
         anchor: EvidenceAnchor,
     ) -> Result<(), ProfileError> {
         self.verify_anchor(anchor)?;
-        let source = self.select(cutoff)?;
-        if source.hash != selected {
-            return Err(ProfileError("L1 source is not maximal at cutoff"));
-        }
-        if source.hash == self.endpoint()?.hash {
-            match anchor {
-                EvidenceAnchor::ActualParent {
-                    target_timestamp, ..
-                } if target_timestamp > cutoff => {}
-                _ => return Err(ProfileError("missing successor after L1 source cutoff")),
-            }
+        if self.at(number)?.hash != selected {
+            return Err(ProfileError("L1 evidence contradicts recorded origin"));
         }
         Ok(())
+    }
+
+    /// Resolve a publicly recorded hash within this bounded evidence chain.
+    pub fn by_hash(&self, hash: B256) -> Result<&CheckedHeader, ProfileError> {
+        self.headers
+            .iter()
+            .find(|h| h.hash == hash)
+            .ok_or(ProfileError("recorded L1 origin is missing from evidence"))
     }
 
     /// Reject reserved selectors, impossible timing and any missing or extra chain suffix.
@@ -332,8 +330,8 @@ impl HeaderChain {
 /// An offline prover supplies only its request's checked witness snapshot.
 pub trait L1HistorySource: Debug + Send + Sync {
     /// Supply a contiguous chain containing the authenticated prior endpoint
-    /// and all headers needed to select at `cutoff`. Final anchor/maximality
-    /// authorization is a separate caller obligation.
+    /// and the recorded imports. A newer header is not required for a repeat.
+    /// Final anchor authorization is a separate caller obligation.
     fn headers(&self, cutoff: u64) -> Result<Arc<HeaderChain>, ProfileError>;
 }
 
@@ -345,8 +343,7 @@ pub struct WitnessHistory(
 );
 
 impl L1HistorySource for WitnessHistory {
-    fn headers(&self, cutoff: u64) -> Result<Arc<HeaderChain>, ProfileError> {
-        self.0.select(cutoff)?;
+    fn headers(&self, _cutoff: u64) -> Result<Arc<HeaderChain>, ProfileError> {
         Ok(Arc::clone(&self.0))
     }
 }
@@ -446,14 +443,15 @@ impl HistorySchedule {
         })
     }
 
-    /// Derive all inputs from authenticated parent storage and checked headers.
-    /// The caller must authenticate the parent, execute this exact call and
-    /// resolve source maximality at Finalize. No stored hash is overwritten.
+    /// Validate the recorded selection against parent storage and checked headers.
+    /// An update must explicitly select an endpoint; other positions inherit it.
+    /// Finalize authenticates the complete chain against the on-chain anchor.
     pub fn execution(
         &self,
         timestamp: u64,
         state: HistoryState,
         chain: &HeaderChain,
+        selected: Option<u64>,
     ) -> Result<HistoryExecution, ProfileError> {
         if timestamp <= self.first_cutoff {
             return Err(ProfileError(
@@ -475,14 +473,13 @@ impl HistorySchedule {
         {
             return Err(ProfileError("parent L1 history state mismatch"));
         }
-        let prior_cutoff = state
-            .next_cutoff
-            .checked_sub(self.interval)
-            .ok_or(ProfileError("parent history cutoff underflow"))?;
-        if chain.select(prior_cutoff)?.hash != state.endpoint_hash {
-            return Err(ProfileError("inherited L1 source is not maximal"));
+        if updating != selected.is_some() {
+            return Err(ProfileError("missing or off-schedule history transaction"));
         }
-        let source = chain.select(cutoff)?;
+        let source = chain.at(selected.unwrap_or(state.endpoint))?;
+        if source.header.timestamp > cutoff {
+            return Err(ProfileError("L1 origin is newer than the delayed cutoff"));
+        }
         let import = if updating {
             let count = source
                 .header
@@ -525,8 +522,33 @@ impl HistorySchedule {
     }
 }
 
+/// Decode only the fixed bounded import ABI; never allocate from an unchecked
+/// Composer-controlled length or accept an alternative ABI representation.
+pub fn decode_import(
+    input: &[u8],
+) -> Result<IL1BlockhashContract::importHistoryCall, ProfileError> {
+    if input.len() < 100
+        || input.len() > 100 + 32 * MAX_IMPORT_HEADERS
+        || input[..4] != IL1BlockhashContract::importHistoryCall::SELECTOR
+        || U256::from_be_slice(&input[36..68]) != U256::from(64)
+    {
+        return Err(ProfileError("invalid history transaction calldata"));
+    }
+    let count = usize::try_from(U256::from_be_slice(&input[68..100]))
+        .map_err(|_| ProfileError("history transaction length overflow"))?;
+    if count > MAX_IMPORT_HEADERS || input.len() != 100 + 32 * count {
+        return Err(ProfileError("invalid history transaction length"));
+    }
+    let call = IL1BlockhashContract::importHistoryCall::abi_decode(input)
+        .map_err(|_| ProfileError("invalid history transaction ABI"))?;
+    if call.abi_encode() != input {
+        return Err(ProfileError("noncanonical history transaction ABI"));
+    }
+    Ok(call)
+}
+
 /// Values read from the parent state trie, not from an RPC assertion or caller.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryState {
     /// Earliest imported number, fixed by genesis.
     pub first_number: u64,
@@ -538,7 +560,7 @@ pub struct HistoryState {
     pub next_cutoff: u64,
 }
 
-/// Derived pre-execution input; source maximality still needs final anchor authorization.
+/// Checked execution input; the complete ancestry still needs final anchor authorization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistoryExecution {
     /// Cutoff selecting the source used by this block.

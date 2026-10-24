@@ -399,7 +399,9 @@ mod tests {
         let (mut block, mut receipts, roots) = fixture();
         block.body.transactions[0] = eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce: 4,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::with_last_byte(4),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,
             value: U256::ZERO,
             input: Default::default(),
@@ -408,7 +410,7 @@ mod tests {
         receipts[0].receipt.tx_type = EezTxType::System;
         block.header.transactions_root = calculate_transaction_root(&block.body.transactions);
         block.header.receipts_root = calculate_receipt_root(&receipts);
-        assert_eq!(receipts[0].encoded_2718()[0], 0x76);
+        assert_eq!(receipts[0].encoded_2718()[0], 0x45);
         let output = verify_recorded_roots(&input(&block, &receipts, &roots)).unwrap();
         assert_eq!(output["prefixes"][2]["hash"], output["block_hash"]);
         receipts[0].receipt.tx_type = EezTxType::Ethereum(alloy_consensus::TxType::Legacy);

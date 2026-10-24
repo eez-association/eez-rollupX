@@ -6,6 +6,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 PROTOCOL="$REPO/eez-core-protocol"
 GENERATOR="$REPO/scripts/solidity/GenerateEEZL2Genesis.s.sol"
 HISTORY_CONTRACT="$REPO/contracts/src/L2/L1BlockhashContract.sol"
+FEE_VAULT_CONTRACT="$REPO/contracts/src/L2/FeeVault.sol"
 FIXTURE_PROFILE="$REPO/testing/kurtosis/l2-genesis-profile.json"
 EXPECTED_FOUNDRY_VERSION="1.7.1"
 USE_GAS_LEFT=false
@@ -15,6 +16,7 @@ USE_GAS_LEFT=false
 # implementation holding the deployment's immutables.
 EEZL2_ADDRESS="0x4B2760F84B83d6b3829E30A7573B0172B6d6402C"
 EEZL2_IMPLEMENTATION_ADDRESS="0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA"
+FEE_VAULT_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078"
 ERC1967_IMPLEMENTATION_SLOT="0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc"
 ERC1967_ADMIN_SLOT="0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103"
 
@@ -31,7 +33,8 @@ usage:
   scripts/update-eezl2-genesis.sh
   scripts/update-eezl2-genesis.sh --check
   scripts/update-eezl2-genesis.sh --render --rollup-id ID --system-address ADDRESS \
-      --recovery-address ADDRESS --upgrade-owner ADDRESS --output PATH \
+      --recovery-address ADDRESS --upgrade-owner ADDRESS \
+      --treasury-owner ADDRESS --treasury-recipient ADDRESS --output PATH \
       [--base PATH] [--profile-output PATH]
 
 The default mode regenerates the committed genesis files (genesis.dev.json,
@@ -43,6 +46,9 @@ receives ether swept from proxies at construction; deployments use the L1
 poster account, and the fixtures use the public development poster. The upgrade
 owner owns the EEZL2 ProxyAdmin and can replace the implementation with an L2
 transaction.
+The fixed FeeVault predeploy collects L2 base fees. Its initial owner and L2
+recipient are explicit inputs; the owner can rotate the recipient or transfer
+ownership using ordinary L2 transactions.
 EOF
 }
 
@@ -51,6 +57,11 @@ rollup_id=""
 system_address=""
 recovery_address=""
 upgrade_owner=""
+fee_collector="$FEE_VAULT_ADDRESS"
+treasury_owner=""
+treasury_recipient=""
+treasury_owner_seen=false
+treasury_recipient_seen=false
 base_genesis=""
 output=""
 profile_output=""
@@ -81,6 +92,18 @@ while (( $# > 0 )); do
             ;;
         --upgrade-owner)
             upgrade_owner="${2:-}"
+            shift 2
+            ;;
+        --treasury-owner)
+            [[ "$treasury_owner_seen" == false ]] || { echo "--treasury-owner must occur exactly once" >&2; exit 2; }
+            treasury_owner_seen=true
+            treasury_owner="${2:-}"
+            shift 2
+            ;;
+        --treasury-recipient)
+            [[ "$treasury_recipient_seen" == false ]] || { echo "--treasury-recipient must occur exactly once" >&2; exit 2; }
+            treasury_recipient_seen=true
+            treasury_recipient="${2:-}"
             shift 2
             ;;
         --base)
@@ -116,13 +139,13 @@ fi
 
 if [[ "$mode" == "render" ]]; then
     [[ -n "$rollup_id" && -n "$system_address" && -n "$recovery_address" && -n "$upgrade_owner" \
-        && -n "$output" ]] || {
+        && -n "$treasury_owner" && -n "$treasury_recipient" && -n "$output" ]] || {
         usage
         exit 2
     }
     base_genesis="${base_genesis:-$REPO/genesis.json}"
 else
-    [[ -z "$rollup_id$system_address$recovery_address$upgrade_owner$base_genesis$output$profile_output" ]] || {
+    [[ "$treasury_owner_seen" == false && "$treasury_recipient_seen" == false && -z "$rollup_id$system_address$recovery_address$upgrade_owner$base_genesis$output$profile_output" ]] || {
         usage
         exit 2
     }
@@ -134,6 +157,11 @@ else
     system_address="$(jq -er '.systemAddress' "$FIXTURE_PROFILE")"
     recovery_address="$(jq -er '.recoveryAddress' "$FIXTURE_PROFILE")"
     upgrade_owner="$(jq -er '.upgradeOwner' "$FIXTURE_PROFILE")"
+    jq -e '.schemaVersion == 4' "$FIXTURE_PROFILE" >/dev/null || {
+        echo "fixture profile must use schema version 4" >&2; exit 1;
+    }
+    treasury_owner="$(jq -er '.treasuryOwner' "$FIXTURE_PROFILE")"
+    treasury_recipient="$(jq -er '.treasuryRecipient' "$FIXTURE_PROFILE")"
 fi
 
 python3 - "$rollup_id" <<'PY'
@@ -152,10 +180,24 @@ if [[ ! "$system_address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
     exit 1
 fi
 system_address="$(cast to-check-sum-address "$system_address")"
-if [[ "${system_address,,}" != "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" ]]; then
-    echo "system address must be the reserved native address 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076" >&2
+if [[ "${system_address,,}" != "0xfffffffffffffffffffffffffffffffffffffffe" ]]; then
+    echo "system address must be the reserved native address 0xfffffffffffffffffffffffffffffffffffffffe" >&2
     exit 1
 fi
+for field in treasury_owner treasury_recipient; do
+    value="${!field}"
+    if [[ ! "$value" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
+        echo "$field must contain exactly 20 hexadecimal bytes" >&2
+        exit 1
+    fi
+    value="${value,,}"
+    if [[ "$value" == "0x0000000000000000000000000000000000000000" ||
+          "$value" == "$fee_collector" || "$value" == "${system_address,,}" || "$value" == "${EEZL2_ADDRESS,,}" ]]; then
+        echo "$field must be nonzero and differ from FeeVault, SYSTEM and EEZL2" >&2
+        exit 1
+    fi
+    printf -v "$field" '%s' "$value"
+done
 if [[ ! "$recovery_address" =~ ^0x[0-9a-fA-F]{40}$ ]]; then
     echo "recovery address must contain exactly 20 hexadecimal bytes" >&2
     exit 1
@@ -187,7 +229,7 @@ if [[ "$forge_version" != "$EXPECTED_FOUNDRY_VERSION" ]]; then
 fi
 
 for required in "$PROTOCOL/foundry.toml" "$PROTOCOL/remappings.txt" "$PROTOCOL/src" \
-    "$PROTOCOL/lib" "$GENERATOR" "$HISTORY_CONTRACT"
+    "$PROTOCOL/lib" "$GENERATOR" "$HISTORY_CONTRACT" "$FEE_VAULT_CONTRACT"
 do
     if [[ ! -e "$required" ]]; then
         echo "required canonical protocol input is missing: $required" >&2
@@ -213,15 +255,18 @@ if [[ -e "$build_root/src/L2/L1BlockhashContract.sol" ]]; then
     exit 1
 fi
 cp "$HISTORY_CONTRACT" "$build_root/src/L2/L1BlockhashContract.sol"
+[[ ! -e "$build_root/src/L2/FeeVault.sol" ]] || { echo "pinned protocol conflicts with the RollupX fee vault source" >&2; exit 1; }
+cp "$FEE_VAULT_CONTRACT" "$build_root/src/L2/FeeVault.sol"
 mkdir "$build_root/script"
 cp "$GENERATOR" "$build_root/script/GenerateEEZL2Genesis.s.sol"
 
 if ! forge_output="$({
     cd "$build_root"
     forge script script/GenerateEEZL2Genesis.s.sol:GenerateEEZL2Genesis \
-        --sig "run(uint64,address,bool,address,address,address,address)" \
+        --sig "run(uint64,address,bool,address,address,address,address,address,address,address)" \
         "$rollup_id" "$system_address" "$USE_GAS_LEFT" "$recovery_address" \
-        "$upgrade_owner" "$EEZL2_ADDRESS" "$EEZL2_IMPLEMENTATION_ADDRESS"
+        "$upgrade_owner" "$EEZL2_ADDRESS" "$EEZL2_IMPLEMENTATION_ADDRESS" \
+        "$fee_collector" "$treasury_owner" "$treasury_recipient"
 } 2>&1)"; then
     printf '%s\n' "$forge_output" >&2
     echo "EEZL2 genesis generator failed" >&2
@@ -229,7 +274,7 @@ if ! forge_output="$({
 fi
 
 # Collect the generator's accounts and storage writes, then require exactly the
-# implementation, proxy and ProxyAdmin with exactly the expected state.
+# implementation, proxy, ProxyAdmin and fee vault with exactly the expected state.
 proxy_admin_address="$(cast compute-address --nonce 1 "$EEZL2_ADDRESS" | sed -n 's/^Computed Address: //p')"
 [[ "$proxy_admin_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || {
     echo "could not derive the EEZL2 ProxyAdmin address" >&2
@@ -255,14 +300,14 @@ done < <(sed -n 's/^  \(GENESIS_[A-Z]* .*\)$/\1/p' <<<"$forge_output")
 impl_key="${EEZL2_IMPLEMENTATION_ADDRESS,,}"
 proxy_key="${EEZL2_ADDRESS,,}"
 admin_key="${proxy_admin_address,,}"
-if (( ${#account_code[@]} != 3 )) || [[ -z "${account_code[$impl_key]:-}" ||
-    -z "${account_code[$proxy_key]:-}" || -z "${account_code[$admin_key]:-}" ]]
+if (( ${#account_code[@]} != 4 )) || [[ -z "${account_code[$impl_key]:-}" ||
+    -z "${account_code[$proxy_key]:-}" || -z "${account_code[$admin_key]:-}" || -z "${account_code[$fee_collector]:-}" ]]
 then
     printf '%s\n' "$forge_output" >&2
-    echo "expected exactly the EEZL2 implementation, proxy and ProxyAdmin accounts" >&2
+    echo "expected exactly the EEZL2 implementation, proxy, ProxyAdmin and FeeVault accounts" >&2
     exit 1
 fi
-for nonce_expected in "$impl_key|1" "$proxy_key|2" "$admin_key|1"; do
+for nonce_expected in "$impl_key|1" "$proxy_key|2" "$admin_key|1" "$fee_collector|1"; do
     IFS='|' read -r account expected <<<"$nonce_expected"
     [[ "${account_nonce[$account]}" == "$expected" ]] || {
         echo "unexpected generated nonce for $account: ${account_nonce[$account]}" >&2
@@ -277,10 +322,17 @@ impl_word="$(address_word "$impl_key")"
 admin_word="$(address_word "$admin_key")"
 owner_word="$(address_word "$upgrade_owner")"
 zero_slot="0x0000000000000000000000000000000000000000000000000000000000000000"
+one_slot="0x0000000000000000000000000000000000000000000000000000000000000001"
+two_slot="0x0000000000000000000000000000000000000000000000000000000000000002"
+treasury_owner_word="$(address_word "$treasury_owner")"
+treasury_recipient_word="$(address_word "$treasury_recipient")"
 declare -A expected_storage=(
     ["$proxy_key $ERC1967_IMPLEMENTATION_SLOT"]="$impl_word"
     ["$proxy_key $ERC1967_ADMIN_SLOT"]="$admin_word"
     ["$admin_key $zero_slot"]="$owner_word"
+    ["$fee_collector $zero_slot"]="$treasury_owner_word"
+    ["$fee_collector $one_slot"]="$zero_slot"
+    ["$fee_collector $two_slot"]="$treasury_recipient_word"
 )
 if (( ${#storage[@]} != ${#expected_storage[@]} )); then
     echo "unexpected EEZL2 genesis storage writes: ${!storage[*]}" >&2
@@ -296,6 +348,16 @@ done
 runtime="${account_code[$impl_key]}"
 proxy_runtime="${account_code[$proxy_key]}"
 admin_runtime="${account_code[$admin_key]}"
+fee_vault_runtime="${account_code[$fee_collector]}"
+fee_vault_artifact="$build_root/out/FeeVault.sol/FeeVault.json"
+jq -e '.metadata.settings.compilationTarget == {"src/L2/FeeVault.sol": "FeeVault"}
+       and (.deployedBytecode.immutableReferences // {}) == {}' "$fee_vault_artifact" >/dev/null || {
+    echo "FeeVault must have canonical metadata and no immutables" >&2; exit 1;
+}
+[[ "$fee_vault_runtime" == "$(jq -er '.deployedBytecode.object | ascii_downcase' "$fee_vault_artifact")" ]] || {
+    echo "generated FeeVault runtime differs from its compiler artifact" >&2; exit 1;
+}
+fee_vault_runtime_hash="$(cast keccak "$fee_vault_runtime")"
 
 # The proxy runtime is the canonical EEZProxy with only its ProxyAdmin
 # immutable filled in; the ProxyAdmin runtime has no immutables at all.
@@ -519,11 +581,19 @@ render_genesis() {
         --arg admin_word "$admin_word" \
         --arg owner_word "$owner_word" \
         --arg system_address "${system_address,,}" \
-        '.alloc[$implementation] = {balance: "0x0", nonce: "0x1", code: $runtime}
+        --arg fee_collector "$fee_collector" \
+        --arg fee_vault_runtime "$fee_vault_runtime" \
+        --arg treasury_owner_word "$treasury_owner_word" \
+        --arg treasury_recipient_word "$treasury_recipient_word" \
+        --arg two_slot "$two_slot" \
+        '.config.rollupX.feeCollector = $fee_collector
+         | .alloc[$implementation] = {balance: "0x0", nonce: "0x1", code: $runtime}
          | .alloc[$proxy] = {balance: "0x0", nonce: "0x2", code: $proxy_runtime,
              storage: {($implementation_slot): $impl_word, ($admin_slot): $admin_word}}
          | .alloc[$admin] = {balance: "0x0", nonce: "0x1", code: $admin_runtime,
              storage: {($zero_slot): $owner_word}}
+         | .alloc[$fee_collector] = {balance: "0x0", nonce: "0x1", code: $fee_vault_runtime,
+             storage: {($zero_slot): $treasury_owner_word, ($two_slot): $treasury_recipient_word}}
          | del(.alloc[$system_address])' \
         "$base" >"$tmp"
     python3 - "$tmp" "$history_runtime" <<'PY_HISTORY_STATE'
@@ -582,7 +652,11 @@ write_profile() {
         --arg system_address "$system_address" \
         --arg recovery_address "$recovery_address" \
         --arg upgrade_owner "$upgrade_owner" \
+        --arg fee_collector "$fee_collector" \
         --arg eezl2_address "$EEZL2_ADDRESS" \
+        --arg treasury_owner "$treasury_owner" \
+        --arg treasury_recipient "$treasury_recipient" \
+        --arg fee_vault_runtime_hash "$fee_vault_runtime_hash" \
         --arg implementation_address "$EEZL2_IMPLEMENTATION_ADDRESS" \
         --arg proxy_admin_address "$proxy_admin_address" \
         --arg runtime_hash "$runtime_hash" \
@@ -590,11 +664,15 @@ write_profile() {
         --arg state_root "$state_root" \
         --arg foundry_version "$EXPECTED_FOUNDRY_VERSION" \
         '{
-            schemaVersion: 3,
+            schemaVersion: 4,
             rollupId: $rollup_id,
             systemAddress: $system_address,
             recoveryAddress: $recovery_address,
             upgradeOwner: $upgrade_owner,
+            feeCollector: $fee_collector,
+            treasuryOwner: $treasury_owner,
+            treasuryRecipient: $treasury_recipient,
+            feeVaultRuntimeCodeHash: $fee_vault_runtime_hash,
             useGasLeft: false,
             eezL2Address: $eezl2_address,
             eezL2ImplementationAddress: $implementation_address,
@@ -623,6 +701,8 @@ if [[ "$mode" == "render" ]]; then
     printf 'EEZ_L2_SYSTEM_ADDRESS=%s\n' "$system_address"
     printf 'EEZ_L2_RECOVERY_ADDRESS=%s\n' "$recovery_address"
     printf 'EEZ_L2_UPGRADE_OWNER=%s\n' "$upgrade_owner"
+    printf 'EEZ_L2_TREASURY_OWNER=%s\n' "$treasury_owner"
+    printf 'EEZ_L2_TREASURY_RECIPIENT=%s\n' "$treasury_recipient"
     printf 'EEZ_L2_IMPLEMENTATION_ADDRESS=%s\n' "$EEZL2_IMPLEMENTATION_ADDRESS"
     printf 'EEZ_L2_PROXY_ADMIN=%s\n' "$proxy_admin_address"
     printf 'EEZ_L2_EEZL2_CODE_HASH=%s\n' "$runtime_hash"

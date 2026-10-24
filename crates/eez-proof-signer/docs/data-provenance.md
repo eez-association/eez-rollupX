@@ -67,7 +67,7 @@ its evidence checkpoint and selected source cutoffs. Rewind restores both L2
 and L1 prefixes; a changed duplicate witness cannot overwrite them.
 
 The chain establishes internal consistency. Finalize still checks all source
-maximality and anchor termination, including inherited selections and the complete
+recorded origin membership and anchor termination, including inherited selections and the complete
 bridge. Its endpoint is authenticated by the on-chain manager's context at
 inclusion, not by trusting the Composer or querying a provider.
 

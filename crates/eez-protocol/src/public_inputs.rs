@@ -483,6 +483,7 @@ mod tests {
 
     fn profile() -> crate::l1_history::OfflineProfile {
         crate::l1_history::OfflineProfile {
+            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             l1ChainId: alloy_primitives::U256::from(1),
             l2ChainId: alloy_primitives::U256::from(900),
             genesisHash: B256::with_last_byte(0x23),

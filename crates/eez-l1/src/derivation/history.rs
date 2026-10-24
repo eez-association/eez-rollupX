@@ -46,7 +46,7 @@ impl<P: Provider + Clone + 'static> DerivationSource<P> {
     /// decoding the complete bridge runs in one awaited blocking worker.
     pub async fn prepare_history(
         &self,
-        parent_timestamp: u64,
+        first_number: u64,
         through: L1BlockRef,
         rules: HeaderRules,
         previous: Option<Arc<HeaderChain>>,
@@ -54,35 +54,13 @@ impl<P: Provider + Clone + 'static> DerivationSource<P> {
         if through.number == u64::MAX {
             return Err(DerivationError::Mismatch("reserved L1 endpoint number"));
         }
-        let endpoint = self.canonical_header(through).await?;
-        let cutoff = self.schedule.history()?.source_cutoff(parent_timestamp)?;
-        if endpoint.header().timestamp < cutoff {
-            return Err(DerivationError::Unavailable(
-                "canonical L1 has not resolved the source cutoff",
+        let reference = self.schedule.config().l1_reference;
+        if first_number < reference.number || first_number > through.number {
+            return Err(DerivationError::Mismatch(
+                "history predecessor outside anchor ancestry",
             ));
         }
-        let reference = self.schedule.config().l1_reference;
-        let (mut low, mut high) = (reference.number, through.number);
-        let mut selected = None;
-        while low <= high {
-            let middle = low + (high - low) / 2;
-            let header = fetch(&self.provider, reference.chain_id, middle.into()).await?;
-            if header.header().timestamp <= cutoff {
-                selected = Some(header);
-                let Some(next) = middle.checked_add(1) else {
-                    break;
-                };
-                low = next;
-            } else {
-                let Some(previous) = middle.checked_sub(1) else {
-                    break;
-                };
-                high = previous;
-            }
-        }
-        let first = selected.ok_or(DerivationError::Mismatch(
-            "missing source at predecessor cutoff",
-        ))?;
+        let first = fetch(&self.provider, reference.chain_id, first_number.into()).await?;
         let count = through
             .number
             .checked_sub(first.header().number)
@@ -173,7 +151,6 @@ impl<P: Provider + Clone + 'static> DerivationSource<P> {
             };
             chain.append(&segment, &rules, MAX_HISTORY_HEADERS)?;
             if chain.at(start)?.hash() != expected
-                || chain.select(cutoff)?.header().number != start
                 || chain.endpoint()?.hash() != through.hash
                 || chain.endpoint()?.header().number != through.number
             {
@@ -195,16 +172,12 @@ impl<P: Provider + Clone + 'static> DerivationSource<P> {
 }
 
 /// In-memory evidence owner, initialized before the engine exposes readiness.
-/// Settlement never changes selection; only canonical L1 headers and fixed
-/// timestamps do. Old snapshots can remain borrowed by in-flight execution.
+/// Settlement never changes recorded origin selections. Producers may select
+/// eligible advances from this snapshot; executors validate the recorded input. Old snapshots can remain borrowed by in-flight execution.
 #[derive(Debug, Clone)]
 pub struct CanonicalHistory {
     schedule: Schedule,
     prepared: Option<PreparedHistory>,
-    /// Conditional execution for an owned, bounded replacement on this exact
-    /// unchanged parent. Settlement still has to establish that it was the
-    /// actual inclusion parent; this is never canonical-progress evidence.
-    replacement: Option<(L1BlockRef, u64)>,
 }
 impl CanonicalHistory {
     /// Empty evidence fails closed until the deriver publishes a checked range.
@@ -212,7 +185,6 @@ impl CanonicalHistory {
         Self {
             schedule,
             prepared: None,
-            replacement: None,
         }
     }
     /// Fixed network schedule, independent of settlement occurrences.
@@ -226,89 +198,55 @@ impl CanonicalHistory {
                 "history belongs to another genesis/profile",
             ));
         }
-        if self
-            .replacement
-            .is_some_and(|(parent, _)| parent != prepared.through)
+        // Replaying an older accepted batch can request an earlier anchor.
+        // Keep already checked descendants when this range is their exact
+        // prefix; discarding them would make local production depend on a new
+        // RPC read after an otherwise harmless historical replay.
+        if let Some(ready) = &self.prepared
+            && prepared.chain.headers().first().is_some_and(|first| {
+                ready
+                    .chain
+                    .at(first.header().number)
+                    .is_ok_and(|known| known == first)
+            })
+            && ready
+                .chain
+                .at(prepared.through.number)
+                .is_ok_and(|known| known.hash() == prepared.through.hash)
         {
-            self.replacement = None;
+            return Ok(());
         }
         self.prepared = Some(prepared);
         Ok(())
     }
 
-    pub(crate) fn authorize_replacement(
-        &mut self,
-        parent: L1BlockRef,
-        target_timestamp: u64,
-    ) -> Result<(), DerivationError> {
-        let prepared = self
-            .prepared
-            .as_ref()
-            .ok_or(DerivationError::Unavailable("L1 history is not prepared"))?;
-        let endpoint = prepared.chain.endpoint()?;
-        let offset = crate::submitter::policy_target_slot_offset(
-            endpoint.header().timestamp,
-            target_timestamp,
-            self.schedule.history()?.interval(),
-        );
-        if parent != prepared.through
-            || offset.is_none_or(|offset| offset < 2)
-            || self
-                .replacement
-                .is_some_and(|(_, previous)| target_timestamp < previous)
-        {
-            return Err(DerivationError::Mismatch(
-                "invalid replacement history target",
-            ));
-        }
-        self.replacement = Some((parent, target_timestamp));
-        Ok(())
-    }
     /// Current snapshot for bounded incremental acquisition.
     pub fn prepared(&self) -> Option<PreparedHistory> {
         self.prepared.clone()
     }
-    /// Ready evidence for execution. Unresolved cutoffs wait, except while an
-    /// owned replacement is conditionally bound to this exact inclusion parent
-    /// and a later target timestamp. New canonical evidence revokes that bound.
+    /// Ready evidence only. An unresolved cutoff permits a recorded repeat;
+    /// execution never waits for proof that no newer L1 block was produced.
     pub fn headers(&self, cutoff: u64) -> Result<Arc<HeaderChain>, ProfileError> {
         let prepared = self
             .prepared
             .as_ref()
             .ok_or(ProfileError("L1 history is not prepared"))?;
-        if prepared.chain.endpoint()?.header().timestamp < cutoff
-            && !self
-                .replacement
-                .is_some_and(|(parent, target)| parent == prepared.through && cutoff < target)
-        {
-            return Err(ProfileError("canonical L1 has not resolved source cutoff"));
-        }
         prepared.chain.select(cutoff)?;
         Ok(prepared.chain())
     }
-    /// Select one block's randomness; no accepted-live-anchor seed exists.
-    pub fn prev_randao(&self, number: u64) -> Result<B256, DerivationError> {
-        let timestamp = self.schedule.timestamp(number)?;
-        let cutoff = self.schedule.history()?.source_cutoff(timestamp)?;
-        Ok(self.headers(cutoff)?.select(cutoff)?.header().mix_hash)
-    }
-    /// Derive exact next-block time and randomness together.
+    /// Next grid timestamp with inherited randomness. An explicit history
+    /// transaction may replace that randomness during block preparation.
     pub fn next_block_context(
         &self,
         parent: &alloy_consensus::Header,
     ) -> Result<(u64, B256), DerivationError> {
-        let (number, timestamp) = self.schedule.next(parent)?;
-        Ok((timestamp, self.prev_randao(number)?))
+        let (_, timestamp) = self.schedule.next(parent)?;
+        Ok((timestamp, parent.mix_hash))
     }
-    /// Drop stale evidence immediately on reorg. A subsequent prepared range
-    /// must be published before any execution can continue.
+    /// A known reorg invalidates the old branch. Recover authenticated evidence
+    /// before executing on a possibly orphaned origin; uncertainty is not authority.
     pub(crate) fn invalidate(&mut self) {
         self.prepared = None;
-        self.replacement = None;
-    }
-
-    pub(crate) fn invalidate_replacement(&mut self) {
-        self.replacement = None;
     }
 }
 

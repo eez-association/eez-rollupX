@@ -1,0 +1,12 @@
+{
+  "time_utc": "2026-10-24 11:35:28",
+  "failure": "Host rustc eez-node (PID729865) killed by global OOM; compilation failed before any candidate process test ran.",
+  "kernel_confirmation": "Out of memory: Killed process 729865 (rustc) total-vm:14891836kB, anon-rss:6595168kB, file-rss:2564kB, shmem-rss:0kB",
+  "concurrency": "Host Cargo2jobs and separate Docker shipping2jobs overlapped. At the preceding sample: MemAvailable3.6GiB, swap8GiB full.",
+  "scope": "Kernel also recorded OOM victims outside this task. No unrelated service was modified or restarted by this agent.",
+  "recovery": "Docker owner cancelled only its build (exit130). Allow the surviving host follower compile to finish, then repeat identical source/selection with CARGO_BUILD_JOBS=1, no concurrent Docker compilation.",
+  "logs_local_only": {
+    "artifacts/pr-readiness/pending-rpc/e2e-build.log": "1b7d53d73341365ff56671dae438d58d59a94382ed658614723b550cdc4dbfd5",
+    "artifacts/pr-readiness/pending-rpc/e2e-build-kernel.txt": "838f997d32e3ce78fd3db9abfd2c3f4962efcaee500d48f872fbca7a7079338c"
+  }
+}

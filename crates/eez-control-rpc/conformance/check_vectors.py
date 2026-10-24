@@ -22,13 +22,17 @@ def write_manifest():
         "crates/eez-control-rpc/build.rs", "crates/eez-control-rpc/conformance/check_vectors.py",
         "crates/eez-control-rpc/conformance/replay.rs",
         "crates/eez-control-rpc/examples/replay_streaming.rs"]]
-    for package in ["eez-proof-signer", "eez-control-rpc", "eez-protocol", "eez-evm",
-                    "eez-driver", "eez-payload-codec", "eez-blob-codec"]:
+    for package in ["eez-proof-signer", "eez-control-rpc", "eez-protocol", "eez-primitives",
+                    "eez-evm", "eez-evm-inspector", "eez-l1", "eez-driver",
+                    "eez-payload-codec", "eez-blob-codec"]:
         sources.append(ROOT / f"crates/{package}/Cargo.toml")
         sources.extend((ROOT / f"crates/{package}/src").rglob("*.rs"))
     sources.extend((ROOT / "crates/eez-control-rpc/proto").glob("*.proto"))
     sources.extend([ROOT / "contracts/src/L2/L1BlockhashContract.sol",
                     ROOT / "contracts/src/OfflineRollup.sol",
+                    ROOT / "contracts/src/L2/FeeVault.sol",
+                    ROOT / "scripts/solidity/GenerateEEZL2Genesis.s.sol",
+                    ROOT / "scripts/update-eezl2-genesis.sh",
                     ROOT / "crates/eez-protocol/src/l1_history/runtime.bin"])
     fixtures = []
     for name in ["native-offline-bidirectional", "native-osaka-lookup",
@@ -52,7 +56,7 @@ def write_manifest():
     manifest = {
         "format": 2, "base_commit": revision(ROOT),
         "protocol_gitlink": revision(ROOT / "eez-core-protocol"),
-        "implementation": "Offline profile 2; source digests include uncommitted changes at generation",
+        "implementation": "Native v1, Profile, validation-contract version 1, v2 capability profile 2; source digests include uncommitted changes at generation",
         "authority": "Complete captured L1 evidence; signatures are conditional on the independently checked on-chain context",
         "generator": "crates/eez-proof-signer/src/service/sessions/tests/vectors.rs",
         "source_sha256": {str(p.relative_to(ROOT)): digest(p) for p in sorted(set(sources))},

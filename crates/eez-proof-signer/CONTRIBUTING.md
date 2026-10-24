@@ -70,7 +70,7 @@ See [architecture](docs/architecture.md),
   transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
 - Check the exact execution parent, complete canonical header encoding/linkage,
-  delayed source/PREVRANDAO, maximality, accepted-root coverage and mode eligibility
+  recorded delayed origin/PREVRANDAO, accepted-root coverage and mode eligibility
   before authorizing settlement. The proof is conditional on the offline context;
   the manager binds it to actual L1 anchor/root/rules at inclusion. Never replace
   missing evidence with RPC, cached authority or a Composer assertion. ACKs alone
@@ -90,8 +90,8 @@ algorithms, including:
 - `eez_protocol::system_tx::{build_cross_chain_sync_pairs,
   interleave_sync_block_txs}`; and
 - the shared history/context rules in `eez_protocol::l1_history`; and
-- `prove.v2` in `prove_stream.proto` plus the shared witness/capability messages
-  in `prove.proto`. The shared v1 namespace does not provide v1 proving.
+- the single `prove.v2` package/service in `prove.proto`, including capability
+  discovery, execution witnesses and streaming.
 
 System classification uses the backend's validated native-envelope evidence and
 the exact transaction recipient. Ordinary transactions retain fork-aware sender

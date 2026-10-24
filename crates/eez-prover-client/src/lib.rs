@@ -18,7 +18,7 @@ mod streaming;
 use alloy_primitives::{Address, B256, Bytes, Signature};
 use alloy_sol_types::SolCall;
 use async_trait::async_trait;
-use eez_control_rpc::v1::{
+use eez_control_rpc::v2::{
     BlockWitness as WireBlockWitness, ExecutionWitness as WireWitness, prove_failure,
 };
 use eez_prover::{
@@ -47,7 +47,7 @@ struct Inner {
     attester: Address,
     expected_identity: B256,
     connection: tokio::sync::Mutex<Option<Arc<connection::Connection>>>,
-    agreed_capabilities: tokio::sync::Mutex<Option<eez_control_rpc::v1::CapabilitiesResponse>>,
+    agreed_capabilities: tokio::sync::Mutex<Option<eez_control_rpc::v2::CapabilitiesResponse>>,
 }
 
 impl RemoteProver {
@@ -341,32 +341,11 @@ mod tests {
     use alloy_primitives::address;
     use alloy_signer::SignerSync;
     use alloy_signer_local::PrivateKeySigner;
-    use eez_control_rpc::v1::{
-        InboundFailure, OutboundFailure, ProveFailure,
-        prover_server::{Prover as ProverService, ProverServer},
+    use eez_control_rpc::v2::{
+        InboundFailure, OutboundFailure, ProveFailure, prover_server::ProverServer,
     };
     use std::str::FromStr;
     use tonic::{Request, Response, Streaming, transport::Server};
-
-    /// Capability discovery has no proving behavior; the shared streaming model
-    /// below handles every test exchange through the actual v2 service.
-    #[derive(Clone)]
-    struct CapabilityStub {
-        capabilities: eez_control_rpc::v1::CapabilitiesResponse,
-        capability_calls: Arc<std::sync::atomic::AtomicUsize>,
-    }
-
-    #[tonic::async_trait]
-    impl ProverService for CapabilityStub {
-        async fn capabilities(
-            &self,
-            _request: Request<eez_control_rpc::v1::CapabilitiesRequest>,
-        ) -> Result<Response<eez_control_rpc::v1::CapabilitiesResponse>, Status> {
-            self.capability_calls
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(Response::new(self.capabilities.clone()))
-        }
-    }
 
     async fn spawn_stub(signer: PrivateKeySigner, hash: B256) -> String {
         spawn_capturing_stub(signer, hash).await.0
@@ -386,7 +365,7 @@ mod tests {
     async fn spawn_configured_stub(
         signer: PrivateKeySigner,
         hash: B256,
-        capabilities: eez_control_rpc::v1::CapabilitiesResponse,
+        capabilities: eez_control_rpc::v2::CapabilitiesResponse,
     ) -> (
         String,
         tokio::sync::mpsc::UnboundedReceiver<eez_control_rpc::v2::Finalize>,
@@ -397,14 +376,12 @@ mod tests {
         let (headers, received) = tokio::sync::mpsc::unbounded_channel();
         let capability_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let calls = Arc::clone(&capability_calls);
-        let stub = streaming::StreamStub::response(signer, hash, Some(headers));
+        let mut stub = streaming::StreamStub::response(signer, hash, Some(headers));
+        stub.capabilities = capabilities;
+        stub.capability_calls = calls;
         tokio::spawn(async move {
             Server::builder()
-                .add_service(ProverServer::new(CapabilityStub {
-                    capabilities,
-                    capability_calls: calls,
-                }))
-                .add_service(eez_control_rpc::v2::prover_server::ProverServer::new(stub))
+                .add_service(ProverServer::new(stub))
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
                 .await
                 .unwrap();
@@ -419,11 +396,7 @@ mod tests {
         stub.unavailable = true;
         tokio::spawn(async move {
             Server::builder()
-                .add_service(ProverServer::new(CapabilityStub {
-                    capabilities: test_capabilities(),
-                    capability_calls: Arc::default(),
-                }))
-                .add_service(eez_control_rpc::v2::prover_server::ProverServer::new(stub))
+                .add_service(ProverServer::new(stub))
                 .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
                 .await
                 .unwrap();
@@ -456,35 +429,35 @@ mod tests {
     async fn malformed_capabilities_and_lower_block_cap_prevent_proof_dispatch() {
         let base = test_capabilities();
         for capabilities in [
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 operations_tag: 2,
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 profile_id: 1,
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 validation_identity: vec![1; 32],
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 validation_identity: vec![0; 31],
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 max_request_witness_items: 0,
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 request_timeout_millis: 0,
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 max_message_bytes: base.max_request_bytes + 1,
                 ..base.clone()
             },
-            eez_control_rpc::v1::CapabilitiesResponse {
+            eez_control_rpc::v2::CapabilitiesResponse {
                 max_window_blocks: 1,
                 ..base.clone()
             },
@@ -525,7 +498,7 @@ mod tests {
         let signer = test_key();
         let attester = signer.address();
         let baseline = test_capabilities();
-        let changed = eez_control_rpc::v1::CapabilitiesResponse {
+        let changed = eez_control_rpc::v2::CapabilitiesResponse {
             max_window_blocks: baseline.max_window_blocks - 1,
             ..baseline.clone()
         };
@@ -540,8 +513,8 @@ mod tests {
 
     const TEST_IDENTITY: B256 = B256::repeat_byte(0x99);
 
-    fn test_capabilities() -> eez_control_rpc::v1::CapabilitiesResponse {
-        eez_control_rpc::v1::CapabilitiesResponse {
+    fn test_capabilities() -> eez_control_rpc::v2::CapabilitiesResponse {
+        eez_control_rpc::v2::CapabilitiesResponse {
             operations_tag: 0,
             profile_id: eez_control_rpc::OFFLINE_PROFILE_ID,
             validation_identity: TEST_IDENTITY.to_vec(),
@@ -564,6 +537,7 @@ mod tests {
     fn test_offline_context() -> eez_protocol::l1_history::OfflineContext {
         use eez_protocol::l1_history::{EvidenceAnchor, OfflineContext, OfflineProfile};
         let profile = OfflineProfile {
+            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
             l1ChainId: alloy_primitives::U256::from(31337),
             l2ChainId: alloy_primitives::U256::from(1),
             genesisHash: alloy_consensus::Header::default().hash_slow(),
