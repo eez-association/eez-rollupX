@@ -350,20 +350,21 @@
     "No data currently supports weakening accepted > 12, changing gas/deadline guards, or changing fixture synchronization."
   ],
   "next_check": {
-    "run": 40116791686,
-    "head": "053668dfde7df75af2044ff99b9309e02e03ab97",
-    "action": "Observe the same selected test once; if it fails retain complete node logs, admission summaries and initial warmup timing. No retry by this monitor."
+    "status": "Original CI packing failure remains unresolved; both exact payload diagnostics pass with all original assertions.",
+    "action": "Investigate reserve composition and FIFO reconstruction cost from the retained traces before proposing an admission-efficiency or fixture change. Do not weaken accepted > 12, execution/replay checks, or deadline guards. Monitor final CI 40123208325 separately."
   },
   "checks_executed": [
     "Read-only git diff/show and source/contract tracing",
     "GitHub completed job logs and run artifacts API",
-    "Structured extraction and deduplication of retained JSON events"
+    "Structured extraction and deduplication of retained JSON events",
+    "Root executed one serial diagnostic of the unchanged test against each verified b019 and 053 runtime/test payload; complete logs preserved and reviewed independently."
   ],
   "not_run": [
-    "No local compilation",
-    "No process reproduction or retry",
-    "No runtime or test edits",
-    "No lifecycle operation"
+    "No Rust rebuild for either exact-payload diagnostic",
+    "No production or test edits for admission",
+    "No controlled main-versus-candidate performance benchmark",
+    "No full per-refusal reserve breakdown available in current logs",
+    "No recovery of missing warmup/large-candidate logs from the original failed CI"
   ],
   "existing_local_comparison": {
     "type": "Read of already executed pre-R03 source-process test; not a new repetition or comparable benchmark",
@@ -465,5 +466,260 @@
       "Does not validate Tokio053 or erase the CI failure.",
       "Shows the fresh native/history profile has admitted more than twelve under existing guards, not why CI stopped at eleven."
     ]
+  },
+  "subsequent_ci_result": {
+    "run": 40116791686,
+    "job": 120951087964,
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40116791686/job/120951087964",
+    "head": "053668dfde7df75af2044ff99b9309e02e03ab97",
+    "checkout": "abf3d1bc82bebe6ac3bb3ea213d9e8c272df8c20",
+    "tree": "2c00d7f8980e81a3ab4af8d3e045c818425ea756",
+    "result": "PASS",
+    "elapsed_test_seconds": 71.23,
+    "result_time": "2026-10-24T18:42:30.0669940Z",
+    "log_sha256": "b215609c454b80931629f9072f3ce5be235d37cf60079b3e983bde92b32c6913",
+    "log_local_only": "artifacts/pr-readiness/ci-candidate/40116791686/lanes/120951087964.log",
+    "lane_passed": 33,
+    "all_process_partitions_passed": 174,
+    "globally_ignored_process_tests": 5,
+    "payloads": {
+      "runtime": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:0dcb612bd8de95110ad355deb1805b929e80fbb6126a5911307755f77e70517b",
+      "tests": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:8eec3afc676b5bd5e94de45335eb13200f01ef21dfb6786a915831f1997b3a59"
+    },
+    "consumer_verification": {
+      "owner": "root",
+      "path": "artifacts/extended-validation/ci-40116791686/artifacts/ci-consumer/verified-handoff.json",
+      "sha256": "d5842460439f6e78fe038a80d2fadc3e34a10989a4716eb9beef0decc4886460",
+      "scope": "Root reports seven runtime binaries, thirty test files, archive digest, both manifests and exact checkout verified. This monitor has read the handoff record; it has not independently extracted or executed the payloads."
+    },
+    "limits": [
+      "The admission implementation and this dynamic test did not change between the failed and passing CI revisions; Tokio and build/runner conditions differ.",
+      "Passing CI output does not retain full admission/prepared timing logs or actual accepted widths.",
+      "This pass proves the selected test assertions on 053; it does not explain or erase the first b019 failure."
+    ]
+  },
+  "exact_payload_diagnostics": {
+    "owner": "root executed serial diagnostics; static_lookup_oracle analyzed complete logs; pr_readiness_review independently rechecked log/output hashes and prepared widths",
+    "analysis_local_only": "artifacts/extended-validation/admission-log-analysis/exact-payload-timing-analysis.json",
+    "analysis_sha256": "f43d6f62c1d7817782c2bebf20c4fc4c2f52066100f127e8ef33a90c1c695e4b",
+    "runs": {
+      "b019": {
+        "producer_run": 40112652163,
+        "head": "b0195b0bc1ca90d71792fcfbc8613e8b00b00473",
+        "checkout": "e4f1554791e421269667a7748399d752bafb9302",
+        "result": "PASS diagnostic rerun, original CI failure retained",
+        "selected": 1,
+        "outside_filter": 178,
+        "test_seconds": 90.679,
+        "phase_seconds": 92.02,
+        "command": [
+          "python3",
+          "-c",
+          "import importlib.util, os\nfrom pathlib import Path\nspec = importlib.util.spec_from_file_location(\"native\", \"scripts/ci/native-tests.py\")\nnative = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(native)\nfor name in (\"EEZ_TEST_PREBUILT\",\"EEZ_TEST_RUNTIME_BIN_DIR\",\"EEZ_TEST_PROOF_SIGNER_BIN\"):\n    os.environ.pop(name,None)\nnative.SUITES[\"cross-chain\"] = \"package(=eez-node-e2e) & binary(=node_e2e) & test(=dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays)\"\nnative.run(Path(\"artifacts/ci-consumer/tests\").resolve(),\"cross-chain\")\n"
+        ],
+        "consumer_handoff": {
+          "path": "artifacts/extended-validation/ci-40112652163/artifacts/ci-consumer/verified-handoff.json",
+          "sha256": "8b3ff5cf80a519b86452cb8b7f1861f7e53ac933f110588975bc5f0e0f03aa69"
+        },
+        "runtime_payload": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:b03ad937d7e70a674f0e9fc8d1e2235814fea39d03dc2428771b6b97c9f15113",
+        "tests_payload": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:6e104e0278ac2b5c13415969b9a791766014401c14a2a43664c78004b94b2f3a",
+        "runtime_archive_sha256": "233ee6ca6ea2f602458fc7129bb387b073239bfa2c2e1dd198168edbe43b742a",
+        "binaries_sha256": {
+          "e2e-causal-verify": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+          "eez-composer": "fb3659293df536fab67a4293b390ecbeb79f7ad6e9226c7275cea1044bf21d5b",
+          "eez-follower": "a29f8cb417ea8814139283709c9e3865882c4317e8d4fe93c87476282d789b83",
+          "eez-genesis-block-hash": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+          "eez-genesis-state-root": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+          "eez-proof-signer": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+          "verify_blob_evidence": "126870c48fdd384e1f04c8c257bcefe5f7099d2a4ef6eaacab616f302873c19a"
+        },
+        "source_log": {
+          "path": "artifacts/extended-validation/ci-40112652163/artifacts/admission-diagnostic/logs/eez-node-node-2912983-2.log",
+          "sha256": "8f6fc02863af064649a0a7b66fcf7f282f93a371afb752d4117cca58d4363619"
+        },
+        "test_output": {
+          "path": "artifacts/extended-validation/ci-40112652163/artifacts/extended-validation/checks/admission-exact-b019/output.log",
+          "sha256": "1a130b24ee3488a14817e1452db2d812b3c84db16d20c69177c7078a54e2904a"
+        },
+        "guard": {
+          "path": "artifacts/extended-validation/ci-40112652163/artifacts/extended-validation/checks/admission-exact-b019/result.json",
+          "sha256": "0af6f47f4ec6cfe20d3e12244a7aa186a02fe0a47bde2705437c4446a19367d0",
+          "exit": 0,
+          "seconds": 92.02,
+          "minimum_available_bytes": 18547036160,
+          "guard_cancelled": false,
+          "jobs": 1
+        },
+        "counts": {
+          "candidate_passes": 39,
+          "opportunities": 12,
+          "prepared": 9,
+          "prepared_groups_including_one_warmup": 129,
+          "empty_opportunities": 3,
+          "cut_events_by_constraint": {
+            "pipeline_time": 30
+          },
+          "summary_reasons": {
+            "snapshot_exhausted": 7,
+            "fifo_prefix_rebuild": 27,
+            "pipeline_time": 3,
+            "preparation_probe_limit": 2
+          },
+          "selected_admission_kinds": {
+            "source_accepted": 1155,
+            "source_preflight": 129,
+            "proof_requested": 9,
+            "proof_received": 9,
+            "preflight": 9,
+            "dispatch": 9,
+            "delivery": 9,
+            "proof_failed": 0
+          }
+        },
+        "prepared_widths": [
+          1,
+          14,
+          14,
+          14,
+          1,
+          1,
+          1,
+          22,
+          61
+        ],
+        "observed_proof_target_slack_ms": 700
+      },
+      "053": {
+        "producer_run": 40116791686,
+        "head": "053668dfde7df75af2044ff99b9309e02e03ab97",
+        "checkout": "abf3d1bc82bebe6ac3bb3ea213d9e8c272df8c20",
+        "result": "PASS diagnostic rerun, original CI failure retained",
+        "selected": 1,
+        "outside_filter": 178,
+        "test_seconds": 137.253,
+        "phase_seconds": 139.04,
+        "command": [
+          "python3",
+          "-c",
+          "import importlib.util, os\nfrom pathlib import Path\nspec = importlib.util.spec_from_file_location(\"native\", \"scripts/ci/native-tests.py\")\nnative = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(native)\nfor name in (\"EEZ_TEST_PREBUILT\",\"EEZ_TEST_RUNTIME_BIN_DIR\",\"EEZ_TEST_PROOF_SIGNER_BIN\"):\n    os.environ.pop(name,None)\nnative.SUITES[\"cross-chain\"] = \"package(=eez-node-e2e) & binary(=node_e2e) & test(=dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays)\"\nnative.run(Path(\"artifacts/ci-consumer/tests\").resolve(),\"cross-chain\")\n"
+        ],
+        "consumer_handoff": {
+          "path": "artifacts/extended-validation/ci-40116791686/artifacts/ci-consumer/verified-handoff.json",
+          "sha256": "d5842460439f6e78fe038a80d2fadc3e34a10989a4716eb9beef0decc4886460"
+        },
+        "runtime_payload": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:0dcb612bd8de95110ad355deb1805b929e80fbb6126a5911307755f77e70517b",
+        "tests_payload": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:8eec3afc676b5bd5e94de45335eb13200f01ef21dfb6786a915831f1997b3a59",
+        "runtime_archive_sha256": "509e79a480160207c85c0aaef778a7441c38d95531d704ba4b6dc304e41465f5",
+        "binaries_sha256": {
+          "e2e-causal-verify": "f7ad179e91db4d7b245a1da3574a906446af86e1e0b941a2f3929cd8258e8dfd",
+          "eez-composer": "81a0989697a9bd4d33f780776ed125a9c4287b3b7e87d3a6dfe3b5c6a944d891",
+          "eez-follower": "e799e066c327be6e66aacb8dd1a7db349b1affbb5d7e736bc6c5c14732bf8366",
+          "eez-genesis-block-hash": "fe6072c8fc152842b45db0911e59bad84232a364970a2fe7b964c2e6510ca0da",
+          "eez-genesis-state-root": "2f81093a09e1c6fe4812cc53c105424774387e329f137ffac40dba2e856feca1",
+          "eez-proof-signer": "ac969e5d98b946a3b2066a9b5a3f2c2ebbf7d9dfd2bdef9b28b6ca67aa8aacda",
+          "verify_blob_evidence": "a67df51843a140d81c0b0fc03865c798ce870346125292d3f2a1374e9f323ed5"
+        },
+        "source_log": {
+          "path": "artifacts/extended-validation/ci-40116791686/artifacts/admission-diagnostic/logs/eez-node-node-2919417-2.log",
+          "sha256": "4db78bf8aeda61096d706cd2f0f9680eb83cfe2527441be5cc7a89befae910a0"
+        },
+        "test_output": {
+          "path": "artifacts/extended-validation/ci-40116791686/artifacts/extended-validation/checks/admission-exact-053/output.log",
+          "sha256": "b3957b13dd88ff2a03a7ae75ebdcd4a61d34edb53630ddf299e35d87044acaf4"
+        },
+        "guard": {
+          "path": "artifacts/extended-validation/ci-40116791686/artifacts/extended-validation/checks/admission-exact-053/result.json",
+          "sha256": "e7dc9cec1443a776f9c0c8d14907e15d84f4b5d726659e637d22eaf362678eb7",
+          "exit": 0,
+          "seconds": 139.04,
+          "minimum_available_bytes": 18396286976,
+          "guard_cancelled": false,
+          "jobs": 1
+        },
+        "counts": {
+          "candidate_passes": 88,
+          "opportunities": 21,
+          "prepared": 14,
+          "prepared_groups_including_one_warmup": 129,
+          "empty_opportunities": 7,
+          "cut_events_by_constraint": {
+            "pipeline_time": 74
+          },
+          "summary_reasons": {
+            "snapshot_exhausted": 8,
+            "fifo_prefix_rebuild": 67,
+            "pipeline_time": 8,
+            "preparation_probe_limit": 5
+          },
+          "selected_admission_kinds": {
+            "source_accepted": 2645,
+            "source_preflight": 129,
+            "proof_requested": 14,
+            "proof_received": 14,
+            "preflight": 14,
+            "dispatch": 14,
+            "delivery": 14,
+            "proof_failed": 0
+          }
+        },
+        "prepared_widths": [
+          1,
+          12,
+          1,
+          1,
+          1,
+          12,
+          1,
+          1,
+          1,
+          4,
+          1,
+          1,
+          16,
+          76
+        ],
+        "observed_proof_target_slack_ms": 700
+      }
+    },
+    "observed_findings": [
+      "Both exact payload diagnostics pass with the original >12 packing assertion and semantic checks intact; this does not replace or erase the original b019 CI failure.",
+      "The b019 warmup of 1 group and 15 witnesses takes 27.019 logged ms. The first request of 14 groups and 5 witnesses reserves 472.652 ms, consistent with one-group extrapolation and 25% headroom. The first two 14-group proofs take 23.170 and 23.403 logged ms, less than the warmup. Later requests at width 14 are covered cheaply; these faster wide samples cannot dominate the more expensive sparse sample when extrapolating above 14.",
+      "The third b019 14-group proof takes 46.456 logged ms. For later requests with 5 witnesses, it supplies at least the clipped warmup dimensions and a longer duration, so the sparse scaling term is dominated. Later estimates for 22 and 61 groups are 91.228 and 252.950 ms, consistent with scaling this 14-group observation.",
+      "The 053 warmup of 1 group and 10 witnesses takes 30.968 logged ms. The first 12-group proof with 5 witnesses takes 34.583 ms, already slower than the warmup. It therefore dominates the warmup for requests of 5 witnesses. Sparse warmup retention alone cannot explain subsequent empty opportunities in this run.",
+      "Both logs explicitly record pipeline_time FIFO rebuilds. b019 has 27 rebuild summaries and 3 empty opportunities; 053 has 67 rebuild summaries and 7 empty opportunities. No proof is requested for those empty opportunities. The same opportunity deadline is retained across strictly shorter candidate snapshots.",
+      "The final prepared widths of 22 and 61 in b019 and 16 and 76 in 053 exceed 12. The prepared groups sum to 129 in each log: one warmup plus 128 mixed-wave sources. Each log has the same number of proof_received and preflight events as prepared candidates, and 129 source_preflight events.",
+      "In 053, the first 12-group proof already removes the sparse extrapolation for requests with 5 witnesses, but broad FIFO reconstruction still repeatedly consumes time and falls back to small probes. This is an observed admission-efficiency concern, not a demonstrated execution, canonical replay, or ownership correctness defect.",
+      "Empty opportunities are predictive pipeline_time refusals, not proof failures or literal expiry of all wall time: using the 700 ms target slack observed in every proof request, b019 empty summaries retain 513-523 ms and 053 retain 458-583 ms before cutoff. The remaining estimate for finishing, proof and finalization no longer fits; the internal per-gate breakdown is not emitted."
+    ],
+    "limits": [
+      "Original failed CI run lacks full warmup and large-candidate logs. Neither diagnostic establishes that failure's precise cause.",
+      "Logged proof_ms is sampled after PipelineTimings::observe_proof. It is slightly larger than the internal trained duration; formulas using these logs are approximate, not bit-exact reconstruction of internal timing samples.",
+      "No complete per-refusal breakdown of proof/finishing/group reserve is emitted. pipeline_time is explicit, but the exact numeric balance at every failed gate cannot be recovered from the existing logs.",
+      "These are single diagnostic reruns, not a statistical performance benchmark or matched main-versus-candidate comparison. Witness warmup coverage differs (15 versus 10), slot timing differs, and no controlled attribution to Tokio is possible.",
+      "Passing diagnostics retain the original CI failure as unresolved intermittent packing behavior. Do not change or weaken the >12 assertion based only on these passes.",
+      "Raw logs and this analysis are ignored local artifacts; availability to another checkout depends on separate publication/retention by the parent audit owner."
+    ],
+    "analysis_path_erratum": {
+      "field": "unchanged_paths_between_revisions",
+      "recorded_path": "crates/eez-node-e2e/tests/it/dynamic_admission.rs",
+      "correct_path": "crates/eez-node-e2e/tests/dynamic_admission.rs",
+      "verification": "git diff --exit-code b0195b0bc1ca90d71792fcfbc8613e8b00b00473 053668dfde7df75af2044ff99b9309e02e03ab97 -- crates/eez-node-e2e/tests/dynamic_admission.rs returned 0 with no diff",
+      "limit": "The local analysis file remains immutable at its recorded digest. This corrects its path metadata only; these audit conclusions use the real file."
+    }
+  },
+  "final_candidate_ci_result": {
+    "run": 40123208325,
+    "head": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+    "checkout": "c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8",
+    "job": 120969794194,
+    "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40123208325/job/120969794194",
+    "result": "PASS",
+    "test_seconds": 76.571,
+    "test_event": "2026-10-24T20:02:53.0870220Z         PASS [  76.571s] (17/33) eez-node-e2e::node_e2e dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays",
+    "lane_passed": 33,
+    "lane_completed_at": "2026-10-24T20:16:39Z",
+    "log_local_only": "artifacts/pr-readiness/ci-candidate/40123208325/lanes/120969794194.log",
+    "log_sha256": "9bd07dee2d889ea8aba26ba67038e6116918692aaf4b3d0fa6b41bff961dba7e",
+    "limit": "Unchanged delayed-start assertions passed on the final runtime candidate; the original b019 intermittent failure remains unresolved. Passing CI output does not retain full prepared widths or prove a Tokio effect."
   }
 }

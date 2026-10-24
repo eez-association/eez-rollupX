@@ -79,17 +79,58 @@ these are the earlier pre-R03 local debug executables, while the failure used
 release CI artifacts on another runner. It neither proves the failed run's
 stop cause nor validates the subsequent Tokio candidate.
 
-## Next check
+## Subsequent CI result and exact-payload diagnostics
 
-The same unmodified test is selected by the Tokio candidate's
-[run 40116791686](https://github.com/eez-association/eez-rollupX/actions/runs/40116791686).
-Preserve its first result and, on failure, full admission/prepared summaries,
-warmup proof and finishing samples, actual selection widths, capacity reasons,
-and native preflight outcomes. A synchronized fixture is justified only if
-those records show that the required offered workload was absent at selection.
-Otherwise investigate the concrete resource or timing rule. Keep **accepted > 12**,
-all semantic assertions, and the shared execution/deadline guards intact.
+The same unmodified test passed on the Tokio 1.53.3 candidate `053668df` in
+[run 40116791686, Cross-Chain 1/4](https://github.com/eez-association/eez-rollupX/actions/runs/40116791686/job/120951087964),
+in 71.230 s at 18:42:30 UTC. The lane completed 33/33 tests; all eight process
+partitions completed 174/174, with five explicit ignored tests outside selection.
+This pass reaches **accepted > 12** and the later semantic assertions. The CI
+log contains the passing result, but not the complete node admission/timing
+logs or the actual accepted widths. It does not establish why b019 stopped at
+eleven, nor show that Tokio fixed it. The first failure remains unresolved.
 
-Only source tracing, Git comparisons, GitHub reads and structured log extraction
-have run for this investigation. No local build, process reproduction, retry,
-service restart, or dependency modification was performed.
+The root agent then ran the same case serially with each producer's verified
+runtime and test payload, without rebuilding Rust. The original b019 artifacts
+passed in 90.679 s; 053 passed in 137.253 s. Each selected one test, leaving 178
+outside the filter, with all original assertions intact. Full logs, executable
+identity, commands and hashes are retained in the JSON. These are diagnostic
+reruns: the original CI failure remains an unresolved intermittent failure.
+
+The observed prepared widths, including the one-source warmup, were:
+
+| Payload | Prepared source counts | FIFO rebuild summaries | Empty opportunities |
+| --- | --- | --- | --- |
+| b019 | 1, 14, 14, 14, 1, 1, 1, 22, 61 | 27 | 3 |
+| 053 | 1, 12, 1, 1, 1, 12, 1, 1, 1, 4, 1, 1, 16, 76 | 67 | 7 |
+
+Each log records 129 source preflights (warmup plus 128 application sources),
+matching proof-received/preflight counts for prepared candidates, and no proof
+failure. In b019, the 27.019 ms one-group warmup remains an extrapolation term
+above fourteen groups while the first two fourteen-group proofs are cheaper.
+The third, at 46.456 ms, dominates that sparse sample; later candidates reach
+twenty-two and sixty-one. In 053 the first twelve-group proof already exceeds
+the 30.968 ms warmup, so sparse retention alone cannot explain its subsequent
+empty opportunities.
+
+Those empty opportunities explicitly stop at `pipeline_time`: the remaining
+estimated work does not fit. They are not proof failures or literal exhaustion
+of wall time; roughly 513–523 ms remain in b019 and 458–583 ms in 053. The logs
+do not expose the full per-gate reserve breakdown, and logged proof durations
+are sampled slightly after the trained duration. The numeric reconstruction is
+therefore approximate. Full FIFO reconstruction also consumes time before the
+same opportunity's next attempt.
+
+This identifies a concrete admission-efficiency follow-up while preserving the
+first CI failure's evidentiary limit. Neither single diagnostic is a controlled
+performance comparison or evidence that Tokio improved packing. No production,
+test, timeout or deadline rule was changed. A future fix must explain the
+observed refusal before changing the fixture or estimator; retain **accepted >
+12**, semantic checks, bounded admission and final execution validation.
+
+The final runtime candidate `28049ff7` also passed the unchanged case in
+[CI run 40123208325, Cross-Chain 1/4](https://github.com/eez-association/eez-rollupX/actions/runs/40123208325/job/120969794194),
+in 76.571 s. That lane completed 33/33 tests. The log hash and exact PASS event
+are recorded in the JSON; full prepared widths are not present in the passing CI
+output. This is additional exact-candidate coverage, not a diagnosis or erasure
+of the original intermittent failure.

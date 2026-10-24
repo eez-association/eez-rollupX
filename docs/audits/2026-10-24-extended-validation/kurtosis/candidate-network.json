@@ -1,0 +1,221 @@
+{
+  "enclave": "eez-final-ab-20261024",
+  "enclave_uuid": "ca2e0c2232ce4c17a42704d8002f92bb",
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "chain_id": 696990,
+  "genesis": "0x738f7115f7d0bd23c533e9015e09cf9c5d49131fcd2fb4731593746797106358",
+  "l1": "http://127.0.0.1:32928",
+  "l1_genesis": "0x1467162d70da2c5ed3b41ea341c7b8bcbc479546b01b45dd95cee03cfdaf2f63",
+  "l2": "http://127.0.0.1:32955",
+  "front": "http://127.0.0.1:32956",
+  "l1front": "http://127.0.0.1:32957",
+  "beacon": "http://127.0.0.1:32940",
+  "containers": [
+    "922fbfea66ef336722d81881aff1548118efd7c8c40b508c1457b00fd821fdbf",
+    "834b306d01d2f4644fc88d636da871e4bfd5e9c3b6846784f221e3779363606d",
+    "983c4140fca81f0c597792c60b4957fba72a44fe99f5743a6c36068367a9d4b7"
+  ],
+  "status": "Final immutable images deployed and validated; load, fees, three controls and cold replay passed; enclave now stopped without deletion.",
+  "start": {
+    "started_at": "2026-10-24T20:10:25.159266+00:00",
+    "command": [
+      "bwrap",
+      "--bind",
+      "/",
+      "/",
+      "--dev",
+      "/dev",
+      "--bind",
+      "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/extended-validation/candidate-fresh/tmp",
+      "/tmp",
+      "--chdir",
+      "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/extended-validation/ci-candidate/40123208325/checkout",
+      "bash",
+      "testing/kurtosis/start.sh",
+      "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/extended-validation/candidate-fresh/args.yaml"
+    ],
+    "mem_available_gib": 18.81507110595703,
+    "enclave": "eez-final-ab-20261024",
+    "source": "c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8",
+    "pid": 2985301,
+    "exit_code": 0,
+    "finished_at": "2026-10-24T20:13:15.493180+00:00"
+  },
+  "args_sha256": "f83927ff5dd05b3fd3b4ed2db82ff6d2b8e50b3451f186842706d282ed31bcc4",
+  "role_bytes": {
+    "verified": true,
+    "at": "2026-10-24T20:13:38.145608+00:00",
+    "checks": {
+      "eez-composer": {
+        "sha256": "8dd137a877ee837f3f37c9182e3cb5a8642aa20923d77c95e9d635edadd57704",
+        "container": "922fbfea66ef336722d81881aff1548118efd7c8c40b508c1457b00fd821fdbf",
+        "matches_archive": true,
+        "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633"
+      },
+      "eez-follower": {
+        "sha256": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+        "container": "922fbfea66ef336722d81881aff1548118efd7c8c40b508c1457b00fd821fdbf",
+        "matches_archive": true,
+        "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633"
+      },
+      "eez-genesis-state-root": {
+        "sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+        "container": "922fbfea66ef336722d81881aff1548118efd7c8c40b508c1457b00fd821fdbf",
+        "matches_archive": true,
+        "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633"
+      },
+      "eez-genesis-block-hash": {
+        "sha256": "852368677738bf66477ed338aaf44d1f04b2cdcf4d401c01927990117669ad5c",
+        "container": "922fbfea66ef336722d81881aff1548118efd7c8c40b508c1457b00fd821fdbf",
+        "matches_archive": true,
+        "image": "ghcr.io/eez-association/eez-rollupx-node@sha256:3b7ba4efb57e2b0a51c47534ddb7703cfb8ac65a3a65515a69d0c8f13ada9633"
+      },
+      "eez-proof-signer": {
+        "sha256": "332597c24b1de4d9722e42abd3fe212297c501db555e265a477f44eb6625599c",
+        "container": "834b306d01d2f4644fc88d636da871e4bfd5e9c3b6846784f221e3779363606d",
+        "matches_archive": true,
+        "image": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:995266fa4b8756b73e4d533163729531bbf2731aa53c7cbe7e07f96bcfae82fa"
+      }
+    },
+    "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+    "enclave_uuid": "ca2e0c2232ce4c17a42704d8002f92bb"
+  },
+  "deployment_verifier_output": "\u001b[36mINFO\u001b[0m[2026-10-24T20:13:48Z] File package with identifier 'eez-deployments' extracted to '/home/edu/Development/rollupX/artifacts/l1-history-offline-proving/artifacts/extended-validation/candidate-fresh/tmp/eez-deployment-check-eez-final-ab-20261024' \nEEZL2 proxy, implementation and proxy derivation verified (rollupId=1, system=0xfffffffffffffffffffffffffffffffffffffffe, upgradeOwner=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266)\n",
+  "debug_pending": {
+    "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+    "transaction": {
+      "from": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+      "to": "0x7777777777777777777777777777777777777777",
+      "value": "0x1",
+      "input": "0x"
+    },
+    "samples": [
+      {
+        "at": "2026-10-24T20:14:53.362522+00:00",
+        "parent_before": {
+          "hash": "0x12e0e16484b5f53f2cce36ea831abbf11c4049f16acbbb808926ef0aa23eea34",
+          "parentHash": "0x070e8d7a486a18ff72c3368790b2c2b56d8b739f9aa82ed454ef4c00a5be97f7",
+          "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+          "miner": "0x4444444444444444444444444444444444444444",
+          "stateRoot": "0x32b48e55f5bc954e377df1c3198c1640d33429d0ffba202d315f88d2044c7785",
+          "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "difficulty": "0x0",
+          "number": "0x68",
+          "gasLimit": "0x1c9c380",
+          "gasUsed": "0x0",
+          "timestamp": "0x6add11bc",
+          "extraData": "0x",
+          "mixHash": "0x2e9974c70c9dee5ad19370f0858a0b3c4623a5f9fdea3857ad447c35447c2aca",
+          "nonce": "0x0000000000000000",
+          "baseFeePerGas": "0x7573247",
+          "withdrawalsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "blobGasUsed": "0x0",
+          "excessBlobGas": "0x0",
+          "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": "0x268",
+          "uncles": [],
+          "transactions": [],
+          "withdrawals": []
+        },
+        "next_cutoff": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": "0x000000000000000000000000000000000000000000000000000000006add11b8"
+        },
+        "debug_latest": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "failed": false,
+            "gas": 21000,
+            "returnValue": "0x",
+            "structLogs": []
+          }
+        },
+        "debug_pending": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": {
+            "failed": false,
+            "gas": 21000,
+            "returnValue": "0x",
+            "structLogs": []
+          }
+        },
+        "eth_pending": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "result": "0x"
+        },
+        "parent_after": {
+          "hash": "0x12e0e16484b5f53f2cce36ea831abbf11c4049f16acbbb808926ef0aa23eea34",
+          "parentHash": "0x070e8d7a486a18ff72c3368790b2c2b56d8b739f9aa82ed454ef4c00a5be97f7",
+          "sha3Uncles": "0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347",
+          "miner": "0x4444444444444444444444444444444444444444",
+          "stateRoot": "0x32b48e55f5bc954e377df1c3198c1640d33429d0ffba202d315f88d2044c7785",
+          "transactionsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+          "difficulty": "0x0",
+          "number": "0x68",
+          "gasLimit": "0x1c9c380",
+          "gasUsed": "0x0",
+          "timestamp": "0x6add11bc",
+          "extraData": "0x",
+          "mixHash": "0x2e9974c70c9dee5ad19370f0858a0b3c4623a5f9fdea3857ad447c35447c2aca",
+          "nonce": "0x0000000000000000",
+          "baseFeePerGas": "0x7573247",
+          "withdrawalsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+          "blobGasUsed": "0x0",
+          "excessBlobGas": "0x0",
+          "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000",
+          "requestsHash": "0xe3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "size": "0x268",
+          "uncles": [],
+          "transactions": [],
+          "withdrawals": []
+        }
+      }
+    ],
+    "broadcasts": 0,
+    "stable_parent": true,
+    "result": "pass",
+    "scope": "Same transaction and methods as both retained controls; only a changed parent permits another observation."
+  },
+  "workload_identity": {
+    "testing/kurtosis/scripts/cross-chain-wave.sh": {
+      "sha256": "bc39d21e3936b4249a8f4965df6dd27e982a1192ad30a415d1bdd783201ebb93",
+      "identical_to_baseline": true
+    },
+    "testing/kurtosis/scripts/lib.sh": {
+      "sha256": "ab87c083d2879cfff1b7d630ccd8d8731c38d3d03a405c633ab715d66aab245f",
+      "identical_to_baseline": true
+    },
+    "scripts/ci/wait-wave-settlement.py": {
+      "sha256": "3b354a685c7947fb8fca34de7277fd2bfa4500a093dcee289189bc096d37dec5",
+      "identical_to_baseline": true
+    },
+    "artifacts/extended-validation/tools/ordinary-load.mjs": {
+      "sha256": "4e6a4c5bf81053ce27e4abcfc851dc90ce9297cc5d23dbe23685b037b7a114a4",
+      "identical_to_baseline": true
+    },
+    "artifacts/extended-validation/tools/ordinary-pipeline.mjs": {
+      "sha256": "90c53aeade31c667821fc58281c4b67323bb2b5299230ff788c23463aa633923",
+      "identical_to_baseline": true
+    },
+    "artifacts/extended-validation/tools/run-mixed.py": {
+      "sha256": "6b962100aff5648f9665946fc34144e101a356c44d9aacc2f9dfa6da5f2e8dbf",
+      "identical_to_baseline": true
+    },
+    "artifacts/extended-validation/tools/run-pipeline.py": {
+      "sha256": "cc8740988dccfb7deebe5136597e8ceca3bd816d0a77db628f88c60e6cb32fbc",
+      "identical_to_baseline": true
+    }
+  },
+  "local_artifact_root": "artifacts/extended-validation/candidate-fresh",
+  "status_at_initial_record": "deployed; mixed campaign preparation active",
+  "final_validation": "candidate-load.json"
+}

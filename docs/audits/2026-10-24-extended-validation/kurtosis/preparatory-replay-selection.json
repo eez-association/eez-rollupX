@@ -1,0 +1,36 @@
+{
+  "scope": "Local input-selection checks of the exact preparatory collector block, using retained receipts; no new RPC or broadcast. Final live recheck is pending.",
+  "collector_sha256": "8df68a8329d2f530176754f11724d3010ec7487425f874dcce7e788d64a47461",
+  "checks": [
+    {
+      "case": "two retained canonical receipts remain outside measured workloads",
+      "result": "PASS",
+      "receipts": 2
+    },
+    {
+      "case": "missing preparatory receipt",
+      "result": "PASS: rejected"
+    },
+    {
+      "case": "duplicate selected transaction",
+      "result": "PASS: rejected"
+    },
+    {
+      "case": "changed receipt gas price",
+      "result": "PASS: rejected"
+    },
+    {
+      "case": "missing canonical claim coverage",
+      "result": "PASS: rejected"
+    },
+    {
+      "case": "wrong actor",
+      "result": "PASS: rejected"
+    },
+    {
+      "case": "wrong preparatory gas accounting",
+      "result": "PASS: rejected"
+    }
+  ],
+  "passed": 7
+}

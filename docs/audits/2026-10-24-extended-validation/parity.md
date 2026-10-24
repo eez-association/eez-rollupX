@@ -93,3 +93,48 @@ Different genesis/native envelopes, mandatory history gas and the accepted fee-r
 4. Record transport and actual Nethermind integration as separate limits. Neither generated clients nor Rust conformance proves an external engine executes the protocol correctly.
 
 This audit does not assert legacy compatibility, an exhaustive EVM conformance result, durable queue recovery, arbitrary reorg immunity, complete receipt-field comparison, a four-day wall-clock stress result or sustained-throughput parity.
+
+## Subsequent profile-boundary controls
+
+The unchanged shared validators now have additional direct negative controls in
+`eez-protocol/src/entries/materialize.rs` (test module only):
+
+- A valid rollback region is accepted before a second overlapping marker is
+  added, for both sibling and nested action shapes. The materializer must return
+  the exact unsupported-region error.
+- The existing valid root/sibling rollback case is ABI round-tripped after
+  adding a second marker inside its active span. The public nested-group
+  verifier rejects it at `check_entry_shape`, before any rolling-hash mismatch.
+  The test does not bypass this first boundary to target a later defensive guard.
+- A successful flat mutable source beside a static source verifies first. Real
+  materialization/finalization then supplies nested, failed and rollback mutable
+  variants; each must reach its specific mixed-group rejection.
+
+The complete protocol library suite passes **208/208**, with no ignored or
+filtered tests, including all **25** materialization tests. The guarded command
+`cargo +1.95.0 test --locked --offline -p eez-protocol --lib --
+--test-threads=1` finishes in 30.01 seconds; test execution takes 0.05 seconds.
+Its retained result is
+`artifacts/extended-validation/checks/protocol-profile-boundaries/result.json`.
+The production prefix of the edited file is byte-identical to `28049ff7`; the
+whole test-bearing file has SHA-256
+`6fc01f745b9b9113329678e8c9cdab2604b5466b6488351f12e9da04d07aa117`.
+These are shared materialization/authorization-boundary tests, not full signer
+RPC or live executions of the 26 excluded scenarios. The supported profile is
+unchanged.
+
+The public pending debug correction and its later validation are recorded
+separately in [pending-debug.md](pending-debug.md). Engine-auth `eth_call` and
+other simulation/debug/trace methods outside the four adapted public methods
+still reject a derived pending view requiring an unexecuted history prefix, as
+explicitly specified in the [RPC boundary](../../../contracts/L1_HISTORY_SPEC.md#ethereum-rpc-simulation).
+The frozen comparison above must not be read as universal Ethereum RPC parity.
+
+After these test-only additions, workspace format checking and
+`cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings`
+pass again. The final Clippy invocation takes 56.02 seconds with one build job
+and a minimum of 19,950,460,928 available host bytes; no guard cancellation.
+Its local-only result is
+`artifacts/extended-validation/checks/profile-boundaries-clippy/result.json`.
+This check includes the new test bodies; the earlier shipping CI naturally
+contains the preceding test set.

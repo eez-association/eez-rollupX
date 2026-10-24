@@ -53,3 +53,38 @@ execution progress during the interruption. Record exact wall-clock/head ages
 and commit gaps, and investigate any pause against runtime logs. No arbitrary
 wall-clock SLA is inferred from the two-second protocol timestamp interval;
 host scheduling delay and protocol gating are separate explanations.
+
+The read-only [inclusion analysis](inclusion-metrics.py) joins each final receipt
+to the first `Canonical chain committed` log with that exact block hash. It
+requires a match for every accepted transfer and rejects negative elapsed
+times. This measures local inclusion separately from the existing hash-bound
+L1 settlement timings; header timestamps alone are not used as arrival times.
+Apply the same script to both revisions after their measurements finish. The
+baseline result is in [baseline-inclusion.json](../baseline-inclusion.json).
+
+The candidate [read-only collector](collect-mixed.py) preserves the baseline
+receipt, fee and full-claim checks. Its optional `EEZ_DELAYED_L1_OUTPUT` and
+`EEZ_MISSED_L1_OUTPUT` inputs point to the respective `ordinary` output directories,
+alongside `EEZ_RECOVERY_OUTPUT` for the signer control. Each must contain a
+successful 24-transfer summary with the same runtime identity and all 24 receipts;
+duplicate transaction hashes across controls are rejected. The final endpoint
+and fee interval include every supplied control. These inputs do not establish
+that fault injection succeeded: the separate supervisors retain that evidence.
+The [input-selection checks](../collector-preparation.json) preserved all 8,241
+baseline receipts exactly and rejected inconsistent synthetic additions, without
+RPC access or a new live execution. The baseline collector's original digest
+and results remain unchanged.
+The optional `EEZ_PREPARATORY_RECEIPTS` input preserves the two accepted transfers
+from the aborted bootstrap attempt as a separate replay group. Their original
+receipts, canonical block hashes, sender, recipient and gas costs are rechecked;
+they do not enter measured workload counts, latency or fee-interval statistics.
+The total actor budget includes these two transactions: at most 20,474 ordinary
+intents and 0.0429954 test ETH of gas at the configured maximum fee, within its
+0.05 test ETH funding. The initial failure remains recorded separately.
+
+The [metrics reader](summarize-load.py) joins signer windows and Composer attempts
+by their exact canonical block hashes. Final signer events omit request context
+and window duration; these stay unavailable, with the first parser failure
+preserved. Composer roundtrip timing is measured independently. The final
+[campaign result](../candidate-load.json) records actual execution and the slower
+sequential settlement p95 without a performance-parity claim.

@@ -1,7 +1,8 @@
 # Selective Tokio security update
 
-Status: implementation and validation in progress, 2026-10-24 UTC. The starting
-branch and protocol identities are in [the campaign record](README.md).
+Status: Tokio update implemented and validated; the separate crypto-bigint
+integration blocker remains unresolved, 2026-10-24 UTC. The starting branch and
+protocol identities are in [the campaign record](README.md).
 
 The workspace minimum and lockfile move Tokio from 1.52.3 to 1.53.3, the compatible
 fixed release for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
@@ -52,6 +53,14 @@ old transitive users, and changing the full pinned API family is not a selective
 security update. No advisory exception, package-version disguise or unchecked
 cryptographic patch is introduced. This remains an integration blocker.
 
+The read-only registry recheck at **2026-10-24 20:16:41 UTC** still finds 0.5.5
+as the latest 0.5 release; the latest registry version overall is 0.7.7. The
+[crates.io index entry](https://index.crates.io/cr/yp/crypto-bigint) response has
+SHA-256 `a841c4712064efd3059524b76ec189ce3a4a54e6bb4047e7173a2e945b42c64e`.
+The local-only response summary is
+`artifacts/extended-validation/dependencies/crypto-availability-final.json`.
+This check changes neither lockfiles nor installed packages.
+
 ## Evidence
 
 Local-only original/resolved lockfiles, resolver log, metadata and structured
@@ -85,7 +94,9 @@ the retained debug log SHA-256 is
 The separate Reth cleanup check passed **1/1**, but that
 revision's nested vendor lock still selected Tokio 1.52.3: it does not establish
 cleanup behavior with the updated scheduler. The pending-debug correction aligns
-that nested lock and requires the cleanup check again.
+that nested lock. The repeated cleanup regression now passes **1/1** with
+Tokio 1.53.3; its command, explicit profile and result are in the
+[pending-debug verification](pending-debug.md#executed-local-checks).
 
 The producer subsequently passed **38/38**, including its archive feature and
 frozen-runtime checks. The exact merge checkout consumed and verified the
@@ -98,6 +109,30 @@ runtime. The local-only handoff is
 `artifacts/extended-validation/ci-40116791686/artifacts/ci-consumer/verified-handoff.json`.
 Its first invocation omitted required `GITHUB_SHA` and stopped before checking
 identity; supplying the exact workflow merge corrected that invocation.
-The embedded process partitions passed **43/43**. Cross-chain and live checks
-are still in progress. These binaries do not contain the later pending-debug
+All eight process partitions subsequently passed **174/174** (43 embedded and
+131 cross-chain), with five explicit ignored tests outside selection. The live
+Kurtosis lane passed its four initial workloads but was cancelled when the
+pending-debug candidate superseded this CI; it did not finish protocol/replay
+validation. These binaries do not contain the later pending-debug
 correction; earlier binary results do not validate later changes.
+
+The final runtime candidate `28049ff734ab931cbde01246c5d238cce6ef65bf`,
+CI `40123208325` at merge
+`c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8`, passes **1571/1571**
+workspace unit tests with three explicit skips. Both separate Reth regressions
+pass **1/1** with Tokio 1.53.3 in the root and nested lockfiles, including the
+shared tracing quota and cleanup-before-shutdown acknowledgement. The debug
+log SHA-256 is
+`632d8a3fccd04066b2e7fbffca089c20dfa762a68ec275dc64ef3334b65e41be`.
+Its dependency gate still fails solely on crypto-bigint's advisory; bans and
+sources pass. The fatal advisory prevents subsequent CI audit/tooling/Clippy
+steps in that lane, so those steps are not CI coverage. Local checks retain
+their separate identities. The final producer passes **38/38** and publishes
+matching runtime/test payloads; process and live validation must bind to those
+bytes, not the preceding Tokio-only candidate.
+
+The [completed final CI](ci-final.md) subsequently passes all eight process
+partitions (**174/174**) and the Kurtosis lane, including **34/34** pinned
+protocol scenarios with independent semantic/DA verification. Its global result
+remains failed solely because of the cryptographic dependency gate; execution
+passes do not waive that security finding.

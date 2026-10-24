@@ -1234,6 +1234,7 @@ fn source_call_hash(call: &ExecutedAction) -> B256 {
 #[cfg(test)]
 mod tests {
     use alloy_primitives::{Address, I256};
+    use alloy_sol_types::SolValue;
 
     use super::*;
     use crate::abi::{EtherDeltaSol, RootUpdateSol};
@@ -1532,6 +1533,30 @@ mod tests {
     }
 
     #[test]
+    fn materialization_rejects_overlapping_source_revert_regions() {
+        let l1 = RollupId::MAINNET;
+        let l2 = RollupId(1);
+        for parent in [None, Some(0)] {
+            let (source, target) = if parent.is_some() { (l2, l1) } else { (l1, l2) };
+            let mut calls = vec![action(0, None, l1, l2), action(1, parent, source, target)];
+            calls[0].revert_span = Some(2);
+            materialize_batches(&calls, l1).expect("one complete source rollback region");
+
+            calls[1].revert_span = Some(1);
+            let error = materialize_batches(&calls, l1).expect_err("overlapping source regions");
+            assert!(
+                matches!(
+                    error.kind(),
+                    ProtocolErrorKind::Unsupported(
+                        "nested or overlapping revert regions are not supported"
+                    )
+                ),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
     fn root_revert_region_is_lowered_to_one_l1_array_span() {
         let l2 = RollupId(1);
         let mut calls = vec![
@@ -1584,6 +1609,28 @@ mod tests {
         .expect("verify committed root and reverted sibling span");
         assert_eq!(verified.l2_outbound_hashes, [source_call_hash(&calls[0])]);
         assert_eq!(verified.ether_delta, I256::ZERO);
+
+        let mut overlapping = l1.batch.entries[0].clone();
+        overlapping.l2ToL1Calls[2].revertNextNCalls = 1;
+        let overlapping = ExecutionEntrySol::abi_decode(&overlapping.abi_encode())
+            .expect("overlapping spans still have valid ABI encoding");
+        // The public verifier checks array shape before interpreting hashes.
+        // This must reach that guard, not a later rolling-hash mismatch.
+        let error = crate::entries::verify_nested_group(
+            &overlapping,
+            &l2_output.batch.entries,
+            crate::entries::NestedPairDirection::Outbound,
+            l2,
+        )
+        .expect_err("second rollback marker inside the active span");
+        assert!(
+            matches!(
+                error.kind(),
+                ProtocolErrorKind::InvalidEncoding(reason)
+                    if reason == "L1 entry flat calls call 2 starts a nested revert span"
+            ),
+            "{error}"
+        );
     }
 
     #[test]
@@ -2336,6 +2383,77 @@ mod tests {
                         .contains("conflicting results")
                 );
             }
+        }
+    }
+
+    #[test]
+    fn mixed_outbound_groups_reject_nested_failed_and_rollback_mutable_sources() {
+        use crate::system_tx::OutboundSourceEntry;
+        let l2 = RollupId(1);
+        let mut read = action(0, None, l2, RollupId::MAINNET);
+        read.call_mode = CallMode::Static;
+        let mut write = action(1, None, l2, RollupId::MAINNET);
+        write.value = U256::ZERO;
+        let calls = vec![read, write];
+        let verify = |calls: &[ExecutedAction]| {
+            let mut batches = materialize_batches(calls, l2).expect("materialize mixed source");
+            let mut host = batches.remove(&RollupId::MAINNET).unwrap();
+            let source = batches.remove(&l2).unwrap();
+            host.batch.entries[0].rootUpdates.push(RootUpdateSol {
+                rollupId: l2.0,
+                currentRoot: B256::with_last_byte(1),
+                newRoot: B256::with_last_byte(2),
+                etherDelta: EtherDeltaSol::ZERO,
+            });
+            finalize_l1_entry_traces(&mut host.batch, &host.entry_traces)
+                .expect("finalize mixed source");
+            let sources = source
+                .batch
+                .entries
+                .into_iter()
+                .map(OutboundSourceEntry::Mutable)
+                .chain(
+                    source
+                        .l2_static_entries
+                        .into_iter()
+                        .map(OutboundSourceEntry::Static),
+                )
+                .collect::<Vec<_>>();
+            crate::entries::verify_outbound_source_group(&host.batch.entries[0], &sources, l2)
+        };
+        verify(&calls).expect("flat successful mutable source beside a static read");
+
+        let mut nested = calls.clone();
+        let mut callback = action(2, Some(1), RollupId::MAINNET, l2);
+        callback.value = U256::ZERO;
+        nested.push(callback);
+        let mut failed = calls.clone();
+        failed[1].outcome = crate::ExecutionOutcome::Resolved {
+            return_data: vec![0x41],
+            gas_used: 21_001,
+            success: false,
+        };
+        let mut rollback = calls;
+        rollback[1].revert_span = Some(1);
+        for (calls, reason) in [
+            (
+                nested,
+                "mixed outbound groups require a successful flat host and flat mutable sources",
+            ),
+            (
+                failed,
+                "mixed outbound groups do not support reverted mutable roots or root spans",
+            ),
+            (
+                rollback,
+                "mixed outbound groups do not support reverted mutable roots or root spans",
+            ),
+        ] {
+            let error = verify(&calls).expect_err("unsupported mixed source shape");
+            assert!(
+                matches!(error.kind(), ProtocolErrorKind::InvalidEncoding(actual) if actual == reason),
+                "{reason}: {error}"
+            );
         }
     }
 
