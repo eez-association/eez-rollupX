@@ -69,16 +69,19 @@ consensus or grant signing authority by itself.
 
 ## Ethereum RPC simulation
 
-On public HTTP, WebSocket and IPC transports with `eth` enabled, `eth_call`,
-`eth_estimateGas` and `eth_createAccessList` with the explicit `pending` tag serve
+On public HTTP, WebSocket and IPC transports, `eth_call`, `eth_estimateGas`,
+`eth_createAccessList`, and `debug_traceCall` with the explicit `pending` tag serve
 an existing executed pending payload with Reth's normal state and environment.
+Each method remains available only when its namespace is enabled. `txIndex`
+tracing retains Reth's replay of an actual block and its transaction bounds; it
+does not create transaction positions for a derived pending view.
 If no such payload exists, the node snapshots the latest L2
 parent and checked local L1 headers, then executes the real pre-application
 prefix in request-local state: EIP-2935, balance cleanup, and the native history
 transaction when scheduled. Both an advancing import and an empty repeat advance
 `nextCutoff`; the selected header supplies PREVRANDAO. The ordinary application
-simulation and Reth's gas/access-list algorithms use that same state and
-environment. Failure to prepare or execute the prefix returns an error, without
+simulation, Reth's gas/access-list algorithms and its selected debug tracer use
+that same state and environment. Failure to prepare or execute the prefix returns an error, without
 falling back to the unmodified parent state.
 
 This derived view does not promise inclusion of pending pool transactions. It is
@@ -89,9 +92,14 @@ PREVRANDAO does not reschedule the import, authenticate different L1 evidence or
 certify a valid L2 block. Estimates remain advisory.
 
 Omitted tags, `latest`, and explicit historical block selectors retain their
-existing behavior, as do positional and named JSON-RPC parameters. Engine auth's
-separate `eth_call`, and simulation/debug methods outside these three public
-methods, are not adapted: their environment-only fallback still rejects a
+existing behavior, as do positional and named JSON-RPC parameters. Debug trace
+options and application failure results retain Reth's semantics. Pending trace
+preparation and execution share the registry's aggregate tracing quota with
+other debug/trace/bundle methods; cancellation does not release that permit
+while its blocking worker still runs.
+
+Engine auth's separate `eth_call`, and simulation/debug/trace methods outside
+these four public methods, are not adapted: their environment-only fallback still rejects a
 derived view when it requires an unexecuted history import. This RPC adaptation
 uses the node's existing local evidence; it adds no L1 or L2 RPC dependency to the prover
 and makes no change to `prove.v2`.

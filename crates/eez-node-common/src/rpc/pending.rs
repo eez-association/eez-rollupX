@@ -1,9 +1,12 @@
 //! Pending application simulation after the real EEZ pre-execution prefix.
 //!
 //! Reth's environment-only fallback reads the parent state. Keep that fallback
-//! guarded, and adapt only the three single-transaction simulation methods here.
+//! guarded, and supply executed prefix state to single-transaction simulation.
 //! Their algorithms remain Reth's; this adapter supplies one request-local state
 //! and environment and never publishes a pending block or modifies the pool.
+
+#[cfg(test)]
+mod tests;
 
 use super::{Converter, EezEthApiBuilder};
 use crate::node::EezNode;
@@ -12,6 +15,7 @@ use alloy_rpc_types_eth::{
     AccessListResult, BlockId, BlockOverrides, TransactionRequest,
     state::{EvmOverrides, StateOverride},
 };
+use alloy_rpc_types_trace::geth::{GethDebugTracingCallOptions, GethTrace};
 use eez_evm::EezEvmConfig;
 use eez_protocol::l1_history::WitnessHistory;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
@@ -23,13 +27,13 @@ use reth_node_api::FullNodeComponents;
 use reth_node_builder::rpc::RpcContext;
 use reth_primitives_traits::{Account, Bytecode, SealedHeader, SignedTransaction};
 use reth_revm::{database::StateProviderDatabase, db::State};
-use reth_rpc::EthApi;
+use reth_rpc::{DebugApi, EthApi};
 use reth_rpc_convert::RpcTxReq;
 use reth_rpc_eth_api::{
     EthApiServer, EthApiTypes, RpcNodeCore,
     helpers::{
-        Call, EthCall, LoadBlock, LoadPendingBlock, LoadState, SpawnBlocking, Trace,
-        estimate::EstimateCall, pending_block::PendingEnvBuilder,
+        Call, EthCall, GetBlockAccessList, LoadBlock, LoadPendingBlock, LoadState, LoadTransaction,
+        SpawnBlocking, Trace, TraceExt, estimate::EstimateCall, pending_block::PendingEnvBuilder,
     },
     node::RpcNodeCoreExt,
 };
@@ -54,13 +58,23 @@ where
 {
     let module = SimulationRpc {
         inner: ctx.registry.eth_api().clone(),
-        settings,
+        settings: settings.clone(),
     }
     .into_rpc();
     // Preserve namespace selection on each transport, including an explicitly
     // disabled eth namespace. The embedded L1 does not use these add-ons.
     ctx.modules
         .add_or_replace_if_module_configured("eth".parse()?, module)?;
+    let eth = ctx.registry.eth_api().clone();
+    let trace_guard = ctx.registry.blocking_pool_guard();
+    let module = TraceCallRpc {
+        inner: eth,
+        settings,
+        trace_guard,
+    }
+    .into_rpc();
+    ctx.modules
+        .add_or_replace_if_module_configured("debug".parse()?, module)?;
     Ok(())
 }
 
@@ -109,8 +123,13 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationServe
         state_overrides: Option<StateOverride>,
         block_overrides: Option<Box<BlockOverrides>>,
     ) -> RpcResult<Bytes> {
-        if let Some(api) =
-            PendingApi::prepare(self.inner.clone(), self.settings.clone(), block_number).await?
+        if let Some(api) = SimulationApi::prepare(
+            self.inner.clone(),
+            self.settings.clone(),
+            block_number,
+            None,
+        )
+        .await?
         {
             return Ok(EthCall::call(
                 &api,
@@ -136,8 +155,13 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationServe
         state_override: Option<StateOverride>,
         block_overrides: Option<Box<BlockOverrides>>,
     ) -> RpcResult<U256> {
-        if let Some(api) =
-            PendingApi::prepare(self.inner.clone(), self.settings.clone(), block_number).await?
+        if let Some(api) = SimulationApi::prepare(
+            self.inner.clone(),
+            self.settings.clone(),
+            block_number,
+            None,
+        )
+        .await?
         {
             return Ok(EthCall::estimate_gas_at(
                 &api,
@@ -162,8 +186,13 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationServe
         block_number: Option<BlockId>,
         state_override: Option<StateOverride>,
     ) -> RpcResult<AccessListResult> {
-        if let Some(api) =
-            PendingApi::prepare(self.inner.clone(), self.settings.clone(), block_number).await?
+        if let Some(api) = SimulationApi::prepare(
+            self.inner.clone(),
+            self.settings.clone(),
+            block_number,
+            None,
+        )
+        .await?
         {
             return Ok(
                 EthCall::create_access_list_at(&api, request, block_number, state_override).await?,
@@ -171,6 +200,92 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationServe
         }
         EthApiServer::create_access_list(&self.inner, request, block_number, state_override).await
     }
+}
+
+// Keep the same parameter names and options as Reth's debug_traceCall.
+#[rpc(server, namespace = "debug")]
+trait TraceCall {
+    #[method(name = "traceCall")]
+    async fn trace_call(
+        &self,
+        request: TransactionRequest,
+        block_id: Option<BlockId>,
+        opts: Option<GethDebugTracingCallOptions>,
+    ) -> RpcResult<GethTrace>;
+}
+
+struct TraceCallRpc<N: RpcNodeCore> {
+    inner: EthApi<N, Converter>,
+    settings: EezEthApiBuilder,
+    trace_guard: BlockingTaskGuard,
+}
+
+#[jsonrpsee::core::async_trait]
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> TraceCallServer
+    for TraceCallRpc<N>
+{
+    async fn trace_call(
+        &self,
+        request: TransactionRequest,
+        block_id: Option<BlockId>,
+        opts: Option<GethDebugTracingCallOptions>,
+    ) -> RpcResult<GethTrace> {
+        // This is the registry's aggregate tracing quota, shared with every
+        // stock debug/trace/bundle method, not EthApi's distinct proof quota.
+        let permit = Arc::new(
+            self.trace_guard
+                .clone()
+                .acquire_owned()
+                .await
+                .map_err(|_| EthApiError::InternalEthError)?,
+        );
+        let opts = opts.unwrap_or_default();
+        // txIndex addresses an actual block's transaction positions. Preserve
+        // Reth's replay and bounds checks instead of inventing a pending block.
+        let prepared = if opts.tx_index.is_none() {
+            SimulationApi::prepare(
+                self.inner.clone(),
+                self.settings.clone(),
+                block_id,
+                Some(Arc::clone(&permit)),
+            )
+            .await?
+        } else {
+            None
+        };
+        let api = prepared.unwrap_or_else(|| SimulationApi {
+            inner: self.inner.clone(),
+            context: None,
+            trace_permit: Some(permit),
+        });
+        // traceCall never reads the bad-block cache. Other debug methods keep
+        // the registry's original instance and event subscription.
+        let debug = DebugApi::new(
+            api,
+            self.trace_guard.clone(),
+            self.inner.io_task_spawner(),
+            futures_util::stream::empty(),
+        );
+        // The inherent method uses Reth's inspector and option handling;
+        // its RPC wrapper would reacquire the permit already held here.
+        Ok(execute_trace(debug, request, block_id, opts).await?)
+    }
+}
+
+// Keep Reth's callback futures behind its generic RPC bound. Specializing them
+// inside async_trait fails Send lifetime inference; prove Send before that
+// boundary without adding a task or changing permit ownership.
+#[expect(
+    clippy::manual_async_fn,
+    reason = "the explicit Send boundary is intentional"
+)]
+fn execute_trace<Eth: TraceExt>(
+    debug: DebugApi<Eth>,
+    request: RpcTxReq<Eth::NetworkTypes>,
+    at: Option<BlockId>,
+    opts: GethDebugTracingCallOptions,
+) -> impl std::future::Future<Output = Result<GethTrace, Eth::Error>> + Send {
+    async move { debug.debug_trace_call(request, at, opts).await }
 }
 
 struct PendingContext {
@@ -183,25 +298,30 @@ struct PendingContext {
     _permit: OwnedSemaphorePermit,
 }
 
-struct PendingApi<N: RpcNodeCore> {
+struct SimulationApi<N: RpcNodeCore> {
     inner: EthApi<N, Converter>,
-    context: Arc<PendingContext>,
+    context: Option<Arc<PendingContext>>,
+    // Retain this on the adapter, not just the prefix: tracing a stored block
+    // or an executed pending payload can also outlive its cancelled RPC future.
+    trace_permit: Option<Arc<OwnedSemaphorePermit>>,
 }
 
-impl<N: RpcNodeCore> Clone for PendingApi<N> {
+impl<N: RpcNodeCore> Clone for SimulationApi<N> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
-            context: Arc::clone(&self.context),
+            context: self.context.as_ref().map(Arc::clone),
+            trace_permit: self.trace_permit.as_ref().map(Arc::clone),
         }
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SimulationApi<N> {
     async fn prepare(
         inner: EthApi<N, Converter>,
         settings: EezEthApiBuilder,
         at: Option<BlockId>,
+        trace_permit: Option<Arc<OwnedSemaphorePermit>>,
     ) -> Result<Option<Self>, EthApiError> {
         if !at.is_some_and(|at| at.is_pending()) {
             return Ok(None);
@@ -234,13 +354,14 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> PendingApi<N> {
                 let (evm_config, env, db) = execute_prefix(inner.evm_config(), &parent, db)?;
                 Ok(Some(Self {
                     inner,
-                    context: Arc::new(PendingContext {
+                    context: Some(Arc::new(PendingContext {
                         parent_hash: parent.hash(),
                         evm_config,
                         env,
                         state: Mutex::new(Some(db)),
                         _permit: permit,
-                    }),
+                    })),
+                    trace_permit,
                 }))
             })
             .await
@@ -308,7 +429,7 @@ pub(super) fn execute_prefix(
     Ok((evm_config, env, db))
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiTypes for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiTypes for SimulationApi<N> {
     type Error = EthApiError;
     type NetworkTypes = super::EezRpcTypes;
     type RpcConvert = Converter;
@@ -320,7 +441,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiTypes for
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for SimulationApi<N> {
     type Primitives = <N as RpcNodeCore>::Primitives;
     type Provider = <N as RpcNodeCore>::Provider;
     type Pool = <N as RpcNodeCore>::Pool;
@@ -330,7 +451,9 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for
         self.inner.pool()
     }
     fn evm_config(&self) -> &Self::Evm {
-        &self.context.evm_config
+        self.context
+            .as_ref()
+            .map_or_else(|| self.inner.evm_config(), |context| &context.evm_config)
     }
     fn network(&self) -> &Self::Network {
         self.inner.network()
@@ -340,13 +463,17 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCore for
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCoreExt for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> RpcNodeCoreExt
+    for SimulationApi<N>
+{
     fn cache(&self) -> &EthStateCache<Self::Primitives> {
         self.inner.cache()
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SpawnBlocking for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SpawnBlocking
+    for SimulationApi<N>
+{
     fn io_task_spawner(&self) -> &Runtime {
         self.inner.io_task_spawner()
     }
@@ -362,7 +489,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> SpawnBlocking f
 }
 
 impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadPendingBlock
-    for PendingApi<N>
+    for SimulationApi<N>
 {
     fn pending_block(&self) -> &tokio::sync::Mutex<Option<PendingBlock<Self::Primitives>>> {
         self.inner.pending_block()
@@ -372,19 +499,22 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadPendingBloc
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadState for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadState for SimulationApi<N> {
     async fn evm_env_at(
         &self,
         at: BlockId,
     ) -> Result<(EvmEnvFor<Self::Evm>, BlockId), Self::Error> {
+        let Some(context) = &self.context else {
+            return self.inner.evm_env_at(at).await;
+        };
         if !at.is_pending() {
             return Err(internal("pending adapter received a historical request"));
         }
-        Ok((self.context.env.clone(), self.context.parent_hash.into()))
+        Ok((context.env.clone(), context.parent_hash.into()))
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for SimulationApi<N> {
     fn spawn_with_state_at_block<F, R>(
         &self,
         at: impl Into<BlockId>,
@@ -396,12 +526,20 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for Pendin
     {
         let at = at.into();
         async move {
-            if at != BlockId::from(self.context.parent_hash) {
+            let Some(context) = self.context.as_ref().map(Arc::clone) else {
+                let this = self.clone();
+                // Forward stored-state lookup to Reth, while the callback owns
+                // the adapter/trace permit until the blocking worker exits.
+                return self
+                    .inner
+                    .spawn_with_state_at_block(at, move |_, db| f(this, db))
+                    .await;
+            };
+            if at != BlockId::from(context.parent_hash) {
                 return Err(internal("pending adapter state/environment mismatch"));
             }
             self.spawn_blocking_io(move |this| {
-                let db = this
-                    .context
+                let db = context
                     .state
                     .lock()
                     .map_err(|_| internal("pending state lock poisoned"))?
@@ -430,7 +568,7 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Call for Pendin
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EstimateCall for PendingApi<N> {
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EstimateCall for SimulationApi<N> {
     async fn estimate_gas_at(
         &self,
         request: RpcTxReq<Self::NetworkTypes>,
@@ -445,9 +583,17 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EstimateCall fo
     }
 }
 
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadBlock for PendingApi<N> {}
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthCall for PendingApi<N> {}
-impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Trace for PendingApi<N> {}
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadBlock for SimulationApi<N> {}
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthCall for SimulationApi<N> {}
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> Trace for SimulationApi<N> {}
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> LoadTransaction
+    for SimulationApi<N>
+{
+}
+impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> GetBlockAccessList
+    for SimulationApi<N>
+{
+}
 
 /// Reth's estimator opens a fresh mutable cache on an EvmStateProvider. Adapt
 /// the already executed prefix's read-only view, retaining zero/deleted slots.

@@ -66,7 +66,7 @@ mimalloc           = "0.1"
 # CLI
 clap               = { version = "4", features = ["derive"] }
 
-# Upstream Reth v2.7.0; only the shutdown backport below differs from the release.
+# Upstream Reth v2.7.0; only the documented local patches below differ.
 reth-chain-state                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-chainspec                  = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-cli                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -79,6 +79,7 @@ reth-ethereum-payload-builder   = { git = "https://github.com/paradigmxyz/reth",
 reth-ethereum-primitives        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-evm                        = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-evm-ethereum               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
+reth-network-api                = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-network-peers              = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-node-api                   = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
 reth-node-builder               = { git = "https://github.com/paradigmxyz/reth", tag = "v2.7.0" }
@@ -137,6 +138,7 @@ alloy-provider         = { version = "2", default-features = false, features = [
 alloy-rlp              = { version = "0.3", features = ["derive"] }
 alloy-rpc-types-engine = { version = "2", default-features = false }
 alloy-rpc-types-eth    = { version = "2", default-features = false }
+alloy-rpc-types-trace   = { version = "=2.5.0", default-features = false }
 alloy-signer           = { version = "2", default-features = false }
 alloy-serde            = { version = "=2.5.0", default-features = false }
 alloy-signer-local     = { version = "2", default-features = false }
@@ -290,8 +292,9 @@ clone_on_ref_ptr                 = "allow"
 # a refactor or dediacted crates would reduce some of this
 too_many_arguments               = "allow"
 
-# v2.7.0 shutdown ordering only; source identity and the upstream diff are
-# recorded in crates/vendor/reth/README.md. Keep the other Reth crates pinned.
+# v2.7.0 shutdown ordering and shared RPC quota accessor; exact source and
+# minimal patches are recorded in crates/vendor/reth/README.md.
 [patch."https://github.com/paradigmxyz/reth"]
 reth-engine-tree = { path = "crates/vendor/reth/reth-engine-tree" }
 reth-node-builder = { path = "crates/vendor/reth/reth-node-builder" }
+reth-rpc-builder = { path = "crates/vendor/reth/reth-rpc-builder" }

@@ -26,6 +26,7 @@ async fn pending_history_import_requires_executed_state() {
     let world = setup_native_history(&[
         ("EEZ_SETTLEMENT_PURE_L2_MODE", "interval".into()),
         ("EEZ_SETTLEMENT_PURE_L2_INTERVAL_MS", "900000".into()),
+        ("EEZ_TEST_L2_DEBUG_RPC", "true".into()),
     ])
     .await
     .unwrap();
@@ -136,6 +137,50 @@ async fn pending_history_import_requires_executed_state() {
             ("eth_estimateGas", json!([deploy, "pending"])),
             ("eth_estimateGas", json!([deploy, "latest"])),
         ]);
+        let trace_start = requests.len();
+        for tag in [
+            json!("pending"),
+            json!("latest"),
+            json!({"blockHash": parent.hash}),
+        ] {
+            let opts = json!({"tracer": "callTracer", "stateOverrides": overrides});
+            requests.extend([
+                ("debug_traceCall", json!([observe, tag, opts])),
+                (
+                    "debug_traceCall",
+                    json!({"request": observe, "block_id": tag, "opts": opts}),
+                ),
+                (
+                    "debug_traceCall",
+                    json!({"request": observe, "blockId": tag, "opts": opts}),
+                ),
+            ]);
+        }
+        requests.extend([
+            (
+                "debug_traceCall",
+                json!([cutoff_request, "pending", {
+                    "tracer": "callTracer", "stateOverrides": cutoff_override,
+                    "blockOverrides": block_overrides,
+                }]),
+            ),
+            (
+                "debug_traceCall",
+                json!([observe, "pending", {
+                    "tracer": "callTracer", "stateOverrides": overrides,
+                    "blockOverrides": block_overrides,
+                }]),
+            ),
+            (
+                "debug_traceCall",
+                json!([env_request, "pending", {
+                    "tracer": "callTracer", "stateOverrides": env_override,
+                    "blockOverrides": block_overrides,
+                }]),
+            ),
+            ("debug_traceCall", json!([request])),
+            ("debug_traceCall", json!([request, "latest"])),
+        ]);
         // Parallel requests fit within a normal L2 slot. wait_for retries Err,
         // so RPC errors deliberately panic instead; only a changed parent is
         // an inconclusive observation that authorizes another selection.
@@ -214,6 +259,25 @@ async fn pending_history_import_requires_executed_state() {
             results[33], results[34],
             "Counter creation estimate at the import boundary"
         );
+        let traces = &results[trace_start..];
+        for (group, call_index) in traces[..9].chunks_exact(3).zip([0, 9, 18]) {
+            assert!(group[0].get("error").is_none(), "trace application failed");
+            assert_eq!(group[0], group[1], "debug snake_case/positional parity");
+            assert_eq!(group[0], group[2], "debug camelCase/positional parity");
+            assert_eq!(
+                group[0]["output"], results[call_index],
+                "trace and call must observe identical history and PREVRANDAO"
+            );
+        }
+        for (trace_index, call_index) in [(9, 31), (10, 30), (11, 32)] {
+            assert_eq!(
+                traces[trace_index]["output"], results[call_index],
+                "trace overrides apply after the same checked history prefix"
+            );
+        }
+        assert_eq!(traces[12], traces[13], "debug omitted tag remains latest");
+        assert_eq!(traces[12]["failed"], false);
+        assert_eq!(traces[12]["returnValue"], results[28]);
         Ok(Some((parent, (number, hash), randao)))
     })
     .await
@@ -252,7 +316,11 @@ async fn pending_history_import_requires_executed_state() {
     .unwrap()
     .header;
     assert_eq!(next.parent_hash, parent.hash);
-    let after = l2.call(request).block(next.hash.into()).await.unwrap();
+    let after = l2
+        .call(request.clone())
+        .block(next.hash.into())
+        .await
+        .unwrap();
     let after = IL1BlockhashContract::currentCall::abi_decode_returns(&after).unwrap();
     let selected = l1
         .get_block_by_number(after.number.into())
@@ -270,6 +338,34 @@ async fn pending_history_import_requires_executed_state() {
     assert!(selected.timestamp <= cutoff && successor.timestamp > cutoff);
     assert_eq!(after.hash, selected.hash);
     assert_eq!(next.mix_hash, selected.mix_hash);
+
+    // txIndex means the state before an actual transaction. At index zero
+    // of the real import block, history must still be the parent's, and an
+    // out-of-bounds index must keep Reth's error instead of being ignored.
+    let indexed: serde_json::Value = l2
+        .raw_request(
+            "debug_traceCall".into(),
+            json!([request, {"blockHash": next.hash}, {"tracer": "callTracer", "txIndex": "0x0"}]),
+        )
+        .await
+        .unwrap();
+    let indexed: Bytes = serde_json::from_value(indexed["output"].clone()).unwrap();
+    let indexed = IL1BlockhashContract::currentCall::abi_decode_returns(&indexed).unwrap();
+    assert_eq!((indexed.number, indexed.hash), (before.number, before.hash));
+    let out_of_bounds = l2
+        .raw_request::<_, serde_json::Value>(
+            "debug_traceCall".into(),
+            json!([request, {"blockHash": next.hash}, {"txIndex": "0xffffffff"}]),
+        )
+        .await
+        .expect_err("txIndex must address a real transaction");
+    let out_of_bounds = out_of_bounds.as_error_resp().unwrap();
+    assert_eq!(out_of_bounds.code, -32602);
+    assert!(
+        out_of_bounds
+            .message
+            .contains("tx_index 4294967295 out of bounds")
+    );
 
     let revert = TransactionRequest::default().to(probe);
     let reverting_code = json!({probe.to_string(): {"code": "0x60006000fd"}});
@@ -291,6 +387,22 @@ async fn pending_history_import_requires_executed_state() {
         .await
         .expect("access-list RPC returns application reverts in its result");
     assert!(access.error.is_some_and(|error| error.contains("revert")));
+    let trace: serde_json::Value = l2
+        .raw_request(
+            "debug_traceCall".into(),
+            json!([revert, "pending", {"stateOverrides": reverting_code}]),
+        )
+        .await
+        .expect("debug reports application failure inside the trace");
+    assert_eq!(trace["failed"], true);
+    let trace: serde_json::Value = l2
+        .raw_request(
+            "debug_traceCall".into(),
+            json!([revert, "pending", {"tracer": "callTracer", "stateOverrides": reverting_code}]),
+        )
+        .await
+        .unwrap();
+    assert_eq!(trace["error"], "execution reverted");
     world.node.assert_no_process_death();
 }
 

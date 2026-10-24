@@ -225,7 +225,7 @@ mod tests {
     use eez_l1::{L1BlockRef, L1CanonicalHead, derivation::DerivationSource};
     use std::sync::Arc;
 
-    fn l1_blocks(replacement: bool) -> Vec<alloy_rpc_types_eth::Block> {
+    pub(super) fn l1_blocks(replacement: bool) -> Vec<alloy_rpc_types_eth::Block> {
         let mut parent = B256::ZERO;
         [1000, 1004, 1012]
             .into_iter()
@@ -255,7 +255,7 @@ mod tests {
             .collect()
     }
 
-    fn profile(reference: &alloy_rpc_types_eth::Block) -> Arc<ChainSpec> {
+    pub(super) fn profile(reference: &alloy_rpc_types_eth::Block) -> Arc<ChainSpec> {
         let mut genesis =
             eez_l1::chain_config::parse_l2_genesis(include_bytes!("../../../genesis.json"))
                 .unwrap()
@@ -391,7 +391,7 @@ mod tests {
         }
     }
 
-    fn pending_genesis_db(spec: &ChainSpec) -> reth_rpc_eth_types::StateCacheDb {
+    pub(super) fn pending_genesis_db(spec: &ChainSpec) -> reth_rpc_eth_types::StateCacheDb {
         use reth_revm::{database::StateProviderDatabase, db::State};
         use reth_storage_api::{StateProvider, StateProviderBox, noop::NoopProvider};
         use revm::state::{AccountInfo, Bytecode};

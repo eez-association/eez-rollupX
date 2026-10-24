@@ -3412,6 +3412,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
+ "alloy-rpc-types-trace",
  "alloy-transport",
  "clap",
  "dotenvy",
@@ -3423,6 +3424,7 @@ dependencies = [
  "eez-primitives",
  "eez-protocol",
  "eyre",
+ "futures-util",
  "jsonrpsee",
  "mimalloc",
  "reth-basic-payload-builder",
@@ -3442,9 +3444,11 @@ dependencies = [
  "reth-evm-ethereum",
  "reth-execution-cache",
  "reth-execution-types",
+ "reth-network-api",
  "reth-node-api",
  "reth-node-builder",
  "reth-node-ethereum",
+ "reth-payload-builder",
  "reth-payload-builder-primitives",
  "reth-payload-primitives",
  "reth-primitives-traits",
@@ -9642,7 +9646,6 @@ dependencies = [
 [[package]]
 name = "reth-rpc-builder"
 version = "2.7.0"
-source = "git+https://github.com/paradigmxyz/reth?tag=v2.7.0#3d592ece6de8c4559987416a544fc215fd6d6921"
 dependencies = [
  "alloy-network",
  "alloy-provider",

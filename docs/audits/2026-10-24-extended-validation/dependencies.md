@@ -69,5 +69,35 @@ including the frozen portable identity vectors, byte decoding and reviewed-lock
 guard. It used one build job and the established task-private `/tmp` bind,
 finished in 36.01 seconds and retained at least 15,791,149,056 available host
 bytes. The memory guard did not cancel it. Workspace format checking also passed.
-Signer/client lifecycle, shipping artifacts and live tests remain pending on
-this update. Earlier binary results do not validate it.
+`cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings`
+also passes, in 230.05 seconds with one build job and a minimum of 15,013,871,616
+available host bytes. Its local process guard did not cancel it.
+
+CI `40116791686`, head `053668df` and synthetic merge
+`abf3d1bc82bebe6ac3bb3ea213d9e8c272df8c20`, passes **1569/1569** debug
+unit tests with three explicit skips. The signer rewind/cancellation, shutdown
+and backpressured-publication regressions, and the prover-client deadline and
+witness-owner cancellation regressions, passed with Tokio 1.53.3. The local
+selection record is
+`artifacts/pr-readiness/ci-candidate/40116791686/debug-classification.json`;
+the retained debug log SHA-256 is
+`f1c8361785824fd8ef8a6e286a5933f35c6dd872dea441c2aee5d7f849f2fa7d`.
+The separate Reth cleanup check passed **1/1**, but that
+revision's nested vendor lock still selected Tokio 1.52.3: it does not establish
+cleanup behavior with the updated scheduler. The pending-debug correction aligns
+that nested lock and requires the cleanup check again.
+
+The producer subsequently passed **38/38**, including its archive feature and
+frozen-runtime checks. The exact merge checkout consumed and verified the
+runtime payload `sha256:0dcb612bd8de95110ad355deb1805b929e80fbb6126a5911307755f77e70517b`
+and test payload `sha256:8eec3afc676b5bd5e94de45335eb13200f01ef21dfb6786a915831f1997b3a59`
+from the repository's `eez-rollupx-ci-runtime` and `eez-rollupx-ci-tests` GHCR
+images. All seven extracted executables and all 30 test-payload files passed the
+existing identity/integrity checks; the test runtime matches the packaged
+runtime. The local-only handoff is
+`artifacts/extended-validation/ci-40116791686/artifacts/ci-consumer/verified-handoff.json`.
+Its first invocation omitted required `GITHUB_SHA` and stopped before checking
+identity; supplying the exact workflow merge corrected that invocation.
+The embedded process partitions passed **43/43**. Cross-chain and live checks
+are still in progress. These binaries do not contain the later pending-debug
+correction; earlier binary results do not validate later changes.

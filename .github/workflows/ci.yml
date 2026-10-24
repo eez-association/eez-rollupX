@@ -233,6 +233,14 @@ jobs:
           -p reth-engine-tree --lib
           -E 'test(test_engine_termination_waits_for_cleanup)'
           --no-tests=fail --retries 0 --flaky-result fail
+      - name: Reth shared tracing quota regression (debug)
+        run: >-
+          bash scripts/ci/with-compiler-cache.sh reth-tracing-quota
+          cargo nextest run --locked --timings
+          --manifest-path crates/vendor/reth/Cargo.toml
+          -p reth-rpc-builder --lib
+          -E 'test(test_exported_guard_shares_debug_quota)'
+          --no-tests=fail --retries 0 --flaky-result fail
       - name: Cargo failure diagnostics
         if: failure()
         run: bash scripts/ci/cargo-failure-diagnostics.sh

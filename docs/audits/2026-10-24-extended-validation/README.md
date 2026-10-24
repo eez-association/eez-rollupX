@@ -31,8 +31,10 @@ binary identities remain part of that record.
 
 ## Evidence boundaries
 
-No sustained-load or old-versus-new performance result is claimed by this plan.
-Comparable measurements require the same workload, resource allocation, build
+The reference campaign has executed; the candidate comparison is still pending.
+See the [live evidence](kurtosis/README.md) and its exact workload sources for
+measured counts, semantic assertions and execution limits. Comparable
+measurements require the same workload, resource allocation, build
 profile and network rules. A replay or a large empty-block backlog is not a TPS
 benchmark. Shared-host contention and deliberate maintenance must be reported.
 Load phases must not overlap task-owned heavy builds. Abort only task-owned
@@ -42,3 +44,13 @@ The Nethermind implementation is maintained externally and is not present here.
 Portable conformance evidence cannot establish interoperability with an actual
 Nethermind prover. The scope remains fresh networks with one native profile and
 one v2 RPC service; legacy network migration is deliberately excluded.
+
+## Investigation and correction records
+
+| Record | Finding / validation boundary |
+| --- | --- |
+| [Functional parity](parity.md) | Static comparison against the exact previous fork; existing unsupported cases remain exclusions, not regressions newly attributed to this branch. |
+| [Pending debug tracing](pending-debug.md) | A public RPC regression reproduced on the candidate and absent from the baseline; the correction includes real prefix execution and cancellation-safe shared tracing admission. The 33 unit tests pass, including two cancellation controls verified with a deliberately broken clone. Process and final-runtime checks remain pending. |
+| [Dependencies](dependencies.md) | The compatible Tokio fix passed workspace unit tests. The independent vendor cleanup check must run again with its corrected lock. The crypto-bigint advisory still blocks the dependency gate. |
+| [Dynamic admission](dynamic-admission.md) | The original CI failure is retained; successful state/receipt checks do not erase its failed packing assertion. Reproduction with exact CI artifacts is pending. |
+| [Live campaigns](kurtosis/README.md) | Separate serial and concurrent offered workloads, cross-chain effects, fee accounting, signer interruption and cold replay. Reference evidence does not validate later candidate binaries. |

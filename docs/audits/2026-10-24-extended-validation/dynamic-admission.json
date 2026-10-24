@@ -1,0 +1,469 @@
+{
+  "date": "2026-10-24",
+  "status": "First failure preserved; cause not yet established; no test or production change",
+  "base": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+  "failed_head": "b0195b0bc1ca90d71792fcfbc8613e8b00b00473",
+  "failed_checkout": "e4f1554791e421269667a7748399d752bafb9302",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "test": "dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays",
+  "ci": {
+    "run": 40112652163,
+    "job": 120935600473,
+    "url": "https://github.com/eez-association/eez-rollupX/actions/runs/40112652163/job/120935600473",
+    "failure_time": "2026-10-24T17:35:19.4062695Z",
+    "cancellation_notice_time": "2026-10-24T17:35:23.6538247Z",
+    "result": "FAIL before workflow cancellation",
+    "elapsed_test_seconds": 96.143,
+    "log_sha256": "6783d44e76fe5417c0ee1e92cd8fbf56225d1362baf06deff03ac8cae2825517",
+    "log_local_only": "artifacts/pr-readiness/ci-candidate/40112652163/lanes/120935600473.log",
+    "failure_artifacts": "Run artifacts API returned an empty artifacts list; full node logs/datadirs not available from this cancelled run"
+  },
+  "configuration": {
+    "network": "EthereumOsaka native embedded L1",
+    "l1_interval_ms": 5000,
+    "l2_interval_ms": 1000,
+    "start_after_block": 3,
+    "start_delay_ms": 300,
+    "proof_seed_ms": 500,
+    "submission_slack_ms": 700,
+    "initial_nominal_available_ms": 1000,
+    "observed_final_available_ms": 977,
+    "users": {
+      "inbound": 64,
+      "outbound": 64
+    },
+    "warmup": "One successful inbound post before the 128-source wave",
+    "selection": "auto",
+    "speculative_depth": 0
+  },
+  "assertion": "At least one admission.prepared accepted count > 12",
+  "prior_assertions_reached": {
+    "all_128_receipts_success": true,
+    "canonical_safe_follower_convergence": true,
+    "both_contract_values": 64,
+    "both_sender_nonce_advancements": 64,
+    "real_blob_preparation_observed": true
+  },
+  "observed_candidates": [
+    {
+      "time": "2026-10-24T17:34:26.658724Z",
+      "candidate_count": 117,
+      "parent_number": 39,
+      "timestamp": 1792863268
+    },
+    {
+      "time": "2026-10-24T17:34:31.656200Z",
+      "candidate_count": 106,
+      "parent_number": 44,
+      "timestamp": 1792863273
+    },
+    {
+      "time": "2026-10-24T17:34:36.657211Z",
+      "candidate_count": 95,
+      "parent_number": 49,
+      "timestamp": 1792863278
+    },
+    {
+      "time": "2026-10-24T17:34:41.656012Z",
+      "candidate_count": 84,
+      "parent_number": 54,
+      "timestamp": 1792863283
+    },
+    {
+      "time": "2026-10-24T17:34:46.659772Z",
+      "candidate_count": 73,
+      "parent_number": 59,
+      "timestamp": 1792863288
+    },
+    {
+      "time": "2026-10-24T17:34:51.658090Z",
+      "candidate_count": 62,
+      "parent_number": 64,
+      "timestamp": 1792863293
+    },
+    {
+      "time": "2026-10-24T17:34:56.661160Z",
+      "candidate_count": 51,
+      "parent_number": 69,
+      "timestamp": 1792863298
+    },
+    {
+      "time": "2026-10-24T17:35:01.656895Z",
+      "candidate_count": 40,
+      "parent_number": 74,
+      "timestamp": 1792863303
+    },
+    {
+      "time": "2026-10-24T17:35:06.658876Z",
+      "candidate_count": 29,
+      "parent_number": 79,
+      "timestamp": 1792863308
+    },
+    {
+      "time": "2026-10-24T17:35:11.661290Z",
+      "candidate_count": 18,
+      "parent_number": 84,
+      "timestamp": 1792863313
+    },
+    {
+      "time": "2026-10-24T17:35:16.635117Z",
+      "candidate_count": 7,
+      "parent_number": 89,
+      "timestamp": 1792863318
+    }
+  ],
+  "observed_proof_requests": [
+    {
+      "candidate_id": "7976-1792863256304:1:10",
+      "detail": {
+        "blob_preparation_ms": 237.03559399999997,
+        "blobs": 1,
+        "deadline_ms": 1792863282300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 214.701495,
+        "preparation_ms": 257,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.241327999999996,
+        "remaining_ms": 705.524945,
+        "witness_preparation_ms": 2.611795,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:12",
+      "detail": {
+        "blob_preparation_ms": 237.424634,
+        "blobs": 1,
+        "deadline_ms": 1792863287300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 214.701495,
+        "preparation_ms": 258,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.241327999999996,
+        "remaining_ms": 702.333836,
+        "witness_preparation_ms": 2.680472,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:14",
+      "detail": {
+        "blob_preparation_ms": 237.437641,
+        "blobs": 1,
+        "deadline_ms": 1792863292300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.01716000000002,
+        "preparation_ms": 258,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.241327999999996,
+        "remaining_ms": 704.0,
+        "witness_preparation_ms": 2.5964270000000003,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:16",
+      "detail": {
+        "blob_preparation_ms": 237.540042,
+        "blobs": 1,
+        "deadline_ms": 1792863297300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.01716000000002,
+        "preparation_ms": 259,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.296273,
+        "remaining_ms": 702.0,
+        "witness_preparation_ms": 2.60243,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:18",
+      "detail": {
+        "blob_preparation_ms": 237.86886700000002,
+        "blobs": 1,
+        "deadline_ms": 1792863302300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.01716000000002,
+        "preparation_ms": 258,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.449386000000004,
+        "remaining_ms": 705.345554,
+        "witness_preparation_ms": 2.458722,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:20",
+      "detail": {
+        "blob_preparation_ms": 237.231701,
+        "blobs": 1,
+        "deadline_ms": 1792863307300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.01716000000002,
+        "preparation_ms": 258,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.449386000000004,
+        "remaining_ms": 703.0,
+        "witness_preparation_ms": 2.587782,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:22",
+      "detail": {
+        "blob_preparation_ms": 238.24345399999999,
+        "blobs": 1,
+        "deadline_ms": 1792863312300,
+        "groups": 11,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.01716000000002,
+        "preparation_ms": 261,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.449386000000004,
+        "remaining_ms": 701.085821,
+        "witness_preparation_ms": 2.681425,
+        "witnesses": 5
+      }
+    },
+    {
+      "candidate_id": "7976-1792863256304:1:23",
+      "detail": {
+        "blob_preparation_ms": 237.562986,
+        "blobs": 1,
+        "deadline_ms": 1792863317300,
+        "groups": 7,
+        "nominal_preparation_ms": 500,
+        "post_reserve_ms": 215.087806,
+        "preparation_ms": 253,
+        "proof_estimate_basis": "covering_sample",
+        "proof_estimate_ms": 39.478022,
+        "remaining_ms": 724.9167050000001,
+        "witness_preparation_ms": 2.4533530000000003,
+        "witnesses": 5
+      }
+    }
+  ],
+  "observed_final_summary": [
+    {
+      "accepted": 7,
+      "calldata_bound_gas": 74712,
+      "calldata_floor_active": true,
+      "capacity_deferrals": {},
+      "cold_timing_probe": false,
+      "companion_gas": 296130,
+      "deferred": 0,
+      "entry_discount": 2007000,
+      "examined_count": 7,
+      "fifo_bypassed": false,
+      "fifo_prefix_len": null,
+      "fifo_trigger": null,
+      "framing_reserve_gas": 51712,
+      "full_estimate_gas": 999240,
+      "gas_margin_bps": 500,
+      "general_execution_reserve": false,
+      "minimum_check_count": 0,
+      "not_examined_count": 0,
+      "planning_cap": 15978300,
+      "prefix_hash_executed_tx_count": 11,
+      "prefix_hash_ms": 2.637604,
+      "projected_gas": 947528,
+      "reason": "snapshot_exhausted",
+      "selection_filtered_count": 0,
+      "simulation_count": 7,
+      "source_fee_count": 0,
+      "whole_block_cap": 30531716
+    }
+  ],
+  "observed_final_prepared": [
+    {
+      "message": "measured automatic admission through the start of proof generation",
+      "event_name": "eez.composer.admission.prepared",
+      "rollup_id": 1,
+      "selected": 7,
+      "accepted": 7,
+      "preparation_ms": 253,
+      "admission_ms": 10,
+      "finishing_ms": 242,
+      "non_blob_finishing_ms": 5,
+      "measured_group_work_ms": 6,
+      "discarded_group_work_ms": 0,
+      "group_work_calibrated": true,
+      "blob_preparation_ms": 237,
+      "blob_count": 1,
+      "available_ms": 977,
+      "jitter_reserve_ms": 97,
+      "limited": false
+    }
+  ],
+  "source_hashes": {
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": {
+      "base_sha256": "a4319647915b2803acc9000c1efb2ca994116df251c9563f02a1bda3e119b50f",
+      "failed_revision_sha256": "232884b880bc6a09fe1fd9ea964927661b2e89b8c215dd3f99119ab81a4d5656",
+      "identical": false
+    },
+    "crates/eez-composer/src/composer/admission.rs": {
+      "base_sha256": "025a26ea65573c36ca44cf546a478a1e54e3e28e7568c01aa381e99c0c0683f1",
+      "failed_revision_sha256": "025a26ea65573c36ca44cf546a478a1e54e3e28e7568c01aa381e99c0c0683f1",
+      "identical": true
+    },
+    "crates/eez-composer/src/composer/selection.rs": {
+      "base_sha256": "54ece4c7d3bd322e0ab95afd85db01d8e9879478c1f577fa0879fbead6b0d1e7",
+      "failed_revision_sha256": "54ece4c7d3bd322e0ab95afd85db01d8e9879478c1f577fa0879fbead6b0d1e7",
+      "identical": true
+    },
+    "crates/eez-composer/src/prover_retry.rs": {
+      "base_sha256": "05362fb4534d44fe9c6fc7c3fe4842343c2b8bcab0e5435642b45183bcb9845d",
+      "failed_revision_sha256": "84cbd9d81b31352b55c223f63bed098d1c77fcac9341da98124b758495d8503b",
+      "identical": false
+    },
+    "crates/eez-composer/src/composer.rs": {
+      "base_sha256": "019adcd279e6aa8cb693a63d2e20b3edfad30c9e60b3731edfb98221b347b138",
+      "failed_revision_sha256": "625fb0aea0100dc6aff26298a1dd4368aae70c649c6c3893500219e2938bd8b0",
+      "identical": false
+    },
+    "crates/eez-composer/src/local/build.rs": {
+      "base_sha256": "356e58f7eeaf166dc2f22a724627df541bdcd0c6557133c017c0555e307e0b4d",
+      "failed_revision_sha256": "4ae95d8e7435b4fae4fbdef437f5a886bf60ee9ef28468a3f39d5a31cd9b217f",
+      "identical": false
+    },
+    "crates/eez-testkit/src/lib.rs": {
+      "base_sha256": "61f36cfaaa9faf6a4fcc59f23ca683a4ce80a20ec77438d7f159746a12fca6ec",
+      "failed_revision_sha256": "7a8b5addd89fe2b75ea5deaddb491ae798bcfd46efd3e559b866a21b6bff92bd",
+      "identical": false
+    }
+  },
+  "mixed_wave_function_identical_to_base": true,
+  "prover_retry_production_prefix_identical": true,
+  "conclusions": [
+    "The queue was not simply too small: at least 117 sources were offered in one finite snapshot.",
+    "Repeated eleven-group proof requests with candidate ids increasing by two are consistent with FIFO rebuilds, but no matching large-candidate summaries survived in the diagnostic tail.",
+    "The final seven-source summary is snapshot_exhausted with no capacity deferrals; it does not establish the stop cause for previous larger snapshots.",
+    "A persistent native preflight limit of eleven would require a previously prepared batch of at least twenty-two. signals_since reads the entire file after the cursor, so such a normal path would already satisfy accepted > 12. There is no evidence of log loss.",
+    "An older slower sparse proof remains an extrapolation term by the accepted timing contract. A timing/FIFO ceiling is a plausible mechanism, not a demonstrated historical cause.",
+    "No data currently supports weakening accepted > 12, changing gas/deadline guards, or changing fixture synchronization."
+  ],
+  "next_check": {
+    "run": 40116791686,
+    "head": "053668dfde7df75af2044ff99b9309e02e03ab97",
+    "action": "Observe the same selected test once; if it fails retain complete node logs, admission summaries and initial warmup timing. No retry by this monitor."
+  },
+  "checks_executed": [
+    "Read-only git diff/show and source/contract tracing",
+    "GitHub completed job logs and run artifacts API",
+    "Structured extraction and deduplication of retained JSON events"
+  ],
+  "not_run": [
+    "No local compilation",
+    "No process reproduction or retry",
+    "No runtime or test edits",
+    "No lifecycle operation"
+  ],
+  "existing_local_comparison": {
+    "type": "Read of already executed pre-R03 source-process test; not a new repetition or comparable benchmark",
+    "result": "PASS in original full suite",
+    "log_local_only": "artifacts/pr-readiness/native-final/logs/eez-node-node-3221217-228.log",
+    "log_sha256": "cb7fe5cb3781ede87afdcda239f191571d60ada690c90bc47b7924d9ff134c41",
+    "identity_record": "../2026-10-24-pr-readiness/native-process-suite.json",
+    "executables": {
+      "artifacts/pr-readiness/runtime-bin/node_e2e-final": "f012c3f6d9957afaff9633589e491fce238f4ed602ec0e4191c75fe8f172991f",
+      "artifacts/pr-readiness/runtime-bin/eez-proof-signer-final": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+      "artifacts/pr-readiness/runtime-bin/final-source/eez-composer": "f613f0a2e9c0562ef505b9a241212f966d6fc5b0553f2489298afda16179e100",
+      "artifacts/pr-readiness/runtime-bin/final-source/eez-follower": "48507de679a2671cd9850eaaf959e8a51538f287342524f62994b46c63649e6f"
+    },
+    "test_to_log_binding": "L2 fixture block1 hash 0xa788708bf3f49d3fe909c90d1e9c8d2daef44d277bb26517818eeb4302fa4b51 appears in both full-suite output under this exact test and this node log",
+    "warmup": {
+      "groups": 1,
+      "witnesses": 15,
+      "proof_ms": 21.125946,
+      "blob_preparation_ms": 166.514269
+    },
+    "first_wave": {
+      "offered": 128,
+      "rebuild_accepted": [
+        25,
+        17,
+        16
+      ],
+      "reason": "pipeline_time with FIFO reconstruction",
+      "prepared": 16
+    },
+    "prepared_events": [
+      {
+        "selected": 1,
+        "accepted": 1,
+        "preparation_ms": 176,
+        "blob_preparation_ms": 166,
+        "available_ms": 994,
+        "limited": false
+      },
+      {
+        "selected": 128,
+        "accepted": 16,
+        "preparation_ms": 315,
+        "blob_preparation_ms": 193,
+        "available_ms": 979,
+        "limited": true
+      },
+      {
+        "selected": 1,
+        "accepted": 1,
+        "preparation_ms": 174,
+        "blob_preparation_ms": 164,
+        "available_ms": 994,
+        "limited": false
+      },
+      {
+        "selected": 4,
+        "accepted": 4,
+        "preparation_ms": 179,
+        "blob_preparation_ms": 166,
+        "available_ms": 981,
+        "limited": false
+      },
+      {
+        "selected": 1,
+        "accepted": 1,
+        "preparation_ms": 173,
+        "blob_preparation_ms": 163,
+        "available_ms": 994,
+        "limited": false
+      },
+      {
+        "selected": 1,
+        "accepted": 1,
+        "preparation_ms": 180,
+        "blob_preparation_ms": 170,
+        "available_ms": 995,
+        "limited": false
+      },
+      {
+        "selected": 30,
+        "accepted": 30,
+        "preparation_ms": 229,
+        "blob_preparation_ms": 168,
+        "available_ms": 979,
+        "limited": false
+      },
+      {
+        "selected": 75,
+        "accepted": 75,
+        "preparation_ms": 367,
+        "blob_preparation_ms": 160,
+        "available_ms": 947,
+        "limited": false
+      }
+    ],
+    "limits": [
+      "Different source-process debug executables/environment from failed release CI; no causal performance baseline.",
+      "Does not validate Tokio053 or erase the CI failure.",
+      "Shows the fresh native/history profile has admitted more than twelve under existing guards, not why CI stopped at eleven."
+    ]
+  }
+}
