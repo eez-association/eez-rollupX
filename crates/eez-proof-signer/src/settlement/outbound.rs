@@ -477,31 +477,33 @@ pub(crate) fn authorize_outbound_effects(
                         reason: "mixed outbound host must cover the complete source load".into(),
                     });
                 }
+                let verification = verify_outbound_effect_table(
+                    effect,
+                    source_entries,
+                    expected_rollup_id,
+                    expected_l2_system_address,
+                )?;
+                // Source-table slots count roots, not receipt events: one
+                // nested root can emit several events. Consume the verified
+                // event count independently for each host of this user tx.
+                // The final host owns every remaining event, so surplus
+                // observations fail the exact count check as well.
+                let event_limit = if source_end == loaded_entries.len() {
+                    usize::MAX
+                } else {
+                    verification.l2_outbound_hashes.len()
+                };
                 let mut effect_observations = Vec::new();
-                let host_covers_complete_load =
-                    source_start == 0 && source_end == loaded_entries.len();
-                for (ordinal, (index, observation)) in observations
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, observation)| {
-                        observation.transaction_index() == effect.user_transaction_index()
-                    })
-                    .enumerate()
-                {
-                    if host_covers_complete_load
-                        || (ordinal >= source_start && ordinal < source_end)
+                for (index, observation) in observations.iter().enumerate() {
+                    if !consumed_observations[index]
+                        && observation.transaction_index() == effect.user_transaction_index()
+                        && effect_observations.len() < event_limit
                     {
                         consumed_observations[index] = true;
                         effect_observations.push(observation);
                     }
                 }
-                authorize_outbound_effect(
-                    effect,
-                    source_entries,
-                    &effect_observations,
-                    expected_rollup_id,
-                    expected_l2_system_address,
-                )?;
+                authorize_outbound_observations(effect, &verification, &effect_observations)?;
                 for source_entry in source_entries {
                     authorized_bindings.push(AuthorizedOutboundEffect {
                         claimed_entry_index: effect.entry_index(),
@@ -534,10 +536,9 @@ fn unexpected_outbound_observation(observation: &OutboundEventObservation) -> Ou
     }
 }
 
-fn authorize_outbound_effect(
+fn verify_outbound_effect_table(
     effect: &BoundEffect<'_>,
     source_entries: &[OutboundSourceEntry],
-    observations: &[&OutboundEventObservation],
     expected_rollup_id: NonZeroU64,
     expected_l2_system_address: Address,
 ) -> Result<NestedPairVerification, OutboundEffectError> {
@@ -592,7 +593,15 @@ fn authorize_outbound_effect(
     {
         return Err(OutboundEffectError::ReservedSourceAddress { entry_index });
     }
+    Ok(verification)
+}
 
+fn authorize_outbound_observations(
+    effect: &BoundEffect<'_>,
+    verification: &NestedPairVerification,
+    observations: &[&OutboundEventObservation],
+) -> Result<(), OutboundEffectError> {
+    let entry_index = effect.entry_index();
     if observations.is_empty() && !verification.l2_outbound_hashes.is_empty() {
         return Err(OutboundEffectError::MissingObservation {
             entry_index,
@@ -647,5 +656,5 @@ fn authorize_outbound_effect(
             actual,
         });
     }
-    Ok(verification)
+    Ok(())
 }

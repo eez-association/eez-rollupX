@@ -3576,6 +3576,7 @@ dependencies = [
  "prost",
  "reth-chainspec",
  "reth-ethereum-primitives",
+ "reth-evm",
  "reth-evm-ethereum",
  "reth-primitives-traits",
  "reth-trie-common",

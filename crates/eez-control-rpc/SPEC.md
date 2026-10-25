@@ -126,9 +126,11 @@ are specified in [signer sections 6 and 8](../eez-proof-signer/SPEC.md#6-executi
 
 An anchor-only batch covers the whole window. Grouped, nested, reverted, and
 static calls MUST use the fork's production table and symbolic trace finalizers.
-One source transaction can create multiple outbound hosts and callback entries;
-inbound lookup-only and static calls create no L2 delivery. Do not infer a
-one-to-one relationship between user transactions and batch entries. Finalize
+One L2 source transaction has one canonical L1 outbound host covering its whole
+source table, including supported nested callbacks. One L1 source transaction
+can create multiple inbound entries; lookup-only and static calls create no L2
+delivery. Do not infer a one-to-one relationship between source calls and
+batch entries. Finalize
 root-dependent rolling hashes only after commitment assignment. The exact entry
 shapes and effect binding are defined in
 [signer section 8](../eez-proof-signer/SPEC.md#8-block-hash-commitment-chain-and-effect-binding).

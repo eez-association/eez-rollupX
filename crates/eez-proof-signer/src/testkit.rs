@@ -9,6 +9,7 @@
 use alloy_primitives::{Address, B256, address, b256};
 
 pub(crate) mod history;
+pub(crate) mod history_observations;
 
 /// Nextest supplies the relocated checkout when running archived test binaries.
 pub(crate) fn manifest_dir() -> std::path::PathBuf {

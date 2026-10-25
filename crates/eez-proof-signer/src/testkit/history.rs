@@ -66,7 +66,7 @@ pub(crate) fn genesis() -> alloy_genesis::Genesis {
     genesis
 }
 
-fn trie(mut leaves: Vec<(B256, Vec<u8>)>) -> (B256, Vec<Bytes>) {
+pub(super) fn trie(mut leaves: Vec<(B256, Vec<u8>)>) -> (B256, Vec<Bytes>) {
     leaves.sort_unstable_by_key(|(key, _)| *key);
     assert!(leaves.windows(2).all(|pair| pair[0].0 != pair[1].0));
     let retainer = ProofRetainer::new(leaves.iter().map(|(key, _)| Nibbles::unpack(key)).collect());

@@ -50,6 +50,8 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 
 [dev-dependencies]
 alloy-signer-local.workspace = true
+# Construct real execution witnesses for observation-boundary regressions.
+reth-evm.workspace = true
 # Independent account/storage roots for fixtures including the mandatory history predeploy.
 reth-trie-common.workspace = true
 # Recorded calldata fixture decoding.

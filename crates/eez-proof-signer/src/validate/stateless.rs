@@ -579,11 +579,15 @@ impl Backend {
                     .settlement_evidence()
                     .ordinary_prefix_hash()
             {
-                block
-                    .body()
-                    .transactions
+                // Use the same validated boundary that produced this hash.
+                // History imports are part of the ordinary prefix, even
+                // though they also use native system envelopes.
+                settling
+                    .block()
+                    .settlement_evidence()
+                    .system_sender_flags()
                     .iter()
-                    .position(|tx| matches!(tx, eez_primitives::EezTxEnvelope::System(_)))
+                    .position(|is_system| *is_system)
                     .unwrap_or(transaction_count)
             } else if let Some(checkpoint) = settling
                 .transaction_state_checkpoints()

@@ -1,5 +1,6 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod history_observations;
 mod nested_creation;
 
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};

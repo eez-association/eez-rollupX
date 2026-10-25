@@ -256,7 +256,7 @@ fn replace_native_payload(input: &mut [WindowChunk], native: eez_blob_codec::Nat
     post.blobs = blobs.iter().map(|blob| blob.as_bytes().to_vec()).collect();
 }
 
-fn pipeline_error(state: &ServiceState, input: Vec<WindowChunk>) -> PipelineError {
+pub(super) fn pipeline_error(state: &ServiceState, input: Vec<WindowChunk>) -> PipelineError {
     pipeline_error_at(
         state,
         input,

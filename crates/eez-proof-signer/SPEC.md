@@ -56,11 +56,10 @@ where:
 
 - the anchor commits the validated L2 state transition before settlement
   effects;
-- each outbound effect represents one mutable L2-origin settlement host; flat
-  sibling roots may share a host, callback-bearing roots use separate hosts,
-  and calls rolled back by a source frame plus a subsequent retry reuse their
-  original host;
-  and
+- each outbound effect represents the single L1 settlement host for one
+  L2-origin user transaction. Its roots share that host, including roots with
+  supported nested callbacks. Callbacks execute within the original frame;
+  a source-frame rollback and subsequent retry reuse the source-table cursor;
 - each inbound effect represents one successful, source-committed mutable
   L1-origin call tree; and
 - each inbound lookup represents a failed destination call or a call whose L1
@@ -72,7 +71,7 @@ are pinned at their exact FIFO positions relative to mutable entries.
 
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
-reentrant calls alternating between L1 and that L2, flat multi-root outbound
+reentrant calls alternating between L1 and that L2, multi-root outbound
 transactions, terminal failed top-level calls, terminal static calls,
 successful top-level static reads whose only descendants are terminal,
 successful static callbacks to the reading chain, and terminal failed nested
@@ -562,7 +561,10 @@ themselves prove that the first parent belongs to the live canonical chain.
 From the validated block and receipts, the backend MUST retain:
 
 - one receipt-success flag per transaction;
-- one recovered `SYSTEM_ADDRESS` sender flag per transaction;
+- one validated cross-chain `SYSTEM_ADDRESS` flag per transaction. History
+  imports MUST have a false flag: they belong to the ordinary prefix despite
+  using native system envelopes. Observation replay MUST use the same boundary
+  as the ordinary-prefix commitment;
 - every log emitted by `EEZL2_ADDRESS` whose first topic is the current
   `CrossChainCallExecuted` signature, ordered by transaction and log position;
   and
@@ -817,6 +819,12 @@ effect and no unclaimed inbound candidate.
 
 All outbound effects MUST precede all inbound effects.
 
+Native semantic reconstruction MUST reproduce one canonical L1 host per L2
+user transaction, covering its complete source load. Splitting that host into
+several settlement entries is not an accepted native semantic encoding. The
+effect-binding and recursive table validators can represent host slices, but
+their success alone does not authorize signing.
+
 An outbound candidate transaction MUST be immediately preceded by a canonical,
 successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
 one or more L2 source entries. A group MAY contain only mutable sources,
@@ -862,11 +870,17 @@ and receipt-log order. Every matching EEZL2 event in the terminal receipts
 MUST be claimed exactly once; malformed, missing, reordered, or extra
 observations MUST fail.
 
+Event consumption MUST use the independently verified number of committed
+L2-origin calls. Source-table root/cursor counts MUST NOT be used as receipt
+event counts: one nested root can emit multiple events, and a reverted call
+can emit none. Host verification must account for every event in order without
+reusing it or leaving trailing observations unclaimed.
+
 The event's `callGas` MUST be zero. The batch entry MUST:
 
 - target the expected rollup;
-- contain one or more root `l2ToL1Calls`; a multi-root host MUST be flat, while
-  a one-root host MAY contain valid nested rows;
+- contain one or more root `l2ToL1Calls`; mutable-only hosts MAY contain valid
+  nested rows for multiple roots, subject to the supported recursive profile;
 - use `proxyEntryHash == 0`;
 - have `success == true`; and
 - carry only calls and rows in the supported mutable shape from section 8.3.

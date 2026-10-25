@@ -1,0 +1,47 @@
+{
+  "attester": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
+  "cases": [
+    {
+      "accept": false,
+      "public_inputs_hash": "0x38bda179df222c2d9edc484d575b83096bcdbdf847af74a4dc295d0ff86c5ac4",
+      "request": "static-before-history.v2.protobuf",
+      "request_hash": "0x05450ef24896c158acc9e87856df2ebc5352f7b9b19f19313e4c90b3dcc30bc5"
+    },
+    {
+      "accept": false,
+      "public_inputs_hash": "0xd827a197a8c71aef40d7fd0298d92fd4a9b2cce1c6f4c970b11baed46d350a61",
+      "request": "static-before-ordinary.v2.protobuf",
+      "request_hash": "0x77cfca6cd22f13c9dc7ea574f986dcfe050ce785436be833cbebcec8664dca14"
+    },
+    {
+      "accept": true,
+      "public_inputs_hash": "0x4af44e99ebc463d6fdef3de4b49f549651b8d9fb75563c256bf7104f3dd12b3d",
+      "request": "static-correct.v2.protobuf",
+      "request_hash": "0xcc96bc27e4eac982fc8ac3e8d68f6b8eba33e5803c5340b1333458d1db2f7c7b"
+    },
+    {
+      "accept": false,
+      "public_inputs_hash": "0xd0900e2754873b7b866b7a518c2827e9c3b35b18be51dcebbb47328d46d1c531",
+      "request": "lookup-before-history.v2.protobuf",
+      "request_hash": "0x52b4b2c7b9d553fad147478f5fcb9aa0a472075505fd5fda6d262b642f9504d5"
+    },
+    {
+      "accept": false,
+      "public_inputs_hash": "0x93b1f9c87ae7142bf2f69cf33133af5dc8c048fb13903b1cdca5ec47a812ea4f",
+      "request": "lookup-before-ordinary.v2.protobuf",
+      "request_hash": "0xf6759e2a30433a46ee848556e6b0a340970d746c9d4b6130ee2056d4b8eae668"
+    },
+    {
+      "accept": true,
+      "public_inputs_hash": "0x578436dd5e4636b4141ccc143e50333ce85cf2856ae4818d163d27c9cccbcb56",
+      "request": "lookup-correct.v2.protobuf",
+      "request_hash": "0xb3efbb19d6c50e401c3d70aa318ef8e5399a2bd8ddcdc73698699abf68688eec"
+    }
+  ],
+  "manager": "0x4444444444444444444444444444444444444444",
+  "proof_system": "0x00000000000000000000000000000000000000aa",
+  "registry": "0x3333333333333333333333333333333333333333",
+  "rollup_id": 1,
+  "validation_identity": "0x9894b5674e51cad64edf7b4067fcaff8e698e172aa6f62e5ea5c1db1b2450681",
+  "vkey": "0x4242424242424242424242424242424242424242424242424242424242424242"
+}

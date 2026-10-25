@@ -135,6 +135,93 @@ fn native_semantics_reject_an_unproved_root_only_immediate_entry() {
 }
 
 #[test]
+fn nested_outbound_semantics_require_the_canonical_single_host() {
+    let (mut batch, settling) = super::outbound::split_nested_outbound_fixture();
+    let user = user_transaction(7);
+    let (_, raw) = block_and_payload_transactions(vec![user.clone()]);
+    // This unit isolates the semantic gate after effect authorization. Full
+    // native transaction reconstruction and execution are separate gates.
+    let window = validated_window(block_rlp(vec![transaction(SYSTEM_TX), user]));
+    let mut actions = (0u8..4)
+        .map(|index| {
+            let source = if index % 2 == 0 {
+                RollupId(1)
+            } else {
+                RollupId::MAINNET
+            };
+            let target = if source.is_mainnet() {
+                RollupId(1)
+            } else {
+                RollupId::MAINNET
+            };
+            let mut action = semantic_action(
+                source,
+                target,
+                Address::with_last_byte(0x10 + index),
+                Address::with_last_byte(0x20 + index),
+                U256::ZERO,
+                vec![0x30 + index].into(),
+                vec![0x40 + index].into(),
+            );
+            action.parent_index = index.checked_sub(1).map(usize::from);
+            action
+        })
+        .collect::<Vec<_>>();
+    let flat = &batch.entries[2];
+    let call = &flat.l2ToL1Calls[0];
+    actions.push(semantic_action(
+        RollupId(1),
+        RollupId::MAINNET,
+        call.sourceAddress,
+        call.targetAddress,
+        call.value,
+        call.data.clone(),
+        flat.returnData.clone(),
+    ));
+    let semantic = SemanticTransaction {
+        origin_chain: RollupId(1),
+        tx_data: raw[0].clone().into(),
+        actions,
+    };
+    let verify = |batch: &CanonicalPostBatch| {
+        let plan = effect_plan(batch, &settling);
+        let outbound = authorize_outbound_effects(&plan).unwrap();
+        verify_native_semantics(
+            std::slice::from_ref(&semantic),
+            &window,
+            &outbound,
+            &AuthorizedInboundEffects::default(),
+            batch,
+            expected_rollup_id(),
+        )
+    };
+    assert_eq!(
+        verify(&batch),
+        Err(SemanticBindingError::L1EntryCount {
+            transaction: 0,
+            expected: 2,
+            actual: 1,
+        })
+    );
+
+    let mut composition = semantic.materialize().unwrap();
+    let host = composition
+        .targets
+        .iter_mut()
+        .find(|target| target.rollup_id.is_mainnet())
+        .unwrap();
+    assert_eq!(host.batch.entries.len(), 1);
+    assert_eq!(host.batch.entries[0].l2ToL1Calls.len(), 2);
+    assert_eq!(host.batch.entries[0].expectedL1ToL2Calls.len(), 2);
+    host.batch.entries[0].rootUpdates = batch.entries[1].rootUpdates.clone();
+    eez_protocol::entries::finalize_l1_entry_traces(&mut host.batch, &host.entry_traces).unwrap();
+    batch.entries.truncate(1);
+    batch.entries.extend(host.batch.entries.clone());
+    batch.immediateEntryCount = U256::from(2);
+    assert_eq!(verify(&batch), Ok(()));
+}
+
+#[test]
 fn native_outbound_semantics_reject_tx_data_and_call_mutations() {
     let (semantic, window, outbound, batch) = authorized_outbound_fixture();
     let verify = |semantic: SemanticTransaction| {

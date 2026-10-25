@@ -5,6 +5,7 @@ use eez_payload_codec::v0::{self, BlockRun, Payload};
 use eez_primitives::Block;
 
 mod captured;
+mod history_observations;
 mod synthetic;
 
 fn genesis() -> alloy_genesis::Genesis {

@@ -990,6 +990,56 @@ fn limits_with(
     .unwrap()
 }
 
+fn request_frames(chunks: &[WindowChunk]) -> Vec<eez_control_rpc::v2::client_frame::Kind> {
+    use eez_control_rpc::v2::{self, client_frame};
+    let Some(WindowPart::Metadata(header)) = &chunks[0].kind else {
+        panic!("fixture has no range metadata");
+    };
+    let blocks = chunks[1..]
+        .iter()
+        .map(|chunk| {
+            let Some(WindowPart::Block(block)) = &chunk.kind else {
+                panic!("offline fixture must supply every block");
+            };
+            block.clone()
+        })
+        .collect::<Vec<_>>();
+    let parent: alloy_consensus::Header =
+        alloy_rlp::decode_exact(&header.parent_header_rlp).unwrap();
+    let post = header.post_batch.as_ref().unwrap();
+    let mut frames = vec![client_frame::Kind::Begin(v2::Begin {
+        rollup_id: header.rollup_id,
+        anchor_number: parent.number,
+        anchor_hash: parent.hash_slow().to_vec(),
+        anchor_state_root: parent.state_root.to_vec(),
+    })];
+    frames.extend(
+        blocks
+            .iter()
+            .cloned()
+            .map(|data| client_frame::Kind::Block(v2::Block { data: Some(data) })),
+    );
+    frames.push(client_frame::Kind::Finalize(v2::Finalize {
+        from_block: header.from_block,
+        to_block: header.to_block,
+        terminal_hash: blocks.last().unwrap().hash.clone(),
+        settlement: Some(v2::SettlementInput {
+            abi_calldata: post.abi_calldata.clone(),
+            blobs: post.blobs.clone(),
+            posting_context: post
+                .posting_context
+                .as_ref()
+                .map(|context| v2::L1PostingContext {
+                    chain_id: context.chain_id,
+                    target_timestamp: context.target_timestamp,
+                    parent_number: context.parent_number,
+                    parent_hash: context.parent_hash.clone(),
+                }),
+        }),
+    }));
+    frames
+}
+
 /// One in-process server with shared client setup and drop-triggered shutdown.
 struct TestServer {
     state: Arc<ServiceState>,
@@ -1035,51 +1085,8 @@ impl TestServer {
     }
 
     async fn exchange(&self, chunks: Vec<WindowChunk>) -> Result<Proof, Status> {
-        use eez_control_rpc::v2::{self, client_frame, server_frame};
-        let Some(WindowPart::Metadata(header)) = &chunks[0].kind else {
-            panic!("fixture has no range metadata");
-        };
-        let blocks = chunks[1..]
-            .iter()
-            .map(|chunk| {
-                let Some(WindowPart::Block(block)) = &chunk.kind else {
-                    panic!("offline fixture must supply every block");
-                };
-                block.clone()
-            })
-            .collect::<Vec<_>>();
-        let parent: alloy_consensus::Header =
-            alloy_rlp::decode_exact(&header.parent_header_rlp).unwrap();
-        let post = header.post_batch.as_ref().unwrap();
-        let mut frames = vec![client_frame::Kind::Begin(v2::Begin {
-            rollup_id: header.rollup_id,
-            anchor_number: parent.number,
-            anchor_hash: parent.hash_slow().to_vec(),
-            anchor_state_root: parent.state_root.to_vec(),
-        })];
-        frames.extend(
-            blocks
-                .iter()
-                .cloned()
-                .map(|data| client_frame::Kind::Block(v2::Block { data: Some(data) })),
-        );
-        frames.push(client_frame::Kind::Finalize(v2::Finalize {
-            from_block: header.from_block,
-            to_block: header.to_block,
-            terminal_hash: blocks.last().unwrap().hash.clone(),
-            settlement: Some(v2::SettlementInput {
-                abi_calldata: post.abi_calldata.clone(),
-                blobs: post.blobs.clone(),
-                posting_context: post.posting_context.as_ref().map(|context| {
-                    v2::L1PostingContext {
-                        chain_id: context.chain_id,
-                        target_timestamp: context.target_timestamp,
-                        parent_number: context.parent_number,
-                        parent_hash: context.parent_hash.clone(),
-                    }
-                }),
-            }),
-        }));
+        use eez_control_rpc::v2::{self, server_frame};
+        let frames = request_frames(&chunks);
         let mut client = v2::prover_client::ProverClient::connect(self.endpoint.clone())
             .await
             .unwrap()

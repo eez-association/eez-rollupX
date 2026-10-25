@@ -807,6 +807,76 @@ fn authenticated_observation_replay_binds_mutable_lookup_output() {
     );
 }
 
+fn history_observation_claim(pin: B256, mode: CallMode, output: Bytes) -> FifoObservationClaim {
+    FifoObservationClaim {
+        pinned_block_hash: pin,
+        call_mode: mode,
+        target_address: crate::testkit::history_observations::PROBE,
+        source_address: Address::with_last_byte(0x50),
+        source_rollup_id: eez_protocol::RollupId::MAINNET,
+        data: Bytes::new(),
+        value: U256::ZERO,
+        expected_success: true,
+        expected_output: output,
+        callbacks: Vec::new(),
+    }
+}
+
+#[test]
+fn scheduled_history_observations_include_history_and_ordinary_state() {
+    for suffix in [false, true] {
+        let fixture = crate::testkit::history_observations::Fixture::new(suffix);
+        let admitted = fixture.admitted();
+        let history = crate::testkit::checked_history(&admitted).unwrap();
+        let validator = Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS);
+        let window = validator.validate(&admitted).unwrap();
+        let Validator::Stateless(backend) = &validator else {
+            unreachable!()
+        };
+        let pin = window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash();
+        assert_eq!(pin == window.window_post_block_hash(), !suffix);
+        for mode in [CallMode::Static, CallMode::Mutable] {
+            let claim = history_observation_claim(pin, mode, fixture.outcome(7, 1));
+            backend
+                .verify_observations(&window, &[claim], Arc::clone(&history))
+                .unwrap();
+        }
+    }
+}
+
+#[test]
+fn scheduled_history_observations_reject_both_earlier_states() {
+    for suffix in [false, true] {
+        let fixture = crate::testkit::history_observations::Fixture::new(suffix);
+        let admitted = fixture.admitted();
+        let history = crate::testkit::checked_history(&admitted).unwrap();
+        let validator = Validator::stateless_for_test(fixture.genesis.clone(), TEST_SYSTEM_ADDRESS);
+        let window = validator.validate(&admitted).unwrap();
+        let Validator::Stateless(backend) = &validator else {
+            unreachable!()
+        };
+        let pin = window
+            .settling_block()
+            .block()
+            .settlement_evidence()
+            .ordinary_prefix_hash();
+        for mode in [CallMode::Static, CallMode::Mutable] {
+            for (balance, origin) in [(0, 0), (0, 1)] {
+                let claim = history_observation_claim(pin, mode, fixture.outcome(balance, origin));
+                assert_eq!(
+                    backend.verify_observations(&window, &[claim], Arc::clone(&history)),
+                    Err(ObservationValidationError::OutcomeMismatch { index: 0 }),
+                    "suffix={suffix}, mode={mode:?}, earlier origin={origin}",
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn authenticated_observation_replay_rejects_unknown_pins_and_missing_code() {
     let (validator, mut window, history) = validated_observation_fixture();

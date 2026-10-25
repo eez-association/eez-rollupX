@@ -21,6 +21,13 @@ service; all cases pass against the real TCP/Stateless service. The
 [implementation audit](../../../docs/audits/2026-10-24-pr-readiness/final-fixtures.md)
 records executed results and their limits.
 
+The separate [scheduled-history observation fixtures](../../eez-proof-signer/tests/fixtures/native-history-observations/README.md)
+add six complete v2 requests for a history import at the terminal ordinary
+prefix: correct static/lookup outcomes must sign, and pre-history or
+pre-ordinary outcomes must not. These deterministic inputs are checked by signer
+unit tests and the standalone `cross_chain::history_observations` process test;
+they are not part of the 29-case transport transcript corpus.
+
 ## Coverage
 
 Each case is one JSON file under
