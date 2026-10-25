@@ -5345,7 +5345,13 @@ where
         // Per-effect intermediate L2 block hashes: the prover requires each
         // entry's `newRoot` ABI slot to commit its own effect-prefix block.
         // Failure here is systemic (like build/prepare) → degrade.
-        let effect_end_positions = eez_protocol::system_tx::sync_pair_end_positions(&pairs);
+        // The group planner counts only the cross-chain suffix. Execution
+        // checkpoints and settlement positions index the complete block,
+        // including a scheduled history transaction before that suffix.
+        let effect_end_positions = eez_protocol::system_tx::sync_pair_end_positions(&pairs)
+            .into_iter()
+            .map(|position| history_prefix.len() + position)
+            .collect::<Vec<_>>();
         let cached_hashes = effect_hashes
             .iter()
             .map(|(position, _)| *position)
@@ -6913,11 +6919,14 @@ where
             let mut schedule = Vec::with_capacity(observation_claims.len());
             for (composition_index, claim) in observation_claims {
                 let after_transactions = if claim.pinned_block_hash == pre_sync_block_hash {
+                    // B[0] includes the scheduled history import. Only an
+                    // EEZL2 action starts the cross-chain suffix, matching
+                    // the signer's independently validated replay boundary.
                     terminal
                         .body()
                         .transactions
                         .iter()
-                        .position(|tx| matches!(tx, eez_primitives::EezTxEnvelope::System(_)))
+                        .position(eez_primitives::EezTxEnvelope::is_cross_chain_system)
                         .unwrap_or(transaction_count)
                 } else if let Some(index) = pair_hashes
                     .iter()

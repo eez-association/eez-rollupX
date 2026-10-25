@@ -159,6 +159,12 @@ accounting, DA, context and public-input checks remain in force. No new shared
 state, concurrency mechanism, fallback or alternate encoding was introduced.
 This is a fresh self-review, not a second independent audit.
 
+## Follow-up validation
+
+The later [CI fixture relocation check](ci-relocation.md) records a test-path
+failure at `7558372b` and its correction. It preserves the failed CI result and
+distinguishes the passing relocated process check from final-head CI.
+
 ## Limits and remaining validation
 
 - The full CI/release/Kurtosis matrix must run on the new commit. Previous evidence
@@ -177,3 +183,7 @@ This is a fresh self-review, not a second independent audit.
   absence of other prover defects or replace independent review of the new head.
 - The previously approved `crypto-bigint` advisory exception is unchanged and
   remains an unresolved dependency risk.
+
+The [combined history follow-up](../2026-10-25-combined-history/README.md) records
+the dedicated Kurtosis experiment, two fail-closed Composer defects it exposed,
+and the associated reproduction and regression evidence.

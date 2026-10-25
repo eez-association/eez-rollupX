@@ -4,12 +4,12 @@ use alloy_primitives::{Address, B256, Signature, keccak256};
 use eez_control_rpc::v2::{self, client_frame, server_frame};
 use eez_testkit::{ANVIL_KEY_1, ProofSignerConfig, ProofSignerHandle};
 use prost::Message as _;
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn scheduled_history_observations_are_bound_before_offline_signing() {
-    let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../eez-proof-signer/tests/fixtures/native-history-observations");
+    let directory = eez_testkit::repo_root()
+        .join("crates/eez-proof-signer/tests/fixtures/native-history-observations");
     let identity: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("identity.json")).unwrap()).unwrap();
     let address = |field: &str| {

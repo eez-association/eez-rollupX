@@ -1,5 +1,6 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod combined_history;
 mod history_observations;
 mod nested_creation;
 
@@ -153,8 +154,25 @@ async fn assert_value_set_attribution(
 /// verification of the posted proof's recomputed public-input hash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn minimal_bidirectional_cross_chain_smoke() {
+    bidirectional_smoke(false).await;
+}
+
+/// Native history is part of the ordinary prefix even when its scheduled slot
+/// is Sync. Both directions must use complete-block checkpoint positions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bidirectional_cross_chain_with_history_at_sync() {
+    bidirectional_smoke(true).await;
+}
+
+async fn bidirectional_smoke(history_at_sync: bool) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = setup_cross_chain().await.unwrap();
+    let w = if history_at_sync {
+        setup_cross_chain_with_env(&[("EEZ_TEST_HISTORY_UPDATE_OFFSET", "4".to_string())])
+            .await
+            .unwrap()
+    } else {
+        setup_cross_chain().await.unwrap()
+    };
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
 
@@ -308,6 +326,32 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+    if history_at_sync {
+        let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
+        let receipt = provider
+            .get_transaction_receipt(outbound)
+            .await
+            .unwrap()
+            .unwrap();
+        let block: serde_json::Value = provider
+            .client()
+            .request("eth_getBlockByHash", (receipt.block_hash.unwrap(), true))
+            .await
+            .unwrap();
+        let transactions = block["transactions"].as_array().unwrap();
+        let native_type = format!("0x{:x}", eez_primitives::SYSTEM_TX_TYPE);
+        assert_eq!(transactions[0]["type"], native_type);
+        let history: eez_primitives::SystemTransaction =
+            serde_json::from_value(transactions[0].clone()).unwrap();
+        assert_eq!(history.to, eez_primitives::HISTORY_ADDRESS);
+        assert!(transactions.iter().skip(1).any(|tx| {
+            tx["type"] == native_type
+                && serde_json::from_value::<eez_primitives::SystemTransaction>(tx.clone())
+                    .unwrap()
+                    .to
+                    == eez_primitives::EEZL2_ADDRESS
+        }));
+    }
 }
 
 async fn assert_no_composer_methods(rpc: &str) {

@@ -183,12 +183,21 @@ def run(plan, args):
         description="wait for the canonical L1 genesis reference",
     )
 
+    history_environment = {}
+    if "history_update_offset" in eez:
+        offset = eez["history_update_offset"]
+        if type(offset) != "int" or offset < 0:
+            fail("eez.history_update_offset must be a nonnegative integer")
+        # deploy.sh validates the offset against the configured Sync interval
+        # and binds it into genesis and the on-chain offline profile.
+        history_environment["EEZ_L2_HISTORY_UPDATE_OFFSET"] = str(offset)
+
     # Deploy protocol contracts and emit /out/deployments.env + /out/l2-genesis.json.
     deploy = plan.run_sh(
         description="deploy EEZ contracts + generate L2 genesis on the shared L1",
         image=eez.get("deploy_image", "eez-deploy:dev"),
         files={"/genesis": "el_cl_genesis_data"},
-        env_vars={
+        env_vars=dict({
             "EEZ_L1_RPC_URL": l1_el.rpc_http_url,
             "EEZ_L1_CHAIN_CONFIG": "/genesis/genesis.json",
             "EEZ_L1_POSTER_KEY": poster_key,
@@ -203,7 +212,7 @@ def run(plan, args):
             # Private devnet only: L1 block zero needs no finality wait.
             "EEZ_L1_REFERENCE": "genesis",
             "EEZ_GENESIS_OUT": "/out/l2-genesis.json",
-        },
+        }, **history_environment),
         run="mkdir -p /out && bash /repo/scripts/deploy.sh && cp -R /repo/contracts/broadcast /out/foundry-broadcast",
         store=[StoreSpec(src="/out", name="eez-deployments")],
         wait="900s",
@@ -250,6 +259,21 @@ def run(plan, args):
         ),
     )
 
+    prover_url = "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT)
+    if "prove_capture_image" in eez:
+        # Explicit opt-in test adapter. Only ACKed evidence and successful
+        # finalizations are retained; the real signer remains authoritative.
+        plan.add_service(
+            name="eez-prove-capture",
+            config=ServiceConfig(
+                image=eez["prove_capture_image"],
+                ports={"grpc": PortSpec(number=PROOF_SIGNER_GRPC_PORT, transport_protocol="TCP")},
+                entrypoint=["capture_prover"],
+                cmd=["0.0.0.0:{}".format(PROOF_SIGNER_GRPC_PORT), prover_url, "/data/captures"],
+            ),
+        )
+        prover_url = "http://eez-prove-capture:{}".format(PROOF_SIGNER_GRPC_PORT)
+
     # eez-node: embedded L1, composer, L2, and cross-chain fronts.
     eez_env = {
         "EEZ_L1_CHAIN": "devnet",
@@ -277,7 +301,7 @@ def run(plan, args):
         else "0",
         "EEZ_L1_POSTER_KEY": poster_key,
         "EEZ_L1_BLOB_SIDECAR_ENCODING": blob_sidecar_encoding,
-        "EEZ_PROVER_URL": "http://eez-proof-signer:{}".format(PROOF_SIGNER_GRPC_PORT),
+        "EEZ_PROVER_URL": prover_url,
         "EEZ_WITNESS_DB_PATH": "/data/witnesses",
         "EEZ_L2_DATADIR": "/data/l2",
         "EEZ_L2_HTTP_PORT": str(L2_RPC_PORT),

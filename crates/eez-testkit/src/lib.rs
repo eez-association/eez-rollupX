@@ -2879,6 +2879,7 @@ fn bind_l2_genesis_reference(
     reference: &alloy_consensus::Header,
     block_interval_seconds: u64,
     sync_interval_blocks: u32,
+    history_update_offset: Option<u32>,
 ) -> Result<()> {
     use eez_protocol::l2::{DerivationConfig, GenesisL1Reference};
     let mut genesis: alloy_genesis::Genesis = serde_json::from_slice(&std::fs::read(path)?)?;
@@ -2900,10 +2901,12 @@ fn bind_l2_genesis_reference(
         .context("fixture history bootstrap timestamp overflow")?;
     let config = DerivationConfig {
         fee_collector: selected.fee_collector,
-        history_update_offset: sync_interval_blocks
-            .checked_sub(1)
-            .context("fixture requires a nonzero Sync interval")?
-            .min(2),
+        history_update_offset: history_update_offset.unwrap_or(
+            sync_interval_blocks
+                .checked_sub(1)
+                .context("fixture requires a nonzero Sync interval")?
+                .min(2),
+        ),
         block_interval_seconds,
         sync_interval_blocks,
         l1_reference: GenesisL1Reference {
@@ -3352,6 +3355,39 @@ pub async fn deploy_value(
         initial.abi_encode(),
     )
     .await
+}
+
+/// Deploy the history-sensitive L2 probe and its L1 static/lookup/delivery reader.
+/// Both use the existing native proxy and ordinary fixture deployment paths.
+pub async fn deploy_combined_history_observation(
+    world: &CrossChainWorld,
+) -> Result<(Address, Address)> {
+    let artifacts = repo_root().join("contracts/out/CombinedHistoryObservation.sol");
+    let probe = deploy_raw(
+        &world.l2_rpc(),
+        TARGET_DEPLOYER,
+        world.l2_chain_id,
+        &artifacts.join("CombinedHistoryObservation.json"),
+        Vec::new(),
+    )
+    .await?;
+    let proxy = create_cross_chain_proxy(
+        &world.l1_rpc(),
+        TARGET_DEPLOYER,
+        world.cfg.eez_address,
+        probe,
+        world.cfg.rollup_id,
+    )
+    .await?;
+    let reader = deploy_raw(
+        &world.l1_rpc(),
+        TARGET_DEPLOYER,
+        DEV_CHAIN_ID,
+        &artifacts.join("CombinedHistoryReader.json"),
+        proxy.abi_encode(),
+    )
+    .await?;
+    Ok((probe, reader))
 }
 
 /// Deploy the `EEZPostBatcher` fixture forwarding to `registry`.
@@ -3868,6 +3904,7 @@ impl CrossChainConfig {
             spec.genesis_header(),
             CROSS_CHAIN_L2_BLOCK_TIME_MS / 1000,
             u32::try_from(CROSS_CHAIN_SYNC_INTERVAL)?,
+            None,
         )?;
         let initial_state = genesis_block_hash(&l2_genesis.0)?;
         Ok(Self {
@@ -6072,6 +6109,16 @@ async fn setup_native_inner(
         reference.genesis_header(),
         CROSS_CHAIN_L2_BLOCK_TIME_MS / 1000,
         u32::try_from(CROSS_CHAIN_SYNC_INTERVAL)?,
+        extra_env
+            .iter()
+            .rev()
+            .find(|(name, _)| *name == "EEZ_TEST_HISTORY_UPDATE_OFFSET")
+            .map(|(_, value)| {
+                value
+                    .parse::<u32>()
+                    .context("EEZ_TEST_HISTORY_UPDATE_OFFSET must be an unsigned integer")
+            })
+            .transpose()?,
     )?;
     cfg.initial_state = genesis_block_hash(&cfg.l2_genesis.0)?;
     let fixture_directory = extra_env
@@ -6496,7 +6543,7 @@ mod framework_tests {
                 mix_hash: B256::with_last_byte(7),
                 ..Default::default()
             };
-            bind_l2_genesis_reference(&path, &reference, 1, 5).unwrap();
+            bind_l2_genesis_reference(&path, &reference, 1, 5, None).unwrap();
             let rebound: alloy_genesis::Genesis =
                 serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
             let config: eez_protocol::l2::DerivationConfig =

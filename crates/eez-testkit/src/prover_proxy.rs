@@ -457,6 +457,28 @@ impl ProverProxyHandle {
         fixture_directory: Option<PathBuf>,
     ) -> Result<Self> {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        Self::spawn_with_listener(listener, upstream, mutation, fixture_directory)
+    }
+
+    /// Capture acknowledged v2 requests from an owned development network.
+    /// Bind only on a private test interface: this adapter has no authentication.
+    /// Every returned proof still comes from the unmodified upstream signer.
+    pub async fn capture_on(
+        address: std::net::SocketAddr,
+        upstream: String,
+        directory: PathBuf,
+    ) -> Result<Self> {
+        std::fs::create_dir_all(&directory)?;
+        let listener = tokio::net::TcpListener::bind(address).await?;
+        Self::spawn_with_listener(listener, upstream, ProverMutation::None, Some(directory))
+    }
+
+    fn spawn_with_listener(
+        listener: tokio::net::TcpListener,
+        upstream: String,
+        mutation: ProverMutation,
+        fixture_directory: Option<PathBuf>,
+    ) -> Result<Self> {
         let addr = listener.local_addr()?;
         let counters = Arc::new(ProxyCounters::default());
         let mutation = Arc::new(Mutex::new(mutation));

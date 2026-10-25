@@ -989,6 +989,45 @@ fresh, separately named enclave to validate a new pin without removing the devne
 
 ## Customize the network
 
+### Capture history and cross-chain observation replay
+
+For an owned, fresh enclave, set `eez.history_update_offset: 5` with the existing
+two-second, six-slot cadence. This places the authenticated history import at
+transaction zero of Sync. The default offset remains unchanged. Set
+`eez.prove_capture_image` to an image containing the `eez-testkit` example
+`capture_prover`; the package inserts that bounded test adapter between Composer
+and the unchanged signer. It retains only acknowledged v2 evidence and successful
+proof requests in the adapter's `/data/captures` directory. This unauthenticated
+adapter is for private test networks only.
+
+With the integration contracts built, run:
+
+```bash
+export KURTOSIS_ENCLAVE=eez-combined-history
+export KURTOSIS_ARGS_FILE=/path/to/that-enclaves-args.yaml
+export EEZ_COMBINED_CAPTURE_DIR="$PWD/artifacts/combined-history/capture"
+bash testing/kurtosis/scripts/capture-combined-history.sh
+source testing/kurtosis/ports.sh
+export EEZ_COMBINED_L2_RPC="$EEZ_DEVNET_L2_RPC"
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e \
+  -- cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline \
+  --ignored --exact --nocapture
+```
+
+The workload deploys a probe and L1 reader using public fixture accounts. One
+source transaction reads the probe statically, records a failed mutable lookup,
+delivers a real write, and reads its new value. The replay selects a canonical
+capture with an advancing history import, compares the observations with retained
+chain state, then uses a separate network-denied signer for the unchanged request
+and coherent ABI/blob variants. Earlier-state and post-effect outcomes must fail
+at `observation_replay` without a signature. Requests and results remain in
+`combined-regression/` for language-neutral replay.
+
+Current Composer policy puts ordinary mempool writes in preceding blocks of the
+proved window. The terminal rich Sync contains history and cross-chain effects.
+This live test does not claim an ordinary mempool write between those operations
+in the same block; the separate signer fixtures cover that more general body.
+
 ### Arguments file
 
 `ci-args.yaml` is the included local profile. To modify it without changing the

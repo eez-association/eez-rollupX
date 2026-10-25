@@ -1,0 +1,424 @@
+{
+  "date": "2026-10-25",
+  "scope": "combined live validation; local-only raw evidence retained",
+  "source_head": "7558372be60b0f9edcd986f41e6676368bc04634",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "production_patch_sha256": "9c71ed9a970a1d960414cfb0ffe16570e84b69aba0c85c1186c99c2739536a5b",
+  "runtime_identities": {
+    "test": {
+      "path": "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+      "sha256": "cb2c8c9842855126e89e953d31945145d915b622ce2e3e32241bfa15b397469a"
+    },
+    "capture_adapter": {
+      "path": "target/debug/examples/capture_prover",
+      "sha256": "eed738a9b3d6aabd02d8e76305d280056c15b4a51c3a88f8553996915fb586fe"
+    },
+    "signer": {
+      "path": "artifacts/combined-history/tmp/eez-runtime-bin.cooCrjwQ/bin/eez-proof-signer",
+      "sha256": "43680285f6ab00260e91201bf80d545a3b332a2094ab6a525135176b8a52c1cf"
+    },
+    "composer_used": {
+      "path": "artifacts/combined-history/candidate-combined-bin/eez-composer",
+      "sha256": "6071e891f2d95f66a22721dc27caf5c115fecad662398a2278563706c497e03f"
+    }
+  },
+  "selection": {
+    "before": [
+      "0xc",
+      130,
+      "0xe67f04df439cdd459a9c5423dcfe2c261256e7bccf88b1099b33d9b695e6a3a9"
+    ],
+    "capture": "c6c876534399765047271b7f6bc7a759fe7cb984947c7c8692c203cbbfc1748c.v2.protobuf",
+    "correct": [
+      "0xc",
+      131,
+      "0xcab22caafbd36d68bb824e141c6d2f307f5a524d6063f78a95964981d31e6d0d"
+    ],
+    "first_ordinary_bump_block": 781,
+    "imported_headers": 1,
+    "ordinary_bumps_in_terminal": 0,
+    "ordinary_prefix_transactions": 1,
+    "safe_hash": "0xf0e88722d9e5e1cfc48b0e83a22015bea29fcf5d9c2af3080ee703a53b722af4",
+    "safe_number": 798,
+    "terminal_hash": "0xe955ff4aa3f0cade9328255895e6f22dfbabe06c8c534065245de8f591591dab",
+    "terminal_is_ancestor_of_safe": true,
+    "terminal_number": 786
+  },
+  "results": [
+    {
+      "accepted": true,
+      "name": "correct",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "static-before-history",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "static-before-ordinary-window",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "static-after-effect",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "lookup-before-history",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "lookup-before-ordinary-window",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    },
+    {
+      "accepted": false,
+      "name": "lookup-after-effect",
+      "signatures_total": 1,
+      "validated_blocks": 7
+    }
+  ],
+  "captured_proof": {
+    "public_inputs_hash": "f9352a8b74044a7454d5be009f00a75ede50cadc81d6847dc71c8246b0702e5d",
+    "request_bytes": 220741,
+    "request_hash": "0xc6c876534399765047271b7f6bc7a759fe7cb984947c7c8692c203cbbfc1748c",
+    "signature": "ddb6acf957d9f7cafd3cd32e6f62bbc8088a8f1eb8ce9d548772949bd88850950d3745c284f9b1250032b9d67c367ff0a1f0b580e4610b73a2bbf51b3914b4761b"
+  },
+  "source_transactions": [
+    {
+      "iteration": 1,
+      "runs": 1,
+      "status": "0x1",
+      "blockNumber": "0x84",
+      "transactionHash": "0x6a1469407b2022f49ab09a9d27ac1ad60aa400ce9c3028f5963f051c9b2f833e"
+    },
+    {
+      "iteration": 2,
+      "runs": 2,
+      "status": "0x1",
+      "blockNumber": "0x85",
+      "transactionHash": "0x101bdd22abdc99ececdfd571d94d719800579dac373bb20d40ac4b4805c921e6"
+    },
+    {
+      "iteration": 3,
+      "runs": 3,
+      "status": "0x1",
+      "blockNumber": "0x86",
+      "transactionHash": "0x569ae9a99afb6831a6ea3996c13c46939cb0b28c98c17a8f9f65ea951574e4ec"
+    }
+  ],
+  "signer_rejections": [
+    {
+      "timestamp": "2026-10-25T20:19:09.903788Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 0 result differs from authenticated EVM replay"
+    },
+    {
+      "timestamp": "2026-10-25T20:19:09.975608Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 0 result differs from authenticated EVM replay"
+    },
+    {
+      "timestamp": "2026-10-25T20:19:09.990997Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 0 result differs from authenticated EVM replay"
+    },
+    {
+      "timestamp": "2026-10-25T20:19:10.008155Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 1 result differs from authenticated EVM replay"
+    },
+    {
+      "timestamp": "2026-10-25T20:19:10.035628Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 1 result differs from authenticated EVM replay"
+    },
+    {
+      "timestamp": "2026-10-25T20:19:10.062376Z",
+      "message": "offline finalization rejected",
+      "phase": "settlement",
+      "gate": "observation_replay",
+      "error": "observation 1 result differs from authenticated EVM replay"
+    }
+  ],
+  "signer_signatures": [
+    {
+      "timestamp": "2026-10-25T20:19:09.887456Z",
+      "message": "window validated and signed",
+      "event_name": "eez.proof_signer.window_signed",
+      "phase": "attestation",
+      "rpc_version": 2,
+      "validated_from_block": 781,
+      "validated_to_block": 786,
+      "validated_window_pre_block_hash": "0x51afa4566e8c840a69fcc31a2ae6b7b3577c5cbbf59bff4745bf0174ac5f8903",
+      "validated_window_post_block_hash": "0xe955ff4aa3f0cade9328255895e6f22dfbabe06c8c534065245de8f591591dab",
+      "recomputed_public_inputs_hash": "0xf9352a8b74044a7454d5be009f00a75ede50cadc81d6847dc71c8246b0702e5d",
+      "attester": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    }
+  ],
+  "checks": {
+    "combined-offset-before": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::bidirectional_cross_chain_with_history_at_sync",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 120.03,
+        "minimum_available_bytes": 22357843968,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "36f15aa7f8ca9b1f4d10ba270c075baeefc1b72637c19b731d4101587c862109"
+    },
+    "combined-offset-after-rpc": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::bidirectional_cross_chain_with_history_at_sync",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 37.01,
+        "minimum_available_bytes": 19039199232,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "b2cfa0eacd9d4818dd857d9dc8593a16b48d494fd479be27df289186d4cd41a8"
+    },
+    "combined-observation-before": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::combined_history::scheduled_history_static_and_lookup_settle",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 101,
+        "seconds": 44.01,
+        "minimum_available_bytes": 18069475328,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "266705afaab035e18f4de5757bf4454fc932b16f9024f3dea5940f0b7c9ed5a7"
+    },
+    "combined-observation-after": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::combined_history::scheduled_history_static_and_lookup_settle",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 48.01,
+        "minimum_available_bytes": 17712295936,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "a0cbf2a97cca03d94ba1b480c3d248939ef3d2927da6cd00d5d6cc561513c567"
+    },
+    "combined-final-history-smoke": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::bidirectional_cross_chain_with_history_at_sync",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 38.01,
+        "minimum_available_bytes": 17630511104,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "b8b1dadd3bed304fd66e92a9b3de6a5e8b1f2585230089793e3a4180bfe42277"
+    },
+    "combined-final-default-smoke": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::minimal_bidirectional_cross_chain_smoke",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 38.01,
+        "minimum_available_bytes": 18132185088,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "daff91fb85edd18db41ac0aad77ed6d5cf5584151357d297eeadbc196fd0b872"
+    },
+    "combined-final-capture": {
+      "result": {
+        "command": [
+          "bash",
+          "testing/kurtosis/scripts/capture-combined-history.sh"
+        ],
+        "exit": 0,
+        "seconds": 64.02,
+        "minimum_available_bytes": 18058768384,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "37dd2fc49bc9cebed108f0f7d8bb2eb1ee3be496ac3718ba71fe12f19f777c7b"
+    },
+    "combined-final-replay": {
+      "result": {
+        "command": [
+          "target/debug/deps/node_e2e-0cb5b6bfb86a29d0",
+          "cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline",
+          "--ignored",
+          "--exact",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "seconds": 3.0,
+        "minimum_available_bytes": 18101506048,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "22e67117789538dba5dccbdf48fd0c37bd3deb97e4e5131003aa3922e975a419"
+    },
+    "combined-final-composer-testkit": {
+      "result": {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "test",
+          "--locked",
+          "-p",
+          "eez-composer",
+          "-p",
+          "eez-testkit",
+          "--lib",
+          "--",
+          "--test-threads=2"
+        ],
+        "exit": 0,
+        "seconds": 278.07,
+        "minimum_available_bytes": 17650180096,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "c81b8182c8d4fe2a79bcbfc85145d580888d39bf106c9c5d61e2c21e5a652345"
+    },
+    "combined-final-contracts": {
+      "result": {
+        "command": [
+          "forge",
+          "test",
+          "--root",
+          "contracts"
+        ],
+        "exit": 0,
+        "seconds": 2.0,
+        "minimum_available_bytes": 12637290496,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "864385807a6f56169ad170f5bf4ac1ba9c8db4e53e03128f38a6624fc40a5bec"
+    },
+    "combined-final-kurtosis-tooling-light": {
+      "result": {
+        "command": [
+          "python3",
+          "-m",
+          "unittest",
+          "discover",
+          "-s",
+          "scripts/ci/tests",
+          "-p",
+          "test_kurtosis_ci.py",
+          "-v"
+        ],
+        "exit": 0,
+        "seconds": 0.66,
+        "output_sha256": "0df9226fde73ca4e7e8fd866b3ef560e683069d246a33aae9aa869b3b454e80f",
+        "build": false
+      },
+      "log_sha256": "0df9226fde73ca4e7e8fd866b3ef560e683069d246a33aae9aa869b3b454e80f"
+    },
+    "combined-final-clippy": {
+      "result": {
+        "command": [
+          "cargo",
+          "+1.95.0",
+          "clippy",
+          "--locked",
+          "--workspace",
+          "--all-targets",
+          "--",
+          "-D",
+          "warnings"
+        ],
+        "exit": 0,
+        "seconds": 130.04,
+        "minimum_available_bytes": 23669112832,
+        "guard_cancelled": false,
+        "jobs": 1
+      },
+      "log_sha256": "cfe50db6660cff3c7ea4eabc4bad43c5f3a7e09083aa783af8f2553f77c23a11"
+    }
+  },
+  "local_artifact": {
+    "path": "artifacts/combined-history/combined-history-v2-conformance.tar.gz",
+    "sha256": "d472e4d261b61e95e5134d2fbecdfdc67758c3cddcd496a7f11bf45fb2970c0f",
+    "bytes": 229941
+  },
+  "case_sha256": {
+    "correct.v2.protobuf": "a9bc0ab5dc9b1b32f487f62ca32eb832c353d307aae8d9cb69f52334a6265658",
+    "lookup-after-effect.v2.protobuf": "016dd09e6f03b9c07726abbb522567c22428f8215a38c23903b3480304abd314",
+    "lookup-before-history.v2.protobuf": "a3452bc9961c61b8b44c304a4166d2bfd2dffe82e591afee04fde2d4cbc5fca1",
+    "lookup-before-ordinary-window.v2.protobuf": "bf39e7cbef6db1a1b4508b6168f2ffb7c9364db55724885923c8254be6b3448a",
+    "static-after-effect.v2.protobuf": "b5bd3c782e2f7cae606724349671b962e6da0a4e72bba6b449c24a07ff75bb80",
+    "static-before-history.v2.protobuf": "dc1325968bcf7cee4a2d842a32305b89e157b00bf5e5396f1cd9acc2e6fa06e8",
+    "static-before-ordinary-window.v2.protobuf": "db99ea589091e0216b3141100bd795f125585c0f2fc97fb585f2dd81d9ad233b"
+  },
+  "raw_selection_sha256": "205a6a868ad607c3e46fe67238bd671929f2d2f00b68ea08735f5fc79ce36394",
+  "offline_signer_log_sha256": {
+    "eez-proof-signer-2141971-0.log": "aab688eab20f6e0ad5fb3bc4bffb1528c1d4221de81b6d3ad2a07782a29ce754"
+  },
+  "enclaves": "both task-owned enclaves stopped, data retained",
+  "final_light_checks": {
+    "commands": [
+      "cargo +1.95.0 fmt --all --check",
+      "forge fmt --check --root contracts",
+      "bash -n testing/kurtosis/scripts/capture-combined-history.sh",
+      "git diff --check"
+    ],
+    "exit": 0,
+    "audit_relative_links_valid": true
+  }
+}
