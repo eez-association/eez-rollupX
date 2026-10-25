@@ -244,19 +244,18 @@ impl TimingHistory {
         };
         let scaled = samples
             .iter()
-            .filter(|(sample, elapsed)| {
+            .filter(|(sample, _)| {
                 let covered = supplied(sample);
-                // A wider measured proof supersedes a cheaper sparse sample's
-                // extrapolation once it supplies at least as much of every
-                // requested dimension. Surplus old history is irrelevant to
-                // this comparison, but unseen history/blob growth and more
-                // expensive sparse proofs retain their own scaling terms.
-                // Strict dominance preserves at least one of the 32 samples.
-                !samples.iter().any(|(other, other_elapsed)| {
+                // Wider observations replace sparse scaling even when faster:
+                // otherwise a cold proof's fixed overhead can repeatedly cap
+                // admission at the last covered width. All samples still train
+                // `observed`, the slow-duration floor below. Missing history or
+                // blob coverage retains its scaling term; surplus old history
+                // is irrelevant to this request-relative comparison. Strict
+                // dominance preserves at least one of the 32 samples.
+                !samples.iter().any(|(other, _)| {
                     let other = supplied(other);
-                    other_elapsed >= elapsed
-                        && other != covered
-                        && other.iter().zip(covered).all(|(a, b)| *a >= b)
+                    other != covered && other.iter().zip(covered).all(|(a, b)| *a >= b)
                 })
             })
             .map(|(sample, elapsed)| {
@@ -299,8 +298,8 @@ pub(crate) struct ProofPrediction {
 /// Bounded histories with 25% headroom. Proofs outside observed coverage scale
 /// non-dominated samples by the largest workload ratio, capped at the greater
 /// of the bootstrap estimate and the observed proof floor. Dominance is relative
-/// to the requested dimensions and cannot discard a more expensive sample.
-/// Scaling never prices a larger request below an observed slower proof.
+/// to the requested dimensions. Superseded samples still contribute to the
+/// slow-duration floor; scaling never prices a larger request below it.
 /// This avoids returning to a prohibitive cold allocation for each new witness
 /// count while keeping the shared deadline authoritative. Finalization requires
 /// covering samples because envelope/preflight cost need not scale like proof work.
@@ -973,7 +972,7 @@ mod tests {
     }
 
     #[test]
-    fn expensive_sparse_proof_remains_a_scaling_observation() {
+    fn expensive_sparse_proof_retains_the_slowest_observation_floor() {
         let timings = PipelineTimings::default();
         timings.observe_proof(
             Workload {
@@ -1001,8 +1000,60 @@ mod tests {
                 },
             ),
             Duration::from_millis(750),
-            "a cheap wider sample cannot erase a slower sparse proof"
+            "a cheap wider sample cannot erase a slower sparse proof's duration floor"
         );
+    }
+
+    #[test]
+    fn faster_wider_proof_supersedes_sparse_scaling_but_preserves_its_slow_floor() {
+        let timings = PipelineTimings::default();
+        let configured = Duration::from_millis(500);
+        timings.observe_proof(
+            Workload {
+                groups: 1,
+                blobs: 2,
+                witnesses: 10,
+            },
+            Duration::from_millis(40),
+        );
+        timings.observe_proof(
+            Workload {
+                groups: 11,
+                blobs: 1,
+                witnesses: 5,
+            },
+            Duration::from_millis(31),
+        );
+        let request = Workload {
+            groups: 12,
+            blobs: 1,
+            witnesses: 5,
+        };
+        assert_eq!(
+            timings.proof_estimate(configured, request),
+            Duration::from_millis(50),
+            "retain the slow proof plus headroom, without multiplying its fixed cost by twelve",
+        );
+        for unseen in [
+            Workload {
+                blobs: 2,
+                ..request
+            },
+            Workload {
+                witnesses: 6,
+                ..request
+            },
+            Workload {
+                witnesses: usize::MAX,
+                ..request
+            },
+        ] {
+            assert_eq!(
+                timings.proof_estimate(configured, unseen),
+                configured,
+                "a wider group sample cannot replace missing blob/history coverage",
+            );
+        }
     }
 
     #[test]

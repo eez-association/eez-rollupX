@@ -1,0 +1,135 @@
+{
+  "date": "2026-10-25",
+  "base_commit": "1109dbab7f12fc735a6bf6986e7d7e7f987495d7",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "worktree": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving",
+  "branch": "codex/l1-history-offline-proving",
+  "baseline_identity": {
+    "head": "1109dbab7f12fc735a6bf6986e7d7e7f987495d7",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "test_patch_sha256": "b659954c7a1929400187adcaf764ade347e8667d54a7f1b77edeca4d97f7f8cf",
+    "test_files": {
+      "crates/eez-composer/src/composer/admission.rs": "823d1b054c58ce24d0a3b0b384020e577bcf2311de16ec2720b4d02bd9bfce87",
+      "crates/eez-composer/src/prover_retry.rs": "15373597adcc59f2ab4a997b3e5bc8170363d14ac38ada72f0a46188a99a0d40"
+    },
+    "production": "Unchanged from HEAD; patch adds two deterministic regressions only.",
+    "unknown": "Original failed CI warmup and large-candidate summary logs unavailable. Synthetic timing samples are not recovered historical inputs."
+  },
+  "before": {
+    "result": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-composer",
+        "--lib",
+        "faster_wider",
+        "--",
+        "--nocapture"
+      ],
+      "exit": 101,
+      "seconds": 393.1,
+      "minimum_available_bytes": 23624552448,
+      "guard_cancelled": false,
+      "jobs": 1
+    },
+    "log_path": "artifacts/extended-validation/checks/admission-controlled-before-20261025/output.log",
+    "log_sha256": "dafd2f14c23dc7f20c56c237f788d88f6dd50b53cff909fa84882cd1c62bc75f",
+    "binary_path": "target/debug/deps/eez_composer-d15733fd5934d655",
+    "binary_sha256": "b383576307adcc6971e45a30d2faf6ec3087fe9a71aba4d147bab73a964206a9",
+    "selected_tests": 2,
+    "passed": 0,
+    "failed": 2,
+    "ignored": 0,
+    "filtered_out": 409,
+    "failure": "500ms estimate instead of50ms; admission refuses group12 under explicit977ms window."
+  },
+  "after": {
+    "result": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-composer",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 19.01,
+      "minimum_available_bytes": 24058560512,
+      "guard_cancelled": false,
+      "jobs": 1
+    },
+    "log_path": "artifacts/extended-validation/checks/admission-controlled-after-20261025/output.log",
+    "log_sha256": "f4dd21348b7f2b0c1cd54bbd368e71f0e63f9cc7d461f212435325d6eb777c4c",
+    "binary_path": "target/debug/deps/eez_composer-d15733fd5934d655",
+    "binary_sha256": "4c95a0b179216d104881bab39fc91395741e0a4a90b60a203d6c026a471bfe7a",
+    "runtime_and_tests_patch_sha256": "f68267da04c87326a4c9b5d409771e6d55941df05b5f4cd8188876ef4cbf9e04",
+    "source_files": {
+      "crates/eez-composer/src/composer/admission.rs": "a855a808657b5493fbdfaab29f661aad72894e6f2066df868de76ad56f4c6c20",
+      "crates/eez-composer/src/prover_retry.rs": "54f8e80551ea13aa57b4a34b5310aa62d4063505e9d05d216c86990647c9cbd8",
+      "crates/eez-composer/src/admission_events.rs": "dd4091542ca8a414f64dd5defc1108e2151a4a9d21f64d5b1e72d450d2c859fd"
+    },
+    "selected_tests": 411,
+    "passed": 410,
+    "failed": 0,
+    "ignored": 1,
+    "ignored_case": "held_pool::tests::profile_blocked_backlog_discovery: manual component profile; records timings without timing assertions",
+    "filtered_out": 0,
+    "checks": [
+      {
+        "command": "cargo +1.95.0 fmt --all --check",
+        "exit": 0
+      },
+      {
+        "command": "git diff --check",
+        "exit": 0
+      }
+    ]
+  },
+  "shared_clippy": {
+    "result": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 106.03,
+      "minimum_available_bytes": 24070660096,
+      "guard_cancelled": false,
+      "jobs": 1
+    },
+    "log_path": "artifacts/extended-validation/checks/admission-shared-clippy-20261025/output.log",
+    "log_sha256": "d6a0c023137e359a98033938c5ce8cf265aee8fd5b6315b43bca5495de228671",
+    "complete_rust_patch_sha256": "56f82b896dfdab277dcb0a15a138c19086e310bc50e31dfe0c57a51278cd355b",
+    "includes": "Composer policy/tests and MissingProxy cross_chain process-test changes; no process tests executed by Clippy."
+  },
+  "owned_patch_sha256": "de803284d790a6ee536198a4a980aa3ee098d6f78140795c9151f2f53f02a9d4",
+  "owned_files": [
+    "crates/eez-composer/src/composer/admission.rs",
+    "crates/eez-composer/src/prover_retry.rs",
+    "crates/eez-composer/src/admission_events.rs",
+    "docs/configurable-settlement-policy.md",
+    "monitoring/indexer/README.md"
+  ],
+  "evidence_availability": "Compact inputs/results/hashes checked in. Raw output logs and source patch copies are local-only under ignored artifacts/. The baseline test executable was subsequently overwritten by the corrected build; its hash and source patch are retained.",
+  "not_run": [
+    "No source-based process test after this local correction; final CI runtime/process validation pending.",
+    "No performance benchmark of this correction; independent paired live validation pending.",
+    "No recovery of missing warmup/large-candidate logs from the original CI failure."
+  ],
+  "conclusion": "A sparse-scaling-induced admission width boundary is deterministically reproduced and corrected. It is compatible with the preserved original eleven-group observations, but the original missing warmup prevents proof of the historical cause."
+}

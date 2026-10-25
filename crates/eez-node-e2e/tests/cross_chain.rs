@@ -2093,7 +2093,10 @@ async fn outbound_static_read_with_static_callback_settles_and_replays() {
 /// A static read whose callback source proxy is not deployed on the reading
 /// chain would revert on chain: the protocol cannot create the proxy inside
 /// the read's static frame. Simulation alone would answer the callback, so the
-/// Composer must reject the transaction at admission and name the proxy.
+/// Composer must reject the transaction and name the proxy. This fixture has
+/// fee collection disabled: the front accepts ownership, then composition
+/// records a terminal simulation failure. Fee-enabled fronts reject the same
+/// shape earlier during signed fee simulation, before queue ownership.
 async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bool) {
     let w = setup_cross_chain_static_round_trip(inbound, false)
         .await
@@ -2112,6 +2115,8 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
         (w.l2_xchain(), OUTBOUND_USER, w.l2_chain_id)
     };
     let nonce = onchain_nonce(&source_rpc, key).await.unwrap();
+    let sender = signer_address(key).unwrap();
+    let balance = l2_balance(&source_rpc, sender).await.unwrap();
     let hash = sign_and_send(
         &front,
         key,
@@ -2131,24 +2136,42 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
     );
 
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_xchain().parse().unwrap())
+        .connect_http(front.parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await
         .unwrap();
+    assert_eq!(status["hash"], serde_json::json!(hash), "{status}");
+    assert_eq!(status["lifecycle"], "terminal", "{status}");
+    assert_eq!(status["ownership"]["state"], "terminal", "{status}");
     assert_eq!(
         status["ownership"]["reason"], "SimulationFailed",
         "{status}"
     );
     let expected = format!(
-        "static callback source proxy {} is not deployed",
-        w.callback_source_proxy
+        "executor: static callback source proxy {} is not deployed on chain {chain_id}; it must exist before the read",
+        w.callback_source_proxy,
     );
-    assert!(
-        status["ownership"]["rejection"]["error"]
-            .as_str()
-            .is_some_and(|error| error.contains(&expected)),
+    assert_eq!(
+        status["ownership"]["rejection"]["error"], expected,
         "{status}"
+    );
+    assert_eq!(status["ownership"]["canonical"], serde_json::Value::Null);
+    for rpc in [&source_rpc, &front] {
+        assert_eq!(
+            receipt_ok(rpc, hash).await.unwrap(),
+            None,
+            "a terminal rejection must not have a direct or front receipt: {status}",
+        );
+    }
+    assert_eq!(onchain_nonce(&source_rpc, key).await.unwrap(), nonce);
+    assert_eq!(l2_balance(&source_rpc, sender).await.unwrap(), balance);
+    assert!(
+        account_code(&source_rpc, w.callback_source_proxy)
+            .await
+            .unwrap()
+            .is_empty(),
+        "rejected simulation must not deploy the missing callback proxy",
     );
     let (_, reads) = static_reader_state(&w);
     assert_eq!(

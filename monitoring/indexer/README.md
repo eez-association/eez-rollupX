@@ -794,11 +794,12 @@ installed. Policy `strict-fifo-6` additionally clears that boundary after canoni
 resolution of its first source, allowing the remaining queue to share the next
 batch under the same FIFO checks. Receipt or relay observations do not clear it.
 The event schema and collector remain compatible; version 5 histories retain
-their original boundary behavior. `strict-fifo-7` also supersedes sparse proof
-scaling terms when a slower, wider observation supplies the requested dimensions;
-the existing `proof_estimate_ms` and `scaled_sample` basis expose that prediction.
-Its measured slow-proof floor and actual deadlines are retained. No collector
-migration is needed. Source rows expose
+their original boundary behavior. `strict-fifo-7` superseded sparse proof scaling
+when a slower, wider observation supplied the requested dimensions.
+`strict-fifo-8` also accepts a faster wider observation for that comparison,
+retaining every sample in the extrapolation's slow-duration floor. The existing
+`proof_estimate_ms` and `scaled_sample` basis expose that prediction. Actual
+deadlines are unchanged; no collector migration is needed. Source rows expose
 `source_outcome_reason`, including a blob rejection after a successful gas check.
 The final candidate stop reason and earlier individual deferrals can differ.
 Old histories retain null fields and historical `fifo_fairness_limit` reasons.

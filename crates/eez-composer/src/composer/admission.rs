@@ -1259,6 +1259,68 @@ mod tests {
     }
 
     #[test]
+    fn faster_wider_proofs_do_not_lock_admission_to_the_last_measured_width() {
+        // Controlled reproduction, not recovered timings from the original CI
+        // failure. A slightly slower sparse proof must remain a duration floor,
+        // not a per-group cost after a wider workload has actually been proved.
+        let mut a = attempt(
+            128,
+            0,
+            false,
+            Some(Sample {
+                groups: 11,
+                preparation: Duration::from_millis(258),
+                tail: Duration::from_millis(242),
+                blob_preparation: Duration::from_millis(237),
+                blobs: 1,
+                group_work: None,
+            }),
+        );
+        a.available = Duration::from_millis(977);
+        a.proof_estimate = Duration::from_millis(500);
+        a.deadline = PipelineDeadline::new(
+            RollupTiming::new(5000, 1000, 500, 700, 3),
+            BundleTarget::Exact {
+                block: 1,
+                timestamp: 1_700_000_005,
+            },
+            1_700_000_000_000,
+        );
+        a.witness_count(5);
+        let measured = Workload {
+            groups: 11,
+            blobs: 1,
+            witnesses: 5,
+        };
+        a.timings.observe_proof(
+            Workload {
+                groups: 1,
+                witnesses: 10,
+                ..measured
+            },
+            Duration::from_millis(40),
+        );
+        a.timings.observe_proof(measured, Duration::from_millis(31));
+        a.timings
+            .observe_finalization(measured, Duration::from_millis(152));
+        for accepted in 0..30 {
+            let elapsed = Duration::from_millis(accepted as u64);
+            assert!(
+                a.can_start_at(accepted, elapsed),
+                "a measured wider proof must allow group {} under the unchanged window",
+                accepted + 1,
+            );
+            assert!(a.can_finish_at(accepted + 1, 1, elapsed + Duration::from_millis(1)));
+        }
+        assert!(
+            !a.can_finish_at(31, 3, Duration::from_millis(31)),
+            "additional physical blobs must still reserve their KZG cost",
+        );
+        assert!(!a.can_start_at(30, a.available));
+        assert!(!a.can_finish_at(31, 1, a.available));
+    }
+
+    #[test]
     fn a_small_posts_fixed_overhead_does_not_limit_a_fast_thirty_group_wave() {
         let observed = Sample {
             groups: 1,

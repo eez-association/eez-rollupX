@@ -171,20 +171,23 @@ next group does not invalidate the accepted prefix's clean sample. Proof and
 finalization retain at most 32 observations per rollup and stage, with 25%
 headroom. Proof samples covering the requested group, physical blob and witness
 block counts are used directly. Otherwise, observed durations scale upward by
-the largest ratio across those three dimensions. From `strict-fifo-7`, a sample's
-scaling term is superseded only by an observation that took at least as long and
-supplies at least as much of every requested dimension, strictly more of one.
+the largest ratio across those three dimensions. From `strict-fifo-8`, a sample's
+scaling term is superseded by an observation that supplies at least as much of
+every requested dimension, strictly more of one, even if that wider proof was
+faster. A slower sparse proof remains a duration floor rather than a per-group
+cost once wider work has been measured.
 Observed counts are clipped to the request only for this comparison: excess
 history in an old sparse sample cannot prevent learning from a wider measured
 batch with sufficient history. Incomparable observations, including greater
-witness/blob coverage or a more expensive sparse proof, retain their scaling
-terms. This avoids multiplying fixed overhead from a one-group observation after
-larger proofs have been measured. All observations still contribute to the
-slowest measured proof floor. Scaling uses a denominator of one for zero observed
+required witness/blob coverage, retain their scaling terms. This avoids
+multiplying fixed overhead from a one-group observation after larger proofs
+have been measured. Every observation still contributes to the slowest measured
+proof floor during extrapolation. Scaling uses a denominator of one for zero observed
 counts. The prediction is capped at the greater of the configured proof seed and
 the slowest observed proof with headroom, with a 25 ms floor. A larger request never scales
 below an already observed slower proof. With no proof
-observations the configured seed applies. This is a scheduling estimate, not a
+observations the configured seed applies. Counts do not bound arbitrary gas,
+calldata, proof shape or transport delay. This is a scheduling estimate, not a
 proof completion guarantee; the shared deadline remains authoritative. Each proof
 request records the estimate and its `configured_seed`, `covering_sample` or
 `scaled_sample` basis. Finalization only uses covering observations and reserves
@@ -355,7 +358,9 @@ The retained `eez.composer.admission.v1` event family records each candidate,
 source gas decision, summary (including no-cut batches), proof/preflight/delivery
 timing and final signed hash. See [admission monitoring](../monitoring/indexer/README.md#admission-history)
 for estimate/receipt joins, missing-event reporting and CSV export. Version
-`strict-fifo-7` adds the request-relative proof scaling described above;
+`strict-fifo-8` replaces sparse scaling after a faster wider proof while retaining
+the measured slow-duration floor; `strict-fifo-7` introduced request-relative
+scaling but required the wider observation to take at least as long.
 `strict-fifo-6` releases a retained repair boundary on canonical head progress;
 `strict-fifo-5` introduced FIFO prefix repair alongside the five-failure submission tolerance
 introduced by `confirmed-failure-backoff-4`. It retains the capacity minimum
@@ -1865,10 +1870,15 @@ scheduling. Version 6 needs only a Composer upgrade; signers, followers and
 collectors can run mixed versions under the unchanged wire/event schema.
 Reorg reconciliation restores source ownership and order; a cleared scheduling
 boundary does not authorize execution, eviction, or canonical completion.
-Version 7 changes only Composer's in-memory proof timing estimate. It retains
-version 6's FIFO behavior, existing event fields and all actual deadline gates.
-Rollback restores the older extrapolation; no queue, database or wire migration
-is required, and older collectors continue to accept the version string.
+Versions 7 and 8 change only Composer's in-memory proof timing estimate. Version
+8 also supersedes a sparse scaling term after a faster wider observation, while
+retaining the slow-duration floor during extrapolation. It preserves version 6's
+FIFO behavior, existing event fields and all actual deadline gates. Only Composer
+needs upgrading; signers, followers and collectors can run mixed versions under
+the unchanged wire/event schema. Timing samples disappear on restart, alongside
+the pending-queue restart limitations above. Rollback from 8 to 7 restores the
+duration-ordered extrapolation and its possible sparse-proof width plateau; no
+queue, database, historical replay or wire migration is required.
 The separate main-branch Reth
 existing-database compatibility limits still apply to deployment.
 

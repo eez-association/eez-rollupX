@@ -457,8 +457,11 @@ jq -n --arg name "$1" '{scenario: $name, result: "PASS", causal_graph: {verified
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("L1", result.stderr)
                 self.assertFalse((self.root / "prepared").exists())
-        for supplied in ("chiado", str(l1_genesis)):
+        for index, supplied in enumerate(("chiado", str(l1_genesis))):
             with self.subTest(supplied=supplied):
+                # The pinned runner names logs to second precision. Give each
+                # invocation its own directory without relaxing stale-log checks.
+                self.tool("date", f"#!/bin/sh\necho 20000101-00004{index}\n")
                 self.env["EEZ_L1_CHAIN_CONFIG"] = supplied
                 result = self.run_outer(wrapper)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
