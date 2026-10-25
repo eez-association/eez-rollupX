@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Date and status | 2026-10-25 UTC; reproduced and corrected locally, process/live validation pending |
+| Date and status | 2026-10-25 UTC; controlled reproduction, correction and final-artifact process validation pass |
 | Scope | The delayed mixed-wave packing assertion, proof timing prediction, and unchanged admission/deadline boundaries |
 | Source | `1109dbab7f12fc735a6bf6986e7d7e7f987495d7` plus the focused patch identified in [admission.json](admission.json) |
 | Protocol | `84a5b5207880f192a6a5896cbfe0bac5249db47f`, unchanged |
@@ -118,7 +118,14 @@ identity were recorded first.
 
 The original `dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays`
 process test is unchanged, including **accepted > 12**, receipt/state/nonce
-checks and independent follower convergence. Its execution on final CI artifacts
-and the paired live validation remain pending at this record's local checkpoint.
-These unit results establish the controlled mechanism and fix, not the precise
-cause of the missing-log historical failure or final-runtime throughput parity.
+checks and independent follower convergence. It passes in **62.270 seconds**
+on the final release artifacts in [CI run 40195871216](https://github.com/eez-association/eez-rollupX/actions/runs/40195871216),
+job `121187111352`. Its Gnosis counterpart also passes in **95.870 seconds**,
+job `121187111297`. Both new controlled regressions pass in the same run's
+complete workspace unit lane. The exact runtime head is `b1881cf737cdc64ee30a9767807f53d21a3daa86`;
+the tested merge has an identical tree, as recorded in [CI evidence](ci.md).
+
+These results establish the controlled mechanism, correction and selected
+final-runtime process behavior. They do not prove the precise cause of the
+missing-log historical failure or throughput parity; the separate
+[paired live comparison](latency.md) retains those limits.

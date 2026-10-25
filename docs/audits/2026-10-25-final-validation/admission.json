@@ -126,10 +126,36 @@
     "monitoring/indexer/README.md"
   ],
   "evidence_availability": "Compact inputs/results/hashes checked in. Raw output logs and source patch copies are local-only under ignored artifacts/. The baseline test executable was subsequently overwritten by the corrected build; its hash and source patch are retained.",
-  "not_run": [
+  "not_run_at_local_checkpoint": [
     "No source-based process test after this local correction; final CI runtime/process validation pending.",
     "No performance benchmark of this correction; independent paired live validation pending.",
     "No recovery of missing warmup/large-candidate logs from the original CI failure."
   ],
+  "final_process_validation": {
+    "run": "https://github.com/eez-association/eez-rollupX/actions/runs/40195871216",
+    "head": "b1881cf737cdc64ee30a9767807f53d21a3daa86",
+    "producer": "57d212d80b89079f4ed9123ed379e94790a59bf7",
+    "shared_tree": "2f6d561c097cec4b1e4b874dacd0ba5d643e7dd2",
+    "test_binary_sha256": "f6c2a55d1574e1d19579b11192ad98207e14dd81e48700da99f182169e05aa65",
+    "tests": [
+      {
+        "name": "dynamic_admission::ethereum_delayed_start_mixed_wave_after_small_post_replays",
+        "result": "pass",
+        "seconds": 62.270,
+        "job": 121187111352,
+        "log_sha256": "74f01f793cc4a0684258f094138408af4be0a6433278692c5cb3da798dcf4180"
+      },
+      {
+        "name": "dynamic_admission::gnosis_delayed_start_mixed_wave_after_small_post_replays",
+        "result": "pass",
+        "seconds": 95.870,
+        "job": 121187111297,
+        "log_sha256": "3542f6ad1384d4689e6ff50090784d1f0ec686afd34563bbd79075792efd20d7"
+      }
+    ],
+    "assertions": "Unchanged accepted > 12, canonical receipts/state/nonces and independent follower convergence.",
+    "paired_live_evidence": "latency.json",
+    "limitations": "One selected execution per test; historical missing logs remain unavailable. No worst-case proof-duration or throughput guarantee."
+  },
   "conclusion": "A sparse-scaling-induced admission width boundary is deterministically reproduced and corrected. It is compatible with the preserved original eleven-group observations, but the original missing warmup prevents proof of the historical cause."
 }

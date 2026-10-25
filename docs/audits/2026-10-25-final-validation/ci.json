@@ -1,0 +1,156 @@
+{
+  "status": "complete_success",
+  "run": "https://github.com/eez-association/eez-rollupX/actions/runs/40195871216",
+  "head": "b1881cf737cdc64ee30a9767807f53d21a3daa86",
+  "tested_merge": "57d212d80b89079f4ed9123ed379e94790a59bf7",
+  "shared_tree": "2f6d561c097cec4b1e4b874dacd0ba5d643e7dd2",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "test_binary_sha256": "f6c2a55d1574e1d19579b11192ad98207e14dd81e48700da99f182169e05aa65",
+  "process_inventory": {
+    "listed": 179,
+    "explicitly_ignored": [
+      "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "derivable_operations::retained_native_history_cold_checkpoint",
+      "kurtosis_policy_replay::kurtosis_policy_batches_replay_independently_from_l1"
+    ],
+    "unique_passes": 174,
+    "missing": [],
+    "duplicate_passes": [],
+    "all_nonignored_cases_executed_once": true
+  },
+  "jobs": [
+    {
+      "id": 121187111387,
+      "suite": "embedded",
+      "partition": "1/4",
+      "passed": 11,
+      "log_sha256": "275cc8e942db98c2b641d0daeecdd90957a983a548215e10f70b50a454a39b4d"
+    },
+    {
+      "id": 121187111351,
+      "suite": "embedded",
+      "partition": "2/4",
+      "passed": 11,
+      "log_sha256": "4a50ecda80728a6137e4abe9598a0a30a9bf725297b74acbda4137bcc1cca710"
+    },
+    {
+      "id": 121187111311,
+      "suite": "embedded",
+      "partition": "3/4",
+      "passed": 11,
+      "log_sha256": "776d7cf28a4df0aaa350739cb419968daed086d538f6f1fbf94c1427284b46bd"
+    },
+    {
+      "id": 121187111436,
+      "suite": "embedded",
+      "partition": "4/4",
+      "passed": 10,
+      "log_sha256": "08e3e24d14aae9b11dde72d637d9a789ff2f5625f2434e9c902b2f4a7aee619c"
+    },
+    {
+      "id": 121187111352,
+      "suite": "cross-chain",
+      "partition": "1/4",
+      "passed": 33,
+      "log_sha256": "74f01f793cc4a0684258f094138408af4be0a6433278692c5cb3da798dcf4180"
+    },
+    {
+      "id": 121187111423,
+      "suite": "cross-chain",
+      "partition": "2/4",
+      "passed": 33,
+      "log_sha256": "a5776770ca6e1ceb711035c1ea9dcce0d4775729600eea725684bd409ba9a04c"
+    },
+    {
+      "id": 121187111327,
+      "suite": "cross-chain",
+      "partition": "3/4",
+      "passed": 33,
+      "log_sha256": "75b6c176780e9f79fb9f829474b4304b51686ca103b9b0f8ee845a89339e642f"
+    },
+    {
+      "id": 121187111297,
+      "suite": "cross-chain",
+      "partition": "4/4",
+      "passed": 32,
+      "log_sha256": "3542f6ad1384d4689e6ff50090784d1f0ec686afd34563bbd79075792efd20d7"
+    }
+  ],
+  "availability": "Small counts, source identities and hashes are checked in. Raw logs/listings are local-only under artifacts/pending-validation-20261025/ci-40195871216; job IDs identify upstream CI evidence while retained.",
+  "aggregate": {
+    "job": 121201692050,
+    "result": "success",
+    "log_sha256": "c848dc3dfd8ed9f251216e9f88e5b7f7677f590638a595078e8422b5d9f65162"
+  },
+  "kurtosis": {
+    "job": 121187111477,
+    "result": "success",
+    "log_sha256": "499e4a2de74f54715fd99d25495509dfa0583a866ee8de07b5bfd54a4d4a8a91",
+    "selected_protocol_scenarios": 34,
+    "protocol_passed": 34,
+    "protocol_failed": 0,
+    "protocol_skipped_within_selection": 0,
+    "upstream_default_exclusions": 30,
+    "complete_eligible_suite": true,
+    "independent_causal_and_semantic_blob_evidence": true,
+    "waves": "inbound 1x4, outbound 1x4, mixed 1x8, mixed-pure 3x8; proof-signer checks passed",
+    "state_chaining": "pass",
+    "standalone_cold_follower_replay": "Separate local final-artifact invocation; see latency.json. Not inferred from this CI job."
+  },
+  "completed_at": "2026-10-25T14:52:21Z",
+  "tooling": {
+    "selected": 417,
+    "passed": 410,
+    "skipped": [
+      {
+        "test": "test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss",
+        "reason": "opt-in real data-only Docker image"
+      },
+      {
+        "test": "test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command",
+        "reason": "set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe"
+      },
+      {
+        "test": "test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready",
+        "reason": "set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe"
+      },
+      {
+        "test": "test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler",
+        "reason": "set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation"
+      },
+      {
+        "test": "test_runtime_docker.RuntimeDockerTest.test_deploy_context_preserves_history_identity",
+        "reason": "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images"
+      },
+      {
+        "test": "test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution",
+        "reason": "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images"
+      },
+      {
+        "test": "test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis",
+        "reason": "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images"
+      }
+    ],
+    "lint_job": 121176449670,
+    "lint_log_sha256": "7a3df7a474d1db2b9215ce3f3eeb58d2dc2f4ea416cbb51f028edc372e927293"
+  },
+  "workspace_units": {
+    "passed": 1576,
+    "ignored": [
+      "profile_blocked_backlog_discovery",
+      "regenerate_offline_vectors",
+      "inventory_native_proving_fixtures"
+    ],
+    "separate_reth_regressions_passed": 2,
+    "job": 121176449845,
+    "log_sha256": "38c070d416743113a7763ef41a7c64025fe79fde7c6dd9e1a4bf5646ee48fd93"
+  },
+  "producer_checks": {
+    "passed": 38,
+    "excluded": 0,
+    "job": 121176449970,
+    "log_sha256": "6ed7fbd4d1f5c119f98ab8b480b7a7f8f9f6ed01be5514f2944c870748b7f29a"
+  }
+}

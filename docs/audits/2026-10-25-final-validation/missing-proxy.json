@@ -1,0 +1,360 @@
+{
+  "date": "2026-10-25",
+  "outcome": "negative_controls_passed_after_readiness_retry",
+  "source_head": "b1881cf737cdc64ee30a9767807f53d21a3daa86",
+  "producer_commit": "57d212d80b89079f4ed9123ed379e94790a59bf7",
+  "identical_tree": "2f6d561c097cec4b1e4b874dacd0ba5d643e7dd2",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "ci_run": 40195871216,
+  "images": {
+    "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:064d8be43b9146c2db7afa5d8ea2c0abc20cffb41aa743f9e2bc21a36e8833d1",
+    "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:3c207afd31ca6faea5d56124bef2e7758542be9339f41060b539c67f87e595aa",
+    "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:9a296dadc12fb71645b4a122a70257c58f60fce98fe0187b0fe4c544ca29e826"
+  },
+  "node_e2e_sha256": "f6c2a55d1574e1d19579b11192ad98207e14dd81e48700da99f182169e05aa65",
+  "live_binaries_sha256": {
+    "eez-composer": "9bfc82d5b152da7693d7eb085d1c27ee7d385f92f056df89435522beca4a7aaa",
+    "eez-proof-signer": "1f98184b18c345faaf7ea2fed693aaa5318788f7b90cfe4dc80275f88427c7de"
+  },
+  "process_tests": [
+    {
+      "name": "cross_chain::inbound_static_read_without_callback_proxy_is_rejected",
+      "result": "pass",
+      "seconds": 53.162,
+      "at": "2026-10-25T13:55:20.4153740Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40195871216/job/121187111423",
+      "log_line": 604,
+      "log": {
+        "path": "artifacts/pending-validation-20261025/ci-40195871216/job-121187111423.log",
+        "sha256": "a5776770ca6e1ceb711035c1ea9dcce0d4775729600eea725684bd409ba9a04c",
+        "availability": "local-only"
+      }
+    },
+    {
+      "name": "cross_chain::outbound_static_read_without_callback_proxy_is_rejected",
+      "result": "pass",
+      "seconds": 48.116,
+      "at": "2026-10-25T13:58:34.3699397Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40195871216/job/121187111327",
+      "log_line": 609,
+      "log": {
+        "path": "artifacts/pending-validation-20261025/ci-40195871216/job-121187111327.log",
+        "sha256": "75b6c176780e9f79fb9f829474b4304b51686ca103b9b0f8ee845a89339e642f",
+        "availability": "local-only"
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "enclave": "eez-latency-final-20261025",
+      "stage": "fee-admission",
+      "actual_fee_environment": [
+        "EEZ_FEES_L1_TO_L2_ENABLED=true",
+        "EEZ_FEES_L2_TO_L1_ENABLED=true"
+      ],
+      "args_sha256": "cec9fa7ef060588288b0b1e279d4d6290f577bc16b9ea91a95c6ec8544adc905"
+    },
+    {
+      "enclave": "eez-missing-proxy-20261025",
+      "stage": "terminal",
+      "actual_fee_environment": [
+        "EEZ_FEES_L1_TO_L2_ENABLED=false",
+        "EEZ_FEES_L2_TO_L1_ENABLED=false"
+      ],
+      "args_sha256": "5760f1e00d371e851ad63acbbabebe84cab721885747457d5754d370eb26d44c"
+    }
+  ],
+  "live_cases": [
+    {
+      "stage": "fee-admission",
+      "side": "L1",
+      "chain_id": 7331,
+      "hash": "0x565679f3175ccc96a6d41bc2aa45eb532c8743ed1b81e75318637b10db0d54d5",
+      "callback_proxy": "0x4117eDe61b9FF219df5639df3acef12BAb590451",
+      "expected_error": "executor: static callback source proxy 0x4117eDe61b9FF219df5639df3acef12BAb590451 is not deployed on chain 7331; it must exist before the read",
+      "result": "pass",
+      "started": "2026-10-25T14:29:34.876577+00:00",
+      "finished": "2026-10-25T14:29:55.982635+00:00",
+      "source_blocks_elapsed": 2,
+      "scenario": "topLevelStaticReentrantMissingProxy",
+      "evidence": {
+        "path": "artifacts/missing-proxy-20261025/live-eez-latency-final-20261025/topLevelStaticReentrantMissingProxy/fee-admission-evidence.json",
+        "sha256": "39c4b8a9d0e0965f73681e56e661e2096bfc946db3083ab51c7cfd45417fd314",
+        "availability": "local-only"
+      },
+      "state_checks": {
+        "source_nonce_unchanged": true,
+        "source_balance_unchanged": true,
+        "reader_getters_unchanged": true,
+        "proxy_code_before_and_after": "0x",
+        "direct_receipt_before_and_after": null,
+        "front_receipt_before_and_after": null
+      },
+      "admission": {
+        "rpc_code": -32003,
+        "data_code": "quote_unavailable",
+        "ownership_before_and_after": null,
+        "exact_executor_error_bound_to_rpc_interval": true,
+        "same_hash_funding_rejected": true
+      }
+    },
+    {
+      "stage": "fee-admission",
+      "side": "L2",
+      "chain_id": 696990,
+      "hash": "0x02d881dd181d3395289673e5d0a59679cfa84df12800248c28dbcf52d4e4af9f",
+      "callback_proxy": "0x15c2ae2d26295084b83967907AE6377BeFd0F924",
+      "expected_error": "executor: static callback source proxy 0x15c2ae2d26295084b83967907AE6377BeFd0F924 is not deployed on chain 696990; it must exist before the read",
+      "result": "pass",
+      "started": "2026-10-25T14:31:10.415844+00:00",
+      "finished": "2026-10-25T14:31:13.517655+00:00",
+      "source_blocks_elapsed": 5,
+      "scenario": "topLevelStaticReentrantMissingProxyL2",
+      "evidence": {
+        "path": "artifacts/missing-proxy-20261025/live-eez-latency-final-20261025/topLevelStaticReentrantMissingProxyL2/fee-admission-evidence.json",
+        "sha256": "2b988d14f84170d7320d6dcdea2fd6c8f5c39ddc4d4c2898a262ea2d039fde51",
+        "availability": "local-only"
+      },
+      "state_checks": {
+        "source_nonce_unchanged": true,
+        "source_balance_unchanged": true,
+        "reader_getters_unchanged": true,
+        "proxy_code_before_and_after": "0x",
+        "direct_receipt_before_and_after": null,
+        "front_receipt_before_and_after": null
+      },
+      "admission": {
+        "rpc_code": -32003,
+        "data_code": "quote_unavailable",
+        "ownership_before_and_after": null,
+        "exact_executor_error_bound_to_rpc_interval": true,
+        "same_hash_funding_rejected": true
+      }
+    },
+    {
+      "stage": "terminal",
+      "side": "L1",
+      "chain_id": 7331,
+      "hash": "0x08125cceb41a88f2e187b77370860607585230906d9f45677548de69277bc19f",
+      "callback_proxy": "0x89446e22994Cbd1B4D9521c62412Aa63E5CFcFc2",
+      "expected_error": "executor: static callback source proxy 0x89446e22994Cbd1B4D9521c62412Aa63E5CFcFc2 is not deployed on chain 7331; it must exist before the read",
+      "result": "pass",
+      "started": "2026-10-25T14:51:31.022880+00:00",
+      "finished": "2026-10-25T14:51:51.144334+00:00",
+      "source_blocks_elapsed": 2,
+      "scenario": "topLevelStaticReentrantMissingProxy",
+      "evidence": {
+        "path": "artifacts/missing-proxy-20261025/live-eez-missing-proxy-20261025/topLevelStaticReentrantMissingProxy/terminal-evidence.json",
+        "sha256": "76e79c8e047aa1a3c56ae8fda8fc40cf22e82e1a8593735d624fa9bd88bd78be",
+        "availability": "local-only"
+      },
+      "state_checks": {
+        "source_nonce_unchanged": true,
+        "source_balance_unchanged": true,
+        "reader_getters_unchanged": true,
+        "proxy_code_before_and_after": "0x",
+        "direct_receipt_before_and_after": null,
+        "front_receipt_before_and_after": null
+      },
+      "terminal": {
+        "hash_matches_admitted_input": true,
+        "lifecycle": "terminal",
+        "state": "terminal",
+        "reason": "SimulationFailed",
+        "canonical": null,
+        "exact_rejection_matches": true,
+        "observed_queued_before_terminal": true
+      },
+      "upstream_oracle": {
+        "exit": 0,
+        "sha256": "6277082fbf5483422199a2bdea275c6297384f78216b19fd88759f3557362e5f"
+      }
+    },
+    {
+      "stage": "terminal",
+      "side": "L2",
+      "chain_id": 696990,
+      "hash": "0x64588d75d210e050366acbbf12028eb357df1a6edae9bbd31d7bf520ed73c60e",
+      "callback_proxy": "0x771059a17f1aEf7838Cb80727250E722815C9A98",
+      "expected_error": "executor: static callback source proxy 0x771059a17f1aEf7838Cb80727250E722815C9A98 is not deployed on chain 696990; it must exist before the read",
+      "result": "pass",
+      "started": "2026-10-25T14:52:16.526331+00:00",
+      "finished": "2026-10-25T14:52:31.637384+00:00",
+      "source_blocks_elapsed": 8,
+      "scenario": "topLevelStaticReentrantMissingProxyL2",
+      "evidence": {
+        "path": "artifacts/missing-proxy-20261025/live-eez-missing-proxy-20261025/topLevelStaticReentrantMissingProxyL2/terminal-evidence.json",
+        "sha256": "81dcf536ef34aecf799d47079049b30ca6773d8f6a4526fbaceb472a9cc2aea3",
+        "availability": "local-only"
+      },
+      "state_checks": {
+        "source_nonce_unchanged": true,
+        "source_balance_unchanged": true,
+        "reader_getters_unchanged": true,
+        "proxy_code_before_and_after": "0x",
+        "direct_receipt_before_and_after": null,
+        "front_receipt_before_and_after": null
+      },
+      "terminal": {
+        "hash_matches_admitted_input": true,
+        "lifecycle": "terminal",
+        "state": "terminal",
+        "reason": "SimulationFailed",
+        "canonical": null,
+        "exact_rejection_matches": true,
+        "observed_queued_before_terminal": true
+      },
+      "upstream_oracle": {
+        "exit": 0,
+        "sha256": "6277082fbf5483422199a2bdea275c6297384f78216b19fd88759f3557362e5f"
+      }
+    }
+  ],
+  "qualifications": {
+    "clean_first_attempt": false,
+    "fee_preflight_failure": {
+      "result": "preparation_failure",
+      "exit_code": 1,
+      "component": "kurtosis files download",
+      "enclave": "eez-latency-final-20261025",
+      "fixtures_deployed": false,
+      "triggers_submitted": false,
+      "error": "write /tmp/tmp-dir-for-download-754471053/eez-deployments.tgz: disk quota exceeded",
+      "correction": "Bind an owned task temporary directory over /tmp only for the invocation, using the same bwrap command as the latency campaign; preserve the enclave unchanged."
+    },
+    "terminal_first_preparation_failure": {
+      "result": "first_terminal_preparation_failed",
+      "component": "pinned network_wait_setup",
+      "error": "L2 setup settlement deadline expired",
+      "timeout_seconds": 180,
+      "exit_code": 1,
+      "negative_trigger_generated": false,
+      "negative_trigger_submitted": false,
+      "fixture_deployments_occurred": true,
+      "next_attempt": "one retry only after the same canonical readiness predicate as latency; no timeout, runtime, guard or enclave restart changes"
+    },
+    "prior_setup_canonical_transaction_counts": {
+      "L1": 12,
+      "L2": 10
+    },
+    "prior_setup_evidence": {
+      "path": "artifacts/missing-proxy-20261025/terminal-first-preparation-timeout/prior-setup-canonical.json",
+      "sha256": "226c32751f4d4f96298bef5624517ed9b21db297825bdc20a60c716d33117624",
+      "availability": "local-only"
+    },
+    "bootstrap_diagnostics": [
+      "not a known validator",
+      "no bid found"
+    ],
+    "readiness": {
+      "at": "2026-10-25T14:47:44.070352+00:00",
+      "l1_block": 57,
+      "l1_age_seconds": 5.070351600646973,
+      "l2_latest": 338,
+      "l2_safe": 330,
+      "lag": 8,
+      "queued": 0,
+      "inFlight": 0,
+      "blocked": 0,
+      "unknown": 0,
+      "predicate": "safe > 0, lag <= 12, L1 age < 24 seconds, all four queue counts zero",
+      "gate_timeout_seconds": 600,
+      "gate_provenance": {
+        "original": "artifacts/latency-validation-20261025/tools/wait-bootstrap.py",
+        "original_sha256": "71f404aa3167890428a5cfcebdfe5a3638ee44d0fe0eab8d4f7b1b62ac3367e9",
+        "adapted_sha256": "bc8fd75ffad930a95eb9c1bd8f25f7ba204d19352079d45770ff48afd722873a",
+        "only_change": "allowed enclave name; readiness predicate and 600s timeout unchanged"
+      }
+    },
+    "preparation_retry_count": 1,
+    "negative_submissions_per_successful_case": 1,
+    "setup_timeout_seconds_unchanged": 180,
+    "runtime_guard_and_enclave_restart_changes": false
+  },
+  "resources": {
+    "enclave": "eez-missing-proxy-20261025",
+    "verified_at": "2026-10-25T15:00:58.674899+00:00",
+    "result": "pass",
+    "original_container_count": 23,
+    "all_original_containers_stopped": true,
+    "all_original_container_ids_preserved": true,
+    "all_mounts_unchanged": true,
+    "original_volume_count": 31,
+    "all_original_volumes_preserved": true,
+    "stop_exit_code": 0,
+    "last_service_finished_at": "2026-10-25T14:57:13.147457459Z",
+    "inventory_sha256": "c6917aa07f465804d4f211078e2061bf0d6797fb3cd9651bf17745c70b279df9",
+    "stop_log_sha256": "4fc7babbc5a3826fc69911a647d3d91c7a2693bc6d8bda61c4dabd27b78ad934",
+    "fee_enabled_enclave": "eez-latency-final-20261025",
+    "fee_enabled_enclave_stopped_at": "2026-10-25T14:33:29.546Z",
+    "fee_enabled_resource_retention": "Confirmed by owning latency agent; original containers and volumes preserved."
+  },
+  "local_evidence": [
+    {
+      "path": "artifacts/missing-proxy-20261025/run-terminal.sh",
+      "sha256": "936150b8d1f93309e327bbed32a6684acb799775e4463bde49b00c3c911e1aa3",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/observe-terminal.py",
+      "sha256": "b85a571d49bb9bfdfb1d00bb08f415d3258855b9f2bf94697a73e2d0fc6b4086",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/config-provenance.json",
+      "sha256": "b7467d4d519b92114053e95db69bff8a54b36a4945181fdf49ac4fb318e4ae3f",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-container-inventory.json",
+      "sha256": "c6917aa07f465804d4f211078e2061bf0d6797fb3cd9651bf17745c70b279df9",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-retention.json",
+      "sha256": "b9ff7cba62d5272f3f3e9fb3806adb413059b3f21916d9faff1848dce486d9f9",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-readiness/bootstrap-health.jsonl",
+      "sha256": "9fd5d86004691c1bfe112413357294ebfbc1d2fc0a927a91c7babc9138dc70d3",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-first-preparation-timeout/failure.json",
+      "sha256": "10d1997cb0f0f313c09a84ff3e83ff9614d838edba8b26c4f0eaacec9afcfc16",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-first-preparation-timeout/topLevelStaticReentrantMissingProxy/prepare.log",
+      "sha256": "b4f7a2b05c4412a95b72b6bfeef9b3e10683782f5f07c0f3d1254f774acc1fa9",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-first-preparation-timeout/preparation-diagnostic-node.log",
+      "sha256": "2f266c86114374749903f9d56dbed5dd4eb398e3023195fe37ccc05ec00a5aed",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/terminal-first-preparation-timeout/preparation-diagnostic-relay.log",
+      "sha256": "d719d729062e942c4fe5345915e298befc939b1b9a1efe4d934d64fb7331514c",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/fee-admission-preflight-quota-failure/failure.json",
+      "sha256": "86ad70aa8ec780c1cf8b1980d631929b3ccd64bafad0bcc0fb6cef38323e56b3",
+      "availability": "local-only"
+    },
+    {
+      "path": "artifacts/missing-proxy-20261025/identity-inspector-first-assumption.json",
+      "sha256": "79d218b8e96927abc58e742b887dd95c13dc59de78f393b027bac4ab1be55241",
+      "availability": "local-only"
+    }
+  ],
+  "limits": [
+    "The terminal scenario preparation first failed before negative trigger generation/submission; the later pass followed canonical readiness and one preparation retry.",
+    "These negative inputs correctly produced no accepted proof or settlement; this is rejection/state-integrity evidence, not successful-proving evidence.",
+    "The service named eez-follower in this Kurtosis topology is Lighthouse, not the Rust follower executable.",
+    "Task-local evidence is retained on this machine only; compact checked-in observations and hashes do not make bulk logs retrievable from another checkout."
+  ]
+}
