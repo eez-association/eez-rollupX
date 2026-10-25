@@ -167,6 +167,11 @@ estimate or the first intermittent packing failure has been fixed.
 
 ## Cryptographic dependency constraint
 
+Update, 2026-10-25: the owner withdrew the experimental migration described
+below and authorized a temporary exception for the inherited advisory. Its
+[scope, retained risk and validation](dependencies.md#temporary-crypto-bigint-exception-2026-10-25)
+supersede this section's earlier blocking disposition. Historical failures remain.
+
 The registry still has no patched 0.5 release. The corrected `crypto-bigint`
 generation is used by `elliptic-curve 0.14` and `k256/p256 0.14`; the pinned Alloy
 and REVM packages still require the preceding family. Alloy's proposed

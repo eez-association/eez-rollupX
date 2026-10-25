@@ -1,5 +1,10 @@
 # Selective Tokio security update
 
+Update, 2026-10-25 UTC: the owner authorized a temporary exception for
+`RUSTSEC-2026-0387` pending a compatible upstream correction. The
+[exception record](#temporary-crypto-bigint-exception-2026-10-25) below supersedes
+the dependency-gate disposition, not the historical failures or the vulnerability.
+
 Status: Tokio update implemented and validated; the separate crypto-bigint
 integration blocker remains unresolved, 2026-10-24 UTC. The starting branch and
 protocol identities are in [the campaign record](README.md).
@@ -60,6 +65,60 @@ SHA-256 `a841c4712064efd3059524b76ec189ce3a4a54e6bb4047e7173a2e945b42c64e`.
 The local-only response summary is
 `artifacts/extended-validation/dependencies/crypto-availability-final.json`.
 This check changes neither lockfiles nor installed packages.
+
+## Temporary crypto-bigint exception, 2026-10-25
+
+The repository owner explicitly authorized accepting `RUSTSEC-2026-0387` until
+an upstream solution is available. The implementation worktree was clean at
+`8c14fe110817354a9647785dd9f16740f8508f03`; the core protocol remains pinned to
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+
+Only this advisory ID is added to the existing ignore lists in
+[`deny.toml`](../../../deny.toml) and
+[`cargo-audit configuration`](../../../.cargo/audit.toml). Both CI commands still
+run and return failures for other non-exempt vulnerabilities; existing bans,
+source restrictions and the all-lanes CI/promotion gate remain intact. No
+dependency, runtime, validation identity, protocol or wire-format change is made.
+
+At this review, the latest non-yanked stable releases of Alloy consensus/signers
+are 2.5.0, Alloy primitives 1.7.3 and REVM/precompiles 43.0.3, matching our lockfile.
+Their published constraints still use `k256 0.13` / `p256 0.13` and therefore
+`elliptic-curve 0.13.8` / `crypto-bigint 0.5.5`. RustCrypto has published fixed
+releases (`>=0.7.6`; latest 0.7.8), but they are outside those constraints.
+The [Alloy migration](https://github.com/alloy-rs/core/pull/1147) remains open.
+The experimental nine-package migration was withdrawn at the owner's request;
+its local diagnostic evidence is retained and its patches never entered this PR.
+
+This exception accepts an unresolved timing-side-channel risk. Our attestation
+signer uses k256 with a private key; exploitability in this deployment has not
+been established or excluded. Passing the configured checks means the advisory
+has been accepted temporarily, not that the dependency has been repaired.
+
+Review the exception on every cryptographic dependency or Reth/Stateless update.
+When a compatible upstream fixed release or maintained security backport becomes
+available, integrate and validate it, then remove this ID from **both** files in
+the same change. Re-run `cargo deny check advisories bans sources` and
+`cargo audit`, and confirm that no affected dependency remains. The configuration
+does not automatically detect upstream releases or expire the exception.
+
+Verification used cargo-deny 0.20.2 and cargo-audit 0.22.2. With the original
+configuration, both commands below exited 1 and identified this advisory as the
+sole fatal vulnerability. With the exception, both exit 0:
+
+```bash
+cargo deny --locked --format json check advisories bans sources --hide-inclusion-graph
+cargo audit --json
+```
+
+Cargo-audit reports database revision
+`21d909e4c8bd4e14c7aea58bf980c881a0053ab1` for both runs. The lockfile SHA-256 is
+unchanged at `0f527b5f3d8e27d237d63759e7392a87c894001805549d6271ccef9da4449306`.
+A parsed TOML comparison confirms that removing this single added ID restores
+each original configuration exactly; existing informational warnings remain.
+`git diff --check` passes. Raw outputs and before/after configurations are
+retained locally in `artifacts/security-exception-20261025/`, unavailable from
+another checkout. Runtime suites were not repeated locally for this policy-only
+change; the PR's full CI remains a separate requirement.
 
 ## Evidence
 
