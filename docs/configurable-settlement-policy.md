@@ -141,8 +141,16 @@ it does not cap cold batches that already fit the complete estimate.
 For all exact-target candidates, the exclusive deadline is target time
 minus submission slack. P plus delay controls the preparation trigger and
 `EEZ_PROOF_TIME_MS` seeds the proof estimate; neither creates a separate hard
-stage limit. Preparation can
-run beyond its allocation and continue proving the same accepted candidate.
+stage limit. A planning snapshot invalidated by ordinary progress or a refreshed
+canonical scan is recalculated within the same target window, with the attempt
+count bounded by the number of positions in the Sync interval. Each attempt
+rereads the parent and canonical generation; a changed L1 target stops that
+opportunity. Retries retain the original monotonic cutoff and run in the single
+preparation worker, leaving the ordinary clock independent. Stale Live/Future
+work replans before dispatch, including when context changes between two
+preparatory commits. A stale prebuilt Sync does not restart submission: the
+original attempt retains ownership. Preparation can run
+beyond its allocation and continue proving the same accepted candidate.
 Proving uses the remaining deadline less finalization/delivery reserve; retries,
 streaming and cache repair cannot reset that window. A fast preparation can
 leave more time for a slow proof. A true window failure keeps source ownership
@@ -182,6 +190,13 @@ request records the estimate and its `configured_seed`, `covering_sample` or
 `scaled_sample` basis. Finalization only uses covering observations and reserves
 at least 150 ms, including 25 ms for delivery. These samples are in
 memory and are discarded on restart; they are not durable queue state.
+
+When an admission estimate refuses a group,
+`eez.composer.admission.pipeline_refused` records the existing candidate ID and
+the exact remaining, next-group, finishing, proof and post-proof durations in
+nanoseconds. `before_group` includes the next group's estimated execution;
+`finish_group` has already spent that execution time and records zero for it.
+These observations explain the comparison without changing its reserves.
 
 A nominal preparation overrun or infrastructure error does not halve selection.
 A full proving-window failure can reduce the next selection using admitted work,

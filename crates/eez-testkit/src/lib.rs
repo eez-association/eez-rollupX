@@ -3063,8 +3063,46 @@ async fn wait_for_successful_receipt(
         let provider = provider.clone();
         async move { Ok(provider.get_transaction_receipt(hash).await?) }
     })
-    .await
-    .with_context(|| format!("{action}: waiting for receipt {hash}"))?;
+    .await;
+    let receipt = match receipt {
+        Ok(receipt) => receipt,
+        Err(error) => {
+            // These bounded reads are observations after failure, not one
+            // atomic snapshot. They never resend or change the failed nonce.
+            let diagnostic = tokio::time::timeout(Duration::from_secs(2), async {
+                let (transaction, head) = tokio::join!(
+                    async { provider.get_transaction_by_hash(hash).await },
+                    async { provider.get_block_number().await },
+                );
+                let transaction = transaction.ok().flatten();
+                if let Some(transaction) = transaction {
+                    let sender = transaction.inner.signer();
+                    let (latest, pending) = tokio::join!(
+                        async { provider.get_transaction_count(sender).await },
+                        async { provider.get_transaction_count(sender).pending().await },
+                    );
+                    format!(
+                        "head={:?}, sender={sender}, transaction_nonce={}, block={:?}, \
+                         latest_nonce={:?}, pending_nonce={:?}",
+                        head.ok(),
+                        transaction.nonce(),
+                        transaction.block_number,
+                        latest.ok(),
+                        pending.ok(),
+                    )
+                } else {
+                    format!("head={:?}, transaction_unavailable=true", head.ok())
+                }
+            })
+            .await
+            .unwrap_or_else(|_| "receipt diagnostics timed out".into());
+            return Err(error).with_context(|| {
+                format!(
+                    "{action}: waiting for receipt {hash}; observed after failure: {diagnostic}"
+                )
+            });
+        }
+    };
     if !receipt.status() {
         bail!("{action} reverted");
     }
@@ -6265,6 +6303,7 @@ async fn setup_native_inner(
 }
 
 /// Create an application-free network with consecutive produced L1 history.
+/// The historical prefix is adopted before deploying and registering the rollup.
 /// The caller owns catch-up settlement; no setup transaction waits for L2 now.
 pub async fn setup_native_history(extra_env: &[(&'static str, String)]) -> Result<NativeWorld> {
     let mut network = Box::pin(setup_native_inner(

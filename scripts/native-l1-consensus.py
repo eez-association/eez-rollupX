@@ -98,11 +98,18 @@ def main():
 
     fcu(head['hash'])
     write('ready.json', {'head': head['hash'], 'number': head['number']})
+    history_ready = args.replay_history_until is None
     alternatives = {}
     skipped_timestamps = set()
     delayed_timestamp = None
     delayed_payload = None
     while True:
+        if not history_ready and int(head['timestamp'], 16) >= args.replay_history_until:
+            # Deployment begins only after the real historical payloads have
+            # been adopted; process readiness alone does not establish this.
+            write('history-ready.json', {'head': head['hash'],
+                'number': head['number'], 'timestamp': head['timestamp']})
+            history_ready = True
         delay_path = args.control / 'delay-slot.json'
         if delay_path.exists():
             pending = json.loads(delay_path.read_text())

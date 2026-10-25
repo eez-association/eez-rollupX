@@ -224,6 +224,10 @@ async fn catch_up(
     ])
     .await
     .unwrap();
+    assert!(
+        world.dep.deploy_block > history_seconds / 5,
+        "protocol deployment must follow the prepared historical prefix"
+    );
     let l1_rpc = world.l1_rpc();
     let l1 = ProviderBuilder::new().connect_http(l1_rpc.parse().unwrap());
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());

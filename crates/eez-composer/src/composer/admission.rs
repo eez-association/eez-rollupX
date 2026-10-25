@@ -369,20 +369,20 @@ impl Attempt {
         self.witnesses
             .store(witnesses, std::sync::atomic::Ordering::Relaxed);
     }
-    fn pipeline_reserve(&self, groups: usize, blobs: usize) -> u128 {
+    fn pipeline_reserve(&self, groups: usize, blobs: usize) -> (Duration, Duration) {
         let workload = Workload {
             groups,
             blobs,
             witnesses: self.witnesses.load(std::sync::atomic::Ordering::Relaxed),
         };
-        self.timings
-            .proof_estimate(self.proof_estimate, workload)
-            .saturating_add(if self.deadline.is_some() {
+        (
+            self.timings.proof_estimate(self.proof_estimate, workload),
+            if self.deadline.is_some() {
                 self.timings.post_reserve(workload)
             } else {
                 self.post_reserve
-            })
-            .as_nanos()
+            },
+        )
     }
 
     /// Add 10% of the actual window to measured finishing predictions. The
@@ -500,11 +500,30 @@ impl Attempt {
         } else {
             work.as_nanos() / accepted as u128
         };
-        let estimated = remaining.as_nanos()
-            > group
-                .saturating_add(tail)
-                .saturating_add(self.pipeline_reserve(next, blobs));
+        let (proof, post) = self.pipeline_reserve(next, blobs);
+        let pipeline = proof.saturating_add(post).as_nanos();
+        let estimated = remaining.as_nanos() > group.saturating_add(tail).saturating_add(pipeline);
         let probe = !estimated && self.cold_probe_fits(next, blobs, elapsed, work);
+        if !estimated && !probe {
+            tracing::info!(
+                event_name = "eez.composer.admission.pipeline_refused",
+                candidate_id = self
+                    .previous_candidate
+                    .lock()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""),
+                stage = "before_group",
+                groups = next,
+                blobs,
+                remaining_ns = remaining.as_nanos(),
+                group_ns = group,
+                tail_ns = tail,
+                proof_ns = proof.as_nanos(),
+                post_ns = post.as_nanos(),
+                "remaining window does not fit the measured pipeline reserve",
+            );
+        }
         (estimated || probe, probe)
     }
 
@@ -552,11 +571,30 @@ impl Attempt {
                     .flatten()
             });
         progress.unmeasured_work |= measured.is_none();
-        let estimated =
-            remaining.as_nanos() > tail.saturating_add(self.pipeline_reserve(groups, blobs));
+        let (proof, post) = self.pipeline_reserve(groups, blobs);
+        let pipeline = proof.saturating_add(post).as_nanos();
+        let estimated = remaining.as_nanos() > tail.saturating_add(pipeline);
         let probe = !estimated && self.cold_probe_fits(groups, blobs, elapsed, work);
         progress.cold_timing_probe |= probe;
         if !estimated && !probe {
+            tracing::info!(
+                event_name = "eez.composer.admission.pipeline_refused",
+                candidate_id = self
+                    .previous_candidate
+                    .lock()
+                    .unwrap()
+                    .as_deref()
+                    .unwrap_or(""),
+                stage = "finish_group",
+                groups,
+                blobs,
+                remaining_ns = remaining.as_nanos(),
+                group_ns = 0_u128,
+                tail_ns = tail,
+                proof_ns = proof.as_nanos(),
+                post_ns = post.as_nanos(),
+                "remaining window does not fit the measured pipeline reserve",
+            );
             // This matching group is refused before its duration is added or
             // the caller appends it. Its work must not train the estimate, but
             // it does not invalidate the earlier accepted prefix. Cancel only

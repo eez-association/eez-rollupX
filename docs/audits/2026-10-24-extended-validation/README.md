@@ -5,6 +5,11 @@ Status: execution validation complete with unresolved integration blockers,
 [PR-readiness evidence](../2026-10-24-pr-readiness/README.md); earlier failures and
 binary identities remain part of that record.
 
+The subsequent `d46f0a14` CI exposed two additional process failures. Their
+preserved evidence and the authorized ongoing corrections are tracked in the
+[follow-up stabilization](stabilization.md); the successful runtime campaign
+below does not erase those later failures.
+
 | Field | Value |
 | --- | --- |
 | Authorization | The owner requested closing the remaining validation gaps and strengthening this branch, including sustained mixed traffic and comparison with the previous implementation. |
