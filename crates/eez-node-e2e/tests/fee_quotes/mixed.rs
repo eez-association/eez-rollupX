@@ -50,7 +50,8 @@ async fn mixed_roundtrip(profile: eez_testkit::NativeL1Profile, l2_fees: bool, l
         let mut tx: TypedTransaction = TxEip1559 {
             chain_id,
             nonce,
-            gas_limit: 1_500_000,
+            // Keep maximum gas payment below the fixture RPC's 1 ETH cap.
+            gas_limit: 400_000,
             max_priority_fee_per_gas: 1_000_000_000_000,
             max_fee_per_gas: 2_000_000_000_000,
             to: TxKind::Call(to),

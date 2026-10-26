@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Verify that separate cross-chain transactions composed into one Sync block
 # observe state left by their accepted predecessors on both participating chains.
-# Fee-enabled mixed-direction traffic must instead retain separate funded posts.
+# Both fee routes retain this same-Sync requirement for mixed-direction traffic.
 
 set -euo pipefail
 export FOUNDRY_DISABLE_NIGHTLY_WARNING=1
