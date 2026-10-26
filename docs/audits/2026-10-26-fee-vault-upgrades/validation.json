@@ -143,5 +143,36 @@
     "eez-follower": "6bee34d152e6c80e5d14bc4344940f600cdadeb50fd82f77b51f22501c5a5317",
     "eez-proof-signer": "4e5f8c4e32376a7ca6596b094b02d47c375af6bfc223e58d637944e27b2fc6bd",
     "deps/node_e2e-0cb5b6bfb86a29d0": "7e249b1640bb256d4ffb0833ff5f43d3c020aaa055eefef37531cdcfaa793623"
+  },
+  "ci_follow_up_2026_10_26": {
+    "parent_commit": "6a776eaea80e790c7ab0a1c606dea5ee0c1e9bb1",
+    "ci_run": "https://github.com/eez-association/eez-rollupX/actions/runs/40373348675",
+    "baseline_genesis_test": {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib production_base_genesis_allocates_no_eth_and_keeps_required_predeploys -- --exact tests::production_base_genesis_allocates_no_eth_and_keeps_required_predeploys",
+      "passed": 0,
+      "failed": 1,
+      "filtered": 36,
+      "exit_code": 101
+    },
+    "after": {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib",
+      "passed": 37,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0
+    },
+    "format_command": "cargo +1.95.0 fmt --all --check",
+    "clippy_command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+    "format_and_clippy_exit_code": 0,
+    "test_source_sha256": "8060ed6b8cba612b739fe23986ebbae0ee9fd6c67fdd9a5027064cb91d36ef64",
+    "local_only_logs_sha256": {
+      "genesis-test-before.log": "8cef09e2a150298cf9345a7e9fc0e79681f0f80d7448c124b12cf197a78ee98f",
+      "evm-tests-after.log": "499be8900fca174674d571fcf182990f05f3b06ae27093357408a5a1676dc697",
+      "clippy.log": "c99689af7a524da5b806c4b710d45a01fad3b4999d0eb0d7b1796b49de86890c"
+    },
+    "unresolved_dependency_policy": [
+      "RUSTSEC-2026-0403 (zstd-safe 7.2.4)",
+      "RUSTSEC-2026-0410 (zstd-sys 2.0.16+zstd.1.5.7)"
+    ]
   }
 }

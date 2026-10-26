@@ -97,3 +97,32 @@ contract/protocol and source-process checks cover the changed path. Hidden front
 leave generic backend `burnt_fees` responses unchanged. A configured upstream
 address widget can link to a future accounting dashboard without a frontend fork;
 that service and historical indexing are outside this implementation.
+
+## CI follow-up
+
+The [CI run at `6a776eae`](https://github.com/eez-association/eez-rollupX/actions/runs/40373348675)
+failed on 2026-10-26 in two lanes. The debug unit lane found that
+`production_base_genesis_allocates_no_eth_and_keeps_required_predeploys` still
+expected the former six-account genesis. Its exact failure reproduced locally:
+one selected test failed, with the FeeVault implementation and ProxyAdmin absent
+from the expected account set. The test now requires all eight accounts, retains
+the zero-ETH invariant and verifies the treasury's implementation/admin slots
+and deployed implementation/admin code.
+
+After the correction, `cargo +1.95.0 test --locked -p eez-evm --lib` passed all
+37 tests, including that regression. Cargo formatting and workspace Clippy with
+warnings denied passed again. No Rust production code or genesis changed in this
+follow-up. First-failure and passing logs remain local-only in
+`artifacts/issue-107/`; their hashes are in [validation.json](validation.json).
+
+The lint lane separately rejected locked `zstd-safe 7.2.4` and
+`zstd-sys 2.0.16+zstd.1.5.7` for `RUSTSEC-2026-0403` and `RUSTSEC-2026-0410`.
+This amendment does not change dependencies or suppress those checks. That
+dependency-policy failure remains a merge gate; no conclusion about production
+exploitability is claimed here.
+
+The [issue #107 application amendment](../2026-10-26-l1-history-polling/README.md)
+adds a separately deployed reference collector. Its final full contract suite
+passed all 157 tests, and genesis artifact validation passed unchanged. Final-head
+CI and release provenance are still required; this follow-up does not supersede
+the operational limitations above.

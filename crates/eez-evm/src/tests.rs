@@ -68,6 +68,9 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
     }
     // EEZL2 is an EEZProxy whose constructor created its ProxyAdmin with nonce 1.
     let proxy_admin = EEZL2_ADDRESS.create(1);
+    let vault = eez_protocol::fee_vault::FEE_VAULT_ADDRESS;
+    let vault_implementation = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079");
+    let vault_admin = vault.create(1);
     let mut addresses: Vec<_> = genesis.alloc.keys().copied().collect();
     addresses.sort();
     let mut expected = vec![
@@ -76,12 +79,13 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         proxy_admin,
         alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
         eez_protocol::l1_history::HISTORY_ADDRESS,
-        eez_protocol::fee_vault::FEE_VAULT_ADDRESS,
+        vault,
+        vault_implementation,
+        vault_admin,
     ];
     expected.sort();
     assert_eq!(addresses, expected);
 
-    let vault = eez_protocol::fee_vault::FEE_VAULT_ADDRESS;
     assert_eq!(
         genesis.config.extra_fields["rollupX"]["feeCollector"],
         serde_json::json!(vault)
@@ -104,6 +108,21 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         EEZL2_GENESIS_IMPLEMENTATION_ADDRESS.into_word()
     );
     assert_eq!(proxy_storage[&admin_slot], proxy_admin.into_word());
+    let vault_storage = genesis.alloc[&vault].storage.as_ref().unwrap();
+    assert_eq!(
+        vault_storage[&implementation_slot],
+        vault_implementation.into_word()
+    );
+    assert_eq!(vault_storage[&admin_slot], vault_admin.into_word());
+    for address in [vault_implementation, vault_admin] {
+        assert!(
+            genesis.alloc[&address]
+                .code
+                .as_ref()
+                .is_some_and(|code| !code.is_empty()),
+            "{address} has no code"
+        );
+    }
     assert!(
         genesis.alloc[&EEZL2_GENESIS_IMPLEMENTATION_ADDRESS]
             .code

@@ -67,6 +67,40 @@ bootstrap, schedule and limits. The [RollupX proposal](../docs/proposals/l1-orig
 public inputs and offline proving. The predeploy does not authenticate L1
 consensus or grant signing authority by itself.
 
+## Application polling
+
+Applications must use the imported endpoint returned by `current()` as their
+availability boundary. The latest produced L1 block is not necessarily imported
+into the L2 state where the application executes. Scheduled delay, empty repeats
+and multipart catch-up can all leave the endpoint behind the L1 head; there is no
+fixed waiting duration that guarantees availability.
+
+For a sequential consumer, check the endpoint **inside each polling transaction**.
+When its next block is above that endpoint, return a no-progress result without
+changing the cursor or application state. Otherwise call `getL1BlockHash`, process
+the returned hash and advance only after success. Two polls in one L2 block can
+then consume the last available record and return no progress, respectively.
+An earlier off-chain simulation does not replace this in-transaction check.
+
+`L1BlockNotImported(uint64)` has selector `0x2cbf90b9`. It covers requests below
+the genesis bootstrap, above the endpoint, or for a missing stored hash; the
+selector alone does not establish temporary unavailability. Do not catch every
+getter revert, or turn a missing covered record into a zero hash. Propagate
+invalid history state, malformed ABI results and other unexpected failures.
+
+[L1BlockHashCollector](src/L1BlockHashCollector.sol) is a separately deployed
+reference application. Its constructor requires an already imported start block;
+`poll()` consumes at most one hash and returns `(false, 0)` only while its cursor
+is beyond the endpoint. Its mapping/event demonstrate application work, not
+another protocol history store. The cursor can represent the number after
+`uint64.max` without wrapping. Applications that do not track work can read the
+history predeploy directly without deploying a collector.
+
+This consumer pattern preserves the history ABI/runtime, genesis, `prove.v2`
+and offline replay rules. It does not install a collector into genesis or alter
+existing application deployments. Consumers on new networks must use this pattern;
+existing deployed collectors need their own application upgrade or redeployment.
+
 ## Ethereum RPC simulation
 
 On public HTTP, WebSocket and IPC transports, `eth_call`, `eth_estimateGas`,

@@ -331,6 +331,12 @@ can supply a raw header and verify its hash, then use the existing L1 storage
 proof verifier for authenticated account/storage reads. The hash is a commitment,
 not a way to retrieve its preimage.
 
+Sequential application consumers check `current()` inside each polling
+transaction and wait without advancing when their next number exceeds the
+imported endpoint. Unexpected getter failures still revert. The
+[polling contract and reference application](../../contracts/L1_HISTORY_SPEC.md#application-polling)
+define this behavior without changing the predeploy or adding a genesis service.
+
 ## Delay and late L1 delivery
 
 The delay is a minimum source age and an update opportunity. It accommodates
