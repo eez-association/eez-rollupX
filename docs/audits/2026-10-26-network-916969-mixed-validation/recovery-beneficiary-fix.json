@@ -1,0 +1,92 @@
+{
+  "sourceBase": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "sourceState": "Source base plus the recorded two-file code patch; locally validated before publication, not deployed.",
+  "result": "local_validation_passed_not_deployed",
+  "sourceFilesSha256": {
+    "crates/eez-composer/src/composer.rs": "fb883b98524d2fe6706e5ded2ab6b38a6ad52fec029ce4af74136f7a00cdf6e1",
+    "crates/eez-node-e2e/tests/dynamic_admission.rs": "f2cec6e7700dbcc2f1b38b1fb329f75a76425fb7a620e2b83048b723997934da",
+    "Cargo.lock": "1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644"
+  },
+  "codePatchSha256": "6a1800ddaeeee5966c388466a2853f00937d43b8a54d86ee2ecc87e544bec26a",
+  "baseline": {
+    "sourceUnchangedWhenBinariesBuilt": true,
+    "composerBinaryUnchangedAcrossBothCases": true,
+    "tests": 2,
+    "expectedFailures": 2,
+    "actualBeneficiary": "0x0000000000000000000000000000000000000000",
+    "expectedBeneficiary": "0x3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+    "binariesSha256": {
+      "eez-composer": "f2c021f87928a815d69318eebed79a8e52aa71e871ccfde84d9ce599a2a8dc81",
+      "eez-follower": "b4242d5559c8827c91cc336f0fe54081485fc31f9852162e8d0e1aecdaf72f75",
+      "eez-proof-signer": "c9c1f684c8ae0c940b01cb96cb857035a2a1e53680d1ab8bb6c2d62886e9dbc4"
+    }
+  },
+  "corrected": {
+    "tests": 4,
+    "passed": 4,
+    "failed": 0,
+    "ignored": 0,
+    "filteredOut": 183,
+    "cases": [
+      "dynamic_admission::automatic_selection_preserves_capacity_after_one_exclusion",
+      "dynamic_admission::automatic_selection_survives_a_canonically_skipped_slot_without_shrinking",
+      "dynamic_admission::historical_prefix_replacement_keeps_the_empty_boundary_with_a_configured_coinbase",
+      "dynamic_admission::late_original_settlement_replaces_the_timeout_branch_without_losing_users"
+    ],
+    "binariesSha256": {
+      "eez-composer": "61c96f568f8c049060974e2800bc1be940826fe198ba31b41683a7572bdabd29",
+      "eez-follower": "b4242d5559c8827c91cc336f0fe54081485fc31f9852162e8d0e1aecdaf72f75",
+      "eez-proof-signer": "c9c1f684c8ae0c940b01cb96cb857035a2a1e53680d1ab8bb6c2d62886e9dbc4"
+    },
+    "firstCompletedFunctionalRun": true
+  },
+  "infrastructure": {
+    "initialBuild": "eez-node compilation terminated with SIGKILL before tests ran.",
+    "nextBuild": "Interrupted the owned Cargo process before tests ran to lower concurrency.",
+    "processBuildJobs": 1,
+    "note": "These were build failures/interruption, not functional-test reruns. They remain retained separately.",
+    "unitAndClippyBuildJobs": 2
+  },
+  "additionalChecks": {
+    "rustFormat": "passed",
+    "diffWhitespace": "passed",
+    "composerUnit": {
+      "result": "pass",
+      "passed": 413,
+      "failed": 0,
+      "ignored": 1,
+      "ignoredCase": "held_pool::tests::profile_blocked_backlog_discovery",
+      "ignoredReason": "Existing manual timing profile without correctness assertions."
+    },
+    "workspaceClippy": "passed_with_warnings_denied",
+    "integrationContractsBuild": "passed; Foundry 1.7.1, no contract test rerun because Solidity was unchanged"
+  },
+  "deploymentChanged": false,
+  "finalHeadCiAndReleaseArtifactsValidated": false,
+  "privateEvidence": {
+    "directory": "artifacts/sync-beneficiary-20261026",
+    "availability": "Local only; logs/datadirs are retained in ignored artifacts and are unavailable in another checkout. No credentials are included here.",
+    "sha256": {
+      "correction-code.patch": "6a1800ddaeeee5966c388466a2853f00937d43b8a54d86ee2ecc87e544bec26a",
+      "contracts-build.log": "2d6445dfd3bc87a5f3c80fc101cbc9425698d6c3b4a1d46c1c02117d17b4c10b",
+      "baseline/automatic_selection_preserves_capacity_after_one_exclusion.log": "b013e5480a61a04ea43b2920c6f26907f0053cdb9df042fe3f1d4053d88379bd",
+      "baseline/automatic_selection_preserves_capacity_after_one_exclusion.exit": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "baseline/automatic_selection_survives_a_canonically_skipped_slot_without_shrinking.log": "df1b402acacd873ee8b1bc05b478bbb930074f7d767f2cd2c5bd5cd8132daf57",
+      "baseline/automatic_selection_survives_a_canonically_skipped_slot_without_shrinking.exit": "f5bde7eb9f6c71611dc5726e8aca3eb4eba3e386da49e0a4ed5c295a90a73a0d",
+      "baseline-serial/test.log": "38725c2a499113fd25495afbff175ce9a7f638dce6e4bb60d6e3bbec27beccae",
+      "baseline-serial/test.exit": "39b8dc3fc8b44765c8e6f1adee04c5b465e555ab791cc42d0d9e810d5b64297c",
+      "baseline-serial/composer-before-correction.json": "f5d112a08ba9adaf0e1961ee6ed2ed202b434436d4eac97394a75dbf2ce52080",
+      "baseline-serial/binary-sha256.txt": "9a3a93959e38c30ad206e448898d61a1c69c4095d3d736ac0c311c983ca09366",
+      "corrected/test.log": "fb12fa7a9b4e3d82b5efe4264cbbb8b75bd39d201ba3efd49ac730059778f743",
+      "corrected/test.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "corrected/binary-sha256.txt": "5f4aace0bb4c6e80de016ab846a1437c4d46c9378ced1d19b7b354dc1551c295",
+      "composer-unit.log": "9865782bc85de0f63cbf7809d7c327fdc486ddba9654a3402f1887ed3676c8e0",
+      "composer-unit.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "clippy.log": "c7dc818568760bb418d5716316960789ac04e527e9f62ab17008556dcae513dd",
+      "clippy.exit": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+    }
+  },
+  "productionRuntimeInspection": "Original Composer/signer image digests, process start times and restart counts unchanged; both running.",
+  "sourceFixCommit": "f3f996e2e5d7613c2c163136520251e5c90cb0c5"
+}
