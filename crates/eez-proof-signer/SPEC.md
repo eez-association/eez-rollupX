@@ -280,18 +280,19 @@ execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value and retains pooled inventory within the block, and an EEZL2 table is
-consumable only in the block that loaded it, so both balances are dead at the
-next block start. Proxy recovery sweeps go to EEZL2's separate
+outbound value, and EEZL2 retains committed funding through its complete group.
+Both balances are cleared after that group in its final transaction's state delta.
+Ordinary donations outside groups remain until the next block-start cleanup. Proxy recovery sweeps go to EEZL2's separate
 `RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
 and are not burned: they move ether already held at an undeployed proxy
 address and mint nothing. Together these rules are the node-side accounting the
 pinned core protocol requires for
 [L2 funding and inventory](../../eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md#l2-funding-and-inventory):
 each load's funding is minted for its own transaction, and unused or reverted
-inventory is never reused across blocks. The burn is not a post-transaction
-change: prefix block hashes derived from per-transaction state roots include it
-through the pre-transaction state.
+inventory is never reused across complete groups. The group cleanup is included
+in its final transaction's state delta before the per-transaction state root;
+block-start cleanup is included in pre-execution state. Neither is a block-finalization
+change, so prefix and full block hashes commit to the same transitions.
 
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed
@@ -438,6 +439,16 @@ across Sync boundaries. The delay is a minimum age, not finality, freshness or
 unpredictability. The sequencer may defer an otherwise eligible advance.
 
 Pre-execution applies EIP-2935 parent history and protocol balance cleanup.
+Additionally, each complete cross-chain group clears SYSTEM/EEZL2 balances in its
+terminating transaction's state delta, before its checkpoint: after a native
+inbound delivery or the signed user following an outbound load. No cleanup occurs
+between load and user, inside callbacks, after history or after unpaired ordinary
+transactions. Included revert/halt receipts retain their status/gas and receive the
+same cleanup; existing settlement failure rejection remains mandatory. Discarded
+results/candidates commit neither cleanup nor cursor advancement. See the
+[normative group rules](../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
+These rules apply equally to full-block and selected-prefix Stateless execution;
+no caller-provided boundary or post-finalization correction is permitted.
 The recorded history transaction then executes before applications. It preserves
 the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
 Wrong code/state, missing/duplicate/misplaced transactions, malformed calldata,

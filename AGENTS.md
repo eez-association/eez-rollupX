@@ -95,6 +95,10 @@ its Solidity implementation/tests and the applicable fork contract:
   owns E1/E2; the [native-v1 audit](docs/audits/2026-10-24-native-v1/README.md)
   tracks implementation and E3 evidence. There is one version-1 native profile;
   do not add fallback execution, migration or old-format validation paths.
+  Clear SYSTEM/EEZL2 balances after complete cross-chain groups before checkpoints,
+  retaining block-start cleanup. Never clean between a load and its signed user
+  or inside callbacks. Keep speculative group cursors with rollback state and
+  validation-contract-2 semantics consistent across all execution paths.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
 

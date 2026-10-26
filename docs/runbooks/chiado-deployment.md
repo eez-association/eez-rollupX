@@ -241,7 +241,13 @@ and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
 The host's tracked genesis files are not used unless selected explicitly.
 
-Every L2 block burns the balances of EEZL2 and the native system address before
+Each complete cross-chain group clears residual EEZL2/system balances before its
+checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
+This is a fresh-network execution boundary: deploy matching Composer, followers
+and validation-contract-2 signers together; there is no existing-database upgrade.
+The prover remains v2 and requires no chain RPCs.
+
+Every L2 block also burns the balances of EEZL2 and the native system address before
 its first transaction, so neither account holds ETH at a block start; see the
 [signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
 execution: nodes, followers and signers from before this rule cannot replay a

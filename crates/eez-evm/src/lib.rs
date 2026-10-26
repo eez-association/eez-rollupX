@@ -41,6 +41,7 @@ use std::{
 mod evm;
 pub use evm::EezEvmFactory;
 
+pub mod balances;
 pub mod block;
 pub mod history;
 pub mod profile;

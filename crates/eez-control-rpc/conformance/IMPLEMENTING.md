@@ -42,6 +42,11 @@ encoding, canonical JSON and execution/settlement semantics together. The manage
 profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
+Validation-contract version 2 includes [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
+An external executor must clear SYSTEM/EEZL2 in the completing transaction's state
+before its checkpoint, retain load/user adjacency across previews and rollbacks,
+and leave history/unpaired ordinary transactions alone. A final-block-only burn
+cannot satisfy prefix commitments. Cleanup adds no gas, receipt or log.
 Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 0, that identity, and finite
 positive limits/timeouts as specified by [RPC discovery](../SPEC.md#21-validation-identity-and-capability-discovery).
 The Composer consumes these limits for planning. In particular, a block ceiling

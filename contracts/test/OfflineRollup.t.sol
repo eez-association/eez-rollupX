@@ -157,6 +157,7 @@ contract OfflineRollupTest is Test {
     function testCanonicalProfileCommitmentAndUnregisteredContextRejects() public {
         bytes memory expected = abi.encode(
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"),
+            uint64(2),
             manager.HISTORY_ADDRESS(),
             uint64(64),
             uint64(2_000_000),

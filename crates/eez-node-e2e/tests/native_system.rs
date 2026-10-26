@@ -192,10 +192,9 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     })
     .await?;
 
-    // Outbound ETH reaches the system address in the outbound block and is burned
-    // before the next block's first transaction. Keyless followers import only
-    // settled blocks, so the next block is checked on both producing Composers;
-    // followers must later derive the same block hashes.
+    // Outbound ETH is cleared at the complete load/user group's checkpoint.
+    // Both live followers and the cold late follower must agree in the same
+    // settled block; the next block cannot be used to hide missing cleanup.
     let balance_at = |url: String, block: u64| async move {
         rpc(&url, "eth_getBalance", json!([system, format!("0x{block:x}")]))
             .await?
@@ -219,8 +218,12 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
     let final_nonce = rpc(&primary_rpc, "eth_getTransactionCount", json!([system, format!("{final_height:#x}")])).await?;
     for url in urls {
         ensure!(
-            balance_at(url.clone(), final_height).await? == withdrawal,
-            "outbound ETH must reach the system address in its block on {url}"
+            balance_at(url.clone(), final_height).await? == U256::ZERO,
+            "outbound ETH must be cleared in its own group on {url}"
+        );
+        ensure!(
+            rpc(url, "eth_getBalance", json!([eez_primitives::EEZL2_ADDRESS, format!("{final_height:#x}")])).await? == "0x0",
+            "EEZL2 residual at the completed group on {url}"
         );
         ensure!(
             rpc(url, "eth_getTransactionCount", json!([system, format!("{final_height:#x}")])).await? == final_nonce,
@@ -236,7 +239,7 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         json!({
             "systemGenesisBalance": "0x0", "systemGenesisNonce": "0x0",
             "deposit": deposit, "withdrawal": withdrawal,
-            "finalSystemBalance": withdrawal, "finalSystemNonce": final_nonce,
+            "finalSystemBalance": U256::ZERO, "finalSystemNonce": final_nonce,
         })
     );
 

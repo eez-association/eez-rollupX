@@ -39,7 +39,7 @@ domains, alternate endpoints or compatibility decoders.
 | History native gas cap | `2_000_000` |
 | Manager profile domain | `EEZ_ROLLUPX_OFFLINE_PROFILE` |
 | Prover transport | Existing `prove.v2.Prover.ProveStream` |
-| Portable identity | Validation contract `1` (encoding, canonicalization and semantics) |
+| Portable identity | Validation contract `2` (encoding, canonicalization and semantics) |
 
 Version 1 explicitly distinguishes our history, grouped outbound and indexed
 multi-root rules from the draft's inbound-only version 0. The L1 registry remains
@@ -83,9 +83,10 @@ Native execution neither checks nor increments the system account nonce on
 success, revert or halt. Disabling nonce validation alone is insufficient: the
 underlying EVM's ordinary Call nonce increment must also be absent. Normal
 user nonces are unchanged. Keep beginning-of-block SYSTEM/EEZL2 balance cleanup,
-EIP-2935 pre-execution calls, checked temporary inbound funding, pooled intra-block
-protocol balances and outer-failure rollback. Do not replace these with the
-draft's per-inbound neutrality or residual-balance policy.
+EIP-2935 pre-execution calls, checked temporary inbound funding and outer-failure
+rollback. The accepted complete-group cleanup below limits shared protocol
+inventory to one complete group; it does not adopt the draft's per-inbound
+neutrality or residual-balance policy.
 
 For both EEZL2 deliveries and table loads, value is the checked
 committed_l2_table_value of the lowered table: sum incomingCalls and the
@@ -145,6 +146,67 @@ Example: bracket 0 is an outbound group with three roots; bracket 1 is inbound
 with roots failed, static, successful mutable. Emit one load plus its signed user
 transaction for bracket 0, then one delivery identified by `(1, 2)`. Consuming
 bracket 0 does not turn that delivery into `(0, 0)`.
+
+## Complete-group balance cleanup
+
+Accepted for fresh networks on 2026-10-27, addressing
+[issue #105](https://github.com/eez-association/eez-rollupX/issues/105). The core
+manager pools ETH and leaves issuance/burning to the node/circuit. RollupX gives
+each complete table its full checked allocation, including all flat and nested
+incoming values; it never subtracts earlier residual inventory.
+
+Immediately after executing a complete cross-chain group, set the balances of
+SYSTEM_ADDRESS and EEZL2 to zero. Preserve code, nonce and storage. FeeVault and
+all other accounts are unaffected. The boundaries are derived from the exact
+transaction body, never a Composer-supplied index:
+
+- Outbound: one native `loadExecutionTable`, then its immediately adjacent signed
+  user transaction, including every root and inline callback in that transaction.
+  The load does not clean. Never clean inside callbacks or between roots.
+- Inbound: one native `executeIncomingCrossChainCall`, including all callbacks.
+- History imports and ordinary transactions outside a load/user pair do not clean.
+  A native transaction cannot replace the user after a load; a block or effect
+  checkpoint cannot end inside that pair. Exact source/user correspondence and
+  the existing outbound-first semantic profile remain independently validated.
+
+Cleanup is an unconditional part of the completing transaction's state delta,
+**before commit and before its state/block-hash checkpoint**, whether its receipt
+succeeds, reverts or halts. Native failure first removes its temporary mint as
+before. A failed load still requires its paired user at the execution boundary;
+failed native/user effects remain ineligible for settlement under existing checks.
+Validation/DB errors produce no committed transaction or cursor advancement.
+Dropping an uncommitted result drops its cleanup. Reverting/discarding a candidate
+or a complete replay group restores account state, gas, nonce and grouping cursor
+together. An enclosing EVM call revert does not undo cleanup after its transaction.
+
+This is a bounded execution transition, not a call or transaction: no additional
+receipt, log, gas charge or refund. Preserve the EVM receipt's type, status, gas,
+logs and output. The next native limit is derived from that unchanged cumulative
+gas; later transactions can observe empty protocol accounts and therefore have
+different account-creation costs. Every producer, follower, witness builder and
+Stateless prover MUST apply the same transition before taking a checkpoint.
+There is no cleanup during block finalization.
+
+Beginning-of-block cleanup remains active for donations made by ordinary work
+outside groups, including blocks with no groups. It is not a compatibility path.
+Synthetic composition/observation calls are not block transactions and do not
+trigger cleanup. Canonical re-execution must still validate their results at the
+exact post-cleanup FIFO prefix.
+
+This changes execution and commitments. Use matching new-network artifacts;
+pre-change histories/databases are unsupported, with no mixed-version execution,
+activation switch or migration. Keep the native envelope at version 1 and the
+`prove.v2` protobuf unchanged; validation-contract version 2 identifies the new
+semantics. The manager profile preimage also includes this fixed version before
+the history address, binding the cleanup rule into on-chain public inputs without
+a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
+independent vectors use the same word. Deploy the matching fresh manager; an old
+manager's commitment is incompatible even with the same configuration/genesis. No new L1 or L2 RPC dependency is introduced for the prover.
+
+Acceptance requires positive and rejected complete groups, nested/multi-root
+funding, included failures and discarded candidates, ordinary donations, history,
+partial consumption, identical per-prefix/full hashes, independent cold signer
+replay and follower derivation. Unit tests alone do not close those process gates.
 
 ## Exact source identities
 

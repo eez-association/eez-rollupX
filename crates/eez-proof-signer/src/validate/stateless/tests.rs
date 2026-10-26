@@ -1097,8 +1097,12 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         user_nonce: u64,
         balance: U256,
         collector_balance: U256,
+        system_balance: U256,
     ) -> (B256, Vec<Bytes>) {
-        let mut accounts = vec![(user, user_nonce, balance), (SYSTEM_ADDRESS, 7, U256::ZERO)];
+        let mut accounts = vec![
+            (user, user_nonce, balance),
+            (SYSTEM_ADDRESS, 7, system_balance),
+        ];
         if collector_balance != U256::ZERO {
             accounts.push((
                 alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
@@ -1112,7 +1116,7 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
     let user = key.address();
     let balance = U256::from(1_000_000_000_000_000_000u64);
-    let (pre_root, witness_nodes) = state(user, 0, balance, U256::ZERO);
+    let (pre_root, witness_nodes) = state(user, 0, balance, U256::ZERO, U256::ZERO);
     let parent = Header {
         number: 10,
         timestamp: 100,
@@ -1137,7 +1141,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         nonce: 0,
         gas_limit: 21_000,
         gas_price: u128::from(base_fee),
-        to: alloy_primitives::TxKind::Call(user),
+        to: alloy_primitives::TxKind::Call(SYSTEM_ADDRESS),
+        value: U256::from(11),
         ..Default::default()
     };
     let signature = Signature::from(
@@ -1160,7 +1165,7 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
                 source_hash: B256::with_last_byte(occurrence),
                 gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                 to: EEZL2_ADDRESS,
-                value: U256::ZERO,
+                value: U256::from(occurrence),
                 input: Bytes::copy_from_slice(&selector),
             }
             .into(),
@@ -1180,7 +1185,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         logs: Vec::new(),
     })
     .collect();
-    let remaining = balance - U256::from(base_fee) * U256::from(21_000);
+    let fee = U256::from(base_fee) * U256::from(21_000);
+    let remaining = balance - fee - U256::from(11);
     let mut expected = Vec::new();
     for count in 1..=3 {
         let prefix_receipts: Vec<_> = receipts[..count]
@@ -1193,7 +1199,20 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             parent_hash: parent.hash_slow(),
             base_fee_per_gas: Some(base_fee),
             gas_used: 21_000 + native_gas * (count as u64 - 1),
-            state_root: state(user, 1, remaining, balance - remaining).0,
+            // The ordinary donation remains in B[0]; each native delivery
+            // clears it and its own newly minted residual before checkpoint.
+            state_root: state(
+                user,
+                1,
+                remaining,
+                fee,
+                if count == 1 {
+                    U256::from(11)
+                } else {
+                    U256::ZERO
+                },
+            )
+            .0,
             transactions_root: calculate_transaction_root(&transactions[..count]),
             receipts_root: calculate_receipt_root(&prefix_receipts),
             ..parent.clone()
@@ -1225,8 +1244,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             ..Default::default()
         },
     };
-    let output = Backend::new(genesis, SYSTEM_ADDRESS)
-        .validate(&[input])
+    let output = Backend::new(genesis.clone(), SYSTEM_ADDRESS)
+        .validate(std::slice::from_ref(&input))
         .unwrap();
     let block = &output.blocks[0];
     assert_eq!(block.receipt_successes, [true, true, true]);
@@ -1249,4 +1268,15 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     );
     assert_eq!(block.post_state_root, expected[2].state_root);
     assert_eq!(block.computed_hash, expected[2].hash_slow());
+    let mut unclean = input;
+    let mut full = alloy_rlp::decode_exact::<Block>(&unclean.rlp).unwrap();
+    full.header.state_root = state(user, 1, remaining, fee, U256::from(11)).0;
+    unclean.claimed_hash = full.header.hash_slow();
+    unclean.rlp = alloy_rlp::encode(full);
+    let error = Backend::new(genesis, SYSTEM_ADDRESS)
+        .validate(&[unclean])
+        .unwrap_err();
+    assert!(
+        matches!(error, ValidationError::Rejected(reason) if reason.contains("mismatched post-state root"))
+    );
 }

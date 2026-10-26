@@ -69,6 +69,7 @@ impl OfflineProfile {
     pub fn canonical_bytes(&self) -> Bytes {
         (
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"),
+            crate::l2::VALIDATION_VERSION,
             HISTORY_ADDRESS,
             MAX_IMPORT_HEADERS as u64,
             IMPORT_GAS_LIMIT,
@@ -330,10 +331,11 @@ mod tests {
         // arguments, followed by the dynamic struct and its rule-time array.
         let expected = [
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE").0,
+            word(2),
             address,
             word(64),
             word(2_000_000),
-            word(5 * 32),
+            word(6 * 32),
             word(1),
             word(900),
             p.genesisHash.0,
@@ -359,6 +361,7 @@ mod tests {
             "../../../eez-control-rpc/conformance/native-profile-v1.json"
         ))
         .unwrap();
+        assert_eq!(corpus["validationVersion"], crate::l2::VALIDATION_VERSION);
         for (id, collector) in [("profile-collector-a", 0x11), ("profile-collector-b", 0x12)] {
             let profile = OfflineProfile {
                 l1ChainId: U256::from(1),

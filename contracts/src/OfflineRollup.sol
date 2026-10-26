@@ -17,6 +17,8 @@ interface IOfflineRegistry is IEEZRegistry {
 ///      is mandatory and has a single atomic initializer.
 contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     bytes32 public constant CONTEXT_DOMAIN = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1");
+    /// @notice Fixed execution/validation contract; there is no selectable old profile.
+    uint64 public constant VALIDATION_VERSION = 2;
     bytes32 public constant PROFILE_DOMAIN = keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE");
     bytes32 public constant RULES_DOMAIN = keccak256("EEZ_ROLLUPX_L1_RULES_V1");
     address public constant HISTORY_ADDRESS = 0xeeeeEeeeEeeeEeEeEEEeEeeeeEEEEeeEEEee0077;
@@ -164,8 +166,9 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
         l2ChainId = profile.l2ChainId;
         l1ConfigHash = profile.l1ConfigHash;
         initialBlockHash = profile.genesisHash;
-        bytes memory encoded =
-            abi.encode(PROFILE_DOMAIN, HISTORY_ADDRESS, MAX_IMPORT_HEADERS, IMPORT_GAS_LIMIT, profile);
+        bytes memory encoded = abi.encode(
+            PROFILE_DOMAIN, VALIDATION_VERSION, HISTORY_ADDRESS, MAX_IMPORT_HEADERS, IMPORT_GAS_LIMIT, profile
+        );
         protocolConfigHash = keccak256(encoded);
         emit OfflineProfileInitialized(encoded);
     }
