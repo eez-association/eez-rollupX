@@ -15,6 +15,42 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ## Recommendation
 
+### Mixed-direction batching authorized on 2026-10-26
+
+Status: accepted; implementation and validation in progress. The baseline is
+`c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae` with protocol
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`, the unmerged PR #101 dependency.
+The live mixed burst exposed direction cuts followed by FIFO rebuilds, often
+leaving one source per post. Permit whole eligible inbound and outbound groups
+in the same batch without changing canonical outbound-first execution or FIFO
+selection. Preserve standalone signed admission and ordinary transaction fees;
+this change adds neither discounted quotes nor user rebates.
+
+| Requirement | Implementation contract | Acceptance |
+| --- | --- | --- |
+| M1 | Both collection routes may share a post under existing capacity/deadline limits. | A fee-enabled mixed candidate settles both directions and independently replays. |
+| M2 | L2 tips cover the measured cost of posting the complete outbound group alone, including ordinary history, blobs, service costs and risk. L1 refunds cannot fund that check. | Mixed post whose total exceeds L2 income succeeds only when its outbound reference is covered; insufficient L2 income still fails. |
+| M3 | Reuse only the last accepted outbound-prefix measurement, bound to its exact ordered sources and full L1 fee quote (parent, target and prices). | Missing, stale, reordered and mismatched evidence fails closed; failed additions cannot replace the accepted reference. |
+| M4 | Validate the actual complete signed mixed bundle before dispatch. Outbound-only posts retain the final receipt-based whole-post check. | Existing final execution, funding, nested-call and source-rejection regressions pass. |
+| M5 | Preserve largest-payer L1 refunds, observation-only shortfalls, ownership and retry accounting. | Both fee switches, absent refunds, retained sources and canonical replay remain covered. |
+
+The outbound reference is the existing native counterfactual cost simulation,
+not a second publishable transaction or proof. Reuse avoids extra execution after
+proving. A changed final quote invalidates the reference and defers the unsent
+attempt for recomposition; it cannot authorize a stale price or charge a user's
+retry budget. The full native preflight remains mandatory even with matching
+reference evidence. The additional mixed posting cost belongs to the L1 route;
+the operator accepts its refund shortfall. Gross whole-post cost/refund metrics
+remain observations, not a net per-direction profit ledger; expose the outbound
+reference separately instead of crediting projected refunds as cash.
+
+This is Composer policy only: no protocol, genesis, prover, wire, transaction or
+database migration. Drain accepted in-memory work before upgrading or rolling
+back. Older Composer versions restore direction separation; follower and signer
+execution rules are unchanged. Validate source regressions before a separate
+candidate-network trial, retain exact binary identity, and compare the same
+mixed workload before claiming a performance improvement.
+
 ### Policy expiration removal authorized on 2026-10-19
 
 The [fee configuration contract](../configurable-settlement-policy.md#removed-fee-policy-expiration)

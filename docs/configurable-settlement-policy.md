@@ -1773,16 +1773,28 @@ state, reduced charged gas or insufficient effective tip defers the source and
 its nonce successors, restores the accepted prefix, and continues independent
 sources. Admission quotes charge each source for a complete standalone
 post; composition can pool their actual receipts. Quotes do not discount shared
-batches. While this L2-only tariff is enabled, L1-origin users are settled in
-separate batches under the existing FIFO ordering, so unfunded L1 work cannot
-invalidate a paid outbound batch. Nested calls within one source remain whole.
+batches. Fee-enabled candidates may include both directions under the same FIFO,
+nonce, whole-group, gas/blob and deadline rules. The last accepted outbound-prefix
+simulation supplies the cost of posting that group separately, including retained
+ordinary history and its physical blob count. L1 additions cannot fund its L2
+tariff. Nested calls within one source remain whole.
 Quoting a future L2 nonce whose predecessor has not executed is outside this
 outbound profile. The compact L1 route has the bounded owned-prefix replay
 described above.
 
-Immediately before dispatch, an attempt containing outbound users must also
-cover its complete newly priced L1 post, blobs, configured service costs and risk
-reserve using actual eligible L2 native receipts. It may earn less than the
+Immediately before dispatch, an outbound-only attempt must still cover its
+complete newly priced L1 post, blobs, configured service costs and risk reserve
+using actual eligible L2 native receipts. For a mixed attempt, compare those same
+receipts with the standalone outbound cost and allowances. Reuse that reference
+only when its ordered source hashes and entire L1 fee quote match final preflight:
+chain, parent, target, fee caps and effective execution/blob prices. Missing or
+mismatched evidence defers the unsent attempt for recomposition without a user
+retry charge. A rejected outbound addition cannot replace the accepted reference.
+This is the existing native counterfactual estimate, not an actual standalone
+payment; the complete signed mixed bundle always undergoes final native execution.
+The preflight event's `l2_tariff` identifies the cost basis, gas, blobs, required L2
+payment and additional mixed posting cost. Existing `fee_observation` describes
+the whole post and is not a per-direction coverage assertion. A batch may earn less than the
 quoted profit target; with risk zero it may settle at cost. Poster, beneficiary and explicitly excluded senders cannot
 finance this check. Failure defers the unsent attempt without charging a user
 retry or declaring canonical completion. Accepted work remains subject to
@@ -2069,8 +2081,12 @@ rollback can raise the required cost for outstanding lower-priced transactions.
 The existing in-memory queue and stopped-database rollback boundaries apply.
 
 L1-funded posts pack multiple complete source requests, including their nested
-calls, up to the existing gas/blob/timing and configured admission bounds. L1 and
-L2 fee-funded batches remain separate under existing FIFO/nonce ownership.
+calls, up to the existing gas/blob/timing and configured admission bounds. They
+may share a post with an independently funded outbound group under existing
+FIFO/nonce ownership and canonical outbound-first execution. The L1 route owns
+the extra posting cost above the standalone outbound reference; its refund is
+never counted toward the L2 funding check. Gross post/refund observations still
+describe the entire post and do not claim to be a net per-direction profit ledger.
 Following the operator's accepted subsidy policy, the final batch need not cover
 its cost: do not shrink or reject it because the largest refund is below `C + R`.
 The dispatch selector chooses

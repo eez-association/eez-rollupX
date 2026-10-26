@@ -422,20 +422,10 @@ run_mixed_direction_scenario() {
         || { echo "mixed inbound destination effect was not unique" >&2; return 1; }
     inbound_block=$(jq -er '.[-1].blockNumber' <<<"$l2_events")
     outbound_block=$(receipt_json "$outbound_hash" "$L2" | jq -er '.result.blockNumber')
-    if fee_collection_enabled in || fee_collection_enabled out; then
-        (( inbound_block < outbound_block )) || {
-            echo "fee-funded directions did not settle separately in FIFO order: inbound=$inbound_block outbound=$outbound_block" >&2
-            return 1
-        }
-        assert_proof_for_height "$(cast to-dec "$inbound_block")" "$node_baseline" "$signer_baseline"
-        sync_height=$(cast to-dec "$outbound_block")
-        echo "    ✓ fee-funded directions have separate ordered Sync heights: $inbound_block / $outbound_block"
-    else
-        [[ "${inbound_block,,}" == "${outbound_block,,}" ]] \
-            || { echo "mixed-direction calls split across L2 blocks: inbound=$inbound_block outbound=$outbound_block" >&2; return 1; }
-        sync_height=$(cast to-dec "$inbound_block")
-        echo "    ✓ inbound delivery and outbound source transaction share Sync height $sync_height"
-    fi
+    [[ "${inbound_block,,}" == "${outbound_block,,}" ]] \
+        || { echo "mixed-direction calls split across L2 blocks: inbound=$inbound_block outbound=$outbound_block" >&2; return 1; }
+    sync_height=$(cast to-dec "$inbound_block")
+    echo "    ✓ inbound delivery and outbound source transaction share Sync height $sync_height"
 
     [[ $(retry cast call "$L2_VALUE" 'value()(uint256)' --rpc-url "$L2") == "11" ]]
     [[ $(retry cast call "$L1_VALUE" 'value()(uint256)' --rpc-url "$L1") == "13" ]]

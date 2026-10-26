@@ -746,6 +746,16 @@ fee rejection, canonical settlement and refund observations for each enabled
 direction. A configuration change does not qualify a new builder route or make
 an earlier protocol deployment compatible.
 
+Fee-enabled inbound and outbound groups may share one post. For a mixed post,
+inspect `detail.l2_tariff` on `eez.composer.admission.v1` preflight events: its
+`standalone_outbound` cost is the independently measured outbound publication
+reference, and `minimum_l2_payment` excludes L1 refunds. The full-post fee and
+refund observations remain gross measurements; their shortfall is not a net
+per-direction loss. Qualify a mixed canary with both destination effects,
+canonical post/source receipts and independent replay. This scheduling change
+adds no environment variables or protocol migration; after draining accepted
+work, rolling back the Composer restores separate-direction batching.
+
 ### Enabling L1 fee recovery
 
 Leave `EEZ_FEES_L1_TO_L2_ENABLED` unset or `false` for public traffic until each configured builder has passed the

@@ -3178,6 +3178,7 @@ where
         // inside postAndVerifyBatch, so its gas limit must cover them.
         let mut outbound_target_gas: u64 = 0;
         let mut tariff_tips = U256::ZERO;
+        let mut standalone_cost = None;
         // Escrow drawn down per outbound withdrawal (read once, lazily) so several
         // in one slot can't collectively over-drain. `None` = not yet read.
         let mut escrow_remaining: Option<U256> = None;
@@ -4035,7 +4036,7 @@ where
                     }
                     if let Some(history) = &tariff_history {
                         let mut funding_shortfall = None;
-                        let coverage = (|| -> Result<U256, String> {
+                        let coverage = (|| -> Result<(U256, fees::StandaloneCost), String> {
                             let (endpoint, operations) =
                                 *history.as_ref().map_err(ToString::to_string)?;
                             let policy = self
@@ -4067,7 +4068,7 @@ where
                             prefix_traces.extend(l1_target.entry_traces.iter().cloned());
                             let mut prefix_groups = pending_out.clone();
                             prefix_groups.push(outbound_group.clone());
-                            let (_, _, required) = fees::settlement::measured_payment(
+                            let (gas_used, _, required) = fees::settlement::measured_payment(
                                 &self.inner.posting,
                                 &composition_quote,
                                 fees::settlement::SettlementInput {
@@ -4109,10 +4110,21 @@ where
                                 );
                                 return Err("l2_tip_underfunded".into());
                             }
-                            Ok(collected)
+                            Ok((
+                                collected,
+                                fees::StandaloneCost::new(
+                                    composition_quote.quote,
+                                    gas_used,
+                                    blobs as u64,
+                                    &prefix_semantics,
+                                ),
+                            ))
                         })();
                         tariff_tips = match coverage {
-                            Ok(collected) => collected,
+                            Ok((collected, cost)) => {
+                                standalone_cost = Some(cost);
+                                collected
+                            }
                             Err(reason) => {
                                 candidate.emit(
                                     "source_outcome",
@@ -4310,16 +4322,6 @@ where
                 admission_cut = Some("pipeline_time");
                 deferred = abort_rest(Some((idx, held)), &mut in_iter, Vec::new());
                 break;
-            }
-            if (self.inner.posting.collection.l2_to_l1_enabled
-                || self.inner.posting.collection.l1_refund.is_some())
-                && !pending_out.is_empty()
-            {
-                // Each direction has its own collection mechanism and coverage.
-                // Keep costs separate. The normal FIFO rebuild
-                // still puts an older eligible inbound ahead of younger users.
-                capacity.defer(&mut selection, &candidate, idx, held, "l2_tariff_direction");
-                continue;
             }
             if let Some(gap_at) = poison_gap_for(&poison_gaps, &held) {
                 event!(
@@ -5830,7 +5832,11 @@ where
 
         // Receipt accounting observes this exact candidate, including every
         // outbound group's loads/callbacks. Failure is diagnostic in shadow mode.
-        let l2_fees = fees::L2Fees::measure(ctx.l2_chain_id, rollup_id, &built, &manifest);
+        let l2_fees =
+            fees::L2Fees::measure(ctx.l2_chain_id, rollup_id, &built, &manifest).map(|mut fees| {
+                fees.standalone_cost = standalone_cost;
+                fees
+            });
 
         // ── Dispatch the rich L1 bundle and register the optimistic block. ──
         let sync_height = built.header.number();
@@ -8059,7 +8065,7 @@ async fn observe_bundle_outcome(
         }
         let hash = post_batch_blob_transaction_hash(&prepared[0])
             .map_err(|error| ("invalid_envelope", error))?;
-        if posting.collection.l2_to_l1_enabled
+        let tariff = if posting.collection.l2_to_l1_enabled
             && attempt
                 .manifest
                 .users
@@ -8072,16 +8078,20 @@ async fn observe_bundle_outcome(
                     "configured tariff is missing".to_owned(),
                 )
             })?;
-            fees::check_tariff(
-                policy,
-                quote,
-                &execution,
-                hash,
-                l2_fees.as_ref(),
-                posting.ctx.l1_poster_signer.address(),
+            Some(
+                fees::check_tariff(
+                    policy,
+                    quote,
+                    &execution,
+                    hash,
+                    l2_fees.as_ref(),
+                    posting.ctx.l1_poster_signer.address(),
+                )
+                .map_err(|reason| ("l2_tariff_blocked", reason.to_owned()))?,
             )
-            .map_err(|reason| ("l2_tariff_blocked", reason.to_owned()))?;
-        }
+        } else {
+            None
+        };
         let refund = fees::refund::select(&posting, quote, &prepared, &execution)
             .map_err(|reason| ("l1_refund_blocked", reason.to_owned()))?;
         let id = optimistic
@@ -8095,7 +8105,7 @@ async fn observe_bundle_outcome(
                 .plan_refund(rollup_id, hash, refund)
                 .map_err(|error| ("refund_identity_changed", error.to_owned()))?;
         }
-        Ok::<_, (&str, String)>((prepared, quote, id, execution, refund))
+        Ok::<_, (&str, String)>((prepared, quote, id, execution, refund, tariff))
     };
     let preparation = if let Some(deadline) = preparation_timing.deadline {
         tokio::time::timeout(
@@ -8120,7 +8130,7 @@ async fn observe_bundle_outcome(
         candidate.duration("finalization", finalization_elapsed);
     }
     let fee_quote = match preparation {
-        Ok((prepared, quote, id, execution, refund)) => {
+        Ok((prepared, quote, id, execution, refund, tariff)) => {
             if let Some(timings) = &preparation_timing.timings {
                 timings.observe_finalization(preparation_timing.workload, finalization_elapsed);
             }
@@ -8129,6 +8139,7 @@ async fn observe_bundle_outcome(
                 "signed_gas_limits":execution.gas_limits.get(..1),"finalization_ms":finalization_elapsed.as_secs_f64()*1000.0,
                 "signing_ms":signing_elapsed.as_secs_f64()*1000.0,"preflight_ms":preflight_elapsed.as_secs_f64()*1000.0,
                 "refund":refund.map(|p|serde_json::json!({"source":p.request.source(),"recipient":p.request.recipient(),"percent":p.request.percent(),"minimumL1":p.minimum.to_string(),"projectedL1":p.projected.to_string()})),
+                "l2_tariff": tariff,
                 "fee_observation": fees::observation(quote, &execution, id.post_batch_hash,
                     posting.native_currency(), l2_fees.as_ref(), posting.collection.pricing.as_ref(),
                     posting.ctx.l1_poster_signer.address())});
