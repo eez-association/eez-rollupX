@@ -23,8 +23,9 @@ source identities and collector/profile contract](native-system-transactions.md)
 owns the byte-level definitions. This proposal defines the fresh-network behavior.
 There is one native version-1 profile, with no fallback or activation switch.
 The renderer fixes the collector to the FeeVault predeploy. Each deployment
-selects an initial treasury recipient and owner; the owner can rotate the recipient
-through an ordinary L2 transaction. Validation progress is recorded in the
+selects an initial treasury recipient and owner; the owner proposes a recipient and that recipient accepts
+through ordinary L2 transactions. The [treasury amendment](fee-vault-upgrades.md)
+adds the transparent proxy and its independent upgrade authority. Validation progress is recorded in the
 [native-v1 audit](../audits/2026-10-24-native-v1/README.md) and its
 [treasury/RPC extension](../audits/2026-10-24-fee-vault-rpc/README.md), followed by the
 [single-profile simplification](../audits/2026-10-24-profile-simplification/README.md).

@@ -210,8 +210,8 @@ its Solidity implementation/tests and the applicable fork contract:
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production
   base `genesis.json` (predeploys only, with EEZL2 as an `EEZProxy`, its
-  implementation and ProxyAdmin, plus the non-upgradeable FeeVault with
-  constructor-derived owner/recipient storage, at fixed addresses; it fails if
+  implementation and ProxyAdmin, plus the initialized FeeVault transparent proxy,
+  locked implementation and dedicated ProxyAdmin, at fixed addresses; it fails if
   that file allocates ETH), the
   development base `genesis.dev.json` (public test accounts; Kurtosis and Chiado
   test networks select it with `EEZ_GENESIS_BASE`),

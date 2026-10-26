@@ -7,6 +7,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {EEZL2} from "../src/L2/EEZL2.sol";
 import {L1BlockhashContract} from "../src/L2/L1BlockhashContract.sol";
 import {FeeVault} from "../src/L2/FeeVault.sol";
+import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @notice Prints the genesis accounts of an EEZL2 behind an `EEZProxy`, as the
 ///         protocol's `deployment/Deploy.s.sol:_deployL2` would leave them, but
@@ -29,11 +30,10 @@ contract GenerateEEZL2Genesis is Script {
         address proxy,
         address implementation,
         address feeVault,
+        address feeVaultImplementation,
         address treasuryOwner,
         address treasuryRecipient
-    )
-        external
-    {
+    ) external {
         require(proxy.code.length == 0 && implementation.code.length == 0, "Target already has code");
         require(upgradeOwner != address(0), "Zero upgrade owner");
 
@@ -65,8 +65,30 @@ contract GenerateEEZL2Genesis is Script {
         _account(proxyAdmin);
         _storage(accesses);
 
-        require(feeVault.code.length == 0, "Fee vault target already has code");
-        vm.etch(feeVault, abi.encodePacked(type(FeeVault).creationCode, abi.encode(treasuryOwner, treasuryRecipient)));
+        require(
+            feeVault.code.length == 0 && feeVaultImplementation.code.length == 0, "Fee vault target already has code"
+        );
+        vm.etch(feeVaultImplementation, type(FeeVault).creationCode);
+        vm.setNonce(feeVaultImplementation, 1);
+        vm.startStateDiffRecording();
+        (bool implementationOk, bytes memory implementationRuntime) = feeVaultImplementation.call("");
+        Vm.AccountAccess[] memory implementationAccesses = vm.stopAndReturnStateDiff();
+        require(implementationOk, "FeeVault implementation constructor failed");
+        vm.etch(feeVaultImplementation, implementationRuntime);
+        _account(feeVaultImplementation);
+        _storage(implementationAccesses);
+
+        vm.etch(
+            feeVault,
+            abi.encodePacked(
+                type(TransparentUpgradeableProxy).creationCode,
+                abi.encode(
+                    feeVaultImplementation,
+                    treasuryOwner,
+                    abi.encodeCall(FeeVault.initialize, (treasuryOwner, treasuryRecipient))
+                )
+            )
+        );
         vm.setNonce(feeVault, 1);
         vm.startStateDiffRecording();
         (bool vaultOk, bytes memory vaultRuntime) = feeVault.call("");
@@ -76,7 +98,13 @@ contract GenerateEEZL2Genesis is Script {
         require(FeeVault(payable(feeVault)).owner() == treasuryOwner, "FeeVault owner mismatch");
         require(FeeVault(payable(feeVault)).recipient() == treasuryRecipient, "FeeVault recipient mismatch");
         require(FeeVault(payable(feeVault)).pendingOwner() == address(0), "FeeVault pending owner mismatch");
+        require(FeeVault(payable(feeVault)).pendingRecipient() == address(0), "FeeVault pending recipient mismatch");
+        require(FeeVault(payable(feeVault)).totalWithdrawn() == 0, "FeeVault withdrawal counter mismatch");
+        require(FeeVault(payable(feeVault)).minWithdrawalAmount() == 0, "FeeVault threshold mismatch");
+        address vaultAdmin = vm.computeCreateAddress(feeVault, 1);
+        require(vaultAdmin.code.length != 0, "FeeVault ProxyAdmin missing");
         _account(feeVault);
+        _account(vaultAdmin);
         _storage(vaultAccesses);
     }
 
@@ -85,7 +113,22 @@ contract GenerateEEZL2Genesis is Script {
             Vm.StorageAccess[] memory slots = accesses[i].storageAccesses;
             for (uint256 j; j < slots.length; ++j) {
                 if (slots[j].isWrite && !slots[j].reverted) {
-                    // Print the final value; a slot written twice prints twice and is rejected.
+                    // Initializers write their guard slot repeatedly. Emit each
+                    // unique slot once, with its final value, for exact validation.
+                    bool seen;
+                    for (uint256 a; a <= i; ++a) {
+                        uint256 end = a == i ? j : accesses[a].storageAccesses.length;
+                        for (uint256 b; b < end; ++b) {
+                            Vm.StorageAccess memory prior = accesses[a].storageAccesses[b];
+                            if (
+                                prior.isWrite && !prior.reverted && prior.account == slots[j].account
+                                    && prior.slot == slots[j].slot
+                            ) {
+                                seen = true;
+                            }
+                        }
+                    }
+                    if (seen) continue;
                     console.log(
                         string.concat(
                             "GENESIS_STORAGE ",

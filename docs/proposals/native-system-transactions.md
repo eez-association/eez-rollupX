@@ -280,16 +280,21 @@ which anyone may trigger; the complete balance goes only to its stored recipient
 An empty vault or a failed recipient call reverts without losing funds, and
 withdrawals are protected against reentrancy.
 
-The owner may change the recipient with `setRecipient(address)`; ownership moves
+The owner proposes the recipient with `proposeRecipient(address)`; the proposed
+recipient calls `acceptRecipient()` before it becomes active. The owner can cancel
+a pending proposal with `cancelRecipientChange()`. Ownership moves
 through OpenZeppelin's two-step transfer. Recipient and ownership changes are
 ordinary L2 state transitions, so followers and the offline prover execute and
 prove them from the existing witness. They change neither `feeCollector`, the
 network profile nor the v2 proving frames, and require no hard fork. Recipient
 selection rejects zero, the vault itself, SYSTEM and EEZL2. Withdrawal is local
-to L2; it adds no bridge, withdrawal-network selector or automatic forwarding.
+to L2; it adds no bridge, withdrawal-network selector or automatic forwarding. The collector is an
+atomically initialized transparent proxy. Its dedicated ProxyAdmin is initially
+owned by `EEZ_L2_TREASURY_OWNER`; this upgrade authority is separate from treasury
+ownership after deployment. See the [treasury amendment](fee-vault-upgrades.md).
 
-The existing genesis renderer installs the vault's constructor-derived code and
-storage alongside the other predeploys. Deployment requires
+The existing genesis renderer installs the vault proxy, locked implementation,
+ProxyAdmin and initializer-derived storage alongside the other predeploys. Deployment requires
 `EEZ_L2_TREASURY_RECIPIENT`; `EEZ_L2_TREASURY_OWNER` defaults to the deployment
 owner and is passed explicitly to the renderer. `EEZ_L2_FEE_RECIPIENT` retains
 its existing, separate meaning as the block beneficiary for priority fees.
@@ -315,19 +320,24 @@ arguments fail before output is written. Deployment uses its `OWNER` only when
 recipient is always explicit. Neither setting is a runtime node/signer override.
 
 The update/check path uses the public fixture values in
-`testing/kurtosis/l2-genesis-profile.json` (schema 4). The generated profile records
-`feeCollector`, `treasuryOwner`, `treasuryRecipient`, the vault runtime hash and
+`testing/kurtosis/l2-genesis-profile.json` (schema 5). The generated profile records
+`feeCollector`, `treasuryOwner`, `treasuryRecipient`, the proxy/implementation addresses and runtime hashes, and
 the complete genesis state root. Deployment checks its inputs against that
 profile before broadcasting. Public fixture recipients are not production defaults.
 Changing deployment settings after genesis does not mutate contract state.
 
 Recipient updates take effect in transaction order, including for fees already
-accumulated in the vault. A permissionless withdrawal executed before an owner's
-update pays the previous recipient; one executed afterwards pays the new one.
+accumulated in the vault. A withdrawal before the proposed recipient's acceptance
+pays the previous recipient; one executed afterwards pays the new one.
 The withdrawal transaction's own base fee is credited after execution, so a
-successful withdrawal can leave that fee in the vault. No withdrawal threshold,
-network selector or upgradeable proxy is introduced. Owner-key loss can prevent
-future recipient changes; `Ownable2Step` makes ownership transfer explicit.
+successful withdrawal can leave that fee in the vault. `totalWithdrawn` counts
+successful gross payments, including donations. The owner may set a minimum
+withdrawal in wei; its initial zero value allows any positive balance. Proposal,
+cancellation, acceptance, threshold, withdrawal and standard upgrade events expose
+these operations. Direct protocol credits execute no code and emit no vault event.
+Owner-key loss can prevent recipient changes; ownership transfer is two-step.
+The proxy is installed from genesis on a new network, with no legacy-vault
+migration; see the [deployment scope](fee-vault-upgrades.md#compatibility-and-deployment).
 
 ### Per-transaction state transition
 
