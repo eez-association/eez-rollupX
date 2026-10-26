@@ -1282,7 +1282,10 @@ fn backoff_shape(index: usize) -> (usize, Option<usize>) {
 }
 
 async fn consecutive_exclusions(failures: u32) {
-    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &env())
+    let fee_recipient = alloy_primitives::Address::repeat_byte(0x3e);
+    let mut config = env();
+    config.push(("EEZ_L2_FEE_RECIPIENT", format!("{fee_recipient:#x}")));
+    let world = setup_cross_chain_with_profile(NativeL1Profile::GnosisPrague, &config)
         .await
         .unwrap();
     let follower = NodeHandle::start(
@@ -1498,6 +1501,39 @@ async fn consecutive_exclusions(failures: u32) {
         prepared.fields["accepted"], expected,
         "the composer must enforce the reduced limit on complete groups"
     );
+
+    let excluded: Vec<_> = events
+        .iter()
+        .filter(|event| {
+            event.name == "eez.composer.bundle.observed"
+                && event.fields["outcome"]
+                    .as_str()
+                    .is_some_and(|outcome| outcome.contains("reason: Excluded"))
+        })
+        .collect();
+    assert_eq!(excluded.len(), failures as usize);
+    let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
+    let follower_rpc = ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+    for event in excluded {
+        let height = event.fields["sync_height"].as_u64().unwrap();
+        let replacement = l2
+            .get_block_by_number(height.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(replacement.transactions.is_empty());
+        assert_eq!(replacement.header.gas_used, 0);
+        assert_eq!(
+            replacement.header.beneficiary, fee_recipient,
+            "canonical exclusion recovery must preserve the configured beneficiary"
+        );
+        let replayed = follower_rpc
+            .get_block_by_number(height.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replayed.header.hash, replacement.header.hash);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1523,8 +1559,10 @@ async fn late_original_after_multiple_replacements_retains_users_and_follower_pa
 async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     // Leave time for the relay-capture poll and Engine API control handshake
     // before the targeted slot. The controller rejects requests for past slots.
+    let fee_recipient = alloy_primitives::Address::repeat_byte(0x3e);
     let mut config = env();
     config.extend([
+        ("EEZ_L2_FEE_RECIPIENT", format!("{fee_recipient:#x}")),
         ("EEZ_SETTLEMENT_START_AFTER_BLOCK", "2".into()),
         ("EEZ_PROOF_TIME_MS", "1000".into()),
         ("EEZ_SUBMISSION_SLACK_MS", "1500".into()),
@@ -1689,6 +1727,21 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
             world.settlement_diagnostics()
         )
     });
+    let replaced_sync = l2
+        .get_block_by_number(original_receipt.block_number.unwrap().into())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_ne!(
+        replaced_sync.header.hash,
+        original_receipt.block_hash.unwrap()
+    );
+    assert!(replaced_sync.transactions.is_empty());
+    assert_eq!(replaced_sync.header.gas_used, 0);
+    assert_eq!(
+        replaced_sync.header.beneficiary, fee_recipient,
+        "deadline recovery must preserve the configured beneficiary"
+    );
     if delayed_original {
         let speculative_ordinary = l2.get_transaction_receipt(ordinary).await.unwrap().unwrap();
         assert!(
@@ -1840,6 +1893,16 @@ async fn next_slot_replacement(delayed_original: bool, skipped_slots: u64) {
     )
     .await
     .unwrap();
+    if !delayed_original {
+        let follower_rpc =
+            ProviderBuilder::new().connect_http(follower.l2_rpc_url().parse().unwrap());
+        let replayed = follower_rpc
+            .get_block_by_number(replaced_sync.header.number.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(replayed.header.hash, replaced_sync.header.hash);
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

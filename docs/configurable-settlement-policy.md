@@ -872,12 +872,18 @@ back the binary restores the old ancestor-only rewind and its transaction-loss
 risk; it does not recover transactions already lost from an in-memory pool.
 
 Empty local checkpoints use `EEZ_L2_FEE_RECIPIENT`, just like ordinary production
-and minimal settlement blocks. Historical replacement preserves the existing
-header rather than substituting the current setting. This changes newly built
-checkpoint hashes for a nonzero recipient, not the block/DA format: existing
-history remains replayable using its recorded environment. No protocol,
-database, or signer migration is needed. Followers retain upstream external
-reinsertion policy; they do not sequence displaced ordinary work. The adapter
+and minimal settlement blocks, including empty replacements for a nonempty Sync
+after an observation deadline or canonical exclusion. An already empty Sync
+keeps its existing header and descendants; retained-history reconstruction uses
+the recorded beneficiary rather than substituting the current setting. This
+changes newly built checkpoint hashes for a nonzero recipient, not the block/DA
+format: existing history, including zero-beneficiary recovery blocks, remains
+replayable using its recorded environment. Within the same execution profile,
+only the Composer's construction policy changes; signers and followers need no
+upgrade, and no protocol, genesis or database migration is needed. Rolling back
+this correction restores zero beneficiaries for future recovery replacements
+without rewriting settled history. Followers retain upstream external reinsertion
+policy; they do not sequence displaced ordinary work. The adapter
 adds no worker, queue, or durable recovery state.
 
 See the [proposal and acceptance gates](proposals/conditional-slot-production.md)

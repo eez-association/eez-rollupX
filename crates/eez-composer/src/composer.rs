@@ -2453,7 +2453,7 @@ where
                     .timestamp()
                     .checked_add(timing.l2_block_time().as_secs())
                     .ok_or("replacement timestamp overflow")?,
-                Address::ZERO,
+                self.inner.fee_recipient,
                 &[],
             )
             .map_err(|error| error.to_string())?;
@@ -2755,7 +2755,7 @@ where
                     &self.inner.evm_config,
                     &attempt.parent,
                     timestamp,
-                    Address::ZERO,
+                    self.inner.fee_recipient,
                     &[],
                 )
                 .map_err(|error| error.to_string())?;
