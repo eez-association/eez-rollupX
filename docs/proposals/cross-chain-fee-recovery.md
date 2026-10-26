@@ -17,7 +17,8 @@ by the compact API replacement. Both transaction encodings remain supported.
 
 ### Mixed-direction batching authorized on 2026-10-26
 
-Status: accepted; implementation and validation in progress. The baseline is
+Status: accepted and implemented; live validation passed, final-head CI pending.
+See the [validation record](../audits/2026-10-26-mixed-direction-fees/README.md). The baseline is
 `c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae` with protocol
 `84a5b5207880f192a6a5896cbfe0bac5249db47f`, the unmerged PR #101 dependency.
 The live mixed burst exposed direction cuts followed by FIFO rebuilds, often
@@ -47,7 +48,7 @@ reference separately instead of crediting projected refunds as cash.
 This is Composer policy only: no protocol, genesis, prover, wire, transaction or
 database migration. Drain accepted in-memory work before upgrading or rolling
 back. Older Composer versions restore direction separation; follower and signer
-execution rules are unchanged. Validate source regressions before a separate
+execution rules are unchanged. Validate source regressions and a separate
 candidate-network trial, retain exact binary identity, and compare the same
 mixed workload before claiming a performance improvement.
 
