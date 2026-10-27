@@ -6,7 +6,8 @@ This revision requires the offline-history profile from genesis, with new
 contracts and fresh L2 datadirs. For an existing rollup, keep its matching
 release and follow that release's restart/Composer procedure; these binaries
 do not migrate it. See the [profile boundary](chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary).
-Fresh-host deployment and restart rehearsal are pending.
+Fresh-host deployment remains pending. A compatible runtime restart on an
+existing offline-profile network was [validated separately](../audits/2026-10-26-network-916969-runtime-update/README.md).
 
 Required: Linux amd64, local Docker Engine/Compose, Git, Bash, curl, jq, OpenSSL,
 and Foundry **1.7.1** `cast` for startup checks. Reserve the
