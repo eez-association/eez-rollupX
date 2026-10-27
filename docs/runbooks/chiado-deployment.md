@@ -96,7 +96,7 @@ proxies, as in the pinned protocol's
 [deployment procedure](../../eez-core-protocol/deployment/README.md). Their
 ProxyAdmin owners, `EEZ_UPGRADE_OWNER` and `EEZ_ROLLUP_UPGRADE_OWNER`, default to
 the deployer and can replace the implementations; set them to dedicated
-accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x45` sender;
+accounts, such as multisigs, when the deployer should not hold that authority. Native L2 cross-chain (`0x45`) and history (`0x46`) transactions use the reserved system address;
 they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
@@ -245,6 +245,10 @@ Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
 and validation-contract-2 signers together; there is no existing-database upgrade.
+History updates use the dedicated optional `0x46` envelope, and history slot 3
+stores the immutable genesis phase. Old `0x45` history transactions and old
+genesis/runtime state are rejected. Rollback to earlier binaries requires a
+separate fresh network; reusing this network's database is unsupported.
 The prover remains v2 and requires no chain RPCs.
 
 Every L2 block also burns the balances of EEZL2 and the native system address before

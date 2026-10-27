@@ -246,22 +246,23 @@ manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
 
-Native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
+Cross-chain native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
 to, value, input])`, with version 1, the fixed implicit sender and zero fees.
 The [native contract](../../docs/proposals/native-system-transactions.md) defines
 canonical RLP, occurrence domains, RPC placeholders and exact gas/value rules.
 The signer independently recomputes each sourceHash from authenticated context
 and original semantic positions. Decoding a native transaction does not authorize
-its execution or minting. EEZL2 actions target EEZL2; scheduled history imports
-target the history predeploy with zero value.
+its execution or minting. EEZL2 actions target EEZL2. HistoryUpdate uses the
+dedicated `0x46` envelope specified below, with no sourceHash.
 
 The encoded gas limit MUST equal `min(16_777_216, remaining block gas)` for
-cross-chain actions, or `min(2_000_000, remaining block gas)` for history. Prior
+cross-chain actions. History derives `min(2_000_000, remaining block gas)`
+without an encoded gas field. Prior
 cumulative gas comes from replayed receipts. Reject a mismatched encoded limit;
 never clamp or normalize received bytes. A budget below intrinsic gas, including
 the active EIP-7623 floor, invalidates the block. Only actual charged gas counts
 toward block usage. Native execution never checks or increments the SYSTEM
-account nonce, even temporarily. Receipts have type `0x45`. Public RPC/txpool
+account nonce, even temporarily. Receipts preserve type `0x45` or `0x46`. Public RPC/txpool
 admission rejects native transactions.
 
 Ordinary Ethereum transactions retain normal nonce checks and fee deductions.
@@ -405,7 +406,7 @@ numbers, parent links and strictly increasing timestamps are mandatory. Headers
 are individually bounded to 2048 bytes; aggregate quotas also apply. Every
 produced bridge-only header remains required. Finalize verifies exact termination
 at the chosen anchor and membership of every recorded origin in that ancestry.
-A later eligible header does not invalidate an earlier recorded repeat.
+A later eligible header does not invalidate an earlier recorded omission.
 
 There is no separate provenance claim, canonical-state RPC, seed-history cache or
 registration-to-tip scan. Execution facts remain separate from conditional
@@ -421,17 +422,20 @@ chain ID; the Composer cannot override either.
 ### L1 history and synchronized PREVRANDAO
 
 The shared schedule is `I = delta * k`, `T(n) = T0 + n * I` and
-`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At every U(T), transaction
-zero MUST be native `0x45`, from the fixed system address to the history
-predeploy, with zero value and canonical `importHistory(T, hashes)` calldata.
-There is exactly one such transaction; outside U(T) it is forbidden. Its array
-contains zero to 64 consecutive headers after the inherited endpoint. Zero
-records repeat that endpoint while advancing the scheduled cutoff. A chosen
-endpoint cannot regress and its timestamp MUST be at most T. The exact calldata
-MUST match the authenticated parent state and checked ancestry byte for byte.
-The source need not be the latest eligible header. Missing acquisition therefore
-permits a producer to record a repeat; missing evidence for a recorded choice
-still rejects a proof. Replay follows the recorded choice, never arrival time.
+`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At U(T), transaction
+zero MAY be `0x46 || RLP([version = 1, chainId, hashes])`. Exactly 1–64 hashes
+strictly advance the authenticated parent endpoint; every consecutive produced
+header must match the supplied ancestry and the selected timestamp must be at
+most T. The engine derives SYSTEM_ADDRESS, the history destination, zero value,
+cutoff calldata and gas. There is no sourceHash. Duplicate, misplaced,
+off-schedule, empty, noncanonical or obsolete `0x45` history updates reject.
+
+Omission at any position leaves storage and origin unchanged, including eligible
+empty blocks, and MUST independently validate inherited header/opcode PREVRANDAO.
+Fixed firstCutoff defines the genesis phase; no empty imports advance a cursor.
+The chosen source need not be the latest eligible header. Missing new headers
+permits omission; missing evidence for an inherited or recorded choice still
+rejects. Replay follows the block, never header arrival time.
 
 The selected header's `prevRandao` MUST match both the L2 header and actual EVM
 PREVRANDAO. Keep it and the origin until the next scheduled update, including
@@ -451,8 +455,8 @@ These rules apply equally to full-block and selected-prefix Stateless execution;
 no caller-provided boundary or post-finalization correction is permitted.
 The recorded history transaction then executes before applications. It preserves
 the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
-Wrong code/state, missing/duplicate/misplaced transactions, malformed calldata,
-wrong version/source/chain/value/gas, conflicting imports, unexpected output/logs, revert or
+Wrong code/state, duplicate/misplaced transactions, malformed hash lists,
+wrong version/chain, conflicting imports, unexpected output/logs, revert or
 budget exhaustion invalidate the block. The prover cannot substitute a hidden
 call or silently repair the input. Prefix commitments include the transaction
 exactly once and retain its bytes when reconstructing cross-chain groups.
@@ -910,7 +914,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 1 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 2 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.

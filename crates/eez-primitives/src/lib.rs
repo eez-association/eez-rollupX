@@ -9,6 +9,14 @@ use alloy_primitives::{Address, B256, Bytes, Sealable, Sealed, TxKind, U256, add
 use alloy_rlp::{Decodable, Encodable};
 use reth_primitives_traits::InMemorySize;
 
+mod history;
+pub use history::{HISTORY_TX_TYPE, HISTORY_TX_VERSION, HistoryTransaction, MAX_HISTORY_HASHES};
+
+/// Whether a type has protocol-native fee and sender rules.
+pub const fn is_native_type(ty: u8) -> bool {
+    ty == SYSTEM_TX_TYPE || ty == HISTORY_TX_TYPE
+}
+
 /// Reserved EIP-2718 type for EEZ's unsigned system transactions.
 pub const SYSTEM_TX_TYPE: u8 = 0x45;
 /// The single native envelope version admitted by this fresh-network profile.
@@ -78,7 +86,6 @@ impl SystemTransaction {
         }
         let cap = match self.to {
             EEZL2_ADDRESS => SYSTEM_TX_GAS_CAP,
-            HISTORY_ADDRESS if self.value.is_zero() => HISTORY_TX_GAS_CAP,
             _ => {
                 return Err(alloy_rlp::Error::Custom(
                     "invalid system transaction destination or value",
@@ -316,12 +323,14 @@ pub enum EezTxEnvelope {
     Ethereum(reth_ethereum_primitives::TransactionSigned),
     #[envelope(ty = 69)]
     System(Sealed<SystemTransaction>),
+    #[envelope(ty = 70)]
+    History(Sealed<HistoryTransaction>),
 }
 
 impl EezTxEnvelope {
     /// History imports are protocol transactions, but are not cross-chain actions.
     pub fn is_history(&self) -> bool {
-        matches!(self, Self::System(tx) if tx.to == HISTORY_ADDRESS)
+        matches!(self, Self::History(_))
     }
 
     /// Only EEZL2 transactions delimit the reconstructed cross-chain suffix.
@@ -342,11 +351,18 @@ impl From<SystemTransaction> for EezTxEnvelope {
     }
 }
 
+impl From<HistoryTransaction> for EezTxEnvelope {
+    fn from(tx: HistoryTransaction) -> Self {
+        Self::History(Sealed::new(tx))
+    }
+}
+
 impl SignerRecoverable for EezTxEnvelope {
     fn recover_signer(&self) -> Result<Address, alloy_consensus::crypto::RecoveryError> {
         match self {
             Self::Ethereum(tx) => tx.recover_signer(),
             Self::System(tx) => tx.recover_signer(),
+            Self::History(tx) => tx.recover_signer(),
         }
     }
 
@@ -354,6 +370,7 @@ impl SignerRecoverable for EezTxEnvelope {
         match self {
             Self::Ethereum(tx) => tx.recover_signer_unchecked(),
             Self::System(tx) => tx.recover_signer_unchecked(),
+            Self::History(tx) => tx.recover_signer_unchecked(),
         }
     }
 }
@@ -363,6 +380,7 @@ impl TxHashRef for EezTxEnvelope {
         match self {
             Self::Ethereum(tx) => tx.tx_hash(),
             Self::System(tx) => tx.hash_ref(),
+            Self::History(tx) => tx.hash_ref(),
         }
     }
 }
@@ -372,6 +390,7 @@ impl InMemorySize for EezTxEnvelope {
         match self {
             Self::Ethereum(tx) => tx.size(),
             Self::System(tx) => std::mem::size_of::<Self>() + tx.input.len(),
+            Self::History(tx) => std::mem::size_of::<Self>() + tx.hashes.len() * 32,
         }
     }
 }
@@ -435,6 +454,19 @@ impl alloy_evm::FromRecoveredTx<EezTxEnvelope> for revm::context::TxEnv {
     fn from_recovered_tx(tx: &EezTxEnvelope, sender: Address) -> Self {
         match tx {
             EezTxEnvelope::Ethereum(tx) => Self::from_recovered_tx(tx, sender),
+            EezTxEnvelope::History(tx) => Self {
+                caller: sender,
+                gas_limit: HISTORY_TX_GAS_CAP,
+                gas_price: 0,
+                kind: TxKind::Call(HISTORY_ADDRESS),
+                value: U256::ZERO,
+                // Derived and installed only after schedule/ancestry validation.
+                data: Bytes::new(),
+                nonce: 0,
+                chain_id: Some(tx.chain_id),
+                tx_type: HISTORY_TX_TYPE,
+                ..Default::default()
+            },
             EezTxEnvelope::System(tx) => Self {
                 // Recovery normally supplies SYSTEM_ADDRESS. Preserve the supplied
                 // sender so the EVM rejects inconsistent recovered input instead

@@ -209,6 +209,22 @@ impl Fixture {
                         }
                         .into(),
                     );
+                    // Complete the outbound load/user group; a checkpoint cannot
+                    // end on a load. The no-op user does not change the probe.
+                    let user = TxLegacy {
+                        chain_id: Some(1),
+                        nonce: 1,
+                        gas_limit: 21_000,
+                        gas_price: u128::from(base_fee),
+                        to: TxKind::Call(Address::with_last_byte(0x91)),
+                        ..Default::default()
+                    };
+                    let signature = Signature::from(
+                        key.credential()
+                            .sign_prehash_recoverable(user.signature_hash().as_slice())
+                            .unwrap(),
+                    );
+                    transactions.push(user.into_signed(signature).into());
                 }
             }
             let header = Header {

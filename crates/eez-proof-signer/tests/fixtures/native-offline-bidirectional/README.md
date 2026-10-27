@@ -5,8 +5,9 @@ Captured from `cross_chain::minimal_bidirectional_cross_chain_smoke` with
 outbound-network-denying launcher, and the native manager accepted its signature.
 The process test independently checked the public input and canonical L2 safe hash.
 The captured execution includes recorded native history transactions and their
-metered gas with native 0x45/version 1, no system nonce, and authenticated
-fee collection under Profile.
+metered gas with history 0x46/version 1. Cross-chain transactions retain
+0x45/version 1 and their source identities. Complete cross-chain groups clear
+SYSTEM/EEZL2 residue before their checkpoints; ordinary fees reach FeeVault.
 
 `request.v2.protobuf` is the complete length-delimited `prove.v2.ClientFrame`
 sequence reconstructed by the test proxy. It contains all L2 witnesses and L1
@@ -16,8 +17,8 @@ required for cold independent replay. No RPC endpoint, operator secret or cache 
 part of this fixture.
 
 Source details and the executed command are recorded in
-[the implementation audit](../../../../../docs/audits/2026-10-24-pr-readiness/final-fixtures.md).
+[the implementation audit](../../../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md).
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 1. The sole
+the single `Profile` commitment and validation-contract version 2. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.

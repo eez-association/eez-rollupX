@@ -175,17 +175,16 @@ fn sync_block_is_empty<P: reth_storage_api::BlockReader>(
     provider: &P,
     header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
 ) -> Result<bool, String> {
-    use alloy_consensus::Transaction as _;
     use reth_primitives_traits::BlockBody as _;
     let block = provider
         .find_block_by_hash(header.hash(), reth_storage_api::BlockSource::Any)
         .map_err(|err| err.to_string())?
         .ok_or("missing Sync body")?;
-    Ok(block.body().transactions().iter().all(|tx| {
-        tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-            && tx.to() == Some(eez_primitives::HISTORY_ADDRESS)
-            && tx.value().is_zero()
-    }))
+    Ok(block
+        .body()
+        .transactions()
+        .iter()
+        .all(|tx| tx.ty() == eez_primitives::HISTORY_TX_TYPE))
 }
 
 /// Only L1 destination frames execute inside the outbound postBatch. Nested
@@ -6313,7 +6312,7 @@ where
     }
 
     /// On-grid heights in `(cursor, snapped]` with no applications or cross-chain
-    /// actions, highest first. A mandatory history import belongs to the public
+    /// actions, highest first. A recorded history import belongs to the public
     /// ordinary prefix and remains eligible for anchor-only settlement.
     /// Gas is not considered here — the caller prices
     /// each candidate on its fully encoded batch.
@@ -7091,7 +7090,10 @@ where
             // SYSTEM_ADDRESS-signed forms so an unrecovered failed Sync block
             // cannot reintroduce phantom cross-chain effects.
             for enc in &tx_bytes {
-                let is_system = if enc.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
+                let is_system = if enc
+                    .first()
+                    .is_some_and(|ty| eez_primitives::is_native_type(*ty))
+                {
                     use alloy_eips::Decodable2718 as _;
                     eez_primitives::EezTxEnvelope::decode_2718_exact(enc)
                         .map_err(|error| format!("invalid native history transaction: {error}"))?

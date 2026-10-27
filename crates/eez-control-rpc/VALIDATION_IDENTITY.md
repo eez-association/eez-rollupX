@@ -5,8 +5,8 @@ This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
-The [single-profile audit](../../docs/audits/2026-10-24-profile-simplification/README.md)
-records the current commitment/identity change and its validation limits.
+The [complete-group/history audit](../../docs/audits/2026-10-27-group-cleanup-and-history/README.md)
+records this commitment/identity change and its validation limits.
 
 ## Encoding
 
@@ -92,9 +92,9 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 Validation-contract version 2 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
-the fixed Osaka L2 profile, compact V0 operations, native 0x45/version-1 transactions
-with authenticated source identities and no system nonce, per-transaction base-fee
-collection, complete-group SYSTEM/EEZL2 balance cleanup before checkpoints, permanent history, recorded history transactions and delayed synchronized
+the fixed Osaka L2 profile, compact V0 operations, cross-chain 0x45/version-1 and optional history 0x46/version-1 transactions
+(source identities belong only to cross-chain transactions), no system nonce,
+per-transaction base-fee collection, complete-group SYSTEM/EEZL2 balance cleanup before checkpoints, permanent history, recorded history transactions and delayed synchronized
 PREVRANDAO, both anchor modes, execution/settlement validation, canonical native blobs
 and public inputs. The owning specifications are
 [RPC](SPEC.md), [streaming](STREAMING_SPEC.md),

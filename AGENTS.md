@@ -89,12 +89,16 @@ its Solidity implementation/tests and the applicable fork contract:
 ## Implementation boundaries and invariants
 
 - The [2026-10-23 branch amendment](docs/proposals/l1-origin-and-offline-proving.md#accepted-branch-scope-after-divergence-review)
-  is the owner-selected fresh-network profile: native `0x45`, reserved system sender, source identity
-  without a system-account nonce, and ordinary base fees credited to a collector.
+  is the owner-selected fresh-network profile: cross-chain `0x45`, history `0x46`,
+  a reserved system sender, cross-chain source identity without a system-account
+  nonce, and ordinary base fees credited to a collector.
   The [exact native/profile specification](docs/proposals/native-system-transactions.md)
   owns E1/E2; the [native-v1 audit](docs/audits/2026-10-24-native-v1/README.md)
-  tracks implementation and E3 evidence. There is one version-1 native profile;
-  do not add fallback execution, migration or old-format validation paths.
+  tracks historical implementation and E3 evidence. The
+  [current amendment audit](docs/audits/2026-10-27-group-cleanup-and-history/README.md)
+  records validation-contract-2 evidence. There is one fresh-network profile;
+  both native envelopes use version 1. Do not add fallback execution, migration
+  or old-format validation paths.
   Clear SYSTEM/EEZL2 balances after complete cross-chain groups before checkpoints,
   retaining block-start cleanup. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
@@ -102,10 +106,12 @@ its Solidity implementation/tests and the applicable fork contract:
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
 
-- The fresh-network history update is transaction zero at its scheduled position:
-  native `0x45` version 1, zero value, history predeploy destination, authenticated
-  source identity, no system-account nonce and a normal metered receipt. It belongs to public V0 ordinary data, not cross-chain framing.
-  Replay validates its recorded choice; later headers cannot invalidate a repeat.
+- A fresh-network history update is optional at genesis-phased eligible positions.
+  When present, it is transaction zero: native `0x46` version 1 with 1–64 hashes,
+  no source hash or system-account nonce, derived execution fields, zero fees and
+  a normal metered receipt. It belongs to public V0 ordinary data, not cross-chain
+  framing. Omission inherits history and PREVRANDAO, including in empty blocks;
+  later headers cannot invalidate that recorded choice.
   Keep v2 and the offline prover. Ordinary local production must not wait for L1,
   proof/settlement work or the speculative-depth/replacement bounds. Keep remote
   reads outside the shared production lock and retain local generation/parent

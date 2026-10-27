@@ -91,9 +91,9 @@ contract L1BlockHashCollectorTest is Test {
         assertEq(collector.blockHashes(100), bytes32(0));
     }
 
-    function testWaitsThroughEmptyImportAndResumesAfterScheduledImport() public {
+    function testWaitsThroughOmittedUpdateAndResumesAfterScheduledImport() public {
         assertCollected(99);
-        importHashes(120, 100, 0);
+        // No history transaction is needed while the origin is unchanged.
         assertWaiting(100);
 
         vm.warp(137);

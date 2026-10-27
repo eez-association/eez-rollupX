@@ -421,12 +421,14 @@ where
     let tx_env = TxEnv::from_recovered_tx(recovered.inner(), recovered.signer());
     let mut reference = None;
     match recovered.inner() {
+        TransactionSigned::History(_) => {
+            return Err(BuildError::ExecuteTx {
+                idx,
+                msg: "history must be validated in the initial block prefix".into(),
+            });
+        }
         TransactionSigned::System(tx) => {
-            let cap = if recovered.inner().is_history() {
-                eez_primitives::HISTORY_TX_GAS_CAP
-            } else {
-                SYSTEM_TX_GAS_CAP
-            };
+            let cap = SYSTEM_TX_GAS_CAP;
             let budget = available.min(cap);
             if tx.gas_limit != budget {
                 return Err(BuildError::ExecuteTx {
@@ -881,7 +883,7 @@ impl SyncBlockFork {
     where
         I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
     {
-        if tx_env.tx_type == eez_primitives::SYSTEM_TX_TYPE {
+        if eez_primitives::is_native_type(tx_env.tx_type) {
             return Err(BuildError::Builder(
                 "unsigned source must be ordinary".into(),
             ));
@@ -1218,7 +1220,9 @@ mod tests {
         };
         let endpoint = Header {
             number: 1,
-            timestamp: 2_000,
+            // A real available update exercises history in every prefix. An
+            // unchanged endpoint no longer creates a synthetic empty import.
+            timestamp: 988,
             parent_hash: reference.hash_slow(),
             ..Default::default()
         };

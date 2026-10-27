@@ -41,10 +41,10 @@ impl ExecutionGroupState {
     pub fn after(self, tx: &EezTxEnvelope) -> Result<(Self, bool), &'static str> {
         match tx {
             EezTxEnvelope::Ethereum(_) => Ok(self.after_ordinary()),
-            EezTxEnvelope::System(_) if self.awaiting_user => {
+            EezTxEnvelope::System(_) | EezTxEnvelope::History(_) if self.awaiting_user => {
                 Err("native table load must be followed immediately by its user transaction")
             }
-            EezTxEnvelope::System(_) if tx.is_history() => Ok((self, false)),
+            EezTxEnvelope::History(_) => Ok((self, false)),
             EezTxEnvelope::System(native) if native.to == EEZL2_ADDRESS => {
                 if native.input.starts_with(&LOAD_EXECUTION_TABLE_SELECTOR) {
                     Ok((

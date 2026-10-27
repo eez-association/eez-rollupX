@@ -2219,43 +2219,34 @@ where
                 .map(TransactionSigned::decode_2718_exact)
                 .transpose()
                 .map_err(DeriverError::l2_provider)?;
-            let input = match &first {
-                Some(TransactionSigned::System(tx))
-                    if tx.to == eez_protocol::l1_history::HISTORY_ADDRESS =>
-                {
-                    Some(&tx.input)
-                }
+            let hashes = match &first {
+                Some(TransactionSigned::History(tx)) => Some(&tx.hashes),
                 _ => None,
             };
-            let call = input
-                .map(|input| eez_protocol::l1_history::decode_import(input))
-                .transpose()
-                .map_err(DeriverError::l2_provider)?;
-            let selected = call
-                .as_ref()
-                .map(|call| {
+            let selected = hashes
+                .map(|hashes| {
                     inherited
                         .endpoint
-                        .checked_add(call.hashes.len() as u64)
+                        .checked_add(hashes.len() as u64)
                         .ok_or_else(|| DeriverError::l2_provider("history endpoint overflow"))
                 })
                 .transpose()?;
             let transition = history_schedule
                 .execution(timestamp, inherited, &bridge, selected)
                 .map_err(DeriverError::l2_provider)?;
-            if transition.import.as_ref() != input {
+            let expected = transition
+                .import
+                .as_ref()
+                .map(|input| eez_protocol::l1_history::decode_import(input).map(|call| call.hashes))
+                .transpose()
+                .map_err(DeriverError::l2_provider)?;
+            if expected.as_ref() != hashes {
                 return Err(DeriverError::l2_provider(
                     "published history update differs from anchored ancestry",
                 ));
             }
             inherited.endpoint = transition.origin_number;
             inherited.endpoint_hash = transition.origin_hash;
-            if call.is_some() {
-                inherited.next_cutoff = transition
-                    .cutoff
-                    .checked_add(history_schedule.interval())
-                    .ok_or_else(|| DeriverError::l2_provider("history cutoff overflow"))?;
-            }
         }
         // Reconstruct checked actions from the authenticated enclosing stream.
         // Settlement tables authorize applied effects; they cannot substitute

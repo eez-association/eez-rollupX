@@ -1309,9 +1309,8 @@ fn advisory_parent<L2: BlockReader<Header = Header>>(
             return Err(FeeQuoteError::Stale);
         }
         for tx in block.body().transactions() {
-            if (tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-                && tx.to() != Some(eez_primitives::HISTORY_ADDRESS))
-                || (tx.ty() != eez_primitives::SYSTEM_TX_TYPE
+            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+                || (!eez_primitives::is_native_type(tx.ty())
                     && tx
                         .recover_signer()
                         .map_err(|e| unavailable("history signer", e))?
@@ -1360,9 +1359,8 @@ fn history_size<L2: BlockReader<Header = Header>>(
         }
         let mut txs = Vec::new();
         for tx in block.body().transactions() {
-            if (tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-                && tx.to() != Some(eez_primitives::HISTORY_ADDRESS))
-                || (tx.ty() != eez_primitives::SYSTEM_TX_TYPE
+            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE
+                || (!eez_primitives::is_native_type(tx.ty())
                     && tx
                         .recover_signer()
                         .map_err(|e| unavailable("history signer", e))?

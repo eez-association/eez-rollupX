@@ -17,7 +17,7 @@ authenticated bootstrap storage. Its layout uses full-width scalar slots:
 | 0 | `mapping(uint64 => bytes32)` of exact L1 hashes |
 | 1 | First covered L1 number |
 | 2 | Current selected endpoint |
-| 3 | Next source cutoff |
+| 3 | Fixed first cutoff (genesis phase), never advanced |
 | 4 | Update interval |
 | 5 | Update delay |
 | 6 | Maximum hashes in one scheduled import |
@@ -27,26 +27,35 @@ returns an exact historical hash. The contract stores neither header bytes nor
 historical timestamps, randomness or L1 state roots.
 
 `importHistory(cutoff, newHashes)` is callable only by system address
-`0xfffffffffffffffffffffffffffffffffffffffe`, at exactly
-`block.timestamp == cutoff + updateDelay`, with `cutoff == nextCutoff`.
-It appends consecutive nonzero hashes after the current endpoint and advances
-the cutoff by one interval. An empty import still advances the schedule.
-Existing records, including identical ones, cannot be overwritten. Overflow,
-invalid scalar state and an import beyond the configured limit revert. It
-emits no logs and calls no other contract.
+`0xfffffffffffffffffffffffffffffffffffffffe`. It requires
+`block.timestamp == cutoff + updateDelay`, `cutoff >= firstCutoff`, and
+`(cutoff - firstCutoff) % interval == 0`. It appends 1–64 consecutive nonzero
+hashes after the current endpoint. Empty imports, overwritten records, overflow
+and invalid scalar state revert. The phase remains fixed. It emits no logs and
+calls no other contract. The engine enforces the single first-position update;
+this contract does not authenticate L1 consensus.
 
-The execution protocol authenticates ancestry and checks the origin recorded in
-transaction zero, rather than inferring it from when headers arrive. At every
-scheduled update the native `0x45` transaction must target the history predeploy,
-with zero value and canonical `importHistory(cutoff, hashes)` calldata. An empty
-array explicitly repeats the inherited origin. At other positions the transaction
-is forbidden. Selected origins cannot regress, skip a produced header, or exceed
-the delayed timestamp cutoff. Freshness/maximality is not a validity requirement.
+The dedicated HistoryUpdate is `0x46 || RLP([version, chainId, hashes])`, with
+version 1 and exactly three fields. The hash array contains 1–64 exact 32-byte
+hashes. Canonical complete RLP decoding rejects nonminimal integers, malformed
+lists, unsupported versions, extra fields and old `0x45` history envelopes.
+There is no sourceHash or producer-supplied calldata, destination, value or gas.
+The executor derives the system sender, this predeploy, zero value, the eligible
+cutoff and canonical import calldata from the block and authenticated parent.
 
-The version-1 transaction binds its sourceHash to the L2 parent, number, timestamp
-and exact import calldata. It never checks or changes the system account nonce.
-It produces a successful receipt and charges its execution gas to the block,
-with zero fees and no mint.
+An eligible block MAY contain one update, only as transaction zero. It MUST NOT
+contain one at any other position or timestamp. Omission inherits the installed
+origin and PREVRANDAO without writing storage, including at eligible positions
+and in completely empty blocks. A later update does not need intervening empty
+imports. Every supplied hash must match the complete consecutive checked L1
+ancestry; the selected endpoint timestamp must not exceed the delayed cutoff.
+Freshness/maximality is not a validity requirement. The selected header binds
+both the header and opcode PREVRANDAO; omitted updates still require that check.
+
+Execution never checks or changes the system account nonce. It produces a
+successful `0x46` receipt and charges execution gas to the block, with zero fees
+and no mint. RPC exposes version, chainId and hashes, plus fixed Ethereum
+placeholders; `input` is empty because the actual call is context-derived.
 Its gas limit is the smaller of remaining block gas and 2,000,000. Existing
 EIP-2935 and protocol balance cleanup run first. The executor requires the exact
 runtime, parent storage, checked header hashes, empty output and no logs; failure
@@ -71,7 +80,7 @@ consensus or grant signing authority by itself.
 
 Applications must use the imported endpoint returned by `current()` as their
 availability boundary. The latest produced L1 block is not necessarily imported
-into the L2 state where the application executes. Scheduled delay, empty repeats
+into the L2 state where the application executes. Scheduled delay, omitted updates
 and multipart catch-up can all leave the endpoint behind the L1 head; there is no
 fixed waiting duration that guarantees availability.
 
@@ -112,8 +121,9 @@ does not create transaction positions for a derived pending view.
 If no such payload exists, the node snapshots the latest L2
 parent and checked local L1 headers, then executes the real pre-application
 prefix in request-local state: EIP-2935, balance cleanup, and the native history
-transaction when scheduled. Both an advancing import and an empty repeat advance
-`nextCutoff`; the selected header supplies PREVRANDAO. The ordinary application
+transaction only when ready evidence allows advancement at an eligible position.
+Omission leaves the endpoint and genesis phase unchanged; the inherited or newly
+selected header supplies PREVRANDAO. The ordinary application
 simulation, Reth's gas/access-list algorithms and its selected debug tracer use
 that same state and environment. Failure to prepare or execute the prefix returns an error, without
 falling back to the unmodified parent state.

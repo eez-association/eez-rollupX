@@ -4,7 +4,7 @@ use crate::{
     rpc::{ReceiptBuilder, build_receipt, tests},
 };
 use eez_primitives::{EezPrimitives, engine::EezEngineTypes};
-use eez_protocol::l1_history::{HISTORY_ADDRESS, NEXT_CUTOFF_SLOT};
+use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, HISTORY_ADDRESS};
 use reth_chainspec::{ChainSpec, EthChainSpec as _};
 use reth_db::mock::DatabaseMock;
 use reth_eth_wire_types::BasicNetworkPrimitives;
@@ -100,7 +100,7 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
     let request = tokio::spawn(async move {
         api.spawn_with_state_at_block(parent.hash(), move |worker, mut db| {
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from(NEXT_CUTOFF_SLOT))
+                db.storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
                     .unwrap(),
                 expected_cutoff,
             );
@@ -112,7 +112,7 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
             }
             assert_eq!(worker.context.is_some(), cached);
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from(NEXT_CUTOFF_SLOT))
+                db.storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
                     .unwrap(),
                 expected_cutoff,
             );

@@ -1,7 +1,7 @@
 //! Adapts Ethereum execution to EEZ transaction and receipt types.
 //!
 //! The pinned `EthEvmConfig` fixes its primitives to Ethereum types, which cannot
-//! represent native type `0x45`. This wrapper selects `EezPrimitives`, preserves
+//! represent native types `0x45` and `0x46`. This wrapper selects `EezPrimitives`, preserves
 //! the native receipt type, and decodes native transactions in Engine payloads.
 //! Transaction gas accounting and block assembly reuse the pinned Ethereum code.
 //! The rollup lifecycle retains EIP-2935 but excludes beacon and request calls. `eez-primitives` defines the zero-fee native TxEnv;
@@ -65,6 +65,9 @@ pub fn ensure_supported_transaction(tx: &EezTxEnvelope) -> Result<(), AnyError> 
             )));
         }
     }
+    if let EezTxEnvelope::History(native) = tx {
+        native.validate().map_err(AnyError::new)?;
+    }
     if tx.is_eip4844() {
         return Err(AnyError::new(InvalidTransactionError::Eip4844Disabled));
     }
@@ -105,7 +108,7 @@ impl ReceiptBuilder for EezReceiptBuilder {
     type Transaction = EezTxEnvelope;
     type Receipt = Receipt;
 
-    /// Preserve native type `0x45` in the receipt root; Ethereum's receipt builder
+    /// Preserve native types `0x45` and `0x46` in the receipt root; Ethereum's receipt builder
     /// only accepts its own type enum. Status, gas, and logs are unchanged.
     fn build_receipt<E: Evm>(&self, ctx: ReceiptBuilderCtx<'_, EezTxType, E>) -> Receipt {
         Receipt {
@@ -153,7 +156,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
 }
 
 impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
-    /// Install ready checked L1 evidence for the mandatory history hook. No
+    /// Install ready checked L1 evidence for history validation. No
     /// execution path falls back to an RPC source when evidence is absent.
     pub fn with_l1_history(
         mut self,
@@ -164,11 +167,6 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
             schedule: schedule.history()?,
             first_number: schedule.config().l1_reference.number,
             source,
-            source_context: eez_protocol::native_source::HistorySourceContext::new(
-                schedule.config().l1_reference.chain_id,
-                self.chain_spec().chain().id(),
-                schedule.genesis_hash(),
-            )?,
             l2_chain_id: self.chain_spec().chain().id(),
         });
         Ok(self)
@@ -209,7 +207,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
         let history = self.executor.history.as_ref().ok_or_else(|| {
             alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
         })?;
-        let (number, expected_timestamp) = self
+        let (_, expected_timestamp) = self
             .schedule()
             .and_then(|schedule| schedule.next(parent))
             .map_err(alloy_evm::block::BlockExecutionError::other)?;
@@ -218,7 +216,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
                 "invalid history block position",
             ));
         }
-        crate::history::prepare(db, history, parent.hash_slow(), number, timestamp)
+        crate::history::prepare(db, history, timestamp)
     }
 
     /// Read and validate the fixed predeploy and inherited history state.
@@ -245,7 +243,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
         let history = self.executor.history.as_ref().ok_or_else(|| {
             alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
         })?;
-        let (number, expected_timestamp) = self
+        let (_, expected_timestamp) = self
             .schedule()
             .and_then(|schedule| schedule.next(parent))
             .map_err(alloy_evm::block::BlockExecutionError::other)?;
@@ -254,11 +252,11 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
                 "invalid history block position",
             ));
         }
-        crate::history::transition(db, history, parent.hash_slow(), number, timestamp, tx)
+        crate::history::transition(db, history, timestamp, tx)
     }
 
-    /// Derive the block environment from its public transaction input. Empty
-    /// imports and non-update blocks inherit the parent's randomness. Execution
+    /// Derive the block environment from its public transaction input. Omitted
+    /// updates inherit the parent's randomness. Execution
     /// independently binds the inherited endpoint to authenticated contract state.
     pub fn history_prev_randao(
         &self,
@@ -266,11 +264,12 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
         timestamp: u64,
         transaction: Option<&EezTxEnvelope>,
     ) -> Result<alloy_primitives::B256, eez_protocol::l2::ProfileError> {
-        let Some(EezTxEnvelope::System(tx)) = transaction.filter(|tx| tx.is_history()) else {
+        let Some(EezTxEnvelope::History(tx)) = transaction.filter(|tx| tx.is_history()) else {
             return Ok(parent.mix_hash);
         };
-        let call = eez_protocol::l1_history::decode_import(&tx.input)?;
-        let Some(hash) = call.hashes.last() else {
+        tx.validate()
+            .map_err(|_| eez_protocol::l2::ProfileError("invalid history transaction"))?;
+        let Some(hash) = tx.hashes.last() else {
             return Ok(parent.mix_hash);
         };
         let chain = self.l1_headers(timestamp)?;

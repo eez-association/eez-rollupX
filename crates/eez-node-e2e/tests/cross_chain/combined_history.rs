@@ -3,7 +3,7 @@
 use alloy_consensus::{Block, Transaction as _};
 use alloy_primitives::{Address, B256, Bytes, Signature, U256, keccak256};
 use alloy_provider::{Provider as _, ProviderBuilder};
-use alloy_sol_types::{SolCall as _, SolValue as _};
+use alloy_sol_types::SolValue as _;
 use eez_control_rpc::v2::{self, client_frame, server_frame};
 use eez_primitives::EezTxEnvelope;
 use eez_protocol::{CallMode, ExecutionOutcome};
@@ -126,16 +126,12 @@ async fn scheduled_history_static_and_lookup_settle() {
     let first = &block["transactions"][0];
     assert_eq!(
         first["type"],
-        format!("0x{:x}", eez_primitives::SYSTEM_TX_TYPE)
+        format!("0x{:x}", eez_primitives::HISTORY_TX_TYPE)
     );
-    let history: eez_primitives::SystemTransaction = serde_json::from_value(first.clone()).unwrap();
-    assert_eq!(history.to, eez_primitives::HISTORY_ADDRESS);
-    let import = eez_protocol::l1_history::IL1BlockhashContract::importHistoryCall::abi_decode(
-        &history.input,
-    )
-    .unwrap();
+    let history: eez_primitives::HistoryTransaction =
+        serde_json::from_value(first.clone()).unwrap();
     assert!(
-        !import.hashes.is_empty(),
+        !history.hashes.is_empty(),
         "regression must observe an advancing history import"
     );
     let parent_number = u64::from_str_radix(
@@ -154,12 +150,12 @@ async fn scheduled_history_static_and_lookup_settle() {
         .unwrap();
     assert_eq!(
         observed,
-        U256::from(old_number + import.hashes.len() as u64)
+        U256::from(old_number + history.hashes.len() as u64)
     );
     let expected = (
         U256::from(1),
         observed.to::<u64>(),
-        *import.hashes.last().unwrap(),
+        *history.hashes.last().unwrap(),
     )
         .abi_encode();
     assert_eq!(
@@ -345,14 +341,10 @@ async fn kurtosis_combined_history_observations_replay_offline() {
         }) else {
             continue;
         };
-        let history =
-            eez_protocol::l1_history::IL1BlockhashContract::importHistoryCall::abi_decode(
-                block.body.transactions[0].input(),
-            )
-            .unwrap();
-        if history.hashes.is_empty() {
-            continue;
-        }
+        let EezTxEnvelope::History(history) = &block.body.transactions[0] else {
+            unreachable!("first transaction was checked above")
+        };
+        assert!(!history.hashes.is_empty());
         let parent_number = block.header.number - 1;
         let terminal_hash = B256::from_slice(&terminal.hash);
         let canonical: serde_json::Value = rpc

@@ -141,7 +141,7 @@ fn capture_history<P: StateProviderFactory>(
     config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
 ) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
-    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS, decode_import};
+    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
     let header = block.header();
     let state = provider.state_by_block_hash(header.parent_hash)?;
     let first = u64::try_from(
@@ -150,9 +150,7 @@ fn capture_history<P: StateProviderFactory>(
             .unwrap_or_default(),
     )?;
     let count = match block.body().transactions.first() {
-        Some(eez_primitives::EezTxEnvelope::System(tx)) if tx.to == HISTORY_ADDRESS => {
-            decode_import(&tx.input)?.hashes.len() as u64
-        }
+        Some(eez_primitives::EezTxEnvelope::History(tx)) => tx.hashes.len() as u64,
         _ => 0,
     };
     let last = first

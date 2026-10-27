@@ -109,7 +109,7 @@ fn parent_for(fork: EthereumHardfork) -> SealedHeader {
 }
 
 fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &EezEvmConfig) {
-    use eez_protocol::l1_history::{HISTORY_ADDRESS, NEXT_CUTOFF_SLOT};
+    use eez_protocol::l1_history::HISTORY_ADDRESS;
     use revm::{bytecode::Bytecode, state::AccountInfo};
     let history = &config.chain_spec().genesis.alloc[&HISTORY_ADDRESS];
     let code = Bytecode::new_raw(history.code.clone().unwrap());
@@ -131,15 +131,7 @@ fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &Ee
             )
             .unwrap();
     }
-    // Parent 10 at timestamp 100 has executed the repeated-source updates at
-    // 86 and 98. Its next cutoff is 104 (installed at 110), not genesis's 80.
-    database
-        .insert_account_storage(
-            HISTORY_ADDRESS,
-            U256::from(NEXT_CUTOFF_SLOT),
-            U256::from(104),
-        )
-        .unwrap();
+    // The genesis phase is fixed even after omitted eligible updates.
 }
 
 #[test]

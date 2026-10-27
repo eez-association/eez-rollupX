@@ -8,14 +8,31 @@ use super::*;
 use crate::testkit::{LEGACY_USER_TX, TEST_SYSTEM_ADDRESS};
 use crate::validate::Validator;
 
+fn history_fixture() -> (Genesis, AdmittedBlock) {
+    use eez_control_rpc::v2::client_frame;
+    let name = "native-offline-bidirectional";
+    let index = crate::testkit::native_frames(name)
+        .into_iter()
+        .filter_map(|frame| match frame.kind {
+            Some(client_frame::Kind::Block(block)) => block.data,
+            _ => None,
+        })
+        .position(|block| {
+            let decoded: Block = alloy_rlp::decode_exact(&block.rlp).unwrap();
+            matches!(decoded.body.transactions.as_slice(), [tx] if tx.is_history())
+        })
+        .expect("capture must contain a nonempty scheduled history-only block");
+    crate::testkit::native_block(name, Some(index))
+}
+
 fn fixture_genesis() -> Genesis {
-    crate::testkit::native_block("native-offline-bidirectional", Some(2)).0
+    history_fixture().0
 }
 
 fn fixture_input() -> AdmittedBlock {
-    // The first scheduled import is a real state transition, not a synthetic
-    // empty-account replay. Its parent is in the middle of the captured range.
-    crate::testkit::native_block("native-offline-bidirectional", Some(2)).1
+    // Select the recorded state transition by its shape: eligible timestamps
+    // may omit updates when new evidence was not ready during capture.
+    history_fixture().1
 }
 
 #[test]

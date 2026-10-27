@@ -811,7 +811,7 @@ where
                     u64::try_from(
                         transactions
                             .iter()
-                            .filter(|tx| tx.ty() != eez_primitives::SYSTEM_TX_TYPE)
+                            .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
                             .count(),
                     )
                     .map_err(|_| PolicyError::Arithmetic("included pure transactions"))?

@@ -9,10 +9,10 @@ and pinned core define interoperability. Shared type/version names alone do not:
 
 | Boundary | Exact local contract |
 | --- | --- |
-| Native transactions and receipts | Type `0x45`, envelope version **1**, with the profile's source identities, gas and execution rules; the draft's version 0 is rejected. |
+| Native transactions and receipts | Cross-chain `0x45` version **1** with source identities; optional HistoryUpdate `0x46` version **1** with only chain ID and 1–64 hashes. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 1, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 2, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -106,11 +106,14 @@ rollback, grouped cross-chain and static-position rules. An ordinary Ethereum
 execution engine alone does not implement the RollupX profile.
 
 The [history transaction contract](../../../contracts/L1_HISTORY_SPEC.md) also
-applies to an external engine: execute the recorded first-position `0x45` import
-at every scheduled update, including empty repeats. Bind its version-1 sourceHash,
-check the exact encoded gas limit, preserve the system nonce and meter its gas. Validate its consecutive ancestry and delay, and set
-both the header and opcode PREVRANDAO from that recorded choice. Do not infer a
-new choice from the newest header in the witness or perform an invisible import.
+applies to an external engine: execute the optional first-position `0x46` update
+only at an eligible genesis-phased timestamp. Decode exactly version 1, chain ID
+and 1–64 hashes; derive cutoff, fixed sender/destination/zero value and the 2M
+remaining-gas-bounded budget. Preserve the system nonce and meter execution.
+Check the consecutive ancestry and delay, and set both header and opcode
+PREVRANDAO from that recorded choice. Omission inherits origin and PREVRANDAO
+without a storage write; validate that inheritance even in eligible empty blocks.
+Never infer a new choice from newer witness headers or perform an invisible import.
 
 Use [streaming evidence rules](../STREAMING_SPEC.md#3-offline-evidence-and-settlement-input)
 for complete canonical L1 headers, bridge-only headers, recorded origin membership,

@@ -13,7 +13,7 @@ use crate::{
 
 // Matches the pinned native transaction profile in eez-proof-signer/SPEC.md.
 // The monitoring workspace deliberately has no node/Reth dependencies.
-const NATIVE_TRANSACTION_TYPE: u64 = 0x45;
+const NATIVE_TRANSACTION_TYPES: [u64; 2] = [0x45, 0x46];
 const ACCOUNTING_VERSION: u64 = 2;
 
 /// Execution fees in the L2 network's native base units, plus receipt gas split
@@ -29,7 +29,7 @@ pub struct BlockFees {
     pub tip: U256,
 }
 
-/// Account for a complete block's execution receipts. Native type 0x45 consumes
+/// Account for a complete block's execution receipts. Native types 0x45/0x46 consume
 /// gas at zero price; ordinary transactions pay fees even when they revert.
 /// Reject missing/unsupported types, nonzero native prices, ordinary prices below
 /// the base fee, arithmetic overflow, and inconsistent inclusion or gas evidence.
@@ -73,7 +73,7 @@ pub fn block_fees(header: &Value, receipts: &Value) -> Result<BlockFees> {
         );
         let price = quantity(&receipt["effectiveGasPrice"])?;
         let transaction_type = number(&receipt["type"])?;
-        if transaction_type == NATIVE_TRANSACTION_TYPE {
+        if NATIVE_TRANSACTION_TYPES.contains(&transaction_type) {
             ensure!(price.is_zero(), "nonzero native L2 transaction price");
             fees.native_gas_used = fees
                 .native_gas_used

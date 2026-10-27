@@ -6,10 +6,10 @@
 
 use crate::balances::clear_protocol_balances;
 use crate::{EezEvmFactory, EezReceiptBuilder, ensure_supported_transaction};
-use alloy_consensus::{Transaction as _, TransactionEnvelope as _};
+use alloy_consensus::{Transaction as _, TransactionEnvelope as _, Typed2718 as _};
 use alloy_eips::eip2718::Encodable2718 as _;
 use alloy_evm::{
-    Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, RecoveredTx, TransactionEnvMut,
+    Evm, EvmFactory, RecoveredTx,
     block::{
         BlockExecutionError, BlockExecutionResult, BlockExecutor, BlockExecutorFactory,
         ExecutableTx, GasOutput, StateDB, TxResult,
@@ -68,7 +68,7 @@ pub struct EezBlockExecutor<'a, E, S> {
     inner: EthBlockExecutor<'a, E, S, EezReceiptBuilder>,
     layer: ExecutionLayer,
     history: Option<crate::history::HistoryConfig>,
-    history_required: bool,
+    history_inherited: bool,
     group_state: ExecutionGroupState,
 }
 
@@ -114,13 +114,7 @@ impl<E, S> EezBlockExecutor<'_, E, S> {
 
 impl<E, S> BlockExecutor for EezBlockExecutor<'_, E, S>
 where
-    E: Evm<
-            DB: StateDB,
-            Spec: Into<SpecId> + Clone,
-            Tx: FromRecoveredTx<EezTxEnvelope>
-                    + FromTxWithEncoded<EezTxEnvelope>
-                    + TransactionEnvMut,
-        >,
+    E: Evm<DB: StateDB, Spec: Into<SpecId> + Clone, Tx = revm::context::TxEnv>,
     S: EthExecutorSpec,
 {
     type Transaction = EezTxEnvelope;
@@ -162,7 +156,7 @@ where
         let history = self.history.as_ref().ok_or_else(|| {
             BlockExecutionError::msg("mandatory L1 history evidence source is not configured")
         })?;
-        self.history_required = crate::history::begin(&mut self.inner.evm, history)?;
+        self.history_inherited = crate::history::begin(&mut self.inner.evm, history)?;
         Ok(())
     }
 
@@ -170,7 +164,7 @@ where
         &mut self,
         tx: impl ExecutableTx<Self>,
     ) -> Result<Self::Result, BlockExecutionError> {
-        let (env, recovered) = tx.into_parts();
+        let (mut env, recovered) = tx.into_parts();
         let (next_group, completes_group) = if self.layer == ExecutionLayer::Rollup {
             self.group_state
                 .after(recovered.tx())
@@ -181,9 +175,11 @@ where
         if self.layer == ExecutionLayer::Rollup {
             ensure_supported_transaction(recovered.tx()).map_err(BlockExecutionError::other)?;
             let first = self.inner.receipts.is_empty();
-            if recovered.tx().is_history() != (first && self.history_required) {
+            if (recovered.tx().is_history() && !first)
+                || (first && !recovered.tx().is_history() && !self.history_inherited)
+            {
                 return Err(BlockExecutionError::msg(
-                    "missing, duplicate or misplaced history transaction",
+                    "duplicate/misplaced history transaction or incorrect inherited PREVRANDAO",
                 ));
             }
             if recovered.tx().is_history() {
@@ -191,15 +187,10 @@ where
                     .history
                     .as_ref()
                     .ok_or_else(|| BlockExecutionError::msg("missing history configuration"))?;
-                crate::history::validate(
-                    &mut self.inner.evm,
-                    history,
-                    self.inner.ctx.parent_hash,
-                    recovered.tx(),
-                )?;
+                env.data = crate::history::validate(&mut self.inner.evm, history, recovered.tx())?;
             }
 
-            if matches!(recovered.tx(), EezTxEnvelope::System(_)) {
+            if eez_primitives::is_native_type(recovered.tx().ty()) {
                 // Ethereum's rule charges a transaction's declared limit against
                 // the block before execution. A native transaction instead runs
                 // with the remaining block gas, bounded by the Osaka cap, so it
@@ -218,7 +209,12 @@ where
                 if recovered.tx().is_history() {
                     budget = budget.min(eez_protocol::l1_history::IMPORT_GAS_LIMIT);
                 }
-                if recovered.tx().gas_limit() != budget || env.gas_limit() != budget {
+                if recovered.tx().is_history() {
+                    env.gas_limit = budget;
+                }
+                if !recovered.tx().is_history()
+                    && (recovered.tx().gas_limit() != budget || env.gas_limit() != budget)
+                {
                     return Err(BlockExecutionError::msg(
                         "native gas limit differs from its block position",
                     ));
@@ -281,8 +277,10 @@ where
         // beacon balance increments or DAO transition. EIP-2935 already ran.
         // A future execution fork must explicitly define its L2 lifecycle before
         // the Osaka allowlist above is extended.
-        if self.history_required && self.inner.receipts.is_empty() {
-            return Err(BlockExecutionError::msg("missing history transaction"));
+        if !self.history_inherited && self.inner.receipts.is_empty() {
+            return Err(BlockExecutionError::msg(
+                "empty block PREVRANDAO differs from inherited L1 origin",
+            ));
         }
         self.group_state
             .ensure_complete()
@@ -335,7 +333,7 @@ impl<C: EthExecutorSpec + 'static> BlockExecutorFactory for EezBlockExecutorFact
             inner: EthBlockExecutor::new(evm, ctx, &self.spec, EezReceiptBuilder),
             layer: self.layer,
             history: self.history.clone(),
-            history_required: false,
+            history_inherited: true,
             group_state: ExecutionGroupState::default(),
         }
     }

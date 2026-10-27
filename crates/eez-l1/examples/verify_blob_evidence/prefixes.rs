@@ -18,9 +18,7 @@ use alloy_eips::{
 };
 use alloy_primitives::{B256, Bloom};
 use eez_primitives::{Block, Receipt};
-use eez_protocol::l1_history::{
-    HeaderChain, MAX_HEADER_BYTES, MAX_IMPORT_HEADERS, WitnessHistory, decode_import,
-};
+use eez_protocol::l1_history::{HeaderChain, MAX_HEADER_BYTES, MAX_IMPORT_HEADERS, WitnessHistory};
 
 type ReceiptEnvelope = ReceiptWithBloom<Receipt>;
 use serde_json::{Value, json};
@@ -107,8 +105,9 @@ fn replay_history(
     // the endpoint against the parent trie, import calldata and PREVRANDAO.
     let mut count = 1;
     let mut imports = block.body.transactions.iter().filter(|tx| tx.is_history());
-    if let Some(tx) = imports.next() {
-        count += decode_import(tx.input())?.hashes.len();
+    if let Some(eez_primitives::EezTxEnvelope::History(tx)) = imports.next() {
+        tx.validate()?;
+        count += tx.hashes.len();
     }
     if imports.next().is_some() {
         return Err("multiple history transactions in prefix block".into());
@@ -287,7 +286,6 @@ mod tests {
     use super::*;
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Signature, U256};
-    use alloy_sol_types::SolCall as _;
     use eez_primitives::EezTxType;
     use eez_protocol::l1_history::{HISTORY_ADDRESS, HistorySchedule, bootstrap_storage};
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
@@ -329,7 +327,7 @@ mod tests {
 
     #[test]
     fn captured_prefixes_replay_inherited_and_imported_l1_history() {
-        for (import, number, transactions) in [(false, 9468, 3), (true, 9465, 1)] {
+        for (import, number, transactions) in [(false, 285, 3), (true, 283, 1)] {
             let input = captured_input(import);
             let output = verify(&input).unwrap();
             let prefixes = output["prefixes"].as_array().unwrap();
@@ -342,17 +340,16 @@ mod tests {
             assert_eq!(prefixes.last().unwrap()["hash"], input["block_hash"]);
             assert_eq!(prefixes.last().unwrap()["transaction_count"], transactions);
             if !import {
-                // Expected pin comes from the original canonical L1 post's
-                // reverted lookup row, independently of this replay helper.
-                let expected = "0xe889943a26b2ec20ef054994650839c1b6f12b2b51b762d9360f4c7cc0c87873";
-                assert_eq!(
-                    prefixes
-                        .iter()
-                        .filter(|prefix| prefix["hash"] == expected)
-                        .count(),
-                    1
-                );
-                assert_ne!(output["block_hash"], expected);
+                // Canonical L1 execution events independently record the
+                // ordinary prefix, complete load/user group and inbound group.
+                // The intermediate load alone is not an admissible checkpoint.
+                let accepted = input["accepted_root_pins"].as_array().unwrap();
+                assert_eq!(accepted.len(), 3);
+                for index in [0, 2, 3] {
+                    assert!(accepted.contains(&prefixes[index]["hash"]));
+                }
+                assert!(!accepted.contains(&prefixes[1]["hash"]));
+                assert_ne!(prefixes[0]["hash"], output["block_hash"]);
             }
         }
     }
@@ -463,12 +460,12 @@ mod tests {
             let (mut block, _) = decode(&input).unwrap();
             block.header.mix_hash = B256::ZERO;
             write_block(&mut input, &block);
-            assert!(
-                verify(&input)
-                    .unwrap_err()
-                    .to_string()
-                    .contains("L2 PREVRANDAO differs from selected L1 origin")
-            );
+            let expected = if import {
+                "L2 PREVRANDAO differs from selected L1 origin"
+            } else {
+                "L2 PREVRANDAO differs from inherited L1 origin"
+            };
+            assert!(verify(&input).unwrap_err().to_string().contains(expected));
         }
     }
 
@@ -488,11 +485,11 @@ mod tests {
 
         let mut input = captured_input(true);
         let (mut block, _) = decode(&input).unwrap();
-        let eez_primitives::EezTxEnvelope::System(tx) = &block.body.transactions[0] else {
+        let eez_primitives::EezTxEnvelope::History(tx) = &block.body.transactions[0] else {
             panic!("captured block must start with a native history transaction");
         };
         let mut tx = (**tx).clone();
-        tx.source_hash = B256::ZERO;
+        tx.chain_id += 1;
         block.body.transactions[0] = tx.into();
         block.header.transactions_root = calculate_transaction_root(&block.body.transactions);
         write_block(&mut input, &block);
@@ -500,23 +497,20 @@ mod tests {
             verify(&input)
                 .unwrap_err()
                 .to_string()
-                .contains("history source identity differs from its genesis or L2 position")
+                .contains("history chain ID differs from configured L2")
         );
     }
 
     #[test]
-    fn prefix_history_cardinality_follows_the_recorded_import_including_repeats() {
+    fn prefix_history_cardinality_follows_recorded_updates_and_omission() {
         let mut input = captured_input(true);
         let (mut block, _) = decode(&input).unwrap();
         let spec = replay_spec(&input).unwrap();
-        let eez_primitives::EezTxEnvelope::System(tx) = &block.body.transactions[0] else {
+        let eez_primitives::EezTxEnvelope::History(tx) = &block.body.transactions[0] else {
             panic!("captured native import");
         };
-        let mut tx = (**tx).clone();
-        let mut call = decode_import(&tx.input).unwrap();
-        call.hashes.clear();
-        tx.input = call.abi_encode().into();
-        block.body.transactions[0] = tx.clone().into();
+        let tx = (**tx).clone();
+        block.body.transactions.remove(0);
         assert!(
             replay_history(&input, &spec, &block)
                 .unwrap_err()
@@ -531,6 +525,7 @@ mod tests {
                 .len(),
             1
         );
+        block.body.transactions.insert(0, tx.clone().into());
         block.body.transactions.push(tx.into());
         assert!(
             replay_history(&input, &spec, &block)
@@ -569,13 +564,11 @@ mod tests {
             ))));
             hashes.push(header.hash_slow());
         }
-        let eez_primitives::EezTxEnvelope::System(tx) = &block.body.transactions[0] else {
+        let eez_primitives::EezTxEnvelope::History(tx) = &block.body.transactions[0] else {
             panic!("captured native import");
         };
         let mut tx = (**tx).clone();
-        let mut call = decode_import(&tx.input).unwrap();
-        call.hashes = hashes;
-        tx.input = call.abi_encode().into();
+        tx.hashes = hashes;
         block.body.transactions[0] = tx.clone().into();
         input["l1_headers_rlp"] = json!(headers);
         // This tests bounded evidence decoding, not authorization of the
@@ -587,14 +580,13 @@ mod tests {
                 .len(),
             65
         );
-        call.hashes.push(B256::ZERO);
-        tx.input = call.abi_encode().into();
+        tx.hashes.push(B256::repeat_byte(1));
         block.body.transactions[0] = tx.into();
         assert!(
             replay_history(&input, &spec, &block)
                 .unwrap_err()
                 .to_string()
-                .contains("invalid history transaction calldata")
+                .contains("invalid history hash list")
         );
     }
 
@@ -703,10 +695,10 @@ mod tests {
 
     #[test]
     fn replay_rejects_inconsistent_history_bootstrap_without_repair() {
-        use eez_protocol::l1_history::{INTERVAL_SLOT, NEXT_CUTOFF_SLOT, UPDATE_DELAY_SLOT};
+        use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, INTERVAL_SLOT, UPDATE_DELAY_SLOT};
 
         for (slot, value) in [
-            (NEXT_CUTOFF_SLOT, REFERENCE_TIMESTAMP + 8),
+            (FIRST_CUTOFF_SLOT, REFERENCE_TIMESTAMP + 8),
             (INTERVAL_SLOT, 12),
             (UPDATE_DELAY_SLOT, 6),
         ] {

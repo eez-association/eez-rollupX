@@ -38,7 +38,7 @@ const OFFLINE_ROLLUP: Code = Code {
     length: 6610,
     immutables: &[486, 3547, 4181, 5260],
     metadata_hashes: &[],
-    hash: b256!("94fd2a7d40519caec7fc83037bf45e185b6b69c35d14d95f6aa2b9dc9e7fe50d"),
+    hash: b256!("cca5ab25ea124a1f228949b7d9dae60298c02316da6d3a22a919f33b24688a18"),
 };
 // contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {

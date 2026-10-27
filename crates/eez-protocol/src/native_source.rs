@@ -107,65 +107,6 @@ impl LiveSourceContext {
     }
 }
 
-/// History identity is fixed to a genesis and L2 position, independently of any
-/// later settlement attempt, anchor, accepted checkpoint or catch-up partition.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct HistorySourceContext {
-    domain: B256,
-}
-
-impl HistorySourceContext {
-    /// Construct from independently configured chain IDs and exact L2 genesis.
-    pub fn new(
-        l1_chain_id: u64,
-        l2_chain_id: u64,
-        genesis_hash: B256,
-    ) -> Result<Self, ProfileError> {
-        if l1_chain_id == 0 || l2_chain_id == 0 || genesis_hash.is_zero() {
-            return Err(ProfileError("invalid native history source context"));
-        }
-        Ok(Self {
-            domain: keccak256(
-                (
-                    keccak256("EEZ_ROLLUPX_HISTORY_SOURCE"),
-                    U256::from(SYSTEM_TX_VERSION),
-                    U256::from(l1_chain_id),
-                    U256::from(l2_chain_id),
-                    genesis_hash,
-                    eez_primitives::HISTORY_ADDRESS,
-                )
-                    .abi_encode_params(),
-            ),
-        })
-    }
-
-    /// Hash the exact recorded import, including an empty repeat. Validate its
-    /// ABI before hashing; schedule, parent relation and L1 ancestry still need
-    /// execution validation. parent_hash is the block at number minus one.
-    pub fn source_hash(
-        &self,
-        parent_hash: B256,
-        number: u64,
-        timestamp: u64,
-        import_calldata: &[u8],
-    ) -> Result<B256, ProfileError> {
-        if parent_hash.is_zero() || number == 0 || timestamp == 0 {
-            return Err(ProfileError("invalid native history position"));
-        }
-        crate::l1_history::decode_import(import_calldata)?;
-        Ok(keccak256(
-            (
-                self.domain,
-                parent_hash,
-                U256::from(number),
-                U256::from(timestamp),
-                keccak256(import_calldata),
-            )
-                .abi_encode_params(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -264,43 +205,5 @@ mod tests {
             ctx.outbound(0, B256::repeat_byte(0xab)),
             reference("outbound-different-origin")
         );
-    }
-
-    #[test]
-    fn independent_history_source_vectors() {
-        use alloy_sol_types::SolCall as _;
-        let ctx = HistorySourceContext::new(1, 901, B256::repeat_byte(0x33)).unwrap();
-        assert_eq!(ctx.domain, reference("history-domain"));
-        let repeat = crate::l1_history::IL1BlockhashContract::importHistoryCall {
-            cutoff: 132,
-            hashes: vec![],
-        }
-        .abi_encode();
-        let advance = crate::l1_history::IL1BlockhashContract::importHistoryCall {
-            cutoff: 132,
-            hashes: vec![B256::repeat_byte(0x99)],
-        }
-        .abi_encode();
-        for (id, parent, number, timestamp, data) in [
-            ("history-repeat-source", 0x77, 9, 138, &repeat),
-            ("history-advance-source", 0x77, 9, 138, &advance),
-            ("history-other-parent", 0xac, 9, 138, &repeat),
-            ("history-other-position", 0x77, 15, 150, &repeat),
-            ("history-other-anchor-or-part", 0x77, 9, 138, &repeat),
-        ] {
-            assert_eq!(
-                ctx.source_hash(B256::repeat_byte(parent), number, timestamp, data)
-                    .unwrap(),
-                reference(id),
-                "{id}"
-            );
-        }
-        let mut trailing = repeat.clone();
-        trailing.push(0);
-        assert!(
-            ctx.source_hash(B256::repeat_byte(0x77), 9, 138, &trailing)
-                .is_err()
-        );
-        assert!(ctx.source_hash(B256::ZERO, 9, 138, &repeat).is_err());
     }
 }

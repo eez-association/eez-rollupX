@@ -415,29 +415,20 @@ async fn catch_up(
                 .iter()
                 .enumerate()
                 .filter_map(|(position, tx)| match tx {
-                    eez_primitives::EezTxEnvelope::System(tx)
-                        if tx.to == eez_protocol::l1_history::HISTORY_ADDRESS =>
-                    {
-                        Some((position, tx))
-                    }
+                    eez_primitives::EezTxEnvelope::History(tx) => Some((position, tx)),
                     _ => None,
                 })
                 .collect();
             let mut selected = prior.number;
             if elapsed % 5 == 3 {
-                assert_eq!(recorded.len(), 1);
-                assert_eq!(recorded[0].0, 0);
-                let call =
-                    eez_protocol::l1_history::IL1BlockhashContract::importHistoryCall::abi_decode(
-                        &recorded[0].1.input,
-                    )
-                    .unwrap();
-                assert_eq!(call.abi_encode(), recorded[0].1.input.as_ref());
-                assert_eq!(call.cutoff, cutoff);
-                assert!(call.hashes.len() <= 64);
-                for hash in call.hashes {
-                    selected += 1;
-                    assert_eq!(hash, historical_headers[selected as usize].hash_slow());
+                assert!(recorded.len() <= 1);
+                if let Some((position, history)) = recorded.first() {
+                    assert_eq!(*position, 0);
+                    assert!(!history.hashes.is_empty() && history.hashes.len() <= 64);
+                    for hash in &history.hashes {
+                        selected += 1;
+                        assert_eq!(*hash, historical_headers[selected as usize].hash_slow());
+                    }
                 }
             } else {
                 assert!(recorded.is_empty());

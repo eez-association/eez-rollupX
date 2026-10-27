@@ -68,7 +68,7 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Handler for EezHandler<DB, I
         evm: &mut Self::Evm,
         _initial_gas: &mut InitialAndFloorGas,
     ) -> Result<(), Self::Error> {
-        if evm.ctx.tx.tx_type != SYSTEM_TX_TYPE {
+        if !eez_primitives::is_native_type(evm.ctx.tx.tx_type) {
             return pre_execution::validate_against_state_and_deduct_caller(&mut evm.ctx);
         }
         let ctx = &mut evm.ctx;
@@ -99,7 +99,9 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Handler for EezHandler<DB, I
         let Some(collector) = self.collector else {
             return Ok(());
         };
-        if evm.ctx.tx.tx_type == SYSTEM_TX_TYPE || evm.ctx.cfg.is_fee_charge_disabled() {
+        if eez_primitives::is_native_type(evm.ctx.tx.tx_type)
+            || evm.ctx.cfg.is_fee_charge_disabled()
+        {
             return Ok(());
         }
         // Retain the original account in the transaction state. Credit is
@@ -192,7 +194,8 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> EezEvm<DB, I> {
         // distribute fees the sender did not pay.
         let credit = collector
             .filter(|_| {
-                tx.tx_type != SYSTEM_TX_TYPE && !self.inner.ctx.cfg.is_fee_charge_disabled()
+                !eez_primitives::is_native_type(tx.tx_type)
+                    && !self.inner.ctx.cfg.is_fee_charge_disabled()
             })
             .map(|address| {
                 (
@@ -264,12 +267,13 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
     }
 
     /// Mint committed native value before validation and transfer. Failed calls
-    /// remove only this mint, preserving pooled funds and metered receipts.
+    /// remove only this mint; complete-group cleanup runs in the block executor
+    /// after execution, retaining the metered receipt.
     fn transact_raw(&mut self, tx: TxEnv) -> Result<ResultAndState, Self::Error> {
         let collector = self
             .collector
             .map_err(|error| EVMError::Custom(error.to_string()))?;
-        if tx.tx_type != SYSTEM_TX_TYPE {
+        if !eez_primitives::is_native_type(tx.tx_type) {
             if tx.caller == SYSTEM_ADDRESS {
                 return Err(EVMError::Custom(
                     "reserved system sender requires the native transaction type".into(),
@@ -281,9 +285,10 @@ impl<DB: Database, I: Inspector<EthEvmContext<DB>>> Evm for EezEvm<DB, I> {
         // validation additionally checks position gas and source authority.
         if collector.is_none()
             || tx.caller != SYSTEM_ADDRESS
-            || (tx.kind != TxKind::Call(EEZL2_ADDRESS)
-                && !(tx.kind == TxKind::Call(eez_primitives::HISTORY_ADDRESS)
-                    && tx.value.is_zero()))
+            || (tx.tx_type == SYSTEM_TX_TYPE && tx.kind != TxKind::Call(EEZL2_ADDRESS))
+            || (tx.tx_type == eez_primitives::HISTORY_TX_TYPE
+                && (tx.kind != TxKind::Call(eez_primitives::HISTORY_ADDRESS)
+                    || !tx.value.is_zero()))
             || tx.gas_limit > SYSTEM_TX_GAS_CAP
             || (tx.kind == TxKind::Call(eez_primitives::HISTORY_ADDRESS)
                 && tx.gas_limit > eez_primitives::HISTORY_TX_GAS_CAP)

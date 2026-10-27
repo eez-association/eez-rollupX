@@ -17,6 +17,6 @@
   "eezL2ProxyAdminAddress": "0x57BF29A07746a25b87c613e01D5DA49f6119e96c",
   "runtimeCodeHash": "0xab051a3551ca4e94b31ca2569617305294bb85085e787088eff1f4c95a97c625",
   "proxyRuntimeCodeHash": "0x88068de4c46d94b72f5d39f17b5407c958ec6920376ff1dd366995f65564372a",
-  "genesisStateRoot": "0x91d4a700e13c9fe12111e8e4c03f83363632bf76ac9e783ebe765be0b2ce8066",
+  "genesisStateRoot": "0x1143e2e4dfe4f0b15fce2d7077ca6a641182d7b13b06f59e626759d08335c1bf",
   "foundryVersion": "1.7.1"
 }
