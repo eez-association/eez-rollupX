@@ -120,7 +120,8 @@ contract L1StorageProofTest is Test {
         record(other);
         vm.expectRevert(L1StorageProof.InvalidHeader.selector);
         verifier.readStorage(NUMBER, ACCOUNT, SLOT, other, account, storagePath);
-        vm.expectRevert(abi.encodeWithSelector(L1BlockhashContract.L1BlockNotImported.selector, NUMBER + 1));
+        assertEq(L1BlockhashContract(verifier.HISTORY()).getL1BlockHash(NUMBER + 1), bytes32(0));
+        vm.expectRevert(L1StorageProof.InvalidHeader.selector);
         verifier.readStorage(NUMBER + 1, ACCOUNT, SLOT, h, account, storagePath);
         record(bytes.concat(h, hex"00"));
         vm.expectRevert();

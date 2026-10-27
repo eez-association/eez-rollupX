@@ -1,10 +1,9 @@
 ## RollupX application examples
 
-[L1BlockHashCollector](src/L1BlockHashCollector.sol) demonstrates sequential
-consumption of the network's delayed L1 history. It checks the imported endpoint
-inside `poll()`, so repeated polls while caught up return no progress. See the
-[history API and polling rules](L1_HISTORY_SPEC.md#application-polling) for
-initialization, strict error handling and deployment scope.
+Read the network's delayed L1 history directly through `getL1BlockHash(number)`
+at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`. A zero result means the block is
+outside the retained history range. See the [history API and polling rules](L1_HISTORY_SPEC.md#application-polling)
+for sequential consumption, strict error handling and compatibility.
 
 ## Foundry
 

@@ -6,8 +6,11 @@ nor a requirement on other rollup profiles using the core registry.
 
 [L1BlockhashContract](src/L2/L1BlockhashContract.sol) stores every produced L1 block hash from the
 genesis-configured first number through the current selected endpoint. It
-retains all installed records. Queries outside this range, or for an absent
-record, revert; zero is not a successful absence result.
+retains all installed records. A query outside the retained range returns
+`bytes32(0)`: that block is not available in the queried L2 state. This includes
+both pre-bootstrap and not-yet-imported blocks. Missing records within the imported
+range and invalid endpoint state revert. Zero never represents an authenticated
+L1 hash.
 
 The runtime has no initializer. Fresh genesis installs the exact runtime and
 authenticated bootstrap storage. Its layout uses full-width scalar slots:
@@ -23,8 +26,8 @@ authenticated bootstrap storage. Its layout uses full-width scalar slots:
 | 6 | Maximum hashes in one scheduled import |
 
 `current()` returns the selected number and hash; `getL1BlockHash(number)`
-returns an exact historical hash. The contract stores neither header bytes nor
-historical timestamps, randomness or L1 state roots.
+returns an exact historical hash or the unavailable sentinel above. The contract
+stores neither header bytes nor historical timestamps, randomness or L1 state roots.
 
 `importHistory(cutoff, newHashes)` is callable only by system address
 `0xfffffffffffffffffffffffffffffffffffffffe`. It requires
@@ -78,37 +81,40 @@ consensus or grant signing authority by itself.
 
 ## Application polling
 
-Applications must use the imported endpoint returned by `current()` as their
-availability boundary. The latest produced L1 block is not necessarily imported
+Applications query `getL1BlockHash(number)` directly and treat a zero result as
+no progress. The latest produced L1 block is not necessarily imported
 into the L2 state where the application executes. Scheduled delay, omitted updates
 and multipart catch-up can all leave the endpoint behind the L1 head; there is no
 fixed waiting duration that guarantees availability.
 
-For a sequential consumer, check the endpoint **inside each polling transaction**.
-When its next block is above that endpoint, return a no-progress result without
-changing the cursor or application state. Otherwise call `getL1BlockHash`, process
-the returned hash and advance only after success. Two polls in one L2 block can
+For a sequential consumer, perform the lookup **inside each polling transaction**.
+On zero, return without changing the cursor or application state. On a nonzero
+hash, process it and advance only after success. Two polls in one L2 block can
 then consume the last available record and return no progress, respectively.
-An earlier off-chain simulation does not replace this in-transaction check.
+Keep the cursor wide enough to represent exhaustion after `uint64.max`; do not
+wrap it. An earlier off-chain simulation does not replace this in-transaction
+check. `current()` remains available to inspect the imported endpoint; a separate
+collector contract or duplicate history mapping is unnecessary.
 
-`L1BlockNotImported(uint64)` has selector `0x2cbf90b9`. It covers requests below
-the genesis bootstrap, above the endpoint, or for a missing stored hash; the
-selector alone does not establish temporary unavailability. Do not catch every
-getter revert, or turn a missing covered record into a zero hash. Propagate
-invalid history state, malformed ABI results and other unexpected failures.
+`L1BlockNotImported(uint64)` has selector `0x2cbf90b9`. It identifies a missing
+covered hash. Invalid endpoint state uses
+`InvalidHistoryState()`. Neither error means normal waiting. Do not catch every
+getter revert or interpret zero as a valid header commitment: consumers such as
+`L1StorageProof` must reject zero before authenticating a supplied header.
 
-[L1BlockHashCollector](src/L1BlockHashCollector.sol) is a separately deployed
-reference application. Its constructor requires an already imported start block;
-`poll()` consumes at most one hash and returns `(false, 0)` only while its cursor
-is beyond the endpoint. Its mapping/event demonstrate application work, not
-another protocol history store. The cursor can represent the number after
-`uint64.max` without wrapping. Applications that do not track work can read the
-history predeploy directly without deploying a collector.
+## Compatibility
 
-This consumer pattern preserves the history ABI/runtime, genesis, `prove.v2`
-and offline replay rules. It does not install a collector into genesis or alter
-existing application deployments. Consumers on new networks must use this pattern;
-existing deployed collectors need their own application upgrade or redeployment.
+This behavior is active from fresh genesis under validation-contract version 4.
+The history address, ABI selectors, storage layout, native transaction encoding,
+import schedule and `prove.v2` wire format are unchanged. The runtime code hash,
+genesis state/block roots, manager profile and validation identity change.
+Use matching node, follower, signer and deployment artifacts with the newly
+rendered genesis and manager. Old genesis or retained prover sessions cannot be
+reused, and replacing binaries alone does not update an existing network's
+predeploy. No migration or legacy execution mode is included. Existing networks
+retain their deployed getter semantics; transitioning one requires a separately
+specified coordinated upgrade or a fresh network. Rolling back to the old
+artifacts requires the old network configuration/state, not the new datadir.
 
 ## Ethereum RPC simulation
 

@@ -188,7 +188,7 @@ exact post-cleanup FIFO prefix.
 This changes execution and commitments. Use matching new-network artifacts;
 pre-change histories/databases are unsupported, with no mixed-version execution,
 activation switch or migration. Use the six-field cross-chain envelope and keep the
-`prove.v2` protobuf unchanged; validation-contract version 3 identifies the new
+`prove.v2` protobuf unchanged; validation-contract version 4 identifies the new
 semantics. The manager profile preimage also includes this fixed version before
 the history address, binding the cleanup rule into on-chain public inputs without
 a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
@@ -545,7 +545,7 @@ both anchor selectors and existing current-root checks. The context already
 binds protocolConfigHash; require that exact commitment without additional
 context variants. No pinned core ABI change is needed.
 
-Use one ten-element portable identity RLP. Validation-contract version 3 covers
+Use one ten-element portable identity RLP. Validation-contract version 4 covers
 its encoding, canonical JSON rules and accepted execution/settlement semantics:
 
 ```text

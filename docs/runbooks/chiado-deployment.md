@@ -244,7 +244,12 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-3 signers together; there is no existing-database upgrade.
+and validation-contract-4 signers together; there is no existing-database upgrade.
+The L1 history getter returns zero outside its retained range and retains strict
+errors for inconsistent history. This changes the
+genesis runtime hash and manager profile; an existing network retains its old
+getter behavior until a separately specified transition. See the
+[history compatibility rules](../../contracts/L1_HISTORY_SPEC.md#compatibility).
 History updates use the dedicated optional `0x46` envelope, and history slot 3
 stores the immutable genesis phase. Old `0x45` history transactions and old
 genesis/runtime state are rejected. Cross-chain `0x45` uses six fields without a
