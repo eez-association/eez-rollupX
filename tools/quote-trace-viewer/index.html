@@ -14,7 +14,8 @@
   <main>
     <div class="intro"><div><p class="eyebrow">CROSS-CHAIN DEBUGGER</p><h1>Follow the call.</h1>
       <p>Inspect a fee simulation across L1 and L2, down to the call that reverted.</p></div>
-      <button id="download" hidden>Export JSON ↓</button></div>
+      <div class="intro-actions"><button id="show-import" aria-expanded="false" hidden>Import / paste another trace</button>
+      <button id="download" hidden>Export JSON ↓</button></div></div>
     <section class="import" aria-label="Import trace">
       <div><h2>Open a debug quote</h2><p>Import the JSON response from <code>eez_debugQuoteFee</code> with <code>{"trace":"calls"}</code>.</p>
         <label class="file-button">Choose JSON file<input id="file" type="file" accept=".json,application/json"></label>
@@ -28,10 +29,12 @@
         <section><p class="eyebrow">NETWORKS</p><strong id="networks"></strong><p>Simulated execution · not a mined transaction</p></section>
         <section><p class="eyebrow">CAPTURE</p><strong id="capture"></strong><p id="capture-detail"></p></section>
       </div>
-      <p id="quote-errors" class="notice error" hidden></p>
+      <details id="quote-diagnostics" hidden><summary>Quote diagnostic details</summary><p id="quote-errors" class="notice error" hidden></p></details>
       <p id="warning" class="notice" hidden></p>
+      <section id="failure-summary" class="notice" aria-label="Execution summary" hidden></section>
+      <p id="decoding-status" class="muted" hidden></p>
       <div class="toolbar"><label>Simulation run<select id="runs"></select></label>
-        <label>Find a call<input id="search" type="search" placeholder="Address, selector, error…"></label>
+        <label>Find a call<input id="search" type="search" placeholder="Contract, function, address, error…"></label>
         <button id="expand">Expand all</button><button id="collapse">Collapse all</button></div>
       <p id="run-info" class="muted"></p>
       <div class="inspector">
@@ -42,7 +45,7 @@
       </div>
       <details class="context"><summary>Selected execution transaction</summary><pre id="execution"></pre></details>
       <details class="context"><summary>Simulation context and original request</summary><pre id="context"></pre></details>
-      <p class="footnote">Frame gas is inclusive execution gas, excluding transaction overhead. Do not sum nested frames or simulation runs. L1 and L2 gas have different prices. Unknown custom errors retain their raw bytes; source maps and ABI import are not included in this version.</p>
+      <p class="footnote">Frame gas is inclusive execution gas, excluding transaction overhead. Do not sum nested frames or simulation runs. L1 and L2 gas have different prices. Explorer ABIs annotate captured bytes; they do not verify historical code or locate the executed source line. Unknown or incomplete data remains available below.</p>
     </div>
   </main>
 </body>

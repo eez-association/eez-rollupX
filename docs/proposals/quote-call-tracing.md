@@ -65,6 +65,31 @@ is outside this iteration.
 
 ## Compatibility and recovery
 
+### Dashboard decoding extension (authorized 2026-10-20)
+
+The dashboard may submit an unsigned transaction to its configured Composer
+front using `eez_debugQuoteFee` and send the response directly to the embedded
+viewer. The viewer keeps its offline CSP and opaque sandbox. An explicit,
+versioned MessageChannel handshake accepts only the embedding parent at the
+viewer's own URL origin. The channel carries imports, validated selected runs,
+and bounded text annotations; it has no signing, storage, URL-fetch or navigation
+commands. Standalone imports continue to work without a parent.
+
+The dashboard resolves explorer-verified ABIs by chain and observed code address,
+including delegate calls. An ABI is an annotation, not proof that explorer code
+matches the historical simulation. Unverified contracts, mismatched chains,
+unknown selectors and incomplete fields retain raw evidence. Decoding does not
+guess missing bytes or identify an executed Solidity source line. Metadata work
+is bounded and cancellable; changing imports/runs invalidates stale annotations.
+
+The viewer summarizes recorded failures separately from quote-level errors,
+identifies returned calls rolled back by ancestors, and reports omitted frames,
+runs and shortened fields separately. A parent's last recorded child is a
+navigation aid, not an asserted cause. Acceptance covers parent-only reverts,
+caught failures, interrupted/omitted execution, custom errors, delegate calls,
+tuple/array arguments, stale requests, hostile metadata, direct quoting without
+a wallet, and both dashboard deployment bases.
+
 This is an additive debug-only option and response field. Older Composers reject
 the option; users must upgrade Composer before requesting traces. The viewer
 reports exports without a supported trace explicitly. No protocol gitlink,

@@ -130,3 +130,38 @@ test("indexes deep traces iteratively without recursive traversal", () => {
   run.frames.push({ ...prototype, id: 4096, parentId: 4095 });
   assert.throws(() => parse(doc), /4096 frames/);
 });
+
+test("explains a parent-only revert without blaming its last successful child", () => {
+  const run = fixture().result.diagnostics.trace.runs[0];
+  run.frames[0].status = "revert";
+  run.frames[0].output = bytes(revert("GPv2: not a contract"));
+  for (const frame of run.frames.slice(1)) { frame.status = "success"; frame.output = bytes("0x"); }
+  run.frames[2].parentId = 0;
+  const summary = api.failureSummary(run);
+  assert.equal(summary.focus, 0);
+  assert.equal(summary.lastChild, 2);
+  assert.deepEqual(summary.failed, [0]);
+  assert.match(summary.detail, /No child revert or halt is recorded/);
+  assert.match(summary.detail, /2 returned calls have effects rolled back/);
+  assert.match(summary.detail, /#2 returned no data/);
+  assert.match(summary.detail, /does not establish the cause/);
+  run.complete = false;
+  assert.match(api.failureSummary(run).title, /incomplete/);
+});
+
+test("distinguishes field truncation from omitted calls and runs", () => {
+  const trace = fixture().result.diagnostics.trace;
+  trace.omittedFrames = 0; trace.omittedRuns = 0; trace.truncated = true;
+  trace.runs[0].frames[2].kind = "CREATE2";
+  trace.runs[0].frames[2].input = { hex: "0x1234", length: 7, truncated: true };
+  let summary = api.captureSummary(trace);
+  assert.match(summary.text, /no calls or runs omitted/);
+  assert.match(summary.text, /call #2: constructor input shortened \(2 of 7 bytes\)/);
+  assert.equal(summary.shortened.length, 1);
+  trace.omittedFrames = 5; trace.omittedRuns = 2;
+  summary = api.captureSummary(trace);
+  assert.match(summary.text, /5 calls and 2 runs omitted/);
+  assert.doesNotMatch(summary.text, /no calls or runs omitted/);
+  trace.omittedFrames = -1;
+  assert.throws(() => parse(trace), /Invalid omission count/);
+});
