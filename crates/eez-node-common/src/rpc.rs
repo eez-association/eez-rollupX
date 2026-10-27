@@ -429,8 +429,8 @@ mod tests {
         let blocks = l1_blocks(false);
         let spec = profile(&blocks[0]);
         let schedule = eez_evm::profile::schedule(&spec).unwrap();
-        // One header models a delayed L1 source; the longer snapshot permits an
-        // advancing import. Both must execute the scheduled native transaction.
+        // Exercise eligible and ineligible positions with a delayed L1 snapshot
+        // and one that permits an import.
         for (count, parent_number) in [(1, 0), (3, 0), (1, 2), (3, 2)] {
             let mut chain = HeaderChain::default();
             chain
@@ -499,7 +499,9 @@ mod tests {
                 .unwrap()
                 .unwrap_or_default();
             assert_eq!(system.nonce, 0);
-            assert_eq!(system.balance, alloy_primitives::U256::ZERO);
+            // The application continues from an open prefix. Neither block
+            // preparation nor a history import performs finalization cleanup.
+            assert_eq!(system.balance, alloy_primitives::U256::from(9));
             assert_eq!(
                 db.storage(
                     alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,

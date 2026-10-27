@@ -167,3 +167,39 @@ version-6 propagation and removal of obsolete initialized-history assumptions.
 The separate record and ancestry limits retain their own negative tests. No
 outstanding source-level defect was found in that review; this is an engineering
 self-review, not a new independent security audit.
+
+## CI follow-up: pending-prefix balance assertion
+
+[CI run 40592154984](https://github.com/eez-association/eez-rollupX/actions/runs/40592154984)
+at `92fc170b119edf2b0614843eaae1a858e38b46af` passed 1,612 debug unit tests and
+failed `rpc::tests::pending_prefix_executes_optional_import_with_matching_randao_and_fixed_phase`;
+four tests were skipped. The test inserted nine wei into SYSTEM, then expected
+zero after preparing an open pending prefix. That expectation predates the
+[accepted block-finalization cleanup](../../proposals/native-system-transactions.md#complete-group-balance-cleanup)
+and also exists in the PR #112 base. Preparation and history imports must preserve
+the balance; only a complete cross-chain group or block finalization clears it.
+
+The earlier 907-test command selected only 15 default-feature node-common tests.
+Its `l1-startup` RPC tests were not compiled, so that result did not validate this
+assertion. The failed test was reproduced locally at the exact CI head using
+`cargo +1.95.0 test --locked -p eez-node-common --features l1-startup --lib rpc::tests::pending_prefix_executes_optional_import_with_matching_randao_and_fixed_phase -- --exact`:
+one failure, actual balance 9 versus expected 0.
+
+The correction asserts the retained nine wei across the existing four scheduled
+and unscheduled cases, with and without advancing history. All nonce, history,
+PREVRANDAO opcode and state-isolation assertions remain. Production execution,
+contracts, validation identity and protocol pin are unchanged.
+
+`cargo +1.95.0 test --locked -p eez-node-common --features l1-startup --lib`
+then passed all 33 tests. The first sandboxed run passed the corrected regression
+and 29 others; three mock-RPC tests could not bind local sockets. The same full
+suite passed outside the sandbox, with no test exclusions or code changes.
+Before/after logs are retained locally under `artifacts/validation/pr115-*`;
+the CI failure remains linked above. A successful final-head CI is still required.
+
+`cargo +1.95.0 test --locked -p eez-evm --lib block::tests::` passed all eight
+selected regressions, including balance visibility between ordinary transactions,
+cleanup at block close, complete-group cleanup and discarded previews.
+Workspace Clippy with warnings denied, Cargo formatting and `git diff --check`
+also passed. The final diff contains only the test correction and this evidence;
+contract/process suites were not rerun for this test-only follow-up.
