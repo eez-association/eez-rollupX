@@ -406,3 +406,55 @@ The independent reviewer has been given the exact candidate, complete requiremen
 matrix and owning specifications. This implementation read does not substitute
 for that review. Final-head CI, shipping source/artifact provenance and any review
 findings remain acceptance gates. No live deployment or migration was performed.
+
+## Independent review corrections
+
+The separate reviews of `a76cf5792a7eb7217d3f2ac086e39ce029d74b98`
+identified two Composer defects. Neither finding changed the accepted source
+formula, signer authorization contract or protocol pin.
+
+- Retained ordinary Sync replay used the fresh-production builder. An eligible
+  block that originally omitted history could acquire a history transaction
+  when evidence arrived later, causing the strict recorded-hash check to fail.
+  Retained settlement and recorded-prefix hashing now use `replay_sync_block`,
+  which validates the exact recorded body, including omission. Fresh production
+  still selects an available eligible update.
+- Source preparation can advance beyond the first effect checkpoint requested
+  for a bracket with three or more inbound deliveries. The prefix cache then
+  discarded its later state and executed earlier transactions again. It now
+  retains complete-prefix hashes while keeping the latest execution state.
+  Reuse requires an exact byte prefix in the same immutable candidate context;
+  a changed branch or execution error clears cached state and hashes.
+
+Both regressions failed against the reviewed baseline before the fixes:
+`recorded_history_omission_survives_late_evidence` and
+`prepared_inbound_groups_reuse_earlier_effect_checkpoint_hashes`. The first
+covers empty and nonempty bodies, late evidence, fresh selection and exact
+replay of an existing update. The second follows production preparation/effect
+hashing for three successive three-delivery brackets, compares independent full
+rebuilds, and checks that every transaction executes once in the prefix cache.
+
+[Review-fix evidence](review-fixes-validation.json) records the source-file,
+patch, executable and log digests. The initial focused run had 22 passes and two
+failures; the corrected run passed all 24. The full Composer suite passed 418
+tests, with its one existing profiling utility ignored. Workspace Clippy with
+warnings denied and formatting passed. Four affected process cases passed:
+retained witness fallback, original-byte same-block partial reproof, three
+ordered inbound deliveries, and Sync history static/lookup settlement. Signer
+socket creation was denied. The late-evidence transition itself is injected in
+the builder regression; the retained process case does not inject an L1 outage.
+
+The source reviewer independently rechecked the cache fix and closed the
+finding. The integrating reviewer checked both complete patches and verified
+all three tested source-file hashes, focused/unit logs and four process logs
+against the retained evidence. Core remains clean at
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`. No shared network was changed.
+
+The preceding-head [CI run](https://github.com/eez-association/eez-rollupX/actions/runs/40447112974)
+passed runtime production, debug units, all eight native E2E shards, Kurtosis
+and the quote viewer. It failed dependency policy on new zstd-family advisories:
+RUSTSEC-2026-0391, RUSTSEC-2026-0398, RUSTSEC-2026-0403 and RUSTSEC-2026-0410.
+Cargo manifests, lockfile and advisory policy did not change in this PR.
+The advisory failure is unresolved; no new exception was added. The prior CI
+run does not validate these subsequent Composer fixes. Final-head CI and
+shipping artifact provenance remain required.

@@ -46,7 +46,7 @@ use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
-    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas},
+    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas, replay_sync_block},
     build_sync_block,
 };
 use crate::optimistic::AttemptId;
@@ -1909,7 +1909,7 @@ where
         let provider = Arc::clone(&rollup.l2_provider);
         let config = self.inner.evm_config.clone();
         // Rebuild only a committed ordinary checkpoint, off the async executor.
-        // Its recorded history transaction determines the original selection.
+        // Its recorded body preserves either the history update or its omission.
         let (parent, built) = tokio::task::spawn_blocking(move || -> Result<_, String> {
             let header = provider
                 .sealed_header(boundary)
@@ -1932,7 +1932,7 @@ where
                 .sealed_header_by_hash(header.parent_hash())
                 .map_err(|e| e.to_string())?
                 .ok_or("missing retained parent")?;
-            let built = build_sync_block(
+            let built = replay_sync_block(
                 provider.as_ref(),
                 &config,
                 &parent,

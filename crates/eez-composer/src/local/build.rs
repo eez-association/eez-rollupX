@@ -1,9 +1,8 @@
 //! Build a Sync block from cross-chain system transactions.
 //!
-//! Manual block-construction path — bypasses reth's payload builder
-//! because Sync blocks carry only cross-chain system txs (Rollup-1 §5),
-//! never pool txs. Uses the same reth-evm `BlockBuilder` machinery the
-//! Deriver uses to replay L1-derived blocks
+//! Manual block-construction path for recorded history and whole cross-chain
+//! groups, without selecting pool transactions. Uses the same reth-evm
+//! `BlockBuilder` machinery the Deriver uses to replay L1-derived blocks
 //! (`eez_deriver::Deriver::execute_block`).
 //!
 //! [`SyncBlockState`] exposes the same construction as a LIVE, incrementally
@@ -184,6 +183,16 @@ fn open_draft_db(
     Ok(builder.build())
 }
 
+fn freeze_history(config: &EezEvmConfig, timestamp: u64) -> Result<EezEvmConfig, BuildError> {
+    let chain = config
+        .l1_headers(timestamp)
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    config
+        .clone()
+        .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(chain)))
+        .map_err(|e| BuildError::Builder(e.to_string()))
+}
+
 /// Freeze ready evidence and plan the protocol prefix from local parent state.
 /// No L1 provider is queried; callers retain this config for the whole candidate.
 pub(crate) fn prepare_block_history<P: StateProviderFactory>(
@@ -199,13 +208,7 @@ pub(crate) fn prepare_block_history<P: StateProviderFactory>(
     ),
     BuildError,
 > {
-    let chain = config
-        .l1_headers(timestamp)
-        .map_err(|e| BuildError::Builder(e.to_string()))?;
-    let config = config
-        .clone()
-        .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(chain)))
-        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let config = freeze_history(config, timestamp)?;
     let state = provider
         .state_by_block_hash(parent.hash())
         .map_err(|e| BuildError::Provider(e.to_string()))?;
@@ -220,8 +223,9 @@ pub(crate) fn prepare_block_history<P: StateProviderFactory>(
     Ok((config, history, prefix))
 }
 
-/// Build a Sync block on top of `parent`, executing `sync_txs` in order. The
-/// list is mixed: outbound pairs interleave a system load with its user tx.
+/// Build a new Sync block on top of `parent`, selecting an eligible history
+/// update unless `sync_txs` already includes one, then executing in order.
+/// Recorded bodies require exact replay to preserve history omission.
 ///
 /// The returned [`BuiltSyncBlock`] is committed via
 /// [`BlockCommitterHandle::commit_derived`] — same engine-API tail
@@ -244,7 +248,7 @@ pub fn build_sync_block<P>(
 where
     P: StateProviderFactory,
 {
-    let (evm_config, mut history, prefix) =
+    let (evm_config, _, prefix) =
         prepare_block_history(l2_provider, evm_config, parent, timestamp)?;
     let includes_history = sync_txs.first().is_some_and(|raw| {
         TransactionSigned::decode_2718_exact(raw).is_ok_and(|tx| tx.is_history())
@@ -254,18 +258,41 @@ where
     } else {
         prefix.into_iter().chain(sync_txs.iter().cloned()).collect()
     };
+    replay_sync_block(
+        l2_provider,
+        &evm_config,
+        parent,
+        timestamp,
+        suggested_fee_recipient,
+        &transactions,
+    )
+}
+
+/// Reexecute an exact recorded body, including its choice to omit history.
+/// Later L1 evidence can validate an existing update but cannot add one. This
+/// also supplies canonical hashes for complete recorded transaction prefixes.
+pub(crate) fn replay_sync_block<P: StateProviderFactory>(
+    l2_provider: &P,
+    evm_config: &EezEvmConfig,
+    parent: &SealedHeader<Header>,
+    timestamp: u64,
+    suggested_fee_recipient: Address,
+    transactions: &[Bytes],
+) -> Result<BuiltSyncBlock, BuildError> {
+    let evm_config = freeze_history(evm_config, timestamp)?;
     let parent_hash = parent.hash();
     let state_provider = l2_provider
         .state_by_block_hash(parent_hash)
         .map_err(|e| BuildError::Provider(format!("state_by_block_hash({parent_hash}): {e}")))?;
     let mut state_db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
-    if includes_history {
-        let first = TransactionSigned::decode_2718_exact(&sync_txs[0])
-            .map_err(|e| BuildError::Builder(e.to_string()))?;
-        history = evm_config
-            .validate_history_input(&mut state_db, parent, timestamp, Some(&first))
-            .map_err(|e| BuildError::Builder(e.to_string()))?;
-    }
+    let first = transactions
+        .first()
+        .map(|raw| TransactionSigned::decode_2718_exact(raw))
+        .transpose()
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let history = evm_config
+        .validate_history_input(&mut state_db, parent, timestamp, first.as_ref())
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
     let l1_origin_hash = history.origin_hash;
     let prev_randao = history.prev_randao;
     let mut db = State::builder()
@@ -1135,9 +1162,8 @@ where
 
 /// Canonical block hashes after explicit inclusive transaction positions.
 ///
-/// Grouped outbound effects can contain callback system transactions after the
-/// user transaction, so boolean system/user framing alone cannot identify the
-/// logical effect endpoint.
+/// Positions refer to the exact recorded body, including any history update.
+/// Each must end a complete group; a native load alone cannot be a checkpoint.
 pub fn sync_block_hashes_at_positions<P>(
     l2_provider: &P,
     evm_config: &EezEvmConfig,
@@ -1162,7 +1188,7 @@ where
     positions
         .iter()
         .map(|&p| {
-            build_sync_block(
+            replay_sync_block(
                 l2_provider,
                 evm_config,
                 parent,
@@ -1412,6 +1438,88 @@ mod tests {
                 .map(|k| self.build(&self.txs[..k]).header.gas_used())
                 .collect();
             cumulative.windows(2).map(|w| w[1] - w[0]).collect()
+        }
+    }
+
+    #[test]
+    fn recorded_history_omission_survives_late_evidence() {
+        let f = fixture();
+        let available = f.evm_config.l1_headers(TIMESTAMP).unwrap();
+        let unavailable = f
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(Arc::new(
+                available.range(0, 0).unwrap(),
+            ))))
+            .unwrap();
+        // This fixture's child is both a Sync boundary and an eligible update.
+        // Test empty and nonempty recorded bodies after the evidence changes.
+        for transactions in [&[][..], &f.txs[..2]] {
+            let omitted = build_sync_block(
+                &f.provider,
+                &unavailable,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+                transactions,
+            )
+            .unwrap();
+            assert_eq!(omitted.block.body().transactions.len(), transactions.len());
+            assert_eq!(omitted.header.mix_hash, f.parent.mix_hash);
+
+            let rebuilt = replay_sync_block(
+                &f.provider,
+                &f.evm_config,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+                transactions,
+            )
+            .unwrap();
+            assert_eq!(rebuilt.block.body(), omitted.block.body());
+            assert_eq!(rebuilt.header.hash(), omitted.header.hash());
+            assert_eq!(rebuilt.header.gas_used(), omitted.header.gas_used());
+            assert_eq!(rebuilt.l1_origin_hash, omitted.l1_origin_hash);
+
+            let fresh = f.build(transactions);
+            assert!(fresh.block.body().transactions[0].is_history());
+            assert_ne!(fresh.header.hash(), omitted.header.hash());
+            let fresh_body = fresh
+                .block
+                .body()
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                replay_sync_block(
+                    &f.provider,
+                    &f.evm_config,
+                    &f.parent,
+                    TIMESTAMP,
+                    FEE_RECIPIENT,
+                    &fresh_body,
+                )
+                .unwrap()
+                .header
+                .hash(),
+                fresh.header.hash(),
+            );
+            if !transactions.is_empty() {
+                assert_eq!(
+                    sync_block_hashes_at_positions(
+                        &f.provider,
+                        &f.evm_config,
+                        &f.parent,
+                        TIMESTAMP,
+                        FEE_RECIPIENT,
+                        transactions,
+                        &[transactions.len() - 1],
+                    )
+                    .unwrap(),
+                    vec![omitted.header.hash()],
+                );
+            }
         }
     }
 
@@ -2419,5 +2527,51 @@ mod tests {
         }
         let final_block = builder.finish(provider.as_ref(), None).unwrap();
         assert_eq!(final_block.block.hash(), f.build(&complete).header.hash());
+    }
+
+    #[test]
+    fn prepared_inbound_groups_reuse_earlier_effect_checkpoint_hashes() {
+        let f = native_fixture(bytes!("00"));
+        let mut complete = f.history_prefix();
+        let mut draft = f.open(&[]);
+        let context = eez_protocol::native_source::LiveSourceContext::new(
+            eez_protocol::RollupId(1),
+            B256::repeat_byte(0x81),
+        )
+        .unwrap();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        for first_row in [1, 4, 7] {
+            let plans = [native_plan(), native_plan(), native_plan()];
+            let sources =
+                [first_row, first_row + 1, first_row + 2].map(|row| context.entry(row).unwrap());
+            let deliveries = hashes
+                .prepare_transactions(&mut draft, &complete, &plans, &sources)
+                .unwrap();
+            let positions = (complete.len()..complete.len() + deliveries.len()).collect::<Vec<_>>();
+            complete.extend(deliveries.iter().cloned());
+            // Production asks for every effect hash immediately after preparing
+            // a bracket. The first requested prefix precedes the latest cache.
+            let actual = hashes.at_positions(&complete, &positions).unwrap();
+            for (&position, hash) in positions.iter().zip(actual) {
+                assert_eq!(hash, f.build(&complete[..=position]).header.hash());
+            }
+            for delivery in deliveries {
+                draft.execute_tx(&delivery).unwrap();
+            }
+            hashes.assert_state_matches_rebuild();
+            assert_eq!(
+                hashes.executed_transactions,
+                complete.len(),
+                "preparation followed by effect hashing must execute each transaction once"
+            );
+        }
+        assert_eq!(draft.gas_used(), f.build(&complete).header.gas_used());
     }
 }
