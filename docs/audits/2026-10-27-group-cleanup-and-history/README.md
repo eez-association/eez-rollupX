@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Integrated source implementation, shared/signer/conformance/oracle checks and 17 combined process scenarios passed; fee/treasury processes, final-head CI and independent review remain pending |
+| Status | Implementation and scoped local validation complete at `d37d2e86`; final-head CI/release provenance and independent review remain required |
 | Scope | PR #103: existing upgradeable FeeVault and #107 reference collector; accepted #105 complete-group cleanup, #108 dedicated optional history and prefix-bound original-row source identity; new networks only, no core or allocator changes |
 | Base | `6c3106fb482bb323eefa8898a0bd922fc7520480` on `codex/fee-vault-upgradeable`; PR base `codex/mixed-direction-fees` at `641e768f2e6605f7563c808a00937d374e98e8fb` |
 | Protocol baseline/current | `84a5b5207880f192a6a5896cbfe0bac5249db47f`; unchanged. The owner prohibits core-contract/ABI/public-input changes and pin changes to introduce allocation support |
@@ -143,20 +143,20 @@ for the final source-identity bytes.
 
 | Accepted requirement | Implementation / owning contract | Executed evidence and remaining acceptance gate |
 | --- | --- | --- |
-| Upgradeable FeeVault, initialized genesis proxy, separate upgrade/treasury ownership, safe withdrawals and recipient changes | `contracts/src/L2/FeeVault.sol`, genesis renderer, `fee-vault-upgrades.md` | Current generated contracts/genesis passed 165 integration tests and artifact check. Prior source process checked real fee credits; final combined process/CI pending. |
-| #107 collector handles ahead cursor with `current()`; strict getter/unexpected failures remain visible; no pause | `contracts/src/L1BlockHashCollector.sol` | Collector tests passed, including omission/resumption. No network scheduling change or deployment. |
-| #105 complete independently funded groups, cleanup before checkpoints, discard/revert behavior | `ExecutionGroupState`, `clear_protocol_balances`, full and incremental executors | EVM 41, Composer 416, driver 74 passed on source-index candidate. Eight real core funding tests and independent signer trie oracle passed at the intermediate milestone; refreshed combined signing/replay pending. |
-| #108 optional nonempty `0x46`, fixed genesis phase, inherited PREVRANDAO on omission/empty blocks, fee-free typed receipts | Primitive codec, history contract/schedule/executor, all producers/consumers, indexer | Primitive 16 and affected EVM/Composer/driver tests passed. Full-feature driver found a stale empty-import fixture; supplied a real eligible header without weakening its observation tests. Prior indexer six tests/Clippy, contracts, genesis and process evidence retained. |
-| Delayed/late/missing L1, both anchor modes, bounded catch-up, ordinary L2 progress | History preparation, offline context, multipart and reorg scenarios | Intermediate 5-part expired-anchor process and imported-history reorg passed. Renew source-byte-dependent processes before completion. |
-| Preserve RX-PROVER-01/02 observation-prefix and recursive event rejection | Signer validated raw boundaries, outbound authorizer | Intermediate full signer and standalone process passed; final source-index signer and refreshed recording gates pending. |
-| Exact literal-string ABI source formula, original mutable rows including failed gaps and static-only outbound host | `native_source`, `ReconstructionActions`, portable encoding corpus | Protocol 209 passed; manual ABI and Foundry cross-check: 18 encodings/9 relationships. Static L1 rows do not count, full original rows remain append-stable. |
-| Raw pre-group B[i], sequential construction without cyclic/folded roots or repeated earlier execution | Composer prefix cache/estimation/final rebuild, shared assembler helper, signer checkpoint lookup | Production-prefix regression passed: row gaps, speculative discard, count rejection, no repeated transaction execution and continuation/finalization equivalence. Real trie/process renewal pending. |
-| Same original bytes on partial reproof after an intervening same-block post; no sourceHash-based deduplication | Follower authenticated entry/final-root placement, exact byte compare; selected original rows | Deriver 46 passed. Enhanced same-block process advances the first, middle and last groups in separate successful postings, with independent ABI source oracle and exact cold-follower transaction hashes; passed in 51.40 seconds. The final test-wrapper rerun is pending. |
-| v2 unchanged; offline proving without L1/L2 RPC; all independent context/root/bytes/effects/public-input checks retained | Signer, RPC contract and C#/Nethermind `IMPLEMENTING.md` | Production consumers migrated; final source captures/transcripts and full signer/control/client runs pending. No new wire field or execution profile. |
-| One fresh-network validation contract, unchanged core and dependencies | Version 2 bound by canonical on-chain profile and portable identity; no source-specific alternate mode | Protocol pin clean at `84a5b520...`; profile/identity corpus unchanged by the shorter source preimage. Final artifact/CI checks pending. |
-| Queue ownership and closed retry policies preserved | Existing admission/reconciliation; explicit local-prefix evidence failure has no user attribution | Composer regressions passed. Prior partial/restart/reorg process evidence retained; renewed processes pending. |
-| Scoped cleanup and no legacy implementations | Removed old source domains/positions and precomputed identity in native plans; current docs/vectors migrated | All production callers traced. Unsigned fee probes still use a nonpublishable zero identity; Ethereum legacy signed transactions and Reth witness `Legacy` remain active supported formats. Historical audits are evidence, not alternate rules. Final independent cleanup read pending. |
-| Exact final source/artifacts, CI and independent correctness review | This audit, final PR description and parent review | Pending. No push, merge, deployment or restart performed. |
+| Upgradeable FeeVault, initialized genesis proxy, separate upgrade/treasury ownership, safe withdrawals and recipient changes | `contracts/src/L2/FeeVault.sol`, genesis renderer, `fee-vault-upgrades.md` | 165 contract tests and generated artifact check at unchanged Solidity/genesis code. Final-source treasury process passed: real credits, recipient rotation, implementation upgrade, withdrawal, offline settlement and cold follower replay. |
+| #107 collector handles an ahead cursor with `current()`; strict getter/unexpected failures remain visible; no pause | `contracts/src/L1BlockHashCollector.sol` | Collector tests passed against actual history runtime, including omission/resumption. It remains a separately deployable application; no live collector was changed. |
+| #105 complete independently funded groups, cleanup before checkpoints, discard/revert behavior | `ExecutionGroupState`, `clear_protocol_balances`, full and incremental executors | EVM 41, Composer 416, driver 74 passed. Eight real-core funding tests model cleanup with `vm.deal`; production EVM tests and the signer's independently assembled trie/checkpoint oracle validate the hook. Nested/multi-root and partial/restart source processes passed. |
+| #108 optional nonempty `0x46`, fixed genesis phase, inherited PREVRANDAO on omission/empty blocks, fee-free typed receipts | Primitive codec, history contract/schedule/executor, all producers/consumers, indexer | Primitive 16, affected EVM/Composer/driver tests and 20 independent prefix replay tests passed. Earlier indexer six tests/Clippy and contract/genesis checks cover unchanged component code. History present/omitted combined source processes passed. |
+| Delayed/late/missing L1, both anchor modes, bounded catch-up, ordinary L2 progress | History preparation, offline context, multipart/reorg scenarios | Final-source catch-up: 2,010 L2 blocks, 32 ordinary transactions, five cold offline parts (4 historical/1 actual-parent), 403 imported L1 headers; old source age 314 rejected by manager. Imported-history reorg preserved 20 ordinary transactions. This is not a four-day wall-clock benchmark. |
+| Preserve RX-PROVER-01/02 observation-prefix and recursive-event rejection | Signer validated raw boundaries and outbound authorizer | All 329 signer tests passed, including prior observation/event regressions. Standalone seccomp-denied process passed six requests: 2 correct signatures and 4 earlier-state rejections. |
+| Exact literal-string ABI source formula, original mutable rows including failed gaps and static-only outbound host | `native_source`, `ReconstructionActions`, portable encoding corpus | Protocol 209; manual ABI/Foundry cross-check of 18 encodings and 9 relationships; original-row/failed/static/append-stability tests. Static-callback, repeated-call and ordered inbound process cases passed. L1 static rows do not count. |
+| Raw pre-group B[i], sequential construction without cyclic/folded roots or repeated earlier execution | Composer prefix cache/estimation/final rebuild, shared assembler, signer checkpoint lookup | Production-prefix regression checks row gaps, speculative discard, count rejection, no repeated transaction execution and finish equivalence. Exact raw-prefix/source rejection and real trie/process checks passed. |
+| Same original bytes on partial reproof after an intervening same-block post; no sourceHash-based replay placement | Follower authenticated entry/final-root placement, exact byte compare, original selected rows | Deriver 46 and enhanced three-progressive-post process passed, with independent ABI oracle, stale-proof rejection and exact cold-follower transaction hashes. Boxed final test wrapper also passed (50.98 seconds). |
+| v2 unchanged; no L1/L2 RPC for proving; independent context/root/bytes/effects/public-input checks | Signer, RPC and C#/Nethermind `IMPLEMENTING.md` | 3 fresh process captures, 329 signer/7 RPC/34 client tests, 29 real TCP transcripts, independent PI/rolling/KZG oracles passed. No new protobuf field or selectable profile. Actual C# execution is an external integration gate. |
+| One fresh-network validation contract, unchanged core and dependencies | Version 2 bound by canonical on-chain profile/portable identity | Core pin stays clean at `84a5b520...`; core ABI/public-input and Cargo/schema files unchanged. Generated genesis/runtime and profile/identity vectors agree. Final shipping-artifact CI remains pending. |
+| Queue ownership, closed retries and fee policy preserved | Existing admission/reconciliation; local-prefix failure has no user attribution | Partial/restart/native-reorg processes and Composer suites passed. Unsigned nested quotes, missing-refund continuation and mixed partial inclusion passed on Ethereum and Gnosis. |
+| Scoped cleanup; no legacy production paths | Old source domains/positions/precomputed identities and old history encoding removed; docs/corpus migrated | Production callers traced. Unsigned fee probes retain a nonpublishable zero identity; Ethereum signed legacy transactions, Reth witness `Legacy`, and v1 native envelope/vector names remain current formats. Historical audits/superseded proposals are evidence, not runtime modes. Fee trace `source_hash` still identifies the signed user transaction. |
+| Exact source/artifacts, final CI and independent correctness review | This audit and `source-index-validation.json` | Local source/runtime/harness/log identities retained; 27 distinct source-process scenarios passed. Full final-head release/Kurtosis CI and separate review remain required. No merge/deployment/restart authorized or performed. |
 
 The final review must trace production callers, not infer cleanliness from a
 build or a text search. Any retained item resembling an older implementation
@@ -366,3 +366,43 @@ Independent public-input (3), rolling-hash (2), causal-evidence (10), blob codec
 Signer all-target/all-feature Clippy and warnings-denied documentation also
 passed. Seven further fee/treasury/static-only/observation process scenarios and
 the boxed same-block test-wrapper rerun are selected; these are still pending.
+
+
+## Final local validation and review
+
+The complete implementation is `d37d2e86481ca18153f23ebf859a9b48566431a7`, with
+unchanged core `84a5b5207880f192a6a5896cbfe0bac5249db47f`. All seven additional
+process scenarios passed: unsigned nested quoting, service after missing L1
+refunds, mixed partial inclusion on Ethereum and Gnosis, treasury
+upgrade/withdrawal/cold replay, static callbacks and the standalone audited
+history-observation signing boundary. The enhanced same-block test also passed
+after its wrapper was boxed. Together with the three captures, **27 distinct
+source-process scenarios passed**; the extra wrapper rerun is not counted as
+another distinct scenario. One earlier failed test expectation remains recorded.
+
+[Source-validation evidence](source-index-validation.json) records exact binaries,
+fixture/log hashes, selected tests, first failures and limits. The process build
+uses the existing E2E/signer package union and one Cargo job. An accidental
+E2E-only rebuild selected a different dependency feature union; only that owned
+build was interrupted, and its log is retained. The completed union rebuild took
+1m49s; the harness path was read from Cargo's output and its digest checked before
+each test. No result is claimed from the interrupted build. The local node
+package optimization/debug overrides address this host's memory limit; they are
+not shipping release settings or changed repository configuration.
+
+The fresh correctness read traced complete-group funding and native failure,
+provisional delta/cursor rollback, account deletion and FeeVault credits, history
+omission and canonical bounded decoding, original-row mapping before filtering,
+raw-prefix sequencing, final reconstruction, checkpoint reproof, follower
+placement, independent signer authorization and public-input binding. No further
+runtime correction was identified. Stale synthetic prefixes/captured heights and
+the test-future lint were corrected without weakening any assertion or production
+gate; a tautological source-hash assertion was removed while retaining the manual
+ABI oracle and actual reproof process. The core, wire schema and dependency pin
+were checked again. Historical superseded design records remain clearly marked;
+no prior history/source algorithm is selectable in production.
+
+The independent reviewer has been given the exact candidate, complete requirement
+matrix and owning specifications. This implementation read does not substitute
+for that review. Final-head CI, shipping source/artifact provenance and any review
+findings remain acceptance gates. No live deployment or migration was performed.
