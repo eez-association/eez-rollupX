@@ -171,7 +171,7 @@ records independent review and the executed encoding checks:
 
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
-| E1 | Specified | Cross-chain native version 1 with exact inbound/outbound source domains; dedicated optional history version 1; original bracket/root positions; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
+| E1 | Specified | Cross-chain native version 1 with a single prefix-bound source formula; dedicated optional history version 1; original mutable settlement-row positions; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
 | E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 2. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 

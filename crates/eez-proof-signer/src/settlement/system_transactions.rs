@@ -30,21 +30,15 @@ impl SystemTransactionReconstructor {
         &self,
         outbound: &[OutboundSyncGroup],
         inbound: &[InboundSidecar],
-        sources: &[alloy_primitives::B256],
     ) -> Result<Vec<SyncPair>, String> {
-        eez_protocol::system_tx::build_cross_chain_sync_groups(
-            outbound,
-            inbound,
-            &self.context,
-            sources,
-        )
+        eez_protocol::system_tx::build_cross_chain_sync_groups(outbound, inbound, &self.context)
     }
 
-    pub(super) fn source_hashes(
+    pub(super) fn source_entries(
         &self,
         transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
         context: &eez_protocol::l1_history::OfflineContext,
-    ) -> Result<Vec<alloy_primitives::B256>, String> {
+    ) -> Result<Vec<eez_protocol::native_source::SourceEntry>, String> {
         let live = context
             .live_source_context()
             .map_err(|error| error.to_string())?;
@@ -57,6 +51,8 @@ impl SystemTransactionReconstructor {
             self.context.l2_chain_id,
         )
         .map_err(|error| error.to_string())?;
-        Ok(actions.source_hashes(&live))
+        actions
+            .source_entries(&live)
+            .map_err(|error| error.to_string())
     }
 }

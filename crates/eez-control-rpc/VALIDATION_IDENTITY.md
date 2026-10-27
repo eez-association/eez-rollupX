@@ -93,7 +93,8 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 Validation-contract version 2 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
 the fixed Osaka L2 profile, compact V0 operations, cross-chain 0x45/version-1 and optional history 0x46/version-1 transactions
-(source identities belong only to cross-chain transactions), no system nonce,
+(prefix-bound original mutable-row source identities belong only to cross-chain
+transactions), no system nonce,
 per-transaction base-fee collection, complete-group SYSTEM/EEZL2 balance cleanup before checkpoints, permanent history, recorded history transactions and delayed synchronized
 PREVRANDAO, both anchor modes, execution/settlement validation, canonical native blobs
 and public inputs. The owning specifications are

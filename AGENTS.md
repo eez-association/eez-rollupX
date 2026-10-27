@@ -105,6 +105,10 @@ its Solidity implementation/tests and the applicable fork contract:
   validation-contract-2 semantics consistent across all execution paths.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
+  Source identities bind the original mutable settlement row and independently
+  reconstructed pre-group prefix; preserve both on partial reproof. Source hashes
+  never select replay placement or authorize consumption. Keep core contracts,
+  ABI/public inputs and the pin unchanged; add no source-index allocator or wrapper.
 
 - A fresh-network history update is optional at genesis-phased eligible positions.
   When present, it is transaction zero: native `0x46` version 1 with 1–64 hashes,

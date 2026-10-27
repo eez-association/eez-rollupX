@@ -247,7 +247,11 @@ This is a fresh-network execution boundary: deploy matching Composer, followers
 and validation-contract-2 signers together; there is no existing-database upgrade.
 History updates use the dedicated optional `0x46` envelope, and history slot 3
 stores the immutable genesis phase. Old `0x45` history transactions and old
-genesis/runtime state are rejected. Rollback to earlier binaries requires a
+genesis/runtime state are rejected. Cross-chain `0x45` identities bind the original
+mutable settlement row and its raw pre-group block prefix under the
+[current source rule](../proposals/native-system-transactions.md#source-identity-simplification);
+older identity formulas produce incompatible transaction/block commitments.
+Rollback to earlier binaries requires a
 separate fresh network; reusing this network's database is unsupported.
 The prover remains v2 and requires no chain RPCs.
 

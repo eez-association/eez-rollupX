@@ -1,7 +1,8 @@
 # Offline v2 conformance vectors
 
 The corpus uses [native version 1 and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
-optional HistoryUpdate 0x46/version 1, complete-group cleanup, Profile and
+prefix-bound original-row source identities, optional HistoryUpdate 0x46/version 1,
+complete-group cleanup, Profile and
 validation-contract version 2. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
@@ -17,7 +18,8 @@ blobs, exact ABI inputs and the posting context required by actual-parent mode.
 
 The corpus has 24 expected successful proofs across 29 cases. Exact frame/event
 counts and input digests are recorded in its manifest. The recordings and
-transcripts were refreshed for complete-group cleanup and optional history;
+transcripts were refreshed for complete-group cleanup, optional history and
+the original-row/pre-group-prefix source identity;
 all 29 cases passed through the real TCP service and Stateless executor.
 The [current audit](../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md)
 records source identities, executed results and remaining integration gates.

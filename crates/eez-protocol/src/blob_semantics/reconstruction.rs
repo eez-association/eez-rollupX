@@ -3,14 +3,13 @@
 
 use alloy_consensus::{Transaction, TxEnvelope};
 use alloy_eips::{Decodable2718, Encodable2718};
-use alloy_primitives::{B256, keccak256};
 use alloy_sol_types::SolValue;
 use reth_primitives_traits::SignerRecoverable;
 
 use super::SemanticTransaction;
 use crate::abi::ExecutionEntrySol;
 use crate::entries::{InboundSidecar, finalize_l1_entry_traces};
-use crate::native_source::{LiveSourceContext, SourcePosition};
+use crate::native_source::{LiveSourceContext, SourceEntry};
 use crate::system_tx::{OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup};
 use crate::{Composition, EvmBatch, RollupId};
 
@@ -57,8 +56,8 @@ pub struct ReconstructionActions {
     rollup: RollupId,
     outbound: Vec<OutboundSyncGroup>,
     inbound: Vec<InboundSidecar>,
-    outbound_manifest_indices: Vec<u64>,
-    inbound_positions: Vec<SourcePosition>,
+    outbound_entry_indices: Vec<u64>,
+    inbound_entry_indices: Vec<u64>,
     compositions: Vec<Composition>,
 }
 
@@ -77,14 +76,13 @@ impl ReconstructionActions {
             rollup,
             outbound: Vec::new(),
             inbound: Vec::new(),
-            outbound_manifest_indices: Vec::new(),
-            inbound_positions: Vec::new(),
+            outbound_entry_indices: Vec::new(),
+            inbound_entry_indices: Vec::new(),
             compositions: Vec::new(),
         };
         let mut inbound_started = false;
-        for (manifest_index, transaction) in transactions.iter().enumerate() {
-            let manifest_index = u64::try_from(manifest_index)
-                .map_err(|_| ReconstructionError::Table("manifest index exceeds uint64"))?;
+        let mut next_entry = 1u64; // Mutable row zero is the ordinary anchor.
+        for transaction in transactions {
             if transaction.actions.is_empty() {
                 return Err(ReconstructionError::EmptyTransaction);
             }
@@ -162,7 +160,22 @@ impl ReconstructionActions {
                     effects,
                     user_tx: transaction.tx_data.clone(),
                 });
-                result.outbound_manifest_indices.push(manifest_index);
+                let hosts = composition
+                    .targets
+                    .iter()
+                    .filter(|target| target.rollup_id.is_mainnet())
+                    .flat_map(|target| &target.batch.entries)
+                    .take(2)
+                    .count();
+                if hosts != 1 {
+                    return Err(ReconstructionError::Table(
+                        "outbound bracket requires one settlement host",
+                    ));
+                }
+                result.outbound_entry_indices.push(next_entry);
+                next_entry = next_entry
+                    .checked_add(1)
+                    .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?;
             } else {
                 if !composition.source.l2_static_entries.is_empty() {
                     return Err(ReconstructionError::Table(
@@ -175,8 +188,21 @@ impl ReconstructionActions {
                     .actions
                     .iter()
                     .enumerate()
-                    .filter(|(_, action)| action.parent_index.is_none())
+                    .filter(|(_, action)| {
+                        action.parent_index.is_none()
+                            && action.call_mode == crate::CallMode::Mutable
+                    })
                     .enumerate()
+                    .collect::<Vec<_>>();
+                if roots.len() != composition.source.batch.entries.len() {
+                    return Err(ReconstructionError::Table(
+                        "mutable root/settlement row count differs",
+                    ));
+                }
+                let mutable_count = u64::try_from(roots.len())
+                    .map_err(|_| ReconstructionError::Table("entry count exceeds uint64"))?;
+                let roots = roots
+                    .into_iter()
                     .filter(|(_, (index, _))| applied[*index])
                     .collect::<Vec<_>>();
                 if roots.len() != deliveries.len() {
@@ -199,13 +225,18 @@ impl ReconstructionActions {
                             "inbound root/delivery identity differs",
                         ));
                     }
-                    result.inbound_positions.push(SourcePosition {
-                        manifest_index,
-                        top_level_call_index: u64::try_from(root_index)
-                            .map_err(|_| ReconstructionError::Table("root index exceeds uint64"))?,
-                    });
+                    result.inbound_entry_indices.push(
+                        next_entry
+                            .checked_add(u64::try_from(root_index).map_err(|_| {
+                                ReconstructionError::Table("root index exceeds uint64")
+                            })?)
+                            .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?,
+                    );
                     result.inbound.push(delivery);
                 }
+                next_entry = next_entry
+                    .checked_add(mutable_count)
+                    .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?;
             }
             result.compositions.push(composition);
         }
@@ -223,23 +254,21 @@ impl ReconstructionActions {
         &self.inbound
     }
 
-    /// Native source hashes in the same outbound-then-inbound order as the
-    /// reconstruction. Derive these before selecting any consumed suffix:
-    /// every stored position belongs to the original complete stream.
-    /// This operation does not authenticate the supplied live context.
-    pub fn source_hashes(&self, context: &LiveSourceContext) -> Vec<B256> {
-        self.outbound
+    /// Original mutable settlement rows in whole-group execution order. Derive
+    /// these from the complete stream before selecting a partially consumed suffix.
+    /// Each hash is resolved only once execution establishes its raw pre-group B[i].
+    pub fn source_entries(
+        &self,
+        context: &LiveSourceContext,
+    ) -> Result<Vec<SourceEntry>, ReconstructionError> {
+        self.outbound_entry_indices
             .iter()
-            .zip(&self.outbound_manifest_indices)
-            .map(|(group, &index)| context.outbound(index, keccak256(&group.user_tx)))
-            .chain(
-                self.inbound
-                    .iter()
-                    .zip(&self.inbound_positions)
-                    .map(|(delivery, &position)| {
-                        context.inbound(position, delivery.as_abi_entry().proxyEntryHash)
-                    }),
-            )
+            .chain(&self.inbound_entry_indices)
+            .map(|&index| {
+                context
+                    .entry(index)
+                    .map_err(|error| ReconstructionError::Table(error.0))
+            })
             .collect()
     }
 

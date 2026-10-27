@@ -186,6 +186,47 @@ pub fn reassemble_full_from_replay(
     assembled
 }
 
+/// Hash an executed complete prefix without replaying preceding groups or
+/// consuming the builder. Call only after the RollupX executor's
+/// `validate_prefix`: no post-execution state changes exist in this profile.
+/// Merging transitions preserves their reverts and does not change EVM state.
+/// Every receipt and transaction must come from this exact local execution.
+#[expect(clippy::too_many_arguments)]
+pub fn executed_prefix_hash<DB: revm::Database>(
+    config: &EezEvmConfig,
+    parent: &SealedHeader,
+    environment: &Environment,
+    transactions: Vec<TransactionSigned>,
+    receipts: Vec<Receipt>,
+    gas_used: u64,
+    state: &mut revm::database::State<DB>,
+    provider: &dyn StateProvider,
+) -> eyre::Result<B256> {
+    state.merge_transitions(revm::database::states::bundle_state::BundleRetention::Reverts);
+    let hashed = provider.hashed_post_state(&state.bundle_state)?;
+    let root = provider.state_root(hashed)?;
+    let output = BlockExecutionOutput {
+        state: state.bundle_state.clone(),
+        result: reth_evm::block::BlockExecutionResult {
+            receipts,
+            requests: Default::default(),
+            gas_used,
+            blob_gas_used: 0,
+        },
+    };
+    Ok(reassemble(
+        config,
+        parent,
+        environment,
+        transactions,
+        &output,
+        root,
+        provider,
+    )?
+    .header
+    .hash_slow())
+}
+
 fn assemble(
     config: &EezEvmConfig,
     parent: &SealedHeader,

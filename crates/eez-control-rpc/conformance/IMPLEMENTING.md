@@ -42,11 +42,22 @@ encoding, canonical JSON and execution/settlement semantics together. The manage
 profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
-Validation-contract version 2 includes [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
+Validation-contract version 2 includes prefix-bound source identities, optional
+nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
 An external executor must clear SYSTEM/EEZL2 in the completing transaction's state
 before its checkpoint, retain load/user adjacency across previews and rollbacks,
 and leave history/unpaired ordinary transactions alone. A final-block-only burn
 cannot satisfy prefix commitments. Cleanup adds no gas, receipt or log.
+For each native group independently derive its original mutable settlement-row
+index and its raw pre-group B[i]. Compute standard ABI
+`keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint64(rollupId),
+bytes32(l1ParentHash), uint64(entryIndex), bytes32(B[i])))`. Index zero is the
+ordinary anchor; one outbound host covers the whole load/user group; every
+original inbound mutable row counts even if it does not execute; L1 static rows
+do not count. Retain the complete original mapping on partial reproof. These
+values are available from existing execution and Finalize evidence; no RPC or
+new protobuf field is needed. A Block ACK alone does not authorize a source hash.
+
 Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 0, that identity, and finite
 positive limits/timeouts as specified by [RPC discovery](../SPEC.md#21-validation-identity-and-capability-discovery).
 The Composer consumes these limits for planning. In particular, a block ceiling

@@ -5,8 +5,9 @@ Captured from `cross_chain::minimal_bidirectional_cross_chain_smoke` with
 outbound-network-denying launcher, and the native manager accepted its signature.
 The process test independently checked the public input and canonical L2 safe hash.
 The captured execution includes recorded native history transactions and their
-metered gas with history 0x46/version 1. Cross-chain transactions retain
-0x45/version 1 and their source identities. Complete cross-chain groups clear
+metered gas with history 0x46/version 1. Cross-chain transactions use
+0x45/version 1, with identities bound to their original mutable settlement row
+and independently reconstructed pre-group prefix. Complete cross-chain groups clear
 SYSTEM/EEZL2 residue before their checkpoints; ordinary fees reach FeeVault.
 
 `request.v2.protobuf` is the complete length-delimited `prove.v2.ClientFrame`

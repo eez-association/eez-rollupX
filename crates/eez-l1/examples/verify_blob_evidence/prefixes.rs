@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn captured_prefixes_replay_inherited_and_imported_l1_history() {
-        for (import, number, transactions) in [(false, 285, 3), (true, 283, 1)] {
+        for (import, number, transactions) in [(false, 440, 3), (true, 438, 1)] {
             let input = captured_input(import);
             let output = verify(&input).unwrap();
             let prefixes = output["prefixes"].as_array().unwrap();

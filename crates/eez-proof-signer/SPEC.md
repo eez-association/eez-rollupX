@@ -249,7 +249,7 @@ before the upgrade transaction is sequenced.
 Cross-chain native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
 to, value, input])`, with version 1, the fixed implicit sender and zero fees.
 The [native contract](../../docs/proposals/native-system-transactions.md) defines
-canonical RLP, occurrence domains, RPC placeholders and exact gas/value rules.
+canonical RLP, prefix-bound source identity, RPC placeholders and exact gas/value rules.
 The signer independently recomputes each sourceHash from authenticated context
 and original semantic positions. Decoding a native transaction does not authorize
 its execution or minting. EEZL2 actions target EEZL2. HistoryUpdate uses the
@@ -985,7 +985,13 @@ The canonical order is:
  inbound delivery M-1]
 ```
 
-Each sourceHash retains its original manifest and root positions. A complete
+Each sourceHash uses the original mutable `PostBatch.entries` row and the raw
+independently replayed prefix BEFORE its complete group, under the single
+`SOURCE_ENTRY_V1` dynamic-string ABI formula in the native specification. Anchor
+row zero has no native transaction; one outbound host counts once even with
+multiple roots/statics; failed/lookup mutable inbound rows retain their positions;
+L1 static rows do not count. Derive positions before filtering and never substitute
+acceptedRoot or a folded settlement carrier for the raw prefix. A complete
 outbound bracket has one load followed by the exact signed origin, with callbacks
 inline in the source table. Each load/delivery value equals the checked sum of
 its committed L2 incoming calls, including nested callbacks. The reconstructed

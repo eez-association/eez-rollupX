@@ -155,10 +155,21 @@ pub(crate) const SYNTHETIC_BLOCK_GAS_LIMIT: u64 = 30_000_000;
 
 pub(crate) fn resolve_synthetic_plans(
     pairs: &[eez_protocol::system_tx::SyncPair],
+    sources: &[B256],
 ) -> Vec<alloy_primitives::Bytes> {
+    assert_eq!(pairs.len(), sources.len());
+    let mut sources = sources.iter();
     eez_protocol::system_tx::interleave_sync_block_txs(pairs)
         .into_iter()
-        .map(|plan| plan.at_position(SYNTHETIC_BLOCK_GAS_LIMIT, 0).unwrap())
+        .map(|plan| {
+            let source = if matches!(plan, eez_protocol::system_tx::PlannedTransaction::Native(_)) {
+                *sources.next().unwrap()
+            } else {
+                B256::ZERO
+            };
+            plan.at_position(SYNTHETIC_BLOCK_GAS_LIMIT, 0, source)
+                .unwrap()
+        })
         .collect()
 }
 

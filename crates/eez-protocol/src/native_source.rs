@@ -1,106 +1,75 @@
-//! Native-v1 occurrence identities shared by production and independent replay.
+//! Prefix-bound native input identities shared by production and replay.
 //!
-//! These commitments identify inputs, not their authorization. Callers must
-//! authenticate the live context, original semantic positions, exact origin
-//! transaction and execution separately before accepting or signing a block.
+//! Identity is not authorization or a global deduplication key. Callers must
+//! independently authenticate the live target, complete original settlement
+//! mapping, exact native bytes, effects and execution checkpoints.
 
-use alloy_primitives::{Address, B256, U256, keccak256};
+use alloy_primitives::{B256, keccak256};
 use alloy_sol_types::SolValue as _;
-use eez_primitives::SYSTEM_TX_VERSION;
 
 use crate::{RollupId, l2::ProfileError};
 
-/// Original position in the complete authenticated semantic stream, before
-/// filtering failures/static calls or taking a partially consumed suffix.
-/// Neither field is a mutable-table, queue or L2 transaction index.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SourcePosition {
-    /// Zero-based top-level InitiateCrossChainTransaction bracket ordinal.
-    pub manifest_index: u64,
-    /// Zero-based root Call/StaticCall ordinal within that bracket.
-    pub top_level_call_index: u64,
-}
-
-/// Structurally checked cross-chain deployment and intended live L1 context.
-/// The manager and replay checks, not construction of this value, establish
-/// that the context matches canonical settlement. Historical mode cannot use it.
+/// The identity inputs fixed before any group in a live candidate executes.
+/// Deployment, timestamp, accepted-root and proof authorization remain bound by
+/// the full offline context; they are not alternate source-hash domains.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LiveSourceContext {
-    inbound_domain: B256,
-    outbound_domain: B256,
-    target_timestamp: u64,
+    rollup_id: RollupId,
     parent_hash: B256,
 }
 
 impl LiveSourceContext {
-    /// Reject absent deployment/live identities without substituting defaults.
-    /// Use the intended L1 child timestamp and known parent, never eventual log
-    /// coordinates, acceptedRoot, or a same-height L2 prefix commitment.
-    pub fn new(
-        l1_chain_id: u64,
-        registry: Address,
-        rollup_id: RollupId,
-        l2_chain_id: u64,
-        target_timestamp: u64,
-        parent_hash: B256,
-    ) -> Result<Self, ProfileError> {
-        if l1_chain_id == 0
-            || l2_chain_id == 0
-            || registry.is_zero()
-            || rollup_id.is_mainnet()
-            || target_timestamp == 0
-            || parent_hash.is_zero()
-        {
+    /// Construct from the intended live L1 parent, never the eventual log block
+    /// hash or the currently accepted L2 root. Construction does not authenticate it.
+    pub fn new(rollup_id: RollupId, parent_hash: B256) -> Result<Self, ProfileError> {
+        if rollup_id.is_mainnet() || parent_hash.is_zero() {
             return Err(ProfileError("invalid native live source context"));
         }
-        let domain = |tag: &str| {
-            keccak256(
-                (
-                    keccak256(tag),
-                    U256::from(SYSTEM_TX_VERSION),
-                    U256::from(l1_chain_id),
-                    registry,
-                    U256::from(rollup_id.0),
-                    U256::from(l2_chain_id),
-                )
-                    .abi_encode_params(),
-            )
-        };
         Ok(Self {
-            inbound_domain: domain("EEZ_ROLLUP0_INBOUND_SOURCE"),
-            outbound_domain: domain("EEZ_ROLLUPX_OUTBOUND_SOURCE"),
-            target_timestamp,
+            rollup_id,
             parent_hash,
         })
     }
 
-    /// Identify an admitted inbound root using its pinned-core call hash.
-    /// Callback and value/table authorization remain separate checks.
-    pub fn inbound(&self, position: SourcePosition, call_hash: B256) -> B256 {
-        keccak256(
-            (
-                self.inbound_domain,
-                U256::from(self.target_timestamp),
-                self.parent_hash,
-                U256::from(position.manifest_index),
-                U256::from(position.top_level_call_index),
-                call_hash,
-            )
-                .abi_encode_params(),
-        )
+    /// Bind an original mutable PostBatch.entries position to this live context.
+    /// Index zero is the ordinary anchor and cannot produce a native group.
+    pub fn entry(self, entry_index: u64) -> Result<SourceEntry, ProfileError> {
+        if entry_index == 0 {
+            return Err(ProfileError("ordinary anchor has no native source"));
+        }
+        Ok(SourceEntry {
+            context: self,
+            entry_index,
+        })
+    }
+}
+
+/// A native group's original mutable settlement-row identity. Build these from
+/// the complete stream before selecting a consumed suffix, retaining gaps for
+/// nonexecuting mutable rows. L1 static rows occupy a separate array.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceEntry {
+    context: LiveSourceContext,
+    entry_index: u64,
+}
+
+impl SourceEntry {
+    /// Original mutable settlement-row position, before consumption filtering.
+    pub const fn index(self) -> u64 {
+        self.entry_index
     }
 
-    /// Identify the single load for an L2-origin bracket. origin_transaction_hash
-    /// must be Keccak of the exact admitted signed transaction immediately after
-    /// this load; a digest alone does not validate that origin or its tables.
-    pub fn outbound(&self, manifest_index: u64, origin_transaction_hash: B256) -> B256 {
+    /// Hash the independently reconstructed raw B[i] BEFORE this whole group.
+    /// Never use its post-group hash, a folded carrier root or mutable acceptedRoot.
+    /// The literal dynamic string and uint64 ABI types are part of the contract.
+    pub fn hash(self, original_pre_group_prefix: B256) -> B256 {
         keccak256(
             (
-                self.outbound_domain,
-                U256::from(self.target_timestamp),
-                self.parent_hash,
-                U256::from(manifest_index),
-                origin_transaction_hash,
+                "SOURCE_ENTRY_V1",
+                self.context.rollup_id.0,
+                self.context.parent_hash,
+                self.entry_index,
+                original_pre_group_prefix,
             )
                 .abi_encode_params(),
         )
@@ -110,100 +79,78 @@ impl LiveSourceContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_primitives::address;
 
-    fn reference(id: &str) -> B256 {
+    #[test]
+    fn portable_source_vectors_match_independent_abi_oracle() {
         let corpus: serde_json::Value = serde_json::from_str(include_str!(
             "../../eez-control-rpc/conformance/native-profile-v1.json"
         ))
         .unwrap();
-        corpus["vectors"]
+        let mut checked = 0;
+        for vector in corpus["vectors"]
             .as_array()
             .unwrap()
             .iter()
-            .find(|v| v["id"] == id)
-            .unwrap()["expectedKeccak256"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap()
-    }
-
-    fn live(timestamp: u64, parent: B256) -> LiveSourceContext {
-        LiveSourceContext::new(
-            1,
-            eez_primitives::EEZL2_ADDRESS,
-            RollupId(7),
-            901,
-            timestamp,
-            parent,
-        )
-        .unwrap()
+            .filter(|v| v["id"].as_str().unwrap().starts_with("source-"))
+        {
+            let args = vector["arguments"].as_array().unwrap();
+            assert_eq!(args[0], "SOURCE_ENTRY_V1");
+            let live = LiveSourceContext::new(
+                RollupId(args[1].as_str().unwrap().parse().unwrap()),
+                args[2].as_str().unwrap().parse().unwrap(),
+            )
+            .unwrap();
+            let source = live
+                .entry(args[3].as_str().unwrap().parse().unwrap())
+                .unwrap();
+            assert_eq!(
+                source
+                    .hash(args[4].as_str().unwrap().parse().unwrap())
+                    .to_string(),
+                vector["expectedKeccak256"].as_str().unwrap()
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 7);
     }
 
     #[test]
-    fn independent_cross_chain_source_vectors() {
-        let ctx = live(144, B256::repeat_byte(0x88));
-        assert_eq!(ctx.inbound_domain, reference("inbound-domain"));
-        assert_eq!(ctx.outbound_domain, reference("outbound-domain"));
-        let call = crate::common_cross_chain_call_hash(crate::CallHashInput {
-            call_mode: crate::CallMode::Mutable,
-            source_address: address!("1111111111111111111111111111111111111111"),
-            source_rollup_id: RollupId(0),
-            target_address: address!("2222222222222222222222222222222222222222"),
-            target_rollup_id: RollupId(7),
-            value: U256::from(5),
-            data: &[0xaa, 0xbb],
-        });
-        assert_eq!(call, reference("core-call-hash"));
-        let p = SourcePosition {
-            manifest_index: 1,
-            top_level_call_index: 2,
-        };
-        assert_eq!(ctx.inbound(p, call), reference("inbound-base"));
-        assert_eq!(
-            ctx.inbound(p, call),
-            reference("inbound-after-prefix-consumed")
+    fn identity_uses_original_row_and_raw_pre_group_prefix() {
+        let live = LiveSourceContext::new(RollupId(7), B256::repeat_byte(0x88)).unwrap();
+        let source = live.entry(3).unwrap();
+        let prefix = B256::repeat_byte(0x44);
+        // Independent manual standard-ABI layout: five head slots, followed by
+        // the dynamic string's length and its padded bytes. No Solidity tuple
+        // offset, prehashed domain or packed integer encoding is accepted.
+        let mut encoded = vec![0u8; 7 * 32];
+        encoded[31] = 5 * 32;
+        encoded[63] = 7;
+        encoded[64..96].fill(0x88);
+        encoded[127] = 3;
+        encoded[128..160].fill(0x44);
+        encoded[191] = 15;
+        encoded[192..207].copy_from_slice(b"SOURCE_ENTRY_V1");
+        assert_eq!(source.hash(prefix), keccak256(encoded));
+        assert_ne!(source.hash(prefix), live.entry(4).unwrap().hash(prefix));
+        assert_ne!(source.hash(prefix), source.hash(B256::repeat_byte(0x45)));
+        assert_ne!(
+            source.hash(prefix),
+            LiveSourceContext::new(RollupId(8), B256::repeat_byte(0x88))
+                .unwrap()
+                .entry(3)
+                .unwrap()
+                .hash(prefix)
         );
-        assert_eq!(
-            ctx.inbound(
-                SourcePosition {
-                    top_level_call_index: 3,
-                    ..p
-                },
-                call
-            ),
-            reference("inbound-next-root")
+        assert_ne!(
+            source.hash(prefix),
+            LiveSourceContext::new(RollupId(7), B256::repeat_byte(0x89))
+                .unwrap()
+                .entry(3)
+                .unwrap()
+                .hash(prefix)
         );
-        assert_eq!(
-            ctx.inbound(
-                SourcePosition {
-                    manifest_index: 2,
-                    ..p
-                },
-                call
-            ),
-            reference("inbound-next-bracket")
-        );
-        assert_eq!(
-            live(156, ctx.parent_hash).inbound(p, call),
-            reference("inbound-new-target")
-        );
-        assert_eq!(
-            live(144, B256::repeat_byte(0xaa)).inbound(p, call),
-            reference("inbound-new-parent")
-        );
-        assert_eq!(
-            ctx.outbound(0, B256::repeat_byte(0x66)),
-            reference("outbound-base")
-        );
-        assert_eq!(
-            ctx.outbound(1, B256::repeat_byte(0x66)),
-            reference("outbound-next-bracket")
-        );
-        assert_eq!(
-            ctx.outbound(0, B256::repeat_byte(0xab)),
-            reference("outbound-different-origin")
-        );
+        assert!(live.entry(0).is_err());
+        assert!(LiveSourceContext::new(RollupId(0), prefix).is_err());
+        assert!(LiveSourceContext::new(RollupId(7), B256::ZERO).is_err());
     }
 }

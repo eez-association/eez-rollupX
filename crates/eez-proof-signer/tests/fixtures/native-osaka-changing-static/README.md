@@ -15,7 +15,8 @@ signer used no L1/L2 RPC or prior preparation cache.
 The [implementation audit](../../../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md)
 records source identity, commands and limits. This capture uses the fresh-network
 Profile with cross-chain 0x45/version-1 transactions and optional metered
-history 0x46/version-1 updates. Only cross-chain transactions carry a sourceHash;
+history 0x46/version-1 updates. Only cross-chain transactions carry a sourceHash,
+bound to the original mutable settlement row and raw pre-group prefix;
 complete groups clear protocol residue before checkpoints. Ordinary fees reach
 FeeVault and native execution does not change the system-account nonce.
 

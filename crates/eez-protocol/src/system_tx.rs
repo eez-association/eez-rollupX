@@ -125,24 +125,18 @@ pub struct SystemTxContext {
 }
 
 /// Build one native delivery per checked inbound root, in the supplied order.
-/// source_hashes must have exactly one original occurrence identity per root.
 /// Rejects foreign destinations and invalid deployment configuration.
 pub fn build_inbound_system_txs(
     entries: &[InboundSidecar],
     cfg: &SystemTxContext,
-    source_hashes: &[B256],
 ) -> Result<Vec<NativeTransactionPlan>, String> {
-    if entries.len() != source_hashes.len() {
-        return Err("inbound source identity count differs from deliveries".into());
-    }
     entries
         .iter()
-        .zip(source_hashes)
-        .map(|(entry, &source_hash)| {
+        .map(|entry| {
             if entry.destination_rollup_id().0 != cfg.this_rollup_id {
                 return Err("inbound delivery targets a foreign rollup".into());
             }
-            native_plan(source_hash, entry.calldata(), entry.committed_value(), cfg)
+            native_plan(entry.calldata(), entry.committed_value(), cfg)
         })
         .collect()
 }
@@ -150,26 +144,20 @@ pub fn build_inbound_system_txs(
 /// Build one native load per supplied mutable table. Each consuming signed
 /// transaction must execute immediately after its load, before another load
 /// replaces the table. Grouped origins use build_outbound_group instead.
-/// Rejects missing/excess source identities or committed-value overflow.
+/// Rejects committed-value overflow.
 pub fn build_outbound_load_table_txs(
     entries: &[L2ExecutionEntrySol],
     cfg: &SystemTxContext,
-    source_hashes: &[B256],
 ) -> Result<Vec<NativeTransactionPlan>, String> {
-    if entries.len() != source_hashes.len() {
-        return Err("outbound source identity count differs from loads".into());
-    }
     entries
         .iter()
-        .zip(source_hashes)
-        .map(|(entry, &source_hash)| {
+        .map(|entry| {
             let calldata = loadExecutionTableCall {
                 _entries: vec![entry.clone()],
                 _staticEntries: Vec::new(),
             }
             .abi_encode();
             native_plan(
-                source_hash,
                 calldata.into(),
                 committed_l2_table_value(std::slice::from_ref(entry))?,
                 cfg,
@@ -178,32 +166,28 @@ pub fn build_outbound_load_table_txs(
         .collect()
 }
 
-/// Checked native contents whose gas cannot be encoded until prior transactions
-/// have executed. This is a construction plan, never a received wire transaction.
+/// Checked native call contents. Source identity and gas are resolved only once
+/// preceding whole groups have executed. This is a construction plan, never a received wire transaction.
 /// Validators must reject a supplied gas mismatch, not turn supplied bytes into
 /// a plan and normalize them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NativeTransactionPlan {
     chain_id: u64,
-    source_hash: B256,
     value: U256,
     input: Bytes,
 }
 
 impl NativeTransactionPlan {
-    /// Occurrence identity, useful for locating a retained suffix before exact
-    /// reconstruction. Equality alone never authorizes execution or deduplication.
-    pub const fn source_hash(&self) -> B256 {
-        self.source_hash
-    }
-
-    /// Construct canonical bytes only once this position's gas usage is known.
+    /// Construct canonical bytes after deriving source identity from the original
+    /// settlement row and independently executed pre-group prefix. Never copy a
+    /// received envelope's sourceHash into this construction path.
     /// The caller must execute the exact returned transaction and retain it in
     /// the body; later capacity probing cannot silently alter its budget.
     pub fn at_position(
         &self,
         block_gas_limit: u64,
         gas_used: u64,
+        source_hash: B256,
     ) -> Result<SystemTransaction, String> {
         if gas_used > block_gas_limit {
             return Err("native position exceeds block gas limit".into());
@@ -211,7 +195,7 @@ impl NativeTransactionPlan {
         Ok(SystemTransaction {
             version: SYSTEM_TX_VERSION,
             chain_id: self.chain_id,
-            source_hash: self.source_hash,
+            source_hash,
             gas_limit: system_tx_gas_limit(block_gas_limit, gas_used),
             to: EEZL2_ADDRESS,
             value: self.value,
@@ -232,10 +216,15 @@ pub enum PlannedTransaction {
 
 impl PlannedTransaction {
     /// Resolve a locally constructed input at its actual block position.
-    pub fn at_position(&self, block_gas_limit: u64, gas_used: u64) -> Result<Bytes, String> {
+    pub fn at_position(
+        &self,
+        block_gas_limit: u64,
+        gas_used: u64,
+        source_hash: B256,
+    ) -> Result<Bytes, String> {
         match self {
             Self::Native(plan) => Ok(plan
-                .at_position(block_gas_limit, gas_used)?
+                .at_position(block_gas_limit, gas_used, source_hash)?
                 .encoded_2718()
                 .into()),
             Self::User(raw) => Ok(raw.clone()),
@@ -708,7 +697,7 @@ pub fn lower_static_entry_to_l2(
 }
 
 /// Lower a single-root outbound origin to its [load, user] group, retaining the
-/// supplied occurrence identity and exact signed origin bytes.
+/// exact signed origin bytes.
 ///
 /// # Errors
 /// Rejects unsupported entry shapes and invalid native destinations.
@@ -716,7 +705,6 @@ pub fn build_outbound_pair(
     entry: &ExecutionEntrySol,
     user_tx: &Bytes,
     cfg: &SystemTxContext,
-    source_hash: B256,
 ) -> Result<Vec<SyncPair>, String> {
     Ok(vec![build_outbound_group(
         &OutboundSyncGroup {
@@ -726,7 +714,6 @@ pub fn build_outbound_pair(
             user_tx: user_tx.clone(),
         },
         cfg,
-        source_hash,
     )?])
 }
 
@@ -735,7 +722,6 @@ pub fn build_outbound_pair(
 pub fn build_outbound_group(
     group: &OutboundSyncGroup,
     cfg: &SystemTxContext,
-    source_hash: B256,
 ) -> Result<SyncPair, String> {
     if group.effects.is_empty() {
         return Err("outbound user transaction has no source effects".into());
@@ -764,7 +750,7 @@ pub fn build_outbound_group(
     }
     .abi_encode();
     Ok(SyncPair {
-        system_tx: native_plan(source_hash, calldata.into(), value, cfg)?,
+        system_tx: native_plan(calldata.into(), value, cfg)?,
         user_tx: Some(group.user_tx.clone()),
         effect_count: group.effects.len(),
     })
@@ -772,12 +758,11 @@ pub fn build_outbound_group(
 
 /// Construct single-root outbound origins followed by checked inbound roots.
 /// The source identities come from the complete original semantic stream.
-/// Rejects unsupported entries, foreign destinations and identity count mismatches.
+/// Rejects unsupported entries and foreign destinations.
 pub fn build_cross_chain_sync_pairs(
     outbound: &[(ExecutionEntrySol, Bytes)],
     inbound: &[InboundSidecar],
     cfg: &SystemTxContext,
-    source_hashes: &[B256],
 ) -> Result<Vec<SyncPair>, String> {
     let groups = outbound
         .iter()
@@ -788,28 +773,22 @@ pub fn build_cross_chain_sync_pairs(
             user_tx: user_tx.clone(),
         })
         .collect::<Vec<_>>();
-    build_cross_chain_sync_groups(&groups, inbound, cfg, source_hashes)
+    build_cross_chain_sync_groups(&groups, inbound, cfg)
 }
 
 /// Construct complete outbound brackets as [load, user], then inbound deliveries.
-/// source_hashes is ordered by these groups and retains original stream positions
-/// across partial consumption. Callbacks cannot add separate transactions.
+/// Source identity and gas are resolved at execution. Callbacks cannot add
+/// separate transactions.
 pub fn build_cross_chain_sync_groups(
     outbound: &[OutboundSyncGroup],
     inbound: &[InboundSidecar],
     cfg: &SystemTxContext,
-    source_hashes: &[B256],
 ) -> Result<Vec<SyncPair>, String> {
-    if outbound.len().checked_add(inbound.len()) != Some(source_hashes.len()) {
-        return Err("native source identity count differs from action groups".into());
-    }
-    let (outbound_sources, inbound_sources) = source_hashes.split_at(outbound.len());
     let mut pairs = outbound
         .iter()
-        .zip(outbound_sources)
-        .map(|(group, &source)| build_outbound_group(group, cfg, source))
+        .map(|group| build_outbound_group(group, cfg))
         .collect::<Result<Vec<_>, _>>()?;
-    for system_tx in build_inbound_system_txs(inbound, cfg, inbound_sources)? {
+    for system_tx in build_inbound_system_txs(inbound, cfg)? {
         pairs.push(SyncPair {
             system_tx,
             user_tx: None,
@@ -822,7 +801,6 @@ pub fn build_cross_chain_sync_groups(
 /// Encode the fixed native envelope, including the complete committed value.
 /// Reject a misconfigured destination before producing privileged bytes.
 fn native_plan(
-    source_hash: B256,
     input: Bytes,
     value: U256,
     cfg: &SystemTxContext,
@@ -832,7 +810,6 @@ fn native_plan(
     }
     Ok(NativeTransactionPlan {
         chain_id: cfg.l2_chain_id,
-        source_hash,
         value,
         input,
     })
@@ -895,7 +872,7 @@ mod tests {
             .collect()
     }
     fn encoded(plan: &NativeTransactionPlan) -> Bytes {
-        plan.at_position(crate::l2::GAS_LIMIT, 0)
+        plan.at_position(crate::l2::GAS_LIMIT, 0, sources(1)[0])
             .unwrap()
             .encoded_2718()
             .into()
@@ -934,7 +911,7 @@ mod tests {
             returnData: Bytes::new(),
         }];
         let checked = InboundSidecar::try_from(&entry).unwrap();
-        let plans = build_inbound_system_txs(&[checked], &ctx(), &sources(1)).unwrap();
+        let plans = build_inbound_system_txs(&[checked], &ctx()).unwrap();
         let tx = decoded(&plans[0]);
         assert_eq!(tx.value, U256::from(8));
         let call = crate::abi::executeIncomingCrossChainCallCall::abi_decode(&tx.input).unwrap();
@@ -945,11 +922,11 @@ mod tests {
             committed_l2_table_value(std::slice::from_ref(&lowered)).unwrap(),
             U256::from(8)
         );
-        let load = build_outbound_load_table_txs(&[lowered.clone()], &ctx(), &sources(1)).unwrap();
+        let load = build_outbound_load_table_txs(&[lowered.clone()], &ctx()).unwrap();
         assert_eq!(decoded(&load[0]).value, U256::from(8));
         lowered.incomingCalls[0].value = U256::MAX;
         assert!(committed_l2_table_value(&[lowered.clone()]).is_err());
-        assert!(build_outbound_load_table_txs(&[lowered], &ctx(), &sources(1)).is_err());
+        assert!(build_outbound_load_table_txs(&[lowered], &ctx()).is_err());
     }
 
     #[test]
@@ -960,14 +937,16 @@ mod tests {
             &[(outbound_entry(), user.clone())],
             &[inbound(1, U256::ZERO)],
             &ctx(),
-            &identities,
         )
         .unwrap();
         assert_eq!(pairs.len(), 2);
         assert_eq!(pairs[0].user_tx, Some(user.clone()));
         assert_eq!(pairs[1].user_tx, None);
         for (pair, source) in pairs.iter().zip(identities) {
-            let tx = decoded(&pair.system_tx);
+            let tx = pair
+                .system_tx
+                .at_position(crate::l2::GAS_LIMIT, 0, source)
+                .unwrap();
             assert_eq!(tx.source_hash, source);
             assert_eq!(tx.version, 1);
         }
@@ -992,7 +971,7 @@ mod tests {
             ],
             Bytes::from_static(&[0xaa]),
         );
-        let pairs = build_cross_chain_sync_groups(&[origin], &[], &ctx(), &sources(1)).unwrap();
+        let pairs = build_cross_chain_sync_groups(&[origin], &[], &ctx()).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].effect_count, 2);
         assert_eq!(interleave_sync_block_txs(&pairs).len(), 2);
@@ -1018,7 +997,7 @@ mod tests {
             vec![OutboundSourceEntry::Static(source.clone())],
             Bytes::from_static(&[0xaa]),
         );
-        let pair = build_outbound_group(&origin, &ctx(), sources(1)[0]).unwrap();
+        let pair = build_outbound_group(&origin, &ctx()).unwrap();
         assert_eq!(pair.effect_count, 1);
         let tx = decoded(&pair.system_tx);
         let load = loadExecutionTableCall::abi_decode(&tx.input).unwrap();
@@ -1067,13 +1046,8 @@ mod tests {
             lift_entry_from_l2(&lowered, RollupId(0)).abi_encode(),
             entry.abi_encode()
         );
-        build_cross_chain_sync_pairs(
-            &[(entry.clone(), Bytes::from_static(&[1]))],
-            &[],
-            &ctx(),
-            &sources(1),
-        )
-        .unwrap();
+        build_cross_chain_sync_pairs(&[(entry.clone(), Bytes::from_static(&[1]))], &[], &ctx())
+            .unwrap();
         entry.expectedL1ToL2Calls[0].success = false;
         assert!(
             check_entry_shape(&entry, "outbound")
@@ -1098,36 +1072,21 @@ mod tests {
         let mut entry = outbound_entry();
         entry.proxyEntryHash = B256::ZERO;
         assert!(
-            build_cross_chain_sync_pairs(&[(entry, Bytes::new())], &[], &ctx(), &sources(1))
+            build_cross_chain_sync_pairs(&[(entry, Bytes::new())], &[], &ctx())
                 .unwrap_err()
                 .contains("zero proxyEntryHash")
         );
         assert!(
-            build_inbound_system_txs(&[inbound(2, U256::ZERO)], &ctx(), &sources(1))
+            build_inbound_system_txs(&[inbound(2, U256::ZERO)], &ctx())
                 .unwrap_err()
                 .contains("foreign")
         );
-        for identities in [vec![], sources(2)] {
-            assert!(
-                build_inbound_system_txs(&[inbound(1, U256::ZERO)], &ctx(), &identities).is_err()
-            );
-            assert!(
-                build_cross_chain_sync_pairs(&[], &[inbound(1, U256::ZERO)], &ctx(), &identities)
-                    .is_err()
-            );
-        }
         let mut failed = inbound(1, U256::ZERO).as_abi_entry().clone();
         failed.success = false;
         assert!(InboundSidecar::try_from(&failed).is_err());
         let mut outbound = outbound_entry();
         outbound.success = false;
-        build_cross_chain_sync_pairs(
-            &[(outbound, Bytes::from_static(&[1]))],
-            &[],
-            &ctx(),
-            &sources(1),
-        )
-        .unwrap();
+        build_cross_chain_sync_pairs(&[(outbound, Bytes::from_static(&[1]))], &[], &ctx()).unwrap();
         for wrong in [
             SystemTxContext {
                 eezl2_address: Address::ZERO,
@@ -1142,15 +1101,12 @@ mod tests {
                 ..ctx()
             },
         ] {
-            assert!(
-                build_inbound_system_txs(&[inbound(1, U256::ZERO)], &wrong, &sources(1)).is_err()
-            );
+            assert!(build_inbound_system_txs(&[inbound(1, U256::ZERO)], &wrong).is_err());
         }
     }
 
     #[test]
     fn directional_and_mixed_builds_are_byte_identical_after_table_round_trip() {
-        let identities = sources(2);
         let out = outbound_entry();
         let input = inbound(1, U256::ZERO);
         let user = Bytes::from_static(&[1, 2]);
@@ -1158,22 +1114,18 @@ mod tests {
             &[(out.clone(), user.clone())],
             std::slice::from_ref(&input),
             &ctx(),
-            &identities,
         )
         .unwrap();
         let out_rt = round_tripped(std::slice::from_ref(&out)).remove(0);
         let in_rt =
             InboundSidecar::try_from(&round_tripped(&[input.as_abi_entry().clone()])[0]).unwrap();
-        let rebuilt =
-            build_cross_chain_sync_pairs(&[(out_rt, user)], &[in_rt], &ctx(), &identities).unwrap();
+        let rebuilt = build_cross_chain_sync_pairs(&[(out_rt, user)], &[in_rt], &ctx()).unwrap();
         assert_eq!(
             interleave_sync_block_txs(&emitted),
             interleave_sync_block_txs(&rebuilt)
         );
-        let direct_out =
-            build_outbound_load_table_txs(&[lower_entry_to_l2(&out)], &ctx(), &identities[..1])
-                .unwrap();
-        let direct_in = build_inbound_system_txs(&[input], &ctx(), &identities[1..]).unwrap();
+        let direct_out = build_outbound_load_table_txs(&[lower_entry_to_l2(&out)], &ctx()).unwrap();
+        let direct_in = build_inbound_system_txs(&[input], &ctx()).unwrap();
         assert_eq!(encoded(&direct_out[0]), encoded(&emitted[0].system_tx));
         assert_eq!(encoded(&direct_in[0]), encoded(&emitted[1].system_tx));
     }
@@ -1185,50 +1137,68 @@ mod tests {
             (outbound_entry(), Bytes::from_static(&[2])),
         ];
         let incoming = [inbound(1, U256::ZERO)];
-        let identities = sources(3);
-        let full = build_cross_chain_sync_pairs(&origins, &incoming, &ctx(), &identities).unwrap();
-        let tail = build_cross_chain_sync_pairs(&origins[1..], &incoming, &ctx(), &identities[1..])
-            .unwrap();
+        let full = build_cross_chain_sync_pairs(&origins, &incoming, &ctx()).unwrap();
+        let tail = build_cross_chain_sync_pairs(&origins[1..], &incoming, &ctx()).unwrap();
         for (expected, actual) in full[1..].iter().zip(&tail) {
             assert_eq!(expected.system_tx, actual.system_tx);
             let gas_used = 20_000_000;
             assert_eq!(
                 expected
                     .system_tx
-                    .at_position(crate::l2::GAS_LIMIT, gas_used)
+                    .at_position(crate::l2::GAS_LIMIT, gas_used, sources(1)[0])
                     .unwrap()
                     .encoded_2718(),
                 actual
                     .system_tx
-                    .at_position(crate::l2::GAS_LIMIT, gas_used)
+                    .at_position(crate::l2::GAS_LIMIT, gas_used, sources(1)[0])
                     .unwrap()
                     .encoded_2718()
             );
         }
-        let wrong =
-            build_cross_chain_sync_pairs(&origins[1..], &incoming, &ctx(), &identities[..2])
+        let source =
+            crate::native_source::LiveSourceContext::new(RollupId(1), B256::repeat_byte(7))
                 .unwrap();
-        assert_ne!(encoded(&wrong[0].system_tx), encoded(&full[1].system_tx));
+        let prefix = B256::repeat_byte(8);
+        let original = source.entry(2).unwrap().hash(prefix);
+        let renumbered = source.entry(1).unwrap().hash(prefix);
+        assert_ne!(
+            tail[0]
+                .system_tx
+                .at_position(crate::l2::GAS_LIMIT, 20_000_000, original)
+                .unwrap(),
+            tail[0]
+                .system_tx
+                .at_position(crate::l2::GAS_LIMIT, 20_000_000, renumbered)
+                .unwrap()
+        );
     }
 
     #[test]
     fn native_bytes_commit_source_and_exact_remaining_gas_without_normalization() {
-        let plan = build_inbound_system_txs(&[inbound(1, U256::ZERO)], &ctx(), &sources(1))
+        let plan = build_inbound_system_txs(&[inbound(1, U256::ZERO)], &ctx())
             .unwrap()
             .remove(0);
-        let full = plan.at_position(crate::l2::GAS_LIMIT, 0).unwrap();
-        let tail = plan.at_position(crate::l2::GAS_LIMIT, 20_000_000).unwrap();
+        let full = plan
+            .at_position(crate::l2::GAS_LIMIT, 0, sources(1)[0])
+            .unwrap();
+        let tail = plan
+            .at_position(crate::l2::GAS_LIMIT, 20_000_000, sources(1)[0])
+            .unwrap();
         assert_eq!(full.gas_limit, eez_primitives::SYSTEM_TX_GAS_CAP);
         assert_eq!(tail.gas_limit, 10_000_000);
         assert_ne!(full.encoded_2718(), tail.encoded_2718());
         assert!(
-            plan.at_position(crate::l2::GAS_LIMIT, crate::l2::GAS_LIMIT + 1)
-                .is_err()
+            plan.at_position(
+                crate::l2::GAS_LIMIT,
+                crate::l2::GAS_LIMIT + 1,
+                sources(1)[0]
+            )
+            .is_err()
         );
-        let other =
-            build_inbound_system_txs(&[inbound(1, U256::ZERO)], &ctx(), &[B256::repeat_byte(99)])
-                .unwrap();
-        assert_ne!(encoded(&plan), encoded(&other[0]));
+        let other = plan
+            .at_position(crate::l2::GAS_LIMIT, 0, B256::repeat_byte(99))
+            .unwrap();
+        assert_ne!(full.encoded_2718(), other.encoded_2718());
         assert_eq!(
             decoded(&plan).to,
             address!("4B2760F84B83d6b3829E30A7573B0172B6d6402C")

@@ -1019,8 +1019,6 @@ where
                     l2_chain_id: runtime.ctx.l2_chain_id,
                     this_rollup_id: rollup_id,
                 },
-                // This is an unsigned sizing/fee probe, never a publishable body.
-                &[B256::ZERO],
             )
             .map_err(|e| unavailable("native group", e))?;
             // Price the same replay that validates the composed effects. A
@@ -1043,7 +1041,7 @@ where
             let mut logs = Vec::new();
             for plan in eez_protocol::system_tx::interleave_sync_block_txs(&pairs) {
                 let raw = native
-                    .encode_plan(&plan)
+                    .encode_plan(&plan, B256::ZERO)
                     .map_err(|e| unavailable("native gas position", e))?;
                 budget.check()?;
                 let is_source = raw == raw_size;

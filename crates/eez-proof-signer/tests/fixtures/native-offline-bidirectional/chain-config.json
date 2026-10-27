@@ -21,10 +21,10 @@
     "historyUpdateOffset": 2,
     "l1Reference": {
       "chainId": 1337,
-      "hash": "0xf55d4597ec9e389a70f72c795fbfe3642edabe8d3650e1da28667432e0e878a7",
+      "hash": "0x0209f9f615e6f5589472a6b5c951f064b485827ca7f917c6ca7535055fe8703f",
       "number": 0,
       "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
-      "timestamp": 1793065955
+      "timestamp": 1793070360
     },
     "syncIntervalBlocks": 5
   },

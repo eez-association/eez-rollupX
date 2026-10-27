@@ -20,7 +20,7 @@ use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block as EthereumBlock, EezTxEnvelope as TransactionSigned};
 use eez_protocol::outbound_gate::OutboundCallObservation;
 use reth_chainspec::ChainSpec;
-use reth_evm::{ConfigureEvm, execute::BlockBuilder};
+use reth_evm::{ConfigureEvm, Evm as _, RecoveredTx as _, execute::BlockBuilder};
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
     AlloyBlockHeader, Block, BlockBody, SealedHeader, SignedTransaction, SignerRecoverable,
@@ -1303,7 +1303,7 @@ where
         raw_txs: &[Bytes],
         inputs: ExecutionInputs<'_>,
     ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
-        self.execute_block_with_plans(parent_header, raw_txs, &[], inputs)
+        self.execute_block_with_plans(parent_header, raw_txs, &[], &[], inputs)
             .map(|(payload, header, _)| (payload, header))
     }
 
@@ -1314,6 +1314,7 @@ where
         parent_header: &SealedHeader<alloy_consensus::Header>,
         raw_txs: &[Bytes],
         plans: &[eez_protocol::system_tx::PlannedTransaction],
+        sources: &[eez_protocol::native_source::SourceEntry],
         inputs: ExecutionInputs<'_>,
     ) -> DeriverResult<(
         ExecutionData,
@@ -1349,6 +1350,21 @@ where
 
         let attributes = inputs.attributes(&self.inner.evm_config, parent_header, raw_txs)?;
         let block_gas_limit = attributes.gas_limit;
+        let environment = eez_driver::derivation::Environment {
+            fee_recipient: attributes.suggested_fee_recipient,
+            extra_data: attributes.extra_data.clone(),
+        };
+        if plans
+            .iter()
+            .filter(|plan| matches!(plan, eez_protocol::system_tx::PlannedTransaction::Native(_)))
+            .count()
+            != sources.len()
+        {
+            return Err(DeriverError::l2_provider(
+                "native source row count differs from plans",
+            ));
+        }
+        let mut sources = sources.iter();
 
         let mut builder = self
             .inner
@@ -1364,12 +1380,40 @@ where
 
         let mut gas_used = 0u64;
         let mut suffix = Vec::with_capacity(plans.len());
+        let mut executed = Vec::with_capacity(raw_txs.len() + plans.len());
         for tx_idx in 0..raw_txs.len() + plans.len() {
             let tx_bytes = if let Some(raw) = raw_txs.get(tx_idx) {
                 raw.clone()
             } else {
-                let raw = plans[tx_idx - raw_txs.len()]
-                    .at_position(block_gas_limit, gas_used)
+                let plan = &plans[tx_idx - raw_txs.len()];
+                let source_hash =
+                    if matches!(plan, eez_protocol::system_tx::PlannedTransaction::Native(_)) {
+                        builder
+                            .executor_mut()
+                            .validate_prefix()
+                            .map_err(DeriverError::l2_provider)?;
+                        let transactions = executed.clone();
+                        let receipts = builder.executor_mut().receipts.clone();
+                        let prefix = eez_driver::derivation::executed_prefix_hash(
+                            &self.inner.evm_config,
+                            parent_header,
+                            &environment,
+                            transactions,
+                            receipts,
+                            gas_used,
+                            builder.evm_mut().db_mut(),
+                            state_provider.as_ref(),
+                        )
+                        .map_err(DeriverError::l2_provider)?;
+                        sources
+                            .next()
+                            .ok_or_else(|| DeriverError::l2_provider("missing native source row"))?
+                            .hash(prefix)
+                    } else {
+                        B256::ZERO
+                    };
+                let raw = plan
+                    .at_position(block_gas_limit, gas_used, source_hash)
                     .map_err(DeriverError::l2_provider)?;
                 suffix.push(raw.clone());
                 raw
@@ -1386,6 +1430,7 @@ where
                     &format!("could not recover signer for tx #{tx_idx}"),
                 )
             })?;
+            executed.push(recovered.tx().clone());
             let gas = builder.execute_transaction(recovered).map_err(|e| {
                 DeriverError::local_diverged_with_msg(
                     parent_block_number + 1,
@@ -2277,6 +2322,7 @@ where
         // This includes outbound roots and callbacks to L1 inside inbound roots.
         let mut gate_expected_hashes = Vec::new();
         let mut gate_should_verify = false;
+        let mut sync_sources = Vec::new();
         let sync_block_txs: Option<Vec<eez_protocol::system_tx::PlannedTransaction>> = match self
             .inner
             .system_tx_cfg
@@ -2332,29 +2378,19 @@ where
                     .iter()
                     .map(|group| group.effects.len())
                     .collect::<Vec<_>>();
-                let all_sources =
-                    match anchor {
-                        EvidenceAnchor::ActualParent {
+                let all_sources = match anchor {
+                    EvidenceAnchor::ActualParent { hash, .. } => {
+                        let context = eez_protocol::native_source::LiveSourceContext::new(
+                            eez_protocol::RollupId(cfg.this_rollup_id),
                             hash,
-                            target_timestamp,
-                            ..
-                        } => {
-                            let context =
-                                eez_protocol::native_source::LiveSourceContext::new(
-                                    self.inner.offline_profile.l1ChainId.try_into().map_err(
-                                        |_| DeriverError::l2_provider("unsupported L1 chain id"),
-                                    )?,
-                                    self.inner.l1_reader.eez(),
-                                    eez_protocol::RollupId(cfg.this_rollup_id),
-                                    cfg.l2_chain_id,
-                                    target_timestamp,
-                                    hash,
-                                )
-                                .map_err(DeriverError::l2_provider)?;
-                            actions.source_hashes(&context)
-                        }
-                        EvidenceAnchor::Historical { .. } => Vec::new(),
-                    };
+                        )
+                        .map_err(DeriverError::l2_provider)?;
+                        actions
+                            .source_entries(&context)
+                            .map_err(DeriverError::l2_provider)?
+                    }
+                    EvidenceAnchor::Historical { .. } => Vec::new(),
+                };
                 let all_outbound = actions.outbound().to_vec();
                 let mut inbound = actions.inbound().to_vec();
 
@@ -2397,15 +2433,35 @@ where
                     inbound.len(),
                 )
                 .map_err(|error| DeriverError::local_diverged_with_msg(from_block, &error))?;
-                let selected_native_sources = all_sources[selection.outbound_groups.clone()]
+                let selected_outbound_sources = all_sources
+                    .get(selection.outbound_groups.clone())
+                    .ok_or_else(|| {
+                        DeriverError::l2_provider(
+                            "outbound source rows do not cover replay selection",
+                        )
+                    })?;
+                let inbound_start = all_outbound
+                    .len()
+                    .checked_add(slice.inbound_skip)
+                    .ok_or_else(|| {
+                        DeriverError::l2_provider("inbound source row offset overflow")
+                    })?;
+                let inbound_end =
+                    inbound_start
+                        .checked_add(slice.inbound_take)
+                        .ok_or_else(|| {
+                            DeriverError::l2_provider("inbound source row range overflow")
+                        })?;
+                let selected_inbound_sources =
+                    all_sources.get(inbound_start..inbound_end).ok_or_else(|| {
+                        DeriverError::l2_provider(
+                            "inbound source rows do not cover replay selection",
+                        )
+                    })?;
+                let selected_native_sources = selected_outbound_sources
                     .iter()
+                    .chain(selected_inbound_sources)
                     .copied()
-                    .chain(
-                        all_sources[all_outbound.len() + slice.inbound_skip
-                            ..all_outbound.len() + slice.inbound_skip + slice.inbound_take]
-                            .iter()
-                            .copied(),
-                    )
                     .collect::<Vec<_>>();
                 let outbound = all_outbound[selection.outbound_groups].to_vec();
                 inbound.drain(..slice.inbound_skip);
@@ -2530,10 +2586,7 @@ where
                 }
 
                 let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
-                    &outbound,
-                    &inbound,
-                    cfg,
-                    &selected_native_sources,
+                    &outbound, &inbound, cfg,
                 )
                 .map_err(|e| {
                     DeriverError::l2_provider(format!(
@@ -2552,6 +2605,7 @@ where
                     sync_block_txs = full.len(),
                     "rebuilt Sync block",
                 );
+                sync_sources = selected_native_sources;
                 Some(full)
             }
             None => {
@@ -2623,35 +2677,60 @@ where
             }
             let plans = sync_block_txs.as_deref().unwrap_or_default();
             let parent = self.l2_sealed_header_at(from_block - 1)?;
-            let candidate_start = block_txs
-                .len()
-                .checked_sub(plans.len())
-                .filter(|start| *start >= terminal_prefix.len());
-            let repeated = !plans.is_empty() && candidate_start.is_some_and(|start| {
-                plans.iter().zip(&block_txs[start..]).all(|(plan, raw)| match plan {
-                    eez_protocol::system_tx::PlannedTransaction::User(expected) => expected == raw,
-                    eez_protocol::system_tx::PlannedTransaction::Native(expected) => {
-                        matches!(TransactionSigned::decode_2718_exact(raw), Ok(TransactionSigned::System(actual))
-                            if actual.source_hash == expected.source_hash())
-                    }
-                })
-            });
-            let append_at = if repeated {
-                candidate_start.expect("repeated suffix has a start")
+            // Only authenticated settlement progress selects append versus
+            // idempotent replay. A sourceHash identifies an input; competing
+            // candidates can share one and it is never a deduplication key.
+            let local_hash = self.l2_sealed_header_at(from_block)?.hash();
+            let entry_state = settlement
+                .entry_state
+                .ok_or_else(|| DeriverError::l2_provider("resumed settlement lacks entry root"))?;
+            let already_applied = !plans.is_empty() && settlement.final_state == Some(local_hash);
+            let append_at = if already_applied {
+                let start = block_txs
+                    .len()
+                    .checked_sub(plans.len())
+                    .filter(|start| *start >= terminal_prefix.len())
+                    .ok_or_else(|| {
+                        DeriverError::local_diverged_with_msg(
+                            from_block,
+                            "settled suffix exceeds retained block",
+                        )
+                    })?;
+                let (_, prefix) =
+                    self.execute_block_on_parent(&parent, &block_txs[..start], terminal_inputs)?;
+                if prefix.hash() != entry_state {
+                    return Err(DeriverError::local_diverged_with_msg(
+                        from_block,
+                        "retained suffix does not start at authenticated entry root",
+                    ));
+                }
+                start
             } else {
+                if local_hash != entry_state {
+                    return Err(DeriverError::local_diverged_with_msg(
+                        from_block,
+                        "resumed block matches neither entry nor final root",
+                    ));
+                }
                 block_txs.len()
             };
-            let (_, _, new_content) = self.execute_block_with_plans(
+            let (_, reconstructed_header, new_content) = self.execute_block_with_plans(
                 &parent,
                 &block_txs[..append_at],
                 plans,
+                &sync_sources,
                 terminal_inputs,
             )?;
-            let already_applied = repeated && block_txs[append_at..] == new_content;
-            if repeated && !already_applied {
+            if settlement.final_state != Some(reconstructed_header.hash()) {
                 return Err(DeriverError::local_diverged_with_msg(
                     from_block,
-                    "retained native occurrence differs from exact reconstruction",
+                    "reconstructed resumed suffix differs from authenticated final root",
+                ));
+            }
+            if already_applied && block_txs[append_at..] != new_content {
+                return Err(DeriverError::local_diverged_with_msg(
+                    from_block,
+                    "retained suffix differs from exact reconstruction",
                 ));
             }
             // This uses the actual canonical H-1 parent, never the resumed
@@ -2739,8 +2818,13 @@ where
                 let inputs = ExecutionInputs::Derived(&environment);
                 if is_sync_block && let Some(plans) = &sync_block_txs {
                     let parent = self.l2_sealed_header_at(l2_block - 1)?;
-                    let (_, _, suffix) =
-                        self.execute_block_with_plans(&parent, &block_txs, plans, inputs)?;
+                    let (_, _, suffix) = self.execute_block_with_plans(
+                        &parent,
+                        &block_txs,
+                        plans,
+                        &sync_sources,
+                        inputs,
+                    )?;
                     block_txs.extend(suffix);
                 }
                 self.validate_execution_inputs(l2_block - 1, inputs, &block_txs)?;

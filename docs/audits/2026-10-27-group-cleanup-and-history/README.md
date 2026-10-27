@@ -1,9 +1,9 @@
-# Complete-group cleanup and optional history updates
+# Complete-group cleanup, optional history and source identities
 
 | Field | Value |
 | --- | --- |
-| Status | #105/#108 local execution, process and conformance milestone passed; approved source-identity phase and final-head checks pending |
-| Scope | PR #103: existing upgradeable FeeVault and #107 reference collector; accepted #105 complete-group cleanup and #108 dedicated optional history; new networks only. Prefix-bound source identity is the next authorized phase; no core or allocator changes |
+| Status | Integrated source implementation, shared/signer/conformance/oracle checks and 17 combined process scenarios passed; fee/treasury processes, final-head CI and independent review remain pending |
+| Scope | PR #103: existing upgradeable FeeVault and #107 reference collector; accepted #105 complete-group cleanup, #108 dedicated optional history and prefix-bound original-row source identity; new networks only, no core or allocator changes |
 | Base | `6c3106fb482bb323eefa8898a0bd922fc7520480` on `codex/fee-vault-upgradeable`; PR base `codex/mixed-direction-fees` at `641e768f2e6605f7563c808a00937d374e98e8fb` |
 | Protocol baseline/current | `84a5b5207880f192a6a5896cbfe0bac5249db47f`; unchanged. The owner prohibits core-contract/ABI/public-input changes and pin changes to introduce allocation support |
 | Environment | Rust 1.95.0, locked dependencies; LLVM 22; Foundry 1.7.1, Solidity 0.8.34, via IR, optimizer runs 1 |
@@ -133,31 +133,30 @@ are not a completion claim or release-artifact evidence.
 
 ## Complete PR acceptance and final-review matrix
 
-This matrix distinguishes accepted behavior from implementation and evidence.
-The source-index design recorded in review commit
-`2788499d14e8da202c09c0a057b5ac438fd0c62c` is a historical design direction.
-The owner subsequently prohibited all core-contract, ABI and public-input
-changes. That overrides the earlier allocator authorization: its implementation
-is stopped, the protocol pin remains unchanged, and existing production source
-identities remain in place. No core edits, branch or dependency PR were made.
-The SI rows below record the unresolved design requirements, not work currently
-authorized for this PR; a compatible design requires separate resolution. The
-final #105/#108 candidate still requires fresh correctness review and final-head CI.
+This is the current acceptance matrix. The withdrawn core allocator and its
+SI-1–SI-11 allocation gates are historical, not runtime requirements. The accepted
+additional-field replacement is the [prefix-bound source contract](../../proposals/native-system-transactions.md#source-identity-simplification)
+recorded in review `ebb31ca1`. Core contracts, their ABI/public-input algorithm
+and gitlink remain unchanged. The intermediate #105/#108 commit is
+`19843a670085fc7b012cb7b395088de26a56d5fd`; its process evidence must be renewed
+for the final source-identity bytes.
 
 | Accepted requirement | Implementation / owning contract | Executed evidence and remaining acceptance gate |
 | --- | --- | --- |
-| Upgradeable FeeVault, initialized genesis proxy, separate upgrade/treasury ownership, safe withdrawals and recipient changes | `contracts/src/L2/FeeVault.sol`, genesis renderer and `docs/proposals/fee-vault-upgrades.md` | Existing contract suite passed on the current pin; final generated genesis, upgrade/storage and fee-credit process checks must match the final pin. |
-| #107 application handles an ahead cursor using `current()`; strict getter and unexpected failures remain visible; no production pause | `contracts/src/L1BlockHashCollector.sol` and its contract tests | Collector contract tests passed, including omitted history and resumed imports. This reference collector does not change network scheduling. |
-| #105 independently funded whole groups, cleanup before checkpoints, identical full/incremental/stateless execution | `ExecutionGroupState`, executor balance deltas, Composer snapshot/restore | Production EVM and Composer regressions passed. Independent signer roots, nested process, partial settlement, live/cold follower and fee-credit checks pending. |
-| #108 only canonical nonempty `0x46`, immutable genesis schedule, omission inherits history/PREVRANDAO including empty blocks | Primitive codec, shared history schedule, EVM, Composer, deriver, signer | Focused shared/contract tests passed. Fresh source captures and combined replay remain pending. Old `0x45` history is rejected, not a compatibility mode. |
-| Delayed/late/missing L1 facts, both anchor modes and bounded multipart catch-up; ordinary L2 keeps progressing | History preparation/execution, offline context validation, source process scenarios | Unit boundary tests passed; multipart expired-anchor, reorg, pending, omission and source process evidence pending. |
-| Every native consumer recognizes both native kinds; pure ingress and DA reservations remain valid | Payload codec, production sequencing reserve, receipts, fee tests and optional indexer | Reserve regression, payload 16+2 tests, indexer six tests and Clippy passed. Initial source-process admission failure retained; corrected process replay pending. |
-| RX-PROVER-01/02 exact observation prefix and recursive event partitioning remain enforced | Signer validated boundaries and outbound authorization | Earlier audit evidence is historical. Updated history recordings and positive/rejection signing-gate/process tests pending for the final semantics. |
-| Source-identity direction and SI-1 through SI-11 | Pending design in the accepted source-index amendment; existing production identity formulas remain active | No allocator, core change or local-index substitute is selected. These gates do not block #105/#108. The old proposal's allocation/ABI design is withdrawn, not implemented or counted as coverage. |
-| Offline prover has no L1/L2 RPC and does not trust Composer claims or broaden its supported profile | Signer admission/execution/effect/public-input boundaries and portable C#/Nethermind contract | Source signer network-denial capture is in progress. Final portable vectors and malformed-input signing rejection remain pending. |
-| One fresh-network profile, no obsolete runtime, codec or config path; no incidental dependency change | Owning native/history/core/RPC/signer specs and all callers | Final scoped cleanup/dead-code review pending, including generated files, fixtures and runtime config consumers. Negative obsolete-format tests and clearly dated evidence remain intentional. |
-| Queue ownership, closed retries and partial canonical consumption unchanged | Settlement policy, Composer/deriver reconciliation | Targeted partial/reorg/restart processes pending; a proof, receipt or relay acceptance alone must not finish retained work. |
-| Exact tested candidate/artifacts, final-head CI and independent final correctness review | This audit and PR description | Pending. Earlier failures/logs stay retained; skips/mocks are explicitly not live/process coverage. No merge or deployment is authorized. |
+| Upgradeable FeeVault, initialized genesis proxy, separate upgrade/treasury ownership, safe withdrawals and recipient changes | `contracts/src/L2/FeeVault.sol`, genesis renderer, `fee-vault-upgrades.md` | Current generated contracts/genesis passed 165 integration tests and artifact check. Prior source process checked real fee credits; final combined process/CI pending. |
+| #107 collector handles ahead cursor with `current()`; strict getter/unexpected failures remain visible; no pause | `contracts/src/L1BlockHashCollector.sol` | Collector tests passed, including omission/resumption. No network scheduling change or deployment. |
+| #105 complete independently funded groups, cleanup before checkpoints, discard/revert behavior | `ExecutionGroupState`, `clear_protocol_balances`, full and incremental executors | EVM 41, Composer 416, driver 74 passed on source-index candidate. Eight real core funding tests and independent signer trie oracle passed at the intermediate milestone; refreshed combined signing/replay pending. |
+| #108 optional nonempty `0x46`, fixed genesis phase, inherited PREVRANDAO on omission/empty blocks, fee-free typed receipts | Primitive codec, history contract/schedule/executor, all producers/consumers, indexer | Primitive 16 and affected EVM/Composer/driver tests passed. Full-feature driver found a stale empty-import fixture; supplied a real eligible header without weakening its observation tests. Prior indexer six tests/Clippy, contracts, genesis and process evidence retained. |
+| Delayed/late/missing L1, both anchor modes, bounded catch-up, ordinary L2 progress | History preparation, offline context, multipart and reorg scenarios | Intermediate 5-part expired-anchor process and imported-history reorg passed. Renew source-byte-dependent processes before completion. |
+| Preserve RX-PROVER-01/02 observation-prefix and recursive event rejection | Signer validated raw boundaries, outbound authorizer | Intermediate full signer and standalone process passed; final source-index signer and refreshed recording gates pending. |
+| Exact literal-string ABI source formula, original mutable rows including failed gaps and static-only outbound host | `native_source`, `ReconstructionActions`, portable encoding corpus | Protocol 209 passed; manual ABI and Foundry cross-check: 18 encodings/9 relationships. Static L1 rows do not count, full original rows remain append-stable. |
+| Raw pre-group B[i], sequential construction without cyclic/folded roots or repeated earlier execution | Composer prefix cache/estimation/final rebuild, shared assembler helper, signer checkpoint lookup | Production-prefix regression passed: row gaps, speculative discard, count rejection, no repeated transaction execution and continuation/finalization equivalence. Real trie/process renewal pending. |
+| Same original bytes on partial reproof after an intervening same-block post; no sourceHash-based deduplication | Follower authenticated entry/final-root placement, exact byte compare; selected original rows | Deriver 46 passed. Enhanced same-block process advances the first, middle and last groups in separate successful postings, with independent ABI source oracle and exact cold-follower transaction hashes; passed in 51.40 seconds. The final test-wrapper rerun is pending. |
+| v2 unchanged; offline proving without L1/L2 RPC; all independent context/root/bytes/effects/public-input checks retained | Signer, RPC contract and C#/Nethermind `IMPLEMENTING.md` | Production consumers migrated; final source captures/transcripts and full signer/control/client runs pending. No new wire field or execution profile. |
+| One fresh-network validation contract, unchanged core and dependencies | Version 2 bound by canonical on-chain profile and portable identity; no source-specific alternate mode | Protocol pin clean at `84a5b520...`; profile/identity corpus unchanged by the shorter source preimage. Final artifact/CI checks pending. |
+| Queue ownership and closed retry policies preserved | Existing admission/reconciliation; explicit local-prefix evidence failure has no user attribution | Composer regressions passed. Prior partial/restart/reorg process evidence retained; renewed processes pending. |
+| Scoped cleanup and no legacy implementations | Removed old source domains/positions and precomputed identity in native plans; current docs/vectors migrated | All production callers traced. Unsigned fee probes still use a nonpublishable zero identity; Ethereum legacy signed transactions and Reth witness `Legacy` remain active supported formats. Historical audits are evidence, not alternate rules. Final independent cleanup read pending. |
+| Exact final source/artifacts, CI and independent correctness review | This audit, final PR description and parent review | Pending. No push, merge, deployment or restart performed. |
 
 The final review must trace production callers, not infer cleanliness from a
 build or a text search. Any retained item resembling an older implementation
@@ -283,3 +282,87 @@ source captures and portable transcripts for its changed native bytes, affected
 unit/process checks, workspace Clippy with warnings denied, final shipping/CI
 matrix, scoped no-legacy cleanup and a fresh independent correctness review.
 Passing this intermediate milestone does not make the complete PR ready.
+
+## Prefix-bound source implementation progress
+
+The production paths now derive original mutable settlement rows once from the
+complete semantic stream. Native plans contain call/value/chain fields only;
+source identity and remaining gas are supplied at the actual pre-group position.
+Composer's existing prefix cache supports sequential resolution and a separate
+fresh final rebuild. The follower uses the pinned assembler and executed state
+without reexecuting preceding groups at each identity, and authenticates append
+versus already-applied placement using the settlement entry/final checkpoint.
+The signer uses its independently replayed raw ordinary/group-prefix hashes,
+never folded root carriers or a request-supplied index. Exact byte/effect checks
+remain mandatory.
+
+Current shared suites passed: **416 Composer, 46 deriver, 74 driver, 41 EVM,
+16 primitives and 209 protocol tests**. One existing Composer profiling utility
+remains explicitly ignored. First failures are retained: missing API docs/imports,
+opaque Reth builder access during migration, and four driver witness tests whose
+shared fixture still expected an empty scheduled history transaction. The fixture
+now includes a produced eligible L1 header and the complete suite passes; no
+assertion or execution check was removed. The source-identity process harness and
+signer fixtures are being rebuilt. Intermediate frozen transcripts remain
+historical until recaptured; they are not claimed as current-source evidence.
+
+The fresh bidirectional, caught-revert and changing-static captures passed with
+the current source runtimes and network-denied signers. Their complete cold
+requests cover 440, 45 and 30 L2 blocks respectively. The existing inventory
+utility checked the selected semantics before installation; all 29 portable
+transcripts and the six observation requests were regenerated, and the Python
+manifest/schema check passed. Eleven focused signer DA tests passed, including
+wrong original row, wrong raw prefix, wrong gas and whole-group reconstruction.
+
+The first enhanced same-block process failed a new test expectation that a
+no-progress immediate posting would succeed. Pinned core explicitly rejects an
+all-failed leading run with `AllImmediateL2TxsFailed`; its implementation and
+specification were retained. The corrected scenario creates two conditional
+checkpoint reproofs and three successful postings, advancing exactly one
+original user group at a time, with an intervening accepted posting and an
+independently rejected stale proof. No production validation changed to satisfy
+this scenario. Its first log/datadir and binary identities are retained; the
+corrected process passed (51.40 seconds, one selected/186 filtered); it is
+not a retry-only flake.
+
+
+The first complete source-index signer run passed 324 tests but rejected five
+synthetic service cases. Their test transactions used a zero pre-group prefix,
+whereas the controlled validated evidence explicitly pinned `0x04…04`. The
+three fixture constructors now use that same declared original prefix. All 81
+focused service tests then passed (two explicit fixture utilities ignored).
+Production validation and source-artifact bytes did not change for this fix;
+the original full-suite failure log remains retained.
+
+
+The complete refreshed signer/control/client rerun passed **329/7/34 tests**.
+All 29 TCP conformance transcripts and the four audited history-observation
+signing cases passed. The three ignored signer entries are explicit generation
+and inventory utilities, already executed separately. The first workspace Clippy
+run found the enhanced same-block test's 18 KB future; its test wrapper now boxes
+the future instead of suppressing the lint. No production behavior changed.
+
+
+The renewed prefix example initially passed 19 of 20 tests; its explicit captured
+height assertion still named the prior recording (285/283). Foundry RLP decoding
+confirmed the new captures are blocks 440/438. Updating those fixture expectations
+preserved all independently recorded L1 checkpoint checks; all 20 tests then
+passed. Workspace Clippy subsequently passed with warnings denied. These are
+fixture/lint corrections with retained first failures, not retry-only passes.
+
+
+All **17 selected combined source-process scenarios passed** with the frozen
+final production runtimes: whole/nested groups, inherited and imported history,
+source omission, same-block original-byte reproof, partial restart, native/history
+reorg, repeated calls, ordered inbound roots and multipart catch-up. The renewed
+catch-up covered 2,010 L2 blocks and 32 ordinary transactions in five separately
+proven/settled parts (four historical, one actual-parent), importing 403 L1
+headers. Its first source was 314 blocks old and the manager rejected that expired
+anchor before the valid recent-anchor flow. This proves the inaccessible-blockhash
+and segmented replay mechanism, not a four-day wall-clock load benchmark.
+
+Independent public-input (3), rolling-hash (2), causal-evidence (10), blob codec
+(21), Ethereum KZG (1), and payload codec (16 unit plus 2 integration) tests passed.
+Signer all-target/all-feature Clippy and warnings-denied documentation also
+passed. Seven further fee/treasury/static-only/observation process scenarios and
+the boxed same-block test-wrapper rerun are selected; these are still pending.

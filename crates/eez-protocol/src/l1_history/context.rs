@@ -225,28 +225,12 @@ impl OfflineContext {
     pub fn live_source_context(
         &self,
     ) -> Result<crate::native_source::LiveSourceContext, ProfileError> {
-        let EvidenceAnchor::ActualParent {
-            hash,
-            target_timestamp,
-            ..
-        } = self.anchor
-        else {
+        let EvidenceAnchor::ActualParent { hash, .. } = self.anchor else {
             return Err(ProfileError(
                 "historical context cannot authorize native cross-chain actions",
             ));
         };
-        crate::native_source::LiveSourceContext::new(
-            self.l1_chain_id
-                .try_into()
-                .map_err(|_| ProfileError("unsupported L1 chain id"))?,
-            self.registry,
-            crate::RollupId(self.rollup_id),
-            self.l2_chain_id
-                .try_into()
-                .map_err(|_| ProfileError("unsupported L2 chain id"))?,
-            target_timestamp,
-            hash,
-        )
+        crate::native_source::LiveSourceContext::new(crate::RollupId(self.rollup_id), hash)
     }
 
     /// Exact flat Solidity ABI tuple returned by OfflineRollup.getCustomData.

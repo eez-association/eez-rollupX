@@ -1369,9 +1369,8 @@ struct AppendedGroup {
     gas_used: Vec<u64>,
 }
 
-/// Execute a native group, retaining its logs and charged receipt gas.
-/// On failure the prefix may be half-extended and must be reopened on the
-/// accepted list. Provider failures defer work rather than blaming the source.
+/// Select a candidate's original settlement rows from the complete prospective
+/// stream. Earlier failed/lookup rows remain counted; no consumed suffix is renumbered.
 fn candidate_native_sources(
     accepted: &[eez_protocol::blob_semantics::SemanticTransaction],
     candidate: &eez_protocol::blob_semantics::SemanticTransaction,
@@ -1379,7 +1378,7 @@ fn candidate_native_sources(
     l2_chain_id: u64,
     live: &eez_protocol::native_source::LiveSourceContext,
     count: usize,
-) -> Result<Vec<B256>, String> {
+) -> Result<Vec<eez_protocol::native_source::SourceEntry>, String> {
     let transactions = accepted
         .iter()
         .chain(std::iter::once(candidate))
@@ -1391,7 +1390,9 @@ fn candidate_native_sources(
         l2_chain_id,
     )
     .map_err(|error| error.to_string())?;
-    let sources = actions.source_hashes(live);
+    let sources = actions
+        .source_entries(live)
+        .map_err(|error| error.to_string())?;
     let start = sources
         .len()
         .checked_sub(count)
@@ -1399,6 +1400,24 @@ fn candidate_native_sources(
     Ok(sources[start..].to_vec())
 }
 
+fn hash_group(
+    hashes: &mut SyncPrefixHashes<'_>,
+    prefix: &[Bytes],
+    group: &[Bytes],
+    positions: &[usize],
+) -> Result<Vec<(usize, B256)>, BuildError> {
+    let txs = prefix.iter().chain(group).cloned().collect::<Vec<_>>();
+    let positions = positions
+        .iter()
+        .map(|position| prefix.len() + position)
+        .collect::<Vec<_>>();
+    hashes
+        .at_positions(&txs, &positions)
+        .map(|hashes| positions.into_iter().zip(hashes).collect())
+}
+
+/// Execute a whole native group. On failure reopen any partially extended
+/// draft from the accepted list; provider failures cannot blame the source.
 fn append_and_execute(
     prefix: &mut SyncBlockState,
     txs: &[Bytes],
@@ -3046,17 +3065,6 @@ where
             prev_randao,
             suggested_fee_recipient,
         );
-        let mut prefix_hash_elapsed = std::time::Duration::ZERO;
-        let mut hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
-            let started = std::time::Instant::now();
-            let txs: Vec<_> = prefix.iter().chain(group).cloned().collect();
-            let positions: Vec<_> = positions.iter().map(|p| prefix.len() + p).collect();
-            let result = prefix_hashes
-                .at_positions(&txs, &positions)
-                .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>());
-            prefix_hash_elapsed += started.elapsed();
-            result
-        };
         // The drain is nonempty and the held pool holds only cross-chain
         // work, so composition simulates at the price final pricing will use
         // when any of it survives. The final quote is selected again from the
@@ -3097,11 +3105,7 @@ where
                     return Err("Sync timestamp differs from live source target".into());
                 }
                 let live_source = eez_protocol::native_source::LiveSourceContext::new(
-                    ctx.l1_chain_id,
-                    self.inner.posting.registry,
                     eez_protocol::RollupId(rollup_id),
-                    ctx.l2_chain_id,
-                    live_timestamp,
                     state.anchor.hash(),
                 )
                 .map_err(|error| error.to_string())?;
@@ -3743,7 +3747,7 @@ where
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),
                     };
-                    let pairs_k = match candidate_native_sources(
+                    let (pairs_k, sources) = match candidate_native_sources(
                         &semantic_transactions,
                         &semantic,
                         rollup_id,
@@ -3756,8 +3760,8 @@ where
                             std::slice::from_ref(&outbound_group),
                             &[],
                             &stf_cfg,
-                            &sources,
                         )
+                        .map(|pairs| (pairs, sources))
                     }) {
                         Ok(pairs) => pairs,
                         Err(e) => {
@@ -3814,7 +3818,12 @@ where
                     // The prefix-hash rebuild runs the canonical executor, which
                     // treats a group that does not fit as a hard error. Settle the
                     // fit first, as a capacity decision rather than a fault.
-                    let pair_txs = match draft.prepare_transactions(&pair_plans) {
+                    let pair_txs = match prefix_hashes.prepare_transactions(
+                        &mut draft,
+                        &sync_txs,
+                        &pair_plans,
+                        &sources,
+                    ) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -3871,6 +3880,7 @@ where
                         }
                     };
                     let group_hashes = match hash_group(
+                        &mut prefix_hashes,
                         &sync_txs,
                         &pair_txs,
                         &eez_protocol::system_tx::sync_pair_end_positions(&pairs_k),
@@ -4558,7 +4568,7 @@ where
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),
                     };
-                    let deliveries = match candidate_native_sources(
+                    let (deliveries, sources) = match candidate_native_sources(
                         &semantic_transactions,
                         &semantic,
                         rollup_id,
@@ -4567,13 +4577,12 @@ where
                         target_entries.len(),
                     )
                     .and_then(|sources| {
-                        eez_protocol::system_tx::build_inbound_system_txs(
-                            &target_entries,
-                            &stf_cfg,
-                            &sources,
-                        )
+                        eez_protocol::system_tx::build_inbound_system_txs(&target_entries, &stf_cfg)
+                            .map(|deliveries| (deliveries, sources))
                     }) {
-                        Ok(deliveries) if deliveries.is_empty() && !target_entries.is_empty() => {
+                        Ok((deliveries, _))
+                            if deliveries.is_empty() && !target_entries.is_empty() =>
+                        {
                             event!(
                                 name: "eez.composer.cc_compose.shape_evicted",
                                 Level::WARN,
@@ -4637,7 +4646,12 @@ where
                         .into_iter()
                         .map(eez_protocol::system_tx::PlannedTransaction::Native)
                         .collect::<Vec<_>>();
-                    let deliveries = match draft.prepare_transactions(&delivery_plans) {
+                    let deliveries = match prefix_hashes.prepare_transactions(
+                        &mut draft,
+                        &sync_txs,
+                        &delivery_plans,
+                        &sources,
+                    ) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -4691,6 +4705,7 @@ where
                         }
                     };
                     let group_hashes = match hash_group(
+                        &mut prefix_hashes,
                         &sync_txs,
                         &deliveries,
                         &(0..deliveries.len()).collect::<Vec<_>>(),
@@ -4937,6 +4952,7 @@ where
         deferred.extend(capacity.groups);
         admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
         let prefix_hash_executed_tx_count = prefix_hashes.executed_transactions;
+        let prefix_hash_elapsed = prefix_hashes.elapsed;
         drop(prefix_hashes);
         candidate.duration("prefix_hashing", prefix_hash_elapsed);
         candidate.emit(
@@ -5209,14 +5225,33 @@ where
                     &pending_out,
                     &pending_in,
                     &stf_cfg,
-                    &actions.source_hashes(&live_source),
                 )
+                .and_then(|pairs| {
+                    Ok((
+                        pairs,
+                        actions
+                            .source_entries(&live_source)
+                            .map_err(|error| error.to_string())?,
+                    ))
+                })
             })
-            .and_then(|pairs| {
+            .and_then(|(pairs, sources)| {
                 let plans = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
-                let transactions = reopen(&history_prefix)
-                    .map_err(|error| error.to_string())?
-                    .prepare_transactions(&plans)
+                let mut hashes = SyncPrefixHashes::new(
+                    rollup.l2_provider.as_ref(),
+                    &evm_config,
+                    parent_header,
+                    timestamp,
+                    prev_randao,
+                    suggested_fee_recipient,
+                );
+                let transactions = hashes
+                    .prepare_transactions(
+                        &mut reopen(&history_prefix).map_err(|error| error.to_string())?,
+                        &history_prefix,
+                        &plans,
+                        &sources,
+                    )
                     .map_err(|(_, error)| error.to_string())?;
                 let canonical = history_prefix
                     .iter()

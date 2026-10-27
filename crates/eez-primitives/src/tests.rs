@@ -26,7 +26,7 @@ fn native_v1_reference_vectors_are_canonical() {
     let mut checked = 0;
     for vector in corpus["vectors"].as_array().unwrap() {
         let id = vector["id"].as_str().unwrap();
-        if !id.starts_with("native-history-") {
+        if !id.starts_with("native-history-") && !id.starts_with("native-source-") {
             continue;
         }
         let bytes =
@@ -42,7 +42,7 @@ fn native_v1_reference_vectors_are_canonical() {
         assert_eq!(tx.recover_signer().unwrap(), SYSTEM_ADDRESS);
         checked += 1;
     }
-    assert_eq!(checked, 2);
+    assert_eq!(checked, 4);
 }
 
 #[test]

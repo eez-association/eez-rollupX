@@ -29,6 +29,7 @@ pub(crate) struct SyncPrefixHashes<'a> {
     raw: Vec<Bytes>,
     checkpoint: Option<Checkpoint>,
     pub(crate) executed_transactions: usize,
+    pub(crate) elapsed: std::time::Duration,
 }
 
 impl<'a> SyncPrefixHashes<'a> {
@@ -92,7 +93,43 @@ impl<'a> SyncPrefixHashes<'a> {
             raw: Vec::new(),
             checkpoint: None,
             executed_transactions: 0,
+            elapsed: std::time::Duration::ZERO,
         }
+    }
+
+    /// Resolve each native identity from the executed prefix immediately before
+    /// its whole group. A rejected candidate leaves the production draft intact;
+    /// a later different raw prefix invalidates this cache's speculative suffix.
+    pub(crate) fn prepare_transactions(
+        &mut self,
+        draft: &mut SyncBlockState,
+        prefix: &[Bytes],
+        plans: &[PlannedTransaction],
+        sources: &[eez_protocol::native_source::SourceEntry],
+    ) -> Result<Vec<Bytes>, (usize, BuildError)> {
+        if plans
+            .iter()
+            .filter(|plan| matches!(plan, PlannedTransaction::Native(_)))
+            .count()
+            != sources.len()
+        {
+            return Err((
+                0,
+                BuildError::Builder("native source row count differs from plans".into()),
+            ));
+        }
+        let mut sources = sources.iter();
+        draft.prepare_transactions(plans, |suffix| {
+            let full = prefix.iter().chain(suffix).cloned().collect::<Vec<_>>();
+            let hash = self
+                .prefix(&full)
+                .map_err(|error| BuildError::SourcePrefix(error.to_string()))?;
+            // Count equality above and one callback per Native plan establish this.
+            let source = sources
+                .next()
+                .ok_or_else(|| BuildError::Builder("native source row missing".into()))?;
+            Ok(source.hash(hash))
+        })
     }
 
     pub(crate) fn at_positions(
@@ -123,6 +160,13 @@ impl<'a> SyncPrefixHashes<'a> {
     }
 
     pub(crate) fn prefix(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
+        let started = std::time::Instant::now();
+        let result = self.prefix_inner(transactions);
+        self.elapsed += started.elapsed();
+        result
+    }
+
+    fn prefix_inner(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
         if !transactions.starts_with(&self.raw) {
             self.clear();
         }

@@ -110,6 +110,25 @@ impl<E, S> EezBlockExecutor<'_, E, S> {
     pub const fn group_state(&self) -> ExecutionGroupState {
         self.group_state
     }
+
+    /// Validate a complete RollupX prefix before computing a canonical hash.
+    /// Rollup execution has no post-transaction state changes; this is the same
+    /// boundary enforced by finalization, including an eligible empty block.
+    pub fn validate_prefix(&self) -> Result<(), BlockExecutionError> {
+        if self.layer != ExecutionLayer::Rollup {
+            return Err(BlockExecutionError::msg(
+                "prefix hashing requires RollupX execution",
+            ));
+        }
+        if !self.history_inherited && self.inner.receipts.is_empty() {
+            return Err(BlockExecutionError::msg(
+                "empty block PREVRANDAO differs from inherited L1 origin",
+            ));
+        }
+        self.group_state
+            .ensure_complete()
+            .map_err(BlockExecutionError::msg)
+    }
 }
 
 impl<E, S> BlockExecutor for EezBlockExecutor<'_, E, S>
@@ -277,14 +296,7 @@ where
         // beacon balance increments or DAO transition. EIP-2935 already ran.
         // A future execution fork must explicitly define its L2 lifecycle before
         // the Osaka allowlist above is extended.
-        if !self.history_inherited && self.inner.receipts.is_empty() {
-            return Err(BlockExecutionError::msg(
-                "empty block PREVRANDAO differs from inherited L1 origin",
-            ));
-        }
-        self.group_state
-            .ensure_complete()
-            .map_err(BlockExecutionError::msg)?;
+        self.validate_prefix()?;
         let inner = self.inner;
         Ok((
             inner.evm,
