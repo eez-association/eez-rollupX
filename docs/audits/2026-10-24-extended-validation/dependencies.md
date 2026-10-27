@@ -1,5 +1,10 @@
 # Selective Tokio security update
 
+Update, 2026-10-27 UTC: the owner also authorized temporary exceptions for four
+zstd-family advisories until a compatible upstream update is integrated. The
+[zstd exception record](#temporary-zstd-exceptions-2026-10-27) changes the
+dependency-gate disposition; it does not fix the reported vulnerabilities.
+
 Update, 2026-10-25 UTC: the owner authorized a temporary exception for
 `RUSTSEC-2026-0387` pending a compatible upstream correction. The
 [exception record](#temporary-crypto-bigint-exception-2026-10-25) below supersedes
@@ -119,6 +124,74 @@ each original configuration exactly; existing informational warnings remain.
 retained locally in `artifacts/security-exception-20261025/`, unavailable from
 another checkout. Runtime suites were not repeated locally for this policy-only
 change; the PR's full CI remains a separate requirement.
+
+## Temporary zstd exceptions, 2026-10-27
+
+The owner authorized deferring the upstream compression update and temporarily
+exempting the following four advisories. The isolated policy worktree started
+clean at `c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae` (PR #101); the change is
+intended to propagate through #101, #102 and #103. The protocol gitlink remains
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+
+| Advisory | Locked dependency | Patched range | Relevant exposure |
+| --- | --- | --- | --- |
+| [RUSTSEC-2026-0391](https://rustsec.org/advisories/RUSTSEC-2026-0391.html) | zstd 0.13.3 | >=0.14.3 | Stream context reuse can expose data from an abandoned stream. |
+| [RUSTSEC-2026-0398](https://rustsec.org/advisories/RUSTSEC-2026-0398.html) | zstd-safe 7.2.4 | >=8.2.0 | Seekable decompression can invalidate a buffer's length; `seekable` is absent from the inspected feature graph. |
+| [RUSTSEC-2026-0403](https://rustsec.org/advisories/RUSTSEC-2026-0403.html) | zstd-safe 7.2.4 | >=8.2.0 | Failed legacy-frame stream decoding can expose uninitialized memory; `legacy` is enabled. |
+| [RUSTSEC-2026-0410](https://rustsec.org/advisories/RUSTSEC-2026-0410.html) | zstd-sys 2.0.16+zstd.1.5.7 | >=2.1.2 | A wasm32 allocator-shim defect, outside the native Linux shipping target. |
+
+These dependencies already enter through pinned Reth/Gnosis storage codecs,
+static files, archive tooling and optional HTTP compression. They were not added
+by the sourceHash work. Fixed releases exist, but the pinned consumers still
+require the older zstd API family; this exception does not disguise a version
+or introduce a local replacement library.
+
+This is risk acceptance, not a finding that all four defects are unreachable.
+In particular, `compression-codecs 0.4.38` uses the raw streaming decoder with a
+custom output buffer. Reth's opt-in `--http.decompression zstd` can reach that
+async decoder path. Request decompression is disabled by default, but that does
+not establish every deployment's configuration or eliminate all zstd consumers.
+The reachability assessment is static; no live-network exploitation test was
+performed. The package's bulk and read-stream APIs are outside the affected
+path described by RUSTSEC-2026-0403.
+
+Only the four IDs above are added to [`deny.toml`](../../../deny.toml) and
+[`.cargo/audit.toml`](../../../.cargo/audit.toml). Both audit tools continue to
+run; other non-exempt vulnerabilities, existing source restrictions and the
+all-lanes CI gate retain their previous policy. No dependency version, runtime
+code, protocol pin, wire format or validation identity changes.
+
+Review these exceptions on each Reth/Gnosis or compression dependency update.
+For each advisory, integrate and validate a compatible upstream correction,
+confirm that no affected version remains in the resolved dependency graph, and
+remove its ID from **both** configurations in that change. Re-run both audit
+commands. The exceptions have no automatic expiry or upstream-release detector.
+
+Verification used cargo-deny 0.20.2 and cargo-audit 0.22.2 against RustSec database
+`3279c99911354c400e1d41e47c7d60e39258b147`. Before the edit, both diagnostic
+commands below exited 1 with exactly the four fatal advisories above. After the
+edit, both exited 0 against that same database revision:
+
+```bash
+cargo deny --locked --format json check advisories bans sources --hide-inclusion-graph
+cargo audit --json
+```
+
+The exact CI commands, `cargo deny check advisories bans sources` and
+`cargo audit`, also pass after the change. A parsed TOML comparison confirms
+that removing only these four added IDs restores both original configurations
+exactly. `Cargo.toml` and `Cargo.lock` are byte-identical to the baseline; the
+lockfile SHA-256 is
+`1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644`.
+`git diff --check` passes. Local runtime suites were not repeated for this
+policy-only change; CI against the resulting PR heads is still required.
+
+Raw logs, original configurations and the feature graph are retained locally in
+`artifacts/security-exception-20261027/` in the isolated policy worktree; they are
+unavailable from another checkout. The before/after cargo-audit JSON SHA-256
+digests are, respectively,
+`8fa69be23d11222719d1b9ad19c6c807814673549f89a3dde7ca612e3f13bbcb` and
+`7a6cd76345a572a7bd913a1b2641b4e651583b1410f0faa87d1bbe2bebe65542`.
 
 ## Evidence
 
