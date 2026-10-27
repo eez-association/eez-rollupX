@@ -40,9 +40,9 @@ async fn pending_history_import_requires_executed_state() {
     );
     let l2 = ProviderBuilder::new().connect_http(world.l2_rpc().parse().unwrap());
     let l1 = ProviderBuilder::new().connect_http(world.l1_rpc().parse().unwrap());
-    let request = TransactionRequest::default()
-        .to(HISTORY_ADDRESS)
-        .input(Bytes::from(IL1BlockhashContract::currentCall {}.abi_encode()).into());
+    let request = TransactionRequest::default().to(HISTORY_ADDRESS).input(
+        Bytes::from(IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode()).into(),
+    );
     // Inject the existing observation fixture only into the RPC simulation; it
     // reads history and PREVRANDAO together without a deployment transaction.
     let artifact: serde_json::Value = serde_json::from_slice(
@@ -287,7 +287,8 @@ async fn pending_history_import_requires_executed_state() {
         .block(parent.hash.into())
         .await
         .unwrap();
-    let before = IL1BlockhashContract::currentCall::abi_decode_returns(&before).unwrap();
+    let before =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&before).unwrap();
     let previous_source = l1
         .get_block_by_number(before.number.into())
         .await
@@ -321,7 +322,8 @@ async fn pending_history_import_requires_executed_state() {
         .block(next.hash.into())
         .await
         .unwrap();
-    let after = IL1BlockhashContract::currentCall::abi_decode_returns(&after).unwrap();
+    let after =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&after).unwrap();
     let selected = l1
         .get_block_by_number(after.number.into())
         .await
@@ -350,7 +352,8 @@ async fn pending_history_import_requires_executed_state() {
         .await
         .unwrap();
     let indexed: Bytes = serde_json::from_value(indexed["output"].clone()).unwrap();
-    let indexed = IL1BlockhashContract::currentCall::abi_decode_returns(&indexed).unwrap();
+    let indexed =
+        IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&indexed).unwrap();
     assert_eq!((indexed.number, indexed.hash), (before.number, before.hash));
     let out_of_bounds = l2
         .raw_request::<_, serde_json::Value>(

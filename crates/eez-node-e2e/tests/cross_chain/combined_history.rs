@@ -131,7 +131,7 @@ async fn scheduled_history_static_and_lookup_settle() {
     let history: eez_primitives::HistoryTransaction =
         serde_json::from_value(first.clone()).unwrap();
     assert!(
-        !history.hashes.is_empty(),
+        !history.blocks.is_empty(),
         "regression must observe an advancing history import"
     );
     let parent_number = u64::from_str_radix(
@@ -144,18 +144,15 @@ async fn scheduled_history_static_and_lookup_settle() {
         serde_json::json!({"to":probe,"data":Bytes::copy_from_slice(&keccak256("observe()")[..4])}),
         format!("0x{parent_number:x}"),
     )).await.unwrap();
-    let (_, old_number, _) = <(U256, u64, B256)>::abi_decode(&before).unwrap();
+    let (_, _old_number, _) = <(U256, u64, B256)>::abi_decode(&before).unwrap();
     let observed = read_state_word(&l1, &read(reader, "beforeNumber()"))
         .await
         .unwrap();
-    assert_eq!(
-        observed,
-        U256::from(old_number + history.hashes.len() as u64)
-    );
+    assert_eq!(observed, U256::from(history.blocks.last().unwrap().number));
     let expected = (
         U256::from(1),
         observed.to::<u64>(),
-        *history.hashes.last().unwrap(),
+        history.blocks.last().unwrap().block_hash,
     )
         .abi_encode();
     assert_eq!(
@@ -344,7 +341,7 @@ async fn kurtosis_combined_history_observations_replay_offline() {
         let EezTxEnvelope::History(history) = &block.body.transactions[0] else {
             unreachable!("first transaction was checked above")
         };
-        assert!(!history.hashes.is_empty());
+        assert!(!history.blocks.is_empty());
         let parent_number = block.header.number - 1;
         let terminal_hash = B256::from_slice(&terminal.hash);
         let canonical: serde_json::Value = rpc
@@ -429,11 +426,8 @@ async fn kurtosis_combined_history_observations_replay_offline() {
         {
             continue;
         }
-        assert_eq!(
-            correct_tuple.1,
-            before_tuple.1 + history.hashes.len() as u64
-        );
-        assert_eq!(Some(&correct_tuple.2), history.hashes.last());
+        assert_eq!(correct_tuple.1, history.blocks.last().unwrap().number);
+        assert_eq!(correct_tuple.2, history.blocks.last().unwrap().block_hash);
         assert_ne!(correct, after, "real delivery changes observed state");
         let canonical_after: Bytes = rpc
             .client()
@@ -472,7 +466,7 @@ async fn kurtosis_combined_history_observations_replay_offline() {
             metadata,
             serde_json::json!({"capture":path.file_name().unwrap(),"terminal_number":block.header.number,"terminal_hash":terminal_hash,
             "ordinary_prefix_transactions":boundary,"ordinary_bumps_in_terminal":bumps,"first_ordinary_bump_block":first_bump,
-            "imported_headers":history.hashes.len(),"before":before_tuple,"correct":correct_tuple,
+            "imported_headers":history.blocks.len(),"before":before_tuple,"correct":correct_tuple,
             "safe_number":safe_number,"safe_hash":safe_hash,"terminal_is_ancestor_of_safe":true}),
         ));
         break;

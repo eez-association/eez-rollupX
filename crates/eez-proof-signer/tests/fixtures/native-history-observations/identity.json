@@ -3,45 +3,45 @@
   "cases": [
     {
       "accept": false,
-      "public_inputs_hash": "0x2656f1c52460a589fd6283a51d8ed61c1ba7a82da2f517fc749354180a8e546d",
+      "public_inputs_hash": "0xfd2d3d64aa1edfff84bd787901a1eb6100a5e2e12f0ef7b002fe3413e46c540c",
       "request": "static-before-history.v2.protobuf",
-      "request_hash": "0x9fadbf26a2141c1716449f9dc4aab800051748152645fafe6f0888a7e50ecd5c"
+      "request_hash": "0x4895c6958bea9730608ec3390ed557451c57bbc765d8bf087862bc65493b9e7b"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0x8914b5e32b4abf459f064161888f1fdffcd736ec4da6a6d96154ff1eefa817f2",
+      "public_inputs_hash": "0x197398a155a89eca1596db384e017d1903b510f05d32773a158d42e4cbaced2c",
       "request": "static-before-ordinary.v2.protobuf",
-      "request_hash": "0x956693e1ce7f79d1ad7a6f2face69225e74a0644ec84d6742f0e67735004819d"
+      "request_hash": "0xadd6f2983f1d1e2a003f3f9b988a3eb93ffa38f89b0221b33f3be6b199ee0879"
     },
     {
       "accept": true,
-      "public_inputs_hash": "0x4ed1b2fad3f6fd0bd01697800d41f4c8ec5105c9ce1907e3330ca7352c9a511a",
+      "public_inputs_hash": "0x2b2bea9c879b3bbc40013a0dfeae00ca74d197489d6df1944a96e8d60711bc55",
       "request": "static-correct.v2.protobuf",
-      "request_hash": "0x04003b31e57c8a96416c53e562089e2fbc18d8b7f7e11729b41f0b8eb9e63ce6"
+      "request_hash": "0x26770fb499aa893fa821f9ea9611134508470ef9aaf1e168800a1cb4f99f2220"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0x8c87068b7f5f53a4bb285c313b72cbe852fe7cdebda6795dbe320459b72c534b",
+      "public_inputs_hash": "0x5c8e1467915e6b1f724d156583bafa5be2d17fda7c032fbee04724dee3664544",
       "request": "lookup-before-history.v2.protobuf",
-      "request_hash": "0x70995dc3e09b56db042445f93fc985e1a77e35589eb0ad51f04dcc5a66934305"
+      "request_hash": "0xea77543a9758002f953c29067e2db59afd8b314a112918f6a530288356a1caa5"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0xaa23fa1cab9d585d16e7d33460015eca28db9ddf635f40832d99c58e729a19f5",
+      "public_inputs_hash": "0xdd1b8b79da9117152a94ff6fe8ef084790215da4070f0304c731279ef13655d4",
       "request": "lookup-before-ordinary.v2.protobuf",
-      "request_hash": "0x5bf96bba86dc2577664f3d9999317d0d8b23cbbb123a258a5e5c98377d20c18e"
+      "request_hash": "0x4f15c27ed066a1da52dadddca213e84a5973fe30b0c45a513dcedcb7d934118d"
     },
     {
       "accept": true,
-      "public_inputs_hash": "0x3ba05362f799344ce517262760f01876b697ae779d4af8ae078070c620ec2d91",
+      "public_inputs_hash": "0x2d5ca721ae0531e66a1b78b670035825d675e03b01162daf339feb7a20fd951e",
       "request": "lookup-correct.v2.protobuf",
-      "request_hash": "0x2f48885aa362cc18c2fdd70b81847cd74addd81627db7be3d41d02eb5f4fe3d4"
+      "request_hash": "0x5b4e95004dc8c2fc108dfdcb3c310deb06bde88b307cd62db5ebb65dfe0d2521"
     }
   ],
   "manager": "0x4444444444444444444444444444444444444444",
   "proof_system": "0x00000000000000000000000000000000000000aa",
   "registry": "0x3333333333333333333333333333333333333333",
   "rollup_id": 1,
-  "validation_identity": "0xe2c288fc8e979bf89e2daba336e463cfb6c152758ace9c90bdf322c673dddf16",
+  "validation_identity": "0xad5f898b3d9c73c0123124930aa88b39c14621604fcf31321bd6fc5e1b3337ed",
   "vkey": "0x4242424242424242424242424242424242424242424242424242424242424242"
 }

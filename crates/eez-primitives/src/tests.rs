@@ -431,7 +431,12 @@ fn history_has_a_distinct_bounded_envelope_and_fixed_rpc_context() {
         let tx = HistoryTransaction {
             version: HISTORY_TX_VERSION,
             chain_id: 1337,
-            hashes: (1..=count).map(B256::with_last_byte).collect(),
+            blocks: (1..=count)
+                .map(|number| HistoryBlock {
+                    number: u64::from(number),
+                    block_hash: B256::with_last_byte(number),
+                })
+                .collect(),
         };
         let envelope = EezTxEnvelope::from(tx.clone());
         let raw = envelope.encoded_2718();
@@ -491,7 +496,14 @@ fn history_has_a_distinct_bounded_envelope_and_fixed_rpc_context() {
         let raw = HistoryTransaction {
             version,
             chain_id: 1,
-            hashes,
+            blocks: hashes
+                .into_iter()
+                .enumerate()
+                .map(|(index, block_hash)| HistoryBlock {
+                    number: index as u64 + 1,
+                    block_hash,
+                })
+                .collect(),
         }
         .encoded_2718();
         assert!(EezTxEnvelope::decode_2718_exact(&raw).is_err());
@@ -520,7 +532,10 @@ fn history_rejects_noncanonical_integers_hash_shapes_and_extra_fields() {
         }
         raw
     };
-    let valid_hashes = alloy_rlp::encode(vec![B256::repeat_byte(1)]);
+    let valid_hashes = alloy_rlp::encode(vec![HistoryBlock {
+        number: 1,
+        block_hash: B256::repeat_byte(1),
+    }]);
     for fields in [
         vec![vec![0x81, 1], vec![1], valid_hashes.clone()],
         vec![vec![1], vec![0x82, 0, 1], valid_hashes.clone()],
@@ -568,4 +583,48 @@ fn payload_identity_binds_exact_history_choice_even_when_randao_is_unchanged() {
     assert_ne!(first, other);
     attrs.no_tx_pool = true;
     assert_ne!(other, attrs.payload_id(&parent));
+}
+
+#[test]
+fn history_pairs_reject_zero_nonincreasing_and_oversized_rpc_inputs() {
+    for numbers in [vec![0], vec![1, 1], vec![2, 1], (1..=65).collect()] {
+        let tx = HistoryTransaction {
+            version: 1,
+            chain_id: 1337,
+            blocks: numbers
+                .into_iter()
+                .map(|number| HistoryBlock {
+                    number,
+                    block_hash: B256::repeat_byte(1),
+                })
+                .collect(),
+        };
+        assert!(EezTxEnvelope::decode_2718_exact(&tx.encoded_2718()).is_err());
+        assert!(
+            serde_json::from_value::<HistoryTransaction>(serde_json::to_value(tx).unwrap())
+                .is_err()
+        );
+    }
+    let tx = HistoryTransaction {
+        version: 1,
+        chain_id: 1337,
+        blocks: vec![
+            HistoryBlock {
+                number: 100,
+                block_hash: B256::repeat_byte(1),
+            },
+            HistoryBlock {
+                number: u64::MAX,
+                block_hash: B256::repeat_byte(2),
+            },
+        ],
+    };
+    assert_eq!(
+        HistoryTransaction::decode_2718_exact(&tx.encoded_2718()).unwrap(),
+        tx
+    );
+    assert_eq!(
+        serde_json::from_value::<HistoryTransaction>(serde_json::to_value(&tx).unwrap()).unwrap(),
+        tx
+    );
 }

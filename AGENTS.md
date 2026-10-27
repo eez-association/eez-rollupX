@@ -98,15 +98,18 @@ its Solidity implementation/tests and the applicable fork contract:
   [current amendment audit](docs/audits/2026-10-27-source-counter/README.md)
   tracks historical validation-contract-3 evidence. The [history lookup audit](docs/audits/2026-10-27-history-zero-lookup/README.md)
   records validation-contract-4 availability semantics. The [block-end cleanup audit](docs/audits/2026-10-27-block-end-cleanup/README.md)
-  records the current validation-contract-5 execution boundary. There is one fresh-network profile;
-  cross-chain 0x45 has six fields and no version; history 0x46 uses version 1. Do not add fallback execution, migration
+  records the preceding validation-contract-5 execution boundary. The
+  [history contract](contracts/L1_HISTORY_SPEC.md) defines validation-contract 6:
+  an empty upgradeable store, explicit increasing number/hash pairs and genesis-bound
+  bootstrap origin until first import. There is one fresh-network profile;
+  cross-chain 0x45 has six fields and no version; history 0x46 uses version 1 with explicit number/hash pairs. Do not add fallback execution, migration
   or old-format validation paths.
   Clear SYSTEM/EEZL2 balances after complete cross-chain groups before checkpoints,
   clearing residual balances at block finalization. Canonical prefix hashes
   finalize a copy; continuing execution and FIFO observations use the unfinalized
   prefix. Never let checkpoint projection conceal an invalid terminal state root. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
-  validation-contract-5 semantics consistent across all execution paths.
+  validation-contract-6 semantics consistent across all execution paths.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
   Source identities bind the L2 EVM chain ID, intended L1 parent and zero-based

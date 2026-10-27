@@ -3,16 +3,16 @@
 These deterministic requests exercise RX-PROVER-01 through the standalone v2
 signer. They are constructed execution fixtures, not captures from a deployed
 network. The six-block window starts at genesis. Its terminal Sync block contains
-a scheduled history import followed by a signed transfer of 7 wei to a probe.
+a scheduled history import followed by a signed transfer of 7 wei to SYSTEM_ADDRESS.
 The allowed `historyUpdateOffset = 5`, with six 2-second slots per interval,
 places the import at Sync. The default offset does not exercise this boundary.
 
-The probe returns three ABI words: its balance, the installed L1 block number,
+The probe returns three ABI words: the system balance, the installed L1 block number,
 and that block's hash. The expected outcomes are independently fixed:
 
 | Request suffix | Claimed observation state | Expected result |
 | --- | --- | --- |
-| `before-history` | Balance 0, bootstrap L1 header | Reject before signing |
+| `before-history` | Balance 0, empty public history `(0, 0)` | Reject before signing |
 | `before-ordinary` | Balance 0, newly imported L1 header | Reject before signing |
 | `correct` | Balance 7, newly imported L1 header | Sign the committed digest |
 

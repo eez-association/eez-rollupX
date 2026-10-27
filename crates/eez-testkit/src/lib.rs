@@ -2921,21 +2921,11 @@ fn bind_l2_genesis_reference(
         .config
         .extra_fields
         .insert("rollupX".into(), serde_json::to_value(config)?);
-    let timing = eez_protocol::l1_history::HistorySchedule::new(
-        genesis.timestamp,
-        block_interval_seconds,
-        sync_interval_blocks,
-        config.history_update_offset,
-    )?;
     genesis
         .alloc
         .get_mut(&eez_protocol::l1_history::HISTORY_ADDRESS)
         .context("fixture base lacks the mandatory L1 history predeploy")?
-        .storage = Some(eez_protocol::l1_history::bootstrap_storage(
-        reference.number,
-        reference.hash_slow(),
-        timing,
-    )?);
+        .storage = Some(eez_protocol::l1_history::genesis_storage());
     let spec = reth_chainspec::ChainSpec::from_genesis(genesis.clone());
     eez_protocol::l2::Schedule::new(config, spec.genesis_header())?;
     std::fs::write(path, serde_json::to_vec(&genesis)?)?;

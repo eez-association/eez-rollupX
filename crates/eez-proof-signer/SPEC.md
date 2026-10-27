@@ -212,7 +212,8 @@ and extension fields MUST be rejected rather than silently ignored. A complete
 Genesis document is required for L2; a bare `ChainConfig` is rejected. The
 L2 loader checks the fixed Osaka-from-genesis profile, 30,000,000 gas limit,
 1 gwei initial base fee, canonical EIP-2935 history predeploy and exact permanent
-L1 history runtime/bootstrap storage. Schedule parameters include the fixed
+L1 history proxy, initial implementation, ProxyAdmin and empty history storage.
+The authenticated bootstrap origin is in genesis configuration. Schedule parameters include the fixed
 update offset; invalid or incomplete old genesis files reject. It applies
 RollupX's fixed EIP-1559 elasticity 2 and denominator 50 to that same document.
 These rules do not change the separately configured L1 profile. Duplicate keys, including
@@ -245,6 +246,15 @@ implementation is in state: the upgrade owner is therefore trusted with the L2
 manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
+
+`L1_HISTORY` is likewise an `EEZProxy`, with a dedicated ProxyAdmin initially
+owned by the same L2 upgrade owner. The genesis-bound proxy is fixed; its active
+implementation comes from authenticated state and witness code. Upgrades preserve
+records through the proxy and are replayed as ordinary transactions. The owner is
+trusted with contract behavior; proofs do not establish correctness of arbitrary
+future code. Compatible upgrades must retain the storage/ABI and execution rules
+in the [history contract](../../contracts/L1_HISTORY_SPEC.md#proxy-and-authority).
+No chain RPC or current-code substitution is allowed in historical replay.
 
 Cross-chain native transactions are `0x45 || rlp([chainId, sourceHash, gasLimit,
 to, value, input])`, with the fixed implicit sender and zero fees.
@@ -429,19 +439,23 @@ chain ID; the Composer cannot override either.
 
 The shared schedule is `I = delta * k`, `T(n) = T0 + n * I` and
 `U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At U(T), transaction
-zero MAY be `0x46 || RLP([version = 1, chainId, hashes])`. Exactly 1–64 hashes
-strictly advance the authenticated parent endpoint; every consecutive produced
-header must match the supplied ancestry and the selected timestamp must be at
-most T. The engine derives SYSTEM_ADDRESS, the history destination, zero value,
-cutoff calldata and gas. There is no sourceHash. Duplicate, misplaced,
-off-schedule, empty, noncanonical or obsolete `0x45` history updates reject.
+zero MAY be `0x46 || RLP([version = 1, chainId, [[number, blockHash], ...]])`.
+Exactly 1–64 positive, strictly increasing pairs must match checked L1 headers;
+the selected endpoint timestamp is at most T. Stored gaps are allowed, but every
+intervening produced header remains required for ancestry authentication.
+The first import may publish the positive genesis reference itself; it cannot
+regress below that reference. Later imports strictly advance beyond the stored
+endpoint. Block zero is never stored. The engine derives SYSTEM_ADDRESS, history
+destination, zero value, canonical `importL1Blocks` calldata and gas. There is no
+sourceHash. Duplicate, misplaced, off-schedule, empty or noncanonical updates reject.
 
-Omission at any position leaves storage and origin unchanged, including eligible
-empty blocks, and MUST independently validate inherited header/opcode PREVRANDAO.
-Fixed firstCutoff defines the genesis phase; no empty imports advance a cursor.
-The chosen source need not be the latest eligible header. Missing new headers
-permits omission; missing evidence for an inherited or recorded choice still
-rejects. Replay follows the block, never header arrival time.
+Omission leaves storage and origin unchanged, including eligible empty blocks,
+and MUST independently validate inherited header/opcode PREVRANDAO. Before the
+first import, public history is empty but execution inherits the configured
+genesis reference. The genesis schedule fixes the phase; no empty imports advance
+a cursor. The chosen source need not be the latest eligible header. Missing new
+headers permits omission; missing evidence for an inherited or recorded choice
+still rejects. Replay follows the block, never header arrival time.
 
 The selected header's `prevRandao` MUST match both the L2 header and actual EVM
 PREVRANDAO. Keep it and the origin until the next scheduled update, including
@@ -926,7 +940,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 5 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 6 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.

@@ -76,10 +76,14 @@ fn history_reserve_bytes() -> Result<usize, String> {
     let largest_history: eez_primitives::EezTxEnvelope = eez_primitives::HistoryTransaction {
         chain_id: u64::MAX,
         version: eez_primitives::HISTORY_TX_VERSION,
-        hashes: vec![
-            alloy_primitives::B256::repeat_byte(0xff);
-            eez_protocol::l1_history::MAX_IMPORT_HEADERS
-        ],
+        blocks: (0..eez_protocol::l1_history::MAX_IMPORT_HEADERS)
+            .map(|index| eez_primitives::HistoryBlock {
+                number: u64::MAX - eez_protocol::l1_history::MAX_IMPORT_HEADERS as u64
+                    + index as u64
+                    + 1,
+                block_hash: alloy_primitives::B256::repeat_byte(0xff),
+            })
+            .collect(),
     }
     .into();
     empty
@@ -272,7 +276,12 @@ mod tests {
                 let tx: eez_primitives::EezTxEnvelope = eez_primitives::HistoryTransaction {
                     version: eez_primitives::HISTORY_TX_VERSION,
                     chain_id,
-                    hashes: vec![alloy_primitives::B256::with_last_byte(1); count],
+                    blocks: (0..count)
+                        .map(|index| eez_primitives::HistoryBlock {
+                            number: u64::MAX - count as u64 + index as u64 + 1,
+                            block_hash: alloy_primitives::B256::with_last_byte(1),
+                        })
+                        .collect(),
                 }
                 .into();
                 let wire = tx.encoded_2718();

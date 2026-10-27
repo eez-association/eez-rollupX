@@ -424,10 +424,13 @@ async fn catch_up(
                 assert!(recorded.len() <= 1);
                 if let Some((position, history)) = recorded.first() {
                     assert_eq!(*position, 0);
-                    assert!(!history.hashes.is_empty() && history.hashes.len() <= 64);
-                    for hash in &history.hashes {
-                        selected += 1;
-                        assert_eq!(*hash, historical_headers[selected as usize].hash_slow());
+                    assert!(!history.blocks.is_empty() && history.blocks.len() <= 64);
+                    for record in &history.blocks {
+                        selected = record.number;
+                        assert_eq!(
+                            record.block_hash,
+                            historical_headers[selected as usize].hash_slow()
+                        );
                     }
                 }
             } else {

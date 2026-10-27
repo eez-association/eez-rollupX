@@ -273,14 +273,9 @@ mod tests {
             .get_mut(&eez_protocol::l1_history::HISTORY_ADDRESS)
             .unwrap()
             .storage = Some(
-            eez_protocol::l1_history::bootstrap_storage(
-                0,
-                reference.header.hash,
-                eez_protocol::l1_history::HistorySchedule::new(1004, 1, 4, 2).unwrap(),
-            )
-            .unwrap()
-            .into_iter()
-            .collect(),
+            eez_protocol::l1_history::genesis_storage()
+                .into_iter()
+                .collect(),
         );
         Arc::new(eez_evm::profile::chain_spec(genesis).unwrap())
     }
@@ -427,7 +422,7 @@ mod tests {
     #[test]
     fn pending_prefix_executes_optional_import_with_matching_randao_and_fixed_phase() {
         use eez_protocol::l1_history::{
-            FIRST_CUTOFF_SLOT, HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory,
+            ENDPOINT_SLOT, HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory,
         };
         use reth_evm::Evm;
         use revm::{Database, context::TxEnv};
@@ -475,7 +470,7 @@ mod tests {
             let selected = usize::from(count != 1 && parent_number == 2);
             assert_eq!(history.endpoint, selected as u64);
             assert_eq!(history.endpoint_hash, blocks[selected].header.hash);
-            assert_eq!(history.first_cutoff, 1004);
+            assert_eq!(history.imported, selected != 0);
             assert_eq!(
                 env.block_env.timestamp,
                 alloy_primitives::U256::from(parent.timestamp + 1)
@@ -534,19 +529,16 @@ mod tests {
             let mut original = pending_genesis_db(&spec);
             assert_eq!(
                 original
-                    .storage(
-                        HISTORY_ADDRESS,
-                        alloy_primitives::U256::from(FIRST_CUTOFF_SLOT)
-                    )
+                    .storage(HISTORY_ADDRESS, alloy_primitives::U256::from(ENDPOINT_SLOT))
                     .unwrap(),
-                alloy_primitives::U256::from(1004)
+                alloy_primitives::U256::ZERO
             );
         }
     }
 
     #[tokio::test]
     async fn pending_prefix_rejects_bad_parent_state_and_freezes_evidence() {
-        use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, HISTORY_ADDRESS};
+        use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
         use revm::Database;
         let blocks = l1_blocks(false);
         let spec = profile(&blocks[0]);
@@ -571,12 +563,9 @@ mod tests {
         assert_eq!(env.block_env.prevrandao, Some(blocks[1].header.mix_hash));
         assert_eq!(
             executed
-                .storage(
-                    HISTORY_ADDRESS,
-                    alloy_primitives::U256::from(FIRST_CUTOFF_SLOT)
-                )
+                .storage(HISTORY_ADDRESS, alloy_primitives::U256::from(ENDPOINT_SLOT))
                 .unwrap(),
-            alloy_primitives::U256::from(1004)
+            alloy_primitives::U256::from(1)
         );
         let mut corrupt = pending_genesis_db(&spec);
         corrupt
@@ -589,11 +578,11 @@ mod tests {
             .unwrap()
             .storage
             .insert(
-                alloy_primitives::U256::from(FIRST_CUTOFF_SLOT),
+                alloy_primitives::U256::from(ENDPOINT_SLOT),
                 alloy_primitives::U256::from(999),
             );
         let error = super::pending::execute_prefix(&frozen, &parent, corrupt)
-            .expect_err("malformed cutoff must fail before application overrides");
+            .expect_err("malformed endpoint must fail before application overrides");
         assert!(error.to_string().contains("history"), "{error}");
     }
 

@@ -24,7 +24,6 @@ contract L1StorageProofEip1186Test is Test {
         verifier = new L1StorageProof(0, 0, 0, 0, type(uint64).max);
         vm.etch(verifier.HISTORY(), type(L1BlockhashContract).runtimeCode);
         vm.store(verifier.HISTORY(), bytes32(uint256(1)), bytes32(uint256(number)));
-        vm.store(verifier.HISTORY(), bytes32(uint256(2)), bytes32(uint256(number)));
         bytes32 blockHash = vm.parseJsonBytes32(fixture, ".blockHash");
         assertEq(keccak256(raw), blockHash);
         vm.store(verifier.HISTORY(), keccak256(abi.encode(number, uint256(0))), blockHash);

@@ -18,7 +18,7 @@ contract CombinedHistoryObservation {
 
     function observe() public view returns (uint256 value, uint64 number, bytes32 hash) {
         value = marker;
-        (number, hash) = HISTORY.current();
+        (number, hash) = HISTORY.getLatestImportedL1Block();
     }
 
     /// @dev A failed mutable destination call is authenticated lookup data,

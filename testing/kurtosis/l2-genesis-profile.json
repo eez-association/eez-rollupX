@@ -11,12 +11,17 @@
   "feeVaultImplementationAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079",
   "feeVaultProxyAdminAddress": "0xe66b775649b63423bd9d4187d1307f100337489d",
   "feeVaultImplementationCodeHash": "0xe6f00bbd83ab805d77d6da84c48af9b234db70cd93992080863a971ed22cddbb",
+  "historyAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077",
+  "historyImplementationAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee007a",
+  "historyProxyAdminAddress": "0x58ad165846a897f4aba3ec8f07a4a7db434324bf",
+  "historyRuntimeCodeHash": "0x3725e8abaa83c431d55a24c39d4327791423019e9c8a2702cc68e6201105baf7",
+  "historyImplementationCodeHash": "0xb68626890d206c39d46bbb14288d62514b016af441c2b021b3517d04f2036291",
   "useGasLeft": false,
   "eezL2Address": "0x4B2760F84B83d6b3829E30A7573B0172B6d6402C",
   "eezL2ImplementationAddress": "0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA",
   "eezL2ProxyAdminAddress": "0x57BF29A07746a25b87c613e01D5DA49f6119e96c",
   "runtimeCodeHash": "0xab051a3551ca4e94b31ca2569617305294bb85085e787088eff1f4c95a97c625",
   "proxyRuntimeCodeHash": "0x88068de4c46d94b72f5d39f17b5407c958ec6920376ff1dd366995f65564372a",
-  "genesisStateRoot": "0x537c279ba86cd761f16945a2cde24a55c6c2cc549918b1bd9eaae11e5db93dc3",
+  "genesisStateRoot": "0xb8287bd821dd8954d3a5fde186e1b7ba5258f0e217d302dd6e3b9714df8d6285",
   "foundryVersion": "1.7.1"
 }

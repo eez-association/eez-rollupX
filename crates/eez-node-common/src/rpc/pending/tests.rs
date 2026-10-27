@@ -4,7 +4,7 @@ use crate::{
     rpc::{ReceiptBuilder, build_receipt, tests},
 };
 use eez_primitives::{EezPrimitives, engine::EezEngineTypes};
-use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, HISTORY_ADDRESS};
+use eez_protocol::l1_history::{HISTORY_ADDRESS, IMPLEMENTATION_SLOT};
 use reth_chainspec::{ChainSpec, EthChainSpec as _};
 use reth_db::mock::DatabaseMock;
 use reth_eth_wire_types::BasicNetworkPrimitives;
@@ -85,7 +85,15 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
     } else {
         None
     };
-    let expected_cutoff = if cached { U256::from(1004) } else { U256::ZERO };
+    let expected_implementation = if cached {
+        U256::from_be_bytes(
+            eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS
+                .into_word()
+                .0,
+        )
+    } else {
+        U256::ZERO
+    };
     let trace_guard = BlockingTaskGuard::new(1);
     let api = SimulationApi {
         inner,
@@ -100,9 +108,9 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
     let request = tokio::spawn(async move {
         api.spawn_with_state_at_block(parent.hash(), move |worker, mut db| {
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
+                db.storage(HISTORY_ADDRESS, U256::from_be_bytes(IMPLEMENTATION_SLOT.0))
                     .unwrap(),
-                expected_cutoff,
+                expected_implementation,
             );
             entered_tx.send(()).unwrap();
             // Closing the sender also unblocks this worker if an assertion in
@@ -112,9 +120,9 @@ async fn assert_callback_retains_trace_quota(cached: bool) {
             }
             assert_eq!(worker.context.is_some(), cached);
             assert_eq!(
-                db.storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
+                db.storage(HISTORY_ADDRESS, U256::from_be_bytes(IMPLEMENTATION_SLOT.0))
                     .unwrap(),
-                expected_cutoff,
+                expected_implementation,
             );
             finished_tx.send(()).unwrap();
             Ok(())

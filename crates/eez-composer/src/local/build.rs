@@ -1267,8 +1267,7 @@ mod tests {
 
     fn rollup_config() -> EezEvmConfig {
         use eez_protocol::l1_history::{
-            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
-            bootstrap_storage,
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
         };
         let reference = Header {
             timestamp: 964,
@@ -1294,15 +1293,8 @@ mod tests {
         genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(964);
         genesis["config"]["rollupX"]["l1Reference"]["hash"] =
             serde_json::json!(reference.hash_slow());
-        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
-            bootstrap_storage(
-                0,
-                reference.hash_slow(),
-                HistorySchedule::new(988, 12, 2, 1).unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] =
+            serde_json::to_value(genesis_storage()).unwrap();
         let mut chain = HeaderChain::default();
         chain
             .append(
@@ -1331,21 +1323,25 @@ mod tests {
         let evm_config = rollup_config();
 
         let provider: MockEthProvider = MockEthProvider::new();
-        let history =
-            &evm_config.chain_spec().genesis().alloc[&eez_protocol::l1_history::HISTORY_ADDRESS];
-        provider.add_account(
+        for address in [
             eez_protocol::l1_history::HISTORY_ADDRESS,
-            ExtendedAccount::new(1, U256::ZERO)
-                .with_bytecode(history.code.clone().unwrap())
-                .extend_storage(
-                    history
-                        .storage
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
-                ),
-        );
+            eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+            eez_protocol::l1_history::HISTORY_ADMIN_ADDRESS,
+        ] {
+            let account = &evm_config.chain_spec().genesis().alloc[&address];
+            provider.add_account(
+                address,
+                ExtendedAccount::new(account.nonce.unwrap(), U256::ZERO)
+                    .with_bytecode(account.code.clone().unwrap())
+                    .extend_storage(
+                        account
+                            .storage
+                            .iter()
+                            .flatten()
+                            .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                    ),
+            );
+        }
         provider.add_account(
             test_signer().address(),
             ExtendedAccount::new(0, U256::from(1_000_000_000_000_000_000_u128)),

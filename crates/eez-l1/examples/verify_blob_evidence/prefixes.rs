@@ -19,7 +19,7 @@ use alloy_eips::{
 };
 use alloy_primitives::{B256, Bloom};
 use eez_primitives::{Block, Receipt};
-use eez_protocol::l1_history::{HeaderChain, MAX_HEADER_BYTES, MAX_IMPORT_HEADERS, WitnessHistory};
+use eez_protocol::l1_history::{HeaderChain, MAX_HEADER_BYTES, WitnessHistory};
 
 type ReceiptEnvelope = ReceiptWithBloom<Receipt>;
 use serde_json::{Value, json};
@@ -101,25 +101,23 @@ fn replay_history(
         return Err("prefix replay profile differs from the deployed manager commitment".into());
     }
 
-    // One inherited endpoint plus the hashes in the scheduled import suffice.
-    // RPC storage reads only locate these bytes; execution below authenticates
-    // the endpoint against the parent trie, import calldata and PREVRANDAO.
-    let mut count = 1;
+    // Sparse imports still require every intervening parent link. Bound the
+    // evidence independently of the number of stored pairs, like runtime acquisition.
     let mut imports = block.body.transactions.iter().filter(|tx| tx.is_history());
-    if let Some(eez_primitives::EezTxEnvelope::History(tx)) = imports.next() {
+    let last_imported = if let Some(eez_primitives::EezTxEnvelope::History(tx)) = imports.next() {
         tx.validate()?;
-        count += tx.hashes.len();
-    }
+        tx.blocks.last().map(|block| block.number)
+    } else {
+        None
+    };
     if imports.next().is_some() {
         return Err("multiple history transactions in prefix block".into());
     }
     let headers = required(input, "/l1_headers_rlp")?
         .as_array()
         .ok_or("l1_headers_rlp is not an array")?;
-    if headers.is_empty() || headers.len() > MAX_IMPORT_HEADERS + 1 || headers.len() != count {
-        return Err(
-            "prefix L1 evidence must contain exactly the inherited endpoint and imports".into(),
-        );
+    if headers.is_empty() || headers.len() > eez_l1::derivation::history::MAX_HISTORY_HEADERS {
+        return Err("prefix L1 evidence is empty or exceeds the ancestry bound".into());
     }
     let raw_headers = headers
         .iter()
@@ -132,7 +130,17 @@ fn replay_history(
         })
         .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
     let mut chain = HeaderChain::default();
-    chain.append(&raw_headers, &rules.headers, MAX_IMPORT_HEADERS + 1)?;
+    chain.append(
+        &raw_headers,
+        &rules.headers,
+        eez_l1::derivation::history::MAX_HISTORY_HEADERS,
+    )?;
+    let last_header = chain.endpoint()?.header().number;
+    if last_imported.is_some_and(|number| last_header != number)
+        || (last_imported.is_none() && chain.headers().len() != 1)
+    {
+        return Err("prefix L1 evidence must contain exactly the inherited endpoint and imports, including their bridge".into());
+    }
     Ok(Arc::new(chain))
 }
 
@@ -288,7 +296,7 @@ mod tests {
     use alloy_consensus::TxLegacy;
     use alloy_primitives::{Signature, U256};
     use eez_primitives::EezTxType;
-    use eez_protocol::l1_history::{HISTORY_ADDRESS, HistorySchedule, bootstrap_storage};
+    use eez_protocol::l1_history::{HISTORY_ADDRESS, MAX_IMPORT_HEADERS, genesis_storage};
     use reth_ethereum_primitives::{Transaction, TransactionSigned};
 
     const REFERENCE_TIMESTAMP: u64 = 1_687_223_762;
@@ -360,9 +368,9 @@ mod tests {
         for import in [false, true] {
             for (mutation, expected) in [
                 ("missing", "/l1_headers_rlp"),
-                ("empty", "exactly the inherited endpoint and imports"),
-                ("extra", "exactly the inherited endpoint and imports"),
-                ("too_many", "exactly the inherited endpoint and imports"),
+                ("empty", "empty or exceeds the ancestry bound"),
+                ("extra", "nonconsecutive L1 ancestry"),
+                ("too_many", "empty or exceeds the ancestry bound"),
                 ("too_large", "L1 header byte limit"),
                 ("trailing_rlp", "invalid L1 header RLP"),
                 (
@@ -381,7 +389,11 @@ mod tests {
                         input["l1_headers_rlp"].as_array_mut().unwrap().push(extra);
                     }
                     "too_many" => {
-                        input["l1_headers_rlp"] = json!(vec!["0xc0"; MAX_IMPORT_HEADERS + 2])
+                        input["l1_headers_rlp"] = json!(vec![
+                            "0xc0";
+                            eez_l1::derivation::history::MAX_HISTORY_HEADERS
+                                + 1
+                        ])
                     }
                     "too_large" => {
                         input["l1_headers_rlp"][0] =
@@ -555,7 +567,7 @@ mod tests {
             serde_json::from_value(input["l1_headers_rlp"][0].clone()).unwrap();
         let mut header: alloy_consensus::Header = alloy_rlp::decode_exact(&bytes).unwrap();
         let mut headers = vec![json!(bytes)];
-        let mut hashes = Vec::new();
+        let mut blocks = Vec::new();
         for _ in 0..MAX_IMPORT_HEADERS {
             header.parent_hash = header.hash_slow();
             header.number += 1;
@@ -563,13 +575,16 @@ mod tests {
             headers.push(json!(alloy_primitives::Bytes::from(alloy_rlp::encode(
                 &header
             ))));
-            hashes.push(header.hash_slow());
+            blocks.push(eez_primitives::HistoryBlock {
+                number: header.number,
+                block_hash: header.hash_slow(),
+            });
         }
         let eez_primitives::EezTxEnvelope::History(tx) = &block.body.transactions[0] else {
             panic!("captured native import");
         };
         let mut tx = (**tx).clone();
-        tx.hashes = hashes;
+        tx.blocks = blocks;
         block.body.transactions[0] = tx.clone().into();
         input["l1_headers_rlp"] = json!(headers);
         // This tests bounded evidence decoding, not authorization of the
@@ -581,13 +596,55 @@ mod tests {
                 .len(),
             65
         );
-        tx.hashes.push(B256::repeat_byte(1));
-        block.body.transactions[0] = tx.into();
+        tx.blocks.push(eez_primitives::HistoryBlock {
+            number: header.number + 1,
+            block_hash: B256::repeat_byte(1),
+        });
+        block.body.transactions[0] = tx.clone().into();
         assert!(
             replay_history(&input, &spec, &block)
                 .unwrap_err()
                 .to_string()
-                .contains("invalid history hash list")
+                .contains("invalid history block list")
+        );
+        // Two stored records can need more than 64 bridge headers. The record
+        // limit must not truncate or reject the linked ancestry between them.
+        tx.blocks.truncate(1);
+        for _ in 0..16 {
+            header.parent_hash = header.hash_slow();
+            header.number += 1;
+            header.timestamp += 12;
+            headers.push(json!(alloy_primitives::Bytes::from(alloy_rlp::encode(
+                &header
+            ))));
+        }
+        tx.blocks.push(eez_primitives::HistoryBlock {
+            number: header.number,
+            block_hash: header.hash_slow(),
+        });
+        block.body.transactions[0] = tx.into();
+        input["l1_headers_rlp"] = json!(headers);
+        assert_eq!(
+            replay_history(&input, &spec, &block)
+                .unwrap()
+                .headers()
+                .len(),
+            81
+        );
+        header.parent_hash = header.hash_slow();
+        header.number += 1;
+        header.timestamp += 12;
+        input["l1_headers_rlp"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!(alloy_primitives::Bytes::from(alloy_rlp::encode(
+                &header
+            ))));
+        assert!(
+            replay_history(&input, &spec, &block)
+                .unwrap_err()
+                .to_string()
+                .contains("exactly the inherited endpoint and imports")
         );
     }
 
@@ -595,7 +652,7 @@ mod tests {
         let mut genesis: alloy_genesis::Genesis =
             serde_json::from_slice(include_bytes!("../../../../genesis.json")).unwrap();
         // Keep the nonzero private-L1 reference at the bootstrap cutoff, one
-        // complete interval before genesis, and install the matching storage.
+        // complete interval before genesis, with empty history storage.
         genesis.timestamp = REFERENCE_TIMESTAMP + 4;
         let rollup_x = genesis.config.extra_fields.get_mut("rollupX").unwrap();
         rollup_x["l1Reference"]["chainId"] = json!(1337);
@@ -603,23 +660,7 @@ mod tests {
         rollup_x["blockIntervalSeconds"] = json!(1);
         rollup_x["syncIntervalBlocks"] = json!(4);
         rollup_x["historyUpdateOffset"] = json!(2);
-        let config: eez_protocol::l2::DerivationConfig =
-            serde_json::from_value(rollup_x.clone()).unwrap();
-        let history = HistorySchedule::new(
-            genesis.timestamp,
-            config.block_interval_seconds,
-            config.sync_interval_blocks,
-            config.history_update_offset,
-        )
-        .unwrap();
-        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
-            bootstrap_storage(
-                config.l1_reference.number,
-                config.l1_reference.hash,
-                history,
-            )
-            .unwrap(),
-        );
+        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(genesis_storage());
         let spec = eez_evm::profile::chain_spec(genesis.clone()).unwrap();
         let mut config = genesis.config.clone();
         for fork in ["cancun", "prague", "osaka"] {
@@ -687,21 +728,18 @@ mod tests {
         ] {
             let mut input = profile_input();
             *input.pointer_mut(pointer).unwrap() = value;
-            assert!(
-                replay_spec(&input).unwrap_err().to_string().contains(error),
-                "{pointer}"
-            );
+            let actual = replay_spec(&input).unwrap_err().to_string();
+            assert!(actual.contains(error), "{pointer}: {actual}");
         }
     }
 
     #[test]
-    fn replay_rejects_inconsistent_history_bootstrap_without_repair() {
-        use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, INTERVAL_SLOT, UPDATE_DELAY_SLOT};
-
-        for (slot, value) in [
-            (FIRST_CUTOFF_SLOT, REFERENCE_TIMESTAMP + 8),
-            (INTERVAL_SLOT, 12),
-            (UPDATE_DELAY_SLOT, 6),
+    fn replay_rejects_nonempty_or_changed_history_genesis_without_repair() {
+        use eez_protocol::l1_history::{ADMIN_SLOT, ENDPOINT_SLOT, IMPLEMENTATION_SLOT};
+        for slot in [
+            U256::from(ENDPOINT_SLOT).into(),
+            ADMIN_SLOT,
+            IMPLEMENTATION_SLOT,
         ] {
             let mut input = profile_input();
             let mut genesis: alloy_genesis::Genesis =
@@ -713,13 +751,13 @@ mod tests {
                 .storage
                 .as_mut()
                 .unwrap()
-                .insert(U256::from(slot).into(), U256::from(value).into());
+                .insert(slot, U256::from(1).into());
             input["genesis"] = serde_json::to_value(genesis).unwrap();
             assert!(
                 replay_spec(&input)
                     .unwrap_err()
                     .to_string()
-                    .contains("L1 history genesis code, account or bootstrap storage"),
+                    .contains("L1 history genesis code, account or empty storage"),
                 "slot {slot}"
             );
         }

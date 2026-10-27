@@ -18,8 +18,7 @@ fn environment() -> Environment {
 
 fn config(fork: EthereumHardfork) -> EezEvmConfig {
     use eez_protocol::l1_history::{
-        HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
-        bootstrap_storage,
+        HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
     };
     let reference = Header {
         timestamp: 68,
@@ -44,15 +43,8 @@ fn config(fork: EthereumHardfork) -> EezEvmConfig {
     genesis["config"]["rollupX"]["l1Reference"]["hash"] = serde_json::json!(reference.hash_slow());
     genesis["config"]["rollupX"]["l1Reference"]["prevRandao"] =
         serde_json::json!(reference.mix_hash);
-    genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
-        bootstrap_storage(
-            0,
-            reference.hash_slow(),
-            HistorySchedule::new(80, 2, 6, 2).unwrap(),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] =
+        serde_json::to_value(genesis_storage()).unwrap();
     let mut spec = eez_evm::profile::chain_spec(serde_json::from_value(genesis).unwrap()).unwrap();
     if fork != EthereumHardfork::Osaka {
         let builder = ChainSpecBuilder::mainnet().reset();
@@ -109,29 +101,36 @@ fn parent_for(fork: EthereumHardfork) -> SealedHeader {
 }
 
 fn install_parent_history(database: &mut revm::database::InMemoryDB, config: &EezEvmConfig) {
-    use eez_protocol::l1_history::HISTORY_ADDRESS;
+    use eez_protocol::l1_history::{
+        HISTORY_ADDRESS, HISTORY_ADMIN_ADDRESS, HISTORY_IMPLEMENTATION_ADDRESS,
+    };
     use revm::{bytecode::Bytecode, state::AccountInfo};
-    let history = &config.chain_spec().genesis.alloc[&HISTORY_ADDRESS];
-    let code = Bytecode::new_raw(history.code.clone().unwrap());
-    database.insert_account_info(
+    for address in [
         HISTORY_ADDRESS,
-        AccountInfo {
-            nonce: 1,
-            code_hash: code.hash_slow(),
-            code: Some(code),
-            ..Default::default()
-        },
-    );
-    for (slot, value) in history.storage.as_ref().unwrap() {
-        database
-            .insert_account_storage(
-                HISTORY_ADDRESS,
-                U256::from_be_bytes(slot.0),
-                U256::from_be_bytes(value.0),
-            )
-            .unwrap();
+        HISTORY_IMPLEMENTATION_ADDRESS,
+        HISTORY_ADMIN_ADDRESS,
+    ] {
+        let account = &config.chain_spec().genesis.alloc[&address];
+        let code = Bytecode::new_raw(account.code.clone().unwrap());
+        database.insert_account_info(
+            address,
+            AccountInfo {
+                nonce: account.nonce.unwrap(),
+                code_hash: code.hash_slow(),
+                code: Some(code),
+                ..Default::default()
+            },
+        );
+        for (key, value) in account.storage.iter().flatten() {
+            database
+                .insert_account_storage(
+                    address,
+                    U256::from_be_bytes(key.0),
+                    U256::from_be_bytes(value.0),
+                )
+                .unwrap();
+        }
     }
-    // The genesis phase is fixed even after omitted eligible updates.
 }
 
 #[test]

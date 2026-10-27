@@ -10,7 +10,7 @@ use alloy_sol_types::SolCall as _;
 use eez_control_rpc::v2::{BlockWitness, ExecutionWitness};
 use eez_evm::EezEvmConfig;
 use eez_primitives::{Block, EezTxEnvelope, SystemTransaction};
-use eez_protocol::l1_history::{HISTORY_ADDRESS, HeaderChain, HistorySchedule, WitnessHistory};
+use eez_protocol::l1_history::{HISTORY_ADDRESS, HeaderChain, WitnessHistory};
 use reth_evm::{ConfigureEvm, block::BlockExecutor as _, execute::BlockExecutionOutput};
 use reth_primitives_traits::Block as _;
 use revm::{
@@ -122,21 +122,15 @@ impl Fixture {
                 16,
             )
             .unwrap();
-        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
-            eez_protocol::l1_history::bootstrap_storage(
-                0,
-                first.hash_slow(),
-                HistorySchedule::new(80, 2, 6, 5).unwrap(),
-            )
-            .unwrap(),
-        );
+        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage =
+            Some(eez_protocol::l1_history::genesis_storage());
         // Return ABI(SYSTEM.balance, current L1 number, current L1 hash).
         // The transfer changes the first word until the block closes; history
         // import changes the other two. Closed-state RPC reads would see zero.
         let mut code = vec![0x73];
         code.extend_from_slice(eez_primitives::SYSTEM_ADDRESS.as_slice());
         code.extend_from_slice(&hex::decode("315f5263").unwrap());
-        code.extend_from_slice(&keccak256("current()")[..4]);
+        code.extend_from_slice(&keccak256("getLatestImportedL1Block()")[..4]);
         code.extend_from_slice(&hex::decode("602052604060206004603c73").unwrap());
         code.extend_from_slice(HISTORY_ADDRESS.as_slice());
         code.extend_from_slice(&hex::decode("5afa5060605ff3").unwrap());
@@ -325,7 +319,7 @@ impl Fixture {
         Self {
             genesis,
             blocks,
-            origin_hashes: [first.hash_slow(), second.hash_slow()],
+            origin_hashes: [B256::ZERO, second.hash_slow()],
         }
     }
 

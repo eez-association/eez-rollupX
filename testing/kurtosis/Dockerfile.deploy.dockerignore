@@ -5,6 +5,8 @@ data/
 datadir/
 crates/
 !crates/eez-protocol/src/l1_history/runtime.bin
+!crates/eez-protocol/src/l1_history/implementation.bin
+!crates/eez-protocol/src/l1_history/proxy_admin.bin
 prompts/
 explanations/
 *.bak
