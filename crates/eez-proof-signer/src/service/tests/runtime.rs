@@ -242,3 +242,11 @@ async fn shutdown_waits_for_detached_request_work() {
         .expect("shutdown did not observe the released request slot")
         .expect("shutdown waiter panicked");
 }
+
+#[test]
+fn portable_validation_version_matches_manager_execution_contract() {
+    assert_eq!(
+        eez_control_rpc::identity::VALIDATION_VERSION,
+        eez_protocol::l2::VALIDATION_VERSION
+    );
+}

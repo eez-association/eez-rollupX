@@ -58,7 +58,7 @@ async fn pending_history_import_requires_executed_state() {
         .to(probe)
         .input(Bytes::copy_from_slice(&keccak256(b"observe()")[..4]).into());
     let overrides = json!({probe.to_string(): {"code": artifact["deployedBytecode"]["object"]}});
-    // nextCutoff is internal slot 3, without a public getter. Replace only its
+    // firstCutoff is internal slot 3, without a public getter. Replace only its
     // reader code after the real prefix; the simulated history storage remains.
     let cutoff_request = TransactionRequest::default().to(HISTORY_ADDRESS);
     let cutoff_override =
@@ -233,7 +233,7 @@ async fn pending_history_import_requires_executed_state() {
         }
         let bytes = |index: usize| serde_json::from_value::<Bytes>(results[index].clone()).unwrap();
         let (number, hash, randao) = <(u64, B256, U256)>::abi_decode(&bytes(0)).unwrap();
-        let expected_cutoff = U256::from(parent.timestamp - 2 + 5);
+        let expected_cutoff = U256::from(world.dep.profile.genesisTimestamp);
         assert_eq!(U256::abi_decode(&bytes(27)).unwrap(), expected_cutoff);
         assert_eq!(results[28], results[29], "default tag remains latest");
         assert_eq!(

@@ -154,7 +154,7 @@ Both commitment tables also show **L2 collected base fees** and **L2 tip fees** 
 verified canonical L2 range. Ordinary transaction base fees credited to the genesis collector equal receipt gas used times
 that block's base fee; tips are receipt gas used times (effective gas price minus
 base fee). Ordinary reverted transactions still pay these fees. Native system
-transactions of type `0x45` contribute receipt gas but pay **zero** base fees and tips,
+cross-chain transactions (`0x45`) and history updates (`0x46`) contribute receipt gas but pay **zero** base fees and tips,
 including in blocks with a positive base fee. A nonzero native price, an ordinary
 price below the base fee, or a missing/unsupported receipt type leaves collection
 pending. The native exception follows the

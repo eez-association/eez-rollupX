@@ -2590,15 +2590,12 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
     use alloy_eips::Decodable2718 as _;
     use alloy_primitives::{B256, Bytes, keccak256};
     use eez_primitives::EezTxEnvelope;
-    use eez_protocol::{
-        l1_history::{HistorySchedule, IMPORT_GAS_LIMIT, decode_import},
-        native_source::HistorySourceContext,
-    };
+    use eez_protocol::l1_history::{HistorySchedule, IMPORT_GAS_LIMIT};
     use serde_json::json;
 
     let mut env = policy_env(Vec::new(), "interval");
     env.push(("EEZ_SETTLEMENT_MAX_UNSETTLED_L2_BLOCKS", "30".into()));
-    // No application deployments: the mandatory history imports must not count
+    // No application deployments: recorded history imports must not count
     // as pure activity, but they remain included transactions for cost reporting.
     let world = setup_native_history(&env).await.unwrap();
     let cost = eez_testkit::wait_for(TIMEOUT, || async {
@@ -2692,12 +2689,6 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
         profile.updateOffset,
     )
     .unwrap();
-    let source = HistorySourceContext::new(
-        profile.l1ChainId.try_into().unwrap(),
-        world.l2_chain_id,
-        world.cfg.initial_state,
-    )
-    .unwrap();
     let mut included = 0u64;
     let mut hash = update.newRoot;
     // Follow the applied commitment, rather than sampling a moving latest range
@@ -2720,29 +2711,19 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
                 tx.is_history(),
                 "an application-free range must only contain history imports"
             );
-            let EezTxEnvelope::System(native) = &tx else {
+            let EezTxEnvelope::History(native) = &tx else {
                 unreachable!()
             };
             assert_eq!(native.chain_id, world.l2_chain_id);
-            assert_eq!(
-                native.gas_limit,
-                IMPORT_GAS_LIMIT.min(block.header.gas_limit)
-            );
-            assert_eq!(decode_import(tx.input()).unwrap().cutoff, cutoff);
-            assert_eq!(
-                native.source_hash,
-                source
-                    .source_hash(
-                        block.header.parent_hash,
-                        number,
-                        block.header.timestamp,
-                        tx.input(),
-                    )
-                    .unwrap()
+            assert!((1..=64).contains(&native.hashes.len()));
+            assert_eq!(tx.gas_limit(), IMPORT_GAS_LIMIT.min(block.header.gas_limit));
+            assert!(
+                updating,
+                "history is only eligible at its fixed genesis phase"
             );
             transactions.push(tx);
         }
-        assert_eq!(transactions.len(), usize::from(updating));
+        assert!(transactions.len() <= usize::from(updating));
         assert_eq!(
             alloy_consensus::proofs::calculate_transaction_root(&transactions),
             block.header.transactions_root

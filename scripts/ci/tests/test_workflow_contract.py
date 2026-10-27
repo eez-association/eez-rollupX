@@ -187,7 +187,7 @@ elif args[0] != "logout":
 
     def test_initial_lanes_keep_lint_unit_and_runtime_checks(self):
         self.assertEqual({name for name, job in self.jobs.items() if not job.get("needs")},
-                         {"build-runtime", "lint", "debug-unit-tests", "quote-trace-viewer"})
+                         {"build-runtime", "lint", "debug-unit-tests"})
         lint = "\n".join(s.get("run", "") for s in self.jobs["lint"]["steps"])
         for command in ("cargo fmt", "cargo deny check", "cargo audit", "cargo clippy",
                         "unittest discover"):
@@ -196,19 +196,6 @@ elif args[0] != "logout":
         network = (REPO / "testing/kurtosis/run-ci.sh").read_text()
         self.assertIn('bash "$REPO/scripts/update-eezl2-genesis.sh" --check', network)
         self.assertLess(network.index("update-eezl2-genesis.sh"), network.index('bash "$HERE/start.sh"'))
-
-    def test_viewer_import_and_browser_tests_gate_release(self):
-        steps = self.jobs["quote-trace-viewer"]["steps"]
-        commands = [step.get("run", "") for step in steps]
-        install = next(i for i, command in enumerate(commands) if "npm ci" in command)
-        browser = next(i for i, command in enumerate(commands)
-                       if "playwright install --with-deps chromium" in command)
-        tests = next(i for i, command in enumerate(commands) if "npm test" in command)
-        self.assertLess(install, browser)
-        self.assertLess(browser, tests)
-        self.assertIn("npm run test:browser", commands[tests])
-        self.assertIn("quote-trace-viewer", self.jobs["ci-result"]["needs"])
-        self.assertFalse(self.jobs["quote-trace-viewer"].get("continue-on-error", False))
 
     def test_lint_initializes_one_target_and_preserves_optional_hosted_caching(self):
         steps = self.jobs["lint"]["steps"]

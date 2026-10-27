@@ -40,8 +40,9 @@ EVM configuration. Startup does not fetch chain data.
 
 Before block replay, [stream validation](../src/validate/streaming.rs) extends
 the checked raw L1-header chain and freezes its evidence for execution. The
-mandatory history hook authenticates the previous endpoint against L2 storage,
-derives the scheduled import and checks the synchronized PREVRANDAO. Finalize
+history validator authenticates the previous endpoint against L2 storage,
+checks any recorded scheduled update and verifies synchronized PREVRANDAO,
+including inheritance when the update is omitted. Finalize
 still must resolve recorded origin membership, exact anchor termination and the accepted
 L2 commitment through the selected mode. A validated block ACK alone cannot
 authorize a signature.

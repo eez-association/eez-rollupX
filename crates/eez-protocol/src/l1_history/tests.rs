@@ -78,12 +78,12 @@ fn chain(times: &[u64]) -> HeaderChain {
     chain
 }
 
-fn state(chain: &HeaderChain, endpoint: u64, next_cutoff: u64) -> HistoryState {
+fn state(chain: &HeaderChain, endpoint: u64, first_cutoff: u64) -> HistoryState {
     HistoryState {
         first_number: 99,
         endpoint,
         endpoint_hash: chain.at(endpoint).unwrap().hash(),
-        next_cutoff,
+        first_cutoff,
     }
 }
 
@@ -105,7 +105,7 @@ fn delay_retains_origin_and_randao_across_sync_then_updates_together() {
         .unwrap();
     assert_eq!(call.cutoff, 120);
     assert_eq!(call.hashes, vec![chain.at(100).unwrap().hash()]);
-    let after = state(&chain, 100, 132);
+    let after = state(&chain, 100, 120);
     for time in [128, 130, 132, 134, 136] {
         let e = schedule.execution(time, after, &chain, None).unwrap();
         assert_eq!(e.origin_number, 100);
@@ -144,23 +144,29 @@ fn every_offset_and_exact_cutoff_equality() {
 }
 
 #[test]
-fn missed_slots_repeat_source_but_not_cutoff_or_records() {
+fn missed_slots_inherit_without_imports_or_schedule_state_mutation() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 144]);
-    for (timestamp, cutoff) in [(126, 120), (138, 132)] {
-        let e = schedule
-            .execution(timestamp, state(&chain, 99, cutoff), &chain, Some(99))
-            .unwrap();
+    let parent = state(&chain, 99, 120);
+    for timestamp in [126, 138, 150, 120 + 4 * 86400 + 6] {
+        let e = schedule.execution(timestamp, parent, &chain, None).unwrap();
         assert_eq!(e.origin_number, 99);
-        let call = IL1BlockhashContract::importHistoryCall::abi_decode(e.import.as_ref().unwrap())
-            .unwrap();
-        assert_eq!(call.cutoff, cutoff);
-        assert!(call.hashes.is_empty());
+        assert_eq!(e.prev_randao, chain.at(99).unwrap().header().mix_hash);
+        assert!(e.import.is_none());
+        assert!(
+            schedule
+                .execution(timestamp, parent, &chain, Some(99))
+                .is_err()
+        );
     }
-    assert!(
-        schedule
-            .execution(138, state(&chain, 99, 120), &chain, Some(99))
-            .is_err()
+    let e = schedule.execution(150, parent, &chain, Some(100)).unwrap();
+    assert_eq!(e.origin_number, 100);
+    assert_eq!(
+        decode_import(e.import.as_ref().unwrap())
+            .unwrap()
+            .hashes
+            .len(),
+        1
     );
 }
 
@@ -270,9 +276,9 @@ fn header_layout_changes_are_checked_at_exact_fork_boundaries() {
 fn repeated_inherited_source_is_valid_but_wrong_parent_state_rejects() {
     let schedule = HistorySchedule::new(120, 2, 6, 2).unwrap();
     let chain = chain(&[108, 120, 132]);
-    let mut invalid = state(&chain, 99, 132);
+    let mut invalid = state(&chain, 99, 120);
     assert!(schedule.execution(134, invalid, &chain, None).is_ok());
-    invalid = state(&chain, 100, 132);
+    invalid = state(&chain, 100, 120);
     invalid.endpoint_hash = B256::repeat_byte(9);
     assert!(schedule.execution(134, invalid, &chain, None).is_err());
     assert!(

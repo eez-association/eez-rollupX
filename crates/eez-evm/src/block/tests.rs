@@ -1,4 +1,5 @@
 use super::*;
+use crate::balances::PROTOCOL_BALANCE_ACCOUNTS;
 use alloy_eips::{
     eip2935::{HISTORY_STORAGE_ADDRESS, HISTORY_STORAGE_CODE},
     eip4788::BEACON_ROOTS_ADDRESS,
@@ -7,7 +8,9 @@ use alloy_eips::{
     eip7685::EMPTY_REQUESTS_HASH,
 };
 use alloy_evm::EvmEnv;
+use alloy_primitives::{Address, U256};
 use alloy_primitives::{B256, bytes};
+use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS};
 use reth_chainspec::ChainSpecBuilder;
 use revm::{
     Database,
@@ -177,7 +180,7 @@ fn rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts() {
     )];
     let mut state = execute_empty_blocks(ExecutionLayer::Rollup, &accounts);
     state.merge_transitions(BundleRetention::Reverts);
-    for address in BURNED_AT_BLOCK_START {
+    for address in PROTOCOL_BALANCE_ACCOUNTS {
         assert!(
             !state.bundle_state.state.contains_key(&address),
             "{address} must not receive a transition"
@@ -185,3 +188,5 @@ fn rollup_blocks_do_not_touch_zero_or_absent_protocol_accounts() {
     }
     assert!(state.basic(SYSTEM_ADDRESS).unwrap().is_none());
 }
+
+mod groups;

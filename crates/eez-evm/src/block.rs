@@ -4,26 +4,25 @@
 //! block gas instead of a reserved declared limit. The inner counters remain accessible to the candidate-local
 //! prefix cache, whose checkpoint is always taken before block finalization.
 
+use crate::balances::clear_protocol_balances;
 use crate::{EezEvmFactory, EezReceiptBuilder, ensure_supported_transaction};
-use alloy_consensus::{Transaction as _, TransactionEnvelope as _};
+use alloy_consensus::{Transaction as _, TransactionEnvelope as _, Typed2718 as _};
 use alloy_eips::eip2718::Encodable2718 as _;
 use alloy_evm::{
-    Evm, EvmFactory, FromRecoveredTx, FromTxWithEncoded, RecoveredTx, TransactionEnvMut,
+    Evm, EvmFactory, RecoveredTx,
     block::{
         BlockExecutionError, BlockExecutionResult, BlockExecutor, BlockExecutorFactory,
-        ExecutableTx, GasOutput, StateDB,
+        ExecutableTx, GasOutput, StateDB, TxResult,
     },
     eth::{EthBlockExecutionCtx, EthBlockExecutor, EthTxResult, spec::EthExecutorSpec},
 };
-use alloy_primitives::{Address, U256};
-use eez_primitives::{
-    EEZL2_ADDRESS, EezTxEnvelope, EezTxType, Receipt, SYSTEM_ADDRESS, system_tx_gas_limit,
-};
+use eez_primitives::{EezTxEnvelope, EezTxType, Receipt, system_tx_gas_limit};
+use eez_protocol::system_tx::ExecutionGroupState;
 use revm::{
-    Inspector,
+    DatabaseCommit, Inspector,
+    context::result::ResultAndState,
     context::{Block as _, Transaction as _},
     primitives::hardfork::SpecId,
-    state::Account,
 };
 use std::{
     ops::{Deref, DerefMut},
@@ -69,7 +68,8 @@ pub struct EezBlockExecutor<'a, E, S> {
     inner: EthBlockExecutor<'a, E, S, EezReceiptBuilder>,
     layer: ExecutionLayer,
     history: Option<crate::history::HistoryConfig>,
-    history_required: bool,
+    history_inherited: bool,
+    group_state: ExecutionGroupState,
 }
 
 impl<'a, E, S> Deref for EezBlockExecutor<'a, E, S> {
@@ -84,63 +84,62 @@ impl<E, S> DerefMut for EezBlockExecutor<'_, E, S> {
     }
 }
 
-/// Accounts whose ETH is dead by the start of every L2 block and is burned there.
-///
-/// - `SYSTEM_ADDRESS` receives `EEZL2`'s outbound "burn" transfers, and anyone
-///   may transfer to it. It cannot spend: ordinary transactions from it are
-///   rejected and each native transaction spends only the value minted for it.
-///   Proxy pre-deployment sweeps are not burned: they move ether a user
-///   already sent to an undeployed proxy address (nothing is minted) to
-///   `EEZL2.RECOVERY_ADDRESS`, a separate genesis immutable.
-/// - `EEZL2` (its proxy address, which keeps the balance across implementation
-///   upgrades) holds value minted for its current execution table. A table is
-///   consumable only in the block that loaded it (`lastLoadBlock`), so any
-///   balance left at the next block start is unconsumed or reverted value.
-pub const BURNED_AT_BLOCK_START: [Address; 2] = [EEZL2_ADDRESS, SYSTEM_ADDRESS];
+/// An execution result plus its uncommitted group cursor. Dropping a preview
+/// must discard both its balance cleanup and its proposed cursor advancement.
+#[derive(Debug)]
+pub struct EezTxResult<H> {
+    inner: EthTxResult<H, EezTxType>,
+    group_state: ExecutionGroupState,
+}
 
-/// Zero [`BURNED_AT_BLOCK_START`] balances as a pre-execution change.
-///
-/// This runs before the first transaction, never at finalization: the signer
-/// derives prefix block hashes from per-transaction state roots and requires
-/// no post-transaction state changes. Pre-execution changes are part of every
-/// prefix. Zero or absent accounts are left untouched, so a block without
-/// protocol ETH commits no transition for them.
-fn burn_protocol_balances<DB: StateDB>(db: &mut DB) -> Result<(), BlockExecutionError> {
-    let mut burned = Vec::with_capacity(BURNED_AT_BLOCK_START.len());
-    for address in BURNED_AT_BLOCK_START {
-        let info = db.basic(address).map_err(|_| {
-            BlockExecutionError::msg(format!("cannot load protocol account {address}"))
-        })?;
-        if let Some(info) = info
-            && !info.balance.is_zero()
-        {
-            let mut account = Account::from(info);
-            account.info.balance = U256::ZERO;
-            account.mark_touch();
-            burned.push((address, account));
+impl<H: Send + 'static> TxResult for EezTxResult<H> {
+    type HaltReason = H;
+
+    fn result(&self) -> &ResultAndState<H> {
+        &self.inner.result
+    }
+
+    fn into_result(self) -> ResultAndState<H> {
+        self.inner.result
+    }
+}
+
+impl<E, S> EezBlockExecutor<'_, E, S> {
+    /// Cursor paired with the committed prefix, including an unfinished load
+    /// while a Composer candidate is still being constructed.
+    pub const fn group_state(&self) -> ExecutionGroupState {
+        self.group_state
+    }
+
+    /// Validate a complete RollupX prefix before computing a canonical hash.
+    /// Rollup execution has no post-transaction state changes; this is the same
+    /// boundary enforced by finalization, including an eligible empty block.
+    pub fn validate_prefix(&self) -> Result<(), BlockExecutionError> {
+        if self.layer != ExecutionLayer::Rollup {
+            return Err(BlockExecutionError::msg(
+                "prefix hashing requires RollupX execution",
+            ));
         }
+        if !self.history_inherited && self.inner.receipts.is_empty() {
+            return Err(BlockExecutionError::msg(
+                "empty block PREVRANDAO differs from inherited L1 origin",
+            ));
+        }
+        self.group_state
+            .ensure_complete()
+            .map_err(BlockExecutionError::msg)
     }
-    if !burned.is_empty() {
-        db.commit_iter(&mut burned.into_iter());
-    }
-    Ok(())
 }
 
 impl<E, S> BlockExecutor for EezBlockExecutor<'_, E, S>
 where
-    E: Evm<
-            DB: StateDB,
-            Spec: Into<SpecId> + Clone,
-            Tx: FromRecoveredTx<EezTxEnvelope>
-                    + FromTxWithEncoded<EezTxEnvelope>
-                    + TransactionEnvMut,
-        >,
+    E: Evm<DB: StateDB, Spec: Into<SpecId> + Clone, Tx = revm::context::TxEnv>,
     S: EthExecutorSpec,
 {
     type Transaction = EezTxEnvelope;
     type Receipt = Receipt;
     type Evm = E;
-    type Result = EthTxResult<E::HaltReason, EezTxType>;
+    type Result = EezTxResult<E::HaltReason>;
 
     fn apply_pre_execution_changes(&mut self) -> Result<(), BlockExecutionError> {
         if self.layer == ExecutionLayer::L1Simulation {
@@ -169,11 +168,14 @@ where
         self.inner
             .system_caller
             .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)?;
-        burn_protocol_balances(self.inner.evm.db_mut())?;
+        let mut cleanup = Default::default();
+        clear_protocol_balances(self.inner.evm.db_mut(), &mut cleanup)
+            .map_err(|_| BlockExecutionError::msg("cannot load protocol cleanup accounts"))?;
+        self.inner.evm.db_mut().commit(cleanup);
         let history = self.history.as_ref().ok_or_else(|| {
             BlockExecutionError::msg("mandatory L1 history evidence source is not configured")
         })?;
-        self.history_required = crate::history::begin(&mut self.inner.evm, history)?;
+        self.history_inherited = crate::history::begin(&mut self.inner.evm, history)?;
         Ok(())
     }
 
@@ -181,13 +183,22 @@ where
         &mut self,
         tx: impl ExecutableTx<Self>,
     ) -> Result<Self::Result, BlockExecutionError> {
-        let (env, recovered) = tx.into_parts();
+        let (mut env, recovered) = tx.into_parts();
+        let (next_group, completes_group) = if self.layer == ExecutionLayer::Rollup {
+            self.group_state
+                .after(recovered.tx())
+                .map_err(BlockExecutionError::msg)?
+        } else {
+            (self.group_state, false)
+        };
         if self.layer == ExecutionLayer::Rollup {
             ensure_supported_transaction(recovered.tx()).map_err(BlockExecutionError::other)?;
             let first = self.inner.receipts.is_empty();
-            if recovered.tx().is_history() != (first && self.history_required) {
+            if (recovered.tx().is_history() && !first)
+                || (first && !recovered.tx().is_history() && !self.history_inherited)
+            {
                 return Err(BlockExecutionError::msg(
-                    "missing, duplicate or misplaced history transaction",
+                    "duplicate/misplaced history transaction or incorrect inherited PREVRANDAO",
                 ));
             }
             if recovered.tx().is_history() {
@@ -195,15 +206,10 @@ where
                     .history
                     .as_ref()
                     .ok_or_else(|| BlockExecutionError::msg("missing history configuration"))?;
-                crate::history::validate(
-                    &mut self.inner.evm,
-                    history,
-                    self.inner.ctx.parent_hash,
-                    recovered.tx(),
-                )?;
+                env.data = crate::history::validate(&mut self.inner.evm, history, recovered.tx())?;
             }
 
-            if matches!(recovered.tx(), EezTxEnvelope::System(_)) {
+            if eez_primitives::is_native_type(recovered.tx().ty()) {
                 // Ethereum's rule charges a transaction's declared limit against
                 // the block before execution. A native transaction instead runs
                 // with the remaining block gas, bounded by the Osaka cap, so it
@@ -222,14 +228,19 @@ where
                 if recovered.tx().is_history() {
                     budget = budget.min(eez_protocol::l1_history::IMPORT_GAS_LIMIT);
                 }
-                if recovered.tx().gas_limit() != budget || env.gas_limit() != budget {
+                if recovered.tx().is_history() {
+                    env.gas_limit = budget;
+                }
+                if !recovered.tx().is_history()
+                    && (recovered.tx().gas_limit() != budget || env.gas_limit() != budget)
+                {
                     return Err(BlockExecutionError::msg(
                         "native gas limit differs from its block position",
                     ));
                 }
                 // The remainder mirrors the pinned inner executor after its
                 // declared-limit check.
-                let result = self
+                let mut result = self
                     .inner
                     .evm
                     .transact(env)
@@ -244,19 +255,37 @@ where
                 {
                     return Err(BlockExecutionError::msg("history transaction failed"));
                 }
-                return Ok(EthTxResult {
-                    result,
-                    blob_gas_used: recovered.tx().blob_gas_used().unwrap_or_default(),
-                    tx_type: recovered.tx().tx_type(),
+                if completes_group {
+                    clear_protocol_balances(self.inner.evm.db_mut(), &mut result.state).map_err(
+                        |_| BlockExecutionError::msg("cannot load protocol cleanup accounts"),
+                    )?;
+                }
+                return Ok(EezTxResult {
+                    group_state: next_group,
+                    inner: EthTxResult {
+                        result,
+                        blob_gas_used: recovered.tx().blob_gas_used().unwrap_or_default(),
+                        tx_type: recovered.tx().tx_type(),
+                    },
                 });
             }
         }
-        self.inner
-            .execute_transaction_without_commit((env, recovered))
+        let mut inner = self
+            .inner
+            .execute_transaction_without_commit((env, recovered))?;
+        if completes_group {
+            clear_protocol_balances(self.inner.evm.db_mut(), &mut inner.result.state)
+                .map_err(|_| BlockExecutionError::msg("cannot load protocol cleanup accounts"))?;
+        }
+        Ok(EezTxResult {
+            inner,
+            group_state: next_group,
+        })
     }
 
     fn commit_transaction(&mut self, result: Self::Result) -> GasOutput {
-        self.inner.commit_transaction(result)
+        self.group_state = result.group_state;
+        self.inner.commit_transaction(result.inner)
     }
 
     fn finish(self) -> Result<(E, BlockExecutionResult<Receipt>), BlockExecutionError> {
@@ -267,9 +296,7 @@ where
         // beacon balance increments or DAO transition. EIP-2935 already ran.
         // A future execution fork must explicitly define its L2 lifecycle before
         // the Osaka allowlist above is extended.
-        if self.history_required && self.inner.receipts.is_empty() {
-            return Err(BlockExecutionError::msg("missing history transaction"));
-        }
+        self.validate_prefix()?;
         let inner = self.inner;
         Ok((
             inner.evm,
@@ -298,7 +325,7 @@ impl<C: EthExecutorSpec + 'static> BlockExecutorFactory for EezBlockExecutorFact
     type ExecutionCtx<'a> = EthBlockExecutionCtx<'a>;
     type Transaction = EezTxEnvelope;
     type Receipt = Receipt;
-    type TxExecutionResult = EthTxResult<<EezEvmFactory as EvmFactory>::HaltReason, EezTxType>;
+    type TxExecutionResult = EezTxResult<<EezEvmFactory as EvmFactory>::HaltReason>;
     type Executor<'a, DB: StateDB, I: Inspector<<EezEvmFactory as EvmFactory>::Context<DB>>> =
         EezBlockExecutor<'a, <EezEvmFactory as EvmFactory>::Evm<DB, I>, &'a Arc<C>>;
 
@@ -318,7 +345,8 @@ impl<C: EthExecutorSpec + 'static> BlockExecutorFactory for EezBlockExecutorFact
             inner: EthBlockExecutor::new(evm, ctx, &self.spec, EezReceiptBuilder),
             layer: self.layer,
             history: self.history.clone(),
-            history_required: false,
+            history_inherited: true,
+            group_state: ExecutionGroupState::default(),
         }
     }
 }

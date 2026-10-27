@@ -12,7 +12,7 @@ contract L1BlockhashContract {
     mapping(uint64 number => bytes32 hash) internal hashes; // slot 0
     uint256 internal firstNumber; // slot 1
     uint256 internal endpoint; // slot 2
-    uint256 internal nextCutoff; // slot 3
+    uint256 internal firstCutoff; // slot 3, immutable genesis phase
     uint256 internal interval; // slot 4
     uint256 internal updateDelay; // slot 5
     uint256 internal maxImportHeaders; // slot 6
@@ -20,7 +20,7 @@ contract L1BlockhashContract {
     error UnauthorizedHistoryImport();
     error InvalidHistoryState();
     error InvalidHistoryPosition();
-    error HistoryImportTooLarge();
+    error InvalidHistoryImportLength();
     error InvalidHistoryHash();
     error L1BlockNotImported(uint64 number);
 
@@ -40,13 +40,11 @@ contract L1BlockhashContract {
         return (uint64(endpoint), hashes[uint64(endpoint)]);
     }
 
-    /// @notice Append consecutive hashes and advance one scheduled cutoff, even on an empty import.
-    /// @dev Transaction zero at cutoff + updateDelay, sent by the native system
-    ///      address with zero value. It consumes transaction gas without advancing
-    ///      the system account nonce.
-    ///      The engine checks canonical calldata, ancestry, delay and PREVRANDAO;
-    ///      failure invalidates the block. Empty imports explicitly repeat the origin.
-    ///      This emits no logs and makes no external calls.
+    /// @notice Append consecutive hashes at an eligible delayed cutoff.
+    /// @dev The native execution engine admits at most one HistoryUpdate, at
+    ///      transaction zero, and authenticates its hashes, chain ID and PREVRANDAO.
+    ///      Omitted updates leave all storage unchanged. This call is fee-free
+    ///      but metered, makes no external calls, returns no data and emits no logs.
     function importHistory(uint64 cutoff, bytes32[] calldata newHashes) external {
         if (msg.sender != SYSTEM_ADDRESS) revert UnauthorizedHistoryImport();
         if (
@@ -54,13 +52,15 @@ contract L1BlockhashContract {
                 || maxImportHeaders == 0 || firstNumber > endpoint || endpoint > type(uint64).max
                 || hashes[uint64(endpoint)] == bytes32(0)
         ) revert InvalidHistoryState();
-        if (cutoff != nextCutoff || uint256(cutoff) + updateDelay != block.timestamp) {
+        if (
+            cutoff < firstCutoff || (cutoff - firstCutoff) % interval != 0
+                || uint256(cutoff) + updateDelay != block.timestamp
+        ) {
             revert InvalidHistoryPosition();
         }
-        if (newHashes.length > maxImportHeaders) revert HistoryImportTooLarge();
+        if (newHashes.length == 0 || newHashes.length > maxImportHeaders) revert InvalidHistoryImportLength();
         uint256 newEndpoint = endpoint + newHashes.length;
-        uint256 followingCutoff = uint256(cutoff) + interval;
-        if (newEndpoint > type(uint64).max || followingCutoff > type(uint64).max) revert InvalidHistoryState();
+        if (newEndpoint > type(uint64).max) revert InvalidHistoryState();
         for (uint256 i; i < newHashes.length; ++i) {
             uint64 number = uint64(endpoint + i + 1);
             // A conflicting existing record is invalid even if its hash agrees:
@@ -69,6 +69,5 @@ contract L1BlockhashContract {
             hashes[number] = newHashes[i];
         }
         endpoint = newEndpoint;
-        nextCutoff = followingCutoff;
     }
 }

@@ -455,7 +455,7 @@ async fn accepted_commitments_do_not_refresh_randomness_and_bad_bindings_do_not_
         first_number: 0,
         endpoint: 3,
         endpoint_hash: fixture.reference(3).hash,
-        next_cutoff: 1008,
+        first_cutoff: 1008,
     };
     let evidence = crate::ReconciledBatchSettlement {
         l1_block: fixture.reference(4),

@@ -9,7 +9,12 @@
 | Full-suite source patch | SHA-256 `42d5b7c3f4ea630db51ed5d5c4faed5101a5cc6ec08bdf7408b587e545c24808`; same scope, before the final ingress batch guard and its tests |
 | Protocol | `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774`; unchanged, clean checkout |
 | Environment | Rust 1.95.0, LLVM 22, Foundry 1.7.1; native local Ethereum fixtures; Node 26.7 and Playwright 1.63.0/Chromium |
-| Related records | [Authorized first iteration](../../proposals/quote-call-tracing.md), [API contract](../../configurable-settlement-policy.md#compact-fee-quotes), [viewer and manual capture](../../../tools/quote-trace-viewer/README.md) |
+| Related records | [Authorized first iteration](../../proposals/quote-call-tracing.md), [API contract](../../configurable-settlement-policy.md#compact-fee-quotes), [historical viewer and manual capture](https://github.com/eez-association/eez-rollupX/blob/d8e8b9cbf63afba6ba9a69a807fac22bd11075d7/tools/quote-trace-viewer/README.md) |
+
+2026-10-27 amendment: the standalone viewer and its CI job were removed from
+RollupX. The dashboard keeps its own committed assets and browser tests. Viewer
+links below point to the pre-removal snapshot; the results remain historical
+evidence. The trace API and its backend regressions remain in RollupX.
 
 ## Scope of the evidence
 
@@ -110,7 +115,7 @@ following nonempty selections serially:
 "$EEZ_TEST_RUNTIME_BIN_DIR/node-e2e" fee_quotes::tracing:: --test-threads=1
 ```
 
-The viewer's [test instructions](../../../tools/quote-trace-viewer/README.md#tests)
+The viewer's [historical test instructions](https://github.com/eez-association/eez-rollupX/blob/d8e8b9cbf63afba6ba9a69a807fac22bd11075d7/tools/quote-trace-viewer/README.md#tests)
 run its pinned dependencies. Passing the same `EEZ_TEST_LOG_DIR` to the browser
 test imports every actual process-test response in `quote-traces/`.
 
@@ -120,8 +125,8 @@ Local-only build/check logs are under `/tmp/eez-quote-trace-*.log`; process logs
 datadirs and exported responses are under the ignored
 `artifacts/quote-trace-validation/` in the feature checkout. These paths are not
 available in another checkout and are not a published artifact service.
-The small [nested-revert export](../../../tools/quote-trace-viewer/examples/nested-revert.json)
-is checked in and used by the viewer tests. It contains only public fixture
+The small [nested-revert export](https://github.com/eez-association/eez-rollupX/blob/d8e8b9cbf63afba6ba9a69a807fac22bd11075d7/tools/quote-trace-viewer/examples/nested-revert.json)
+was checked in and used by the viewer tests. It contains only public fixture
 addresses and synthetic local state.
 
 Early validation caught and corrected the following implementation/test issues:

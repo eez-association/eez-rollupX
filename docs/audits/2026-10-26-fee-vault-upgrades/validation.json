@@ -1,0 +1,178 @@
+{
+  "baseline": "641e768f2e6605f7563c808a00937d374e98e8fb",
+  "branch": "codex/fee-vault-upgradeable",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "toolchain": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1",
+    "solc": "0.8.34"
+  },
+  "artifacts": {
+    "availability": "local-only, ignored artifacts/fee-vault-validation directory; not downloadable from a fresh checkout",
+    "sha256": {
+      "contracts.log": "1311eae97ff9876afda2d3cad0528477d77989fe112d8643d1ed823475b9329d",
+      "vault-final.log": "31c0036e98f13b3891e6b6e56a0a3e2cb97025f8cc983f186df2424824921e78",
+      "deploy-preflight.log": "a4c99be06ebbd5bbc17e78ded454fd8ae6eb30a416872a48f043a4edbca48923",
+      "genesis-update.log": "cb002cfd06dcb5667d043f251bdcdc383d0a86a92eb03f8830362b2f91f46d6b",
+      "genesis-check.log": "223cd77535fe01aae0d71313737ef3dc426372dd1323dac69fad5f183c656e4b",
+      "explorer-config.json": "47336a2cd106d55c88d51edcff3072ca21c419d7d35ae5703352045d39322222",
+      "treasury-build-tmp-quota.log": "48a79860367f4d1afd38d5bbc460b53813bb5e1a9ac24123d8278253e65f722c",
+      "treasury-build-sigkill.log": "a897eabbbbe409c5475bc755e34fefdad776c6181f46b14060a384f3d93a4cf5",
+      "treasury-process.log": "71855895c15a013df66a42b47e443152aea5771a873c39ab5ff04371e2e32162",
+      "genesis-helper-build.log": "98c83fbbc63d73fb779911aab1776d0353b4c69119a7176837a5dfdaa119df82",
+      "current-source-genesis-roots.txt": "9bb138d5965eb23a0b6caf3321bc15cde0d5c8a9551df9a3a763f8826590afbc",
+      "genesis-check-current-source.log": "223cd77535fe01aae0d71313737ef3dc426372dd1323dac69fad5f183c656e4b",
+      "clippy.log": "9525d12e7c275f878b36a806446f300cd9a61bf0f44e79d3fcf6cb5fd14c1c54",
+      "custom-genesis-render.log": "14293fcdf6f0bfb7463935e78c0e8be746264e70e0f97cf36730a5dae6d3d533",
+      "custom-genesis-result.json": "d65610f2611cd92f49b85ed611ed90a489b77bc1c459f3d2b9a7ebf90ecfff4a",
+      "protocol-codecs.log": "0b4d4b85d630cb58a20ac5817f5cd9eb8c4090451266ee8efbce199e7ec87c6d"
+    }
+  },
+  "checks": {
+    "contracts": {
+      "passed": 148,
+      "failed": 0,
+      "skipped": 0,
+      "note": "Full suite before one additional event test and receiver helper refinements."
+    },
+    "vault_final": {
+      "passed": 18,
+      "failed": 0,
+      "skipped": 0
+    },
+    "deployment_preflight": {
+      "passed": 15
+    },
+    "genesis_check": "pass",
+    "explorer_compose_configuration": "pass",
+    "process": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 186,
+      "duration_seconds": 354.45,
+      "runtime_preparation_included": true,
+      "evidence": {
+        "amount": "0xc55804fe762f",
+        "blockHash": "0x3ea3f55af048e803c35467b9e275628a65b2510f1a5d6f643219f38bee44aada",
+        "recipient": "0x15d34aaf54267db7d7c367839aaf71a00a2c6a65",
+        "retainedFee": "0xeb4367500",
+        "vault": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+        "withdrawal": "0x128607d15f81ee7258c0c1431936e1be4c0ba46998f2d23bc32c7461699f2dc2"
+      }
+    },
+    "clippy": "pass: cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+    "custom_genesis_render": {
+      "result": "passed",
+      "owner": "0x3333333333333333333333333333333333333333",
+      "recipient": "0x2222222222222222222222222222222222222222",
+      "stateRoot": "0x6fd343ea3d4c616790758e6174d19852c00769709d93470358af5b63b44633ea",
+      "checks": [
+        "vault owner storage",
+        "active recipient storage",
+        "dedicated ProxyAdmin ownership",
+        "production genesis has no funded accounts",
+        "recomputed profile state root"
+      ]
+    },
+    "protocol_and_codecs": {
+      "passed": 263,
+      "failed": 0,
+      "ignored": 0,
+      "command": "cargo +1.95.0 test --locked -p eez-protocol -p eez-blob-codec -p eez-payload-codec",
+      "oracles": [
+        "public_inputs_hash_vectors",
+        "rolling_hash_vectors",
+        "ethereum_kzg_compatibility"
+      ]
+    }
+  },
+  "genesis_profile": {
+    "schemaVersion": 5,
+    "rollupId": 1,
+    "systemAddress": "0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE",
+    "recoveryAddress": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "upgradeOwner": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "feeCollector": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
+    "treasuryOwner": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+    "treasuryRecipient": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
+    "feeVaultRuntimeCodeHash": "0x05ad0b6a7d421a321e10487240f204497d3017e1d01829462cd6c61f802d0dfd",
+    "feeVaultImplementationAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079",
+    "feeVaultProxyAdminAddress": "0xe66b775649b63423bd9d4187d1307f100337489d",
+    "feeVaultImplementationCodeHash": "0xe6f00bbd83ab805d77d6da84c48af9b234db70cd93992080863a971ed22cddbb",
+    "useGasLeft": false,
+    "eezL2Address": "0x4B2760F84B83d6b3829E30A7573B0172B6d6402C",
+    "eezL2ImplementationAddress": "0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA",
+    "eezL2ProxyAdminAddress": "0x57BF29A07746a25b87c613e01D5DA49f6119e96c",
+    "runtimeCodeHash": "0xab051a3551ca4e94b31ca2569617305294bb85085e787088eff1f4c95a97c625",
+    "proxyRuntimeCodeHash": "0x88068de4c46d94b72f5d39f17b5407c958ec6920376ff1dd366995f65564372a",
+    "genesisStateRoot": "0x91d4a700e13c9fe12111e8e4c03f83363632bf76ac9e783ebe765be0b2ce8066",
+    "foundryVersion": "1.7.1"
+  },
+  "preliminary_genesis_helper": {
+    "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+    "sha256": "87c0463218c4af9457411e9e8b51cdfe097234ec84c3e1a4f406e3e2c719df31",
+    "note": "Published helper; algorithm and Cargo.lock unchanged. All three roots subsequently matched the helper built from this checkout."
+  },
+  "deployment": "New-network scope accepted; no deployed services, data, keys or chain state changed.",
+  "implementation_sha256": {
+    "contracts/src/L2/FeeVault.sol": "51a8950f6d7c29a098fd989b1d6a1abd7becb8c70f9915d664e5f529d4789559",
+    "contracts/test/FeeVault.t.sol": "482ff989458e0da802fcc35295b199a7790613e39d680a792120b8dd8f0d5408",
+    "crates/eez-protocol/src/fee_vault.rs": "bd11d76e459c053765db41763d68fc5582e81d7ab457727b82150eda4ac880ce",
+    "crates/eez-node-e2e/tests/native_system/treasury.rs": "7c2f60462584325ec71be0c8ad7e634574d7f4eed837e1be5a8c8bddb8ee0419",
+    "scripts/solidity/GenerateEEZL2Genesis.s.sol": "0f986a5670dab8c56025df3151ce54955dea8f4c17ce130a02934b810465d203",
+    "scripts/update-eezl2-genesis.sh": "11d7b0b3eb3a421817f6872a128bc7d19bbb5c12468374377554e2767be0ca42",
+    "docker-compose.explorers.yml": "004977887be0bfb0efef6d855e8eb3b0a32624845af9bc98ce1a738d777374a5",
+    "genesis.json": "480bfc0b5083c8ee9105733c9b716607fbed963612f9b458348744a32b5692f9",
+    "genesis.dev.json": "72e232f2026988a2993c43f395168e293d07c0cd5944c6e5981fd2a89429a3ee",
+    "crates/eez-node-e2e/tests/fixtures/genesis.json": "87efd11afbcc6e32cd3edb65a53fb798cd9849119553149939bdd34d07a145a6",
+    "testing/kurtosis/l2-genesis-profile.json": "76f7fb253f9dddfdcfd28cf639561a8a0138e3e13e564f7dd11c287eceb0e9e7"
+  },
+  "current_source_genesis_helper": {
+    "sha256": "0236dbcfd5324bde9c4e2d8307023d4bcad283cf0c14f662511b0fe098383a73",
+    "build": "cargo +1.95.0 build --locked -p eez-node --example genesis_state_root",
+    "roots": {
+      "genesis.json": "0x57d5f20db63173358d9e1605a7d9a9df48527ae3b9f7e94541de1f0acc4198d0",
+      "genesis.dev.json": "0x91d4a700e13c9fe12111e8e4c03f83363632bf76ac9e783ebe765be0b2ce8066",
+      "crates/eez-node-e2e/tests/fixtures/genesis.json": "0x134c45de0391c30c964a30d370377b5d3e09a6578b99a1c5da3d19b25a724ec6"
+    },
+    "fixture_check": "pass"
+  },
+  "source_process_executables": {
+    "eez-composer": "33e6583bb45b1516cfd776d6e15c2c47a98995bc6d9f67955f8d69e2603b8640",
+    "eez-follower": "6bee34d152e6c80e5d14bc4344940f600cdadeb50fd82f77b51f22501c5a5317",
+    "eez-proof-signer": "4e5f8c4e32376a7ca6596b094b02d47c375af6bfc223e58d637944e27b2fc6bd",
+    "deps/node_e2e-0cb5b6bfb86a29d0": "7e249b1640bb256d4ffb0833ff5f43d3c020aaa055eefef37531cdcfaa793623"
+  },
+  "ci_follow_up_2026_10_26": {
+    "parent_commit": "6a776eaea80e790c7ab0a1c606dea5ee0c1e9bb1",
+    "ci_run": "https://github.com/eez-association/eez-rollupX/actions/runs/40373348675",
+    "baseline_genesis_test": {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib production_base_genesis_allocates_no_eth_and_keeps_required_predeploys -- --exact tests::production_base_genesis_allocates_no_eth_and_keeps_required_predeploys",
+      "passed": 0,
+      "failed": 1,
+      "filtered": 36,
+      "exit_code": 101
+    },
+    "after": {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib",
+      "passed": 37,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 0
+    },
+    "format_command": "cargo +1.95.0 fmt --all --check",
+    "clippy_command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+    "format_and_clippy_exit_code": 0,
+    "test_source_sha256": "8060ed6b8cba612b739fe23986ebbae0ee9fd6c67fdd9a5027064cb91d36ef64",
+    "local_only_logs_sha256": {
+      "genesis-test-before.log": "8cef09e2a150298cf9345a7e9fc0e79681f0f80d7448c124b12cf197a78ee98f",
+      "evm-tests-after.log": "499be8900fca174674d571fcf182990f05f3b06ae27093357408a5a1676dc697",
+      "clippy.log": "c99689af7a524da5b806c4b710d45a01fad3b4999d0eb0d7b1796b49de86890c"
+    },
+    "unresolved_dependency_policy": [
+      "RUSTSEC-2026-0403 (zstd-safe 7.2.4)",
+      "RUSTSEC-2026-0410 (zstd-sys 2.0.16+zstd.1.5.7)"
+    ]
+  }
+}

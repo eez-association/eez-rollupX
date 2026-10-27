@@ -155,10 +155,21 @@ pub(crate) const SYNTHETIC_BLOCK_GAS_LIMIT: u64 = 30_000_000;
 
 pub(crate) fn resolve_synthetic_plans(
     pairs: &[eez_protocol::system_tx::SyncPair],
+    sources: &[B256],
 ) -> Vec<alloy_primitives::Bytes> {
+    assert_eq!(pairs.len(), sources.len());
+    let mut sources = sources.iter();
     eez_protocol::system_tx::interleave_sync_block_txs(pairs)
         .into_iter()
-        .map(|plan| plan.at_position(SYNTHETIC_BLOCK_GAS_LIMIT, 0).unwrap())
+        .map(|plan| {
+            let source = if matches!(plan, eez_protocol::system_tx::PlannedTransaction::Native(_)) {
+                *sources.next().unwrap()
+            } else {
+                B256::ZERO
+            };
+            plan.at_position(SYNTHETIC_BLOCK_GAS_LIMIT, 0, source)
+                .unwrap()
+        })
         .collect()
 }
 
@@ -210,8 +221,8 @@ pub(crate) const LEGACY_USER_PRIVATE_KEY: B256 =
 /// --chain 1 --nonce 0 --gas-price 1 --gas-limit 21000 <EEZL2_ADDRESS>`.
 pub(crate) const LEGACY_USER_TX: &str = "f85f8001825208944b2760f84b83d6b3829e30a7573b0172b6d6402c808025a0e89cbbd24d25863a59a811d77b98a9c2ad4c9ea8712c5f04eeae1b12e1cf53e6a03477c662e64a29190132f5c647ee0e0f40e1589959cdac9951f1afab86652d04";
 
-/// Independent native-v1 vector: chain 1, source zero, full gas cap, EEZL2, zero value/input.
-pub(crate) const SYSTEM_TX: &str = "45f83f0101a000000000000000000000000000000000000000000000000000000000000000008401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c8080";
+/// Independent six-field vector: chain 1, source zero, full gas cap, EEZL2, zero value/input.
+pub(crate) const SYSTEM_TX: &str = "45f83e01a000000000000000000000000000000000000000000000000000000000000000008401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c8080";
 
 /// Canonical context for reconstructing system transactions in tests; tests
 /// that need a noncanonical variant mutate one field of a fresh copy.

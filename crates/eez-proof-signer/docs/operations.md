@@ -62,7 +62,7 @@ used by the blob codec. Allow this initialization in startup/readiness timeouts;
 per process in an awaited blocking worker and does not submit a calibration
 batch or skip proof validation. Initialization failure prevents readiness.
 The existing request deadlines and graceful shutdown rules begin after serving.
-Validation-contract version 1 and capability profile 2
+Validation-contract version 3 and capability profile 2
 require exact agreement between Composer and signer before any work is dispatched.
 The profile requires fresh contracts,
 genesis and datadirs. Do not attach these binaries to an existing network or

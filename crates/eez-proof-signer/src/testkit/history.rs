@@ -4,7 +4,7 @@
 
 use alloy_primitives::{Address, B256, Bytes, U256, keccak256};
 use eez_protocol::l1_history::{
-    HISTORY_ADDRESS, HISTORY_RUNTIME, HistorySchedule, NEXT_CUTOFF_SLOT, bootstrap_storage,
+    HISTORY_ADDRESS, HISTORY_RUNTIME, HistorySchedule, bootstrap_storage,
 };
 use reth_trie_common::{HashBuilder, Nibbles, proof::ProofRetainer};
 use std::sync::Arc;
@@ -88,8 +88,8 @@ pub(super) fn trie(mut leaves: Vec<(B256, Vec<u8>)>) -> (B256, Vec<Bytes>) {
 
 /// Complete account/storage witness and independent root at the given L2 time.
 /// The only produced source before every tested cutoff is the bootstrap header;
-/// scheduled updates advance `nextCutoff` without adding a duplicate hash.
-pub(crate) fn state(accounts: &[(Address, u64, U256)], timestamp: u64) -> (B256, Vec<Bytes>) {
+/// updates are omitted and the fixed genesis phase never changes.
+pub(crate) fn state(accounts: &[(Address, u64, U256)], _timestamp: u64) -> (B256, Vec<Bytes>) {
     #[derive(alloy_rlp::RlpEncodable)]
     struct Account {
         nonce: u64,
@@ -99,14 +99,7 @@ pub(crate) fn state(accounts: &[(Address, u64, U256)], timestamp: u64) -> (B256,
     }
     let reference = l1_spec().genesis_header().hash_slow();
     let schedule = HistorySchedule::new(80, 2, 6, 2).unwrap();
-    let mut storage = bootstrap_storage(0, reference, schedule).unwrap();
-    // T0=80, I=12, delay=6. This arithmetic is independent of execution().
-    let next = if timestamp < 86 {
-        80
-    } else {
-        80 + ((timestamp - 86) / 12 + 1) * 12
-    };
-    storage.insert(U256::from(NEXT_CUTOFF_SLOT).into(), U256::from(next).into());
+    let storage = bootstrap_storage(0, reference, schedule).unwrap();
     let (storage_root, mut nodes) = trie(
         storage
             .into_iter()

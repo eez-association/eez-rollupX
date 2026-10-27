@@ -69,6 +69,7 @@ impl OfflineProfile {
     pub fn canonical_bytes(&self) -> Bytes {
         (
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"),
+            crate::l2::VALIDATION_VERSION,
             HISTORY_ADDRESS,
             MAX_IMPORT_HEADERS as u64,
             IMPORT_GAS_LIMIT,
@@ -224,28 +225,14 @@ impl OfflineContext {
     pub fn live_source_context(
         &self,
     ) -> Result<crate::native_source::LiveSourceContext, ProfileError> {
-        let EvidenceAnchor::ActualParent {
-            hash,
-            target_timestamp,
-            ..
-        } = self.anchor
-        else {
+        let EvidenceAnchor::ActualParent { hash, .. } = self.anchor else {
             return Err(ProfileError(
                 "historical context cannot authorize native cross-chain actions",
             ));
         };
-        crate::native_source::LiveSourceContext::new(
-            self.l1_chain_id
-                .try_into()
-                .map_err(|_| ProfileError("unsupported L1 chain id"))?,
-            self.registry,
-            crate::RollupId(self.rollup_id),
-            self.l2_chain_id
-                .try_into()
-                .map_err(|_| ProfileError("unsupported L2 chain id"))?,
-            target_timestamp,
-            hash,
-        )
+        let chain_id = u64::try_from(self.l2_chain_id)
+            .map_err(|_| ProfileError("native EVM chain ID exceeds uint64"))?;
+        crate::native_source::LiveSourceContext::new(chain_id, hash)
     }
 
     /// Exact flat Solidity ABI tuple returned by OfflineRollup.getCustomData.
@@ -326,14 +313,15 @@ mod tests {
         let word = |value: u64| U256::from(value).to_be_bytes::<32>();
         let mut address = [0; 32];
         address[12..].copy_from_slice(HISTORY_ADDRESS.as_slice());
-        // abi.encode(domain, address, limit, gas, Profile): five outer
+        // abi.encode(domain, version, address, limit, gas, Profile): six outer
         // arguments, followed by the dynamic struct and its rule-time array.
         let expected = [
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE").0,
+            word(3),
             address,
             word(64),
             word(2_000_000),
-            word(5 * 32),
+            word(6 * 32),
             word(1),
             word(900),
             p.genesisHash.0,
@@ -359,6 +347,7 @@ mod tests {
             "../../../eez-control-rpc/conformance/native-profile-v1.json"
         ))
         .unwrap();
+        assert_eq!(corpus["validationVersion"], crate::l2::VALIDATION_VERSION);
         for (id, collector) in [("profile-collector-a", 0x11), ("profile-collector-b", 0x12)] {
             let profile = OfflineProfile {
                 l1ChainId: U256::from(1),
@@ -441,12 +430,20 @@ mod tests {
             }
             match anchor {
                 EvidenceAnchor::ActualParent { .. } => {
+                    // L2 chain 900, L1 chain 1 and registry rollup 7 are distinct.
+                    assert_eq!(
+                        context.live_source_context().unwrap().entry(0).hash(),
+                        keccak256(
+                            ("SOURCE_ENTRY_V1", U256::from(900), hash, 0u64).abi_encode_params()
+                        )
+                    );
                     independent.extend(word(1));
                     independent.extend(word(100));
                     independent.extend(hash.0);
                     independent.extend(word(132));
                 }
                 EvidenceAnchor::Historical { .. } => {
+                    assert!(context.live_source_context().is_err());
                     independent.extend(word(2));
                     independent.extend(word(100));
                     independent.extend(hash.0);

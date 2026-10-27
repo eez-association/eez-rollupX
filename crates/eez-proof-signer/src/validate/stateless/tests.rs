@@ -8,14 +8,31 @@ use super::*;
 use crate::testkit::{LEGACY_USER_TX, TEST_SYSTEM_ADDRESS};
 use crate::validate::Validator;
 
+fn history_fixture() -> (Genesis, AdmittedBlock) {
+    use eez_control_rpc::v2::client_frame;
+    let name = "native-offline-bidirectional";
+    let index = crate::testkit::native_frames(name)
+        .into_iter()
+        .filter_map(|frame| match frame.kind {
+            Some(client_frame::Kind::Block(block)) => block.data,
+            _ => None,
+        })
+        .position(|block| {
+            let decoded: Block = alloy_rlp::decode_exact(&block.rlp).unwrap();
+            matches!(decoded.body.transactions.as_slice(), [tx] if tx.is_history())
+        })
+        .expect("capture must contain a nonempty scheduled history-only block");
+    crate::testkit::native_block(name, Some(index))
+}
+
 fn fixture_genesis() -> Genesis {
-    crate::testkit::native_block("native-offline-bidirectional", Some(2)).0
+    history_fixture().0
 }
 
 fn fixture_input() -> AdmittedBlock {
-    // The first scheduled import is a real state transition, not a synthetic
-    // empty-account replay. Its parent is in the middle of the captured range.
-    crate::testkit::native_block("native-offline-bidirectional", Some(2)).1
+    // Select the recorded state transition by its shape: eligible timestamps
+    // may omit updates when new evidence was not ready during capture.
+    history_fixture().1
 }
 
 #[test]
@@ -439,7 +456,6 @@ fn checkpoint_plan_is_derived_from_recovered_transactions() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::with_last_byte(0),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
@@ -472,7 +488,6 @@ fn checkpoint_plan_includes_every_inbound_boundary() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::with_last_byte(0),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
@@ -1097,8 +1112,12 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         user_nonce: u64,
         balance: U256,
         collector_balance: U256,
+        system_balance: U256,
     ) -> (B256, Vec<Bytes>) {
-        let mut accounts = vec![(user, user_nonce, balance), (SYSTEM_ADDRESS, 7, U256::ZERO)];
+        let mut accounts = vec![
+            (user, user_nonce, balance),
+            (SYSTEM_ADDRESS, 7, system_balance),
+        ];
         if collector_balance != U256::ZERO {
             accounts.push((
                 alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
@@ -1112,7 +1131,7 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
     let user = key.address();
     let balance = U256::from(1_000_000_000_000_000_000u64);
-    let (pre_root, witness_nodes) = state(user, 0, balance, U256::ZERO);
+    let (pre_root, witness_nodes) = state(user, 0, balance, U256::ZERO, U256::ZERO);
     let parent = Header {
         number: 10,
         timestamp: 100,
@@ -1137,7 +1156,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         nonce: 0,
         gas_limit: 21_000,
         gas_price: u128::from(base_fee),
-        to: alloy_primitives::TxKind::Call(user),
+        to: alloy_primitives::TxKind::Call(SYSTEM_ADDRESS),
+        value: U256::from(11),
         ..Default::default()
     };
     let signature = Signature::from(
@@ -1156,11 +1176,10 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         transactions.push(
             SystemTransaction {
                 chain_id: 1,
-                version: eez_primitives::SYSTEM_TX_VERSION,
                 source_hash: B256::with_last_byte(occurrence),
                 gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                 to: EEZL2_ADDRESS,
-                value: U256::ZERO,
+                value: U256::from(occurrence),
                 input: Bytes::copy_from_slice(&selector),
             }
             .into(),
@@ -1180,7 +1199,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         logs: Vec::new(),
     })
     .collect();
-    let remaining = balance - U256::from(base_fee) * U256::from(21_000);
+    let fee = U256::from(base_fee) * U256::from(21_000);
+    let remaining = balance - fee - U256::from(11);
     let mut expected = Vec::new();
     for count in 1..=3 {
         let prefix_receipts: Vec<_> = receipts[..count]
@@ -1193,7 +1213,20 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             parent_hash: parent.hash_slow(),
             base_fee_per_gas: Some(base_fee),
             gas_used: 21_000 + native_gas * (count as u64 - 1),
-            state_root: state(user, 1, remaining, balance - remaining).0,
+            // The ordinary donation remains in B[0]; each native delivery
+            // clears it and its own newly minted residual before checkpoint.
+            state_root: state(
+                user,
+                1,
+                remaining,
+                fee,
+                if count == 1 {
+                    U256::from(11)
+                } else {
+                    U256::ZERO
+                },
+            )
+            .0,
             transactions_root: calculate_transaction_root(&transactions[..count]),
             receipts_root: calculate_receipt_root(&prefix_receipts),
             ..parent.clone()
@@ -1225,8 +1258,8 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             ..Default::default()
         },
     };
-    let output = Backend::new(genesis, SYSTEM_ADDRESS)
-        .validate(&[input])
+    let output = Backend::new(genesis.clone(), SYSTEM_ADDRESS)
+        .validate(std::slice::from_ref(&input))
         .unwrap();
     let block = &output.blocks[0];
     assert_eq!(block.receipt_successes, [true, true, true]);
@@ -1249,4 +1282,15 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
     );
     assert_eq!(block.post_state_root, expected[2].state_root);
     assert_eq!(block.computed_hash, expected[2].hash_slow());
+    let mut unclean = input;
+    let mut full = alloy_rlp::decode_exact::<Block>(&unclean.rlp).unwrap();
+    full.header.state_root = state(user, 1, remaining, fee, U256::from(11)).0;
+    unclean.claimed_hash = full.header.hash_slow();
+    unclean.rlp = alloy_rlp::encode(full);
+    let error = Backend::new(genesis, SYSTEM_ADDRESS)
+        .validate(&[unclean])
+        .unwrap_err();
+    assert!(
+        matches!(error, ValidationError::Rejected(reason) if reason.contains("mismatched post-state root"))
+    );
 }

@@ -176,8 +176,9 @@ Every produced intermediate header is required, including headers used only to
 bridge to the proof anchor. Skipped L1 slots have no invented headers.
 
 Block execution checks history storage/code, schedule and the selected source.
-It exact-validates the history transaction in `Block.rlp`, including repeat,
-position, version, sourceHash, zero value, exact gas and canonical calldata, and uses the selected
+It exact-validates each recorded 0x46 history transaction in `Block.rlp`, including
+position, version, chain ID and nonempty consecutive hashes, derives its gas and
+import calldata, and uses the selected
 header's `prevRandao` for both L2 header and EVM. Finalize authenticates every
 recorded selection against the complete bridge and exact anchor. No latest-source
 or arrival-time inference can replace the transaction's choice. The terminal Block's witness carries any

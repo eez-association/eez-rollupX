@@ -162,21 +162,8 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
     let state = |nonce, balance, timestamp| {
         crate::testkit::history::state(&[(sender, nonce, balance)], timestamp)
     };
-    // Independent ABI construction of the native history occurrence domain.
-    // The fixture does not call the production source-hash builder.
-    use alloy_sol_types::SolValue as _;
-    let l2_spec = reth_chainspec::ChainSpec::from(config.clone());
-    let history_domain = keccak256(
-        (
-            keccak256("EEZ_ROLLUPX_HISTORY_SOURCE"),
-            U256::from(1),
-            U256::from(crate::testkit::history::l1_spec().chain().id()),
-            U256::from(l2_spec.chain().id()),
-            l2_spec.genesis_header().hash_slow(),
-            eez_primitives::HISTORY_ADDRESS,
-        )
-            .abi_encode_params(),
-    );
+    // This source remains at bootstrap throughout the range; eligible updates
+    // are omitted. Expected roots and receipt bytes stay independent of replay.
     let mut parent = Header {
         parent_hash: B256::ZERO,
         ommers_hash: alloy_consensus::EMPTY_OMMER_ROOT_HASH,
@@ -221,7 +208,6 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
     for (position, environment) in environments.iter().enumerate() {
         let (_, pre_state) = state(nonce, balance, parent.timestamp);
         let timestamp = parent.timestamp + 2;
-        let updating = (timestamp - 86).is_multiple_of(12);
         let kind = match position {
             0 => Some(0),
             2 => Some(1),
@@ -230,34 +216,6 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             _ => None,
         };
         let mut txs = Vec::new();
-        if updating {
-            // Construct the fixed ABI independently of the history planner.
-            let mut input = hex::decode("8ea69a3a").unwrap();
-            for word in [timestamp - 6, 64, 0] {
-                input.extend_from_slice(&U256::from(word).to_be_bytes::<32>());
-            }
-            txs.push(
-                eez_primitives::SystemTransaction {
-                    chain_id: 1,
-                    version: eez_primitives::SYSTEM_TX_VERSION,
-                    source_hash: keccak256(
-                        (
-                            history_domain,
-                            parent.hash_slow(),
-                            U256::from(parent.number + 1),
-                            U256::from(timestamp),
-                            keccak256(&input),
-                        )
-                            .abi_encode_params(),
-                    ),
-                    gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
-                    to: eez_primitives::HISTORY_ADDRESS,
-                    value: U256::ZERO,
-                    input: input.into(),
-                }
-                .into(),
-            );
-        }
         txs.extend(kind.map(|kind| transaction(kind, nonce)));
         let raw = txs
             .iter()
@@ -287,22 +245,9 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             Some(_) => 21_000,
             None => 0,
         };
-        // Fixed independent Anvil/Osaka oracle for these two one-byte cutoffs,
-        // cold slots and the pinned runtime; see the native-v1 audit's
-        // history-gas-oracle.json. Do not learn this value from the validator.
-        let history_gas = if updating { 41_092 } else { 0 };
-        header.gas_used = history_gas + ordinary_gas;
+        header.gas_used = ordinary_gas;
         header.transactions_root = ordered_root(&raw);
         let mut receipts = Vec::new();
-        if updating {
-            let receipt = alloy_rlp::encode(Receipt {
-                status: 1,
-                gas_used: history_gas,
-                bloom: Bloom::ZERO,
-                logs: vec![],
-            });
-            receipts.push([&[0x45][..], &receipt].concat());
-        }
         if let Some(kind) = kind {
             let receipt = alloy_rlp::encode(Receipt {
                 status: u8::from(kind != 4),
@@ -627,7 +572,6 @@ fn native_replay_preserves_account_nonce_and_independent_receipt_state_commitmen
     for occurrence in [7, 8] {
         let transaction: TransactionSigned = eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: B256::with_last_byte(occurrence),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,
