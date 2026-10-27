@@ -2,7 +2,7 @@
 
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_sol_types::SolCall;
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use eez_protocol::l1_history::{HISTORY_ADDRESS, IL1BlockhashContract};
 use serde_json::{Value, json};
 
@@ -463,6 +463,18 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             ])).await?)?;
             let hash = IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&returned)?;
             ensure!(json!(hash) == source.2, "permanent L1 history differs at {} on {url}", source.0);
+        }
+    }
+    // Pin the query to the same executed state on every producer and follower;
+    // subsequent L1 arrivals must not change availability in this block.
+    for number in [last_source_number.checked_add(1).context("history endpoint overflow")?, u64::MAX] {
+        let data = Bytes::from(IL1BlockhashContract::getL1BlockHashCall { number }.abi_encode());
+        for url in urls {
+            let returned: Bytes = serde_json::from_value(rpc(url, "eth_call", json!([
+                {"to": HISTORY_ADDRESS, "data": data}, format!("{final_height:#x}")
+            ])).await?)?;
+            let hash = IL1BlockhashContract::getL1BlockHashCall::abi_decode_returns(&returned)?;
+            ensure!(hash == B256::ZERO, "future history must return zero for {number} on {url}");
         }
     }
     println!("derivation evidence: {}", json!({

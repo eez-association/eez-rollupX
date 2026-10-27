@@ -3,7 +3,7 @@
 The corpus uses [versionless cross-chain transactions and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
 execution-group source identities, optional HistoryUpdate 0x46/version 1,
 complete-group cleanup, Profile and
-validation-contract version 3. The proving transport remains v2.
+validation-contract version 4. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
 

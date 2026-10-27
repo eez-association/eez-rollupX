@@ -24,16 +24,19 @@ contract L1BlockhashContract {
     error InvalidHistoryHash();
     error L1BlockNotImported(uint64 number);
 
-    /// @notice Exact hash for an imported block. Absence is never represented by zero.
+    /// @notice Exact imported hash, or zero outside the retained history range.
+    /// @dev Missing records inside the range and invalid history state still revert.
     function getL1BlockHash(uint64 number) external view returns (bytes32) {
-        if (number < firstNumber || number > endpoint || hashes[number] == bytes32(0)) {
+        (uint64 latest,) = current();
+        if (number < firstNumber || number > latest) return bytes32(0);
+        if (hashes[number] == bytes32(0)) {
             revert L1BlockNotImported(number);
         }
         return hashes[number];
     }
 
     /// @notice The currently selected origin, also the last imported block.
-    function current() external view returns (uint64 number, bytes32 hash) {
+    function current() public view returns (uint64 number, bytes32 hash) {
         if (endpoint > type(uint64).max || firstNumber > endpoint || hashes[uint64(endpoint)] == bytes32(0)) {
             revert InvalidHistoryState();
         }

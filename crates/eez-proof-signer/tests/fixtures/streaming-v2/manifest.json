@@ -1,28 +1,28 @@
 {
   "format": 2,
-  "base_commit": "9c1ab488e1b421cdc59c7e82bd95f080f7332b3e",
+  "base_commit": "66e79cedf4cfac3222b5de40f0fee8d1f2936000",
   "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
-  "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1, complete-group cleanup, Profile, validation-contract version 3, v2 capability profile 2; source digests include uncommitted changes at generation",
+  "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1, complete-group cleanup, Profile, validation-contract version 4, v2 capability profile 2; source digests include uncommitted changes at generation",
   "authority": "Complete captured L1 evidence; signatures are conditional on the independently checked on-chain context",
   "generator": "crates/eez-proof-signer/src/service/sessions/tests/vectors.rs",
   "source_sha256": {
     "Cargo.lock": "1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644",
     "Cargo.toml": "e3ef19389d09937d96918a32e8c0a9fd7c96fe0050e564f20500f3c8c97a5c69",
     "contracts/src/L2/FeeVault.sol": "51a8950f6d7c29a098fd989b1d6a1abd7becb8c70f9915d664e5f529d4789559",
-    "contracts/src/L2/L1BlockhashContract.sol": "702e4bf707cefaa2d664d230411aa0b26bfa67e55ea492736c431e160c9db186",
-    "contracts/src/OfflineRollup.sol": "5787a3f11feb4a069960c06f0c0e8157031fb9ad61adb7a6563864159a61fac2",
+    "contracts/src/L2/L1BlockhashContract.sol": "1323a4e9c2a2006febd26a47cb41d38e31ab855f5ff36329ec60c4d72ac8754a",
+    "contracts/src/OfflineRollup.sol": "9a06ede23710a7ff835c00ff8c454e3904a1d084efe7731bdbd4593b03f5dc5b",
     "crates/eez-blob-codec/Cargo.toml": "de7127eb1138a389ca86436e3e4134688845af61ac942fb1743d1eca7ee136e3",
     "crates/eez-blob-codec/src/lib.rs": "3e9b57bf1532b3f2f49cc6eb0022060cde69976f86e1ff1022c7b34ab14ca9e9",
     "crates/eez-blob-codec/src/limits.rs": "0008d6315bebdfa1f4b44bc2147bea84b803f06c300b10c4c423358091fff252",
     "crates/eez-blob-codec/src/transport.rs": "262f3f58529299039b8a6bdaf2ee332ab595738fe7f740ef3751b33250a5df7d",
     "crates/eez-control-rpc/Cargo.toml": "f5d3a32921d640ab7b4f8abcf98f721c084e3c36f5572ee61806b7ec1b4df196",
     "crates/eez-control-rpc/build.rs": "b6a1a03996c9536f984c2be284cb62fc70b264bd0da52da1f435ae139eca554e",
-    "crates/eez-control-rpc/conformance/check_vectors.py": "b30fe0d3fda7904a4524f9c929571ec1c848754c3ae14280e38558d20b551580",
+    "crates/eez-control-rpc/conformance/check_vectors.py": "57dda802885dac2811807e239fbc60f74775b6dedd7224bfe61690e82143a3ce",
     "crates/eez-control-rpc/conformance/replay.rs": "698d0bda1c2f0609d74738d5a90bab388010211bf25af21da0fe4f75be318df2",
     "crates/eez-control-rpc/examples/replay_streaming.rs": "32cd5a3330e07ef2c59d40d219eed7207607cbf8c10c82e8e83db5c0a925d6ac",
     "crates/eez-control-rpc/proto/prove.proto": "e27d7a44a252608cdbf9b738110924cbbb86ff01fbbeeca1365088a4dcbc1887",
     "crates/eez-control-rpc/src/generated.rs": "c03ca529172e2cbc6c4e0d77e3bf21c82f5ede67ccc515ecc26c92de4697aa93",
-    "crates/eez-control-rpc/src/identity.rs": "32da99df57168bf24c2d9b383e672825808d756e1d811f0a2a1ea0762410b3a0",
+    "crates/eez-control-rpc/src/identity.rs": "5b19c272abcc902c188e5772de3d8faef9c80c7f1a24768f7433f5dcd8794f55",
     "crates/eez-control-rpc/src/lib.rs": "b1e57ea5232251501620dca99139ca503964a1e6b8066d5a921e3a54d814bd05",
     "crates/eez-driver/Cargo.toml": "d460214c773f37dde7e79f58182efccc73506fa5a1791376ceadab27585ddb79",
     "crates/eez-driver/src/block_committer.rs": "8fd4fe84ce0b674d786d2923f23c42045bb2099fc44dd9b1adf5f839969280aa",
@@ -160,12 +160,12 @@
     "crates/eez-protocol/src/error.rs": "502a6531df24359767a7341407d7c9064a727b9da7b7de96dcc1b243ff6a57ac",
     "crates/eez-protocol/src/executor.rs": "6ed1da8c81096fd0da5e099d46553675e1f5e018d066f5ec4beb385afc8114e5",
     "crates/eez-protocol/src/fee_vault.rs": "bd11d76e459c053765db41763d68fc5582e81d7ab457727b82150eda4ac880ce",
-    "crates/eez-protocol/src/l1_history/context.rs": "6744924039599635be889e153bf291cdb2ac5124f76c3306cd8a82da8657ba16",
-    "crates/eez-protocol/src/l1_history/runtime.bin": "96346a9e3a6556370f78e82d6b65cbadc805e63564143aa46a09f31d250d87ac",
+    "crates/eez-protocol/src/l1_history/context.rs": "1bd189d88c0483ec7806d845251cafa04c31c43e62c4a83738ac6aadbb1a09ac",
+    "crates/eez-protocol/src/l1_history/runtime.bin": "75063a5e89bf01a675b416325c91fff1b0a7c43710d3c5b8cfce3ec33b6459a3",
     "crates/eez-protocol/src/l1_history/tests.rs": "19c9ca5fe7bf44ffba8534e2ca768a1563c46e35d0eee0e8968372c09d1fb180",
     "crates/eez-protocol/src/l1_history.rs": "e1104e3aa7d8d1abe4df5b5f187709127301024fbb492511487105b943c0660a",
     "crates/eez-protocol/src/l2/derivation.rs": "fdf07ebbf7ef9e68ae03a4dd6d4faba1d7b1e24061d0407c62f0a6ddebf506b0",
-    "crates/eez-protocol/src/l2.rs": "c057b6926cf53a07883f6d18cff4cb7e61d31a8c23fa5456c0b0bf600c3a1e26",
+    "crates/eez-protocol/src/l2.rs": "908225f0888489f4f15aaede75a80ff9b6580d09e2417291a95e628c1b7a54ec",
     "crates/eez-protocol/src/lib.rs": "17075d2adb19cb7724a5e441cb9924b6234e1b41b613d848637b4d96145885f4",
     "crates/eez-protocol/src/native_source.rs": "89aaad128b55233f075298c488ecbe3cdcbf7d62ea901eae380839b8adcce0ed",
     "crates/eez-protocol/src/outbound_gate.rs": "ab29401d753bd7cb4d52808d498b3e2df808749cca77275b73d8ae70b4e5b1e4",
@@ -183,33 +183,33 @@
   },
   "fixture_inputs_sha256": {
     "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l1-genesis.json": "e6ee06b5b82152792a3a20362efdf3ae556724abff283136edb8b170d3d76be4",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l2-genesis.json": "58668206fe901be129b6717390f50d3e0afedf2147a54d6273dcf8f63d8e8820",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/request.v2.protobuf": "3d0fb79d722820a1727fcf145e75d2c686d4d5cd95cd4d439c08c28c39bb4d7e",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/response.json": "55acf711e19f97ee0bff6c65df6ae2d40ed368e9765f6f2cd8c9d25e7f9424f9",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l1-genesis.json": "3ff8b3521214d2546b257a4c4a3793c3e39f0e0d7e63b1802ecae730b6022b83",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l2-genesis.json": "de34f0f93542bdd00401d9ba0dee30e2bbd0f9e32b3cd12c0a4cee48fda68782",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/request.v2.protobuf": "32f876a8fee7ae6f1b93bab0557026f3db8d4f80d9a745bd14978e93f1f52a6d",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/response.json": "2e3d8b1d2274f7aea6215a1a16f35644c0481560eb123a4ca08ce2353aa66731",
     "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l1-genesis.json": "2353de70b4891e740481afc56b65f6fba446ee6a50fd051dadc025bc44c56d40",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l2-genesis.json": "44e2fa78cd074c555065c0701556d4cd1cbd9c5c1f9d19b618bb9a71c01b5561",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/request.v2.protobuf": "0cf066e012472f2412b1298388570f87761256ce518113660a820a91d8dafab1",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/response.json": "663e06ae2db64b65f821e965368139d482798545653eddf7b491bad5b126c399",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l1-genesis.json": "45f414c47f963c44b7c8503318296d52ebe2d4a725f4aee48559dfa0c46b95aa",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l2-genesis.json": "4bd04d399f1e20eed401b68ffd8c4d29dc8a95f9879e3e4ecd6601cbffa728c5",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/request.v2.protobuf": "586fcea3a7a98616736ab3f8f78b2f1e6f47c69494621c34e0e2d665bdf71ca0",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/response.json": "8c899d0eaf8ea25f29001ceae18ba0bd607257a6be2825b6ec05087c7f4f1eda",
     "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l1-genesis.json": "879a5ddeca2c94f3f4f80094c59a03f1433b156ff196603244024ec0a7842263",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l2-genesis.json": "7d96b92a46f04f9b6ea506a5604f3d5053776dd58d8f190f0aae8329e4953ee2",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/request.v2.protobuf": "94703207b177b041be22cb1fd5740a9f42dba8843cc6d52f187c1063669184d3",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/response.json": "1b72267f493e91e763df6f49f0ef7dbb05f42e2e6e2dc3d340ed93973f035b6e"
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l1-genesis.json": "48fc1ed995df028783b8d25df9ff33dbc522fb11516f09e1358ad6d06d9f26bd",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l2-genesis.json": "54f729c92567689077d88ec11ac2e669594957671c39de20b0aa4b5b87365efc",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/request.v2.protobuf": "f0a9dc7c91ae316b62e007ec025b12515b1c7bb1287a3845607dfa65314e5b53",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/response.json": "a02e86cf0f90ebadb38aaeabeab1d82c600bd09c5731c99177bfa8347d8dfbb4"
   },
   "vectors": {
     "baseline-lookup.json": {
-      "sha256": "42a0baf94925edc5ae84b05e911dfca53079d0666fec38f52d2a1932c9145da5",
-      "events": 95,
+      "sha256": "c8e0119b8d65d70e2cb9284ab9052b601b70dc7f7a953229c3b1c05c97745f7e",
+      "events": 225,
       "proofs": 1,
-      "requests": 47,
-      "responses": 47,
+      "requests": 112,
+      "responses": 112,
       "rpc_errors": 0,
       "rpc_open_errors": 0
     },
     "baseline-static.json": {
-      "sha256": "bec55bff248aaa485abce56b6bcc949784833e5850f7f5b59ca6011708818210",
+      "sha256": "06fcbc146bb82b627f626fcf70e9847b547ed05b6ee21bef257352320d3af127",
       "events": 65,
       "proofs": 1,
       "requests": 32,
@@ -218,7 +218,7 @@
       "rpc_open_errors": 0
     },
     "begin-boundaries.json": {
-      "sha256": "211061872a3c768a71abb89edd5debb31755e070fb1b55662801871b6958bab9",
+      "sha256": "98c4fda7dd88786cebdf9f8a5cdc22993729f1d1f4acdfddc2a1dd4af4fd6fb4",
       "events": 34,
       "proofs": 0,
       "requests": 16,
@@ -227,7 +227,7 @@
       "rpc_open_errors": 0
     },
     "block-boundaries.json": {
-      "sha256": "6c9166ab44754b30adac2a94e4028b2202f4999f9bf071eda6a9bbb44004a558",
+      "sha256": "6438cefe6b8adcbbe59ecdf66044334394e62885ae7c48b0d03288c0a4e27767",
       "events": 38,
       "proofs": 0,
       "requests": 18,
@@ -236,7 +236,7 @@
       "rpc_open_errors": 0
     },
     "block-quota.json": {
-      "sha256": "bc6826a722d716ff622e94c71ef7ee7e2dbb182c5204978c4287ebe6967bf7a4",
+      "sha256": "b5085361f0e9ba4bb290380f4e6ea67187eac52909ee13f11e132c445faea77d",
       "events": 26,
       "proofs": 0,
       "requests": 12,
@@ -245,7 +245,7 @@
       "rpc_open_errors": 0
     },
     "byte-quota.json": {
-      "sha256": "439b760265e8d57e049c80f25a3c1481e571c07b9807f1397c00426f36cc8f6d",
+      "sha256": "e5e459b1ed9d3512450e9dc3d49338255ba8ecc42bf5bb6394b32a886a60055b",
       "events": 26,
       "proofs": 0,
       "requests": 12,
@@ -254,7 +254,7 @@
       "rpc_open_errors": 0
     },
     "cancel-session-isolation.json": {
-      "sha256": "68e55ddebc8a43ea70c2ce67fd022b452b97e5935819f3a07becb47502ecafbb",
+      "sha256": "579c4ad953c719f34d19b7a6b19f0da52d2c18830f50d494dcce313b68642cb1",
       "events": 48,
       "proofs": 1,
       "requests": 22,
@@ -263,7 +263,7 @@
       "rpc_open_errors": 0
     },
     "competing-branches.json": {
-      "sha256": "8df7aa8cde8b2f58d5e974ca6d416e88cd9c6e840dabb114ba082208d157db94",
+      "sha256": "87c5b7b4cd88615660d7cd92390f33c82f1861d48ded0ce1c65dca6d5a0ac647",
       "events": 50,
       "proofs": 1,
       "requests": 24,
@@ -272,7 +272,7 @@
       "rpc_open_errors": 0
     },
     "concurrent-composers.json": {
-      "sha256": "6cd080313874267cca8ca868c355a51153903566d144da2f16f377134e67470a",
+      "sha256": "633637ee92df15e767f15a3dbf18afe89f132ee28dc201d542aa4414ca9d8593",
       "events": 70,
       "proofs": 2,
       "requests": 34,
@@ -281,7 +281,7 @@
       "rpc_open_errors": 0
     },
     "detached-session-eviction.json": {
-      "sha256": "47406f75ab69a27067368dab806db6a7955e16d998b4937253f6d88d710ff9e9",
+      "sha256": "c13b8523268ab0da8d03a62d5ec7f6624733c0a4644fafff09ecf1e60cdac94c",
       "events": 63,
       "proofs": 0,
       "requests": 21,
@@ -290,7 +290,7 @@
       "rpc_open_errors": 0
     },
     "finalize-byte-quota.json": {
-      "sha256": "2ca1f6480c42b5bde7657bff11218d2dd2924446b7453ee3ee0c87562913652c",
+      "sha256": "67b8755279c918c2d4d79510d6f73b457ff407beb77e1429d5bb3e18666cc988",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -299,7 +299,7 @@
       "rpc_open_errors": 0
     },
     "finalize-ranges.json": {
-      "sha256": "ed768723900d23f5eda3c0f7f7fd9228fc91d4ff1b7c0d8291b8d664ec4b33db",
+      "sha256": "f4de5b160541bc8489b88ee5a7fcc0217596c9f925655c661816532500ef1bd2",
       "events": 51,
       "proofs": 1,
       "requests": 25,
@@ -308,7 +308,7 @@
       "rpc_open_errors": 0
     },
     "frame-size-limit.json": {
-      "sha256": "56ce5454c7a2eb5f7bb35303d7e82de6841b0548149436f3e207bd2847e5ed90",
+      "sha256": "59a61b83561c86964a5bfd6f0c3bdc5fdadac81155e1c8aec9276abeef76f1a1",
       "events": 8,
       "proofs": 0,
       "requests": 3,
@@ -317,7 +317,7 @@
       "rpc_open_errors": 0
     },
     "half-close-drains.json": {
-      "sha256": "4b29990e5e78eec15bd391a777bedbd7047c071010d61ad6d129d3036607f408",
+      "sha256": "5b321f537a41824a8487ee24ff15131c8c8d88e11e1462bee3f7941cecc61b3b",
       "events": 42,
       "proofs": 1,
       "requests": 19,
@@ -326,7 +326,7 @@
       "rpc_open_errors": 0
     },
     "invalid-witness-retry.json": {
-      "sha256": "0085c6cebd0e5a692058436123b0b2be4964837f653b7fb323eb40d7ce62860d",
+      "sha256": "273a939675e8189cd987ac108c0380f1be462f6fdc8e6fab2073caa8dd126d07",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -335,7 +335,7 @@
       "rpc_open_errors": 0
     },
     "pipelined-gap-recovery.json": {
-      "sha256": "77a4c7527cc6d8eae5a55aba1d0c073f055cc3d2e022049b29a3934c6bb561d6",
+      "sha256": "d9e52ef81c659c7a4959d416edc1cc69f7e0eaf100863d1e60d0428e374e2d3b",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -344,7 +344,7 @@
       "rpc_open_errors": 0
     },
     "posting-context-boundaries.json": {
-      "sha256": "f0a1e1c3bea986ddb8fe89ba7f69e160ed30d1df6bc8b5c2c47283917b770881",
+      "sha256": "e2feb932ec0c8c99d2af970a18bb818bd8f9b538ae5b4b5392ab982cebdfda3a",
       "events": 85,
       "proofs": 1,
       "requests": 42,
@@ -353,7 +353,7 @@
       "rpc_open_errors": 0
     },
     "resume-after-proof.json": {
-      "sha256": "8a9aa9971fa4d8175153fb45249f5d3d4c909f2ae272b15b85ba91185ac553b1",
+      "sha256": "728aa3d928d0096cc9034860347c6ac68419482eec8ac59e94816e48db1c47bd",
       "events": 40,
       "proofs": 2,
       "requests": 19,
@@ -362,7 +362,7 @@
       "rpc_open_errors": 0
     },
     "resume-boundaries.json": {
-      "sha256": "8f1197d96e9e76b62e1970687994908b74e2d542843eec2894260bb0511427c4",
+      "sha256": "b3e48cedf2cae9128cd2a3856275b52d739dcb8ac75113307da0a18107d80d96",
       "events": 21,
       "proofs": 0,
       "requests": 9,
@@ -371,7 +371,7 @@
       "rpc_open_errors": 0
     },
     "resume-takeover-fencing.json": {
-      "sha256": "7a092b5cdfcafd01ffb521af1811f431dc5f958d307fe69fad3ff5c5ebefc345",
+      "sha256": "c64289ca3f75933ab9d39e8b2538e39b39b44b7bb1703980f171242f7535f23a",
       "events": 45,
       "proofs": 1,
       "requests": 21,
@@ -380,7 +380,7 @@
       "rpc_open_errors": 0
     },
     "rewind-boundaries.json": {
-      "sha256": "d71c0e6e1444b3a98fe4e5cab8611930152289b6b4dffb3dc39af4b20d5c7b1d",
+      "sha256": "4af1f2d83f6748709ba36b98ff66a0fbd66d5817015c8bc94773c092181b75ad",
       "events": 65,
       "proofs": 1,
       "requests": 32,
@@ -389,7 +389,7 @@
       "rpc_open_errors": 0
     },
     "settlement-abi-binding.json": {
-      "sha256": "4ad3b58d8a1fdade09ff7623a6dad78b25ee71ec97379d70a4c475dffa950a85",
+      "sha256": "bb11a9e55be42fa841aa00522fcfd5e87be2b5de092168ee75ca76384a0d12e2",
       "events": 87,
       "proofs": 1,
       "requests": 43,
@@ -398,7 +398,7 @@
       "rpc_open_errors": 0
     },
     "settlement-blob-encoding.json": {
-      "sha256": "c7665140b8712f9faca63f73e46cb547faef96d663ed7939041e41cd1335947b",
+      "sha256": "1bad4b848727bba71083b75511d4a0aa3f1c7d00599467d1abe0c6bb01d157ba",
       "events": 75,
       "proofs": 1,
       "requests": 37,
@@ -407,7 +407,7 @@
       "rpc_open_errors": 0
     },
     "settlement-required-inputs.json": {
-      "sha256": "5762cddd5e5ad031f36740e5f155b2b8a51039abb5e9925cefe4e554e69e721b",
+      "sha256": "cfc2b97daea0d9ee7f762c9bde52ce4313c62bff9f917f4df41c54b166212dcb",
       "events": 73,
       "proofs": 1,
       "requests": 36,
@@ -416,7 +416,7 @@
       "rpc_open_errors": 0
     },
     "stream-capacity.json": {
-      "sha256": "d7b48b1aa0d215af62a0337676f966b1a0526986f88a5f56383554d7942561e5",
+      "sha256": "6f453d76961696c8fffa63dbdf6815199308e8a55880945f1b5a6635fa1976f1",
       "events": 41,
       "proofs": 0,
       "requests": 16,
@@ -425,7 +425,7 @@
       "rpc_open_errors": 1
     },
     "subrange-promoted-anchor.json": {
-      "sha256": "beaa7979823f431633e929c8e841614f2dbbe84deeac209d6ba5498d5a27aa4f",
+      "sha256": "fa885ff7177436758f4dbe595dfabbe290534e3d14a8dcd8d1b3fa0f17e5d509",
       "events": 44,
       "proofs": 2,
       "requests": 21,
@@ -434,7 +434,7 @@
       "rpc_open_errors": 0
     },
     "sync-range-proof.json": {
-      "sha256": "3445b2a97aee8976dfb9b83fe897d1710120af5c2a81c469bcd49042d1485fe0",
+      "sha256": "d02ccd2c4376c96802ebe6e2fd46fbf384754af2825f671c450d973944994853",
       "events": 17,
       "proofs": 1,
       "requests": 8,
@@ -443,7 +443,7 @@
       "rpc_open_errors": 0
     },
     "terminal-before-tip.json": {
-      "sha256": "e0a69cb84ad7d965b165f0e0742c6814eff5490d02436e32d434464406b621f5",
+      "sha256": "40311232e8487cdb1fd370fa0d57a69c93ebe0db3b250593d346af0de9868c27",
       "events": 30,
       "proofs": 2,
       "requests": 14,
@@ -452,7 +452,7 @@
       "rpc_open_errors": 0
     },
     "witness-quota.json": {
-      "sha256": "93e94e720d0da3ce96dea029c3a003eeb14041e117d171f55fd359e1d2e03319",
+      "sha256": "63c7bbce50f9ac89440848a72a34c77446036a4945bb991f7b19a822900579e6",
       "events": 26,
       "proofs": 0,
       "requests": 12,

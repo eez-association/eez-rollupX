@@ -317,7 +317,7 @@ mod tests {
         // arguments, followed by the dynamic struct and its rule-time array.
         let expected = [
             keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE").0,
-            word(3),
+            word(4),
             address,
             word(64),
             word(2_000_000),

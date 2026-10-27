@@ -172,7 +172,7 @@ records independent review and the executed encoding checks:
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
 | E1 | Specified | Versionless cross-chain envelope with an execution-group source formula; dedicated optional history version 1; full Live Sync group ordinals; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
-| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 3. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
+| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 4. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 
 The `DELEGATECALL`/`CALLCODE` case in audit C09 follows the pinned proxy's caller
@@ -322,17 +322,22 @@ remaining gas after this transaction, with no shared native nonce.
 
 The predeploy stores mapping slot 0 and full-width scalar slots 1–6 for first
 number, endpoint, fixed first cutoff (genesis phase), interval, delay and import limit. `current()` and
-`getL1BlockHash(number)` expose exact hashes; absent lookups revert. It stores no
+`getL1BlockHash(number)` expose exact hashes. The getter returns zero outside the
+retained range, including before bootstrap; missing covered records and invalid
+endpoint state revert. It stores no
 full headers, timestamps, historical randomness or state roots. Applications
 can supply a raw header and verify its hash, then use the existing L1 storage
 proof verifier for authenticated account/storage reads. The hash is a commitment,
 not a way to retrieve its preimage.
 
-Sequential application consumers check `current()` inside each polling
-transaction and wait without advancing when their next number exceeds the
-imported endpoint. Unexpected getter failures still revert. The
-[polling contract and reference application](../../contracts/L1_HISTORY_SPEC.md#application-polling)
-define this behavior without changing the predeploy or adding a genesis service.
+Accepted amendment: sequential application consumers call `getL1BlockHash`
+inside each polling transaction and wait without advancing when it returns zero.
+Unexpected getter failures still revert. The reference collector is removed;
+applications use the predeploy directly under the
+[polling rules](../../contracts/L1_HISTORY_SPEC.md#application-polling).
+The changed runtime and fresh genesis are bound by validation-contract version 4;
+the [compatibility boundary](../../contracts/L1_HISTORY_SPEC.md#compatibility)
+requires matching execution, deployment and proving artifacts.
 
 ## Delay and late L1 delivery
 
@@ -480,7 +485,7 @@ Deploy new matching genesis, manager profile, Composer, follower and prover.
 No old network/database replay, in-place upgrade, dual execution mode or rollback
 compatibility is provided. Regenerate fixtures with the existing genesis script;
 keep pinned Solidity/compiler metadata and the core gitlink. Wire v2 remains
-unchanged; validation-contract version 3 and Profile bind cross-chain and history
+unchanged; validation-contract version 4 and Profile bind cross-chain and history
 encoding, complete-group cleanup, execution rules and the fee collector used by
 every component. Cross-chain source identities remain unchanged.
 The derived correlation index uses `eez-batch-correlation-recorded-history-v1`.
