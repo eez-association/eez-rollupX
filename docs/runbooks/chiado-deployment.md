@@ -13,7 +13,8 @@ profile. Entry points: [deploy](../../scripts/deploy.sh),
 | --- | --- |
 | Source and protocol revisions | [Offline-history implementation record](../audits/2026-10-22-l1-history-offline-proving/README.md) |
 | Local checks | Source/configuration consistency, genesis/profile checks, isolated process tests and offline proving; exact results and outstanding checks are in that record |
-| Pending | Published images for this profile, public fresh-host deployment and live restore rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
+| Compatible runtime replacement | [Network 916969 update](../audits/2026-10-26-network-916969-runtime-update/README.md): published CI artifacts, preserved state, fee-enabled cross-chain smoke and independent replay validated |
+| Pending | Public fresh-host deployment and live backup-restore/rollback rehearsal; record execution in a dated [audit](../audits/TEMPLATE.md) |
 
 The [2026-09-23 network replacement](../audits/2026-09-23-events-network/README.md)
 records the live deployment of protocol `820e50f` to a new registry and L2 chain
@@ -108,7 +109,7 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
 | `EEZ_L2_TREASURY_RECIPIENT` | Required initial L2 recipient of FeeVault withdrawals. Must be nonzero and differ from FeeVault, SYSTEM and EEZL2. Deployment writes it into genesis storage. The vault owner may later call `setRecipient(address)` on L2; editing `.env` does not change deployed state. |
 | `EEZ_L2_TREASURY_OWNER` | Initial FeeVault owner; defaults to `OWNER` only when absent. Use an L2 governance/multisig address in production. Ownership transfers require `transferOwnership(address)` followed by `acceptOwnership()` from the proposed owner. Deployment input only, with the same address restrictions as the recipient. |
-| `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: coinbase of every Live and Sync L2 block, which receives priority fees. Compose refuses to start while it is unset or empty; set the zero address to choose the historical zero coinbase deliberately. Not a consensus value: it can change at any restart, and followers take each block's published beneficiary. |
+| `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: beneficiary for new Live/Sync blocks, including empty settlement-recovery replacements, receiving priority fees. Compose refuses to start while it is unset or empty; zero is an explicit supported choice. This is an operator setting, not a chain-wide constant: changes at restart affect future production, and followers replay each block's published beneficiary. |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
 | `L1_SNAPSHOT_DIR` | `./data/chiado-l1`; writable embedded L1 database |
@@ -116,6 +117,17 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | `LIGHTHOUSE_DATA` | `./data/chiado-lighthouse`; writable consensus/PeerDAS data |
 | `JWT_FILE` | `./data/jwt.hex`; private, shared by node and Lighthouse; create once |
 | `CHIADO_CONFIG_DIR` | `./configs/chiado`; versioned network config, including `bootstrap_nodes.yaml` alias |
+
+Before the recovery-beneficiary correction, the Composer's deadline-replacement
+and canonical-reconciliation paths built empty replacement Syncs with zero
+beneficiary. The
+[live validation follow-up](../audits/2026-10-26-network-916969-mixed-validation/README.md#empty-sync-beneficiary-follow-up--2026-10-26)
+traces nine such replacements; all had no transactions, zero gas and exact
+follower agreement. The correction applies the configured beneficiary to newly
+built replacements. Existing empty checkpoints and historical headers keep their
+recorded beneficiary and hash. No genesis, contract, signer/follower or database
+migration is required; upgrade the Composer through the normal tested-artifact
+procedure. This does not make pending requests durable across the restart.
 
 The bare-binary `EEZ_L2_DATADIR` example does not replace Docker's `L2_DATA_DIR`.
 Do not set `EEZ_ENV_FILE`, `EEZ_DEPLOYMENTS_FILE`, `EEZ_GENESIS_OUT`,
@@ -745,6 +757,16 @@ for accepted work, preserve stopped state and the prior configuration, and use t
 fee rejection, canonical settlement and refund observations for each enabled
 direction. A configuration change does not qualify a new builder route or make
 an earlier protocol deployment compatible.
+
+Fee-enabled inbound and outbound groups may share one post. For a mixed post,
+inspect `detail.l2_tariff` on `eez.composer.admission.v1` preflight events: its
+`standalone_outbound` cost is the independently measured outbound publication
+reference, and `minimum_l2_payment` excludes L1 refunds. The full-post fee and
+refund observations remain gross measurements; their shortfall is not a net
+per-direction loss. Qualify a mixed canary with both destination effects,
+canonical post/source receipts and independent replay. This scheduling change
+adds no environment variables or protocol migration; after draining accepted
+work, rolling back the Composer restores separate-direction batching.
 
 ### Enabling L1 fee recovery
 
