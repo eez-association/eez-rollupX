@@ -520,6 +520,7 @@ pub(in crate::composer) mod tests {
                 native_gas_used: 1000,
                 burn: U256::from(1000),
                 tip: U256::from(100),
+                standalone_cost: None,
                 sources: vec![SourceFees {
                     hash: B256::repeat_byte(2),
                     sender: Address::repeat_byte(5),

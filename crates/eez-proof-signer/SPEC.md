@@ -246,22 +246,23 @@ manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
 
-Native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
-to, value, input])`, with version 1, the fixed implicit sender and zero fees.
+Cross-chain native transactions are `0x45 || rlp([chainId, sourceHash, gasLimit,
+to, value, input])`, with the fixed implicit sender and zero fees.
 The [native contract](../../docs/proposals/native-system-transactions.md) defines
-canonical RLP, occurrence domains, RPC placeholders and exact gas/value rules.
+canonical RLP, execution-group source identity, RPC placeholders and exact gas/value rules.
 The signer independently recomputes each sourceHash from authenticated context
-and original semantic positions. Decoding a native transaction does not authorize
-its execution or minting. EEZL2 actions target EEZL2; scheduled history imports
-target the history predeploy with zero value.
+and complete-group ordinals in the full Live Sync block. Decoding a native transaction does not authorize
+its execution or minting. EEZL2 actions target EEZL2. HistoryUpdate uses the
+dedicated `0x46` envelope specified below, with no sourceHash.
 
 The encoded gas limit MUST equal `min(16_777_216, remaining block gas)` for
-cross-chain actions, or `min(2_000_000, remaining block gas)` for history. Prior
+cross-chain actions. History derives `min(2_000_000, remaining block gas)`
+without an encoded gas field. Prior
 cumulative gas comes from replayed receipts. Reject a mismatched encoded limit;
 never clamp or normalize received bytes. A budget below intrinsic gas, including
 the active EIP-7623 floor, invalidates the block. Only actual charged gas counts
 toward block usage. Native execution never checks or increments the SYSTEM
-account nonce, even temporarily. Receipts have type `0x45`. Public RPC/txpool
+account nonce, even temporarily. Receipts preserve type `0x45` or `0x46`. Public RPC/txpool
 admission rejects native transactions.
 
 Ordinary Ethereum transactions retain normal nonce checks and fee deductions.
@@ -280,18 +281,19 @@ execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value and retains pooled inventory within the block, and an EEZL2 table is
-consumable only in the block that loaded it, so both balances are dead at the
-next block start. Proxy recovery sweeps go to EEZL2's separate
+outbound value, and EEZL2 retains committed funding through its complete group.
+Both balances are cleared after that group in its final transaction's state delta.
+Ordinary donations outside groups remain until the next block-start cleanup. Proxy recovery sweeps go to EEZL2's separate
 `RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
 and are not burned: they move ether already held at an undeployed proxy
 address and mint nothing. Together these rules are the node-side accounting the
 pinned core protocol requires for
 [L2 funding and inventory](../../eez-core-protocol/docs/CORE_PROTOCOL_SPEC.md#l2-funding-and-inventory):
 each load's funding is minted for its own transaction, and unused or reverted
-inventory is never reused across blocks. The burn is not a post-transaction
-change: prefix block hashes derived from per-transaction state roots include it
-through the pre-transaction state.
+inventory is never reused across complete groups. The group cleanup is included
+in its final transaction's state delta before the per-transaction state root;
+block-start cleanup is included in pre-execution state. Neither is a block-finalization
+change, so prefix and full block hashes commit to the same transitions.
 
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed
@@ -404,7 +406,7 @@ numbers, parent links and strictly increasing timestamps are mandatory. Headers
 are individually bounded to 2048 bytes; aggregate quotas also apply. Every
 produced bridge-only header remains required. Finalize verifies exact termination
 at the chosen anchor and membership of every recorded origin in that ancestry.
-A later eligible header does not invalidate an earlier recorded repeat.
+A later eligible header does not invalidate an earlier recorded omission.
 
 There is no separate provenance claim, canonical-state RPC, seed-history cache or
 registration-to-tip scan. Execution facts remain separate from conditional
@@ -420,17 +422,20 @@ chain ID; the Composer cannot override either.
 ### L1 history and synchronized PREVRANDAO
 
 The shared schedule is `I = delta * k`, `T(n) = T0 + n * I` and
-`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At every U(T), transaction
-zero MUST be native `0x45`, from the fixed system address to the history
-predeploy, with zero value and canonical `importHistory(T, hashes)` calldata.
-There is exactly one such transaction; outside U(T) it is forbidden. Its array
-contains zero to 64 consecutive headers after the inherited endpoint. Zero
-records repeat that endpoint while advancing the scheduled cutoff. A chosen
-endpoint cannot regress and its timestamp MUST be at most T. The exact calldata
-MUST match the authenticated parent state and checked ancestry byte for byte.
-The source need not be the latest eligible header. Missing acquisition therefore
-permits a producer to record a repeat; missing evidence for a recorded choice
-still rejects a proof. Replay follows the recorded choice, never arrival time.
+`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At U(T), transaction
+zero MAY be `0x46 || RLP([version = 1, chainId, hashes])`. Exactly 1–64 hashes
+strictly advance the authenticated parent endpoint; every consecutive produced
+header must match the supplied ancestry and the selected timestamp must be at
+most T. The engine derives SYSTEM_ADDRESS, the history destination, zero value,
+cutoff calldata and gas. There is no sourceHash. Duplicate, misplaced,
+off-schedule, empty, noncanonical or obsolete `0x45` history updates reject.
+
+Omission at any position leaves storage and origin unchanged, including eligible
+empty blocks, and MUST independently validate inherited header/opcode PREVRANDAO.
+Fixed firstCutoff defines the genesis phase; no empty imports advance a cursor.
+The chosen source need not be the latest eligible header. Missing new headers
+permits omission; missing evidence for an inherited or recorded choice still
+rejects. Replay follows the block, never header arrival time.
 
 The selected header's `prevRandao` MUST match both the L2 header and actual EVM
 PREVRANDAO. Keep it and the origin until the next scheduled update, including
@@ -438,10 +443,20 @@ across Sync boundaries. The delay is a minimum age, not finality, freshness or
 unpredictability. The sequencer may defer an otherwise eligible advance.
 
 Pre-execution applies EIP-2935 parent history and protocol balance cleanup.
+Additionally, each complete cross-chain group clears SYSTEM/EEZL2 balances in its
+terminating transaction's state delta, before its checkpoint: after a native
+inbound delivery or the signed user following an outbound load. No cleanup occurs
+between load and user, inside callbacks, after history or after unpaired ordinary
+transactions. Included revert/halt receipts retain their status/gas and receive the
+same cleanup; existing settlement failure rejection remains mandatory. Discarded
+results/candidates commit neither cleanup nor cursor advancement. See the
+[normative group rules](../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
+These rules apply equally to full-block and selected-prefix Stateless execution;
+no caller-provided boundary or post-finalization correction is permitted.
 The recorded history transaction then executes before applications. It preserves
 the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
-Wrong code/state, missing/duplicate/misplaced transactions, malformed calldata,
-wrong version/source/chain/value/gas, conflicting imports, unexpected output/logs, revert or
+Wrong code/state, duplicate/misplaced transactions, malformed hash lists,
+wrong version/chain, conflicting imports, unexpected output/logs, revert or
 budget exhaustion invalidate the block. The prover cannot substitute a hidden
 call or silently repair the input. Prefix commitments include the transaction
 exactly once and retain its bytes when reconstructing cross-chain groups.
@@ -899,7 +914,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 1 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 3 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
@@ -954,7 +969,6 @@ chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
 gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
-version      = 1
 sourceHash   = independently recomputed occurrence identity
 system nonce = neither checked nor changed
 ```
@@ -970,7 +984,16 @@ The canonical order is:
  inbound delivery M-1]
 ```
 
-Each sourceHash retains its original manifest and root positions. A complete
+Each sourceHash uses the L2 EVM chain ID, authenticated intended L1 parent and
+zero-based complete-group ordinal in the full terminal Sync block, under the
+single `SOURCE_ENTRY_V1` ABI formula in the native specification. One outbound
+load/user group counts once, even with static roots, callbacks or an included
+reverted user; each applying inbound delivery counts once. Ordinary/history
+transactions, anchors and inbound lookups without a native transaction do not
+count. Derive ordinals from the complete semantic/execution stream before any
+partial-consumption filtering. Preserve whole-prefix/checkpoint and accepted-root
+validation: no Composer-supplied offset is authoritative, and no new post/reproof
+resets the count. A complete
 outbound bracket has one load followed by the exact signed origin, with callbacks
 inline in the source table. Each load/delivery value equals the checked sum of
 its committed L2 incoming calls, including nested callbacks. The reconstructed

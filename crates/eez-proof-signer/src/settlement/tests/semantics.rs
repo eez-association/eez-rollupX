@@ -72,10 +72,9 @@ fn authorized_outbound_fixture() -> (
         &[(sidecar, raw_user.clone())],
         &[],
         &system_transaction_context(),
-        &[B256::repeat_byte(0x11)],
     )
     .unwrap();
-    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
+    let transactions = crate::testkit::resolve_synthetic_plans(&pairs, &[B256::repeat_byte(0x11)])
         .into_iter()
         .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
         .collect();

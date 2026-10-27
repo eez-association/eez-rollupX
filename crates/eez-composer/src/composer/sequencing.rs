@@ -69,6 +69,29 @@ fn item_limit(
     Ok(low)
 }
 
+/// Reserve a maximal optional history update using its actual ordinary-column
+/// encoding. Admission must remain available even before an update is selected.
+fn history_reserve_bytes() -> Result<usize, String> {
+    let empty = BlockDaSizer::new(eez_driver::BUILDER_EXTRA_DATA);
+    let largest_history: eez_primitives::EezTxEnvelope = eez_primitives::HistoryTransaction {
+        chain_id: u64::MAX,
+        version: eez_primitives::HISTORY_TX_VERSION,
+        hashes: vec![
+            alloy_primitives::B256::repeat_byte(0xff);
+            eez_protocol::l1_history::MAX_IMPORT_HEADERS
+        ],
+    }
+    .into();
+    empty
+        .with_transaction(&alloy_rlp::encode(largest_history))
+        .and_then(|size| size.item_bytes())
+        .and_then(|size| {
+            size.checked_sub(empty.item_bytes()?)
+                .ok_or(eez_payload_codec::v0::Error::Overflow)
+        })
+        .map_err(|e| e.to_string())
+}
+
 impl<L2> Composer<L2>
 where
     L2: BlockReader<Header = alloy_consensus::Header>
@@ -149,22 +172,7 @@ where
         let empty = BlockDaSizer::new(eez_driver::BUILDER_EXTRA_DATA)
             .item_bytes()
             .map_err(|e| e.to_string())?;
-        let largest_history: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
-            chain_id: u64::MAX,
-            version: eez_primitives::SYSTEM_TX_VERSION,
-            source_hash: alloy_primitives::B256::repeat_byte(0xff),
-            gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
-            to: eez_primitives::HISTORY_ADDRESS,
-            value: alloy_primitives::U256::ZERO,
-            input: vec![0; 100 + 32 * eez_protocol::l1_history::MAX_IMPORT_HEADERS].into(),
-        }
-        .into();
-        let history_reserve = BlockDaSizer::new(eez_driver::BUILDER_EXTRA_DATA)
-            .with_transaction(&alloy_rlp::encode(largest_history))
-            .and_then(|size| size.item_bytes())
-            .map_err(|e| e.to_string())?
-            .checked_sub(empty)
-            .ok_or("history reserve underflow")?;
+        let history_reserve = history_reserve_bytes()?;
         let mut previous = 0usize;
         if !fresh {
             if next == boundary {
@@ -255,6 +263,27 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sequencing_reserve_accepts_and_bounds_every_history_update() {
+        let reserve = history_reserve_bytes().unwrap();
+        for chain_id in [1, 127, 128, u64::MAX] {
+            for count in 1..=eez_protocol::l1_history::MAX_IMPORT_HEADERS {
+                let tx: eez_primitives::EezTxEnvelope = eez_primitives::HistoryTransaction {
+                    version: eez_primitives::HISTORY_TX_VERSION,
+                    chain_id,
+                    hashes: vec![alloy_primitives::B256::with_last_byte(1); count],
+                }
+                .into();
+                let wire = tx.encoded_2718();
+                let length_bytes = if wire.len() >= 128 { 2 } else { 1 };
+                assert!(reserve >= wire.len() + length_bytes);
+                if chain_id == u64::MAX && count == eez_protocol::l1_history::MAX_IMPORT_HEADERS {
+                    assert_eq!(reserve, wire.len() + 2);
+                }
+            }
+        }
+    }
 
     #[test]
     fn interval_bounds_follow_every_scheduler_residue_and_check_overflow() {

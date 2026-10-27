@@ -122,6 +122,9 @@ services:
       NEXT_PUBLIC_AD_TEXT_PROVIDER: none
       NEXT_PUBLIC_HOMEPAGE_CHARTS: "[]"
       NEXT_PUBLIC_GAS_TRACKER_ENABLED: "true"
+      # RollupX credits base fees to FeeVault. Generic burned-fee fields are incorrect.
+      NEXT_PUBLIC_VIEWS_BLOCK_HIDDEN_FIELDS: '["burnt_fees"]'
+      NEXT_PUBLIC_VIEWS_TX_HIDDEN_FIELDS: '["burnt_fees"]'
       FAVICON_MASTER_URL: data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxODAiIGhlaWdodD0iMTgwIiB2aWV3Qm94PSIwIDAgMTgwIDE4MCI+PHJlY3Qgd2lkdGg9IjE4MCIgaGVpZ2h0PSIxODAiIHJ4PSIzMiIgZmlsbD0iIzFhMjAyYyIvPjxwYXRoIGZpbGw9IiNmZmZmZmYiIGQ9Ik00MiA0Mmg5NnYyMkg2NnYxNmg2MHYyMkg2NnYxNmg3MnYyMkg0MnoiLz48L3N2Zz4=
 
   blockscout-gateway:

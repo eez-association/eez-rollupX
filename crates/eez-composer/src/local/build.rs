@@ -1,9 +1,8 @@
 //! Build a Sync block from cross-chain system transactions.
 //!
-//! Manual block-construction path — bypasses reth's payload builder
-//! because Sync blocks carry only cross-chain system txs (Rollup-1 §5),
-//! never pool txs. Uses the same reth-evm `BlockBuilder` machinery the
-//! Deriver uses to replay L1-derived blocks
+//! Manual block-construction path for recorded history and whole cross-chain
+//! groups, without selecting pool transactions. Uses the same reth-evm
+//! `BlockBuilder` machinery the Deriver uses to replay L1-derived blocks
 //! (`eez_deriver::Deriver::execute_block`).
 //!
 //! [`SyncBlockState`] exposes the same construction as a LIVE, incrementally
@@ -18,7 +17,7 @@ use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
 use eez_evm::EezEvmConfig;
 use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block, EezTxEnvelope as TransactionSigned, SYSTEM_TX_GAS_CAP};
-use eez_protocol::system_tx::PlannedTransaction;
+use eez_protocol::system_tx::{ExecutionGroupState, PlannedTransaction};
 use reth_chainspec::EthereumHardforks;
 use reth_evm::{
     ConfigureEvm, Evm as _, EvmEnvFor, FromRecoveredTx as _, InspectorFor, NextBlockEnvAttributes,
@@ -83,9 +82,8 @@ pub enum BuildError {
 }
 
 impl BuildError {
-    /// Whether this is a backing-store failure (reth MDBX read) rather than
-    /// anything the transaction did — transient, so a caller must retry rather
-    /// than blame the tx.
+    /// Whether local state/prefix evidence is unavailable. These failures have
+    /// no validated attribution to the candidate user; retry without eviction.
     #[must_use]
     pub const fn is_provider(&self) -> bool {
         matches!(self, Self::Provider(_))
@@ -180,6 +178,16 @@ fn open_draft_db(
     Ok(builder.build())
 }
 
+fn freeze_history(config: &EezEvmConfig, timestamp: u64) -> Result<EezEvmConfig, BuildError> {
+    let chain = config
+        .l1_headers(timestamp)
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    config
+        .clone()
+        .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(chain)))
+        .map_err(|e| BuildError::Builder(e.to_string()))
+}
+
 /// Freeze ready evidence and plan the protocol prefix from local parent state.
 /// No L1 provider is queried; callers retain this config for the whole candidate.
 pub(crate) fn prepare_block_history<P: StateProviderFactory>(
@@ -195,13 +203,7 @@ pub(crate) fn prepare_block_history<P: StateProviderFactory>(
     ),
     BuildError,
 > {
-    let chain = config
-        .l1_headers(timestamp)
-        .map_err(|e| BuildError::Builder(e.to_string()))?;
-    let config = config
-        .clone()
-        .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(chain)))
-        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let config = freeze_history(config, timestamp)?;
     let state = provider
         .state_by_block_hash(parent.hash())
         .map_err(|e| BuildError::Provider(e.to_string()))?;
@@ -216,8 +218,9 @@ pub(crate) fn prepare_block_history<P: StateProviderFactory>(
     Ok((config, history, prefix))
 }
 
-/// Build a Sync block on top of `parent`, executing `sync_txs` in order. The
-/// list is mixed: outbound pairs interleave a system load with its user tx.
+/// Build a new Sync block on top of `parent`, selecting an eligible history
+/// update unless `sync_txs` already includes one, then executing in order.
+/// Recorded bodies require exact replay to preserve history omission.
 ///
 /// The returned [`BuiltSyncBlock`] is committed via
 /// [`BlockCommitterHandle::commit_derived`] — same engine-API tail
@@ -240,7 +243,7 @@ pub fn build_sync_block<P>(
 where
     P: StateProviderFactory,
 {
-    let (evm_config, mut history, prefix) =
+    let (evm_config, _, prefix) =
         prepare_block_history(l2_provider, evm_config, parent, timestamp)?;
     let includes_history = sync_txs.first().is_some_and(|raw| {
         TransactionSigned::decode_2718_exact(raw).is_ok_and(|tx| tx.is_history())
@@ -250,18 +253,41 @@ where
     } else {
         prefix.into_iter().chain(sync_txs.iter().cloned()).collect()
     };
+    replay_sync_block(
+        l2_provider,
+        &evm_config,
+        parent,
+        timestamp,
+        suggested_fee_recipient,
+        &transactions,
+    )
+}
+
+/// Reexecute an exact recorded body, including its choice to omit history.
+/// Later L1 evidence can validate an existing update but cannot add one. This
+/// also supplies canonical hashes for complete recorded transaction prefixes.
+pub(crate) fn replay_sync_block<P: StateProviderFactory>(
+    l2_provider: &P,
+    evm_config: &EezEvmConfig,
+    parent: &SealedHeader<Header>,
+    timestamp: u64,
+    suggested_fee_recipient: Address,
+    transactions: &[Bytes],
+) -> Result<BuiltSyncBlock, BuildError> {
+    let evm_config = freeze_history(evm_config, timestamp)?;
     let parent_hash = parent.hash();
     let state_provider = l2_provider
         .state_by_block_hash(parent_hash)
         .map_err(|e| BuildError::Provider(format!("state_by_block_hash({parent_hash}): {e}")))?;
     let mut state_db = StateProviderDatabase::new(EvmStateProviderAdapter(state_provider.as_ref()));
-    if includes_history {
-        let first = TransactionSigned::decode_2718_exact(&sync_txs[0])
-            .map_err(|e| BuildError::Builder(e.to_string()))?;
-        history = evm_config
-            .validate_history_input(&mut state_db, parent, timestamp, Some(&first))
-            .map_err(|e| BuildError::Builder(e.to_string()))?;
-    }
+    let first = transactions
+        .first()
+        .map(|raw| TransactionSigned::decode_2718_exact(raw))
+        .transpose()
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
+    let history = evm_config
+        .validate_history_input(&mut state_db, parent, timestamp, first.as_ref())
+        .map_err(|e| BuildError::Builder(e.to_string()))?;
     let l1_origin_hash = history.origin_hash;
     let prev_randao = history.prev_randao;
     let mut db = State::builder()
@@ -400,6 +426,7 @@ fn execute_and_commit_inspected<I>(
     state: &mut DraftDb,
     evm_env: &EvmEnvFor<EezEvmConfig>,
     gas_used: u64,
+    group_state: &mut ExecutionGroupState,
     raw: &Bytes,
     idx: usize,
     inspector: I,
@@ -408,17 +435,26 @@ where
     I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
 {
     let recovered = recover_tx(raw, idx)?;
+    let (next_group, completes_group) =
+        group_state
+            .after(recovered.inner())
+            .map_err(|msg| BuildError::ExecuteTx {
+                idx,
+                msg: msg.into(),
+            })?;
     let block_gas_limit = evm_env.block_env.gas_limit;
     let available = block_gas_limit.saturating_sub(gas_used);
     let tx_env = TxEnv::from_recovered_tx(recovered.inner(), recovered.signer());
     let mut reference = None;
     match recovered.inner() {
+        TransactionSigned::History(_) => {
+            return Err(BuildError::ExecuteTx {
+                idx,
+                msg: "history must be validated in the initial block prefix".into(),
+            });
+        }
         TransactionSigned::System(tx) => {
-            let cap = if recovered.inner().is_history() {
-                eez_primitives::HISTORY_TX_GAS_CAP
-            } else {
-                SYSTEM_TX_GAS_CAP
-            };
+            let cap = SYSTEM_TX_GAS_CAP;
             let budget = available.min(cap);
             if tx.gas_limit != budget {
                 return Err(BuildError::ExecuteTx {
@@ -464,7 +500,7 @@ where
     let mut evm = evm_config.evm_with_env_and_inspector(state, evm_env.clone(), inspector);
     // A database read failure is the store being unavailable, not the tx being
     // invalid: the two classes drive opposite recoveries in the drain.
-    let result = match (evm.transact(tx_env), reference) {
+    let mut result = match (evm.transact(tx_env), reference) {
         (Err(EVMError::Database(err)), _) => {
             return Err(BuildError::Provider(format!("execute tx #{idx}: {err}")));
         }
@@ -492,7 +528,12 @@ where
         (Ok(result), _) => result,
     };
     let outcome = exec_outcome(&result.result);
+    if completes_group {
+        eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
+            .map_err(|error| BuildError::Provider(format!("cleanup tx #{idx}: {error}")))?;
+    }
     evm.db_mut().commit(result.state);
+    *group_state = next_group;
     Ok(outcome)
 }
 
@@ -521,6 +562,7 @@ pub struct SyncBlockState {
     /// Cumulative gas of the applied txs, matching the block executor's own
     /// total: the drain needs it to stop before the block overflows.
     gas_used: u64,
+    group_state: ExecutionGroupState,
 }
 
 impl std::fmt::Debug for SyncBlockState {
@@ -584,6 +626,7 @@ impl SyncBlockState {
         // `finish`: that applies the pre-execution changes exactly once and
         // leaves `state` at the mid-block point appended txs continue from.
         let mut gas_used: u64 = 0;
+        let group_state;
         {
             let mut builder = evm_config
                 .builder_for_next_block(&mut state, parent, attributes)
@@ -602,6 +645,7 @@ impl SyncBlockState {
                     })?;
                 gas_used = gas_used.saturating_add(gas.tx_gas_used());
             }
+            group_state = builder.executor().group_state();
         }
 
         Ok(Self {
@@ -612,6 +656,7 @@ impl SyncBlockState {
             state,
             applied: transactions.len(),
             gas_used,
+            group_state,
         })
     }
 
@@ -664,12 +709,18 @@ impl SyncBlockState {
         // This path normally has no inspector; retain its ordinary execution
         // mode unless the request explicitly asks for call capture.
         evm.set_inspector_enabled(tracing);
-        let result = evm.transact(tx).map_err(|error| BuildError::ExecuteTx {
+        let mut result = evm.transact(tx).map_err(|error| BuildError::ExecuteTx {
             idx: self.applied,
             msg: error.to_string(),
         })?;
         let outcome = exec_outcome(&result.result);
+        let (next_group, completes_group) = self.group_state.after_ordinary();
+        if completes_group {
+            eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
+                .map_err(|error| BuildError::Provider(error.to_string()))?;
+        }
         evm.db_mut().commit(result.state);
+        self.group_state = next_group;
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
@@ -687,6 +738,7 @@ impl SyncBlockState {
             &mut self.state,
             &self.evm_env,
             self.gas_used,
+            &mut self.group_state,
             raw,
             self.applied,
             NoOpInspector,
@@ -702,11 +754,38 @@ impl SyncBlockState {
     pub fn prepare_transactions(
         &mut self,
         plans: &[PlannedTransaction],
+        sources: &[eez_protocol::native_source::SourceEntry],
     ) -> Result<Vec<Bytes>, (usize, BuildError)> {
+        if plans
+            .iter()
+            .filter(|plan| matches!(plan, PlannedTransaction::Native(_)))
+            .count()
+            != sources.len()
+        {
+            return Err((
+                0,
+                BuildError::Builder("native source group count differs from plans".into()),
+            ));
+        }
+        let mut sources = sources.iter();
         let mut fork = self.fork().map_err(|error| (0, error))?;
         let mut transactions = Vec::with_capacity(plans.len());
         for (index, plan) in plans.iter().enumerate() {
-            let raw = fork.encode_plan(plan).map_err(|error| (index, error))?;
+            let source = match plan {
+                PlannedTransaction::Native(_) => sources
+                    .next()
+                    .ok_or_else(|| {
+                        (
+                            index,
+                            BuildError::Builder("native source group missing".into()),
+                        )
+                    })?
+                    .hash(),
+                PlannedTransaction::User(_) => B256::ZERO,
+            };
+            let raw = fork
+                .encode_plan(plan, source)
+                .map_err(|error| (index, error))?;
             let outcome = fork
                 .execute_committed(&raw)
                 .map_err(|error| (index, error))?;
@@ -743,6 +822,7 @@ impl SyncBlockState {
             state,
             applied: self.applied,
             gas_used: self.gas_used,
+            group_state: self.group_state,
         })
     }
 }
@@ -754,6 +834,7 @@ pub struct ForkSnapshot {
     cache: CacheState,
     applied: usize,
     gas_used: u64,
+    group_state: ExecutionGroupState,
 }
 
 /// A throwaway copy of a [`SyncBlockState`] for simulation: probes and source
@@ -765,6 +846,7 @@ pub struct SyncBlockFork {
     state: DraftDb,
     applied: usize,
     gas_used: u64,
+    group_state: ExecutionGroupState,
 }
 
 impl std::fmt::Debug for SyncBlockFork {
@@ -779,8 +861,12 @@ impl std::fmt::Debug for SyncBlockFork {
 impl SyncBlockFork {
     /// Encode a construction plan at the current fork position; raw user bytes
     /// pass through exactly and received native bodies never enter this API.
-    pub(crate) fn encode_plan(&self, plan: &PlannedTransaction) -> Result<Bytes, BuildError> {
-        plan.at_position(self.evm_env.block_env.gas_limit, self.gas_used)
+    pub(crate) fn encode_plan(
+        &self,
+        plan: &PlannedTransaction,
+        source_hash: B256,
+    ) -> Result<Bytes, BuildError> {
+        plan.at_position(self.evm_env.block_env.gas_limit, self.gas_used, source_hash)
             .map_err(BuildError::Builder)
     }
     pub(crate) fn remaining_gas(&self) -> u64 {
@@ -833,6 +919,7 @@ impl SyncBlockFork {
             &mut self.state,
             &self.evm_env,
             self.gas_used,
+            &mut self.group_state,
             raw,
             self.applied,
             inspector,
@@ -853,6 +940,11 @@ impl SyncBlockFork {
     where
         I: for<'db> InspectorFor<EezEvmConfig, &'db mut DraftDb>,
     {
+        if eez_primitives::is_native_type(tx_env.tx_type) {
+            return Err(BuildError::Builder(
+                "unsigned source must be ordinary".into(),
+            ));
+        }
         let available = self
             .evm_env
             .block_env
@@ -880,7 +972,7 @@ impl SyncBlockFork {
         let mut evm = self
             .evm_config
             .evm_with_env_and_inspector(&mut self.state, env, inspector);
-        let result = evm.transact(tx_env).map_err(|error| match error {
+        let mut result = evm.transact(tx_env).map_err(|error| match error {
             EVMError::Database(error) => BuildError::Provider(error.to_string()),
             other => BuildError::ExecuteTx {
                 idx: self.applied,
@@ -888,7 +980,13 @@ impl SyncBlockFork {
             },
         })?;
         let outcome = exec_outcome(&result.result);
+        let (next_group, completes_group) = self.group_state.after_ordinary();
+        if completes_group {
+            eez_evm::balances::clear_protocol_balances(evm.db_mut(), &mut result.state)
+                .map_err(|error| BuildError::Provider(error.to_string()))?;
+        }
         evm.db_mut().commit(result.state);
+        self.group_state = next_group;
         self.applied += 1;
         self.gas_used = self.gas_used.saturating_add(outcome.gas_used);
         Ok(outcome)
@@ -997,6 +1095,7 @@ impl SyncBlockFork {
             cache: self.state.cache.clone(),
             applied: self.applied,
             gas_used: self.gas_used,
+            group_state: self.group_state,
         }
     }
 
@@ -1005,6 +1104,7 @@ impl SyncBlockFork {
         self.state.cache = snapshot.cache;
         self.applied = snapshot.applied;
         self.gas_used = snapshot.gas_used;
+        self.group_state = snapshot.group_state;
     }
 
     /// Raw state + env, for callers that drive their own EVM (a source
@@ -1075,9 +1175,8 @@ where
 
 /// Canonical block hashes after explicit inclusive transaction positions.
 ///
-/// Grouped outbound effects can contain callback system transactions after the
-/// user transaction, so boolean system/user framing alone cannot identify the
-/// logical effect endpoint.
+/// Positions refer to the exact recorded body, including any history update.
+/// Each must end a complete group; a native load alone cannot be a checkpoint.
 pub fn sync_block_hashes_at_positions<P>(
     l2_provider: &P,
     evm_config: &EezEvmConfig,
@@ -1102,7 +1201,7 @@ where
     positions
         .iter()
         .map(|&p| {
-            build_sync_block(
+            replay_sync_block(
                 l2_provider,
                 evm_config,
                 parent,
@@ -1177,7 +1276,9 @@ mod tests {
         };
         let endpoint = Header {
             number: 1,
-            timestamp: 2_000,
+            // A real available update exercises history in every prefix. An
+            // unchanged endpoint no longer creates a synthetic empty import.
+            timestamp: 988,
             parent_hash: reference.hash_slow(),
             ..Default::default()
         };
@@ -1350,6 +1451,88 @@ mod tests {
                 .map(|k| self.build(&self.txs[..k]).header.gas_used())
                 .collect();
             cumulative.windows(2).map(|w| w[1] - w[0]).collect()
+        }
+    }
+
+    #[test]
+    fn recorded_history_omission_survives_late_evidence() {
+        let f = fixture();
+        let available = f.evm_config.l1_headers(TIMESTAMP).unwrap();
+        let unavailable = f
+            .evm_config
+            .clone()
+            .with_l1_history(Arc::new(eez_evm::history::WitnessHistory(Arc::new(
+                available.range(0, 0).unwrap(),
+            ))))
+            .unwrap();
+        // This fixture's child is both a Sync boundary and an eligible update.
+        // Test empty and nonempty recorded bodies after the evidence changes.
+        for transactions in [&[][..], &f.txs[..2]] {
+            let omitted = build_sync_block(
+                &f.provider,
+                &unavailable,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+                transactions,
+            )
+            .unwrap();
+            assert_eq!(omitted.block.body().transactions.len(), transactions.len());
+            assert_eq!(omitted.header.mix_hash, f.parent.mix_hash);
+
+            let rebuilt = replay_sync_block(
+                &f.provider,
+                &f.evm_config,
+                &f.parent,
+                TIMESTAMP,
+                FEE_RECIPIENT,
+                transactions,
+            )
+            .unwrap();
+            assert_eq!(rebuilt.block.body(), omitted.block.body());
+            assert_eq!(rebuilt.header.hash(), omitted.header.hash());
+            assert_eq!(rebuilt.header.gas_used(), omitted.header.gas_used());
+            assert_eq!(rebuilt.l1_origin_hash, omitted.l1_origin_hash);
+
+            let fresh = f.build(transactions);
+            assert!(fresh.block.body().transactions[0].is_history());
+            assert_ne!(fresh.header.hash(), omitted.header.hash());
+            let fresh_body = fresh
+                .block
+                .body()
+                .transactions
+                .iter()
+                .map(|tx| tx.encoded_2718().into())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                replay_sync_block(
+                    &f.provider,
+                    &f.evm_config,
+                    &f.parent,
+                    TIMESTAMP,
+                    FEE_RECIPIENT,
+                    &fresh_body,
+                )
+                .unwrap()
+                .header
+                .hash(),
+                fresh.header.hash(),
+            );
+            if !transactions.is_empty() {
+                assert_eq!(
+                    sync_block_hashes_at_positions(
+                        &f.provider,
+                        &f.evm_config,
+                        &f.parent,
+                        TIMESTAMP,
+                        FEE_RECIPIENT,
+                        transactions,
+                        &[transactions.len() - 1],
+                    )
+                    .unwrap(),
+                    vec![omitted.header.hash()],
+                );
+            }
         }
     }
 
@@ -1999,30 +2182,139 @@ mod tests {
         f
     }
 
-    fn native_plan(occurrence: u64) -> PlannedTransaction {
-        let plan = eez_protocol::system_tx::build_outbound_load_table_txs(
-            &[Default::default()],
+    fn native_sources(count: u64) -> Vec<eez_protocol::native_source::SourceEntry> {
+        let context =
+            eez_protocol::native_source::LiveSourceContext::new(1, B256::repeat_byte(0x81))
+                .unwrap();
+        (0..count).map(|index| context.entry(index)).collect()
+    }
+
+    fn native_plan() -> PlannedTransaction {
+        let entry =
+            eez_protocol::entries::InboundSidecar::new(eez_protocol::entries::IncomingEntry {
+                target: BOB,
+                source: STORE,
+                value: U256::ZERO,
+                data: Bytes::new(),
+                source_rollup_id: eez_protocol::RollupId::MAINNET,
+                l2_rollup_id: eez_protocol::RollupId(1),
+                return_data: Bytes::new(),
+                success: true,
+            })
+            .unwrap();
+        let plan = eez_protocol::system_tx::build_inbound_system_txs(
+            &[entry],
             &eez_protocol::system_tx::SystemTxContext {
                 eezl2_address: eez_primitives::EEZL2_ADDRESS,
                 l2_chain_id: 1,
                 this_rollup_id: 1,
             },
-            &[B256::from(U256::from(occurrence).to_be_bytes::<32>())],
         )
         .unwrap()
         .remove(0);
         PlannedTransaction::Native(plan)
     }
 
-    fn native(occurrence: u64, gas_used: u64) -> Bytes {
-        native_plan(occurrence)
-            .at_position(BUILDER_GAS_LIMIT, gas_used)
+    fn native(gas_used: u64) -> Bytes {
+        native_plan()
+            .at_position(BUILDER_GAS_LIMIT, gas_used, B256::ZERO)
             .unwrap()
     }
 
     /// A 16M ordinary burn leaves 14M, below the native cap.
     fn heavy_prefix() -> Vec<Bytes> {
         vec![sign_tx(0, LOOP, U256::ZERO, 16_000_000)]
+    }
+
+    #[test]
+    fn group_cleanup_is_identical_in_forks_unsigned_execution_and_prefix_rebuilds() {
+        use revm::Database as _;
+        let f = native_fixture(bytes!("00"));
+        let entry = eez_protocol::abi::L2ExecutionEntrySol {
+            incomingCalls: vec![eez_protocol::abi::CrossChainCallSol {
+                revertNextNCalls: 0,
+                isStatic: false,
+                gas: 0,
+                sourceAddress: STORE,
+                sourceRollupId: 0,
+                targetAddress: BOB,
+                value: U256::from(37),
+                data: Bytes::new(),
+            }],
+            ..Default::default()
+        };
+        let plan = eez_protocol::system_tx::build_outbound_load_table_txs(
+            &[entry],
+            &eez_protocol::system_tx::SystemTxContext {
+                eezl2_address: eez_primitives::EEZL2_ADDRESS,
+                l2_chain_id: 1,
+                this_rollup_id: 1,
+            },
+        )
+        .unwrap()
+        .remove(0);
+        let mut draft = f.open(&[]);
+        let raw = PlannedTransaction::Native(plan)
+            .at_position(BUILDER_GAS_LIMIT, draft.gas_used(), B256::ZERO)
+            .unwrap();
+        let user = sign_tx(0, eez_primitives::SYSTEM_ADDRESS, U256::from(11), 21_000);
+        draft.execute_tx(&raw).unwrap();
+        assert_eq!(
+            draft
+                .state
+                .basic(eez_primitives::EEZL2_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
+            U256::from(37)
+        );
+        let mut fork = draft.fork().unwrap();
+        let snapshot = fork.snapshot();
+        fork.execute_committed(&user).unwrap();
+        assert_eq!(
+            fork.state
+                .basic(eez_primitives::EEZL2_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
+            U256::ZERO
+        );
+        let signed_state = fork.state.cache.clone();
+        fork.restore(snapshot);
+        assert_eq!(
+            fork.state
+                .basic(eez_primitives::EEZL2_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
+            U256::from(37)
+        );
+        let decoded = TransactionSigned::decode_2718_exact(&user).unwrap();
+        let sender = decoded.recover_signer().unwrap();
+        let tx = f
+            .evm_config
+            .tx_env(Recovered::new_unchecked(decoded, sender));
+        fork.execute_unsigned(tx, NoOpInspector).unwrap();
+        assert_eq!(fork.state.cache, signed_state);
+        assert!(
+            draft.group_state.ensure_complete().is_err(),
+            "fork must not consume the real draft's load"
+        );
+        draft.execute_tx(&user).unwrap();
+        assert_eq!(draft.state.cache, signed_state);
+        let transactions: Vec<_> = f.history_prefix().into_iter().chain([raw, user]).collect();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        let actual = hashes.at_positions(&transactions, &[0, 2]).unwrap();
+        assert_eq!(actual[1], f.build(&transactions).header.hash());
+        hashes.assert_state_matches_rebuild();
+        assert_eq!(draft.gas_used(), f.build(&transactions).header.gas_used());
     }
 
     #[test]
@@ -2036,7 +2328,9 @@ mod tests {
         // Ethereum's declared-limit rule would refuse the cap here; the native
         // budget is the 14M remainder instead.
         assert!(BUILDER_GAS_LIMIT - burned.gas_used < SYSTEM_TX_GAS_CAP);
-        let prepared = draft.prepare_transactions(&[native_plan(0)]).unwrap();
+        let prepared = draft
+            .prepare_transactions(&[native_plan()], &native_sources(1))
+            .unwrap();
         txs.extend(prepared);
         let delivered = draft.execute_tx(&txs[1]).unwrap();
         assert!(delivered.success);
@@ -2064,10 +2358,12 @@ mod tests {
             let mut draft = f.open(&prefix);
             let before = draft.gas_used();
 
-            let refused = draft.prepare_transactions(&[native_plan(0)]).unwrap_err();
+            let refused = draft
+                .prepare_transactions(&[native_plan()], &native_sources(1))
+                .unwrap_err();
             assert_eq!(refused.0, 0);
             assert!(refused.1.is_capacity(), "{code}: {:?}", refused.1);
-            let error = draft.execute_tx(&native(0, draft.gas_used())).unwrap_err();
+            let error = draft.execute_tx(&native(draft.gas_used())).unwrap_err();
             assert!(error.is_capacity(), "{code}: {error:?}");
             // Nothing committed: the same draft still takes other work.
             assert_eq!(draft.gas_used(), before);
@@ -2080,7 +2376,7 @@ mod tests {
             // An emptier block gives the full cap, so the same tx is accepted.
             let mut empty = f.open(&[]);
             assert!(
-                empty.execute_tx(&native(0, empty.gas_used())).is_ok(),
+                empty.execute_tx(&native(empty.gas_used())).is_ok(),
                 "{code}"
             );
         }
@@ -2116,13 +2412,13 @@ mod tests {
         let f = native_fixture(bytes!("00"));
         let mut draft = f.open(&heavy_prefix());
         let before = draft.gas_used();
-        let wrong = native(0, 0);
+        let wrong = native(0);
         let error = draft.execute_tx(&wrong).unwrap_err();
         assert!(!error.is_capacity());
         assert!(error.to_string().contains("encoded gas differs"));
         assert_eq!(draft.gas_used(), before);
         let raw = draft
-            .prepare_transactions(&[native_plan(0)])
+            .prepare_transactions(&[native_plan()], &native_sources(1))
             .unwrap()
             .remove(0);
         assert_ne!(raw, wrong);
@@ -2133,15 +2429,86 @@ mod tests {
     fn native_groups_are_probed_on_actual_use_not_on_their_caps() {
         // Two deliveries together declare 2 x 16.7M > 30M but use ~21k each.
         let f = native_fixture(bytes!("00"));
-        let plans = [native_plan(0), native_plan(1)];
+        let plans = [native_plan(), native_plan()];
         assert!(planned_group_gas(&plans) > BUILDER_GAS_LIMIT);
         let mut draft = f.open(&[]);
-        let group = draft.prepare_transactions(&plans).unwrap();
+        let group = draft
+            .prepare_transactions(&plans, &native_sources(2))
+            .unwrap();
         // The probe ran on a fork: the draft itself is untouched.
         assert_eq!(draft.gas_used(), f.history_gas());
         for raw in &group {
             assert!(draft.execute_tx(raw).unwrap().success);
         }
         assert_eq!(draft.gas_used(), f.build(&group).header.gas_used());
+    }
+
+    #[test]
+    fn source_groups_keep_original_ordinals_without_mutating_the_draft() {
+        let f = native_fixture(bytes!("00"));
+        let mut draft = f.open(&[]);
+        let before = draft.gas_used();
+        let plans = [native_plan(), native_plan()];
+        let sources = native_sources(3);
+        for wrong in [&sources[..1], &[], &sources[..]] {
+            let (_, error) = draft.prepare_transactions(&plans, wrong).unwrap_err();
+            assert!(error.to_string().contains("source group count"));
+            assert_eq!(draft.gas_used(), before);
+        }
+        // A selected suffix retains its full-block ordinal instead of starting at zero.
+        let group = draft.prepare_transactions(&plans, &sources[1..]).unwrap();
+        assert_eq!(draft.gas_used(), before, "resolution is speculative");
+        for (raw, source) in group.iter().zip(&sources[1..]) {
+            let TransactionSigned::System(native) =
+                TransactionSigned::decode_2718_exact(raw).unwrap()
+            else {
+                panic!("native delivery")
+            };
+            assert_eq!(native.source_hash, source.hash());
+            draft.execute_tx(raw).unwrap();
+        }
+        assert_eq!(draft.gas_used(), f.build(&group).header.gas_used());
+    }
+
+    #[test]
+    fn prepared_inbound_groups_reuse_earlier_effect_checkpoint_hashes() {
+        let f = native_fixture(bytes!("00"));
+        let mut complete = f.history_prefix();
+        let mut draft = f.open(&[]);
+        let context =
+            eez_protocol::native_source::LiveSourceContext::new(1, B256::repeat_byte(0x81))
+                .unwrap();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        for first_group in [0, 3, 6] {
+            let plans = [native_plan(), native_plan(), native_plan()];
+            let sources =
+                [first_group, first_group + 1, first_group + 2].map(|index| context.entry(index));
+            let deliveries = draft.prepare_transactions(&plans, &sources).unwrap();
+            let positions = (complete.len()..complete.len() + deliveries.len()).collect::<Vec<_>>();
+            complete.extend(deliveries.iter().cloned());
+            // Production asks for every effect hash immediately after preparing
+            // a bracket. The first requested prefix precedes the latest cache.
+            let actual = hashes.at_positions(&complete, &positions).unwrap();
+            for (&position, hash) in positions.iter().zip(actual) {
+                assert_eq!(hash, f.build(&complete[..=position]).header.hash());
+            }
+            for delivery in deliveries {
+                draft.execute_tx(&delivery).unwrap();
+            }
+            hashes.assert_state_matches_rebuild();
+            assert_eq!(
+                hashes.executed_transactions,
+                complete.len(),
+                "preparation followed by effect hashing must execute each transaction once"
+            );
+        }
+        assert_eq!(draft.gas_used(), f.build(&complete).header.gas_used());
     }
 }

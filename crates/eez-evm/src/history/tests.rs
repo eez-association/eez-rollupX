@@ -53,12 +53,6 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
         schedule,
         first_number: 0,
         l2_chain_id: 1337,
-        source_context: eez_protocol::native_source::HistorySourceContext::new(
-            1337,
-            1337,
-            B256::repeat_byte(44),
-        )
-        .unwrap(),
         source: Arc::new(WitnessHistory(Arc::new(chain))),
     };
     let mut db = InMemoryDB::default();
@@ -84,13 +78,7 @@ fn prepare_at<DB: Database>(
     config: &HistoryConfig,
     timestamp: u64,
 ) -> Result<(HistoryExecution, Option<EezTxEnvelope>), BlockExecutionError> {
-    prepare(
-        db,
-        config,
-        B256::repeat_byte(timestamp as u8),
-        timestamp - 4,
-        timestamp,
-    )
+    prepare(db, config, timestamp)
 }
 
 fn environment(timestamp: u64, randao: B256) -> EvmEnv {
@@ -251,11 +239,10 @@ fn repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_upd
         .build();
     let (repeat, tx) = prepare_at(&mut state, &config, 7).unwrap();
     assert_eq!(repeat.origin_number, 0);
-    let tx = tx.unwrap();
-    assert!(decode_import(tx.input()).unwrap().hashes.is_empty());
+    assert!(tx.is_none());
     // Replay gets all headers; the recorded choice remains valid and unchanged.
     config.source = Arc::new(WitnessHistory(full));
-    execute(&config, &mut state, 7, B256::ZERO, &[tx]).unwrap();
+    execute(&config, &mut state, 7, B256::ZERO, &[]).unwrap();
     assert_eq!(
         state
             .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
@@ -271,13 +258,12 @@ fn repeat_is_valid_after_late_headers_arrive_and_advancement_resumes_at_next_upd
 }
 
 #[test]
-fn missing_duplicate_misplaced_malformed_and_wrong_randao_updates_reject() {
-    use alloy_consensus::Transaction as _;
+fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_reject() {
     let (config, mut db) = fixture();
     let (plan, tx) = prepare_at(&mut db, &config, 7).unwrap();
     let tx = tx.unwrap();
     for (timestamp, randao, transactions, reason) in [
-        (7, plan.prev_randao, vec![], "missing history"),
+        (7, plan.prev_randao, vec![], "PREVRANDAO"),
         (7, B256::ZERO, vec![tx.clone()], "PREVRANDAO"),
         (
             7,
@@ -285,7 +271,7 @@ fn missing_duplicate_misplaced_malformed_and_wrong_randao_updates_reject() {
             vec![tx.clone(), tx.clone()],
             "misplaced",
         ),
-        (5, B256::ZERO, vec![tx.clone()], "misplaced"),
+        (5, B256::ZERO, vec![tx.clone()], "off-schedule"),
     ] {
         let mut state = State::builder()
             .with_database(db.clone())
@@ -298,25 +284,18 @@ fn missing_duplicate_misplaced_malformed_and_wrong_randao_updates_reject() {
                 .contains(reason)
         );
     }
-    for mutation in 0..5 {
-        let EezTxEnvelope::System(native) = tx.clone() else {
+    for mutation in 0..6 {
+        let EezTxEnvelope::History(native) = tx.clone() else {
             unreachable!()
         };
         let mut native = (*native).clone();
         match mutation {
-            0 => {
-                let mut input = native.input.to_vec();
-                input.push(0);
-                native.input = input.into();
-            }
-            1 => native.source_hash = B256::repeat_byte(99),
+            0 => native.hashes.clear(),
+            1 => native.hashes[0] = B256::repeat_byte(99),
             2 => native.chain_id += 1,
-            3 => native.value = U256::from(1),
-            _ => {
-                let mut input = native.input.to_vec();
-                *input.last_mut().unwrap() ^= 1;
-                native.input = input.into();
-            }
+            3 => native.version += 1,
+            4 => native.hashes = vec![B256::repeat_byte(1); 65],
+            _ => native.hashes[0] = B256::ZERO,
         }
         let mut state = State::builder()
             .with_database(db.clone())
@@ -327,7 +306,29 @@ fn missing_duplicate_misplaced_malformed_and_wrong_randao_updates_reject() {
             "mutation {mutation}"
         );
     }
-    assert!(!tx.input().is_empty());
+    // Omission is valid even with newer evidence available, at every eligible
+    // and ineligible position. Empty blocks still authenticate inherited RANDAO.
+    for timestamp in 5..=30 {
+        let mut state = State::builder()
+            .with_database(db.clone())
+            .with_bundle_update()
+            .build();
+        execute(&config, &mut state, timestamp, B256::ZERO, &[]).unwrap();
+        let mut bad = State::builder()
+            .with_database(db.clone())
+            .with_bundle_update()
+            .build();
+        assert!(
+            execute(&config, &mut bad, timestamp, B256::repeat_byte(99), &[])
+                .unwrap_err()
+                .to_string()
+                .contains("PREVRANDAO")
+        );
+    }
+    assert!(
+        tx.input().is_empty(),
+        "history has no producer-supplied calldata"
+    );
 }
 
 #[test]
@@ -336,7 +337,7 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
     let (plan, tx) = prepare_at(&mut db, &config, 7).unwrap();
     for slot in [
         FIRST_NUMBER_SLOT,
-        NEXT_CUTOFF_SLOT,
+        FIRST_CUTOFF_SLOT,
         INTERVAL_SLOT,
         UPDATE_DELAY_SLOT,
         MAX_IMPORT_SLOT,
@@ -414,7 +415,7 @@ fn conflicting_import_reverts_without_committing_any_history_prefix() {
     );
     assert_eq!(
         state
-            .storage(HISTORY_ADDRESS, U256::from(NEXT_CUTOFF_SLOT))
+            .storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
             .unwrap(),
         U256::from(4)
     );
@@ -439,7 +440,7 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
     .into();
     let mut evm = crate::tests::factory().create_evm(db, environment(7, B256::ZERO));
     let native = TxEnv {
-        tx_type: eez_primitives::SYSTEM_TX_TYPE,
+        tx_type: eez_primitives::HISTORY_TX_TYPE,
         caller: SYSTEM_ADDRESS,
         kind: TxKind::Call(HISTORY_ADDRESS),
         gas_limit: eez_protocol::l1_history::IMPORT_GAS_LIMIT,

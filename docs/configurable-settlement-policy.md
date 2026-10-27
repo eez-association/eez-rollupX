@@ -872,12 +872,18 @@ back the binary restores the old ancestor-only rewind and its transaction-loss
 risk; it does not recover transactions already lost from an in-memory pool.
 
 Empty local checkpoints use `EEZ_L2_FEE_RECIPIENT`, just like ordinary production
-and minimal settlement blocks. Historical replacement preserves the existing
-header rather than substituting the current setting. This changes newly built
-checkpoint hashes for a nonzero recipient, not the block/DA format: existing
-history remains replayable using its recorded environment. No protocol,
-database, or signer migration is needed. Followers retain upstream external
-reinsertion policy; they do not sequence displaced ordinary work. The adapter
+and minimal settlement blocks, including empty replacements for a nonempty Sync
+after an observation deadline or canonical exclusion. An already empty Sync
+keeps its existing header and descendants; retained-history reconstruction uses
+the recorded beneficiary rather than substituting the current setting. This
+changes newly built checkpoint hashes for a nonzero recipient, not the block/DA
+format: existing history, including zero-beneficiary recovery blocks, remains
+replayable using its recorded environment. Within the same execution profile,
+only the Composer's construction policy changes; signers and followers need no
+upgrade, and no protocol, genesis or database migration is needed. Rolling back
+this correction restores zero beneficiaries for future recovery replacements
+without rewriting settled history. Followers retain upstream external reinsertion
+policy; they do not sequence displaced ordinary work. The adapter
 adds no worker, queue, or durable recovery state.
 
 See the [proposal and acceptance gates](proposals/conditional-slot-production.md)
@@ -1487,13 +1493,51 @@ revert can be caught, and a successful child's effects can be unwound by a
 later ancestor revert; neither its status nor a gas-probe failure alone
 establishes the quote outcome.
 
-The [local trace viewer](../tools/quote-trace-viewer/README.md) imports the
-response without network access and decodes standard Solidity errors. Unknown
-custom errors retain their selector/bytes. The schema and manual `cast` example
-are documented there. This option requires an updated Composer; older versions
-reject it. The viewer reports missing/unsupported exports explicitly. The change
-does not affect contracts, signer RPC, storage, genesis, historical replay,
-follower behavior or fee enforcement. Rolling back loses trace availability.
+The dashboard's Debug view renders these exports. Viewer assets and browser tests
+are maintained in the dashboard repository; RollupX owns the trace RPC and its
+backend tests. Tracing does not affect contracts, signer RPC, storage, genesis,
+historical replay, follower behavior or fee enforcement.
+
+The version 1 export has the following fields:
+
+| Field | Meaning |
+| --- | --- |
+| `format`, `version` | `eez-quote-call-trace`, `1` |
+| `request` | Original caller-supplied transaction |
+| `context` | L1/L2 chain IDs, pinned parents, L1 target, L2 timestamp, resolved nonce and pending predecessor count |
+| `runs[]` | Ordered executions, each with an ID, quoted type, phase, pass, purpose, chain ID, actual transaction, `complete` and `frames[]` |
+| `truncated`, `omittedFrames`, `omittedRuns`, `limits` | Explicit capture limits and omissions |
+| `gasAccounting` | `inclusive_frame_execution_gas` |
+
+Run IDs are zero-based and contiguous. Frame IDs are zero-based within each run;
+`parentId` is null for a root, otherwise an earlier frame in that run. `pass`
+increments when composition begins within a phase/type, and its subsequent native
+replays carry the same pass. The quoted `type` and actual `transaction.type` can
+differ for synthetic/system executions. `crossChain` identifies a different
+chain from the parent; `executionRoot` identifies a new EVM instance. `from` is
+the EVM caller, which DELEGATECALL preserves; use `parentId` to identify the frame
+that issued the call.
+
+`input` and `output` are `{hex, length, truncated}` objects. `length` is the
+original byte count; `hex` may hold only a prefix. A frame that did not complete
+has `status: "incomplete"` and may lack output/result/gas-used fields. Run
+`complete` means all observed frames ended; it does not override truncation or
+imply success. Context and IDs use JSON integers where bounded; chain IDs,
+transaction quantities, values and gas use hex strings.
+
+To capture a response, send a single request to the Composer front for its source
+chain (`/composer/l1` or `/composer/l2`). Save the raw HTTP response to retain
+`error.data.trace` on whole-request failures:
+
+```bash
+COMPOSER_RPC='https://YOUR_HOST/composer/l2'
+TX='{"from":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222","data":"0x","value":"0x0"}'
+jq -n --argjson tx "$TX" \
+  '{jsonrpc:"2.0",id:1,method:"eez_debugQuoteFee",params:[$tx,{transactionTypes:["0x2"],trace:"calls"}]}' |
+  curl --silent --show-error --max-time 60 "$COMPOSER_RPC" \
+    -H 'content-type: application/json' --data-binary @- \
+    --output quote-trace.json
+```
 
 For a failed execution variant, only `diagnostics.options[].error.details`
 adds the available execution cause:
@@ -1773,16 +1817,28 @@ state, reduced charged gas or insufficient effective tip defers the source and
 its nonce successors, restores the accepted prefix, and continues independent
 sources. Admission quotes charge each source for a complete standalone
 post; composition can pool their actual receipts. Quotes do not discount shared
-batches. While this L2-only tariff is enabled, L1-origin users are settled in
-separate batches under the existing FIFO ordering, so unfunded L1 work cannot
-invalidate a paid outbound batch. Nested calls within one source remain whole.
+batches. Fee-enabled candidates may include both directions under the same FIFO,
+nonce, whole-group, gas/blob and deadline rules. The last accepted outbound-prefix
+simulation supplies the cost of posting that group separately, including retained
+ordinary history and its physical blob count. L1 additions cannot fund its L2
+tariff. Nested calls within one source remain whole.
 Quoting a future L2 nonce whose predecessor has not executed is outside this
 outbound profile. The compact L1 route has the bounded owned-prefix replay
 described above.
 
-Immediately before dispatch, an attempt containing outbound users must also
-cover its complete newly priced L1 post, blobs, configured service costs and risk
-reserve using actual eligible L2 native receipts. It may earn less than the
+Immediately before dispatch, an outbound-only attempt must still cover its
+complete newly priced L1 post, blobs, configured service costs and risk reserve
+using actual eligible L2 native receipts. For a mixed attempt, compare those same
+receipts with the standalone outbound cost and allowances. Reuse that reference
+only when its ordered source hashes and entire L1 fee quote match final preflight:
+chain, parent, target, fee caps and effective execution/blob prices. Missing or
+mismatched evidence defers the unsent attempt for recomposition without a user
+retry charge. A rejected outbound addition cannot replace the accepted reference.
+This is the existing native counterfactual estimate, not an actual standalone
+payment; the complete signed mixed bundle always undergoes final native execution.
+The preflight event's `l2_tariff` identifies the cost basis, gas, blobs, required L2
+payment and additional mixed posting cost. Existing `fee_observation` describes
+the whole post and is not a per-direction coverage assertion. A batch may earn less than the
 quoted profit target; with risk zero it may settle at cost. Poster, beneficiary and explicitly excluded senders cannot
 finance this check. Failure defers the unsent attempt without charging a user
 retry or declaring canonical completion. Accepted work remains subject to
@@ -2069,8 +2125,12 @@ rollback can raise the required cost for outstanding lower-priced transactions.
 The existing in-memory queue and stopped-database rollback boundaries apply.
 
 L1-funded posts pack multiple complete source requests, including their nested
-calls, up to the existing gas/blob/timing and configured admission bounds. L1 and
-L2 fee-funded batches remain separate under existing FIFO/nonce ownership.
+calls, up to the existing gas/blob/timing and configured admission bounds. They
+may share a post with an independently funded outbound group under existing
+FIFO/nonce ownership and canonical outbound-first execution. The L1 route owns
+the extra posting cost above the standalone outbound reference; its refund is
+never counted toward the L2 funding check. Gross post/refund observations still
+describe the entire post and do not claim to be a net per-direction profit ledger.
 Following the operator's accepted subsidy policy, the final batch need not cover
 its cost: do not shrink or reject it because the largest refund is below `C + R`.
 The dispatch selector chooses

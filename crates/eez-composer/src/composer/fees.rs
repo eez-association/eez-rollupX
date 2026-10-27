@@ -1,6 +1,6 @@
-//! Shadow fee evidence for a complete candidate. These observations neither
-//! authorize spending nor classify a user's funding. L1 cost and L2 tips have
-//! different native denominations until a treasury policy qualifies conversion.
+//! Native receipt accounting and configured L2 tariff checks. Shadow reports
+//! alone never authorize spending or classify a user's funding. L1 cost and L2
+//! tips have different denominations until an operator policy qualifies conversion.
 
 use std::collections::HashMap;
 
@@ -28,6 +28,58 @@ pub(super) struct SourceFees {
     priority_fee_per_gas: u128,
     burn: U256,
     tip: U256,
+}
+
+/// Native cost measurement of the accepted outbound prefix before adding L1
+/// sources. This is pricing evidence only; the complete signed bundle must
+/// still pass final native execution. Fee-dependent execution makes even a
+/// price-only quote change invalidate reuse.
+#[derive(Debug)]
+pub(super) struct StandaloneCost {
+    quote: FeeQuote,
+    gas_used: u64,
+    blobs: u64,
+    sources: Vec<B256>,
+}
+
+impl StandaloneCost {
+    pub fn new(
+        quote: FeeQuote,
+        gas_used: u64,
+        blobs: u64,
+        semantics: &[eez_protocol::blob_semantics::SemanticTransaction],
+    ) -> Self {
+        Self {
+            quote,
+            gas_used,
+            blobs,
+            sources: semantics
+                .iter()
+                .map(|source| alloy_primitives::keccak256(&source.tx_data))
+                .collect(),
+        }
+    }
+
+    fn validate(&self, quote: FeeQuote, l2: &L2Fees) -> Result<U256, &'static str> {
+        if self.quote != quote {
+            return Err("l2_standalone_quote_changed");
+        }
+        if self.gas_used == 0
+            || self.blobs == 0
+            || self.sources.is_empty()
+            || !self
+                .sources
+                .iter()
+                .copied()
+                .eq(l2.sources.iter().map(|s| s.hash))
+        {
+            return Err("l2_standalone_source_mismatch");
+        }
+        quote
+            .estimate(self.gas_used, self.blobs)
+            .map(|cost| cost.total)
+            .map_err(|_| "l2_standalone_cost_overflow")
+    }
 }
 
 impl SourceFees {
@@ -66,6 +118,7 @@ pub(super) struct L2Fees {
     burn: U256,
     tip: U256,
     pub sources: Vec<SourceFees>,
+    pub standalone_cost: Option<StandaloneCost>,
 }
 
 impl L2Fees {
@@ -112,6 +165,7 @@ impl L2Fees {
             burn: U256::ZERO,
             tip: U256::ZERO,
             sources: Vec::with_capacity(users.len()),
+            standalone_cost: None,
         };
         let mut previous = 0_u64;
         for (tx, &cumulative) in built
@@ -123,7 +177,7 @@ impl L2Fees {
                 .checked_sub(previous)
                 .ok_or("l2_receipt_gas_not_monotonic")?;
             previous = cumulative;
-            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE {
+            if eez_primitives::is_native_type(tx.ty()) {
                 fees.native_gas_used = fees
                     .native_gas_used
                     .checked_add(gas_used)
@@ -257,13 +311,40 @@ pub(super) fn check_tariff(
     post_hash: B256,
     l2: Option<&Result<L2Fees, &'static str>>,
     poster: Address,
-) -> Result<(), &'static str> {
-    let l1 = l1_summary(quote, execution, post_hash, "")?;
+) -> Result<Value, &'static str> {
+    let mut l1 = l1_summary(quote, execution, post_hash, "")?;
     let l2 = l2
         .ok_or("terminal_receipts_not_captured")?
         .as_ref()
         .map_err(|reason| *reason)?;
-    policy.check_tariff(&l1, l2, poster)
+    let complete_post_cost = l1.post_cost;
+    let (scope, gas_used, blobs) = if l1.companion_count == 0 {
+        (
+            "complete_post_batch",
+            execution.gas_used[0],
+            execution.blob_counts[0],
+        )
+    } else {
+        let standalone = l2
+            .standalone_cost
+            .as_ref()
+            .ok_or("l2_standalone_cost_missing")?;
+        l1.post_cost = standalone.validate(quote, l2)?;
+        ("standalone_outbound", standalone.gas_used, standalone.blobs)
+    };
+    policy.check_tariff(&l1, l2, poster)?;
+    Ok(json!({
+        "scope": scope,
+        "gas_used": gas_used,
+        "physical_blobs": blobs,
+        "l1_post_cost": l1.post_cost.to_string(),
+        "complete_post_cost": complete_post_cost.to_string(),
+        "additional_l1_post_cost": complete_post_cost.saturating_sub(l1.post_cost).to_string(),
+        "minimum_l2_payment": policy.required_payment(l1.post_cost)?.minimum_l2.to_string(),
+        "sample_hash": quote.sample.hash,
+        "target_block": l1.detail["target_block"],
+        "target_timestamp": l1.detail["target_timestamp"],
+    }))
 }
 
 /// Additive detail on the existing final-preflight event. A failed observation
@@ -304,6 +385,7 @@ pub(super) fn observation(
 mod tests {
     use super::*;
     use alloy_consensus::{Header, SignableTransaction, TxEip1559, TxLegacy};
+    use alloy_eips::Encodable2718;
     use alloy_primitives::Signature;
     use eez_primitives::{EezTxEnvelope, engine::EezEngineTypes};
     use eez_protocol::{RollupId, settlement_manifest::UserManifest};
@@ -315,7 +397,6 @@ mod tests {
         let native = |source_id: u64| {
             eez_primitives::SystemTransaction {
                 chain_id: 9,
-                version: eez_primitives::SYSTEM_TX_VERSION,
                 source_hash: alloy_primitives::B256::from(
                     alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
                 ),
@@ -382,7 +463,7 @@ mod tests {
             effects: vec![],
             users: block
                 .transactions_recovered()
-                .filter(|tx| tx.ty() != eez_primitives::SYSTEM_TX_TYPE)
+                .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
                 .enumerate()
                 .map(|(i, tx)| UserManifest {
                     tx_hash: *tx.tx_hash(),
@@ -514,6 +595,172 @@ mod tests {
         assert_eq!(report["physical_blobs"], 2);
         assert_eq!(report["companion_count"], 1);
         assert_eq!(report["sample_hash"], json!(quote.sample.hash));
+    }
+
+    fn mixed_tariff_fixture() -> (FeeQuote, BundleExecution, B256, L2Fees) {
+        let (mut quote, mut execution, hash) = preflight();
+        quote.estimated_blob_gas_price = 1;
+        execution.gas_used[0] = 10_000;
+        execution.gas_limits[0] = 20_000;
+        let (built, manifest) = fixture();
+        let semantics = built
+            .block
+            .body()
+            .transactions
+            .iter()
+            .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
+            .map(|tx| eez_protocol::blob_semantics::SemanticTransaction {
+                origin_chain: RollupId(1),
+                tx_data: tx.encoded_2718().into(),
+                actions: vec![],
+            })
+            .collect::<Vec<_>>();
+        let mut l2 = L2Fees::measure(9, 1, &built, &manifest).unwrap();
+        l2.standalone_cost = Some(StandaloneCost::new(quote, 100, 1, &semantics));
+        (quote, execution, hash, l2)
+    }
+
+    #[test]
+    fn mixed_tariff_requires_outbound_coverage_without_charging_inbound_cost() {
+        let policy = pricing::tests::parse(pricing::tests::policy_json()).unwrap();
+        let (quote, execution, hash, mut l2) = mixed_tariff_fixture();
+        let complete = l1_summary(quote, &execution, hash, "").unwrap();
+        assert_eq!(
+            policy.check_tariff(&complete, &l2, Address::repeat_byte(7)),
+            Err("l2_tip_underfunded")
+        );
+        let report = check_tariff(
+            &policy,
+            quote,
+            &execution,
+            hash,
+            Some(&Ok(l2)),
+            Address::repeat_byte(7),
+        )
+        .unwrap();
+        assert_eq!(report["scope"], "standalone_outbound");
+        assert_eq!(
+            report["l1_post_cost"],
+            quote.estimate(100, 1).unwrap().total.to_string()
+        );
+        assert_eq!(
+            report["additional_l1_post_cost"],
+            (complete.post_cost - quote.estimate(100, 1).unwrap().total).to_string()
+        );
+
+        (_, _, _, l2) = mixed_tariff_fixture();
+        for source in &mut l2.sources {
+            source.tip = U256::ZERO;
+        }
+        l2.tip = U256::ZERO;
+        assert_eq!(
+            check_tariff(
+                &policy,
+                quote,
+                &execution,
+                hash,
+                Some(&Ok(l2)),
+                Address::repeat_byte(7)
+            ),
+            Err("l2_tip_underfunded")
+        );
+    }
+
+    #[test]
+    fn mixed_tariff_rejects_missing_stale_and_mismatched_reference() {
+        let policy = pricing::tests::parse(pricing::tests::policy_json()).unwrap();
+        for case in 0..12 {
+            let (quote, execution, hash, mut l2) = mixed_tariff_fixture();
+            let reference = l2.standalone_cost.as_mut().unwrap();
+            let expected = match case {
+                0 => {
+                    l2.standalone_cost = None;
+                    "l2_standalone_cost_missing"
+                }
+                1 => {
+                    reference.quote.sample.hash = B256::ZERO;
+                    "l2_standalone_quote_changed"
+                }
+                2 => {
+                    reference.quote.target = BundleTarget::Exact {
+                        block: 12,
+                        timestamp: 1_001,
+                    };
+                    "l2_standalone_quote_changed"
+                }
+                3 => {
+                    reference.quote.max_priority_fee_per_gas += 1;
+                    "l2_standalone_quote_changed"
+                }
+                4 => {
+                    reference.quote.max_fee_per_gas += 1;
+                    "l2_standalone_quote_changed"
+                }
+                5 => {
+                    reference.quote.estimated_effective_gas_price += 1;
+                    "l2_standalone_quote_changed"
+                }
+                6 => {
+                    reference.quote.estimated_blob_gas_price += 1;
+                    "l2_standalone_quote_changed"
+                }
+                7 => {
+                    reference.sources.swap(0, 1);
+                    "l2_standalone_source_mismatch"
+                }
+                8 => {
+                    reference.sources.pop();
+                    "l2_standalone_source_mismatch"
+                }
+                9 => {
+                    reference.sources[0] = B256::ZERO;
+                    "l2_standalone_source_mismatch"
+                }
+                10 => {
+                    reference.blobs = 0;
+                    "l2_standalone_source_mismatch"
+                }
+                _ => {
+                    reference.gas_used = 0;
+                    "l2_standalone_source_mismatch"
+                }
+            };
+            assert_eq!(
+                check_tariff(
+                    &policy,
+                    quote,
+                    &execution,
+                    hash,
+                    Some(&Ok(l2)),
+                    Address::repeat_byte(7)
+                ),
+                Err(expected),
+                "case {case}"
+            );
+        }
+    }
+
+    #[test]
+    fn outbound_only_tariff_retains_complete_final_receipt_cost() {
+        let policy = pricing::tests::parse(pricing::tests::policy_json()).unwrap();
+        let (quote, mut execution, hash, l2) = mixed_tariff_fixture();
+        execution.gas_used.truncate(1);
+        execution.gas_required.truncate(1);
+        execution.gas_limits.truncate(1);
+        execution.transaction_hashes.truncate(1);
+        execution.blob_counts.truncate(1);
+        assert_eq!(
+            check_tariff(
+                &policy,
+                quote,
+                &execution,
+                hash,
+                Some(&Ok(l2)),
+                Address::repeat_byte(7)
+            ),
+            Err("l2_tip_underfunded"),
+            "a smaller reference cannot discount an outbound-only post"
+        );
     }
 
     #[test]

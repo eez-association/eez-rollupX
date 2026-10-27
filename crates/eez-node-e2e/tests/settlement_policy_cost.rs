@@ -159,7 +159,7 @@ pub(super) async fn assert_l2_shadow_receipts(
             serde_json::json!(block.header.parent_hash)
         );
         assert_eq!(report["l2"]["chain_id"], world.l2_chain_id);
-        // Generic Ethereum receipt enums do not include native type 0x45.
+        // Generic Ethereum receipt enums do not include either native type.
         let receipts: Vec<serde_json::Value> = l2
             .raw_request("eth_getBlockReceipts".into(), [block_hash])
             .await
@@ -174,7 +174,7 @@ pub(super) async fn assert_l2_shadow_receipts(
         let mut sources = 0;
         for receipt in receipts {
             let gas = quantity(&receipt["gasUsed"]);
-            if receipt["type"] == "0x45" {
+            if receipt["type"] == "0x45" || receipt["type"] == "0x46" {
                 native_gas += gas;
                 assert_eq!(quantity(&receipt["effectiveGasPrice"]), U256::ZERO);
                 continue;

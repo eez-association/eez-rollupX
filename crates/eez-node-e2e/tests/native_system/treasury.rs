@@ -3,6 +3,12 @@ use super::*;
 use alloy_sol_types::SolEvent;
 use eez_protocol::fee_vault::{FEE_VAULT_ADDRESS as VAULT, IFeeVault};
 
+alloy_sol_types::sol! {
+    interface IProxyAdmin {
+        function upgradeAndCall(address proxy, address implementation, bytes data) external payable;
+    }
+}
+
 async fn call<C: SolCall>(url: &str, call: C, block: &str) -> Result<C::Return> {
     let data: Bytes = serde_json::from_value(
         rpc(
@@ -48,7 +54,7 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
     let mut follower = None;
     let result: Result<()> = async {
         let url = world.l2_rpc();
-        let recipient = Address::with_last_byte(0xf2);
+        let recipient = signer_address(OUTBOUND_USER)?;
         ensure!(
             world.dep.profile.feeCollector == VAULT,
             "profile collector differs from vault"
@@ -76,7 +82,7 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
         let denied = send(
             &world,
             OUTBOUND_USER,
-            IFeeVault::setRecipientCall {
+            IFeeVault::proposeRecipientCall {
                 newRecipient: recipient,
             },
         )
@@ -92,7 +98,7 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
         let rotate = send(
             &world,
             ANVIL_KEY,
-            IFeeVault::setRecipientCall {
+            IFeeVault::proposeRecipientCall {
                 newRecipient: recipient,
             },
         )
@@ -102,12 +108,103 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
             "owner setter failed"
         );
         ensure!(
+            call(&url, IFeeVault::recipientCall {}, "latest").await? == initial_recipient,
+            "proposal changed active recipient before acceptance"
+        );
+        ensure!(
+            call(&url, IFeeVault::pendingRecipientCall {}, "latest").await? == recipient,
+            "recipient proposal missing"
+        );
+        let accepted = send(&world, OUTBOUND_USER, IFeeVault::acceptRecipientCall {}).await?;
+        ensure!(
+            wait_for(SETTLE_TIMEOUT, || receipt_ok(&url, accepted)).await?,
+            "recipient acceptance failed"
+        );
+        ensure!(
             call(&url, IFeeVault::recipientCall {}, "latest").await? == recipient,
             "recipient not rotated"
         );
+        // Exercise the real proxy upgrade in the same offline-proven history.
+        // The contract suite tests migration to a changed storage-compatible V2;
+        // here a fresh implementation tests witness/replay of the code-pointer update.
+        let artifact: Value = serde_json::from_slice(&std::fs::read(
+            repo_root().join("contracts/out/FeeVault.sol/FeeVault.json"),
+        )?)?;
+        let creation: Bytes = serde_json::from_value(artifact["bytecode"]["object"].clone())?;
+        let deploy = sign_and_send(
+            &url,
+            ANVIL_KEY,
+            world.l2_chain_id,
+            onchain_nonce(&url, ANVIL_KEY).await?,
+            None,
+            U256::ZERO,
+            creation.to_vec(),
+            2_000_000,
+        )
+        .await?;
+        ensure!(
+            wait_for(SETTLE_TIMEOUT, || receipt_ok(&url, deploy)).await?,
+            "implementation deployment failed"
+        );
+        let deploy_receipt = rpc(&url, "eth_getTransactionReceipt", json!([deploy])).await?;
+        let implementation: Address =
+            serde_json::from_value(deploy_receipt["contractAddress"].clone())?;
+        let admin_word: B256 = serde_json::from_value(
+            rpc(
+                &url,
+                "eth_getStorageAt",
+                json!([
+                    VAULT,
+                    "0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103",
+                    "latest"
+                ]),
+            )
+            .await?,
+        )?;
+        let admin = Address::from_slice(&admin_word.as_slice()[12..]);
+        let upgrade = sign_and_send(
+            &url,
+            ANVIL_KEY,
+            world.l2_chain_id,
+            onchain_nonce(&url, ANVIL_KEY).await?,
+            Some(admin),
+            U256::ZERO,
+            IProxyAdmin::upgradeAndCallCall {
+                proxy: VAULT,
+                implementation,
+                data: Bytes::new(),
+            }
+            .abi_encode(),
+            150_000,
+        )
+        .await?;
+        ensure!(
+            wait_for(SETTLE_TIMEOUT, || receipt_ok(&url, upgrade)).await?,
+            "proxy upgrade failed"
+        );
+        let upgraded_word: B256 = serde_json::from_value(
+            rpc(
+                &url,
+                "eth_getStorageAt",
+                json!([
+                    VAULT,
+                    "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+                    "latest"
+                ]),
+            )
+            .await?,
+        )?;
+        ensure!(
+            Address::from_slice(&upgraded_word.as_slice()[12..]) == implementation,
+            "implementation was not upgraded"
+        );
+        ensure!(
+            call(&url, IFeeVault::recipientCall {}, "latest").await? == recipient,
+            "upgrade lost recipient"
+        );
         let old_balance = l2_balance(&url, initial_recipient).await?;
         let recipient_before = l2_balance(&url, recipient).await?;
-        let withdrawal = send(&world, OUTBOUND_USER, IFeeVault::withdrawCall {}).await?;
+        let withdrawal = send(&world, ANVIL_KEY, IFeeVault::withdrawCall {}).await?;
         ensure!(
             wait_for(SETTLE_TIMEOUT, || receipt_ok(&url, withdrawal)).await?,
             "permissionless withdrawal failed"
@@ -139,7 +236,7 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
         );
         let payment = IFeeVault::Withdrawal::decode_log_validate(&logs[0])?;
         ensure!(
-            payment.recipient == recipient && payment.caller == signer_address(OUTBOUND_USER)?,
+            payment.recipient == recipient && payment.caller == ANVIL_ADDR,
             "wrong withdrawal destination/caller"
         );
         ensure!(payment.amount > U256::ZERO, "empty fee payment");
@@ -150,6 +247,10 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
         ensure!(
             balance(&url, initial_recipient, height).await? == old_balance,
             "old recipient received fees after rotation"
+        );
+        ensure!(
+            call(&url, IFeeVault::totalWithdrawnCall {}, height).await? == payment.amount,
+            "withdrawal accounting differs from payment event"
         );
         // No ordinary transaction follows the withdrawal in this fixture. Its own
         // fee is credited after execution and remains in the vault for the next payment.
@@ -188,13 +289,27 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
             block == imported,
             "cold follower changed the canonical withdrawal block"
         );
-        for hash in [denied, rotate, withdrawal] {
+        for hash in [denied, rotate, accepted, deploy, upgrade, withdrawal] {
             ensure!(
                 rpc(&url, "eth_getTransactionReceipt", json!([hash])).await?
                     == rpc(&replay, "eth_getTransactionReceipt", json!([hash])).await?,
                 "replayed treasury receipt differs"
             );
         }
+        ensure!(
+            rpc(
+                &replay,
+                "eth_getStorageAt",
+                json!([
+                    VAULT,
+                    "0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
+                    height
+                ])
+            )
+            .await?
+                == serde_json::to_value(upgraded_word)?,
+            "replayed proxy implementation differs"
+        );
         for account in [VAULT, initial_recipient, recipient] {
             ensure!(
                 balance(&url, account, height).await? == balance(&replay, account, height).await?,
@@ -208,6 +323,14 @@ async fn recipient_rotation_withdrawal_and_offline_replay() {
         ensure!(
             call(&replay, IFeeVault::ownerCall {}, height).await? == ANVIL_ADDR,
             "recipient rotation changed owner"
+        );
+        ensure!(
+            call(&replay, IFeeVault::totalWithdrawnCall {}, height).await? == payment.amount,
+            "replayed withdrawal counter differs"
+        );
+        ensure!(
+            call(&replay, IFeeVault::pendingRecipientCall {}, height).await? == Address::ZERO,
+            "replayed recipient proposal was not cleared"
         );
         println!(
             "treasury replay evidence: {}",

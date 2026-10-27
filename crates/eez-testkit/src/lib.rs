@@ -3750,7 +3750,7 @@ pub async fn account_code(rpc_url: &str, addr: Address) -> Result<Bytes> {
 
 pub async fn receipt_ok(rpc_url: &str, hash: alloy_primitives::TxHash) -> Result<Option<bool>> {
     let provider = ProviderBuilder::new().connect_http(rpc_url.parse()?);
-    // Native receipts use type 0x45, outside Ethereum's closed receipt enum.
+    // Native receipts use types 0x45/0x46, outside Ethereum's closed receipt enum.
     let receipt: Option<
         TransactionReceipt<alloy_consensus_any::AnyReceiptEnvelope<alloy_rpc_types_eth::Log>>,
     > = provider

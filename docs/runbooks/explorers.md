@@ -203,3 +203,27 @@ If direct RPC times out in Blockscout, compare a host RPC request with a
 request from the explorer Docker network. Host success plus a container timeout
 indicates a routing/firewall issue; check access from that Docker subnet before
 debugging the indexer.
+
+## RollupX fee accounting
+
+The Docker Compose Blockscout frontend hides `burnt_fees` in block and transaction
+views through `NEXT_PUBLIC_VIEWS_BLOCK_HIDDEN_FIELDS` and
+`NEXT_PUBLIC_VIEWS_TX_HIDDEN_FIELDS`. This uses upstream configuration and requires
+no Blockscout fork. It removes a misleading label; it does not change the backend
+API, add fee-income history, or prove that generic burned-fee totals are correct.
+Apply it through the explorer's normal configured recreation procedure, separately
+from node/signer deployment. Do not restart or replace L2 data to change this UI.
+
+FeeVault receives base fees as direct EVM balance credits. Verifying its proxy and
+active implementation exposes the ABI and governance/payment events, but cannot
+create per-credit events. Show protocol fees as explicit accounting entries,
+computed from ordinary receipts and base fee, excluding native system gas.
+Withdrawals and donations must be accounted for separately; balance differences
+alone are not gross fee income. A complete historical view needs indexer/frontend
+support or a linked dashboard, including reorg handling and historical backfill.
+The installed frontend also supports an address widget configured through
+`NEXT_PUBLIC_ADDRESS_3RD_PARTY_WIDGETS` and
+`NEXT_PUBLIC_ADDRESS_3RD_PARTY_WIDGETS_CONFIG_URL`: a future accounting API can
+supply a summary value and a link to the detailed dashboard without a frontend
+fork. No widget/accounting service is deployed by this configuration change.
+See the [treasury and explorer proposal](../proposals/fee-vault-upgrades.md).

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "rollupId": 1,
   "systemAddress": "0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE",
   "recoveryAddress": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
@@ -7,13 +7,16 @@
   "feeCollector": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078",
   "treasuryOwner": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
   "treasuryRecipient": "0x90f79bf6eb2c4f870365e785982e1f101e93b906",
-  "feeVaultRuntimeCodeHash": "0x09941aa7280e1ab3b701f8d293ca6aa69a7433911b489d640ebbbbcebe1c2c99",
+  "feeVaultRuntimeCodeHash": "0x05ad0b6a7d421a321e10487240f204497d3017e1d01829462cd6c61f802d0dfd",
+  "feeVaultImplementationAddress": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079",
+  "feeVaultProxyAdminAddress": "0xe66b775649b63423bd9d4187d1307f100337489d",
+  "feeVaultImplementationCodeHash": "0xe6f00bbd83ab805d77d6da84c48af9b234db70cd93992080863a971ed22cddbb",
   "useGasLeft": false,
   "eezL2Address": "0x4B2760F84B83d6b3829E30A7573B0172B6d6402C",
   "eezL2ImplementationAddress": "0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA",
   "eezL2ProxyAdminAddress": "0x57BF29A07746a25b87c613e01D5DA49f6119e96c",
   "runtimeCodeHash": "0xab051a3551ca4e94b31ca2569617305294bb85085e787088eff1f4c95a97c625",
   "proxyRuntimeCodeHash": "0x88068de4c46d94b72f5d39f17b5407c958ec6920376ff1dd366995f65564372a",
-  "genesisStateRoot": "0x76df720c92bb7bf7ff3a42031b3af51b9a2db7d91abf2da3a810ca00a89273bf",
+  "genesisStateRoot": "0x1143e2e4dfe4f0b15fce2d7077ca6a641182d7b13b06f59e626759d08335c1bf",
   "foundryVersion": "1.7.1"
 }

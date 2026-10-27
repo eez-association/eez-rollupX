@@ -9,7 +9,7 @@ contract L1HistoryFixture is L1BlockhashContract {
         firstNumber = first;
         endpoint = first;
         hashes[first] = keccak256(abi.encode(first));
-        nextCutoff = cutoff;
+        firstCutoff = cutoff;
         interval = period;
         updateDelay = delay;
         maxImportHeaders = bound;
@@ -43,8 +43,7 @@ contract L1BlockhashContractTest is Test {
             assertEq(history.getL1BlockHash(i), keccak256(abi.encode(i)));
         }
         vm.warp(138);
-        vm.prank(system);
-        history.importHistory(132, new bytes32[](0));
+        // Omitted updates make no call and preserve the imported endpoint.
         (number, hash) = history.current();
         assertEq(number, 102);
         assertEq(hash, history.getL1BlockHash(102));
@@ -70,17 +69,20 @@ contract L1BlockhashContractTest is Test {
         history.importHistory(120, list(1));
     }
 
-    function testEmptyImportAdvancesAndDuplicateRejects() public {
+    function testEmptyImportRejectsAndLaterEligibleImportNeedsNoIntermediateCalls() public {
         vm.prank(system);
+        vm.expectRevert(L1BlockhashContract.InvalidHistoryImportLength.selector);
         history.importHistory(120, new bytes32[](0));
+        vm.warp(162);
         vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryPosition.selector);
-        history.importHistory(120, new bytes32[](0));
-        vm.warp(138);
-        vm.prank(system);
-        history.importHistory(132, list(1));
+        history.importHistory(156, list(1));
         (uint64 number,) = history.current();
         assertEq(number, 100);
+        assertEq(uint256(vm.load(address(history), bytes32(uint256(3)))), 120);
+        vm.warp(163);
+        vm.prank(system);
+        vm.expectRevert(L1BlockhashContract.InvalidHistoryPosition.selector);
+        history.importHistory(157, list(1));
     }
 
     function testMalformedAndOversizedImportsRollback() public {
@@ -94,7 +96,7 @@ contract L1BlockhashContractTest is Test {
         vm.expectRevert(abi.encodeWithSelector(L1BlockhashContract.L1BlockNotImported.selector, uint64(100)));
         history.getL1BlockHash(100);
         vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.HistoryImportTooLarge.selector);
+        vm.expectRevert(L1BlockhashContract.InvalidHistoryImportLength.selector);
         history.importHistory(120, list(65));
         vm.prank(system);
         history.importHistory(120, list(64));
@@ -112,7 +114,7 @@ contract L1BlockhashContractTest is Test {
         history.getL1BlockHash(100);
     }
 
-    function testEndpointAndCutoffOverflowReject() public {
+    function testEndpointOverflowRejectsAndFinalEligibleCutoffNeedsNoSuccessor() public {
         L1HistoryFixture full = new L1HistoryFixture(type(uint64).max, 120, 12, 6, 64);
         vm.prank(system);
         vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
@@ -121,7 +123,8 @@ contract L1BlockhashContractTest is Test {
         full = new L1HistoryFixture(99, lastCutoff, 12, 6, 64);
         vm.warp(type(uint64).max);
         vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
-        full.importHistory(lastCutoff, new bytes32[](0));
+        full.importHistory(lastCutoff, list(1));
+        (uint64 number,) = full.current();
+        assertEq(number, 100);
     }
 }

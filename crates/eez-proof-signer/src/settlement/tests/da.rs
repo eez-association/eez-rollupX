@@ -87,7 +87,11 @@ fn fixture_semantics(
 fn fixture_sources(semantics: &[eez_protocol::blob_semantics::SemanticTransaction]) -> Vec<B256> {
     eez_protocol::blob_semantics::ReconstructionActions::from_semantics(semantics, RollupId(1), 1)
         .unwrap()
-        .source_hashes(&crate::testkit::native_source_context())
+        .source_entries(&crate::testkit::native_source_context())
+        .unwrap()
+        .into_iter()
+        .map(eez_protocol::native_source::SourceEntry::hash)
+        .collect()
 }
 
 #[test]
@@ -198,10 +202,9 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
         &[(sidecar.clone(), Bytes::from(user.clone()))],
         &[],
         &system_transaction_context(),
-        &sources,
     )
     .unwrap();
-    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs);
+    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs, &sources);
     let transactions = raw_transactions
         .iter()
         .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
@@ -250,10 +253,9 @@ fn da_payload_binds_outbound_sidecars_users_and_system_loads() {
         &[(sidecar.clone(), Bytes::from(user))],
         &[],
         &noncanonical_context,
-        &sources,
     )
     .unwrap();
-    let wrong_transactions = crate::testkit::resolve_synthetic_plans(&wrong_pairs)
+    let wrong_transactions = crate::testkit::resolve_synthetic_plans(&wrong_pairs, &sources)
         .into_iter()
         .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
         .collect::<Vec<_>>();
@@ -301,10 +303,9 @@ fn da_payload_binds_multiple_outbound_pairs_to_original_sources() {
         &outbound_inputs,
         &[],
         &system_transaction_context(),
-        &sources,
     )
     .unwrap();
-    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs);
+    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs, &sources);
     let first_load: TransactionSigned =
         TransactionSigned::decode_2718_exact(raw_transactions[0].as_ref()).unwrap();
     let second_load: TransactionSigned =
@@ -346,7 +347,7 @@ fn da_payload_binds_multiple_outbound_pairs_to_original_sources() {
     // These mutations preserve a canonical envelope. Exact reconstruction must
     // reject them rather than replacing the occurrence or position gas with
     // the expected value. The complete synthetic prefix uses zero receipt gas.
-    for change_source in [false, true] {
+    for mutation in 0..3 {
         let mut transactions = raw_transactions
             .iter()
             .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())
@@ -355,10 +356,11 @@ fn da_payload_binds_multiple_outbound_pairs_to_original_sources() {
             panic!("second native load");
         };
         let mut native = native.into_inner();
-        if change_source {
-            native.source_hash = sources[0];
-        } else {
-            native.gas_limit -= 1;
+        match mutation {
+            0 => native.gas_limit -= 1,
+            1 => native.source_hash = sources[0], // Reset ordinal duplicates the earlier group.
+            2 => native.source_hash = crate::testkit::native_source_context().entry(2).hash(), // Skipping an ordinal is also invalid.
+            _ => unreachable!(),
         }
         transactions[2] = native.into();
         let wrong_block = block_rlp(transactions);
@@ -376,10 +378,9 @@ fn da_payload_binds_multiple_outbound_pairs_to_original_sources() {
         &outbound_inputs,
         &[],
         &noncanonical_context,
-        &sources,
     )
     .unwrap();
-    let wrong_transactions = crate::testkit::resolve_synthetic_plans(&wrong_pairs);
+    let wrong_transactions = crate::testkit::resolve_synthetic_plans(&wrong_pairs, &sources);
     let mut mutated_second_load = raw_transactions;
     mutated_second_load[2] = wrong_transactions[2].clone();
     let wrong_block = block_rlp(
@@ -449,10 +450,9 @@ fn da_payload_reconstructs_whole_grouped_roots() {
         &[group],
         &[],
         &system_transaction_context(),
-        &sources,
     )
     .unwrap();
-    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs);
+    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs, &sources);
     let settling_rlp = block_rlp(
         raw_transactions
             .iter()
@@ -537,10 +537,9 @@ fn da_payload_binds_the_complete_mixed_sync_sequence_and_action_order() {
         &[(outbound_sidecar.clone(), Bytes::from(user.clone()))],
         &[eez_protocol::entries::InboundSidecar::try_from(&inbound_sidecar).unwrap()],
         &system_transaction_context(),
-        &sources,
     )
     .unwrap();
-    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs);
+    let raw_transactions = crate::testkit::resolve_synthetic_plans(&pairs, &sources);
     let transactions = raw_transactions
         .iter()
         .map(|raw| TransactionSigned::decode_2718_exact(raw.as_ref()).unwrap())

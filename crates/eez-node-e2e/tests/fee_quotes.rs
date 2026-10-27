@@ -2,6 +2,7 @@
 //! independent follower replay. No quoted bytes are submitted before signing.
 
 mod calldata;
+mod mixed;
 mod poster_funding;
 pub(super) mod replay_validation;
 mod tracing;
@@ -1005,23 +1006,37 @@ async fn nested_quote_roundtrip(
             continue;
         };
         assert!(post.status());
-        if enforced {
-            assert_eq!(
-                observation["l1"]["companion_count"], 0,
-                "unpaid inbound costs must be settled separately"
+        let estimated_gas = quote["estimate"]["l1Gas"].as_u64().unwrap();
+        if observation["l1"]["companion_count"] == 0 {
+            assert!(
+                estimated_gas.abs_diff(post.gas_used) <= 1_000,
+                "the fee must price executed settlement, not admission reserves: quote={estimated_gas}, receipt={}",
+                post.gas_used
+            );
+        } else if enforced {
+            assert_eq!(event["detail"]["l2_tariff"]["scope"], "standalone_outbound");
+            let standalone_gas = event["detail"]["l2_tariff"]["gas_used"].as_u64().unwrap();
+            assert!(
+                estimated_gas.abs_diff(standalone_gas) <= 1_000,
+                "the quote must price the outbound-only execution: quote={estimated_gas}, standalone={standalone_gas}"
+            );
+            let required = U256::from_str_radix(
+                event["detail"]["l2_tariff"]["minimum_l2_payment"]
+                    .as_str()
+                    .unwrap(),
+                10,
+            )
+            .unwrap();
+            assert!(
+                paid_tip >= required,
+                "mixed settlement retains L2 cost/risk coverage"
             );
         }
-        let estimated_gas = quote["estimate"]["l1Gas"].as_u64().unwrap();
-        assert!(
-            estimated_gas.abs_diff(post.gas_used) <= 1_000,
-            "the fee must price executed settlement, not admission reserves: quote={estimated_gas}, receipt={}",
-            post.gas_used
-        );
         assert_eq!(
             quote["estimate"]["blobs"].as_u64().unwrap() * alloy_eips::eip4844::DATA_GAS_PER_BLOB,
             post.blob_gas_used.unwrap()
         );
-        if margin.is_some() {
+        if margin.is_some() && observation["l1"]["companion_count"] == 0 {
             assert_eq!(
                 observation["pricing"]["cost_coverage"], "covered",
                 "{observation}"

@@ -3,14 +3,13 @@
 
 use alloy_consensus::{Transaction, TxEnvelope};
 use alloy_eips::{Decodable2718, Encodable2718};
-use alloy_primitives::{B256, keccak256};
 use alloy_sol_types::SolValue;
 use reth_primitives_traits::SignerRecoverable;
 
 use super::SemanticTransaction;
 use crate::abi::ExecutionEntrySol;
 use crate::entries::{InboundSidecar, finalize_l1_entry_traces};
-use crate::native_source::{LiveSourceContext, SourcePosition};
+use crate::native_source::{LiveSourceContext, SourceEntry};
 use crate::system_tx::{OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup};
 use crate::{Composition, EvmBatch, RollupId};
 
@@ -57,8 +56,6 @@ pub struct ReconstructionActions {
     rollup: RollupId,
     outbound: Vec<OutboundSyncGroup>,
     inbound: Vec<InboundSidecar>,
-    outbound_manifest_indices: Vec<u64>,
-    inbound_positions: Vec<SourcePosition>,
     compositions: Vec<Composition>,
 }
 
@@ -77,14 +74,10 @@ impl ReconstructionActions {
             rollup,
             outbound: Vec::new(),
             inbound: Vec::new(),
-            outbound_manifest_indices: Vec::new(),
-            inbound_positions: Vec::new(),
             compositions: Vec::new(),
         };
         let mut inbound_started = false;
-        for (manifest_index, transaction) in transactions.iter().enumerate() {
-            let manifest_index = u64::try_from(manifest_index)
-                .map_err(|_| ReconstructionError::Table("manifest index exceeds uint64"))?;
+        for transaction in transactions {
             if transaction.actions.is_empty() {
                 return Err(ReconstructionError::EmptyTransaction);
             }
@@ -100,7 +93,7 @@ impl ReconstructionActions {
             } else {
                 return Err(ReconstructionError::Origin(transaction.origin_chain.0));
             };
-            // Failed/reverted roots still occupy original positions. They may
+            // Failed/reverted roots still require semantic validation. They may
             // not smuggle a foreign chain through an empty materialized target.
             if transaction.actions.iter().any(|action| {
                 [action.source_rollup_id, action.target_rollup_id]
@@ -162,7 +155,18 @@ impl ReconstructionActions {
                     effects,
                     user_tx: transaction.tx_data.clone(),
                 });
-                result.outbound_manifest_indices.push(manifest_index);
+                let hosts = composition
+                    .targets
+                    .iter()
+                    .filter(|target| target.rollup_id.is_mainnet())
+                    .flat_map(|target| &target.batch.entries)
+                    .take(2)
+                    .count();
+                if hosts != 1 {
+                    return Err(ReconstructionError::Table(
+                        "outbound bracket requires one settlement host",
+                    ));
+                }
             } else {
                 if !composition.source.l2_static_entries.is_empty() {
                     return Err(ReconstructionError::Table(
@@ -175,16 +179,26 @@ impl ReconstructionActions {
                     .actions
                     .iter()
                     .enumerate()
-                    .filter(|(_, action)| action.parent_index.is_none())
-                    .enumerate()
-                    .filter(|(_, (index, _))| applied[*index])
+                    .filter(|(_, action)| {
+                        action.parent_index.is_none()
+                            && action.call_mode == crate::CallMode::Mutable
+                    })
+                    .collect::<Vec<_>>();
+                if roots.len() != composition.source.batch.entries.len() {
+                    return Err(ReconstructionError::Table(
+                        "mutable root/settlement row count differs",
+                    ));
+                }
+                let roots = roots
+                    .into_iter()
+                    .filter(|(index, _)| applied[*index])
                     .collect::<Vec<_>>();
                 if roots.len() != deliveries.len() {
                     return Err(ReconstructionError::Table(
                         "inbound root/delivery count differs",
                     ));
                 }
-                for ((root_index, (_, action)), delivery) in roots.into_iter().zip(deliveries) {
+                for ((_, action), delivery) in roots.into_iter().zip(deliveries) {
                     let call_hash = crate::common_cross_chain_call_hash(crate::CallHashInput {
                         call_mode: action.call_mode,
                         source_address: action.source_address,
@@ -199,11 +213,6 @@ impl ReconstructionActions {
                             "inbound root/delivery identity differs",
                         ));
                     }
-                    result.inbound_positions.push(SourcePosition {
-                        manifest_index,
-                        top_level_call_index: u64::try_from(root_index)
-                            .map_err(|_| ReconstructionError::Table("root index exceeds uint64"))?,
-                    });
                     result.inbound.push(delivery);
                 }
             }
@@ -223,23 +232,24 @@ impl ReconstructionActions {
         &self.inbound
     }
 
-    /// Native source hashes in the same outbound-then-inbound order as the
-    /// reconstruction. Derive these before selecting any consumed suffix:
-    /// every stored position belongs to the original complete stream.
-    /// This operation does not authenticate the supplied live context.
-    pub fn source_hashes(&self, context: &LiveSourceContext) -> Vec<B256> {
+    /// Whole-group ordinals from the complete Live Sync stream, before any
+    /// consumed-prefix filtering. Every outbound bracket counts once; only
+    /// applying inbound deliveries count. Full DA/execution and accepted-root
+    /// checks authenticate this sequence across postings in the same L1 block.
+    pub fn source_entries(
+        &self,
+        context: &LiveSourceContext,
+    ) -> Result<Vec<SourceEntry>, ReconstructionError> {
         self.outbound
             .iter()
-            .zip(&self.outbound_manifest_indices)
-            .map(|(group, &index)| context.outbound(index, keccak256(&group.user_tx)))
-            .chain(
-                self.inbound
-                    .iter()
-                    .zip(&self.inbound_positions)
-                    .map(|(delivery, &position)| {
-                        context.inbound(position, delivery.as_abi_entry().proxyEntryHash)
-                    }),
-            )
+            .map(|_| ())
+            .chain(self.inbound.iter().map(|_| ()))
+            .enumerate()
+            .map(|(index, ())| {
+                let index = u64::try_from(index)
+                    .map_err(|_| ReconstructionError::Table("group index exceeds uint64"))?;
+                Ok(context.entry(index))
+            })
             .collect()
     }
 

@@ -88,8 +88,8 @@ impl EezEthApiBuilder {
                 .and_then(|context @ (timestamp, _)| {
                     let history = l1_head.derivation_schedule()?.history()?;
                     // Reth's derived pending call uses the parent's state; its
-                    // environment builder cannot apply the mandatory import.
-                    // Reject even a repeated source, whose schedule must advance.
+                    // environment builder cannot apply a possible nonempty import.
+                    // Only the executed-prefix adapter can safely serve that boundary.
                     if history.source_cutoff(parent.timestamp)?
                         != history.source_cutoff(timestamp)?
                     {
@@ -425,9 +425,9 @@ mod tests {
     }
 
     #[test]
-    fn pending_prefix_executes_import_and_repeat_with_matching_randao_and_cutoff() {
+    fn pending_prefix_executes_optional_import_with_matching_randao_and_fixed_phase() {
         use eez_protocol::l1_history::{
-            HISTORY_ADDRESS, HeaderChain, HeaderRules, NEXT_CUTOFF_SLOT, WitnessHistory,
+            FIRST_CUTOFF_SLOT, HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory,
         };
         use reth_evm::Evm;
         use revm::{Database, context::TxEnv};
@@ -475,10 +475,7 @@ mod tests {
             let selected = usize::from(count != 1 && parent_number == 2);
             assert_eq!(history.endpoint, selected as u64);
             assert_eq!(history.endpoint_hash, blocks[selected].header.hash);
-            assert_eq!(
-                history.next_cutoff,
-                if parent_number == 2 { 1008 } else { 1004 }
-            );
+            assert_eq!(history.first_cutoff, 1004);
             assert_eq!(
                 env.block_env.timestamp,
                 alloy_primitives::U256::from(parent.timestamp + 1)
@@ -539,7 +536,7 @@ mod tests {
                 original
                     .storage(
                         HISTORY_ADDRESS,
-                        alloy_primitives::U256::from(NEXT_CUTOFF_SLOT)
+                        alloy_primitives::U256::from(FIRST_CUTOFF_SLOT)
                     )
                     .unwrap(),
                 alloy_primitives::U256::from(1004)
@@ -549,7 +546,7 @@ mod tests {
 
     #[tokio::test]
     async fn pending_prefix_rejects_bad_parent_state_and_freezes_evidence() {
-        use eez_protocol::l1_history::{HISTORY_ADDRESS, NEXT_CUTOFF_SLOT};
+        use eez_protocol::l1_history::{FIRST_CUTOFF_SLOT, HISTORY_ADDRESS};
         use revm::Database;
         let blocks = l1_blocks(false);
         let spec = profile(&blocks[0]);
@@ -576,10 +573,10 @@ mod tests {
             executed
                 .storage(
                     HISTORY_ADDRESS,
-                    alloy_primitives::U256::from(NEXT_CUTOFF_SLOT)
+                    alloy_primitives::U256::from(FIRST_CUTOFF_SLOT)
                 )
                 .unwrap(),
-            alloy_primitives::U256::from(1008)
+            alloy_primitives::U256::from(1004)
         );
         let mut corrupt = pending_genesis_db(&spec);
         corrupt
@@ -592,7 +589,7 @@ mod tests {
             .unwrap()
             .storage
             .insert(
-                alloy_primitives::U256::from(NEXT_CUTOFF_SLOT),
+                alloy_primitives::U256::from(FIRST_CUTOFF_SLOT),
                 alloy_primitives::U256::from(999),
             );
         let error = super::pending::execute_prefix(&frozen, &parent, corrupt)

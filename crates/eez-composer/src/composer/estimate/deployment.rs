@@ -35,10 +35,10 @@ const REGISTRY: Code = Code {
     hash: b256!("4002bf893eb71b85237faebb323218a4c9a1e33b77535639241e00feace3b650"),
 };
 const OFFLINE_ROLLUP: Code = Code {
-    length: 6563,
-    immutables: &[475, 3527, 4134, 5213],
+    length: 6610,
+    immutables: &[486, 3547, 4181, 5260],
     metadata_hashes: &[],
-    hash: b256!("6b9df8572bc9ddbd8e1b48e9de158da7d79e6033060979c1bd3bbb5166d3493f"),
+    hash: b256!("398d32e08ad0060ec5000b10038f74b5889078de9496ee688aefc406c335180f"),
 };
 // contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {

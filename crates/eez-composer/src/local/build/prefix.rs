@@ -13,7 +13,6 @@ struct Checkpoint {
     block_regular_gas_used: u64,
     block_state_gas_used: u64,
     blob_gas_used: u64,
-    hash: B256,
 }
 
 /// Reuses execution only inside one candidate's immutable block environment.
@@ -28,7 +27,11 @@ pub(crate) struct SyncPrefixHashes<'a> {
     recipient: Address,
     raw: Vec<Bytes>,
     checkpoint: Option<Checkpoint>,
+    // Source preparation can run ahead of effect-hash requests within a bracket.
+    // Retain scalar hashes of complete prefixes without rewinding the latest state.
+    hashes: std::collections::BTreeMap<usize, B256>,
     pub(crate) executed_transactions: usize,
+    pub(crate) elapsed: std::time::Duration,
 }
 
 impl<'a> SyncPrefixHashes<'a> {
@@ -91,7 +94,9 @@ impl<'a> SyncPrefixHashes<'a> {
             recipient,
             raw: Vec::new(),
             checkpoint: None,
+            hashes: Default::default(),
             executed_transactions: 0,
+            elapsed: std::time::Duration::ZERO,
         }
     }
 
@@ -120,16 +125,27 @@ impl<'a> SyncPrefixHashes<'a> {
     fn clear(&mut self) {
         self.checkpoint = None;
         self.raw.clear();
+        self.hashes.clear();
     }
 
     pub(crate) fn prefix(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
-        if !transactions.starts_with(&self.raw) {
+        let started = std::time::Instant::now();
+        let result = self.prefix_inner(transactions);
+        self.elapsed += started.elapsed();
+        if result.is_err() {
             self.clear();
         }
-        if transactions.len() == self.raw.len()
-            && let Some(checkpoint) = &self.checkpoint
+        result
+    }
+
+    fn prefix_inner(&mut self, transactions: &[Bytes]) -> Result<B256, BuildError> {
+        if self.raw.starts_with(transactions)
+            && let Some(hash) = self.hashes.get(&transactions.len())
         {
-            return Ok(checkpoint.hash);
+            return Ok(*hash);
+        }
+        if !transactions.starts_with(&self.raw) {
+            self.clear();
         }
 
         let checkpoint = self.checkpoint.take();
@@ -211,7 +227,7 @@ impl<'a> SyncPrefixHashes<'a> {
             self.provider,
             self.parent.hash(),
         )?;
-        let mut next = Checkpoint {
+        let next = Checkpoint {
             state,
             transactions: builder.transactions.clone(),
             receipts: builder.executor.receipts.clone(),
@@ -219,7 +235,6 @@ impl<'a> SyncPrefixHashes<'a> {
             block_regular_gas_used: builder.executor.block_regular_gas_used,
             block_state_gas_used: builder.executor.block_state_gas_used,
             blob_gas_used: builder.executor.blob_gas_used,
-            hash: B256::ZERO,
         };
         let provider = self
             .provider
@@ -228,10 +243,10 @@ impl<'a> SyncPrefixHashes<'a> {
         let outcome = builder
             .finish(provider.as_ref(), None)
             .map_err(|e| BuildError::Builder(format!("prefix finish: {e}")))?;
-        next.hash = outcome.block.header().hash_slow();
-        let hash = next.hash;
+        let hash = outcome.block.header().hash_slow();
         self.raw = transactions.to_vec();
         self.checkpoint = Some(next);
+        self.hashes.insert(transactions.len(), hash);
         Ok(hash)
     }
 }

@@ -1,0 +1,281 @@
+{
+  "schema": 1,
+  "source_commit": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+  "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "ci": {
+    "run_id": 40310619100,
+    "attempt": 2,
+    "conclusion": "success",
+    "successful_jobs": 14
+  },
+  "images": {
+    "node": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-node@sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+      "image_id": "sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1"
+    },
+    "signer": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:2373bbcead6df61787a177e2e13e1a2a37449f0c93c32ae79c43d31cb1d2cf9a",
+      "image_id": "sha256:2373bbcead6df61787a177e2e13e1a2a37449f0c93c32ae79c43d31cb1d2cf9a"
+    },
+    "deploy": {
+      "reference": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:7466f93ec56315428a2c597157c2d47853492b1108090e7b5aef6c1656d3a30c",
+      "image_id": "sha256:7466f93ec56315428a2c597157c2d47853492b1108090e7b5aef6c1656d3a30c"
+    }
+  },
+  "running_artifacts": [
+    {
+      "container": "eez-node-chiado",
+      "image": "sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "binary": "eez-composer",
+      "sha256": "a2c92bf6dc956a78156b8d7fb8c4a29d9491ae41429f51d4e8cacb3ac19fc6fc",
+      "started_at": "2026-10-26T12:44:46.141267599Z",
+      "restart_count": 0
+    },
+    {
+      "container": "eez-proof-signer-chiado",
+      "image": "sha256:2373bbcead6df61787a177e2e13e1a2a37449f0c93c32ae79c43d31cb1d2cf9a",
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "binary": "eez-proof-signer",
+      "sha256": "43680285f6ab00260e91201bf80d545a3b332a2094ab6a525135176b8a52c1cf",
+      "started_at": "2026-10-26T12:44:40.541076466Z",
+      "restart_count": 0
+    },
+    {
+      "container": "rog-916969-validation-follower",
+      "image": "sha256:baa5bd9b469a834a8a0147551fb6f44a0b615d26f79ddd3705ebf7bd67d41ec1",
+      "source": "9e3599abf2f1f08c4bcfff41f496f3365b5c4561",
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "binary": "eez-follower",
+      "sha256": "6b126905227068416657a23dccb7d0af258a9f70d4a378801dfc328abe5767ab",
+      "started_at": "2026-10-26T12:48:00.082406675Z",
+      "restart_count": 0
+    }
+  ],
+  "live_smoke": {
+    "passed": true,
+    "cross_chain_sources": 8,
+    "inbound": 4,
+    "outbound": 4,
+    "posts": 4,
+    "both_fee_directions_enabled": true,
+    "same_l1_block_both_directions": 23700344,
+    "dropped_attempts": 2,
+    "semantic_assertions": true,
+    "test_actor_funding_each_native": "0.006"
+  },
+  "independent_replay": {
+    "passed": true,
+    "start_block": 49940,
+    "end_block": 50430,
+    "compared_blocks": 491,
+    "compared_receipts": 117,
+    "canonical_l1_commitment": "0xe840b1936701751b53eec34d1ff0c7d09efe5e6144fbc6d0ca0c413cbe940f97",
+    "header_fields": [
+      "hash",
+      "parentHash",
+      "number",
+      "stateRoot",
+      "transactionsRoot",
+      "receiptsRoot",
+      "mixHash",
+      "timestamp",
+      "gasUsed",
+      "gasLimit",
+      "baseFeePerGas",
+      "transactions"
+    ],
+    "one_second_timestamp_steps": true,
+    "follower_source": "L1 and Beacon only; resumed independently retained state; P2P disabled"
+  },
+  "public_ingress": {
+    "restored_at": "2026-10-26T12:53:35.074593+00:00",
+    "public_ingress_maintenance_seconds": 573.11491,
+    "original_configuration_exactly_restored": true
+  },
+  "public_health": {
+    "at": "2026-10-26T12:53:36.078627+00:00",
+    "checks": [
+      {
+        "path": "/rpc/l1",
+        "http_status": 200,
+        "chain_id": 10200
+      },
+      {
+        "path": "/rpc/l2",
+        "http_status": 200,
+        "chain_id": 916969
+      },
+      {
+        "path": "/composer/l1",
+        "http_status": 200,
+        "chain_id": 10200
+      },
+      {
+        "path": "/composer/l2",
+        "http_status": 200,
+        "chain_id": 916969
+      },
+      {
+        "path": "/dashboard/",
+        "http_status": 200
+      },
+      {
+        "path": "/explorer/",
+        "http_status": 200
+      },
+      {
+        "path": "/blobscan/",
+        "http_status": 200
+      }
+    ]
+  },
+  "preserved_bindings": {
+    "unchanged": true,
+    "sha256": {
+      "deployments.env": "56a363e73bd26c66270d8ddb0b4d3c17055760ae1cd8a37b2137007887e88a95",
+      "datadir/genesis.json": "b143b9efaeaa2abe1926fd5aeb2750587841b4403794666c768d605754e36a57",
+      "datadir/genesis.profile.json": "fd5a7c0fad6dc5be4e42d382380157c368ff8835ab1b4eb335ff4b3736a69375"
+    }
+  },
+  "final_health": {
+    "at": "2026-10-26T13:01:14.714662+00:00",
+    "l2_chain_id": 916969,
+    "l2_head_before": 51046,
+    "l2_head_after": 51049,
+    "l1_syncing": false,
+    "l2_syncing": false,
+    "queue": {
+      "blocked": 0,
+      "blockedReasons": {},
+      "evaluatedAtMs": 1793019052281,
+      "inFlight": 0,
+      "lastCanonicalCompletion": {
+        "l1Block": {
+          "hash": "0x9e25a16416b361f1f53d995c609d934e463fce901a22479323c6aa34cef2333c",
+          "number": 23700347
+        },
+        "observedAtMs": 1793019057255
+      },
+      "oldestPendingAgeMs": null,
+      "oldestServiceAgeMs": null,
+      "queued": 0,
+      "ready": 0,
+      "sourceState": {
+        "l1": {
+          "hash": "0x2bbb2d6c9d2f3db98193c53edef8bc2f14fa83ae7cfc3c49b0425f044c1fea95",
+          "number": 23700346
+        },
+        "l2": {
+          "hash": "0x70c7f637e815c60bd37346587721ad1d7dc9740c3d8c8675a46b882a2776b406",
+          "number": 50429
+        }
+      },
+      "unknown": 0
+    },
+    "core_restarts": {
+      "/eez-node-chiado": 0,
+      "/eez-proof-signer-chiado": 0,
+      "/eez-chiado-lighthouse": 0
+    },
+    "signer_healthy": true,
+    "lighthouse_process_preserved": true
+  },
+  "evidence_availability": "Raw evidence local-only in implementation worktree artifacts/rog-upgrade-9e3599ab; CI and GHCR digests retrievable subject to provider retention. This summary is a post-deployment record; not part of the deployed source commit.",
+  "local_records": [
+    {
+      "path": "ci-final.json",
+      "sha256": "5ee897f62c8c2b6487055f2c4b87634af60cc68116ad37957ded8ed800a623e3",
+      "bytes": 24939
+    },
+    {
+      "path": "runtime/manifest.json",
+      "sha256": "84e7d3498f66644b1d138d2db4240c9b006e14499e91a826834026e7522d9257",
+      "bytes": 1700
+    },
+    {
+      "path": "running-artifact-identity.json",
+      "sha256": "7c9bd7f312a587b92c8b5e695ec1219b662963dadceb93ffb3f66cd1f5fa1933",
+      "bytes": 1344
+    },
+    {
+      "path": "before.json",
+      "sha256": "37aa91e9e7b3a1a5bfb2a15cb5cc08a176e875f1fbe0d0c16c567cbf6fc14435",
+      "bytes": 28088
+    },
+    {
+      "path": "stopped.json",
+      "sha256": "fc680f31dc40c2136fe33c8ed7d85877bec18ff6ff04289b07ea81f71810c32d",
+      "bytes": 665
+    },
+    {
+      "path": "node-before-stop.log",
+      "sha256": "7b0e2431f759e2980abab71037828f1a8d9cf7f2b9010115ea2d279885118cca",
+      "bytes": 896925
+    },
+    {
+      "path": "signer-before-stop.log",
+      "sha256": "59b723675dcd0fa8de70b8fdcaf32500595ae1fee31a1bd45d2cbc4f0603be8a",
+      "bytes": 154331
+    },
+    {
+      "path": "mixed-smoke/run.log",
+      "sha256": "8335ac4865da371e43765368ea170effad024e8fe1febb40e88af179b714d387",
+      "bytes": 4133
+    },
+    {
+      "path": "mixed-smoke/run.exit",
+      "sha256": "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa",
+      "bytes": 2
+    },
+    {
+      "path": "mixed-smoke/first-preflight-failure.txt",
+      "sha256": "77af6f7fdc367c0702ee9b86cc4a731c4813659ce8d039ca4358dd37de8caeb9",
+      "bytes": 166
+    },
+    {
+      "path": "independent-replay.json",
+      "sha256": "c370f4ec13f326c8e593b2dd122a214a174c559aa5a3ea05aa94f87760009209",
+      "bytes": 12442
+    },
+    {
+      "path": "smoke-inclusion-groups.json",
+      "sha256": "b90689c416201c58f752633004546298918eca01232f8c458e9ec900a516e767",
+      "bytes": 1511
+    },
+    {
+      "path": "gateway-restored.json",
+      "sha256": "6d2084aad429349a103a154e6a211471402f30cba43fed673a0733674a80f13a",
+      "bytes": 158
+    },
+    {
+      "path": "public-health.json",
+      "sha256": "874425a7b82386450084a4d7d1e2a8b8bac88246fae09bd421e8112f2f28668a",
+      "bytes": 628
+    },
+    {
+      "path": "preserved-bindings.json",
+      "sha256": "296cbe7f4bed7111e36026da88e72c5fa5b05cae5cc05b2c91518b2dc3fc13f3",
+      "bytes": 333
+    },
+    {
+      "path": "follower-cleanup.json",
+      "sha256": "b197c4cb5e9cbf4dcbb5c3b53610e9dfac72beb08940ceaf875641014bb1ecd0",
+      "bytes": 141
+    },
+    {
+      "path": "final-health.json",
+      "sha256": "df2ca30f043252c81011b0c73ebe9e749921087fb5479b4529840114bacd5ff3",
+      "bytes": 1101
+    }
+  ],
+  "limits": [
+    "No sustained-load benchmark or rerun of the earlier 770-job workload",
+    "Follower resumed separately retained state; not a fresh-genesis bootstrap in this operation",
+    "Receipts canonical at read; finality not established for every smoke receipt",
+    "Backups retained; restore and rollback not rehearsed",
+    "No durable in-memory queue recovery claim"
+  ]
+}

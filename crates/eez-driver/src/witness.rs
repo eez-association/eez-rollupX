@@ -141,7 +141,7 @@ fn capture_history<P: StateProviderFactory>(
     config: &EezEvmConfig,
     block: &RecoveredBlock<Block>,
 ) -> eyre::Result<(EezEvmConfig, Vec<Bytes>)> {
-    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS, decode_import};
+    use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
     let header = block.header();
     let state = provider.state_by_block_hash(header.parent_hash)?;
     let first = u64::try_from(
@@ -150,9 +150,7 @@ fn capture_history<P: StateProviderFactory>(
             .unwrap_or_default(),
     )?;
     let count = match block.body().transactions.first() {
-        Some(eez_primitives::EezTxEnvelope::System(tx)) if tx.to == HISTORY_ADDRESS => {
-            decode_import(&tx.input)?.hashes.len() as u64
-        }
+        Some(eez_primitives::EezTxEnvelope::History(tx)) => tx.hashes.len() as u64,
         _ => 0,
     };
     let last = first
@@ -561,8 +559,8 @@ mod tests {
         assert_eq!(target[2], Bytes::from_static(b"c"));
     }
 
-    /// An empty block 2 over a mock provider, whose parent is the pin for
-    /// observations scheduled before its first transaction.
+    /// A history-only block 2 over a mock provider, whose parent is the pin
+    /// for observations scheduled before its first transaction.
     fn observation_fixture() -> (MockEthProvider, EezEvmConfig, RecoveredBlock<Block>, B256) {
         use eez_protocol::l1_history::{
             HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
@@ -572,9 +570,15 @@ mod tests {
             timestamp: 964,
             ..Default::default()
         };
-        let endpoint = Header {
+        let imported = Header {
             number: 1,
             parent_hash: reference.hash_slow(),
+            timestamp: 976,
+            ..Default::default()
+        };
+        let endpoint = Header {
+            number: 2,
+            parent_hash: imported.hash_slow(),
             timestamp: 2_000,
             ..Default::default()
         };
@@ -609,6 +613,7 @@ mod tests {
             .append(
                 &[
                     alloy_rlp::encode(reference).into(),
+                    alloy_rlp::encode(imported).into(),
                     alloy_rlp::encode(endpoint).into(),
                 ],
                 &HeaderRules {
@@ -618,7 +623,7 @@ mod tests {
                     prague_time: None,
                     unsupported_time: None,
                 },
-                2,
+                3,
             )
             .unwrap();
         let evm_config = EezEvmConfig::new(Arc::clone(&chain_spec))

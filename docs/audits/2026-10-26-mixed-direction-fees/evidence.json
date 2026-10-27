@@ -1,0 +1,67 @@
+{
+  "implementation_commit": "1eff1be2468de0781e42efb10a986f68c24f7c34",
+  "base_commit": "c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "candidate_image": "sha256:4dd7340f550efe679f70ed595957549470df71d70efe67c4e1da2a1e34b72426",
+  "candidate_composer_sha256": "a0adba4f2b7e4bb967ab033a9564a64488173db942831da722663af56ebcb28d",
+  "candidate_follower_sha256": "0eaa898c649dc3e7b27557ef9ba45460abc09a7b83e800cd3f45b6aa881a8ae7",
+  "baseline_mixed_sync_heights": {
+    "inbound": 498,
+    "outbound": 504
+  },
+  "candidate_state_chaining_passed": 9,
+  "mixed_post": {
+    "hash": "0x7e1cd877cc8288250cdaea155adee3b27842419b10ba1177010c1f89b8ea3650",
+    "l1_block": 145,
+    "l2_block": 864,
+    "gas_used": 247852,
+    "actual_cost_wei": "247852002113888",
+    "outbound_reference_gas": 191839,
+    "outbound_reference_cost_wei": "191839001665784",
+    "additional_cost_wei": "56013000448104"
+  },
+  "l1_and_l2_fee_suites": "passed",
+  "independent_replay": {
+    "verified": true,
+    "source": "fresh L1-only follower",
+    "throughBlock": 1224,
+    "safeHash": "0x059235c622976073aa464efa07d2c43f4df2c276de35322b2655cd7058270cc1",
+    "blocksCompared": 1224,
+    "mixedBlock": 864,
+    "mixedReceiptsCompared": 3,
+    "transactions": [
+      "0x375aa280448c51b0372b58d72dc3461f15711937eef6b6c5cea748bd86a4a66a",
+      "0x15c981535895f6454d45cf2418de63489e5d9168e1690173f1f0268d9584685e",
+      "0x09a5ab0806db0e1bc2af8cccf0b57d191d7a5dffd506ca00032c127fc09b1378"
+    ]
+  },
+  "local_only_logs_sha256": {
+    "artifacts/baseline-state-chaining-r3.log": "bf40770e398c5efc39fff40100ec49015fa6d64224a5475375b919d7cb3e1f15",
+    "artifacts/candidate-state-chaining.log": "2c2131428cc66ae160a062a7da27bbdd9e29d911fc20f9bb5a334336a88438dd",
+    "artifacts/candidate-l1-fees.log": "29c211afa87fd9dafef9458501a36753905a6374f492e751aca1f35fb2ea4e4a",
+    "artifacts/candidate-l2-fees.log": "07b9070c0ec6aa7c963b75aed2c319e1b85141e8cdc210c3008cc366a18bd041",
+    "artifacts/cold-follower/comparison.json": "c95088de4459a1fd38b7cc6915861176e1cc492f3825a577732532e1e28a83b3",
+    "artifacts/mixed-process-tests-r5.log": "d505af6f74661fc9ef890e476c96120c53a37da21f545a2cabe5f5fe7954e790",
+    "artifacts/existing-fee-regressions.log": "e770b229bf82dfbcfbd5c24dd4ba08f22b2c25798d89cccd20e4177fd52ef525"
+  },
+  "source_process_tests": {
+    "mixed": {
+      "passed": 4,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 183
+    },
+    "existing_fee_regressions": {
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "filtered": 184
+    }
+  },
+  "process_harness_sha256": "7f259835179d64af92959f44a7fac47da3f246e769a8804afca2a60878d5891f",
+  "source_built_signer_sha256": "c9c1f684c8ae0c940b01cb96cb857035a2a1e53680d1ab8bb6c2d62886e9dbc4",
+  "process_test_source_sha256": {
+    "crates/eez-node-e2e/tests/fee_quotes.rs": "81436ec9e6084bc9b6e10e407f75e85ff3972b95f5d7b95597e18b8681a9f208",
+    "crates/eez-node-e2e/tests/fee_quotes/mixed.rs": "f5afb89b7d34b0952527ea312df001901686df0f118ebfff43a8c3804942bb2f"
+  }
+}

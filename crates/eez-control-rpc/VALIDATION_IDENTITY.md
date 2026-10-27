@@ -1,12 +1,12 @@
 # Portable validation identity
 
-Status: normative for validation contract 1, capability profile 2 and v2 proving.
+Status: normative for validation contract 3, capability profile 2 and v2 proving.
 This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
-The [single-profile audit](../../docs/audits/2026-10-24-profile-simplification/README.md)
-records the current commitment/identity change and its validation limits.
+The [source-counter audit](../../docs/audits/2026-10-27-source-counter/README.md)
+records this commitment/identity change and its validation limits.
 
 ## Encoding
 
@@ -16,7 +16,7 @@ with these ten elements in this exact order:
 | Position | Element | Encoding/value |
 | --- | --- | --- |
 | 0 | domain | UTF-8 bytes of `eez.validation-identity` |
-| 1 | validation-contract version | unsigned integer `1` |
+| 1 | validation-contract version | unsigned integer `3` |
 | 2 | rollup ID | locally configured nonzero u64 |
 | 3 | L2 chain ID | u64 from the locally loaded L2 chain document |
 | 4 | system address | exactly 20 raw bytes |
@@ -39,10 +39,10 @@ Synthetic zero-byte vectors test encoding and do not waive runtime configuration
 validation.
 
 The offline profile commitment is
-`keccak256(abi.encode(keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"), historyAddress, uint64(64), uint64(2000000), profile))`.
+`keccak256(abi.encode(keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"), uint64(3), historyAddress, uint64(64), uint64(2000000), profile))`.
 Use the exact [OfflineRollup.Profile](../../contracts/src/OfflineRollup.sol) field
 order/types; [OfflineProfile.canonical_bytes](../eez-protocol/src/l1_history/context.rs)
-is the matching reference encoder. This binds L1/L2 chain IDs, genesis,
+is the matching reference encoder. This binds validation-contract version 3, L1/L2 chain IDs, genesis,
 schedule/delay, complete L1 rule configuration, history runtime, fee collector
 and rule epochs. Capability profile ID 2 denotes the v2 offline transport; it
 is a fixed wire discriminator, not a selectable execution profile. There is one
@@ -90,11 +90,12 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 ## Versioning and operations
 
-Validation-contract version 1 covers the RLP tuple above, canonical JSON rules
+Validation-contract version 3 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
-the fixed Osaka L2 profile, compact V0 operations, native 0x45/version-1 transactions
-with authenticated source identities and no system nonce, per-transaction base-fee
-collection, permanent history, recorded history transactions and delayed synchronized
+the fixed Osaka L2 profile, compact V0 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
+(execution-group source identities belong only to cross-chain
+transactions), no system nonce,
+per-transaction base-fee collection, complete-group SYSTEM/EEZL2 balance cleanup before checkpoints, permanent history, recorded history transactions and delayed synchronized
 PREVRANDAO, both anchor modes, execution/settlement validation, canonical native blobs
 and public inputs. The owning specifications are
 [RPC](SPEC.md), [streaming](STREAMING_SPEC.md),
@@ -125,7 +126,7 @@ identify a differing field.
 Different validation-contract versions fail the exact comparison.
 Deploy matching Composer/prover/follower artifacts and newly generated genesis
 and manager profile together. Profile binds the collector and execution profile;
-the service uses v2 and validation-contract version 1. Discard retained sessions
+the service uses v2 and validation-contract version 3. Discard retained sessions
 when changing identity. This is a fresh-network profile, with no migration or
 rollback path for existing blocks/databases.
 Pending requests/counters remain in memory; restart is not durable queue recovery.

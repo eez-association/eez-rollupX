@@ -62,11 +62,12 @@ pub(super) fn outbound(
     };
     // Unsigned advisory execution has no signed origin occurrence. This
     // placeholder never enters a body, DA, proof request or settlement.
-    let pair = build_outbound_group(&group, &system_context(e), B256::ZERO).map_err(unsupported)?;
+    let pair = build_outbound_group(&group, &system_context(e)).map_err(unsupported)?;
     let raw = fork
-        .encode_plan(&eez_protocol::system_tx::PlannedTransaction::Native(
-            pair.system_tx,
-        ))
+        .encode_plan(
+            &eez_protocol::system_tx::PlannedTransaction::Native(pair.system_tx),
+            B256::ZERO,
+        )
         .map_err(unavailable)?;
     let setup = fork.execute_committed(&raw).map_err(unavailable)?;
     if !setup.success {
@@ -124,11 +125,7 @@ pub(super) fn inbound(
 ) -> Result<(eez_protocol::EvmBatch, B256, Vec<Bytes>, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
     let source_context = eez_protocol::native_source::LiveSourceContext::new(
-        e.l1.chain_provider().evm_config.chain_spec().chain().id(),
-        e.l1.manager_address(),
-        RollupId(e.rollup_id),
         system_context(e).l2_chain_id,
-        s.l1_attributes.timestamp,
         s.l1.anchor.hash(),
     )
     .map_err(unsupported)?;
@@ -143,19 +140,11 @@ pub(super) fn inbound(
         system_context(e).l2_chain_id,
     )
     .map_err(unsupported)?;
-    let plans = build_inbound_system_txs(
-        &sidecars,
-        &system_context(e),
-        &actions.source_hashes(&source_context),
-    )
-    .map_err(unsupported)?
-    .into_iter()
-    .map(eez_protocol::system_tx::PlannedTransaction::Native)
-    .collect::<Vec<_>>();
-    let txs = e
-        .l2_draft(s)?
-        .prepare_transactions(&plans)
-        .map_err(|(_, error)| unavailable(error))?;
+    let plans = build_inbound_system_txs(&sidecars, &system_context(e))
+        .map_err(unsupported)?
+        .into_iter()
+        .map(eez_protocol::system_tx::PlannedTransaction::Native)
+        .collect::<Vec<_>>();
     let chain = e.l2.chain_provider();
     let mut hashes = crate::local::build::SyncPrefixHashes::new(
         chain.provider.as_ref(),
@@ -166,6 +155,15 @@ pub(super) fn inbound(
         e.recipient,
     );
     let prefix = hashes.prefix(&s.l2_prefix).map_err(unavailable)?;
+    let txs = e
+        .l2_draft(s)?
+        .prepare_transactions(
+            &plans,
+            &actions
+                .source_entries(&source_context)
+                .map_err(unsupported)?,
+        )
+        .map_err(|(_, error)| unavailable(error))?;
     let mut full = s.l2_prefix.clone();
     full.extend(txs.iter().cloned());
     let checkpoints = hashes

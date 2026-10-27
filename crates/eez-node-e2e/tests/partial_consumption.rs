@@ -552,7 +552,7 @@ async fn restart_after_partial_keeps_accounting_and_rebuilds_intent() {
 /// same L1 block. Reusing the original proof with the new pin must fail.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn valid_blob_batch_resumes_at_middle_group_in_same_l1_block() {
-    valid_same_block_resume().await;
+    Box::pin(valid_same_block_resume()).await;
 }
 
 /// Reuse the exact captured execution and DA in a new session. Only the accepted
@@ -563,7 +563,7 @@ async fn reprove_checkpoint(
     directory: &std::path::Path,
     original: &eez_protocol::EvmBatch,
     checkpoint: B256,
-) -> eez_protocol::EvmBatch {
+) -> Result<(eez_protocol::EvmBatch, eez_primitives::Block), eez_control_rpc::v2::Rejected> {
     use eez_control_rpc::v2::{self, ClientFrame, client_frame, server_frame};
     use prost::Message as _;
 
@@ -610,6 +610,15 @@ async fn reprove_checkpoint(
         );
     }
     let (frames, mut batch) = selected.expect("held bundle has complete captured v2 evidence");
+    let terminal = frames
+        .iter()
+        .rev()
+        .find_map(|frame| match frame.kind.as_ref()? {
+            client_frame::Kind::Block(block) => block.data.as_ref(),
+            _ => None,
+        })
+        .expect("captured terminal block");
+    let original_terminal = alloy_rlp::decode_exact(&terminal.rlp).unwrap();
     let capabilities = eez_control_rpc::v2::prover_client::ProverClient::connect(
         world.proof_signer.endpoint().to_owned(),
     )
@@ -664,6 +673,9 @@ async fn reprove_checkpoint(
             (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Proof(value))) => {
                 assert!(proof.replace(value).is_none());
             }
+            (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Rejected(rejected))) => {
+                return Err(rejected);
+            }
             (_, response) => panic!("checkpoint evidence must pass full validation: {response:?}"),
         }
     }
@@ -677,7 +689,7 @@ async fn reprove_checkpoint(
         batch.proofs, original.proofs,
         "accepted-root binding changes the proof"
     );
-    batch
+    Ok((batch, original_terminal))
 }
 
 async fn valid_same_block_resume() {
@@ -786,21 +798,41 @@ async fn valid_same_block_resume() {
     assert_eq!(proposed_roots.len(), 4, "anchor and all three user groups");
     let checkpoint = proposed_roots[1];
     assert_ne!(checkpoint, call.batch.expectedRootPerRollup[0].root);
-    let resumed_batch = reprove_checkpoint(&world, &captures, &call.batch, checkpoint).await;
+    let unknown_root = B256::repeat_byte(0xab);
+    assert!(!proposed_roots.contains(&unknown_root));
+    assert_ne!(unknown_root, call.batch.expectedRootPerRollup[0].root);
+    let rejected = reprove_checkpoint(&world, &captures, &call.batch, unknown_root)
+        .await
+        .expect_err("an unwitnessed accepted root must not produce a proof");
+    assert_eq!(rejected.code, i32::from(tonic::Code::FailedPrecondition));
+    assert_eq!(rejected.message, "settlement validation rejected");
+    let (intervening_batch, original_terminal) =
+        reprove_checkpoint(&world, &captures, &call.batch, checkpoint)
+            .await
+            .unwrap();
+    let next_checkpoint = proposed_roots[2];
+    let (resumed_batch, resumed_terminal) =
+        reprove_checkpoint(&world, &captures, &call.batch, next_checkpoint)
+            .await
+            .unwrap();
+    assert_eq!(
+        original_terminal, resumed_terminal,
+        "both checkpoint reproofs retain the original complete execution"
+    );
     let mut stale_batch = resumed_batch.clone();
     stale_batch.proofs = call.batch.proofs.clone();
     assert!(!call.batch.blobIndices.is_empty());
     let priority = original.max_priority_fee_per_gas().unwrap();
-    assert!(priority > 3);
+    assert!(priority > 7);
     let setter: alloy_signer_local::PrivateKeySigner = TARGET_DEPLOYER.parse().unwrap();
-    let change = |nonce, value, priority| {
+    let change = |nonce, target: alloy_primitives::Address, value, priority| {
         let mut tx = TxEip1559 {
             chain_id: DEV_CHAIN_ID,
             nonce,
             gas_limit: 100_000,
             max_fee_per_gas: 100_000_000_000,
             max_priority_fee_per_gas: priority,
-            to: middle.into(),
+            to: target.into(),
             value: U256::ZERO,
             access_list: Default::default(),
             input: IValue::setValueCall {
@@ -812,19 +844,24 @@ async fn valid_same_block_resume() {
         let sig = setter.sign_transaction_sync(&mut tx).unwrap();
         alloy_consensus::TxEnvelope::from(tx.into_signed(sig))
     };
-    let before = change(setter_nonce, 12u64, priority + 1);
-    let restore = change(setter_nonce + 1, 5u64, priority - 1);
+    let before = change(setter_nonce, middle, 12u64, priority + 1);
+    let restore_middle = change(setter_nonce + 1, middle, 5u64, priority - 1);
+    let block_last = change(setter_nonce + 2, world.outbound_value, 13u64, priority - 2);
+    let restore_last = change(setter_nonce + 3, world.outbound_value, 11u64, priority - 4);
     let poster: alloy_signer_local::PrivateKeySigner = world.cfg.poster_key.parse().unwrap();
     let post = |offset, batch: &eez_protocol::EvmBatch| {
         let mut tx = original.as_eip4844().unwrap().tx().clone();
         tx.tx.nonce += offset;
-        tx.tx.max_priority_fee_per_gas = priority - u128::from(offset) - 1;
+        tx.tx.max_priority_fee_per_gas = priority - u128::from(offset) * 2 - 1;
         tx.tx.input = eez_protocol::entries::encode_postbatch(batch).into();
         let sig = poster.sign_transaction_sync(&mut tx).unwrap();
         EthereumTxEnvelope::Eip4844(tx.into_signed(sig))
     };
-    let stale = post(1, &stale_batch);
-    let resumed = post(2, &resumed_batch);
+    // Each successful posting advances exactly one original group. A posting
+    // with no applicable immediate entry would instead revert under core rules.
+    let intervening = post(1, &intervening_batch);
+    let stale = post(2, &stale_batch);
+    let resumed = post(3, &resumed_batch);
     assert_eq!(
         resumed.blob_versioned_hashes(),
         original.blob_versioned_hashes()
@@ -832,7 +869,10 @@ async fn valid_same_block_resume() {
     request["params"][0]["txs"] = serde_json::json!([
         Bytes::from(before.encoded_2718()),
         raw,
-        Bytes::from(restore.encoded_2718()),
+        Bytes::from(restore_middle.encoded_2718()),
+        Bytes::from(block_last.encoded_2718()),
+        Bytes::from(intervening.encoded_2718()),
+        Bytes::from(restore_last.encoded_2718()),
         Bytes::from(stale.encoded_2718()),
         Bytes::from(resumed.encoded_2718()),
     ]);
@@ -842,7 +882,10 @@ async fn valid_same_block_resume() {
     for hash in [
         before.tx_hash(),
         original.tx_hash(),
-        restore.tx_hash(),
+        restore_middle.tx_hash(),
+        block_last.tx_hash(),
+        intervening.tx_hash(),
+        restore_last.tx_hash(),
         stale.tx_hash(),
         resumed.tx_hash(),
     ] {
@@ -856,11 +899,19 @@ async fn valid_same_block_resume() {
                 world.settlement_diagnostics()
             )
         });
-        assert_eq!(
-            receipt.status(),
-            hash != stale.tx_hash(),
-            "only the stale-root proof must revert: {hash}"
-        );
+        if receipt.status() != (hash != stale.tx_hash()) {
+            let trace: serde_json::Value = l1
+                .raw_request(
+                    "debug_traceTransaction".into(),
+                    (
+                        hash,
+                        serde_json::json!({"tracer":"callTracer", "tracerConfig":{"onlyTopCall":true}}),
+                    ),
+                )
+                .await
+                .unwrap();
+            panic!("only the stale-root proof must revert: {hash}; trace={trace}");
+        }
         receipts.push(receipt);
     }
     for pair in receipts.windows(2) {
@@ -900,10 +951,15 @@ async fn valid_same_block_resume() {
         "the changed root pin must reach proof verification"
     );
     assert!(
-        roots(&receipts[3]).is_empty(),
+        roots(&receipts[6]).is_empty(),
         "rejected proof cannot advance a root"
     );
-    let resumed_roots = roots(&receipts[4]);
+    assert_eq!(
+        roots(&receipts[4]),
+        [next_checkpoint],
+        "the intervening posting must consume only the original middle group"
+    );
+    let resumed_roots = roots(&receipts[7]);
     assert_eq!(first_roots.len(), 2, "anchor and first user only");
     assert_eq!(
         first_roots[1], checkpoint,
@@ -911,10 +967,44 @@ async fn valid_same_block_resume() {
     );
     assert_eq!(
         resumed_roots.len(),
-        2,
-        "only the new middle and last groups"
+        1,
+        "only the original last group remains after the intervening posting"
     );
     let full_hash = *resumed_roots.last().unwrap();
+    let included = l1
+        .get_block_by_hash(receipts[1].block_hash.unwrap())
+        .await
+        .unwrap()
+        .unwrap();
+    let native = original_terminal
+        .body
+        .transactions
+        .iter()
+        .filter_map(|tx| match tx {
+            eez_primitives::EezTxEnvelope::System(native) => Some(native),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(native.len(), 3);
+    for (index, native) in native.into_iter().enumerate() {
+        // Independent ABI oracle: the original full-block group ordinal is
+        // retained through all three postings in this same L1 block.
+        let mut encoded = vec![0u8; 192];
+        encoded[31] = 128;
+        encoded[56..64].copy_from_slice(&world.l2_chain_id.to_be_bytes());
+        encoded[64..96].copy_from_slice(included.header.parent_hash.as_slice());
+        encoded[120..128].copy_from_slice(&(index as u64).to_be_bytes());
+        encoded[159] = 15;
+        encoded[160..175].copy_from_slice(b"SOURCE_ENTRY_V1");
+        assert_eq!(native.source_hash, alloy_primitives::keccak256(encoded));
+    }
+    let original_transaction_hashes = original_terminal
+        .body
+        .transactions
+        .iter()
+        .map(|transaction| alloy_primitives::keccak256(transaction.encoded_2718()))
+        .collect::<Vec<_>>();
+
     let dispatched = wait_for(TIMEOUT, || async {
         Ok(world.node.signals_since(0)?.into_iter().find(|event| {
             event.name == signals::COMPOSER_BUNDLE_DISPATCHED
@@ -978,6 +1068,10 @@ async fn valid_same_block_resume() {
             .txns()
             .map(alloy_network::TransactionResponse::tx_hash)
             .collect();
+        assert_eq!(
+            hashes, original_transaction_hashes,
+            "partial reproof and cold replay preserve every original native and signed transaction byte commitment"
+        );
         for hash in &users {
             assert_eq!(
                 hashes.iter().filter(|candidate| *candidate == hash).count(),
