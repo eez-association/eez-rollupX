@@ -1,0 +1,203 @@
+{
+  "date": "2026-10-27",
+  "timezone": "Europe/Madrid",
+  "question": "Independent funding for each complete canonical RollupX group before adopting #105 cleanup",
+  "conclusion": "The canonical whole-table allocation covers represented flat/nested incoming payments without earlier SYSTEM/EEZL2 inventory. Cleanup execution/checkpoint integration remains unimplemented.",
+  "source": {
+    "commit": "6c3106fb482bb323eefa8898a0bd922fc7520480",
+    "branch": "codex/fee-vault-upgradeable",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_worktree": "artifacts/fee-vault-upgradeable-20261026",
+    "review_worktree": "artifacts/protocol-issues-review-20261026",
+    "review_parent_commit": "fcd86822460b17a78179b6264dbdcd2098833689",
+    "review_branch": "codex/review-protocol-issues-104-108",
+    "production_source_unchanged": true,
+    "protocol_clean": true
+  },
+  "fixture": {
+    "path": "contracts/test/ProtocolGroupFunding.t.sol",
+    "sha256": "e85556341aa17f74f83e857b78b2ae3cf8ee1a72b4d8cd372b71390e89b4d8da",
+    "compiled_artifact_sha256": "810bcd14cedaf8311a1eed8ff4ff916d2c280a6db52d8e08a69727d303eb8e0b",
+    "compiled_artifact_availability": "local-only",
+    "new_test_functions": 8,
+    "fuzz_cases_per_run": 256,
+    "fuzz_seed": "Foundry default; not explicitly pinned",
+    "broader_core_only_case": "test_CoreRevertedNestedRetriesRestoreFundingBeforeReuse; failed nested rows with descendants remain rejected by RollupX"
+  },
+  "executables": [
+    {
+      "name": "forge",
+      "bytes": 84666760,
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+    },
+    {
+      "name": "eez_protocol-c8c12458cb926609",
+      "bytes": 32496112,
+      "sha256": "1b106ca9043508556cd1cc06552cb544293fc2a93c3fbfed36c5adaeafcd510b"
+    },
+    {
+      "name": "eez_evm-f8b32d8a3fbab56a",
+      "bytes": 36208464,
+      "sha256": "fa1b72728963e910e020ac75034f9d3319ddcbb2ed26506cb8935d9d9d7f4744"
+    },
+    {
+      "name": "eez_proof_signer-fd0bb3b4560a12c1",
+      "bytes": 480529712,
+      "sha256": "7e8fbea17654b0193dd2572952097a7389c62fb0f1ea40b7239bb21cfc105af0"
+    }
+  ],
+  "checks": [
+    {
+      "command": "FOUNDRY_ISOLATE=false forge test --root contracts",
+      "worktree": "review",
+      "passed": 165,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": null,
+      "exit_code": 0,
+      "tests": "Full inventory retained in local log",
+      "log": "artifacts/group-funding-20261027/contracts-all-final.log",
+      "log_sha256": "45cd115a47cb5d13cc4ebabe907502642851c221c39fd3bd2fd1f2f0451c8906",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "FOUNDRY_ISOLATE=false forge test --root contracts --match-contract ProtocolGroupFundingTest -vv",
+      "worktree": "review",
+      "passed": 8,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": null,
+      "exit_code": 0,
+      "tests": [
+        "testFuzz_NestedOutboundAndFollowingInboundNeedNoPriorInventory(uint96,uint96,uint96)",
+        "test_CoreRevertedNestedRetriesRestoreFundingBeforeReuse()",
+        "test_MultipleRootsKeepTheirSharedFundingUntilTheWholeGroupEnds()",
+        "test_NestedInboundAndFollowingOutboundNeedNoPriorInventory()",
+        "test_OmittingNestedFundingFailsAtHashValidationAndExactFundingSucceeds()",
+        "test_RecoveredSourceFrameRetriesWithOnlyItsOriginalAllocation()",
+        "test_RevertSpanResidualIsUnnecessaryForTheNextGroup()",
+        "test_UserRevertRestoresAllLoadedFundingAndNextGroupIsIndependent()"
+      ],
+      "log": "artifacts/group-funding-20261027/contract-funding-final.log",
+      "log_sha256": "d0c6e21015d5f22fdbe378c357ed874aeb4bd95dc3ae04143a7a1fc4f819dc6d",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol --lib system_tx::tests::",
+      "worktree": "source",
+      "passed": 10,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 198,
+      "exit_code": 0,
+      "tests": [
+        "system_tx::tests::multi_root_settlement_host_and_reverted_retry_cursor_counts",
+        "system_tx::tests::entry_lowering_preserves_multicall_nested_rows_and_failure_guards",
+        "system_tx::tests::partial_suffix_retains_original_source_and_position_gas",
+        "system_tx::tests::native_bytes_commit_source_and_exact_remaining_gas_without_normalization",
+        "system_tx::tests::canonical_order_retains_source_identity_and_exact_signed_origin",
+        "system_tx::tests::multi_root_outbound_uses_one_load_and_one_user_with_inline_callbacks",
+        "system_tx::tests::static_outbound_uses_the_static_table_and_round_trips",
+        "system_tx::tests::invalid_destinations_identities_and_delivery_shapes_are_rejected",
+        "system_tx::tests::payable_tables_fund_outer_and_nested_incoming_values_and_reject_overflow",
+        "system_tx::tests::directional_and_mixed_builds_are_byte_identical_after_table_round_trip"
+      ],
+      "log": "artifacts/group-funding-20261027/protocol-system-tests.log",
+      "log_sha256": "82ff7e1a0e2572202713759aea815d0772915a8ea6c98cb1640b9c6dc035f10f",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-protocol --lib entries::inbound::tests::",
+      "worktree": "source",
+      "passed": 2,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 206,
+      "exit_code": 0,
+      "tests": [
+        "entries::inbound::tests::nested_sidecar_retains_rows_and_counts_all_incoming_value",
+        "entries::inbound::tests::canonical_sidecar_keeps_exact_abi_and_rejects_supplied_mutations"
+      ],
+      "log": "artifacts/group-funding-20261027/protocol-inbound-tests.log",
+      "log_sha256": "f3a1355c7abf0be071544b9ece79167c82201e5a2008ab8205841f0267828c7e",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib native_mints_without_prefunding",
+      "worktree": "source",
+      "passed": 1,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 36,
+      "exit_code": 0,
+      "tests": [
+        "tests::native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_prior_system_eth"
+      ],
+      "log": "artifacts/group-funding-20261027/evm-mint-tests.log",
+      "log_sha256": "b0d19d22a68c9b656c3a22bd70d686611ad2a188320e0a733a1cc741a1bb2972",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-evm --lib failed_validation_and_uncommitted_execution_do_not_leak_minted_value",
+      "worktree": "source",
+      "passed": 1,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 36,
+      "exit_code": 0,
+      "tests": [
+        "tests::failed_validation_and_uncommitted_execution_do_not_leak_minted_value"
+      ],
+      "log": "artifacts/group-funding-20261027/evm-rollback-tests.log",
+      "log_sha256": "ab70160fcf0674c576550e2be505b9eca961aa4d04875480aff4303b048f3ba5",
+      "log_availability": "local-only; not committed"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-proof-signer --bin eez-proof-signer strict_inbound_observation_",
+      "worktree": "source",
+      "passed": 3,
+      "failed": 0,
+      "ignored_or_skipped_selected": 0,
+      "filtered": 328,
+      "exit_code": 0,
+      "tests": [
+        "settlement::tests::blocks::strict_inbound_observation_binds_the_envelope_entry_and_outcome",
+        "settlement::tests::blocks::strict_inbound_observation_rejects_unbound_envelope_fields",
+        "settlement::tests::blocks::strict_inbound_observation_rejects_composer_controlled_shape_changes"
+      ],
+      "log": "artifacts/group-funding-20261027/signer-funding-corrected.log",
+      "log_sha256": "9d5c339b10d505877fd41eadf75102cd1f83db7d8a8100a4e63270f0ecb644e6",
+      "log_availability": "local-only; not committed"
+    }
+  ],
+  "distinct_passing_test_functions": 182,
+  "format": {
+    "command": "forge fmt --check --root contracts",
+    "exit_code": 0
+  },
+  "prior_diagnostic_failures": [
+    {
+      "description": "First fixture compile needed explicit bytes casts on two conditional hex literals; no tests executed. Corrected source then passed.",
+      "log": "artifacts/group-funding-20261027/contract-funding-first.log",
+      "sha256": "4600fbec2eee61ff578733dd95630e488fc93df7454167f42eef5b2f5b9304a2"
+    },
+    {
+      "description": "Initial signer selection used --lib; package has no library targets. Corrected to --bin eez-proof-signer; three intended tests passed.",
+      "log": "artifacts/group-funding-20261027/signer-funding-tests.log",
+      "sha256": "3897751734d700d3fd21e221694a4741f3e7518b3445628a1da1b332d8623e90"
+    },
+    {
+      "description": "Initial file formatter used repository-root defaults; contracts fmt check rejected layout. Reran formatter with --root contracts and passed owning check.",
+      "evidence": "tool transcript; no separate retained file"
+    }
+  ],
+  "limitations": [
+    "New contract tests model cleanup/native credit using vm.deal; production cleanup and process-level checkpoint integration are not implemented.",
+    "One deliberate core-only stress case is outside the accepted signer profile; no profile extension is proposed.",
+    "Signer checks are unit validation, not a request-to-signature or independent replay process.",
+    "Rust tests run unchanged production source; Solidity fixture supplies explicit allocations separately from Rust encoding.",
+    "No live network operations, deployments, funding transactions, new E2E replay, full Rust workspace checks or full core suites.",
+    "Balance-sensitive application outcomes, account-emptiness gas effects and block commitments can change under future cleanup; funding sufficiency is not semantic equivalence.",
+    "Full logs and compiled artifacts are local-only; exact input fixture and compact results are committed."
+  ]
+}

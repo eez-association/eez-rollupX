@@ -210,7 +210,7 @@ where
             let tx = pool_tx.to_consensus();
             // The pool contributes only user Ethereum transactions. Guard even a
             // custom pool/iterator that bypassed the public admission validator.
-            if tx.is_eip4844() || matches!(tx.inner(), EezTxEnvelope::System(_)) {
+            if tx.is_eip4844() || !matches!(tx.inner(), EezTxEnvelope::Ethereum(_)) {
                 best_txs.mark_invalid(
                     &pool_tx,
                     InvalidPoolTransactionError::Consensus(

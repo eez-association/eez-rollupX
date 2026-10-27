@@ -178,7 +178,7 @@ async fn kurtosis_policy_batches_replay_independently_from_l1() {
         .unwrap();
     assert!(!receipts.is_empty());
     for hash in receipts.keys() {
-        // L2 receipts include native type 0x45, outside Ethereum's closed receipt enum.
+        // L2 receipts include native types 0x45/0x46, outside Ethereum's closed receipt enum.
         let receipt: Option<AnyTransactionReceipt> = rpc
             .client()
             .request(

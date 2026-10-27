@@ -231,10 +231,11 @@ The account and state trie are the same global trie; storage tries are separate.
 Witnesses must support deletions hidden by the final endpoint state. L1 evidence
 must also support inherited selections and all intermediate produced headers,
 including headers never selected as origin. Finalize checks recorded origins
-against the exact anchored ancestry. The first transaction at a scheduled update
-is the canonical native history import, including an empty import for a repeat.
+against the exact anchored ancestry. A dedicated nonempty `0x46` history update
+is optional at an eligible timestamp and must be transaction zero when present.
+Omission inherits history and PREVRANDAO, including in eligible empty blocks.
 Missing evidence rejects; it never authorizes RPC fetching or rewriting that
-recorded choice. Additional newer headers cannot invalidate a valid repeat.
+recorded choice. Additional newer headers cannot invalidate valid recorded omission.
 
 ### 3.4 Stream completion and recovery
 

@@ -57,11 +57,12 @@ fn build_inbound_transactions(
         .iter()
         .map(|entry| eez_protocol::entries::InboundSidecar::try_from(entry).unwrap())
         .collect::<Vec<_>>();
-    eez_protocol::system_tx::build_inbound_system_txs(&entries, context, sources)
+    eez_protocol::system_tx::build_inbound_system_txs(&entries, context)
         .unwrap()
         .into_iter()
-        .map(|plan| {
-            plan.at_position(crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT, 0)
+        .zip(sources)
+        .map(|(plan, &source)| {
+            plan.at_position(crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT, 0, source)
                 .unwrap()
                 .into()
         })
@@ -94,10 +95,25 @@ fn verify_da_payload<'a>(
     let preceding = preceding
         .map(convert)
         .collect::<Result<Vec<_>, DaPayloadError>>()?;
+    // This unit fixture explicitly supplies synthetic zero-valued prefix
+    // checkpoints. Captured/process suites establish real execution hashes.
+    let terminal_block = convert(terminal)?;
+    let count = alloy_rlp::decode_exact::<EezBlock>(terminal_block.rlp())
+        .unwrap()
+        .body
+        .transactions
+        .len();
     let terminal = crate::validate::ValidatedSettlingBlock::for_test(
-        convert(terminal)?,
+        terminal_block,
         Vec::new(),
-        Vec::new(),
+        (0..count)
+            .map(
+                |transaction_index| crate::validate::TransactionStateCheckpoint {
+                    transaction_index,
+                    block_hash: B256::ZERO,
+                },
+            )
+            .collect(),
     );
     let window = crate::validate::ValidatedWindow::for_test(
         B256::ZERO,

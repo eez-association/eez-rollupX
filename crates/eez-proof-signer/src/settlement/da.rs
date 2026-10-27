@@ -137,7 +137,7 @@ pub(crate) fn verify_da_payload(
             inbound_effects,
             reconstructor,
             &reconstructor
-                .source_hashes(semantic_transactions, posting_context)
+                .source_entries(semantic_transactions, posting_context)
                 .map_err(invalid_da_payload)?,
             terminal.settlement_evidence().cumulative_gas_used(),
         )?;
@@ -158,7 +158,7 @@ fn verify_reconstructed_sync_block(
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
     reconstructor: &SystemTransactionReconstructor,
-    source_hashes: &[alloy_primitives::B256],
+    sources: &[eez_protocol::native_source::SourceEntry],
     cumulative_gas_used: &[u64],
 ) -> Result<(), DaPayloadError> {
     let first_system_position = outbound_effects
@@ -203,7 +203,6 @@ fn verify_reconstructed_sync_block(
         .reconstruct_sync_pairs(
             &outbound_reconstruction_inputs,
             &inbound_reconstruction_entries,
-            source_hashes,
         )
         .map_err(|reason| DaPayloadError::SystemTransactionReconstruction { reason })?;
     let reconstructed = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
@@ -219,6 +218,10 @@ fn verify_reconstructed_sync_block(
             actual: suffix.len(),
         });
     }
+    if pairs.len() != sources.len() {
+        return Err(DaPayloadError::InvalidEffectTransactionLayout);
+    }
+    let mut sources = sources.iter();
     for (transaction_index, (validated_transaction, reconstructed_transaction)) in
         suffix.iter().zip(reconstructed).enumerate()
     {
@@ -226,8 +229,19 @@ fn verify_reconstructed_sync_block(
         let prior_gas = position
             .checked_sub(1)
             .map_or(0, |index| cumulative_gas_used[index]);
+        let source_hash = if matches!(
+            reconstructed_transaction,
+            eez_protocol::system_tx::PlannedTransaction::Native(_)
+        ) {
+            sources
+                .next()
+                .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?
+                .hash()
+        } else {
+            alloy_primitives::B256::ZERO
+        };
         let reconstructed_transaction = reconstructed_transaction
-            .at_position(block.header.gas_limit, prior_gas)
+            .at_position(block.header.gas_limit, prior_gas, source_hash)
             .map_err(|reason| DaPayloadError::SystemTransactionReconstruction { reason })?;
         if validated_transaction != &reconstructed_transaction {
             return Err(DaPayloadError::SyncBlockTransactionMismatch {

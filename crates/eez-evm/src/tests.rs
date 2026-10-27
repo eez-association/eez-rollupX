@@ -68,6 +68,9 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
     }
     // EEZL2 is an EEZProxy whose constructor created its ProxyAdmin with nonce 1.
     let proxy_admin = EEZL2_ADDRESS.create(1);
+    let vault = eez_protocol::fee_vault::FEE_VAULT_ADDRESS;
+    let vault_implementation = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079");
+    let vault_admin = vault.create(1);
     let mut addresses: Vec<_> = genesis.alloc.keys().copied().collect();
     addresses.sort();
     let mut expected = vec![
@@ -76,12 +79,13 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         proxy_admin,
         alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
         eez_protocol::l1_history::HISTORY_ADDRESS,
-        eez_protocol::fee_vault::FEE_VAULT_ADDRESS,
+        vault,
+        vault_implementation,
+        vault_admin,
     ];
     expected.sort();
     assert_eq!(addresses, expected);
 
-    let vault = eez_protocol::fee_vault::FEE_VAULT_ADDRESS;
     assert_eq!(
         genesis.config.extra_fields["rollupX"]["feeCollector"],
         serde_json::json!(vault)
@@ -104,6 +108,21 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         EEZL2_GENESIS_IMPLEMENTATION_ADDRESS.into_word()
     );
     assert_eq!(proxy_storage[&admin_slot], proxy_admin.into_word());
+    let vault_storage = genesis.alloc[&vault].storage.as_ref().unwrap();
+    assert_eq!(
+        vault_storage[&implementation_slot],
+        vault_implementation.into_word()
+    );
+    assert_eq!(vault_storage[&admin_slot], vault_admin.into_word());
+    for address in [vault_implementation, vault_admin] {
+        assert!(
+            genesis.alloc[&address]
+                .code
+                .as_ref()
+                .is_some_and(|code| !code.is_empty()),
+            "{address} has no code"
+        );
+    }
     assert!(
         genesis.alloc[&EEZL2_GENESIS_IMPLEMENTATION_ADDRESS]
             .code
@@ -115,7 +134,7 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
 fn block(source: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {
     let tx: EezTxEnvelope = SystemTransaction {
         chain_id,
-        version: eez_primitives::SYSTEM_TX_VERSION,
+
         source_hash: B256::from(U256::from(source)),
         gas_limit: SYSTEM_TX_GAS_CAP,
         to: EEZL2_ADDRESS,
@@ -215,10 +234,9 @@ fn native_mints_without_prefunding_and_rolls_back_failed_calls_after_burning_pri
                 .and_then(|account| account.info.as_ref())
                 .map(|info| info.balance)
                 .unwrap_or_default();
-            assert_eq!(
-                target_balance,
-                if success { U256::from(13) } else { U256::ZERO }
-            );
+            // The inbound group clears unused inventory even on success.
+            // Low-level transaction tests separately check mint rollback.
+            assert_eq!(target_balance, U256::ZERO);
             if success {
                 let target = bundle.state.get(&EEZL2_ADDRESS).unwrap();
                 assert_eq!(
@@ -282,7 +300,6 @@ fn native_execution_retains_chain_and_exact_block_gas_validation() {
 fn native_tx(gas_limit: u64, input: Bytes) -> EezTxEnvelope {
     SystemTransaction {
         chain_id: 1,
-        version: eez_primitives::SYSTEM_TX_VERSION,
         source_hash: B256::repeat_byte(42),
         gas_limit,
         to: EEZL2_ADDRESS,
@@ -935,7 +952,6 @@ fn schedule_cache_preserves_profile_errors_and_l1_simulation() {
 #[test]
 fn block_admission_rejects_unsupported_native_selectors() {
     let native = SystemTransaction {
-        version: eez_primitives::SYSTEM_TX_VERSION,
         chain_id: 1,
         source_hash: B256::repeat_byte(1),
         gas_limit: SYSTEM_TX_GAS_CAP,

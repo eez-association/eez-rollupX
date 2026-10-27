@@ -19,32 +19,34 @@ fn receipts(n: u64) -> Value {
 #[test]
 fn native_system_receipts_meter_gas_without_charging_fees() {
     let b = header(1);
-    let mut r = receipts(1);
-    r[0]["type"] = json!("0x45");
-    r[0]["effectiveGasPrice"] = json!("0x0");
+    for kind in ["0x45", "0x46"] {
+        let mut r = receipts(1);
+        r[0]["type"] = json!(kind);
+        r[0]["effectiveGasPrice"] = json!("0x0");
 
-    // Both transactions contribute to cumulative/block gas. Only the ordinary
-    // transaction pays the positive base fee and the beneficiary's priority fee.
-    let fees = block_fees(&b, &r).unwrap();
-    assert_eq!(fees.base_fee, U256::from(30));
-    assert_eq!(fees.tip, U256::from(15));
-    assert_eq!(fees.ordinary_gas_used, 3);
-    assert_eq!(fees.native_gas_used, 2);
-    assert_eq!(fees.beneficiary, Address::repeat_byte(1));
+        // Both transactions contribute to cumulative/block gas. Only the ordinary
+        // transaction pays the positive base fee and the beneficiary's priority fee.
+        let fees = block_fees(&b, &r).unwrap();
+        assert_eq!(fees.base_fee, U256::from(30));
+        assert_eq!(fees.tip, U256::from(15));
+        assert_eq!(fees.ordinary_gas_used, 3);
+        assert_eq!(fees.native_gas_used, 2);
+        assert_eq!(fees.beneficiary, Address::repeat_byte(1));
 
-    r[0]["effectiveGasPrice"] = json!("0xc");
-    assert_eq!(
-        block_fees(&b, &r).unwrap_err().to_string(),
-        "nonzero native L2 transaction price"
-    );
+        r[0]["effectiveGasPrice"] = json!("0xc");
+        assert_eq!(
+            block_fees(&b, &r).unwrap_err().to_string(),
+            "nonzero native L2 transaction price"
+        );
+    }
 }
 
 #[test]
 fn native_only_blocks_have_gas_but_no_fee_revenue() {
     let mut b = header(1);
     let mut r = receipts(1);
-    for receipt in r.as_array_mut().unwrap() {
-        receipt["type"] = json!("0x45");
+    for (receipt, kind) in r.as_array_mut().unwrap().iter_mut().zip(["0x46", "0x45"]) {
+        receipt["type"] = json!(kind);
         receipt["effectiveGasPrice"] = json!("0x0");
     }
     for base in ["0x0", "0xa"] {
@@ -71,6 +73,7 @@ fn missing_or_unknown_types_cannot_claim_native_fee_exemption() {
         (json!("0x0"), "L2 effective price below base fee"),
         (json!("0x7f"), "unsupported L2 receipt type"),
         (json!("0x045"), "noncanonical quantity"),
+        (json!("0x046"), "noncanonical quantity"),
         (Value::Null, "missing hex quantity"),
     ] {
         r[0]["type"] = kind;
@@ -163,7 +166,7 @@ async fn handler(State(s): State<Arc<Mock>>, Json(request): Json<Value>) -> Json
             s.receipts.fetch_add(1, Ordering::SeqCst);
             let mut r = receipts(n);
             if s.native.load(Ordering::SeqCst) {
-                r[0]["type"] = json!("0x45");
+                r[0]["type"] = json!(if n.is_multiple_of(2) { "0x46" } else { "0x45" });
                 r[0]["effectiveGasPrice"] = json!("0x0");
             }
             r

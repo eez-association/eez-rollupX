@@ -905,7 +905,7 @@ mod tests {
                 first_number: 0,
                 endpoint: l1_block.saturating_sub(1),
                 endpoint_hash: B256::with_last_byte(l1_block as u8),
-                next_cutoff: 12,
+                first_cutoff: 12,
             },
         }
     }

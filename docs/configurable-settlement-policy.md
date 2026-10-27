@@ -1493,13 +1493,51 @@ revert can be caught, and a successful child's effects can be unwound by a
 later ancestor revert; neither its status nor a gas-probe failure alone
 establishes the quote outcome.
 
-The [local trace viewer](../tools/quote-trace-viewer/README.md) imports the
-response without network access and decodes standard Solidity errors. Unknown
-custom errors retain their selector/bytes. The schema and manual `cast` example
-are documented there. This option requires an updated Composer; older versions
-reject it. The viewer reports missing/unsupported exports explicitly. The change
-does not affect contracts, signer RPC, storage, genesis, historical replay,
-follower behavior or fee enforcement. Rolling back loses trace availability.
+The dashboard's Debug view renders these exports. Viewer assets and browser tests
+are maintained in the dashboard repository; RollupX owns the trace RPC and its
+backend tests. Tracing does not affect contracts, signer RPC, storage, genesis,
+historical replay, follower behavior or fee enforcement.
+
+The version 1 export has the following fields:
+
+| Field | Meaning |
+| --- | --- |
+| `format`, `version` | `eez-quote-call-trace`, `1` |
+| `request` | Original caller-supplied transaction |
+| `context` | L1/L2 chain IDs, pinned parents, L1 target, L2 timestamp, resolved nonce and pending predecessor count |
+| `runs[]` | Ordered executions, each with an ID, quoted type, phase, pass, purpose, chain ID, actual transaction, `complete` and `frames[]` |
+| `truncated`, `omittedFrames`, `omittedRuns`, `limits` | Explicit capture limits and omissions |
+| `gasAccounting` | `inclusive_frame_execution_gas` |
+
+Run IDs are zero-based and contiguous. Frame IDs are zero-based within each run;
+`parentId` is null for a root, otherwise an earlier frame in that run. `pass`
+increments when composition begins within a phase/type, and its subsequent native
+replays carry the same pass. The quoted `type` and actual `transaction.type` can
+differ for synthetic/system executions. `crossChain` identifies a different
+chain from the parent; `executionRoot` identifies a new EVM instance. `from` is
+the EVM caller, which DELEGATECALL preserves; use `parentId` to identify the frame
+that issued the call.
+
+`input` and `output` are `{hex, length, truncated}` objects. `length` is the
+original byte count; `hex` may hold only a prefix. A frame that did not complete
+has `status: "incomplete"` and may lack output/result/gas-used fields. Run
+`complete` means all observed frames ended; it does not override truncation or
+imply success. Context and IDs use JSON integers where bounded; chain IDs,
+transaction quantities, values and gas use hex strings.
+
+To capture a response, send a single request to the Composer front for its source
+chain (`/composer/l1` or `/composer/l2`). Save the raw HTTP response to retain
+`error.data.trace` on whole-request failures:
+
+```bash
+COMPOSER_RPC='https://YOUR_HOST/composer/l2'
+TX='{"from":"0x1111111111111111111111111111111111111111","to":"0x2222222222222222222222222222222222222222","data":"0x","value":"0x0"}'
+jq -n --argjson tx "$TX" \
+  '{jsonrpc:"2.0",id:1,method:"eez_debugQuoteFee",params:[$tx,{transactionTypes:["0x2"],trace:"calls"}]}' |
+  curl --silent --show-error --max-time 60 "$COMPOSER_RPC" \
+    -H 'content-type: application/json' --data-binary @- \
+    --output quote-trace.json
+```
 
 For a failed execution variant, only `diagnostics.options[].error.details`
 adds the available execution cause:

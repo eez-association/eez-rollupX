@@ -177,7 +177,7 @@ impl L2Fees {
                 .checked_sub(previous)
                 .ok_or("l2_receipt_gas_not_monotonic")?;
             previous = cumulative;
-            if tx.ty() == eez_primitives::SYSTEM_TX_TYPE {
+            if eez_primitives::is_native_type(tx.ty()) {
                 fees.native_gas_used = fees
                     .native_gas_used
                     .checked_add(gas_used)
@@ -397,7 +397,6 @@ mod tests {
         let native = |source_id: u64| {
             eez_primitives::SystemTransaction {
                 chain_id: 9,
-                version: eez_primitives::SYSTEM_TX_VERSION,
                 source_hash: alloy_primitives::B256::from(
                     alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
                 ),
@@ -464,7 +463,7 @@ mod tests {
             effects: vec![],
             users: block
                 .transactions_recovered()
-                .filter(|tx| tx.ty() != eez_primitives::SYSTEM_TX_TYPE)
+                .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
                 .enumerate()
                 .map(|(i, tx)| UserManifest {
                     tx_hash: *tx.tx_hash(),
@@ -609,7 +608,7 @@ mod tests {
             .body()
             .transactions
             .iter()
-            .filter(|tx| tx.ty() != eez_primitives::SYSTEM_TX_TYPE)
+            .filter(|tx| !eez_primitives::is_native_type(tx.ty()))
             .map(|tx| eez_protocol::blob_semantics::SemanticTransaction {
                 origin_chain: RollupId(1),
                 tx_data: tx.encoded_2718().into(),

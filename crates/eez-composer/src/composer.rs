@@ -46,7 +46,7 @@ use crate::held_pool::{HeldPool, HeldTx};
 use crate::ingress::Direction;
 use crate::local::{
     BuildError, InboundL2TargetSession, L1SlotState, L1TargetSession,
-    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas},
+    build::{SyncBlockState, SyncPrefixHashes, declared_group_gas, replay_sync_block},
     build_sync_block,
 };
 use crate::optimistic::AttemptId;
@@ -175,17 +175,16 @@ fn sync_block_is_empty<P: reth_storage_api::BlockReader>(
     provider: &P,
     header: &reth_primitives_traits::SealedHeader<alloy_consensus::Header>,
 ) -> Result<bool, String> {
-    use alloy_consensus::Transaction as _;
     use reth_primitives_traits::BlockBody as _;
     let block = provider
         .find_block_by_hash(header.hash(), reth_storage_api::BlockSource::Any)
         .map_err(|err| err.to_string())?
         .ok_or("missing Sync body")?;
-    Ok(block.body().transactions().iter().all(|tx| {
-        tx.ty() == eez_primitives::SYSTEM_TX_TYPE
-            && tx.to() == Some(eez_primitives::HISTORY_ADDRESS)
-            && tx.value().is_zero()
-    }))
+    Ok(block
+        .body()
+        .transactions()
+        .iter()
+        .all(|tx| tx.ty() == eez_primitives::HISTORY_TX_TYPE))
 }
 
 /// Only L1 destination frames execute inside the outbound postBatch. Nested
@@ -1370,9 +1369,8 @@ struct AppendedGroup {
     gas_used: Vec<u64>,
 }
 
-/// Execute a native group, retaining its logs and charged receipt gas.
-/// On failure the prefix may be half-extended and must be reopened on the
-/// accepted list. Provider failures defer work rather than blaming the source.
+/// Select a candidate's complete-group ordinals from the full prospective
+/// stream. Nonexecuting lookups add no groups; consumed suffixes are not renumbered.
 fn candidate_native_sources(
     accepted: &[eez_protocol::blob_semantics::SemanticTransaction],
     candidate: &eez_protocol::blob_semantics::SemanticTransaction,
@@ -1380,7 +1378,7 @@ fn candidate_native_sources(
     l2_chain_id: u64,
     live: &eez_protocol::native_source::LiveSourceContext,
     count: usize,
-) -> Result<Vec<B256>, String> {
+) -> Result<Vec<eez_protocol::native_source::SourceEntry>, String> {
     let transactions = accepted
         .iter()
         .chain(std::iter::once(candidate))
@@ -1392,7 +1390,9 @@ fn candidate_native_sources(
         l2_chain_id,
     )
     .map_err(|error| error.to_string())?;
-    let sources = actions.source_hashes(live);
+    let sources = actions
+        .source_entries(live)
+        .map_err(|error| error.to_string())?;
     let start = sources
         .len()
         .checked_sub(count)
@@ -1400,6 +1400,24 @@ fn candidate_native_sources(
     Ok(sources[start..].to_vec())
 }
 
+fn hash_group(
+    hashes: &mut SyncPrefixHashes<'_>,
+    prefix: &[Bytes],
+    group: &[Bytes],
+    positions: &[usize],
+) -> Result<Vec<(usize, B256)>, BuildError> {
+    let txs = prefix.iter().chain(group).cloned().collect::<Vec<_>>();
+    let positions = positions
+        .iter()
+        .map(|position| prefix.len() + position)
+        .collect::<Vec<_>>();
+    hashes
+        .at_positions(&txs, &positions)
+        .map(|hashes| positions.into_iter().zip(hashes).collect())
+}
+
+/// Execute a whole native group. On failure reopen any partially extended
+/// draft from the accepted list; provider failures cannot blame the source.
 fn append_and_execute(
     prefix: &mut SyncBlockState,
     txs: &[Bytes],
@@ -1891,7 +1909,7 @@ where
         let provider = Arc::clone(&rollup.l2_provider);
         let config = self.inner.evm_config.clone();
         // Rebuild only a committed ordinary checkpoint, off the async executor.
-        // Its recorded history transaction determines the original selection.
+        // Its recorded body preserves either the history update or its omission.
         let (parent, built) = tokio::task::spawn_blocking(move || -> Result<_, String> {
             let header = provider
                 .sealed_header(boundary)
@@ -1914,7 +1932,7 @@ where
                 .sealed_header_by_hash(header.parent_hash())
                 .map_err(|e| e.to_string())?
                 .ok_or("missing retained parent")?;
-            let built = build_sync_block(
+            let built = replay_sync_block(
                 provider.as_ref(),
                 &config,
                 &parent,
@@ -3047,17 +3065,6 @@ where
             prev_randao,
             suggested_fee_recipient,
         );
-        let mut prefix_hash_elapsed = std::time::Duration::ZERO;
-        let mut hash_group = |prefix: &[Bytes], group: &[Bytes], positions: &[usize]| {
-            let started = std::time::Instant::now();
-            let txs: Vec<_> = prefix.iter().chain(group).cloned().collect();
-            let positions: Vec<_> = positions.iter().map(|p| prefix.len() + p).collect();
-            let result = prefix_hashes
-                .at_positions(&txs, &positions)
-                .map(|hashes| positions.into_iter().zip(hashes).collect::<Vec<_>>());
-            prefix_hash_elapsed += started.elapsed();
-            result
-        };
         // The drain is nonempty and the held pool holds only cross-chain
         // work, so composition simulates at the price final pricing will use
         // when any of it survives. The final quote is selected again from the
@@ -3098,11 +3105,7 @@ where
                     return Err("Sync timestamp differs from live source target".into());
                 }
                 let live_source = eez_protocol::native_source::LiveSourceContext::new(
-                    ctx.l1_chain_id,
-                    self.inner.posting.registry,
-                    eez_protocol::RollupId(rollup_id),
                     ctx.l2_chain_id,
-                    live_timestamp,
                     state.anchor.hash(),
                 )
                 .map_err(|error| error.to_string())?;
@@ -3744,7 +3747,7 @@ where
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),
                     };
-                    let pairs_k = match candidate_native_sources(
+                    let (pairs_k, sources) = match candidate_native_sources(
                         &semantic_transactions,
                         &semantic,
                         rollup_id,
@@ -3757,8 +3760,8 @@ where
                             std::slice::from_ref(&outbound_group),
                             &[],
                             &stf_cfg,
-                            &sources,
                         )
+                        .map(|pairs| (pairs, sources))
                     }) {
                         Ok(pairs) => pairs,
                         Err(e) => {
@@ -3815,7 +3818,7 @@ where
                     // The prefix-hash rebuild runs the canonical executor, which
                     // treats a group that does not fit as a hard error. Settle the
                     // fit first, as a capacity decision rather than a fault.
-                    let pair_txs = match draft.prepare_transactions(&pair_plans) {
+                    let pair_txs = match draft.prepare_transactions(&pair_plans, &sources) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -3872,6 +3875,7 @@ where
                         }
                     };
                     let group_hashes = match hash_group(
+                        &mut prefix_hashes,
                         &sync_txs,
                         &pair_txs,
                         &eez_protocol::system_tx::sync_pair_end_positions(&pairs_k),
@@ -4559,7 +4563,7 @@ where
                         tx_data: held.raw_tx.clone(),
                         actions: composition.actions.clone(),
                     };
-                    let deliveries = match candidate_native_sources(
+                    let (deliveries, sources) = match candidate_native_sources(
                         &semantic_transactions,
                         &semantic,
                         rollup_id,
@@ -4568,13 +4572,12 @@ where
                         target_entries.len(),
                     )
                     .and_then(|sources| {
-                        eez_protocol::system_tx::build_inbound_system_txs(
-                            &target_entries,
-                            &stf_cfg,
-                            &sources,
-                        )
+                        eez_protocol::system_tx::build_inbound_system_txs(&target_entries, &stf_cfg)
+                            .map(|deliveries| (deliveries, sources))
                     }) {
-                        Ok(deliveries) if deliveries.is_empty() && !target_entries.is_empty() => {
+                        Ok((deliveries, _))
+                            if deliveries.is_empty() && !target_entries.is_empty() =>
+                        {
                             event!(
                                 name: "eez.composer.cc_compose.shape_evicted",
                                 Level::WARN,
@@ -4638,7 +4641,7 @@ where
                         .into_iter()
                         .map(eez_protocol::system_tx::PlannedTransaction::Native)
                         .collect::<Vec<_>>();
-                    let deliveries = match draft.prepare_transactions(&delivery_plans) {
+                    let deliveries = match draft.prepare_transactions(&delivery_plans, &sources) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -4692,6 +4695,7 @@ where
                         }
                     };
                     let group_hashes = match hash_group(
+                        &mut prefix_hashes,
                         &sync_txs,
                         &deliveries,
                         &(0..deliveries.len()).collect::<Vec<_>>(),
@@ -4938,6 +4942,7 @@ where
         deferred.extend(capacity.groups);
         admission.phase_finished(survivors.len(), !deferred.is_empty(), fifo_bypassed);
         let prefix_hash_executed_tx_count = prefix_hashes.executed_transactions;
+        let prefix_hash_elapsed = prefix_hashes.elapsed;
         drop(prefix_hashes);
         candidate.duration("prefix_hashing", prefix_hash_elapsed);
         candidate.emit(
@@ -5196,7 +5201,7 @@ where
         // Past the drain the pool's order is all that matters again.
         let mut survivors: Vec<HeldTx> = restore_pool_order(survivors);
 
-        // Rebuild from original semantic positions and execute plans afresh.
+        // Rebuild full-block group ordinals and execute plans afresh.
         // This independently binds every encoded gas limit to its receipt prefix.
         let (pairs, canonical) =
             match eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
@@ -5210,14 +5215,21 @@ where
                     &pending_out,
                     &pending_in,
                     &stf_cfg,
-                    &actions.source_hashes(&live_source),
                 )
+                .and_then(|pairs| {
+                    Ok((
+                        pairs,
+                        actions
+                            .source_entries(&live_source)
+                            .map_err(|error| error.to_string())?,
+                    ))
+                })
             })
-            .and_then(|pairs| {
+            .and_then(|(pairs, sources)| {
                 let plans = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
                 let transactions = reopen(&history_prefix)
                     .map_err(|error| error.to_string())?
-                    .prepare_transactions(&plans)
+                    .prepare_transactions(&plans, &sources)
                     .map_err(|(_, error)| error.to_string())?;
                 let canonical = history_prefix
                     .iter()
@@ -6313,7 +6325,7 @@ where
     }
 
     /// On-grid heights in `(cursor, snapped]` with no applications or cross-chain
-    /// actions, highest first. A mandatory history import belongs to the public
+    /// actions, highest first. A recorded history import belongs to the public
     /// ordinary prefix and remains eligible for anchor-only settlement.
     /// Gas is not considered here — the caller prices
     /// each candidate on its fully encoded batch.
@@ -7091,7 +7103,10 @@ where
             // SYSTEM_ADDRESS-signed forms so an unrecovered failed Sync block
             // cannot reintroduce phantom cross-chain effects.
             for enc in &tx_bytes {
-                let is_system = if enc.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
+                let is_system = if enc
+                    .first()
+                    .is_some_and(|ty| eez_primitives::is_native_type(*ty))
+                {
                     use alloy_eips::Decodable2718 as _;
                     eez_primitives::EezTxEnvelope::decode_2718_exact(enc)
                         .map_err(|error| format!("invalid native history transaction: {error}"))?
@@ -9710,7 +9725,6 @@ mod tests {
         use alloy_eips::eip2718::Encodable2718 as _;
         let tx: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::from(
                 alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
             ),

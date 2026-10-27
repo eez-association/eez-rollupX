@@ -306,15 +306,17 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
         &[(sidecar.clone(), Bytes::from(user.clone()))],
         &[],
         &system_transaction_context(),
-        &[crate::testkit::native_source_context().outbound(0, alloy_primitives::keccak256(&user))],
     )
     .unwrap();
-    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
-        .into_iter()
-        .map(|raw| {
-            <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
-        })
-        .collect();
+    let transactions = crate::testkit::resolve_synthetic_plans(
+        &pairs,
+        &[crate::testkit::native_source_context().entry(0).hash()],
+    )
+    .into_iter()
+    .map(|raw| {
+        <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
+    })
+    .collect();
     let body: eez_primitives::BlockBody = alloy_consensus::BlockBody {
         transactions,
         ..Default::default()
@@ -375,24 +377,20 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
         &[(outbound_sidecar.clone(), Bytes::from(user.clone()))],
         &[eez_protocol::entries::InboundSidecar::try_from(&inbound_sidecar).unwrap()],
         &system_transaction_context(),
-        &[
-            crate::testkit::native_source_context().outbound(0, alloy_primitives::keccak256(&user)),
-            crate::testkit::native_source_context().inbound(
-                eez_protocol::native_source::SourcePosition {
-                    manifest_index: 1,
-                    top_level_call_index: 0,
-                },
-                inbound_call_hash,
-            ),
-        ],
     )
     .unwrap();
-    let transactions = crate::testkit::resolve_synthetic_plans(&pairs)
-        .into_iter()
-        .map(|raw| {
-            <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
-        })
-        .collect();
+    let transactions = crate::testkit::resolve_synthetic_plans(
+        &pairs,
+        &[
+            crate::testkit::native_source_context().entry(0).hash(),
+            crate::testkit::native_source_context().entry(1).hash(),
+        ],
+    )
+    .into_iter()
+    .map(|raw| {
+        <TestTransaction as alloy_eips::Decodable2718>::decode_2718_exact(raw.as_ref()).unwrap()
+    })
+    .collect();
     let body: eez_primitives::BlockBody = alloy_consensus::BlockBody {
         transactions,
         ..Default::default()
@@ -891,17 +889,14 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
     let raw = eez_protocol::system_tx::build_inbound_system_txs(
         &[eez_protocol::entries::InboundSidecar::try_from(&sidecar).unwrap()],
         &context,
-        &[crate::testkit::native_source_context().inbound(
-            eez_protocol::native_source::SourcePosition {
-                manifest_index: 0,
-                top_level_call_index: 0,
-            },
-            call_hash,
-        )],
     )
     .unwrap()
     .remove(0)
-    .at_position(crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT, 0)
+    .at_position(
+        crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
+        0,
+        crate::testkit::native_source_context().entry(0).hash(),
+    )
     .unwrap();
     let transaction = TestTransaction::from(raw);
     assert_eq!(transaction.input(), input.as_slice());

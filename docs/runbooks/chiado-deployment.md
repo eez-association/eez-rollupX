@@ -96,7 +96,7 @@ proxies, as in the pinned protocol's
 [deployment procedure](../../eez-core-protocol/deployment/README.md). Their
 ProxyAdmin owners, `EEZ_UPGRADE_OWNER` and `EEZ_ROLLUP_UPGRADE_OWNER`, default to
 the deployer and can replace the implementations; set them to dedicated
-accounts, such as multisigs, when the deployer should not hold that authority. Native L2 system transactions use the reserved `0x45` sender;
+accounts, such as multisigs, when the deployer should not hold that authority. Native L2 cross-chain (`0x45`) and history (`0x46`) transactions use the reserved system address;
 they have no signing key or genesis funding.
 A separate deploy key avoids nonce competition with an active poster. Do not
 share a posting wallet with concurrent workloads. Fund deployer and poster before
@@ -107,8 +107,8 @@ Chiado faucet. Funding must cover deployment and ongoing settlement gas.
 | --- | --- |
 | `.env` | Private RPC/keys, node/signer/deploy images, and Compose settings; copied from `.env.chiado.example`, used by deployment and startup; preserve |
 | `deployments.env` | Generated public contract/rollup bindings and genesis/profile paths; preserve |
-| `EEZ_L2_TREASURY_RECIPIENT` | Required initial L2 recipient of FeeVault withdrawals. Must be nonzero and differ from FeeVault, SYSTEM and EEZL2. Deployment writes it into genesis storage. The vault owner may later call `setRecipient(address)` on L2; editing `.env` does not change deployed state. |
-| `EEZ_L2_TREASURY_OWNER` | Initial FeeVault owner; defaults to `OWNER` only when absent. Use an L2 governance/multisig address in production. Ownership transfers require `transferOwnership(address)` followed by `acceptOwnership()` from the proposed owner. Deployment input only, with the same address restrictions as the recipient. |
+| `EEZ_L2_TREASURY_RECIPIENT` | Required initial L2 recipient of FeeVault withdrawals. Must be nonzero and differ from FeeVault, SYSTEM and EEZL2. Deployment writes it into genesis storage. The vault owner may later propose a recipient on L2, which must accept; editing `.env` does not change deployed state. |
+| `EEZ_L2_TREASURY_OWNER` | Initial FeeVault and dedicated ProxyAdmin owner; defaults to `OWNER` only when absent. Use an L2 governance/multisig address in production. FeeVault ownership transfers require `transferOwnership(address)` followed by `acceptOwnership()` from the proposed owner. ProxyAdmin ownership uses its separate `transferOwnership(address)` call; see [treasury operations](fee-vault.md). Deployment input only, with the same address restrictions as the recipient. |
 | `EEZ_L2_FEE_RECIPIENT` | Required in `.env`: beneficiary for new Live/Sync blocks, including empty settlement-recovery replacements, receiving priority fees. Compose refuses to start while it is unset or empty; zero is an explicit supported choice. This is an operator setting, not a chain-wide constant: changes at restart affect future production, and followers replay each block's published beneficiary. |
 | `FRESH_GENESIS` | `./datadir/genesis.json`; generated at deployment, mounted into node and signer |
 | Genesis profile | `./datadir/genesis.profile.json`; generated code/state commitments; preserve |
@@ -241,7 +241,22 @@ and signer UID 65532 must be able to read the public genesis. Changing genesis
 after registration changes the rollup identity.
 The host's tracked genesis files are not used unless selected explicitly.
 
-Every L2 block burns the balances of EEZL2 and the native system address before
+Each complete cross-chain group clears residual EEZL2/system balances before its
+checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
+This is a fresh-network execution boundary: deploy matching Composer, followers
+and validation-contract-3 signers together; there is no existing-database upgrade.
+History updates use the dedicated optional `0x46` envelope, and history slot 3
+stores the immutable genesis phase. Old `0x45` history transactions and old
+genesis/runtime state are rejected. Cross-chain `0x45` uses six fields without a
+version. Its source identity binds the L2 EVM chain ID, intended L1 parent and
+zero-based complete-group ordinal in the full Live Sync block under the
+[current source rule](../proposals/native-system-transactions.md#source-identity-simplification);
+older identity formulas produce incompatible transaction/block commitments.
+Rollback to earlier binaries requires a
+separate fresh network; reusing this network's database is unsupported.
+The prover remains v2 and requires no chain RPCs.
+
+Every L2 block also burns the balances of EEZL2 and the native system address before
 its first transaction, so neither account holds ETH at a block start; see the
 [signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
 execution: nodes, followers and signers from before this rule cannot replay a
@@ -830,13 +845,17 @@ do not establish a public deployment or restart rehearsal.
 
 ### L2 fee treasury
 
-New genesis files contain the non-upgradeable FeeVault at
+New genesis files contain the atomically initialized FeeVault transparent proxy at
 `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078`, the authenticated `feeCollector`.
 The EVM credits ordinary base fees directly to its balance. Anyone may call
 `withdraw()` on L2; the complete current balance goes only to `recipient()`.
 The caller cannot choose the destination. Empty or failed payments revert,
 and a successful payment can leave the withdrawal transaction's own base fee.
-A recipient change applies to accumulated funds and subsequent withdrawals.
+A recipient change applies to accumulated funds and subsequent withdrawals
+only after the proposed recipient accepts. The owner may set a withdrawal
+minimum; `totalWithdrawn()` records successful gross payments. See
+[treasury operations and upgrades](fee-vault.md) for the separate ProxyAdmin
+authority, event accounting and the fresh-network deployment scope.
 
 Deployment follows `deploy.sh`'s existing precedence: explicit assignments in
 `.env` override inherited shell values. When the owner is absent from both, it
@@ -845,8 +864,8 @@ genesis values, not startup overrides.
 
 The owner can change the recipient without a hard fork. Followers and the offline
 signer validate these ordinary transactions using their normal execution witness.
-This contract does not bridge funds to L1. A recipient contract must accept ETH;
-if it reverts, the owner must select a usable recipient before withdrawal succeeds.
+This contract does not bridge funds to L1. A proposed recipient contract must accept ETH and be able to call `acceptRecipient()`;
+if it rejects payment, rotate to a usable recipient before withdrawing.
 Lost or renounced ownership prevents subsequent administrative changes.
 
 The vault is present only in newly rendered networks. Adding it changes genesis

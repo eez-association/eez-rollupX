@@ -33,8 +33,9 @@ unless you set and fund a separate `EEZ_DEPLOY_KEY`.
 Set `EEZ_L2_TREASURY_RECIPIENT` to the initial L2 treasury recipient. Base fees
 accumulate in the fixed FeeVault predeploy; anyone may trigger its `withdraw()`.
 `EEZ_L2_TREASURY_OWNER` defaults to the deployment `OWNER`; set an L2 governance or
-multisig address for production. That owner can later call `setRecipient(address)`
-on L2. Set `EEZ_L2_FEE_RECIPIENT` separately for the block beneficiary's priority fees.
+multisig address for production. That owner also initially owns the vault ProxyAdmin. It can propose a recipient
+with `proposeRecipient(address)`; the recipient must call `acceptRecipient()` on L2.
+See the [treasury operation and upgrade rules](fee-vault.md). Set `EEZ_L2_FEE_RECIPIENT` separately for the block beneficiary's priority fees.
 
 The example enables the [live Chiado policy/timing preset](chiado-deployment.md#1-configure):
 automatic admission, `always` settlement, and explicit fee ceilings. Review those

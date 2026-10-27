@@ -10,8 +10,18 @@ alloy_sol_types::sol! {
     interface IFeeVault {
         function owner() external view returns (address);
         function recipient() external view returns (address);
-        function setRecipient(address newRecipient) external;
+        function pendingRecipient() external view returns (address);
+        function totalWithdrawn() external view returns (uint256);
+        function minWithdrawalAmount() external view returns (uint256);
+        function proposeRecipient(address newRecipient) external;
+        function acceptRecipient() external;
+        function cancelRecipientChange() external;
+        function setMinWithdrawalAmount(uint256 newAmount) external;
         function withdraw() external returns (uint256 amount);
+        event RecipientChangeProposed(address indexed recipient, address indexed proposedRecipient);
+        event RecipientChangeCancelled(address indexed proposedRecipient);
+        event RecipientUpdated(address indexed previousRecipient, address indexed recipient);
+        event MinWithdrawalAmountUpdated(uint256 previousAmount, uint256 newAmount);
         event Withdrawal(address indexed recipient, address indexed caller, uint256 amount);
         error OwnableUnauthorizedAccount(address account);
     }

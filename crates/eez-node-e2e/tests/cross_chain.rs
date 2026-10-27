@@ -1,5 +1,6 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod capture_prefixes;
 mod combined_history;
 mod history_observations;
 mod nested_creation;
@@ -166,13 +167,14 @@ async fn bidirectional_cross_chain_with_history_at_sync() {
 
 async fn bidirectional_smoke(history_at_sync: bool) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = if history_at_sync {
-        setup_cross_chain_with_env(&[("EEZ_TEST_HISTORY_UPDATE_OFFSET", "4".to_string())])
-            .await
-            .unwrap()
-    } else {
-        setup_cross_chain().await.unwrap()
-    };
+    let mut env = Vec::new();
+    if history_at_sync {
+        env.push(("EEZ_TEST_HISTORY_UPDATE_OFFSET", "4".to_string()));
+    }
+    if std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").is_some() {
+        env.push(("EEZ_TEST_L2_DEBUG_RPC", "true".to_string()));
+    }
+    let w = setup_cross_chain_with_env(&env).await.unwrap();
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
 
@@ -326,6 +328,17 @@ async fn bidirectional_smoke(history_at_sync: bool) {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+    if !history_at_sync {
+        let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
+        let terminal = provider
+            .get_transaction_receipt(outbound)
+            .await
+            .unwrap()
+            .unwrap()
+            .block_hash
+            .unwrap();
+        capture_prefixes::capture(&w, terminal).await.unwrap();
+    }
     if history_at_sync {
         let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
         let receipt = provider
@@ -340,10 +353,13 @@ async fn bidirectional_smoke(history_at_sync: bool) {
             .unwrap();
         let transactions = block["transactions"].as_array().unwrap();
         let native_type = format!("0x{:x}", eez_primitives::SYSTEM_TX_TYPE);
-        assert_eq!(transactions[0]["type"], native_type);
-        let history: eez_primitives::SystemTransaction =
+        assert_eq!(
+            transactions[0]["type"],
+            format!("0x{:x}", eez_primitives::HISTORY_TX_TYPE)
+        );
+        let history: eez_primitives::HistoryTransaction =
             serde_json::from_value(transactions[0].clone()).unwrap();
-        assert_eq!(history.to, eez_primitives::HISTORY_ADDRESS);
+        assert!(!history.hashes.is_empty());
         assert!(transactions.iter().skip(1).any(|tx| {
             tx["type"] == native_type
                 && serde_json::from_value::<eez_primitives::SystemTransaction>(tx.clone())

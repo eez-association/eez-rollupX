@@ -276,7 +276,7 @@ mod tests {
                 first_number: 0,
                 endpoint: 34,
                 endpoint_hash: B256::repeat_byte(0x34),
-                next_cutoff: 12,
+                first_cutoff: 12,
             },
         }
     }

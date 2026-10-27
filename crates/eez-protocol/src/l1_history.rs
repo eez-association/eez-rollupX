@@ -19,8 +19,8 @@ pub const HISTORY_RUNTIME: &[u8] = include_bytes!("l1_history/runtime.bin");
 
 /// Dedicated predeploy, distinct from the EIP-2935 L2 block-hash ring.
 pub use eez_primitives::HISTORY_ADDRESS;
-/// Maximum consecutive records in one mandatory scheduled import.
-pub const MAX_IMPORT_HEADERS: usize = 64;
+/// Maximum consecutive records in one optional scheduled import.
+pub const MAX_IMPORT_HEADERS: usize = eez_primitives::MAX_HISTORY_HASHES;
 /// Maximum metered gas for a history transaction; included in block gas.
 pub const IMPORT_GAS_LIMIT: u64 = eez_primitives::HISTORY_TX_GAS_CAP;
 /// Maximum L1 rule epochs in the committed offline profile.
@@ -40,8 +40,8 @@ sol! {
 pub const FIRST_NUMBER_SLOT: u64 = 1;
 /// Current selected number, also the last stored history number.
 pub const ENDPOINT_SLOT: u64 = 2;
-/// Next cutoff to install, including after an empty import.
-pub const NEXT_CUTOFF_SLOT: u64 = 3;
+/// Fixed genesis cutoff defining eligible update phase; never advanced by imports.
+pub const FIRST_CUTOFF_SLOT: u64 = 3;
 /// Committed period in seconds between cutoffs.
 pub const INTERVAL_SLOT: u64 = 4;
 /// Committed offset in seconds from cutoff to installation.
@@ -68,7 +68,7 @@ pub fn bootstrap_storage(
     for (slot, value) in [
         (FIRST_NUMBER_SLOT, number),
         (ENDPOINT_SLOT, number),
-        (NEXT_CUTOFF_SLOT, schedule.first_cutoff()),
+        (FIRST_CUTOFF_SLOT, schedule.first_cutoff()),
         (INTERVAL_SLOT, schedule.interval()),
         (UPDATE_DELAY_SLOT, schedule.delay()),
         (MAX_IMPORT_SLOT, MAX_IMPORT_HEADERS as u64),
@@ -444,7 +444,7 @@ impl HistorySchedule {
     }
 
     /// Validate the recorded selection against parent storage and checked headers.
-    /// An update must explicitly select an endpoint; other positions inherit it.
+    /// An update may select an advanced endpoint at eligible positions; omission inherits it.
     /// Finalize authenticates the complete chain against the on-chain anchor.
     pub fn execution(
         &self,
@@ -460,39 +460,29 @@ impl HistorySchedule {
         }
         let cutoff = self.source_cutoff(timestamp)?;
         let updating = cutoff.checked_add(self.delay) == Some(timestamp);
-        let expected_next = if updating {
-            cutoff
-        } else {
-            cutoff
-                .checked_add(self.interval)
-                .ok_or(ProfileError("next cutoff overflow"))?
-        };
         if state.first_number > state.endpoint
-            || state.next_cutoff != expected_next
+            || state.first_cutoff != self.first_cutoff
             || chain.at(state.endpoint)?.hash != state.endpoint_hash
         {
             return Err(ProfileError("parent L1 history state mismatch"));
         }
-        if updating != selected.is_some() {
-            return Err(ProfileError("missing or off-schedule history transaction"));
+        if !updating && selected.is_some() {
+            return Err(ProfileError("off-schedule history transaction"));
         }
         let source = chain.at(selected.unwrap_or(state.endpoint))?;
         if source.header.timestamp > cutoff {
             return Err(ProfileError("L1 origin is newer than the delayed cutoff"));
         }
-        let import = if updating {
+        let import = if selected.is_some() {
             let count = source
                 .header
                 .number
                 .checked_sub(state.endpoint)
                 .and_then(|n| usize::try_from(n).ok())
-                .filter(|&n| n <= MAX_IMPORT_HEADERS)
+                .filter(|&n| (1..=MAX_IMPORT_HEADERS).contains(&n))
                 .ok_or(ProfileError(
                     "scheduled history import exceeds bound or regresses",
                 ))?;
-            cutoff
-                .checked_add(self.interval)
-                .ok_or(ProfileError("next cutoff overflow"))?;
             let mut hashes = Vec::with_capacity(count);
             for offset in 1..=count {
                 let number = state
@@ -536,7 +526,7 @@ pub fn decode_import(
     }
     let count = usize::try_from(U256::from_be_slice(&input[68..100]))
         .map_err(|_| ProfileError("history transaction length overflow"))?;
-    if count > MAX_IMPORT_HEADERS || input.len() != 100 + 32 * count {
+    if count == 0 || count > MAX_IMPORT_HEADERS || input.len() != 100 + 32 * count {
         return Err(ProfileError("invalid history transaction length"));
     }
     let call = IL1BlockhashContract::importHistoryCall::abi_decode(input)
@@ -556,8 +546,8 @@ pub struct HistoryState {
     pub endpoint: u64,
     /// Hash read from the parent mapping at `endpoint`.
     pub endpoint_hash: B256,
-    /// Cutoff scheduled after the parent state.
-    pub next_cutoff: u64,
+    /// Fixed cutoff at genesis; defines the eligible update phase.
+    pub first_cutoff: u64,
 }
 
 /// Checked execution input; the complete ancestry still needs final anchor authorization.
@@ -571,7 +561,7 @@ pub struct HistoryExecution {
     pub origin_hash: B256,
     /// Selected header mixHash; must match both the L2 header and EVM environment.
     pub prev_randao: B256,
-    /// Canonical system calldata exactly at an update; absent at every other position.
+    /// Derived canonical calldata for a nonempty update; absent when the origin is inherited.
     pub import: Option<Bytes>,
 }
 

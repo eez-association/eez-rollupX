@@ -221,7 +221,11 @@ fn lengths_and_transactions_fail_at_their_boundary() {
         Payload::decode(&wire).unwrap_err(),
         Error::TransactionEncoding
     );
-    for ty in [eez_primitives::SYSTEM_TX_TYPE, 3] {
+    for ty in [
+        eez_primitives::SYSTEM_TX_TYPE,
+        eez_primitives::HISTORY_TX_TYPE,
+        3,
+    ] {
         *wire.last_mut().unwrap() = ty;
         assert_eq!(
             Payload::decode(&wire).unwrap_err(),
@@ -250,14 +254,10 @@ fn lengths_and_transactions_fail_at_their_boundary() {
 
 #[test]
 fn ordinary_column_preserves_history_bytes_and_rejects_cross_chain_and_blobs() {
-    let history = eez_primitives::SystemTransaction {
+    let history = eez_primitives::HistoryTransaction {
         chain_id: 1337,
-        version: eez_primitives::SYSTEM_TX_VERSION,
-        source_hash: alloy_primitives::B256::with_last_byte(8),
-        gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
-        to: eez_primitives::HISTORY_ADDRESS,
-        value: U256::ZERO,
-        input: Bytes::from_static(b"opaque to the codec; checked by execution"),
+        version: eez_primitives::HISTORY_TX_VERSION,
+        hashes: vec![alloy_primitives::B256::with_last_byte(8)],
     };
     let raw: Bytes = eez_primitives::EezTxEnvelope::from(history.clone())
         .encoded_2718()
@@ -274,8 +274,12 @@ fn ordinary_column_preserves_history_bytes_and_rejects_cross_chain_and_blobs() {
         transactions.iter().map(Bytes::as_ref).collect::<Vec<_>>()
     );
     let cross_chain = eez_primitives::SystemTransaction {
+        chain_id: 1337,
+        source_hash: alloy_primitives::B256::with_last_byte(8),
+        gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: eez_primitives::EEZL2_ADDRESS,
-        ..history
+        value: U256::ZERO,
+        input: Bytes::new(),
     };
     let cross_chain = eez_primitives::EezTxEnvelope::from(cross_chain).encoded_2718();
     let blob = alloy_consensus::TxEip4844::default()
