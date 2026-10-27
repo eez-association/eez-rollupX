@@ -1,8 +1,8 @@
-# Quote call tracing and import viewer
+# Quote call tracing
 
 | Field | Value |
 | --- | --- |
-| Design status | First iteration authorized by the user on 2026-10-20; implemented and locally validated, release CI pending |
+| Design status | Accepted and implemented. The 2026-10-27 amendment moves viewer ownership and browser validation to the dashboard repository; RollupX retains the trace API and backend tests. |
 | Date | 2026-10-20 |
 | Source baseline | `eez-association/eez-rollupX` main `a2d7b0a3be89df3c0b6ac945acd41a830278b0a7` |
 | Protocol baseline | `abcf9d8ffc4e0ccb5df271fc19efdf9a7fb57774` |
@@ -10,10 +10,10 @@
 
 ## Problem and scope
 
-Debug fee quotes retain revert bytes but do not identify the internal call that
-produced them. Add opt-in call tracing to `eez_debugQuoteFee` and a standalone,
-local JSON-import viewer in this repository. Capture actual quote execution,
-including nested cross-chain callbacks, rather than re-simulating afterwards.
+Debug fee quotes need the internal call context that produced revert bytes.
+Opt-in call tracing on `eez_debugQuoteFee` captures actual quote execution,
+including nested cross-chain callbacks. The dashboard owns rendering and import;
+this repository owns trace capture, the export contract and backend validation.
 Solidity source maps, opcode traces, state diffs, remote storage and transaction
 broadcast are outside this iteration.
 
@@ -26,9 +26,9 @@ broadcast are outside this iteration.
 | R3 | Reverted frames remain inspectable, including caught failures and successful calls unwound by ancestors | Caught and propagated nested-revert regressions |
 | R4 | Types, gas probes, pricing and validation executions are separate runs with pinned context and actual transaction fields | Both transaction formats and omitted/explicit gas tests |
 | R5 | Tracing observes execution without changing gas, output, state, queue ownership or worker lifetime | Traced/untraced equivalence tests and existing fee process suite |
-| R6 | Capture and viewer input are bounded; missing/truncated evidence is explicit; traced RPC batches are rejected before execution | Boundary, batch rejection, malformed JSON and browser tests |
-| R7 | Import stays in the browser; contract text cannot execute scripts or initiate network requests | DOM/browser tests with hostile trace content |
-| R8 | Operational failures after capture starts retain the partial trace without returning successful quote options | Unfunded-poster nested process tests, error-envelope and browser tests |
+| R6 | Capture is bounded; missing/truncated evidence is explicit; traced RPC batches are rejected before execution | Boundary and batch rejection tests |
+| R7 | Dashboard imports are bounded and stay in the browser; contract text cannot execute scripts or initiate network requests | Import and browser tests in the dashboard repository |
+| R8 | Operational failures after capture starts retain the partial trace without returning successful quote options | Unfunded-poster nested process tests and error-envelope assertions |
 
 ## Design
 
@@ -56,32 +56,29 @@ return earlier successful quote options. Failures before capture and worker
 timeout, cancellation, shutdown or panic may still have no trace. The bounded
 worker retains its permit until it exits; capture does not change that lifecycle.
 
-The viewer accepts the complete JSON-RPC response, its result, or a trace object.
-It recognizes partial exports inside error responses. It displays
-the quote outcome separately from individual run/frame outcomes, an expandable
-call tree and selected-frame details. Standard Solidity errors are decoded;
-unknown custom errors retain their selector and bytes. ABI-assisted decoding
-is outside this iteration.
+The dashboard consumes the [export schema](../configurable-settlement-policy.md#compact-fee-quotes),
+including partial exports inside error responses. Consumers must distinguish
+the quote outcome from individual run/frame outcomes and retain unknown error
+selectors and bytes. Viewer implementation and browser dependencies live in the
+dashboard repository.
 
 ## Compatibility and recovery
 
 This is an additive debug-only option and response field. Older Composers reject
-the option; users must upgrade Composer before requesting traces. The viewer
-reports exports without a supported trace explicitly. No protocol gitlink,
+the option; users must upgrade Composer before requesting traces. No protocol gitlink,
 contract, genesis, signer, follower, storage or operator configuration change is
 needed. Rollback removes trace availability without changing historical replay
 or fee enforcement. A trace describes simulated execution, not a proof or a
 replay witness; a later request can use a different context.
-The error-envelope extension retains trace schema version 1. Older viewers can
-import the extracted trace but do not explain its new failure summary; upgrade
-the viewer to display the interrupted-quote status.
+The error-envelope extension retains trace schema version 1. Removing the
+standalone viewer does not change that schema or the dashboard's bundled assets.
 
 ## Validation
 
 Run Composer/node unit tests, fee SDK tests, serial fee quote process tests with
-nested calls in both directions, formatting and Clippy. Exercise import,
-navigation, errors, truncation and malformed data in a real browser. Record
-executed checks and limitations in the
+nested calls in both directions, formatting and Clippy. The dashboard repository
+owns browser validation of import, navigation, errors, truncation and malformed
+data. The original implementation's checks and limitations are recorded in the
 [validation record](../audits/2026-10-20-quote-call-tracing/README.md).
 The [posting-reservation follow-up](../audits/2026-10-20-mainnet-quote-reservation/README.md)
 records the partial-error-trace regression and its validation separately.
