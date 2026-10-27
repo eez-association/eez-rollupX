@@ -100,41 +100,6 @@ impl<'a> SyncPrefixHashes<'a> {
         }
     }
 
-    /// Resolve each native identity from the executed prefix immediately before
-    /// its whole group. A rejected candidate leaves the production draft intact;
-    /// a later different raw prefix invalidates this cache's speculative suffix.
-    pub(crate) fn prepare_transactions(
-        &mut self,
-        draft: &mut SyncBlockState,
-        prefix: &[Bytes],
-        plans: &[PlannedTransaction],
-        sources: &[eez_protocol::native_source::SourceEntry],
-    ) -> Result<Vec<Bytes>, (usize, BuildError)> {
-        if plans
-            .iter()
-            .filter(|plan| matches!(plan, PlannedTransaction::Native(_)))
-            .count()
-            != sources.len()
-        {
-            return Err((
-                0,
-                BuildError::Builder("native source row count differs from plans".into()),
-            ));
-        }
-        let mut sources = sources.iter();
-        draft.prepare_transactions(plans, |suffix| {
-            let full = prefix.iter().chain(suffix).cloned().collect::<Vec<_>>();
-            let hash = self
-                .prefix(&full)
-                .map_err(|error| BuildError::SourcePrefix(error.to_string()))?;
-            // Count equality above and one callback per Native plan establish this.
-            let source = sources
-                .next()
-                .ok_or_else(|| BuildError::Builder("native source row missing".into()))?;
-            Ok(source.hash(hash))
-        })
-    }
-
     pub(crate) fn at_positions(
         &mut self,
         transactions: &[Bytes],

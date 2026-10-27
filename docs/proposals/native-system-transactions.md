@@ -2,9 +2,9 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted fresh-network contract. The complete-group cleanup and optional HistoryUpdate amendments are implemented; combined validation is tracked in the [current audit](../audits/2026-10-27-group-cleanup-and-history/README.md). Earlier native-v1 results do not validate these amendments. The prefix-bound source-identity simplification is implemented and undergoing combined validation, with the core unchanged. |
+| Status | Accepted fresh-network contract. Complete-group cleanup and optional HistoryUpdate are implemented. The execution-group source index and versionless `0x45` amendment are tracked in the [current audit](../audits/2026-10-27-source-counter/README.md). Earlier native-v1 and prefix-bound identity results do not validate these amendments. The core is unchanged. |
 | Scope | [Accepted branch scope](l1-origin-and-offline-proving.md#accepted-branch-scope-after-divergence-review), requirements A1–A11 |
-| Implementation baseline | RollupX `3e23955dc477c9e675364776f118b1cecda75774` plus the isolated branch's recorded-history changes |
+| Implementation baseline | PR #103 head `9c1ab488e1b421cdc59c7e82bd95f080f7332b3e`; the current source/envelope amendment replaces its earlier identity rule. |
 | Pinned core | `feature/e2e_edge_cases`, `84a5b5207880f192a6a5896cbfe0bac5249db47f` |
 | Draft reference | [System transaction design at 2c6d346](https://github.com/eez-association/specs-draft/blob/2c6d346bea0b3736f7453c35174291495694d1fc/docs/rollup0-spec/F-system-transaction-design.md); the pinned core prevails where its ABI or execution differs |
 
@@ -33,7 +33,7 @@ domains, alternate endpoints or compatibility decoders.
 | --- | --- |
 | Cross-chain transaction and receipt type | `0x45` |
 | HistoryUpdate transaction and receipt type | `0x46` |
-| Native envelope version | Integer `1` |
+| Envelope version | No field for `0x45`; integer `1` for history `0x46` |
 | Implicit system sender | `0xfffffffffffffffffffffffffffffffffffffffe` |
 | EEZL2 destination | `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` |
 | History destination | `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077` |
@@ -41,10 +41,10 @@ domains, alternate endpoints or compatibility decoders.
 | History native gas cap | `2_000_000` |
 | Manager profile domain | `EEZ_ROLLUPX_OFFLINE_PROFILE` |
 | Prover transport | Existing `prove.v2.Prover.ProveStream` |
-| Portable identity | Validation contract `2` (encoding, canonicalization and semantics) |
+| Portable identity | Validation contract `3` (encoding, canonicalization and semantics) |
 
-Cross-chain version 1 explicitly distinguishes our grouped outbound and indexed
-multi-root rules from the draft's inbound-only version 0. The L1 registry remains
+The validation identity binds the grouped outbound and indexed multi-root rules.
+The L1 registry remains
 independently configured and authenticated; sharing an address with EEZL2 is not
 a universal assumption. Core proxies, selectors, call hashes and table execution
 remain those of the pinned revision.
@@ -52,17 +52,17 @@ remain those of the pinned revision.
 ## Exact envelope, execution and RPC
 
 ```text
-transaction = 0x45 || RLP([version, chainId, sourceHash, gasLimit, to, value, input])
+transaction = 0x45 || RLP([chainId, sourceHash, gasLimit, to, value, input])
 transactionHash = Keccak256(transaction)
 receipt = type || RLP([status, cumulativeGasUsed, logsBloom, logs])
 ```
 
-Require exactly seven fields, complete input consumption and minimal canonical
-RLP. Version is integer 1; chainId is a uint256 equal to the configured L2 chain
+Require exactly six fields, complete input consumption and minimal canonical
+RLP. There is no version field. chainId is a uint256 equal to the configured L2 chain
 ID (this runtime's configured chain IDs remain u64); gasLimit is uint64; value
 is uint256. Integer zero is the empty RLP byte string. sourceHash is exactly 32
 raw bytes, to exactly 20 raw bytes, and input a byte string. Reject wrong widths,
-leading-zero integers, trailing bytes, unsupported versions/types, destinations
+leading-zero integers, extra fields, trailing bytes, unsupported types, destinations
 or selectors, and any decode/re-encode mismatch. Contract creation is unsupported.
 
 The `0x45` kinds are inbound delivery and outbound table load. History uses the
@@ -96,7 +96,7 @@ incomingCalls inside expectedOutgoingCalls with checked arithmetic. It is not
 necessarily root.value, and an outbound load is not necessarily zero-value.
 Inline callbacks still need this committed funding. Only history is always zero.
 
-RPC transactions expose type `0x45`, version `0x1`, sourceHash, implicit from,
+RPC transactions expose type `0x45`, sourceHash, implicit from,
 encoded gas, actual to/value/input and the ordinary inclusion fields. For generic
 Ethereum RPC clients, nonce, gasPrice, v, r, s and yParity are `0x0` placeholders;
 accessList, blobVersionedHashes and authorizationList are empty arrays. Omit
@@ -109,25 +109,16 @@ transaction gossip boundaries. Engine/import paths still validate the full profi
 ## Canonical positions and lowering
 
 Positions come from the authenticated, complete native EEZ semantic stream.
-Carry them as checked provenance through parsing/materialization, rather than
-recovering them from filtered tables, hashes, submission queues or L2 tx indexes.
-
-- Reserve mutable `PostBatch.entries` row zero for the ordinary anchor.
-- Count one mutable L1 host for each complete outbound bracket, including
-  static-only brackets and multi-root/nested groups.
-- Count every original top-level inbound mutable root, including failed/reverted
-  and lookup-only rows. Applying roots use those positions without closing gaps.
-- L1 static roots live in `staticEntries` and do not advance the mutable-row
-  index. Nested calls share their enclosing host/group.
-- Use checked uint64 arithmetic; bind this mapping to the complete canonical
-  settlement tables before filtering a consumed suffix. Validate the supported
-  two-chain profile, including nonexecuting actions; never filter foreign roots
-  into an apparently valid local stream.
+Enumerate complete cross-chain execution groups starting at zero before selecting
+a consumed suffix. These are not `PostBatch.entries` row numbers: the ordinary
+anchor does not count, nor do nonexecuting inbound lookups. Validate the supported
+two-chain profile and every nonexecuting action before deriving this sequence;
+never filter foreign roots into an apparently valid local stream.
 
 Lower L1-origin brackets to one native delivery for each applied, successful,
 mutable root. A failed, reverted or static-only root produces no standalone
-native delivery; retain its mutable-row position when applicable and all
-required table validation. The pinned core executes nested callbacks inside the group's tables.
+native delivery and does not advance the source index. Retain all required table
+validation. The pinned core executes nested callbacks inside the group's tables.
 
 Lower each L2-origin bracket to one native table-load transaction immediately
 followed by its exact signed L2 origin transaction. All of that bracket's supported
@@ -144,9 +135,9 @@ deliveries and preserves every inline callback and nested-table validation.
 
 Example: bracket 0 is an outbound group with three roots; bracket 1 is inbound
 with roots failed, static, successful mutable. Emit one load plus its signed user
-transaction for mutable row 1, then one delivery identified by mutable row 3.
-The failed mutable root occupies row 2; the static root is in the separate array.
-Consuming the outbound group does not renumber the delivery's original row 3.
+transaction with source index 0, then one delivery with source index 1.
+The failed and static inbound roots do not advance the source index. Consuming
+the outbound group does not renumber the delivery's original index 1.
 
 ## Complete-group balance cleanup
 
@@ -196,8 +187,8 @@ exact post-cleanup FIFO prefix.
 
 This changes execution and commitments. Use matching new-network artifacts;
 pre-change histories/databases are unsupported, with no mixed-version execution,
-activation switch or migration. Keep the native envelope at version 1 and the
-`prove.v2` protobuf unchanged; validation-contract version 2 identifies the new
+activation switch or migration. Use the six-field cross-chain envelope and keep the
+`prove.v2` protobuf unchanged; validation-contract version 3 identifies the new
 semantics. The manager profile preimage also includes this fixed version before
 the history address, binding the cleanup rule into on-chain public inputs without
 a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
@@ -211,39 +202,36 @@ replay and follower derivation. Unit tests alone do not close those process gate
 
 ## Exact source identities
 
-Both cross-chain directions use one identity formula:
+Both cross-chain directions use the single execution-position identity:
 
 ```solidity
 sourceHash = keccak256(abi.encode(
     string("SOURCE_ENTRY_V1"),
-    uint64(rollupId),
+    uint256(chainId),
     bytes32(l1ParentHash),
-    uint64(entryIndex),
-    bytes32(originalPreGroupPrefixHash)
+    uint64(entryIndex)
 ));
 ```
 
-Use Ethereum Keccak-256 and standard Solidity ABI encoding, including the
-literal dynamic string. Do not use a prehashed/padded tag, packed encoding,
-RLP, hexadecimal text or NIST SHA3. `entryIndex` is the original complete
-mutable `PostBatch.entries` row, with anchor zero reserved. Count one host per
-whole outbound bracket and every original inbound mutable root, including
-nonexecuting rows; L1 static rows are separate. Derive this mapping before
-partial-consumption filtering and bind it to the complete settlement tables.
+Use Ethereum Keccak-256 and standard Solidity ABI, including the literal dynamic
+string. `chainId` is the target L2 EVM chain ID, equal to the native envelope's
+chain ID; this implementation admits uint64 EVM chain IDs and ABI-encodes that
+value as uint256. `l1ParentHash` is the authenticated parent of the intended L1
+inclusion block. Do not use a prehashed/padded tag, packed encoding, RLP,
+hexadecimal text, NIST SHA3 or the registry's rollup ID in place of chainId.
 
-`originalPreGroupPrefixHash` is independently executed raw B[i] immediately
-before this complete native group. Resolve groups sequentially: B[i] determines
-its source hash, its exact transaction bytes execute, and only then is B[i+1]
-available. Never use acceptedRoot, a folded carrier root or a post-group hash.
-The [source-identity rules](#source-identity-simplification) specify complete
-counting, reproof and follower-placement behavior.
+`entryIndex` is the zero-based ordinal of a complete native cross-chain group in
+the full Live Sync block. It continues across all postings in that L1 block.
+Derive it from the complete reconstructed execution before selecting consumed
+suffixes. Never reset it per batch, successful event or retry. The
+[source-identity rules](#source-identity-simplification) specify counting,
+authentication and partial settlement.
 
-Cross-chain actions remain restricted to actual-parent mode. The intended
-live timestamp, chain/deployment identities, exact signed origin, core call
-hashes, tables, values and effects remain independently authenticated. Their
-absence from this shorter preimage does not remove any of those checks. One
-outbound load is followed immediately by its exact signed user transaction;
-inline callbacks have no independent source identity or native transaction.
+Cross-chain actions remain restricted to actual-parent mode. Prefix commitments,
+exact bytes, signed origins, tables, values, effects, target time and deployment
+identity remain independently authenticated. Removing the prefix from sourceHash
+does not remove any of those checks. One outbound load is followed immediately
+by its exact signed user; inline callbacks have no separate native transaction.
 
 ### Dedicated optional HistoryUpdate (accepted 2026-10-27)
 
@@ -293,10 +281,11 @@ root, exact public inputs and semantic execution checks distinguish those states
 Do not add an acceptedRoot-dependent source hash: re-proving the same candidate
 after partial consumption must preserve its bytes.
 
-For suffix replay of the same candidate, retain the original complete mutable-row
-positions and raw pre-group prefixes, and validate the consumed prefix/checkpoint with existing rules.
-When actually recomposing a new candidate, derive its new context, original-row mapping and
-execution prefixes together. Retries of the same candidate do not create a new occurrence.
+For suffix replay of the same candidate, retain the original complete group
+ordinals and validate the consumed prefix/checkpoint with existing rules.
+When actually recomposing a new candidate, derive its context, complete group
+sequence and execution checkpoints together. Retries of the same candidate do
+not create a new occurrence.
 
 The v2 service can execute Block inputs before Finalize supplies the full
 settlement manifest. A Block ACK is not settlement authorization. Complete all
@@ -308,137 +297,101 @@ are required.
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted additional-field fallback; integrated implementation and renewed runtime validation are in progress. |
-| Scope | Simplify native cross-chain identities using existing execution/DA inputs. The owner permits additional sourceHash inputs if the four-field formula cannot meet the required behavior. |
-| Fixed boundaries | Keep core contracts, ABI/public-input algorithm and gitlink unchanged. Keep prove.v2 and the offline prover. Add no L1 allocator, posting wrapper, trusted operator counter or RPC dependency for source indexing. |
-| Design baseline | PR [#103](https://github.com/eez-association/eez-rollupX/pull/103) at `6c3106fb482bb323eefa8898a0bd922fc7520480`, base `641e768f2e6605f7563c808a00937d374e98e8fb`; core `84a5b5207880f192a6a5896cbfe0bac5249db47f`. |
-| Decision record | [Combined issues review](../audits/2026-10-26-protocol-issues-review/README.md). The rolling-hash substitution in draft issue #7 remains outside this change. |
+| Status | Accepted execution-group ordinal on 2026-10-27; implementation and validation tracked in the [source-counter audit](../audits/2026-10-27-source-counter/README.md). |
+| Scope | One sourceHash formula for fresh networks; no alternate identity or legacy validation. |
+| Fixed boundaries | Unchanged core contracts/ABI/public-input algorithm/gitlink; unchanged prove.v2; offline prover; no L1 allocator, posting wrapper, trusted counter or additional RPC. |
+| Baseline | PR #103 head `9c1ab488e1b421cdc59c7e82bd95f080f7332b3e`, base `af0a000f12b0772892058066706465c84a00fd17`, core `84a5b5207880f192a6a5896cbfe0bac5249db47f`. |
 
-### Identity and index scope
+### Counting contract
 
-The original target was
-`H(abi.encode("SOURCE_ENTRY_V1", rollupId, l1ParentHash, entryIndex))`,
-with an ordinal across all original assigned rows for the rollup in an L1 block.
-The current offline request contains one batch, its execution evidence and L1
-context, without the complete ordered inventory of earlier same-block postings.
-Accepted execution checkpoints cannot recover unconsumed/static/lookup row
-counts from those other postings. Core's resetting scan cursor cannot supply
-that inventory either.
+Count complete groups in the fully reconstructed Live Sync block, starting at
+zero, in the existing outbound-before-inbound order:
 
-On 2026-10-27 the owner allowed extra inputs to sourceHash as the fallback.
-Use an original batch-local position with additional deterministic context,
-stating that changed scope explicitly. Do not merely reset the index
-for each batch under the four-field formula. Follower replay placement must
-use authenticated checkpoint progress, since input identity does not distinguish
-all competing candidates.
+- One outbound bracket contributes one load/signed-user group. Multiple mutable
+  or static roots, nested callbacks and a canonically included reverted user do
+  not split the group. A static-only outbound bracket still contributes one.
+- Each applying inbound delivery contributes one group, including its callbacks.
+  Static, failed or source-frame-reverted inbound lookups without a native L2
+  transaction contribute zero. Their semantic and settlement validation remains.
+- Ordinary transactions, history imports and root-only anchors contribute zero.
+  An anchor or successful entry can carry the checkpoints of failed outbound
+  groups: those physically committed groups still count individually.
+- Unconsumed candidate suffixes are not counted as canonical execution. Reposting
+  already consumed groups does not allocate additional indices. Derive their
+  original ordinals before selecting the suffix that L1 actually committed.
 
-`entryIndex` is the zero-based position in the complete original mutable
-`PostBatch.entries` array. Index 0 is the ordinary anchor and has no native group.
-Derive subsequent positions from the complete semantic stream before selecting
-consumed effects:
+Use checked uint64 conversion. The ordinal is an execution position, not a
+PostBatch array index, L1 log index, transaction index or success count. The
+native load and its signed user count once together. Raw event counting is
+incorrect because a root carrier can cover several groups and a lookup can emit
+a no-op event without a native transaction.
 
-- Each L2-origin bracket has exactly one canonical mutable L1 host. Assign its
-  complete load/signed-user group that row's index, then advance by one. Nested
-  roots and L2 static source-table rows share the host; never count loaded roots
-  as separate hosts.
-- For each L1-origin bracket, count every original top-level mutable root,
-  including failed/reverted and lookup-only roots. Each applying mutable root's
-  delivery uses its original row index. Nonexecuting rows still occupy positions.
-- L1 static roots occupy the separate `staticEntries` array and emit no native
-  transaction. They do not advance this mutable-row index. An outbound bracket
-  containing only static source roots still has its one mutable L1 host.
+### Authentication without a counter oracle
 
-Use checked uint64 conversion/addition. Existing outbound-before-inbound ordering
-and append-only candidate admission make these row positions stable as later
-candidates are added. Bind the independently derived mapping to the complete
-canonical settlement arrays. Same-candidate reproof retains the full original
-mapping, including gaps; never renumber the consumed suffix. History updates have
-no cross-chain sourceHash. Whole-group, FIFO, funding and execution rules remain
-intact. This replaces the requested block-wide ordinal with an original
-batch-local mutable-row position, not an execution counter or all-root ordinal.
+The schedule fixes exactly one Live Sync endpoint for an intended L1 inclusion
+timestamp. Historical/catch-up candidates cannot carry cross-chain actions;
+intermediate replay blocks cannot carry native cross-chain groups. V0 and the
+semantic stream reconstruct the complete terminal ordinary prefix and native
+suffix. Consequently the offline prover derives all group ordinals from existing
+execution evidence, starting at zero; it accepts no external starting counter.
 
-Source identity does not independently authorize execution, prove L1 inclusion
-or establish global deduplication across candidates, deployments or forks.
-Preserve the independent context, entries/DA, native bytes, checkpoints and
-execution checks. Removing a field from this hash must not remove its existing
-validation elsewhere.
+Before signing, retain exact native reconstruction, complete semantic/DA binding,
+independent execution and whole-group checkpoints. The accepted-root claim must
+be the authenticated execution predecessor or one of those independently replayed
+checkpoints. At inclusion, getCustomData binds the actual accepted root, exact L1
+parent/time and deployment; core also checks per-entry currentRoot on execution.
+A root hash alone does not reveal an ordinal: complete execution opens that
+commitment and establishes the count. These gates must remain even though the
+prefix hash is absent from the sourceHash preimage.
 
-### Replacement preimage and reconstruction
+### Partial settlement, competing posts and follower replay
 
-The additional input is the original terminal L2 prefix commitment
-immediately before the native group. It includes the ordinary prefix and all
-preceding complete groups, excluding the current group:
+A same-target reproof retains full original execution, semantics and DA. Only
+its accepted-root assertion/proof changes. Groups keep their original ordinal
+and bytes; the selected suffix never restarts at zero. A compatible preceding
+post can consume some of the same candidate, or a shorter compatible candidate,
+without changing those identities.
 
-```text
-original prefix B[i] -> source[i] -> execute group[i] -> prefix B[i+1]
-```
+An intervening root advance makes the old proof stale. Reproof against the new
+root is permitted only when that root is a whole-group checkpoint in the fully
+replayed candidate. An incompatible prefix requires a rebuilt candidate and new
+proof; it cannot be repaired by supplying a different counter. A different L1
+target likewise requires reconstruction under its new parent/time.
 
-Composer already computes growing prefix commitments; the signer independently
-replays the ordinary prefix and whole-group checkpoints. This gives a sequential
-dependency rather than hashing the current group's own completed block. The
-exact preimage is:
+Followers combine canonical ordered BatchPosted, L2ExecutionPerformed and
+L2TxSkipped observations with exact posted entries and native blob semantics.
+Existing carrier attribution identifies which complete groups became committed,
+including failed outbound groups carried by another entry. Reconstruct the full
+source sequence before selecting that range. Authenticated entry/final block
+commitments select append versus already-applied replay; verify retained prefix
+and exact suffix bytes. SourceHash is never a global deduplication key.
 
-```solidity
-sourceHash = keccak256(abi.encode(
-    string("SOURCE_ENTRY_V1"),
-    uint64(rollupId),
-    bytes32(l1ParentHash),
-    uint64(entryIndex),
-    bytes32(originalPreGroupPrefixHash)
-));
-```
+### Identity scope and compatibility
 
-Use the literal dynamic ABI string, not its hash or a padded bytes32 tag.
-`l1ParentHash` is the actual authenticated parent of the intended inclusion block.
-No literal timestamp, call hash or signed-origin hash enters this preimage; retain
-their existing context/semantic/exact-transaction validation. Competing candidates
-at the same original prefix/row can share a source identity, while their complete
-transaction bytes and execution still require independent validation.
+SourceHash identifies a position within the configured network and L1 target.
+It does not independently authorize execution, prove inclusion/finality, bind an
+original settlement-row number or distinguish every competing candidate.
+Deployments reusing an EVM chain ID may share identifiers; deployment/genesis,
+registry/rollup, exact prefix, tables and bytes remain independently bound by
+validation. Do not use sourceHash alone as a cross-network identifier.
 
-Use the raw original execution prefix, never the mutable accepted-root assertion
-or a settlement carrier that includes later failed groups. A same-candidate
-[checkpoint reproof](../../crates/eez-node-e2e/tests/partial_consumption.rs) changes
-the accepted-root assertion and proof while retaining original execution, DA and
-native bytes; every source identity must therefore stay unchanged. Do not use a
-completed-batch/blob hash without demonstrating that its preimage excludes
-source-dependent outputs.
+The single validation-contract version is 3, in both capability identity and
+manager profile; cross-chain envelopes have no version; history remains version 1 and the transport remains
+prove.v2 with unchanged protobuf. New source bytes change native transaction and
+block hashes. Use matching new-network artifacts, fresh genesis/profile and
+fresh datadirs; mixed versions, migration, activation flags and rollback to old
+binaries over new history are unsupported. No core changes or new environment
+variables are required. Existing networks are not changed by this PR.
 
-Followers must reconstruct the same original prefixes and distinguish an append
-from an already-applied group using authenticated checkpoint progress. A matching
-sourceHash alone cannot select replay placement or authorize consumption. Retain
-exact-byte and whole-group checks after placement, including for different
-candidates sharing an original prefix.
+### Acceptance
 
-Resolve identities sequentially at native-group boundaries, including each delivery inside a
-multi-delivery inbound bracket. Reuse existing prefix computation; do not reexecute
-every earlier group for each new source. Update estimation, final reconstruction
-and follower resume alongside Composer and signer. The integrated implementation and refreshed regression evidence are required
-before completion. No allocator is part of the active design.
-
-### Acceptance and compatibility
-
-Before completing the replacement:
-
-- Specify exact canonical ABI/hash inputs and independently checked vectors.
-  Reject malformed widths, arithmetic overflow and inconsistent source positions.
-- Check multiple batches sharing an L1 parent, identical and different calls,
-  failed/static roots, nested/multi-root outbound groups and appended candidates.
-  Earlier identities must not change when later candidates are added.
-- Preserve original native bytes on partial reproof, including after intervening
-  postings. Test retries, already-applied groups, reorg/restart and changed-content
-  rejection without false-repeat errors or duplicate consumption.
-- Exercise Composer, offline signer, on-chain settlement and a cold follower
-  together. Regenerate proving captures/conformance vectors after changing native
-  bytes; earlier #105/#108 captures do not validate the new preimage.
-- Keep core, protobuf and RPC access constraints unchanged. Update the affected
-  RollupX rules, consumers and specifications together; remove replaced code
-  rather than keeping a second identity mode.
-
-This is a fresh-network change. A new preimage changes native transaction hashes
-and block commitments, requiring matching validation identity and regenerated
-artifacts. No legacy decoder, activation switch or mixed-version mode is wanted.
-Changing a running network or its data is not authorized here. The identity work
-does not block independent #105/#108 validation.
+Require independent ABI vectors; full-group/static/failed/root-rollback counting;
+append-stable indices; different chain IDs and L1 parents; malformed source/gas
+and duplicate/reset-index rejection; same-L1-block partial reproof with unchanged
+bytes; incompatible-root rejection; and cold follower/restart derivation. Refresh
+captured no-network proofs and portable conformance transcripts. Earlier prefix-
+identity captures do not validate this formula. Keep protocol, RPC schemas and
+locked dependencies unchanged and remove superseded identity-only machinery.
 
 ## Fee collector configuration and execution
 
@@ -592,7 +545,7 @@ both anchor selectors and existing current-root checks. The context already
 binds protocolConfigHash; require that exact commitment without additional
 context variants. No pinned core ABI change is needed.
 
-Use one ten-element portable identity RLP. Validation-contract version 2 covers
+Use one ten-element portable identity RLP. Validation-contract version 3 covers
 its encoding, canonical JSON rules and accepted execution/settlement semantics:
 
 ```text

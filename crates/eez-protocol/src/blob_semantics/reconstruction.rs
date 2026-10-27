@@ -56,8 +56,6 @@ pub struct ReconstructionActions {
     rollup: RollupId,
     outbound: Vec<OutboundSyncGroup>,
     inbound: Vec<InboundSidecar>,
-    outbound_entry_indices: Vec<u64>,
-    inbound_entry_indices: Vec<u64>,
     compositions: Vec<Composition>,
 }
 
@@ -76,12 +74,9 @@ impl ReconstructionActions {
             rollup,
             outbound: Vec::new(),
             inbound: Vec::new(),
-            outbound_entry_indices: Vec::new(),
-            inbound_entry_indices: Vec::new(),
             compositions: Vec::new(),
         };
         let mut inbound_started = false;
-        let mut next_entry = 1u64; // Mutable row zero is the ordinary anchor.
         for transaction in transactions {
             if transaction.actions.is_empty() {
                 return Err(ReconstructionError::EmptyTransaction);
@@ -98,7 +93,7 @@ impl ReconstructionActions {
             } else {
                 return Err(ReconstructionError::Origin(transaction.origin_chain.0));
             };
-            // Failed/reverted roots still occupy original positions. They may
+            // Failed/reverted roots still require semantic validation. They may
             // not smuggle a foreign chain through an empty materialized target.
             if transaction.actions.iter().any(|action| {
                 [action.source_rollup_id, action.target_rollup_id]
@@ -172,10 +167,6 @@ impl ReconstructionActions {
                         "outbound bracket requires one settlement host",
                     ));
                 }
-                result.outbound_entry_indices.push(next_entry);
-                next_entry = next_entry
-                    .checked_add(1)
-                    .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?;
             } else {
                 if !composition.source.l2_static_entries.is_empty() {
                     return Err(ReconstructionError::Table(
@@ -192,25 +183,22 @@ impl ReconstructionActions {
                         action.parent_index.is_none()
                             && action.call_mode == crate::CallMode::Mutable
                     })
-                    .enumerate()
                     .collect::<Vec<_>>();
                 if roots.len() != composition.source.batch.entries.len() {
                     return Err(ReconstructionError::Table(
                         "mutable root/settlement row count differs",
                     ));
                 }
-                let mutable_count = u64::try_from(roots.len())
-                    .map_err(|_| ReconstructionError::Table("entry count exceeds uint64"))?;
                 let roots = roots
                     .into_iter()
-                    .filter(|(_, (index, _))| applied[*index])
+                    .filter(|(index, _)| applied[*index])
                     .collect::<Vec<_>>();
                 if roots.len() != deliveries.len() {
                     return Err(ReconstructionError::Table(
                         "inbound root/delivery count differs",
                     ));
                 }
-                for ((root_index, (_, action)), delivery) in roots.into_iter().zip(deliveries) {
+                for ((_, action), delivery) in roots.into_iter().zip(deliveries) {
                     let call_hash = crate::common_cross_chain_call_hash(crate::CallHashInput {
                         call_mode: action.call_mode,
                         source_address: action.source_address,
@@ -225,18 +213,8 @@ impl ReconstructionActions {
                             "inbound root/delivery identity differs",
                         ));
                     }
-                    result.inbound_entry_indices.push(
-                        next_entry
-                            .checked_add(u64::try_from(root_index).map_err(|_| {
-                                ReconstructionError::Table("root index exceeds uint64")
-                            })?)
-                            .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?,
-                    );
                     result.inbound.push(delivery);
                 }
-                next_entry = next_entry
-                    .checked_add(mutable_count)
-                    .ok_or(ReconstructionError::Table("entry index exceeds uint64"))?;
             }
             result.compositions.push(composition);
         }
@@ -254,20 +232,23 @@ impl ReconstructionActions {
         &self.inbound
     }
 
-    /// Original mutable settlement rows in whole-group execution order. Derive
-    /// these from the complete stream before selecting a partially consumed suffix.
-    /// Each hash is resolved only once execution establishes its raw pre-group B[i].
+    /// Whole-group ordinals from the complete Live Sync stream, before any
+    /// consumed-prefix filtering. Every outbound bracket counts once; only
+    /// applying inbound deliveries count. Full DA/execution and accepted-root
+    /// checks authenticate this sequence across postings in the same L1 block.
     pub fn source_entries(
         &self,
         context: &LiveSourceContext,
     ) -> Result<Vec<SourceEntry>, ReconstructionError> {
-        self.outbound_entry_indices
+        self.outbound
             .iter()
-            .chain(&self.inbound_entry_indices)
-            .map(|&index| {
-                context
-                    .entry(index)
-                    .map_err(|error| ReconstructionError::Table(error.0))
+            .map(|_| ())
+            .chain(self.inbound.iter().map(|_| ()))
+            .enumerate()
+            .map(|(index, ())| {
+                let index = u64::try_from(index)
+                    .map_err(|_| ReconstructionError::Table("group index exceeds uint64"))?;
+                Ok(context.entry(index))
             })
             .collect()
     }

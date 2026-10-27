@@ -563,7 +563,7 @@ async fn reprove_checkpoint(
     directory: &std::path::Path,
     original: &eez_protocol::EvmBatch,
     checkpoint: B256,
-) -> (eez_protocol::EvmBatch, eez_primitives::Block) {
+) -> Result<(eez_protocol::EvmBatch, eez_primitives::Block), eez_control_rpc::v2::Rejected> {
     use eez_control_rpc::v2::{self, ClientFrame, client_frame, server_frame};
     use prost::Message as _;
 
@@ -673,6 +673,9 @@ async fn reprove_checkpoint(
             (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Proof(value))) => {
                 assert!(proof.replace(value).is_none());
             }
+            (client_frame::Kind::Finalize(_), Some(server_frame::Kind::Rejected(rejected))) => {
+                return Err(rejected);
+            }
             (_, response) => panic!("checkpoint evidence must pass full validation: {response:?}"),
         }
     }
@@ -686,7 +689,7 @@ async fn reprove_checkpoint(
         batch.proofs, original.proofs,
         "accepted-root binding changes the proof"
     );
-    (batch, original_terminal)
+    Ok((batch, original_terminal))
 }
 
 async fn valid_same_block_resume() {
@@ -795,11 +798,23 @@ async fn valid_same_block_resume() {
     assert_eq!(proposed_roots.len(), 4, "anchor and all three user groups");
     let checkpoint = proposed_roots[1];
     assert_ne!(checkpoint, call.batch.expectedRootPerRollup[0].root);
+    let unknown_root = B256::repeat_byte(0xab);
+    assert!(!proposed_roots.contains(&unknown_root));
+    assert_ne!(unknown_root, call.batch.expectedRootPerRollup[0].root);
+    let rejected = reprove_checkpoint(&world, &captures, &call.batch, unknown_root)
+        .await
+        .expect_err("an unwitnessed accepted root must not produce a proof");
+    assert_eq!(rejected.code, i32::from(tonic::Code::FailedPrecondition));
+    assert_eq!(rejected.message, "settlement validation rejected");
     let (intervening_batch, original_terminal) =
-        reprove_checkpoint(&world, &captures, &call.batch, checkpoint).await;
+        reprove_checkpoint(&world, &captures, &call.batch, checkpoint)
+            .await
+            .unwrap();
     let next_checkpoint = proposed_roots[2];
     let (resumed_batch, resumed_terminal) =
-        reprove_checkpoint(&world, &captures, &call.batch, next_checkpoint).await;
+        reprove_checkpoint(&world, &captures, &call.batch, next_checkpoint)
+            .await
+            .unwrap();
     assert_eq!(
         original_terminal, resumed_terminal,
         "both checkpoint reproofs retain the original complete execution"
@@ -972,16 +987,15 @@ async fn valid_same_block_resume() {
         .collect::<Vec<_>>();
     assert_eq!(native.len(), 3);
     for (index, native) in native.into_iter().enumerate() {
-        // Independent standard ABI layout, using the actual L1 inclusion parent
-        // and the original pre-group checkpoints, never the new accepted-root pin.
-        let mut encoded = vec![0u8; 224];
-        encoded[31] = 160;
-        encoded[56..64].copy_from_slice(&world.cfg.rollup_id.to_be_bytes());
+        // Independent ABI oracle: the original full-block group ordinal is
+        // retained through all three postings in this same L1 block.
+        let mut encoded = vec![0u8; 192];
+        encoded[31] = 128;
+        encoded[56..64].copy_from_slice(&world.l2_chain_id.to_be_bytes());
         encoded[64..96].copy_from_slice(included.header.parent_hash.as_slice());
-        encoded[120..128].copy_from_slice(&(index as u64 + 1).to_be_bytes());
-        encoded[128..160].copy_from_slice(proposed_roots[index].as_slice());
-        encoded[191] = 15;
-        encoded[192..207].copy_from_slice(b"SOURCE_ENTRY_V1");
+        encoded[120..128].copy_from_slice(&(index as u64).to_be_bytes());
+        encoded[159] = 15;
+        encoded[160..175].copy_from_slice(b"SOURCE_ENTRY_V1");
         assert_eq!(native.source_hash, alloy_primitives::keccak256(encoded));
     }
     let original_transaction_hashes = original_terminal

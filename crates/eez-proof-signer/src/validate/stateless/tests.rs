@@ -456,7 +456,6 @@ fn checkpoint_plan_is_derived_from_recovered_transactions() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::with_last_byte(0),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
@@ -489,7 +488,6 @@ fn checkpoint_plan_includes_every_inbound_boundary() {
     let transaction = || {
         eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::with_last_byte(0),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: EEZL2_ADDRESS,
@@ -1178,7 +1176,6 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
         transactions.push(
             SystemTransaction {
                 chain_id: 1,
-                version: eez_primitives::SYSTEM_TX_VERSION,
                 source_hash: B256::with_last_byte(occurrence),
                 gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                 to: EEZL2_ADDRESS,

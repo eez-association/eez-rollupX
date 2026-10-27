@@ -572,7 +572,6 @@ fn native_replay_preserves_account_nonce_and_independent_receipt_state_commitmen
     for occurrence in [7, 8] {
         let transaction: TransactionSigned = eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: B256::with_last_byte(occurrence),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,

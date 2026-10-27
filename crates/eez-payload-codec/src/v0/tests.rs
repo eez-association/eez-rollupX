@@ -275,7 +275,6 @@ fn ordinary_column_preserves_history_bytes_and_rejects_cross_chain_and_blobs() {
     );
     let cross_chain = eez_primitives::SystemTransaction {
         chain_id: 1337,
-        version: eez_primitives::SYSTEM_TX_VERSION,
         source_hash: alloy_primitives::B256::with_last_byte(8),
         gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: eez_primitives::EEZL2_ADDRESS,

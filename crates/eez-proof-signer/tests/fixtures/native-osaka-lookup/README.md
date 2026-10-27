@@ -11,14 +11,15 @@ L1 ancestry. `response.json` pins its bytes/Keccak, native digest and signature.
 The local genesis documents and public deployment identities are sufficient to
 repeat validation without either chain's RPC or a preparation cache.
 
-The [implementation audit](../../../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md)
+The [implementation audit](../../../../../docs/audits/2026-10-27-source-counter/README.md)
 records commands, source identity and validation limits. This capture uses the
-fresh-network Profile with cross-chain 0x45/version-1 transactions and optional metered
+fresh-network Profile with versionless cross-chain 0x45 transactions and optional metered
 history 0x46/version-1 updates. Only cross-chain transactions carry a sourceHash,
-bound to the original mutable settlement row and raw pre-group prefix;
+bound to the L2 EVM chain ID, intended L1 parent and zero-based complete-group
+ordinal in the full Live Sync block;
 complete groups clear protocol residue before checkpoints. Ordinary fees reach
 FeeVault and native execution does not change the system-account nonce.
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 2. The sole
+the single `Profile` commitment and validation-contract version 3. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.

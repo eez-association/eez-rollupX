@@ -310,10 +310,7 @@ fn outbound_case(value: U256) -> (eez_protocol::EvmBatch, Vec<u8>, Vec<u8>, B256
     .unwrap();
     let transactions = crate::testkit::resolve_synthetic_plans(
         &pairs,
-        &[crate::testkit::native_source_context()
-            .entry(1)
-            .unwrap()
-            .hash(B256::repeat_byte(0x04))],
+        &[crate::testkit::native_source_context().entry(0).hash()],
     )
     .into_iter()
     .map(|raw| {
@@ -385,14 +382,8 @@ fn mixed_outbound_inbound_case() -> (eez_protocol::EvmBatch, Vec<u8>, B256) {
     let transactions = crate::testkit::resolve_synthetic_plans(
         &pairs,
         &[
-            crate::testkit::native_source_context()
-                .entry(1)
-                .unwrap()
-                .hash(B256::repeat_byte(0x04)),
-            crate::testkit::native_source_context()
-                .entry(2)
-                .unwrap()
-                .hash(outbound_prefix_hash),
+            crate::testkit::native_source_context().entry(0).hash(),
+            crate::testkit::native_source_context().entry(1).hash(),
         ],
     )
     .into_iter()
@@ -904,10 +895,7 @@ fn strict_inbound_transaction(value: U256) -> (TestTransaction, B256, Bytes, Exe
     .at_position(
         crate::testkit::SYNTHETIC_BLOCK_GAS_LIMIT,
         0,
-        crate::testkit::native_source_context()
-            .entry(1)
-            .unwrap()
-            .hash(B256::repeat_byte(0x04)),
+        crate::testkit::native_source_context().entry(0).hash(),
     )
     .unwrap();
     let transaction = TestTransaction::from(raw);

@@ -99,7 +99,6 @@ fn native(executor: &Executor<'_>, load: bool, value: u64) -> Recovered<EezTxEnv
         eez_protocol::entries::EXECUTE_INCOMING_SELECTOR
     };
     let tx = eez_primitives::SystemTransaction {
-        version: 1,
         chain_id: 1337,
         source_hash: B256::repeat_byte(99),
         gas_limit: system_tx_gas_limit(30_000_000, executor.cumulative_tx_gas_used),

@@ -19,8 +19,6 @@ pub const fn is_native_type(ty: u8) -> bool {
 
 /// Reserved EIP-2718 type for EEZ's unsigned system transactions.
 pub const SYSTEM_TX_TYPE: u8 = 0x45;
-/// The single native envelope version admitted by this fresh-network profile.
-pub const SYSTEM_TX_VERSION: u64 = 1;
 /// Upper bound of a native transaction's execution budget: Osaka's EIP-7825
 /// per-transaction cap. Each native transaction encodes exactly
 /// [`system_tx_gas_limit`] of the block's remaining gas,
@@ -59,12 +57,11 @@ pub const EEZL2_ADDRESS: Address = address!("4B2760F84B83d6b3829E30A7573B0172B6d
 pub const EEZL2_GENESIS_IMPLEMENTATION_ADDRESS: Address =
     address!("4C3D971b1079E58843D0E1af155A2e54b9E54dbA");
 
-/// Canonical wire body: version, chain ID, source hash, gas, destination, value, calldata.
+/// Canonical six-field wire body: chain ID, source hash, gas, destination, value, calldata.
 /// Signatures and an arbitrary sender are deliberately absent. Authorization is
 /// established by derivation; this type must never enter a public transaction pool.
 #[derive(Clone, Debug, PartialEq, Eq, alloy_rlp::RlpEncodable, alloy_rlp::RlpDecodable)]
 pub struct SystemTransaction {
-    pub version: u64,
     /// The wire integer is uint256; this runtime supports configured u64 chain IDs.
     pub chain_id: u64,
     pub source_hash: B256,
@@ -79,11 +76,6 @@ impl SystemTransaction {
     /// Chain/profile binding, exact position gas and source identity are checked
     /// by the executor and settlement reconstruction.
     pub fn validate(&self) -> Result<(), alloy_rlp::Error> {
-        if self.version != SYSTEM_TX_VERSION {
-            return Err(alloy_rlp::Error::Custom(
-                "unsupported native transaction version",
-            ));
-        }
         let cap = match self.to {
             EEZL2_ADDRESS => SYSTEM_TX_GAS_CAP,
             _ => {
@@ -108,8 +100,7 @@ impl serde::Serialize for SystemTransaction {
         use alloy_primitives::U64;
         use serde::ser::SerializeStruct;
 
-        let mut tx = serializer.serialize_struct("SystemTransaction", 16)?;
-        tx.serialize_field("version", &U64::from(self.version))?;
+        let mut tx = serializer.serialize_struct("SystemTransaction", 15)?;
         tx.serialize_field("chainId", &U64::from(self.chain_id))?;
         tx.serialize_field("sourceHash", &self.source_hash)?;
         tx.serialize_field("nonce", &U64::ZERO)?;
@@ -134,8 +125,6 @@ impl<'de> serde::Deserialize<'de> for SystemTransaction {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Rpc {
-            #[serde(with = "alloy_serde::quantity")]
-            version: u64,
             #[serde(with = "alloy_serde::quantity")]
             chain_id: u64,
             source_hash: B256,
@@ -179,7 +168,6 @@ impl<'de> serde::Deserialize<'de> for SystemTransaction {
             ));
         }
         let tx = Self {
-            version: rpc.version,
             chain_id: rpc.chain_id,
             source_hash: rpc.source_hash,
             gas_limit: rpc.gas,

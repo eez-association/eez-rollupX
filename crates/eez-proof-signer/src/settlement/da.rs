@@ -140,8 +140,6 @@ pub(crate) fn verify_da_payload(
                 .source_entries(semantic_transactions, posting_context)
                 .map_err(invalid_da_payload)?,
             terminal.settlement_evidence().cumulative_gas_used(),
-            terminal.settlement_evidence().ordinary_prefix_hash(),
-            window.settling_block().transaction_state_checkpoints(),
         )?;
     }
     Ok(())
@@ -154,7 +152,6 @@ fn decode_validated_block(block_number: u64, block_rlp: &[u8]) -> Result<EezBloc
     })
 }
 
-#[expect(clippy::too_many_arguments)]
 fn verify_reconstructed_sync_block(
     block: &EezBlock,
     validated_transactions: &[Bytes],
@@ -163,8 +160,6 @@ fn verify_reconstructed_sync_block(
     reconstructor: &SystemTransactionReconstructor,
     sources: &[eez_protocol::native_source::SourceEntry],
     cumulative_gas_used: &[u64],
-    ordinary_prefix: alloy_primitives::B256,
-    checkpoints: &[crate::validate::TransactionStateCheckpoint],
 ) -> Result<(), DaPayloadError> {
     let first_system_position = outbound_effects
         .iter()
@@ -238,21 +233,10 @@ fn verify_reconstructed_sync_block(
             reconstructed_transaction,
             eez_protocol::system_tx::PlannedTransaction::Native(_)
         ) {
-            let prefix = if position == first_system_position {
-                ordinary_prefix
-            } else {
-                let previous = position
-                    .checked_sub(1)
-                    .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?;
-                let index = checkpoints
-                    .binary_search_by_key(&previous, |checkpoint| checkpoint.transaction_index)
-                    .map_err(|_| DaPayloadError::InvalidEffectTransactionLayout)?;
-                checkpoints[index].block_hash
-            };
             sources
                 .next()
                 .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?
-                .hash(prefix)
+                .hash()
         } else {
             alloy_primitives::B256::ZERO
         };

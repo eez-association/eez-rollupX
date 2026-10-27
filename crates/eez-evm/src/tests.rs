@@ -134,7 +134,7 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
 fn block(source: u64, chain_id: u64) -> reth_primitives_traits::RecoveredBlock<Block> {
     let tx: EezTxEnvelope = SystemTransaction {
         chain_id,
-        version: eez_primitives::SYSTEM_TX_VERSION,
+
         source_hash: B256::from(U256::from(source)),
         gas_limit: SYSTEM_TX_GAS_CAP,
         to: EEZL2_ADDRESS,
@@ -300,7 +300,6 @@ fn native_execution_retains_chain_and_exact_block_gas_validation() {
 fn native_tx(gas_limit: u64, input: Bytes) -> EezTxEnvelope {
     SystemTransaction {
         chain_id: 1,
-        version: eez_primitives::SYSTEM_TX_VERSION,
         source_hash: B256::repeat_byte(42),
         gas_limit,
         to: EEZL2_ADDRESS,
@@ -953,7 +952,6 @@ fn schedule_cache_preserves_profile_errors_and_l1_simulation() {
 #[test]
 fn block_admission_rejects_unsupported_native_selectors() {
     let native = SystemTransaction {
-        version: eez_primitives::SYSTEM_TX_VERSION,
         chain_id: 1,
         source_hash: B256::repeat_byte(1),
         gas_limit: SYSTEM_TX_GAS_CAP,

@@ -246,12 +246,12 @@ manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
 
-Cross-chain native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
-to, value, input])`, with version 1, the fixed implicit sender and zero fees.
+Cross-chain native transactions are `0x45 || rlp([chainId, sourceHash, gasLimit,
+to, value, input])`, with the fixed implicit sender and zero fees.
 The [native contract](../../docs/proposals/native-system-transactions.md) defines
-canonical RLP, prefix-bound source identity, RPC placeholders and exact gas/value rules.
+canonical RLP, execution-group source identity, RPC placeholders and exact gas/value rules.
 The signer independently recomputes each sourceHash from authenticated context
-and original semantic positions. Decoding a native transaction does not authorize
+and complete-group ordinals in the full Live Sync block. Decoding a native transaction does not authorize
 its execution or minting. EEZL2 actions target EEZL2. HistoryUpdate uses the
 dedicated `0x46` envelope specified below, with no sourceHash.
 
@@ -914,7 +914,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 2 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 3 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
@@ -969,7 +969,6 @@ chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
 gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
-version      = 1
 sourceHash   = independently recomputed occurrence identity
 system nonce = neither checked nor changed
 ```
@@ -985,13 +984,16 @@ The canonical order is:
  inbound delivery M-1]
 ```
 
-Each sourceHash uses the original mutable `PostBatch.entries` row and the raw
-independently replayed prefix BEFORE its complete group, under the single
-`SOURCE_ENTRY_V1` dynamic-string ABI formula in the native specification. Anchor
-row zero has no native transaction; one outbound host counts once even with
-multiple roots/statics; failed/lookup mutable inbound rows retain their positions;
-L1 static rows do not count. Derive positions before filtering and never substitute
-acceptedRoot or a folded settlement carrier for the raw prefix. A complete
+Each sourceHash uses the L2 EVM chain ID, authenticated intended L1 parent and
+zero-based complete-group ordinal in the full terminal Sync block, under the
+single `SOURCE_ENTRY_V1` ABI formula in the native specification. One outbound
+load/user group counts once, even with static roots, callbacks or an included
+reverted user; each applying inbound delivery counts once. Ordinary/history
+transactions, anchors and inbound lookups without a native transaction do not
+count. Derive ordinals from the complete semantic/execution stream before any
+partial-consumption filtering. Preserve whole-prefix/checkpoint and accepted-root
+validation: no Composer-supplied offset is authoritative, and no new post/reproof
+resets the count. A complete
 outbound bracket has one load followed by the exact signed origin, with callbacks
 inline in the source table. Each load/delivery value equals the checked sum of
 its committed L2 incoming calls, including nested callbacks. The reconstructed

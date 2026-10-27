@@ -12,7 +12,7 @@ use alloy_rlp::RlpEncodable;
 /// One contract version for identity encoding, JSON canonicalization and accepted
 /// execution/settlement semantics. These rules cannot be selected independently.
 /// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
-pub const VALIDATION_VERSION: u64 = 2;
+pub const VALIDATION_VERSION: u64 = 3;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]

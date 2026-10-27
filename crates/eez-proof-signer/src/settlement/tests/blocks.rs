@@ -79,7 +79,6 @@ fn signature_recovery_failures_are_not_system_transactions() {
 fn reserved_system_sender_cannot_masquerade_as_a_user() {
     let native = eez_primitives::SystemTransaction {
         chain_id: 1,
-        version: eez_primitives::SYSTEM_TX_VERSION,
         source_hash: alloy_primitives::B256::with_last_byte(0),
         gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
         to: Address::repeat_byte(0xaa),

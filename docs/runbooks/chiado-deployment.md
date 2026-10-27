@@ -244,11 +244,12 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-2 signers together; there is no existing-database upgrade.
+and validation-contract-3 signers together; there is no existing-database upgrade.
 History updates use the dedicated optional `0x46` envelope, and history slot 3
 stores the immutable genesis phase. Old `0x45` history transactions and old
-genesis/runtime state are rejected. Cross-chain `0x45` identities bind the original
-mutable settlement row and its raw pre-group block prefix under the
+genesis/runtime state are rejected. Cross-chain `0x45` uses six fields without a
+version. Its source identity binds the L2 EVM chain ID, intended L1 parent and
+zero-based complete-group ordinal in the full Live Sync block under the
 [current source rule](../proposals/native-system-transactions.md#source-identity-simplification);
 older identity formulas produce incompatible transaction/block commitments.
 Rollback to earlier binaries requires a

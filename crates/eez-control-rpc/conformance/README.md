@@ -1,9 +1,9 @@
 # Offline v2 conformance vectors
 
-The corpus uses [native version 1 and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
-prefix-bound original-row source identities, optional HistoryUpdate 0x46/version 1,
+The corpus uses [versionless cross-chain transactions and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
+execution-group source identities, optional HistoryUpdate 0x46/version 1,
 complete-group cleanup, Profile and
-validation-contract version 2. The proving transport remains v2.
+validation-contract version 3. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
 
@@ -18,11 +18,10 @@ blobs, exact ABI inputs and the posting context required by actual-parent mode.
 
 The corpus has 24 expected successful proofs across 29 cases. Exact frame/event
 counts and input digests are recorded in its manifest. The recordings and
-transcripts were refreshed for complete-group cleanup, optional history and
-the original-row/pre-group-prefix source identity;
-all 29 cases passed through the real TCP service and Stateless executor.
-The [current audit](../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md)
-records source identities, executed results and remaining integration gates.
+transcripts must match versionless `0x45`, complete-group cleanup, optional
+history and the execution-group source identity. The
+[current audit](../../../docs/audits/2026-10-27-source-counter/README.md)
+records fixture regeneration, executed results and remaining integration gates.
 
 The separate [scheduled-history observation fixtures](../../eez-proof-signer/tests/fixtures/native-history-observations/README.md)
 add six complete v2 requests for a history import at the terminal ordinary

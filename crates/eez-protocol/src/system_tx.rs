@@ -7,9 +7,7 @@
 use alloy_eips::eip2718::Encodable2718;
 use alloy_primitives::{Address, B256, Bytes, U256};
 use alloy_sol_types::SolCall;
-use eez_primitives::{
-    EEZL2_ADDRESS, EezTxEnvelope, SYSTEM_TX_VERSION, SystemTransaction, system_tx_gas_limit,
-};
+use eez_primitives::{EEZL2_ADDRESS, EezTxEnvelope, SystemTransaction, system_tx_gas_limit};
 
 use crate::RollupId;
 use crate::abi::{
@@ -193,7 +191,6 @@ impl NativeTransactionPlan {
             return Err("native position exceeds block gas limit".into());
         }
         Ok(SystemTransaction {
-            version: SYSTEM_TX_VERSION,
             chain_id: self.chain_id,
             source_hash,
             gas_limit: system_tx_gas_limit(block_gas_limit, gas_used),
@@ -948,7 +945,6 @@ mod tests {
                 .at_position(crate::l2::GAS_LIMIT, 0, source)
                 .unwrap();
             assert_eq!(tx.source_hash, source);
-            assert_eq!(tx.version, 1);
         }
         let flat = interleave_sync_block_txs(&pairs);
         assert_eq!(flat.len(), 3);
@@ -1155,12 +1151,9 @@ mod tests {
                     .encoded_2718()
             );
         }
-        let source =
-            crate::native_source::LiveSourceContext::new(RollupId(1), B256::repeat_byte(7))
-                .unwrap();
-        let prefix = B256::repeat_byte(8);
-        let original = source.entry(2).unwrap().hash(prefix);
-        let renumbered = source.entry(1).unwrap().hash(prefix);
+        let source = crate::native_source::LiveSourceContext::new(1, B256::repeat_byte(7)).unwrap();
+        let original = source.entry(2).hash();
+        let renumbered = source.entry(1).hash();
         assert_ne!(
             tail[0]
                 .system_tx

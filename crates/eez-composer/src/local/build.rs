@@ -52,11 +52,6 @@ pub enum BuildError {
     /// Provider lookup (state, header) failed.
     #[error("provider: {0}")]
     Provider(String),
-    /// A canonical prefix could not be reconstructed while binding a new
-    /// group's source. This implicates retained local context, not that source;
-    /// abort/retry the candidate without charging or evicting its user.
-    #[error("source prefix: {0}")]
-    SourcePrefix(String),
     /// EIP-2718 decode failed for the held tx at `idx`.
     #[error("decode tx #{idx}: {msg}")]
     DecodeTx { idx: usize, msg: String },
@@ -91,7 +86,7 @@ impl BuildError {
     /// no validated attribution to the candidate user; retry without eviction.
     #[must_use]
     pub const fn is_provider(&self) -> bool {
-        matches!(self, Self::Provider(_) | Self::SourcePrefix(_))
+        matches!(self, Self::Provider(_))
     }
 
     /// Whether the tx was refused only for this block's remaining gas, so the
@@ -759,15 +754,33 @@ impl SyncBlockState {
     pub fn prepare_transactions(
         &mut self,
         plans: &[PlannedTransaction],
-        mut source_hash: impl FnMut(&[Bytes]) -> Result<B256, BuildError>,
+        sources: &[eez_protocol::native_source::SourceEntry],
     ) -> Result<Vec<Bytes>, (usize, BuildError)> {
+        if plans
+            .iter()
+            .filter(|plan| matches!(plan, PlannedTransaction::Native(_)))
+            .count()
+            != sources.len()
+        {
+            return Err((
+                0,
+                BuildError::Builder("native source group count differs from plans".into()),
+            ));
+        }
+        let mut sources = sources.iter();
         let mut fork = self.fork().map_err(|error| (0, error))?;
         let mut transactions = Vec::with_capacity(plans.len());
         for (index, plan) in plans.iter().enumerate() {
             let source = match plan {
-                PlannedTransaction::Native(_) => {
-                    source_hash(&transactions).map_err(|error| (index, error))?
-                }
+                PlannedTransaction::Native(_) => sources
+                    .next()
+                    .ok_or_else(|| {
+                        (
+                            index,
+                            BuildError::Builder("native source group missing".into()),
+                        )
+                    })?
+                    .hash(),
                 PlannedTransaction::User(_) => B256::ZERO,
             };
             let raw = fork
@@ -2169,6 +2182,13 @@ mod tests {
         f
     }
 
+    fn native_sources(count: u64) -> Vec<eez_protocol::native_source::SourceEntry> {
+        let context =
+            eez_protocol::native_source::LiveSourceContext::new(1, B256::repeat_byte(0x81))
+                .unwrap();
+        (0..count).map(|index| context.entry(index)).collect()
+    }
+
     fn native_plan() -> PlannedTransaction {
         let entry =
             eez_protocol::entries::InboundSidecar::new(eez_protocol::entries::IncomingEntry {
@@ -2309,7 +2329,7 @@ mod tests {
         // budget is the 14M remainder instead.
         assert!(BUILDER_GAS_LIMIT - burned.gas_used < SYSTEM_TX_GAS_CAP);
         let prepared = draft
-            .prepare_transactions(&[native_plan()], |_| Ok(B256::ZERO))
+            .prepare_transactions(&[native_plan()], &native_sources(1))
             .unwrap();
         txs.extend(prepared);
         let delivered = draft.execute_tx(&txs[1]).unwrap();
@@ -2339,7 +2359,7 @@ mod tests {
             let before = draft.gas_used();
 
             let refused = draft
-                .prepare_transactions(&[native_plan()], |_| Ok(B256::ZERO))
+                .prepare_transactions(&[native_plan()], &native_sources(1))
                 .unwrap_err();
             assert_eq!(refused.0, 0);
             assert!(refused.1.is_capacity(), "{code}: {:?}", refused.1);
@@ -2398,7 +2418,7 @@ mod tests {
         assert!(error.to_string().contains("encoded gas differs"));
         assert_eq!(draft.gas_used(), before);
         let raw = draft
-            .prepare_transactions(&[native_plan()], |_| Ok(B256::ZERO))
+            .prepare_transactions(&[native_plan()], &native_sources(1))
             .unwrap()
             .remove(0);
         assert_ne!(raw, wrong);
@@ -2413,7 +2433,7 @@ mod tests {
         assert!(planned_group_gas(&plans) > BUILDER_GAS_LIMIT);
         let mut draft = f.open(&[]);
         let group = draft
-            .prepare_transactions(&plans, |_| Ok(B256::ZERO))
+            .prepare_transactions(&plans, &native_sources(2))
             .unwrap();
         // The probe ran on a fork: the draft itself is untouched.
         assert_eq!(draft.gas_used(), f.history_gas());
@@ -2424,109 +2444,30 @@ mod tests {
     }
 
     #[test]
-    fn source_rows_resolve_sequentially_on_canonical_complete_prefixes() {
+    fn source_groups_keep_original_ordinals_without_mutating_the_draft() {
         let f = native_fixture(bytes!("00"));
-        let prefix = f.history_prefix();
         let mut draft = f.open(&[]);
         let before = draft.gas_used();
         let plans = [native_plan(), native_plan()];
-        let context = eez_protocol::native_source::LiveSourceContext::new(
-            eez_protocol::RollupId(1),
-            B256::repeat_byte(0x81),
-        )
-        .unwrap();
-        // A nonexecuting mutable row occupies original position 2.
-        let sources = [context.entry(1).unwrap(), context.entry(3).unwrap()];
-        let mut hashes = SyncPrefixHashes::new(
-            &f.provider,
-            &f.evm_config,
-            &f.parent,
-            TIMESTAMP,
-            B256::ZERO,
-            FEE_RECIPIENT,
-        );
-        for wrong in [&sources[..1], &[]] {
-            let (_, error) = hashes
-                .prepare_transactions(&mut draft, &prefix, &plans, wrong)
-                .unwrap_err();
-            assert!(error.to_string().contains("source row count"));
+        let sources = native_sources(3);
+        for wrong in [&sources[..1], &[], &sources[..]] {
+            let (_, error) = draft.prepare_transactions(&plans, wrong).unwrap_err();
+            assert!(error.to_string().contains("source group count"));
             assert_eq!(draft.gas_used(), before);
         }
-        let (_, error) = hashes
-            .prepare_transactions(&mut draft, &[Bytes::from_static(&[0xff])], &plans, &sources)
-            .unwrap_err();
-        assert!(matches!(error, BuildError::SourcePrefix(_)));
-        assert!(
-            error.is_provider(),
-            "unavailable retained prefix cannot blame a candidate user"
-        );
-        assert_eq!(draft.gas_used(), before);
-        let group = hashes
-            .prepare_transactions(&mut draft, &prefix, &plans, &sources)
-            .unwrap();
+        // A selected suffix retains its full-block ordinal instead of starting at zero.
+        let group = draft.prepare_transactions(&plans, &sources[1..]).unwrap();
         assert_eq!(draft.gas_used(), before, "resolution is speculative");
-        let mut complete = prefix.clone();
-        for (raw, source) in group.iter().zip(sources) {
+        for (raw, source) in group.iter().zip(&sources[1..]) {
             let TransactionSigned::System(native) =
                 TransactionSigned::decode_2718_exact(raw).unwrap()
             else {
                 panic!("native delivery")
             };
-            assert_eq!(
-                native.source_hash,
-                source.hash(f.build(&complete).header.hash())
-            );
-            complete.push(raw.clone());
+            assert_eq!(native.source_hash, source.hash());
+            draft.execute_tx(raw).unwrap();
         }
-        hashes.prefix(&complete).unwrap();
-        assert_eq!(
-            hashes.executed_transactions,
-            complete.len(),
-            "growing identities execute each preceding transaction once"
-        );
-        hashes.assert_state_matches_rebuild();
-        // The follower's non-consuming assembler must agree at every completed
-        // group and leave continuation/finalization valid. This provider is a
-        // state-backed fixture without a real trie; real roots are covered by
-        // cold follower/signing process tests.
-        let mut db = open_draft_db(&f.provider, f.parent.hash(), None).unwrap();
-        let provider = f.provider.state_by_block_hash(f.parent.hash()).unwrap();
-        let mut builder = f
-            .evm_config
-            .builder_for_next_block(
-                &mut db,
-                &f.parent,
-                next_block_attributes(&f.evm_config, TIMESTAMP, B256::ZERO, FEE_RECIPIENT),
-            )
-            .unwrap();
-        builder.apply_pre_execution_changes().unwrap();
-        let environment = eez_driver::derivation::Environment {
-            fee_recipient: FEE_RECIPIENT,
-            extra_data: BUILDER_EXTRA_DATA.into(),
-        };
-        let mut executed = Vec::new();
-        for (index, raw) in complete.iter().enumerate() {
-            let tx = recover_tx(raw, index).unwrap();
-            executed.push(TransactionSigned::decode_2718_exact(raw).unwrap());
-            builder.execute_transaction(tx).unwrap();
-            builder.executor_mut().validate_prefix().unwrap();
-            let receipts = builder.executor_mut().receipts.clone();
-            let gas = builder.executor_mut().cumulative_tx_gas_used;
-            let actual = eez_driver::derivation::executed_prefix_hash(
-                &f.evm_config,
-                &f.parent,
-                &environment,
-                executed.clone(),
-                receipts,
-                gas,
-                builder.evm_mut().db_mut(),
-                provider.as_ref(),
-            )
-            .unwrap();
-            assert_eq!(actual, f.build(&complete[..=index]).header.hash());
-        }
-        let final_block = builder.finish(provider.as_ref(), None).unwrap();
-        assert_eq!(final_block.block.hash(), f.build(&complete).header.hash());
+        assert_eq!(draft.gas_used(), f.build(&group).header.gas_used());
     }
 
     #[test]
@@ -2534,11 +2475,9 @@ mod tests {
         let f = native_fixture(bytes!("00"));
         let mut complete = f.history_prefix();
         let mut draft = f.open(&[]);
-        let context = eez_protocol::native_source::LiveSourceContext::new(
-            eez_protocol::RollupId(1),
-            B256::repeat_byte(0x81),
-        )
-        .unwrap();
+        let context =
+            eez_protocol::native_source::LiveSourceContext::new(1, B256::repeat_byte(0x81))
+                .unwrap();
         let mut hashes = SyncPrefixHashes::new(
             &f.provider,
             &f.evm_config,
@@ -2547,13 +2486,11 @@ mod tests {
             B256::ZERO,
             FEE_RECIPIENT,
         );
-        for first_row in [1, 4, 7] {
+        for first_group in [0, 3, 6] {
             let plans = [native_plan(), native_plan(), native_plan()];
             let sources =
-                [first_row, first_row + 1, first_row + 2].map(|row| context.entry(row).unwrap());
-            let deliveries = hashes
-                .prepare_transactions(&mut draft, &complete, &plans, &sources)
-                .unwrap();
+                [first_group, first_group + 1, first_group + 2].map(|index| context.entry(index));
+            let deliveries = draft.prepare_transactions(&plans, &sources).unwrap();
             let positions = (complete.len()..complete.len() + deliveries.len()).collect::<Vec<_>>();
             complete.extend(deliveries.iter().cloned());
             // Production asks for every effect hash immediately after preparing

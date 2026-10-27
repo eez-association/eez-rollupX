@@ -125,7 +125,7 @@ pub(super) fn inbound(
 ) -> Result<(eez_protocol::EvmBatch, B256, Vec<Bytes>, B256), EstimateError> {
     let sidecars = sidecars(c, e.rollup_id)?;
     let source_context = eez_protocol::native_source::LiveSourceContext::new(
-        RollupId(e.rollup_id),
+        system_context(e).l2_chain_id,
         s.l1.anchor.hash(),
     )
     .map_err(unsupported)?;
@@ -155,10 +155,9 @@ pub(super) fn inbound(
         e.recipient,
     );
     let prefix = hashes.prefix(&s.l2_prefix).map_err(unavailable)?;
-    let txs = hashes
+    let txs = e
+        .l2_draft(s)?
         .prepare_transactions(
-            &mut e.l2_draft(s)?,
-            &s.l2_prefix,
             &plans,
             &actions
                 .source_entries(&source_context)

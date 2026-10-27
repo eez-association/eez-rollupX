@@ -195,7 +195,6 @@ impl Fixture {
                     transactions.push(
                         SystemTransaction {
                             chain_id: 1,
-                            version: eez_primitives::SYSTEM_TX_VERSION,
                             source_hash: B256::with_last_byte(1),
                             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
                             to: eez_primitives::EEZL2_ADDRESS,

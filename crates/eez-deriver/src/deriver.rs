@@ -20,7 +20,7 @@ use eez_primitives::engine::EezEngineTypes;
 use eez_primitives::{Block as EthereumBlock, EezTxEnvelope as TransactionSigned};
 use eez_protocol::outbound_gate::OutboundCallObservation;
 use reth_chainspec::ChainSpec;
-use reth_evm::{ConfigureEvm, Evm as _, RecoveredTx as _, execute::BlockBuilder};
+use reth_evm::{ConfigureEvm, execute::BlockBuilder};
 use reth_payload_primitives::PayloadTypes;
 use reth_primitives_traits::{
     AlloyBlockHeader, Block, BlockBody, SealedHeader, SignedTransaction, SignerRecoverable,
@@ -1350,10 +1350,6 @@ where
 
         let attributes = inputs.attributes(&self.inner.evm_config, parent_header, raw_txs)?;
         let block_gas_limit = attributes.gas_limit;
-        let environment = eez_driver::derivation::Environment {
-            fee_recipient: attributes.suggested_fee_recipient,
-            extra_data: attributes.extra_data.clone(),
-        };
         if plans
             .iter()
             .filter(|plan| matches!(plan, eez_protocol::system_tx::PlannedTransaction::Native(_)))
@@ -1361,7 +1357,7 @@ where
             != sources.len()
         {
             return Err(DeriverError::l2_provider(
-                "native source row count differs from plans",
+                "native source group count differs from plans",
             ));
         }
         let mut sources = sources.iter();
@@ -1380,7 +1376,6 @@ where
 
         let mut gas_used = 0u64;
         let mut suffix = Vec::with_capacity(plans.len());
-        let mut executed = Vec::with_capacity(raw_txs.len() + plans.len());
         for tx_idx in 0..raw_txs.len() + plans.len() {
             let tx_bytes = if let Some(raw) = raw_txs.get(tx_idx) {
                 raw.clone()
@@ -1392,23 +1387,12 @@ where
                             .executor_mut()
                             .validate_prefix()
                             .map_err(DeriverError::l2_provider)?;
-                        let transactions = executed.clone();
-                        let receipts = builder.executor_mut().receipts.clone();
-                        let prefix = eez_driver::derivation::executed_prefix_hash(
-                            &self.inner.evm_config,
-                            parent_header,
-                            &environment,
-                            transactions,
-                            receipts,
-                            gas_used,
-                            builder.evm_mut().db_mut(),
-                            state_provider.as_ref(),
-                        )
-                        .map_err(DeriverError::l2_provider)?;
                         sources
                             .next()
-                            .ok_or_else(|| DeriverError::l2_provider("missing native source row"))?
-                            .hash(prefix)
+                            .ok_or_else(|| {
+                                DeriverError::l2_provider("missing native source group")
+                            })?
+                            .hash()
                     } else {
                         B256::ZERO
                     };
@@ -1430,7 +1414,6 @@ where
                     &format!("could not recover signer for tx #{tx_idx}"),
                 )
             })?;
-            executed.push(recovered.tx().clone());
             let gas = builder.execute_transaction(recovered).map_err(|e| {
                 DeriverError::local_diverged_with_msg(
                     parent_block_number + 1,
@@ -2381,7 +2364,7 @@ where
                 let all_sources = match anchor {
                     EvidenceAnchor::ActualParent { hash, .. } => {
                         let context = eez_protocol::native_source::LiveSourceContext::new(
-                            eez_protocol::RollupId(cfg.this_rollup_id),
+                            cfg.l2_chain_id,
                             hash,
                         )
                         .map_err(DeriverError::l2_provider)?;

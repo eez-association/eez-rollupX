@@ -6,8 +6,8 @@ outbound-network-denying launcher, and the native manager accepted its signature
 The process test independently checked the public input and canonical L2 safe hash.
 The captured execution includes recorded native history transactions and their
 metered gas with history 0x46/version 1. Cross-chain transactions use
-0x45/version 1, with identities bound to their original mutable settlement row
-and independently reconstructed pre-group prefix. Complete cross-chain groups clear
+versionless 0x45 with identities bound to the L2 EVM chain ID, intended L1
+parent and zero-based complete-group ordinal in the full Live Sync block. Complete cross-chain groups clear
 SYSTEM/EEZL2 residue before their checkpoints; ordinary fees reach FeeVault.
 
 `request.v2.protobuf` is the complete length-delimited `prove.v2.ClientFrame`
@@ -18,8 +18,8 @@ required for cold independent replay. No RPC endpoint, operator secret or cache 
 part of this fixture.
 
 Source details and the executed command are recorded in
-[the implementation audit](../../../../../docs/audits/2026-10-27-group-cleanup-and-history/README.md).
+[the implementation audit](../../../../../docs/audits/2026-10-27-source-counter/README.md).
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 2. The sole
+the single `Profile` commitment and validation-contract version 3. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.

@@ -90,7 +90,7 @@ fn fixture_sources(semantics: &[eez_protocol::blob_semantics::SemanticTransactio
         .source_entries(&crate::testkit::native_source_context())
         .unwrap()
         .into_iter()
-        .map(|source| source.hash(B256::ZERO))
+        .map(eez_protocol::native_source::SourceEntry::hash)
         .collect()
 }
 
@@ -358,13 +358,8 @@ fn da_payload_binds_multiple_outbound_pairs_to_original_sources() {
         let mut native = native.into_inner();
         match mutation {
             0 => native.gas_limit -= 1,
-            1 => native.source_hash = sources[0], // Wrong original row.
-            2 => {
-                native.source_hash = crate::testkit::native_source_context()
-                    .entry(2)
-                    .unwrap()
-                    .hash(B256::repeat_byte(0x72))
-            } // Correct row, wrong raw prefix.
+            1 => native.source_hash = sources[0], // Reset ordinal duplicates the earlier group.
+            2 => native.source_hash = crate::testkit::native_source_context().entry(2).hash(), // Skipping an ordinal is also invalid.
             _ => unreachable!(),
         }
         transactions[2] = native.into();

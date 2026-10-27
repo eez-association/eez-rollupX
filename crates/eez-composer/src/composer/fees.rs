@@ -397,7 +397,6 @@ mod tests {
         let native = |source_id: u64| {
             eez_primitives::SystemTransaction {
                 chain_id: 9,
-                version: eez_primitives::SYSTEM_TX_VERSION,
                 source_hash: alloy_primitives::B256::from(
                     alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
                 ),

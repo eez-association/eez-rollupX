@@ -9,10 +9,10 @@ and pinned core define interoperability. Shared type/version names alone do not:
 
 | Boundary | Exact local contract |
 | --- | --- |
-| Native transactions and receipts | Cross-chain `0x45` version **1** with source identities; optional HistoryUpdate `0x46` version **1** with only chain ID and 1–64 hashes. Receipts retain the corresponding type. |
+| Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 hashes after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 2, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 3, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -42,21 +42,29 @@ encoding, canonical JSON and execution/settlement semantics together. The manage
 profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
-Validation-contract version 2 includes prefix-bound source identities, optional
-nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
-An external executor must clear SYSTEM/EEZL2 in the completing transaction's state
-before its checkpoint, retain load/user adjacency across previews and rollbacks,
-and leave history/unpaired ordinary transactions alone. A final-block-only burn
-cannot satisfy prefix commitments. Cleanup adds no gas, receipt or log.
-For each native group independently derive its original mutable settlement-row
-index and its raw pre-group B[i]. Compute standard ABI
-`keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint64(rollupId),
-bytes32(l1ParentHash), uint64(entryIndex), bytes32(B[i])))`. Index zero is the
-ordinary anchor; one outbound host covers the whole load/user group; every
-original inbound mutable row counts even if it does not execute; L1 static rows
-do not count. Retain the complete original mapping on partial reproof. These
-values are available from existing execution and Finalize evidence; no RPC or
-new protobuf field is needed. A Block ACK alone does not authorize a source hash.
+Validation-contract version 3 includes execution-group source identities,
+optional nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
+An external executor clears SYSTEM/EEZL2 in the completing transaction's state
+before its checkpoint, retaining load/user adjacency through previews/rollbacks.
+Cleanup adds no gas, receipt or log; final-block-only cleanup is insufficient.
+For each native group compute standard ABI
+`keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint256(chainId),
+bytes32(l1ParentHash), uint64(entryIndex)))`. Use the L2 EVM chain ID from the
+envelope and the independently authenticated intended inclusion parent. Index
+zero is the first complete native group in the full Live Sync block. An outbound
+load plus signed user counts once, including a committed reverted user; an
+applying inbound delivery counts once. Nested/static roots within a group add
+no indices; ordinary/history transactions, anchors and inbound lookups without
+a native transaction do not count. Derive the entire sequence before selecting
+a consumed suffix; never reset it per posting or reproof. Do not count raw L1
+success events: one root carrier may commit several failed outbound groups.
+
+The full witness/semantic stream supplies the count; accepted-root and exact
+prefix/checkpoint checks authenticate it at inclusion. Removing the prefix from
+sourceHash does not remove those checks. A changed incompatible accepted root
+requires reconstruction, not a trusted counter override. SourceHash alone is
+neither authorization nor global deduplication; chain-ID reuse can produce equal
+identifiers across deployments. No new RPC field or chain RPC is needed.
 
 Advertise capability profile 2 (the fixed v2 wire discriminator), operations tag 0, that identity, and finite
 positive limits/timeouts as specified by [RPC discovery](../SPEC.md#21-validation-identity-and-capability-discovery).

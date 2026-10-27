@@ -95,18 +95,19 @@ its Solidity implementation/tests and the applicable fork contract:
   The [exact native/profile specification](docs/proposals/native-system-transactions.md)
   owns E1/E2; the [native-v1 audit](docs/audits/2026-10-24-native-v1/README.md)
   tracks historical implementation and E3 evidence. The
-  [current amendment audit](docs/audits/2026-10-27-group-cleanup-and-history/README.md)
-  records validation-contract-2 evidence. There is one fresh-network profile;
-  both native envelopes use version 1. Do not add fallback execution, migration
+  [current amendment audit](docs/audits/2026-10-27-source-counter/README.md)
+  tracks validation-contract-3 evidence. There is one fresh-network profile;
+  cross-chain 0x45 has six fields and no version; history 0x46 uses version 1. Do not add fallback execution, migration
   or old-format validation paths.
   Clear SYSTEM/EEZL2 balances after complete cross-chain groups before checkpoints,
   retaining block-start cleanup. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
-  validation-contract-2 semantics consistent across all execution paths.
+  validation-contract-3 semantics consistent across all execution paths.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
-  Source identities bind the original mutable settlement row and independently
-  reconstructed pre-group prefix; preserve both on partial reproof. Source hashes
+  Source identities bind the L2 EVM chain ID, intended L1 parent and zero-based
+  complete-group ordinal in the full Live Sync block. Derive ordinals before
+  consumed-suffix selection and retain prefix/root validation on reproof. Source hashes
   never select replay placement or authorize consumption. Keep core contracts,
   ABI/public inputs and the pin unchanged; add no source-index allocator or wrapper.
 

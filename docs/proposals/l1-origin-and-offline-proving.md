@@ -2,7 +2,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Accepted fresh-network behavior, including the native/fee amendment; The [current audit](../audits/2026-10-27-group-cleanup-and-history/README.md) tracks complete-group cleanup and optional HistoryUpdate validation. Earlier native-v1 results do not validate these amendments. |
+| Status | Accepted fresh-network behavior, including the native/fee amendments. The [current audit](../audits/2026-10-27-source-counter/README.md) tracks execution-group source indices and versionless `0x45`; [earlier validation](../audits/2026-10-27-group-cleanup-and-history/README.md) covers complete-group cleanup and optional HistoryUpdate before this amendment. |
 | Scope | Fresh networks only, active from genesis; no hardfork switch, legacy execution path or existing-network migration. |
 | Protocol | Published `feature/e2e_edge_cases`, `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Core interfaces are unchanged. |
 | Prover interface | Keep `prove.v2.Prover.ProveStream` and existing witness field `l1_headers_rlp`. One validation-contract version covers encoding and semantics, with a single manager Profile. |
@@ -18,10 +18,10 @@ The inspected implementation is HEAD
 in `artifacts/l1-history-offline-proving`. The dated audit identifies that
 baseline; it does not validate the amendments in this section.
 
-**Scope and engineering definitions are closed.** The exact [native version 1,
+**Scope and engineering definitions are closed.** The exact [native transaction,
 source identities and collector/profile contract](native-system-transactions.md)
 owns the byte-level definitions. This proposal defines the fresh-network behavior.
-There is one native version-1 profile, with no fallback or activation switch.
+There is one native profile, with no fallback or activation switch.
 The renderer fixes the collector to the FeeVault predeploy. Each deployment
 selects an initial treasury recipient and owner; the owner proposes a recipient and that recipient accepts
 through ordinary L2 transactions. The [treasury amendment](fee-vault-upgrades.md)
@@ -63,24 +63,24 @@ outbound, grouped and callback operations.
 The cross-chain body is:
 
 ```text
-0x45 || RLP([version, chainId, sourceHash, gasLimit, to, value, input])
+0x45 || RLP([chainId, sourceHash, gasLimit, to, value, input])
 transactionHash = keccak256(exact typed transaction bytes)
 receipt = 0x45 || RLP([status, cumulativeGasUsed, logsBloom, logs])
 ```
 
-There are exactly seven fields, no signature or nonce, canonical minimal RLP
+There are exactly six fields, no version, signature or nonce, canonical minimal RLP
 integers, a 32-byte source hash and a 20-byte destination. `chainId` equals the
 configured L2 chain ID. Gas is uint64; value is uint256. Validate byte equality,
 field bounds, destination, authorized calldata/value, position and complete input
 consumption.
-The only supported numeric `version` is **1**, with the exact [source identities
-and execution rules](native-system-transactions.md#exact-source-identities).
-It explicitly distinguishes this profile from draft version zero.
+The [source identities and execution rules](native-system-transactions.md#exact-source-identities)
+are bound by the single network validation identity. No envelope version or
+alternate decoding mode exists.
 
 The implicit sender is A2. Native execution must not validate or increment its
 account nonce. Standard RPC nonce/signature fields, where required for generic
 consumers, are zero placeholders rather than transaction fields. Expose the real
-`version`, `sourceHash` and encoded gas limit. Preserve standard inclusion,
+`sourceHash` and encoded gas limit; omit `version` for cross-chain transactions. Preserve standard inclusion,
 receipt, cumulative-gas, log and trace positions. Public signing, transaction-pool
 and raw-transaction submission paths must reject the native type.
 
@@ -171,8 +171,8 @@ records independent review and the executed encoding checks:
 
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
-| E1 | Specified | Cross-chain native version 1 with a single prefix-bound source formula; dedicated optional history version 1; original mutable settlement-row positions; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
-| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 2. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
+| E1 | Specified | Versionless cross-chain envelope with an execution-group source formula; dedicated optional history version 1; full Live Sync group ordinals; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
+| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 3. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 
 The `DELEGATECALL`/`CALLCODE` case in audit C09 follows the pinned proxy's caller
@@ -480,7 +480,7 @@ Deploy new matching genesis, manager profile, Composer, follower and prover.
 No old network/database replay, in-place upgrade, dual execution mode or rollback
 compatibility is provided. Regenerate fixtures with the existing genesis script;
 keep pinned Solidity/compiler metadata and the core gitlink. Wire v2 remains
-unchanged; validation-contract version 2 and Profile bind cross-chain and history
+unchanged; validation-contract version 3 and Profile bind cross-chain and history
 encoding, complete-group cleanup, execution rules and the fee collector used by
 every component. Cross-chain source identities remain unchanged.
 The derived correlation index uses `eez-batch-correlation-recorded-history-v1`.

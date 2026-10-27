@@ -3,37 +3,37 @@
   "cases": [
     {
       "accept": false,
-      "public_inputs_hash": "0x6b8d13f3ef8549089a68ab3f3a6663e01bc5fae82997e20954a9ad674c7d8662",
+      "public_inputs_hash": "0x3c7e428dbe94cdf6650ad249ee73c7eb35c8e31cd0f524b19e40dbb128e5a6c1",
       "request": "static-before-history.v2.protobuf",
       "request_hash": "0x23cb124b3b1a3b6f12d03156b6cb8ce953692b0198ed453029b520464af5bb02"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0x67624a8ce2608131967123a14bd1923e9e10bdc15f90d4923a1d1f05c5b10394",
+      "public_inputs_hash": "0x77bf4e6981ffb98008ed0cc19574077cb9aa899b7772adcd5718e24935943a5c",
       "request": "static-before-ordinary.v2.protobuf",
       "request_hash": "0x04f7e9f23745e72d88c6bf73bd9c19601719d6c6dbaabd5826bfc7c11318e4de"
     },
     {
       "accept": true,
-      "public_inputs_hash": "0x993a64c473fe1be076cf8d205bb32adb187d834d8c2a341e1413330fb124058e",
+      "public_inputs_hash": "0xa2f2d8eb4693f1969780a71d216c0868e2bddc29c8ef47baef7b1f9248435648",
       "request": "static-correct.v2.protobuf",
       "request_hash": "0x1ceb1414de4f8e45477ef4814b668fa0ee7df1b1da77e5664e8210c8dd9b0956"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0x91d51a7c80b6aa0b2ec57164469ee505006b0e6d8f6f107b2712836a401c9a0f",
+      "public_inputs_hash": "0xb9bbdb08b8995b3f6244f98d975b809244f4bcf7575015dbd582b35df655b679",
       "request": "lookup-before-history.v2.protobuf",
       "request_hash": "0xe4f0c9c5c1909e00da56847b77b8b28f663c4a7053fd29bff8a5a13bc0c6ec4b"
     },
     {
       "accept": false,
-      "public_inputs_hash": "0x0c50b7d76105866b90ba99e8bb5550644452425d4bcfad0f5e5b180746bb0f20",
+      "public_inputs_hash": "0x29d68b174a4c0de386d6567f2469e55785d5ff1f264f7d927f896a2785343dec",
       "request": "lookup-before-ordinary.v2.protobuf",
       "request_hash": "0xacdd37b79239befc88a63cf03b2932c922cadeb79df741815cbb4bcdb33f0c1c"
     },
     {
       "accept": true,
-      "public_inputs_hash": "0xe59867b35c09b2e6c30cb4572e1109b86bc3f45d276dd2700731366ea3fd9eed",
+      "public_inputs_hash": "0x51bd475597973693b018129c6d8abcc630759424e45b81ba8aac7cfef1b8e150",
       "request": "lookup-correct.v2.protobuf",
       "request_hash": "0x58e49f928b991a0bb2afba39c24ea4f60e6905c95a6ea0a060f72fc7f5a83699"
     }
@@ -42,6 +42,6 @@
   "proof_system": "0x00000000000000000000000000000000000000aa",
   "registry": "0x3333333333333333333333333333333333333333",
   "rollup_id": 1,
-  "validation_identity": "0x8d595f1bd8c173ec44feb292dcd308a6417a4018e4bdf18b9e48cef58ee17cd3",
+  "validation_identity": "0xa436e5ab58e4b9b1c6d389ac438c13408236937cd6ed691af27f83ab8b26f61f",
   "vkey": "0x4242424242424242424242424242424242424242424242424242424242424242"
 }

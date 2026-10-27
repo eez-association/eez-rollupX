@@ -1369,8 +1369,8 @@ struct AppendedGroup {
     gas_used: Vec<u64>,
 }
 
-/// Select a candidate's original settlement rows from the complete prospective
-/// stream. Earlier failed/lookup rows remain counted; no consumed suffix is renumbered.
+/// Select a candidate's complete-group ordinals from the full prospective
+/// stream. Nonexecuting lookups add no groups; consumed suffixes are not renumbered.
 fn candidate_native_sources(
     accepted: &[eez_protocol::blob_semantics::SemanticTransaction],
     candidate: &eez_protocol::blob_semantics::SemanticTransaction,
@@ -3105,7 +3105,7 @@ where
                     return Err("Sync timestamp differs from live source target".into());
                 }
                 let live_source = eez_protocol::native_source::LiveSourceContext::new(
-                    eez_protocol::RollupId(rollup_id),
+                    ctx.l2_chain_id,
                     state.anchor.hash(),
                 )
                 .map_err(|error| error.to_string())?;
@@ -3818,12 +3818,7 @@ where
                     // The prefix-hash rebuild runs the canonical executor, which
                     // treats a group that does not fit as a hard error. Settle the
                     // fit first, as a capacity decision rather than a fault.
-                    let pair_txs = match prefix_hashes.prepare_transactions(
-                        &mut draft,
-                        &sync_txs,
-                        &pair_plans,
-                        &sources,
-                    ) {
+                    let pair_txs = match draft.prepare_transactions(&pair_plans, &sources) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -4646,12 +4641,7 @@ where
                         .into_iter()
                         .map(eez_protocol::system_tx::PlannedTransaction::Native)
                         .collect::<Vec<_>>();
-                    let deliveries = match prefix_hashes.prepare_transactions(
-                        &mut draft,
-                        &sync_txs,
-                        &delivery_plans,
-                        &sources,
-                    ) {
+                    let deliveries = match draft.prepare_transactions(&delivery_plans, &sources) {
                         Ok(transactions) => transactions,
                         Err((at, why)) => {
                             if why.is_provider() {
@@ -5211,7 +5201,7 @@ where
         // Past the drain the pool's order is all that matters again.
         let mut survivors: Vec<HeldTx> = restore_pool_order(survivors);
 
-        // Rebuild from original semantic positions and execute plans afresh.
+        // Rebuild full-block group ordinals and execute plans afresh.
         // This independently binds every encoded gas limit to its receipt prefix.
         let (pairs, canonical) =
             match eez_protocol::blob_semantics::ReconstructionActions::from_semantics(
@@ -5237,21 +5227,9 @@ where
             })
             .and_then(|(pairs, sources)| {
                 let plans = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
-                let mut hashes = SyncPrefixHashes::new(
-                    rollup.l2_provider.as_ref(),
-                    &evm_config,
-                    parent_header,
-                    timestamp,
-                    prev_randao,
-                    suggested_fee_recipient,
-                );
-                let transactions = hashes
-                    .prepare_transactions(
-                        &mut reopen(&history_prefix).map_err(|error| error.to_string())?,
-                        &history_prefix,
-                        &plans,
-                        &sources,
-                    )
+                let transactions = reopen(&history_prefix)
+                    .map_err(|error| error.to_string())?
+                    .prepare_transactions(&plans, &sources)
                     .map_err(|(_, error)| error.to_string())?;
                 let canonical = history_prefix
                     .iter()
@@ -9747,7 +9725,6 @@ mod tests {
         use alloy_eips::eip2718::Encodable2718 as _;
         let tx: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::from(
                 alloy_primitives::U256::from(source_id).to_be_bytes::<32>(),
             ),

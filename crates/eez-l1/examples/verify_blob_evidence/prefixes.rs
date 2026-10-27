@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn captured_prefixes_replay_inherited_and_imported_l1_history() {
-        for (import, number, transactions) in [(false, 440, 3), (true, 438, 1)] {
+        for (import, number, transactions) in [(false, 30, 3), (true, 28, 1)] {
             let input = captured_input(import);
             let output = verify(&input).unwrap();
             let prefixes = output["prefixes"].as_array().unwrap();
@@ -840,7 +840,6 @@ mod tests {
         let (mut block, mut receipts, roots) = fixture();
         block.body.transactions[0] = eez_primitives::SystemTransaction {
             chain_id: 1,
-            version: eez_primitives::SYSTEM_TX_VERSION,
             source_hash: alloy_primitives::B256::with_last_byte(4),
             gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,

@@ -359,10 +359,12 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
             ensure!(quantity(&tx["gas"])? == expected_gas, "native gas must match its exact position");
             previous_gas += gas_used;
             ensure!(quantity(&tx["nonce"])? == 0, "native nonce must be a zero RPC placeholder");
-            ensure!(quantity(&tx["version"])? == 1, "native version must be one");
             if tx["type"] == "0x45" {
+                ensure!(tx.get("version").is_none(), "cross-chain envelope has no version field");
                 let source: B256 = serde_json::from_value(tx["sourceHash"].clone())?;
                 ensure!(source != B256::ZERO, "cross-chain source hash must bind the occurrence");
+            } else {
+                ensure!(quantity(&tx["version"])? == 1, "history version must be one");
             }
             native_count += 1;
             ensure!(

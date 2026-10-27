@@ -4,7 +4,6 @@ use alloy_primitives::Signature;
 
 fn system() -> EezTxEnvelope {
     SystemTransaction {
-        version: SYSTEM_TX_VERSION,
         chain_id: 1,
         source_hash: B256::repeat_byte(0x42),
         gas_limit: SYSTEM_TX_GAS_CAP,
@@ -16,7 +15,7 @@ fn system() -> EezTxEnvelope {
 }
 
 #[test]
-fn native_v1_reference_vectors_are_canonical() {
+fn native_reference_vectors_are_canonical() {
     // Generated independently of the Rust implementation with ABI/RLP encoders
     // and Foundry. These prove the wire contract, not execution authorization.
     let corpus: serde_json::Value = serde_json::from_str(include_str!(
@@ -130,7 +129,7 @@ fn native_wire_sender_hash_and_storage_round_trip() {
     let tx = system();
     let bytes = tx.encoded_2718();
     let expected = alloy_primitives::hex!(
-        "45f8430101a042424242424242424242424242424242424242424242424242424242424242428401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c808401020304"
+        "45f84201a042424242424242424242424242424242424242424242424242424242424242428401000000944b2760f84b83d6b3829e30a7573b0172b6d6402c808401020304"
     );
     assert_eq!(bytes, expected);
     assert_eq!(tx.tx_hash(), &alloy_primitives::keccak256(expected));
@@ -173,7 +172,7 @@ fn rejects_malformed_and_trailing_native_bytes() {
 }
 
 #[test]
-fn native_rejects_unsupported_version_noncanonical_fields_and_unknown_type() {
+fn native_rejects_noncanonical_fields_extra_version_and_unknown_type() {
     let bytes = system().encoded_2718();
     let mut payload = &bytes[1..];
     let header = alloy_rlp::Header::decode(&mut payload).unwrap();
@@ -182,7 +181,7 @@ fn native_rejects_unsupported_version_noncanonical_fields_and_unknown_type() {
     while !payload.is_empty() {
         fields.push(Bytes::decode(&mut payload).unwrap());
     }
-    assert_eq!(fields.len(), 7);
+    assert_eq!(fields.len(), 6);
     let encode = |fields: &[Bytes]| {
         let mut bytes = vec![SYSTEM_TX_TYPE];
         alloy_rlp::Header {
@@ -200,26 +199,26 @@ fn native_rejects_unsupported_version_noncanonical_fields_and_unknown_type() {
         assert!(<EezTxEnvelope as reth_codecs::Decompress>::decompress(bytes).is_err());
     };
     for (index, invalid) in [
-        (0, vec![]),
-        (0, vec![2]),
         (0, vec![0, 1]),
-        (1, vec![0, 1]),
-        (1, vec![1; 9]),
-        (2, vec![0; 31]),
-        (2, vec![0; 33]),
-        (3, vec![0, 1]),
-        (3, vec![1; 9]),
-        (3, vec![1, 0, 0, 1]),
-        (4, vec![0; 19]),
-        (4, vec![0; 21]),
-        (5, vec![0]),
-        (5, vec![1; 33]),
+        (0, vec![1; 9]),
+        (1, vec![0; 31]),
+        (1, vec![0; 33]),
+        (2, vec![0, 1]),
+        (2, vec![1; 9]),
+        (2, vec![1, 0, 0, 1]),
+        (3, vec![0; 19]),
+        (3, vec![0; 21]),
+        (4, vec![0]),
+        (4, vec![1; 33]),
     ] {
         let mut malformed = fields.clone();
         malformed[index] = invalid.into();
         reject(&encode(&malformed));
     }
-    reject(&encode(&fields[..6]));
+    reject(&encode(&fields[..5]));
+    let mut versioned = fields.clone();
+    versioned.insert(0, Bytes::from_static(&[1]));
+    reject(&encode(&versioned));
     let mut extra = fields.clone();
     extra.push(Bytes::new());
     reject(&encode(&extra));
@@ -249,7 +248,7 @@ fn native_rpc_rejects_nonzero_placeholders_and_missing_consensus_fields() {
             "{field}"
         );
     }
-    for field in ["version", "sourceHash", "gas"] {
+    for field in ["chainId", "sourceHash", "gas"] {
         let mut malformed = json.clone();
         malformed.as_object_mut().unwrap().remove(field);
         assert!(
@@ -326,7 +325,7 @@ fn rpc_serialization_has_native_execution_fields_and_zero_signature_placeholders
     let tx = system();
     let json = serde_json::to_value(&tx).unwrap();
     assert_eq!(json["type"], "0x45");
-    assert_eq!(json["version"], "0x1");
+    assert!(json.get("version").is_none());
     assert_eq!(
         json["sourceHash"],
         serde_json::to_value(B256::repeat_byte(0x42)).unwrap()
