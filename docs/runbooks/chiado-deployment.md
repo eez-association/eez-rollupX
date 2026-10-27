@@ -244,7 +244,7 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-4 signers together; there is no existing-database upgrade.
+and validation-contract-5 signers together; there is no existing-database upgrade.
 The L1 history getter returns zero outside its retained range and retains strict
 errors for inconsistent history. This changes the
 genesis runtime hash and manager profile; an existing network retains its old
@@ -261,8 +261,11 @@ Rollback to earlier binaries requires a
 separate fresh network; reusing this network's database is unsupported.
 The prover remains v2 and requires no chain RPCs.
 
-Every L2 block also burns the balances of EEZL2 and the native system address before
-its first transaction, so neither account holds ETH at a block start; see the
+Every completed L2 block burns the residual balances of EEZL2 and the native
+system address. Ordinary donations remain visible inside the block until it
+closes or a complete cross-chain group clears them. Historical state queries
+observe the closed block, while proven FIFO lookups observe the selected in-block
+transaction boundary; see the
 [signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
 execution: nodes, followers and signers from before this rule cannot replay a
 network created with it, and it is not a binary-only upgrade for an existing

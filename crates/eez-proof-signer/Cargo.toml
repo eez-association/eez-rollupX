@@ -15,7 +15,7 @@ eez-payload-codec.workspace = true
 # Canonical `postAndVerifyBatch` ABI types and codec.
 eez-protocol.workspace = true
 eez-primitives.workspace = true
-eez-evm.workspace = true
+eez-evm = { workspace = true, features = ["stateless"] }
 eez-driver = { workspace = true, features = ["observation", "derivation"] }
 
 alloy-consensus.workspace = true

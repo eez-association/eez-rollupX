@@ -1,5 +1,6 @@
 //! Real Osaka execution with a scheduled import at Sync and a subsequent value
-//! transfer. Expected observation bytes are fixed independently of that replay.
+//! donation to SYSTEM. Expected observation bytes are fixed independently of
+//! replay and remain nonzero before finalization even though the closed root burns it.
 
 use super::*;
 use alloy_consensus::{Header, SignableTransaction as _, TxLegacy};
@@ -129,9 +130,12 @@ impl Fixture {
             )
             .unwrap(),
         );
-        // Return ABI(balance, current L1 number, current L1 hash). The transfer
-        // changes the first word; history import changes the other two words.
-        let mut code = hex::decode("475f5263").unwrap();
+        // Return ABI(SYSTEM.balance, current L1 number, current L1 hash).
+        // The transfer changes the first word until the block closes; history
+        // import changes the other two. Closed-state RPC reads would see zero.
+        let mut code = vec![0x73];
+        code.extend_from_slice(eez_primitives::SYSTEM_ADDRESS.as_slice());
+        code.extend_from_slice(&hex::decode("315f5263").unwrap());
         code.extend_from_slice(&keccak256("current()")[..4]);
         code.extend_from_slice(&hex::decode("602052604060206004603c73").unwrap());
         code.extend_from_slice(HISTORY_ADDRESS.as_slice());
@@ -181,7 +185,7 @@ impl Fixture {
                     chain_id: Some(1),
                     gas_limit: 200_000,
                     gas_price: u128::from(base_fee),
-                    to: TxKind::Call(PROBE),
+                    to: TxKind::Call(eez_primitives::SYSTEM_ADDRESS),
                     value: U256::from(7),
                     ..Default::default()
                 };
@@ -282,6 +286,14 @@ impl Fixture {
                     alloc.alloc.remove(address);
                 }
             }
+            assert_eq!(
+                alloc
+                    .alloc
+                    .get(&eez_primitives::SYSTEM_ADDRESS)
+                    .map_or(U256::ZERO, |account| account.balance),
+                U256::ZERO,
+                "closed block must burn the ordinary donation; observation still expects seven"
+            );
             let output = BlockExecutionOutput {
                 result,
                 state: bundle,

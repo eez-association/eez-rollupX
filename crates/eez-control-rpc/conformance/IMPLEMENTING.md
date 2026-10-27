@@ -12,7 +12,7 @@ and pinned core define interoperability. Shared type/version names alone do not:
 | Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 hashes after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 3, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 5, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -42,11 +42,19 @@ encoding, canonical JSON and execution/settlement semantics together. The manage
 profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
-Validation-contract version 3 includes execution-group source identities,
+Validation-contract version 5 includes execution-group source identities,
 optional nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
 An external executor clears SYSTEM/EEZL2 in the completing transaction's state
 before its checkpoint, retaining load/user adjacency through previews/rollbacks.
 Cleanup adds no gas, receipt or log; final-block-only cleanup is insufficient.
+Block finalization additionally clears any ordinary donations. Those remain
+visible during in-block execution until the block closes or a complete group
+clears them. Derive canonical prefix hashes by closing copies; replay FIFO
+observations at their selected in-block transaction boundary before finalization,
+even for a full terminal prefix. An `eth_call` on the closed state is not
+equivalent. Independently check the unmodified terminal execution output against
+its header root. The version-5 identity distinguishes these semantics without
+changing the v2 protobuf.
 For each native group compute standard ABI
 `keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint256(chainId),
 bytes32(l1ParentHash), uint64(entryIndex)))`. Use the L2 EVM chain ID from the

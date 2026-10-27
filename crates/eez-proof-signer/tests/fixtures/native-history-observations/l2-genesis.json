@@ -44,7 +44,7 @@
     "0x0000000000000000000000000000000000000090": {
       "nonce": "0x1",
       "balance": "0x0",
-      "code": "0x475f52639fa6a6e3602052604060206004603c73eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00775afa5060605ff3"
+      "code": "0x73fffffffffffffffffffffffffffffffffffffffe315f52639fa6a6e3602052604060206004603c73eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee00775afa5060605ff3"
     },
     "0x00000961ef480eb55e80d19ad83579a64c007002": {
       "nonce": "0x1",

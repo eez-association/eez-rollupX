@@ -45,6 +45,8 @@ pub mod balances;
 pub mod block;
 pub mod history;
 pub mod profile;
+#[cfg(feature = "stateless")]
+pub mod stateless;
 use block::{EezBlockExecutorFactory, ExecutionLayer};
 
 /// Enforce L2 transaction support during construction and replay. The underlying

@@ -3244,6 +3244,7 @@ dependencies = [
  "alloy-genesis",
  "alloy-primitives",
  "alloy-rlp",
+ "alloy-rpc-types-debug",
  "alloy-rpc-types-engine",
  "alloy-sol-types",
  "eez-primitives",
@@ -3253,8 +3254,11 @@ dependencies = [
  "reth-evm-ethereum",
  "reth-primitives-traits",
  "reth-storage-errors",
+ "reth-trie-common",
  "revm",
  "serde_json",
+ "stateless",
+ "tries",
 ]
 
 [[package]]

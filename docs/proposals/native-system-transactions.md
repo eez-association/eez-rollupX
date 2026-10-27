@@ -84,7 +84,7 @@ make an invalid or mismatched cross-chain execution acceptable.
 Native execution neither checks nor increments the system account nonce on
 success, revert or halt. Disabling nonce validation alone is insufficient: the
 underlying EVM's ordinary Call nonce increment must also be absent. Normal
-user nonces are unchanged. Keep beginning-of-block SYSTEM/EEZL2 balance cleanup,
+user nonces are unchanged. Apply end-of-block SYSTEM/EEZL2 balance cleanup,
 EIP-2935 pre-execution calls, checked temporary inbound funding and outer-failure
 rollback. The accepted complete-group cleanup below limits shared protocol
 inventory to one complete group; it does not adopt the draft's per-inbound
@@ -177,18 +177,43 @@ logs and output. The next native limit is derived from that unchanged cumulative
 gas; later transactions can observe empty protocol accounts and therefore have
 different account-creation costs. Every producer, follower, witness builder and
 Stateless prover MUST apply the same transition before taking a checkpoint.
-There is no cleanup during block finalization.
+Block finalization also clears both balances, including in empty and ordinary-only
+blocks. It replaces beginning-of-block cleanup. Ordinary donations remain visible
+to later transactions until the block closes or a complete cross-chain group
+clears them. Never clear after a standalone ordinary transaction.
 
-Beginning-of-block cleanup remains active for donations made by ordinary work
-outside groups, including blocks with no groups. It is not a compatibility path.
-Synthetic composition/observation calls are not block transactions and do not
-trigger cleanup. Canonical re-execution must still validate their results at the
-exact post-cleanup FIFO prefix.
+A complete prefix has two distinct uses. Continuing its execution, including FIFO
+synthetic observations, uses the unfinalized state. Computing its canonical block
+hash finalizes a disposable copy, so the prefix state root includes cleanup.
+The hash authenticates the prefix body and its execution from the parent; an
+observation pin selects that exact **in-block transaction boundary**, before
+block-finalization cleanup. It is not an `eth_call` against the closed block's
+state root. This distinction matters for ordinary donations; it does not change
+which transaction boundary the signer independently derives. Synthetic calls
+never commit and never trigger cleanup. After complete cross-chain groups the
+balances are already zero, so both views agree.
+
+Composer retains unfinalized prefix snapshots; follower reconstruction closes
+whichever complete prefix actually settles. A resumed same-height settlement
+replays the retained body and appended groups from the original H-1 parent,
+replacing the closed prefix at H; it does not append transactions to that closed
+state. A newly composed candidate uses its canonical parent. No continuation
+reuses a finalized speculative cache. The offline prover derives finalized prefix roots on
+copies without cleaning the running EVM state. Its final-block check must also
+compare the **unmodified execution output** with the header root; projecting
+checkpoint balances must never conceal missing finalization or a wrong root.
+
+Acceptance checks: ordinary donations remain visible within a block; completed
+blocks and independently rebuilt prefixes have zero protocol balances; storage,
+nonces, code, fees and receipts remain intact; observations reject earlier or
+closed-state outcomes when they differ from the selected in-block boundary;
+partial settlement and follower replay reproduce the committed prefix. Retain
+all complete-group, reverted-transaction and discarded-preview regressions.
 
 This changes execution and commitments. Use matching new-network artifacts;
 pre-change histories/databases are unsupported, with no mixed-version execution,
 activation switch or migration. Use the six-field cross-chain envelope and keep the
-`prove.v2` protobuf unchanged; validation-contract version 4 identifies the new
+`prove.v2` protobuf unchanged; validation-contract version 5 identifies the new
 semantics. The manager profile preimage also includes this fixed version before
 the history address, binding the cleanup rule into on-chain public inputs without
 a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
@@ -375,7 +400,7 @@ Deployments reusing an EVM chain ID may share identifiers; deployment/genesis,
 registry/rollup, exact prefix, tables and bytes remain independently bound by
 validation. Do not use sourceHash alone as a cross-network identifier.
 
-The single validation-contract version is 3, in both capability identity and
+The single validation-contract version is 5, in both capability identity and
 manager profile; cross-chain envelopes have no version; history remains version 1 and the transport remains
 prove.v2 with unchanged protobuf. New source bytes change native transaction and
 block hashes. Use matching new-network artifacts, fresh genesis/profile and
@@ -545,7 +570,7 @@ both anchor selectors and existing current-root checks. The context already
 binds protocolConfigHash; require that exact commitment without additional
 context variants. No pinned core ABI change is needed.
 
-Use one ten-element portable identity RLP. Validation-contract version 4 covers
+Use one ten-element portable identity RLP. Validation-contract version 5 covers
 its encoding, canonical JSON rules and accepted execution/settlement semantics:
 
 ```text

@@ -75,6 +75,32 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         );
     }
 
+    // Ordinary transactions must burn residual donations in their own closed
+    // block, even without a cross-chain group. Force ETH into the real EEZL2
+    // proxy using a constructor SELFDESTRUCT; no payable receive is assumed.
+    let mut donations = Vec::new();
+    for destination in [system, eez_primitives::EEZL2_ADDRESS] {
+        let (to, input, gas) = if destination == system {
+            (Some(destination), Vec::new(), 21_000)
+        } else {
+            let mut initcode = vec![0x73];
+            initcode.extend_from_slice(destination.as_slice());
+            initcode.push(0xff);
+            (None, initcode, 100_000)
+        };
+        let hash = sign_and_send(&primary_rpc, OUTBOUND_USER, world.l2_chain_id,
+            onchain_nonce(&primary_rpc, OUTBOUND_USER).await?, to, U256::from(7), input, gas).await?;
+        ensure!(wait_for(SETTLE_TIMEOUT, || async { receipt_ok(&primary_rpc, hash).await }).await?,
+            "ordinary donation failed");
+        let receipt = rpc(&primary_rpc, "eth_getTransactionReceipt", json!([hash])).await?;
+        let block = rpc(&primary_rpc, "eth_getBlockByHash", json!([receipt["blockHash"], true])).await?;
+        ensure!(block["transactions"].as_array().context("donation block transactions")?.iter()
+            .all(|tx| tx["type"] != "0x45"), "donation must exercise block-finalization cleanup independently of groups");
+        ensure!(rpc(&primary_rpc, "eth_getBalance", json!([destination, receipt["blockNumber"]])).await? == "0x0",
+            "donation survived its own closed block");
+        donations.push((hash, destination, receipt));
+    }
+
     // Composer 1 mints a real deposit; native execution never changes the system nonce.
     let inbound = sign_and_send(
         &world.l1_xchain(),
@@ -191,6 +217,17 @@ async fn run_two_composers_two_keyless_followers() -> Result<()> {
         Ok(Some(()))
     })
     .await?;
+
+    // Settled replay on both Composers and the live/cold followers must burn
+    // the ordinary donations at the same height, not one block later.
+    for (hash, destination, receipt) in &donations {
+        for url in urls {
+            ensure!(rpc(url, "eth_getTransactionReceipt", json!([hash])).await? == *receipt,
+                "ordinary donation receipt differs on {url}");
+            ensure!(rpc(url, "eth_getBalance", json!([destination, receipt["blockNumber"]])).await? == "0x0",
+                "ordinary donation survived its closed block on {url}");
+        }
+    }
 
     // Outbound ETH is cleared at the complete load/user group's checkpoint.
     // Both live followers and the cold late follower must agree in the same

@@ -104,7 +104,7 @@ getter revert or interpret zero as a valid header commitment: consumers such as
 
 ## Compatibility
 
-This behavior is active from fresh genesis under validation-contract version 4.
+This behavior is active from fresh genesis under validation-contract version 5.
 The history address, ABI selectors, storage layout, native transaction encoding,
 import schedule and `prove.v2` wire format are unchanged. The runtime code hash,
 genesis state/block roots, manager profile and validation identity change.

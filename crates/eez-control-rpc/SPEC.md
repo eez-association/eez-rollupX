@@ -118,7 +118,9 @@ entries[last].rootUpdates[0].newRoot = terminal Sync block hash
 Despite the historical ABI names, these roots are **block hashes**. Interior
 checkpoints are hashes of canonical terminal-block prefixes, with transaction
 root, receipt root, bloom, gas used, state root, and applicable blob gas recomputed
-for that prefix. Execution state roots alone MUST NOT be used as settlement
+for that prefix, including block-finalization balance cleanup on a copy. FIFO
+observations select the corresponding in-block transaction boundary before that
+cleanup; an RPC read of the closed state is not equivalent. Execution state roots alone MUST NOT be used as settlement
 commitments. An outbound `[system load, user]` pair ends at the user transaction;
 an inbound effect ends at its system delivery transaction. The exact prefix
 header profile, persistent commitment carriers for failed calls, and static pins

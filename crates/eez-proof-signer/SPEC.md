@@ -277,13 +277,13 @@ Collector deletion, aliases, overflow and synthetic execution follow the
 [native fee contract](../../docs/proposals/native-system-transactions.md#fee-collector-configuration-and-execution).
 
 An EEZL2 native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
-execution and removed again if the call reverts or halts. As a pre-execution
-change of every L2 block, after the EIP-2935 history write, execution sets the
-balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
-zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
+execution and removed again if the call reverts or halts. Finalization of every
+L2 block sets the balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an
+absent or zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
 outbound value, and EEZL2 retains committed funding through its complete group.
 Both balances are cleared after that group in its final transaction's state delta.
-Ordinary donations outside groups remain until the next block-start cleanup. Proxy recovery sweeps go to EEZL2's separate
+Ordinary donations outside groups remain visible until the block closes or a
+complete group clears them. Proxy recovery sweeps go to EEZL2's separate
 `RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
 and are not burned: they move ether already held at an undeployed proxy
 address and mint nothing. Together these rules are the node-side accounting the
@@ -292,8 +292,14 @@ pinned core protocol requires for
 each load's funding is minted for its own transaction, and unused or reverted
 inventory is never reused across complete groups. The group cleanup is included
 in its final transaction's state delta before the per-transaction state root;
-block-start cleanup is included in pre-execution state. Neither is a block-finalization
-change, so prefix and full block hashes commit to the same transitions.
+block finalization catches all remaining ordinary donations. Canonical prefix
+hashes finalize a disposable copy; continuing execution retains the unfinalized
+prefix. FIFO observations run at their locally derived transaction boundary,
+**before** block-finalization cleanup, including at the final transaction. Their
+hash binds that execution prefix through its body and authenticated parent;
+it does not mean an `eth_call` on the closed prefix state root. The independent
+terminal root check must use the unmodified executor output, so checkpoint
+projection cannot hide a missing finalization transition.
 
 Validated inbound transport remains an `InboundSidecar` through reconstruction.
 Conversion rejects settlement root updates, wrong routing/source, malformed
@@ -442,7 +448,8 @@ PREVRANDAO. Keep it and the origin until the next scheduled update, including
 across Sync boundaries. The delay is a minimum age, not finality, freshness or
 unpredictability. The sequencer may defer an otherwise eligible advance.
 
-Pre-execution applies EIP-2935 parent history and protocol balance cleanup.
+Pre-execution applies EIP-2935 parent history. Block finalization clears residual
+protocol balances, preserving donations throughout ordinary execution.
 Additionally, each complete cross-chain group clears SYSTEM/EEZL2 balances in its
 terminating transaction's state delta, before its checkpoint: after a native
 inbound delivery or the signed user following an outbound load. No cleanup occurs
@@ -452,7 +459,8 @@ same cleanup; existing settlement failure rejection remains mandatory. Discarded
 results/candidates commit neither cleanup nor cursor advancement. See the
 [normative group rules](../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
 These rules apply equally to full-block and selected-prefix Stateless execution;
-no caller-provided boundary or post-finalization correction is permitted.
+no caller-provided boundary is permitted. Checkpoint-only root projection closes
+a copy; it cannot replace validation of the actual terminal execution output.
 The recorded history transaction then executes before applications. It preserves
 the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
 Wrong code/state, duplicate/misplaced transactions, malformed hash lists,
@@ -506,9 +514,10 @@ inbound system transaction ends at itself.
 The Composer MUST NOT nominate checkpoint positions. The complete plan MUST be
 derived before earlier blocks are replayed. The backend MUST return exactly the
 requested positions in strict order. The replay plan additionally selects
-`p - 1` when the ordinary prefix is nonempty and captures the state immediately
-after pre-execution changes. This independently derives B[0], even for an empty
-ordinary prefix. It is kept separate from action checkpoints. Preceding blocks
+`p - 1` when the ordinary prefix is nonempty and captures the empty prefix after
+pre-execution changes. Close a disposable copy of each selected prefix by applying
+block-finalization cleanup before hashing it. This independently derives B[0],
+even for an empty ordinary prefix. It is kept separate from action checkpoints. Preceding blocks
 MUST return no settlement checkpoints.
 
 ### 6.3 Stateless replay guarantees
@@ -530,8 +539,10 @@ execution-consistency check; state roots are not settlement commitments.
 For every selected terminal transaction boundary, the signer MUST construct a
 canonical prefix block header from the exact validated block, replacing the
 transaction root, receipt root, logs bloom, gas used, state root, and blob gas
-used with values independently derived for that prefix. The resulting header
-hash is the effect checkpoint. A final prefix MUST equal the validated full
+used with values independently derived for that prefix, including finalization
+cleanup in its state root. The continuing EVM state remains unfinalized. Verify
+the unmodified full-block execution output separately from any checkpoint-only
+projection. The resulting header hash is the effect checkpoint. A final prefix MUST equal the validated full
 block hash. Prefix commitments MUST reject nonempty withdrawals, ommers, or
 EIP-7685 requests until their per-prefix post-block semantics are represented.
 
@@ -556,8 +567,9 @@ receipt/state-root checks remain required.
 - L2 blob transactions MUST be rejected before replay. `blobGasUsed` is zero;
   standard parent-derived `excessBlobGas` stays zero from genesis.
 - The real EIP-2935 parent-hash update MUST run before the first transaction in
-  every block, including an empty block. Reusable prefix checkpoints include
-  this update exactly once and remain before block finalization.
+  every block, including an empty block. Reusable execution snapshots include
+  this update exactly once and remain before block finalization. Canonical
+  prefix hashes close copies of those snapshots.
 
 L1 source simulation and posting validation retain their own Ethereum/Gnosis
 rules. No L2 placeholder field disables an L1 system call.
@@ -914,7 +926,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 3 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 5 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.

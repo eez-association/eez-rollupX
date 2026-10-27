@@ -135,7 +135,9 @@ pub enum FifoSourceAction {
 /// input and the exact result committed by native blob semantics.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FifoObservationClaim {
-    /// Canonical block hash naming the L2 state observed by this call.
+    /// Canonical closed-prefix block hash selecting the in-block transaction
+    /// boundary observed before block-finalization cleanup. Replay uses the
+    /// authenticated body and parent state, not the closed prefix's state root.
     pub pinned_block_hash: B256,
     /// Mutable lookup or static observation.
     pub call_mode: CallMode,

@@ -2009,6 +2009,58 @@ mod tests {
     }
 
     #[test]
+    fn prefix_hashing_does_not_burn_donations_in_the_continuing_draft() {
+        use revm::Database as _;
+        let f = fixture();
+        // Record SYSTEM.balance so premature finalization changes storage.
+        let mut code = vec![0x73];
+        code.extend_from_slice(eez_primitives::SYSTEM_ADDRESS.as_slice());
+        code.extend_from_slice(&[0x31, 0x5f, 0x55, 0x00]);
+        f.provider.add_account(
+            STORE,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(code.into()),
+        );
+        let transactions: Vec<_> = f
+            .history_prefix()
+            .into_iter()
+            .chain([
+                sign_tx(0, eez_primitives::SYSTEM_ADDRESS, U256::from(17), 21_000),
+                sign_tx(1, STORE, U256::ZERO, 100_000),
+            ])
+            .collect();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        for count in 1..=transactions.len() {
+            assert_eq!(
+                hashes.prefix(&transactions[..count]).unwrap(),
+                f.build(&transactions[..count]).header.hash()
+            );
+            hashes.assert_state_matches_rebuild();
+        }
+        let mut draft = f.open(&transactions);
+        assert_eq!(
+            draft
+                .state
+                .basic(eez_primitives::SYSTEM_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
+            U256::from(17)
+        );
+        assert_eq!(
+            draft.state.storage(STORE, U256::ZERO).unwrap(),
+            U256::from(17)
+        );
+        assert_eq!(hashes.executed_transactions, transactions.len());
+    }
+
+    #[test]
     fn prefix_checkpoint_discards_rejected_suffix_and_recovers_after_errors() {
         let f = fixture();
         let transactions = f

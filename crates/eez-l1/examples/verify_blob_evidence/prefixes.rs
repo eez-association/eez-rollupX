@@ -1,6 +1,7 @@
 //! CI-only prefix reconstruction from the test node's execution witness and
 //! chain configuration, deployed genesis and checked L1 headers. Stateless replays pre-execution
-//! changes and every transaction; receipts/body are bound to the canonical terminal header.
+//! changes and every transaction; roots close prefix copies without changing replay.
+//! Receipts/body are bound to the canonical terminal header.
 //! Chain identity/canonicality still rely on the surrounding RPC-backed check.
 
 use std::{error::Error, sync::Arc};
@@ -33,7 +34,7 @@ pub(super) fn verify(input: &Value) -> Result<Value, Box<dyn Error>> {
     let evm = eez_evm::EezEvmConfig::new(Arc::clone(&spec))
         .with_l1_history(Arc::new(WitnessHistory(history)))?;
     let indices: Vec<_> = (0..block.body.transactions.len()).collect();
-    let replay = stateless_reth::stateless_validation_recovered_with_state_checkpoints(
+    let replay = eez_evm::stateless::validate_with_closed_prefixes(
         block.clone().try_into_recovered()?,
         witness,
         Arc::clone(&spec),

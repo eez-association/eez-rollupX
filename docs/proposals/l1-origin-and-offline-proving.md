@@ -51,7 +51,7 @@ outbound, grouped and callback operations.
 | A3 | Keep EEZL2 at `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C`, with the pinned core's upgradeable proxy | Do not move EEZL2 to the draft's predeploy namespace. Keep the history predeploy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`; regenerate its sender-dependent runtime and genesis. The L1 registry remains independently configured and authenticated. |
 | A4 | Recompute `sourceHash` from authenticated context and canonical operation position | Cross-chain occurrences have a sourceHash; history updates have none. Preserve original positions through filtering, whole-group partial consumption and replay. An occurrence identifier never authorizes execution or minting by itself. |
 | A5 | Explicit, metered native gas; no native fees | Require the encoded cross-chain gas limit to equal `min(remainingBlockGas, 16_777_216)`. History has no encoded gas field; derive `min(remainingBlockGas, 2_000_000)`. Reject mismatched cross-chain limits rather than clamping supplied bytes. Keep the existing whole-group capacity/refusal rules. |
-| A6 | Clear SYSTEM/EEZL2 balances after each complete cross-chain group, before its checkpoint; retain block-start cleanup | Accepted 2026-10-27 amendment: a load, paired user transaction, all roots and callbacks remain whole. Full committed funding is independent per group. Preserve mint rollback and clear residual balances after included revert/halt as well. See the [native execution rules](native-system-transactions.md). |
+| A6 | Clear SYSTEM/EEZL2 balances after each complete cross-chain group, before its checkpoint; clear remaining balances at block finalization | Accepted 2026-10-27 amendment: a load, paired user transaction, all roots and callbacks remain whole. Full committed funding is independent per group. Preserve mint rollback and clear residual balances after included revert/halt as well. See the [native execution rules](native-system-transactions.md). |
 | A7 | Credit ordinary L2 base fees to a network fee collector; priority fees still go to the beneficiary | Apply the credit after each ordinary transaction using its final charged gas, including reverted transactions. Native transactions pay zero. Every intermediate prefix root and final state root must include exactly the same credit. |
 | A8 | Preserve recorded L1 history, delayed PREVRANDAO and continuous ordinary L2 production | Retain both anchor modes, bounded nonempty imports, explicit omission semantics, multipart catch-up, complete ancestry witnesses and all existing delay/reorg checks. Change the transaction representation without making production depend on L1 arrival or proving. |
 | A9 | Keep proving wire v2 and an offline, language-neutral prover contract | No signer L1/L2 RPC, new RPC version or original-L1-transaction replay requirement. Recompute all existing commitments independently. Publish the final identity and conformance vectors for Nethermind/C# implementers. |
@@ -172,7 +172,7 @@ records independent review and the executed encoding checks:
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
 | E1 | Specified | Versionless cross-chain envelope with an execution-group source formula; dedicated optional history version 1; full Live Sync group ordinals; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
-| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 4. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
+| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 5. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 
 The `DELEGATECALL`/`CALLCODE` case in audit C09 follows the pinned proxy's caller
@@ -335,7 +335,7 @@ inside each polling transaction and wait without advancing when it returns zero.
 Unexpected getter failures still revert. The reference collector is removed;
 applications use the predeploy directly under the
 [polling rules](../../contracts/L1_HISTORY_SPEC.md#application-polling).
-The changed runtime and fresh genesis are bound by validation-contract version 4;
+The changed runtime and fresh genesis are bound by validation-contract version 5;
 the [compatibility boundary](../../contracts/L1_HISTORY_SPEC.md#compatibility)
 requires matching execution, deployment and proving artifacts.
 
@@ -485,8 +485,8 @@ Deploy new matching genesis, manager profile, Composer, follower and prover.
 No old network/database replay, in-place upgrade, dual execution mode or rollback
 compatibility is provided. Regenerate fixtures with the existing genesis script;
 keep pinned Solidity/compiler metadata and the core gitlink. Wire v2 remains
-unchanged; validation-contract version 4 and Profile bind cross-chain and history
-encoding, complete-group cleanup, execution rules and the fee collector used by
+unchanged; validation-contract version 5 and Profile bind cross-chain and history
+encoding, complete-group and block-finalization cleanup, execution rules and the fee collector used by
 every component. Cross-chain source identities remain unchanged.
 The derived correlation index uses `eez-batch-correlation-recorded-history-v1`.
 Each accepted checkpoint retains its executed history state as well as its

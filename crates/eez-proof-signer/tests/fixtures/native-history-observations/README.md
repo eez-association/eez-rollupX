@@ -49,3 +49,10 @@ existing seccomp launcher. It requires six block acknowledgements per case,
 four `observation_replay` rejections with no signature, and two signatures over
 the expected digests. No L1/L2 RPC, node database, Anvil chain or contract
 deployment supplies authority to this test.
+
+The ordinary transaction donates seven wei to SYSTEM_ADDRESS. The observation
+probe reads that in-block balance; finalization burns it in the closed block.
+Consequently the zero-balance/current-origin case also rejects a result obtained
+from the closed state rather than the selected in-block transaction boundary.
+Both static and mutable lookups must reach the signing gate only with the
+seven-wei result, including with a following native group in signer unit tests.

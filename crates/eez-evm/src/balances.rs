@@ -1,4 +1,4 @@
-//! Consensus balance cleanup, included in the terminating transaction's delta.
+//! Consensus balance cleanup after complete groups and at block finalization.
 use alloy_evm::Database;
 use alloy_primitives::{Address, U256};
 use eez_primitives::{EEZL2_ADDRESS, SYSTEM_ADDRESS};
@@ -11,7 +11,7 @@ pub const PROTOCOL_BALANCE_ACCOUNTS: [Address; 2] = [EEZL2_ADDRESS, SYSTEM_ADDRE
 /// code, storage and deletion flags. This performs no commit, call, log, gas
 /// charge or refund. The caller must commit or discard the entire delta together.
 ///
-/// Used before block execution and after complete cross-chain groups. Looking
+/// Used at block finalization and after complete cross-chain groups. Looking
 /// up an untouched account through the same DB includes it in execution witnesses.
 /// Missing/zero accounts stay untouched. A database error leaves committed state
 /// unchanged; discard the provisional delta on error.

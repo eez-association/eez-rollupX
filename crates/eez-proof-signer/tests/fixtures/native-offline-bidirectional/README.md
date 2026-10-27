@@ -18,8 +18,8 @@ required for cold independent replay. No RPC endpoint, operator secret or cache 
 part of this fixture.
 
 Source details and the executed command are recorded in
-[the implementation audit](../../../../../docs/audits/2026-10-27-history-zero-lookup/README.md).
+[the implementation audit](../../../../../docs/audits/2026-10-27-block-end-cleanup/README.md).
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 4. The sole
+the single `Profile` commitment and validation-contract version 5. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.
