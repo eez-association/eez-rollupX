@@ -1,0 +1,270 @@
+# Selective Tokio security update
+
+Update, 2026-10-27 UTC: the owner also authorized temporary exceptions for four
+zstd-family advisories until a compatible upstream update is integrated. The
+[zstd exception record](#temporary-zstd-exceptions-2026-10-27) changes the
+dependency-gate disposition; it does not fix the reported vulnerabilities.
+
+Update, 2026-10-25 UTC: the owner authorized a temporary exception for
+`RUSTSEC-2026-0387` pending a compatible upstream correction. The
+[exception record](#temporary-crypto-bigint-exception-2026-10-25) below supersedes
+the dependency-gate disposition, not the historical failures or the vulnerability.
+
+Status: Tokio update implemented and validated; the separate crypto-bigint
+integration blocker remains unresolved, 2026-10-24 UTC. The starting branch and
+protocol identities are in [the campaign record](README.md).
+
+The workspace minimum and lockfile move Tokio from 1.52.3 to 1.53.3, the compatible
+fixed release for [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386.html).
+The alternate 1.51.6 line is below pinned Reth/Gnosis requirements. The
+[release changelog](https://github.com/tokio-rs/tokio/blob/tokio-1.53.3/tokio/CHANGELOG.md)
+also includes timer, wakeup, semaphore and shutdown fixes; their behavior matters
+to the existing streaming and worker-lifecycle regressions.
+
+## Resolution and semantic boundary
+
+`cargo +1.95.0 update -p tokio --precise 1.53.3` resolved the fixed package without
+upgrading another package. Cargo also reselected unrelated dependency edges
+within already locked versions. Those edge changes were not retained: the exact
+Cargo-resolved Tokio package block was combined with the preceding lockfile's
+other blocks, and full `cargo +1.95.0 metadata --locked --format-version 1`
+accepted the result. A structured comparison establishes that only Tokio's
+version and checksum change; its dependency list is unchanged.
+
+| Identity | Before | After |
+| --- | --- | --- |
+| Lock SHA-256 | `aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058` | `6eb07deb642781d89e044eecb4323fd238c389d244a0f2d4250837e3ee63bb04` |
+| Lock Keccak-256 | `ee4e2fdddf84af928f69b8c730783d67c5edf4836a03ca6bee6cb2e72fb44071` | `a347d3b4c7b08028dc310b4b1f4af9635add6955ea3b7be612cd1ec649a21f35` |
+
+No EVM, transaction codec, signature implementation, proof/public-input formula,
+canonical JSON rule, profile, Solidity source or protocol gitlink changes. The
+local dependency-review guard is updated, while `VALIDATION_VERSION = 1` and the
+v2 service remain unchanged. This is a review conclusion about protocol inputs
+and outputs, not a claim that scheduler timings remain identical. Runtime tests
+and the new executable identity are required for operational validation.
+
+The workspace has no direct `AsyncFd` construction. The inspected interprocess
+2.4.2 unnamed-pipe adapters register a private `FdOps(OwnedFd)`, borrow it for
+I/O, and consume `AsyncFd::into_inner` before transferring ownership out. This
+review does not add new unsafe calls or claim that a deprecated API is safe for
+arbitrary external callers. Pinned Reth's IPC path uses local sockets.
+The source scan also found inotify 0.11.1's event-stream constructor. Its `stream`
+feature is absent from the resolved graph; notify 8.2.0 uses the synchronous
+inotify/mio path. This distinction is based on resolved features and callers,
+not merely the package appearing in Cargo.lock.
+
+## Remaining cryptographic dependency gate
+
+The [previous assessment](../2026-10-24-pr-readiness/dependency-remediation.md)
+still applies to `crypto-bigint 0.5.5`: elliptic-curve 0.13.8 requires 0.5, while
+the advisory's fixed range begins at 0.7.6. A fresh crates.io index and upstream
+tag check found no newer 0.5 release. Updating only the direct signer would leave
+old transitive users, and changing the full pinned API family is not a selective
+security update. No advisory exception, package-version disguise or unchecked
+cryptographic patch is introduced. This remains an integration blocker.
+
+The read-only registry recheck at **2026-10-24 20:16:41 UTC** still finds 0.5.5
+as the latest 0.5 release; the latest registry version overall is 0.7.7. The
+[crates.io index entry](https://index.crates.io/cr/yp/crypto-bigint) response has
+SHA-256 `a841c4712064efd3059524b76ec189ce3a4a54e6bb4047e7173a2e945b42c64e`.
+The local-only response summary is
+`artifacts/extended-validation/dependencies/crypto-availability-final.json`.
+This check changes neither lockfiles nor installed packages.
+
+## Temporary crypto-bigint exception, 2026-10-25
+
+The repository owner explicitly authorized accepting `RUSTSEC-2026-0387` until
+an upstream solution is available. The implementation worktree was clean at
+`8c14fe110817354a9647785dd9f16740f8508f03`; the core protocol remains pinned to
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+
+Only this advisory ID is added to the existing ignore lists in
+[`deny.toml`](../../../deny.toml) and
+[`cargo-audit configuration`](../../../.cargo/audit.toml). Both CI commands still
+run and return failures for other non-exempt vulnerabilities; existing bans,
+source restrictions and the all-lanes CI/promotion gate remain intact. No
+dependency, runtime, validation identity, protocol or wire-format change is made.
+
+At this review, the latest non-yanked stable releases of Alloy consensus/signers
+are 2.5.0, Alloy primitives 1.7.3 and REVM/precompiles 43.0.3, matching our lockfile.
+Their published constraints still use `k256 0.13` / `p256 0.13` and therefore
+`elliptic-curve 0.13.8` / `crypto-bigint 0.5.5`. RustCrypto has published fixed
+releases (`>=0.7.6`; latest 0.7.8), but they are outside those constraints.
+The [Alloy migration](https://github.com/alloy-rs/core/pull/1147) remains open.
+The experimental nine-package migration was withdrawn at the owner's request;
+its local diagnostic evidence is retained and its patches never entered this PR.
+
+This exception accepts an unresolved timing-side-channel risk. Our attestation
+signer uses k256 with a private key; exploitability in this deployment has not
+been established or excluded. Passing the configured checks means the advisory
+has been accepted temporarily, not that the dependency has been repaired.
+
+Review the exception on every cryptographic dependency or Reth/Stateless update.
+When a compatible upstream fixed release or maintained security backport becomes
+available, integrate and validate it, then remove this ID from **both** files in
+the same change. Re-run `cargo deny check advisories bans sources` and
+`cargo audit`, and confirm that no affected dependency remains. The configuration
+does not automatically detect upstream releases or expire the exception.
+
+Verification used cargo-deny 0.20.2 and cargo-audit 0.22.2. With the original
+configuration, both commands below exited 1 and identified this advisory as the
+sole fatal vulnerability. With the exception, both exit 0:
+
+```bash
+cargo deny --locked --format json check advisories bans sources --hide-inclusion-graph
+cargo audit --json
+```
+
+Cargo-audit reports database revision
+`21d909e4c8bd4e14c7aea58bf980c881a0053ab1` for both runs. The lockfile SHA-256 is
+unchanged at `0f527b5f3d8e27d237d63759e7392a87c894001805549d6271ccef9da4449306`.
+A parsed TOML comparison confirms that removing this single added ID restores
+each original configuration exactly; existing informational warnings remain.
+`git diff --check` passes. Raw outputs and before/after configurations are
+retained locally in `artifacts/security-exception-20261025/`, unavailable from
+another checkout. Runtime suites were not repeated locally for this policy-only
+change; the PR's full CI remains a separate requirement.
+
+## Temporary zstd exceptions, 2026-10-27
+
+The owner authorized deferring the upstream compression update and temporarily
+exempting the following four advisories. The isolated policy worktree started
+clean at `c1dafa6113425fce74bdba8c32ae8b0d7a7ba5ae` (PR #101); the change is
+intended to propagate through #101, #102 and #103. The protocol gitlink remains
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`.
+
+| Advisory | Locked dependency | Patched range | Relevant exposure |
+| --- | --- | --- | --- |
+| [RUSTSEC-2026-0391](https://rustsec.org/advisories/RUSTSEC-2026-0391.html) | zstd 0.13.3 | >=0.14.3 | Stream context reuse can expose data from an abandoned stream. |
+| [RUSTSEC-2026-0398](https://rustsec.org/advisories/RUSTSEC-2026-0398.html) | zstd-safe 7.2.4 | >=8.2.0 | Seekable decompression can invalidate a buffer's length; `seekable` is absent from the inspected feature graph. |
+| [RUSTSEC-2026-0403](https://rustsec.org/advisories/RUSTSEC-2026-0403.html) | zstd-safe 7.2.4 | >=8.2.0 | Failed legacy-frame stream decoding can expose uninitialized memory; `legacy` is enabled. |
+| [RUSTSEC-2026-0410](https://rustsec.org/advisories/RUSTSEC-2026-0410.html) | zstd-sys 2.0.16+zstd.1.5.7 | >=2.1.2 | A wasm32 allocator-shim defect, outside the native Linux shipping target. |
+
+These dependencies already enter through pinned Reth/Gnosis storage codecs,
+static files, archive tooling and optional HTTP compression. They were not added
+by the sourceHash work. Fixed releases exist, but the pinned consumers still
+require the older zstd API family; this exception does not disguise a version
+or introduce a local replacement library.
+
+This is risk acceptance, not a finding that all four defects are unreachable.
+In particular, `compression-codecs 0.4.38` uses the raw streaming decoder with a
+custom output buffer. Reth's opt-in `--http.decompression zstd` can reach that
+async decoder path. Request decompression is disabled by default, but that does
+not establish every deployment's configuration or eliminate all zstd consumers.
+The reachability assessment is static; no live-network exploitation test was
+performed. The package's bulk and read-stream APIs are outside the affected
+path described by RUSTSEC-2026-0403.
+
+Only the four IDs above are added to [`deny.toml`](../../../deny.toml) and
+[`.cargo/audit.toml`](../../../.cargo/audit.toml). Both audit tools continue to
+run; other non-exempt vulnerabilities, existing source restrictions and the
+all-lanes CI gate retain their previous policy. No dependency version, runtime
+code, protocol pin, wire format or validation identity changes.
+
+Review these exceptions on each Reth/Gnosis or compression dependency update.
+For each advisory, integrate and validate a compatible upstream correction,
+confirm that no affected version remains in the resolved dependency graph, and
+remove its ID from **both** configurations in that change. Re-run both audit
+commands. The exceptions have no automatic expiry or upstream-release detector.
+
+Verification used cargo-deny 0.20.2 and cargo-audit 0.22.2 against RustSec database
+`3279c99911354c400e1d41e47c7d60e39258b147`. Before the edit, both diagnostic
+commands below exited 1 with exactly the four fatal advisories above. After the
+edit, both exited 0 against that same database revision:
+
+```bash
+cargo deny --locked --format json check advisories bans sources --hide-inclusion-graph
+cargo audit --json
+```
+
+The exact CI commands, `cargo deny check advisories bans sources` and
+`cargo audit`, also pass after the change. A parsed TOML comparison confirms
+that removing only these four added IDs restores both original configurations
+exactly. `Cargo.toml` and `Cargo.lock` are byte-identical to the baseline; the
+lockfile SHA-256 is
+`1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644`.
+`git diff --check` passes. Local runtime suites were not repeated for this
+policy-only change; CI against the resulting PR heads is still required.
+
+Raw logs, original configurations and the feature graph are retained locally in
+`artifacts/security-exception-20261027/` in the isolated policy worktree; they are
+unavailable from another checkout. The before/after cargo-audit JSON SHA-256
+digests are, respectively,
+`8fa69be23d11222719d1b9ad19c6c807814673549f89a3dde7ca612e3f13bbcb` and
+`7a6cd76345a572a7bd913a1b2641b4e651583b1410f0faa87d1bbe2bebe65542`.
+
+## Evidence
+
+Local-only original/resolved lockfiles, resolver log, metadata and structured
+lock comparison are retained under `artifacts/extended-validation/dependencies/`.
+The [portable audit comparison](dependency-results.json) uses advisory database
+`21d909e4c8bd4e14c7aea58bf980c881a0053ab1` for both lockfiles. Tokio's advisory
+disappears. `cargo audit --no-fetch --json` still exits 1 for crypto-bigint and
+reports its pre-existing informational warnings; `cargo deny --locked --offline
+check advisories bans sources` exits 1 with crypto-bigint as its sole fatal
+advisory. The original unsupported CLI option and summary-parser diagnostics
+are retained separately from those actual results.
+
+`cargo +1.95.0 test --locked --offline -p eez-control-rpc --lib` passes **7/7**,
+including the frozen portable identity vectors, byte decoding and reviewed-lock
+guard. It used one build job and the established task-private `/tmp` bind,
+finished in 36.01 seconds and retained at least 15,791,149,056 available host
+bytes. The memory guard did not cancel it. Workspace format checking also passed.
+`cargo +1.95.0 clippy --locked --offline --workspace --all-targets -- -D warnings`
+also passes, in 230.05 seconds with one build job and a minimum of 15,013,871,616
+available host bytes. Its local process guard did not cancel it.
+
+CI `40116791686`, head `053668df` and synthetic merge
+`abf3d1bc82bebe6ac3bb3ea213d9e8c272df8c20`, passes **1569/1569** debug
+unit tests with three explicit skips. The signer rewind/cancellation, shutdown
+and backpressured-publication regressions, and the prover-client deadline and
+witness-owner cancellation regressions, passed with Tokio 1.53.3. The local
+selection record is
+`artifacts/pr-readiness/ci-candidate/40116791686/debug-classification.json`;
+the retained debug log SHA-256 is
+`f1c8361785824fd8ef8a6e286a5933f35c6dd872dea441c2aee5d7f849f2fa7d`.
+The separate Reth cleanup check passed **1/1**, but that
+revision's nested vendor lock still selected Tokio 1.52.3: it does not establish
+cleanup behavior with the updated scheduler. The pending-debug correction aligns
+that nested lock. The repeated cleanup regression now passes **1/1** with
+Tokio 1.53.3; its command, explicit profile and result are in the
+[pending-debug verification](pending-debug.md#executed-local-checks).
+
+The producer subsequently passed **38/38**, including its archive feature and
+frozen-runtime checks. The exact merge checkout consumed and verified the
+runtime payload `sha256:0dcb612bd8de95110ad355deb1805b929e80fbb6126a5911307755f77e70517b`
+and test payload `sha256:8eec3afc676b5bd5e94de45335eb13200f01ef21dfb6786a915831f1997b3a59`
+from the repository's `eez-rollupx-ci-runtime` and `eez-rollupx-ci-tests` GHCR
+images. All seven extracted executables and all 30 test-payload files passed the
+existing identity/integrity checks; the test runtime matches the packaged
+runtime. The local-only handoff is
+`artifacts/extended-validation/ci-40116791686/artifacts/ci-consumer/verified-handoff.json`.
+Its first invocation omitted required `GITHUB_SHA` and stopped before checking
+identity; supplying the exact workflow merge corrected that invocation.
+All eight process partitions subsequently passed **174/174** (43 embedded and
+131 cross-chain), with five explicit ignored tests outside selection. The live
+Kurtosis lane passed its four initial workloads but was cancelled when the
+pending-debug candidate superseded this CI; it did not finish protocol/replay
+validation. These binaries do not contain the later pending-debug
+correction; earlier binary results do not validate later changes.
+
+The final runtime candidate `28049ff734ab931cbde01246c5d238cce6ef65bf`,
+CI `40123208325` at merge
+`c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8`, passes **1571/1571**
+workspace unit tests with three explicit skips. Both separate Reth regressions
+pass **1/1** with Tokio 1.53.3 in the root and nested lockfiles, including the
+shared tracing quota and cleanup-before-shutdown acknowledgement. The debug
+log SHA-256 is
+`632d8a3fccd04066b2e7fbffca089c20dfa762a68ec275dc64ef3334b65e41be`.
+Its dependency gate still fails solely on crypto-bigint's advisory; bans and
+sources pass. The fatal advisory prevents subsequent CI audit/tooling/Clippy
+steps in that lane, so those steps are not CI coverage. Local checks retain
+their separate identities. The final producer passes **38/38** and publishes
+matching runtime/test payloads; process and live validation must bind to those
+bytes, not the preceding Tokio-only candidate.
+
+The [completed final CI](ci-final.md) subsequently passes all eight process
+partitions (**174/174**) and the Kurtosis lane, including **34/34** pinned
+protocol scenarios with independent semantic/DA verification. Its global result
+remains failed solely because of the cryptographic dependency gate; execution
+passes do not waive that security finding.

@@ -2,8 +2,10 @@
 
 Create a **new rollup** from an unused deployment checkout; deployment spends
 Chiado test xDAI. Run commands from the repository root and stop on failure.
-For an existing rollup, use [restart](chiado-deployment.md#restart-and-stop) or
-[set up another Composer](chiado-existing-rollup.md).
+This revision requires the offline-history profile from genesis, with new
+contracts and fresh L2 datadirs. For an existing rollup, keep its matching
+release and follow that release's restart/Composer procedure; these binaries
+do not migrate it. See the [profile boundary](chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary).
 Fresh-host deployment and restart rehearsal are pending.
 
 Required: Linux amd64, local Docker Engine/Compose, Git, Bash, curl, jq, OpenSSL,
@@ -26,6 +28,12 @@ Edit `.env`: set a synchronized Chiado `EEZ_L1_RPC_URL` and dedicated poster,
 proof-signer keys. Keep the poster separate from the proof signer. Native L2
 transactions use a fixed address and need no key. Fund the poster with test xDAI; it also deploys
 unless you set and fund a separate `EEZ_DEPLOY_KEY`.
+
+Set `EEZ_L2_TREASURY_RECIPIENT` to the initial L2 treasury recipient. Base fees
+accumulate in the fixed FeeVault predeploy; anyone may trigger its `withdraw()`.
+`EEZ_L2_TREASURY_OWNER` defaults to the deployment `OWNER`; set an L2 governance or
+multisig address for production. That owner can later call `setRecipient(address)`
+on L2. Set `EEZ_L2_FEE_RECIPIENT` separately for the block beneficiary's priority fees.
 
 The example enables the [live Chiado policy/timing preset](chiado-deployment.md#1-configure):
 automatic admission, `always` settlement, and explicit fee ceilings. Review those

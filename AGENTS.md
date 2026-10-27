@@ -70,9 +70,10 @@ report the superproject's HEAD; it does not prove the protocol revision.
 Preserve Reth, Stateless, reth_gnosis, REVM, and Alloy compatibility in
 [Cargo.toml](Cargo.toml) and `Cargo.lock`. Use `--locked`; do not upgrade dependencies
 incidentally to bypass a build failure.
-The two Reth packages in [the shutdown backport](crates/vendor/reth/README.md)
-retain v2.7.0 with a recorded upstream patch. Review that diff when changing
-dependencies; do not silently drop the cleanup ordering or edit Cargo's cache.
+The [vendored Reth packages](crates/vendor/reth/README.md) retain v2.7.0 with
+recorded shutdown and shared-RPC-quota patches. Review those diffs when changing
+dependencies; preserve cleanup ordering and the aggregate RPC quota, and do not
+edit Cargo's cache.
 
 For protocol changes, read the relevant **pinned core specification first**, then
 its Solidity implementation/tests and the applicable fork contract:
@@ -87,15 +88,43 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ## Implementation boundaries and invariants
 
+- The [2026-10-23 branch amendment](docs/proposals/l1-origin-and-offline-proving.md#accepted-branch-scope-after-divergence-review)
+  is the owner-selected fresh-network profile: native `0x45`, reserved system sender, source identity
+  without a system-account nonce, and ordinary base fees credited to a collector.
+  The [exact native/profile specification](docs/proposals/native-system-transactions.md)
+  owns E1/E2; the [native-v1 audit](docs/audits/2026-10-24-native-v1/README.md)
+  tracks implementation and E3 evidence. There is one version-1 native profile;
+  do not add fallback execution, migration or old-format validation paths.
+  Preserve history, execution and ownership invariants and keep owning runtime
+  specifications, identities and fixtures consistent.
+
+- The fresh-network history update is transaction zero at its scheduled position:
+  native `0x45` version 1, zero value, history predeploy destination, authenticated
+  source identity, no system-account nonce and a normal metered receipt. It belongs to public V0 ordinary data, not cross-chain framing.
+  Replay validates its recorded choice; later headers cannot invalidate a repeat.
+  Keep v2 and the offline prover. Ordinary local production must not wait for L1,
+  proof/settlement work or the speculative-depth/replacement bounds. Keep remote
+  reads outside the shared production lock and retain local generation/parent
+  fences inside it. See the [current proposal](docs/proposals/l1-origin-and-offline-proving.md).
+
+
 - Keep ABI types, commitments, and shared protocol rules in `eez-protocol` and the
   codec crates, without dependencies on runtime roles. Put role-neutral bootstrap
   in `eez-node-common`, request scheduling/ownership in `eez-composer`, runtime
   wiring in `eez-node`/`eez-follower`, the RPC contract in `eez-control-rpc`, and
   independent proof validation in `eez-proof-signer`.
 - Preserve **block-hash commitments**, native blob DA, whole grouped/nested calls,
-  and proving/submission bound to the **same L1 target**. An authorized contract
+  and each mode's exact L1 binding. Actual-parent live proofs bind the inclusion
+  parent and timestamp; historical ordinary catch-up proofs bind an explicit
+  recent anchor, independently of the submission attempt's parent/cutoff.
+  Never turn a failed live attempt into historical mode. An authorized contract
   change must update every affected Solidity/Rust producer and consumer, including
   ABI/codecs, Composer, signer, and deriver/follower.
+- The [offline history profile](docs/proposals/l1-origin-and-offline-proving.md)
+  is active from fresh genesis only. Retain v2, complete L1-header witnesses,
+  the shared delayed origin/PREVRANDAO schedule and on-chain context checks.
+  Do not add signer chain RPCs, seed-selection fallbacks, v1 proving or an
+  existing-network migration path. Composer and followers still need L1 access.
 - The signer accepts a narrower profile than the core protocol; upstream support
   alone does not authorize extending it. An authorized extension must update the
   applicable specification, validation, and regressions together. Preserve exact
@@ -124,6 +153,16 @@ its Solidity implementation/tests and the applicable fork contract:
   cancellation, and shutdown behavior.
   A timed-out RPC does not stop an already-running blocking worker: the signer
   worker retains its request permit until it exits.
+  V2 session changes must preserve the [streaming profile](crates/eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile),
+  including independent provenance retrieval, shared worker ownership and epoch fencing.
+  Run the frozen native session transcripts without regenerating expectations.
+  Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
+  language-neutral. One `VALIDATION_VERSION` covers identity encoding, canonical
+  JSON and validation semantics; there are no separately selectable versions.
+  The manager uses one `Profile`/`OfflineProfile` and the domain
+  `EEZ_ROLLUPX_OFFLINE_PROFILE`. Keep the single `prove.v2.Prover` service.
+  Dependency changes require the local review guard and a
+  protocol-version change only when validation semantics change.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
   triggers from gas/blob/timing admission limits. Derive budgets from active network
   rules or measured work; admission estimates are not consensus limits. Retain final
@@ -158,15 +197,22 @@ its Solidity implementation/tests and the applicable fork contract:
 
 ### Generated files
 
-- Edit the wire schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
-  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v1.rs` using `protoc`;
-  the [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
+- Edit the single v2 schema in [prove.proto](crates/eez-control-rpc/proto/prove.proto).
+  Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v2.rs` using `protoc`; the
+  [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
+- The core pin tracks published `feature/e2e_edge_cases`; RollupX's
+  [history predeploy](contracts/src/L2/L1BlockhashContract.sol) and
+  [offline manager](contracts/src/OfflineRollup.sol) live in this repository.
+  The manager implements the pinned `IRollupContract` interface directly;
+  do not restore a private core patch or the context-free initializer.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production
   base `genesis.json` (predeploys only, with EEZL2 as an `EEZProxy`, its
-  implementation and ProxyAdmin at fixed addresses; it fails if that file allocates ETH), the
+  implementation and ProxyAdmin, plus the non-upgradeable FeeVault with
+  constructor-derived owner/recipient storage, at fixed addresses; it fails if
+  that file allocates ETH), the
   development base `genesis.dev.json` (public test accounts; Kurtosis and Chiado
   test networks select it with `EEZ_GENESIS_BASE`),
   `crates/eez-node-e2e/tests/fixtures/genesis.json`, and
@@ -366,7 +412,7 @@ artifact location/digest; label local-only, missing, or expired evidence. Ignore
 For Chiado operation or deployment changes, read the
 [quick start](docs/runbooks/chiado-quickstart.md) and
 [deployment/recovery runbook](docs/runbooks/chiado-deployment.md). Before adding or
-replacing a Composer on an existing Chiado L2, read the
+replacing a Composer on a Chiado L2 created with this offline profile, read the
 [existing-rollup procedure](docs/runbooks/chiado-existing-rollup.md). Preserve these boundaries:
 
 - Normal deployment uses the published deploy image's bundled contracts/tools;
@@ -385,7 +431,8 @@ replacing a Composer on an existing Chiado L2, read the
 - Keep quick starts to normal setup/run/check commands. Put optional diagnostics
   and recovery in the detailed runbook, not the normal setup sequence.
 
-The feature/events protocol pin uses position-bound L2 static entries and changed
-L2 selectors, proxy initcode and settlement events. It is not a binary-only upgrade
-for pre-existing Chiado contracts/genesis; follow the
-[compatibility boundary](docs/runbooks/chiado-deployment.md#featureevents-protocol-compatibility).
+The offline-history profile requires matching contracts, bootstrap, genesis,
+Composer, signer and followers from network creation. Native transaction support
+alone does not make an earlier network compatible. Follow the
+[compatibility boundary](docs/runbooks/chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary);
+same-profile restart and recovery do not authorize migration of an older network.

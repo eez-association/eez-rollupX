@@ -1,0 +1,1018 @@
+{
+  "recorded_at": "2026-10-24T17:35:14.187665+00:00",
+  "review_kind": "independent static functional-parity review plus identified existing evidence; no builds or tests executed by this review",
+  "scope": {
+    "pr": 101,
+    "url": "https://github.com/eez-association/eez-rollupX/pull/101",
+    "base": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "candidate": "b0195b0bc1ca90d71792fcfbc8613e8b00b00473",
+    "merge_base": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "base_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "candidate_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "initial_status": "clean at review start; later parent-owned Cargo/identity edits preserved",
+    "compatibility": "fresh networks only; old wire/genesis/database/prover API compatibility deliberately excluded",
+    "baseline_rpc_spec_stale_pin": "The base RPC SPEC introduction still cites core9a1f8153; the actual a50 gitlink is84a5b520 and governs this comparison. Candidate documentation fixes that historical reference."
+  },
+  "conclusion": "Supported-profile parity largely preserved in code and existing process/live evidence. One reproduced public pending debug RPC gap; baseline A/B and current-head full gate remain separate pending work. All 26 static profile exclusions predate this branch.",
+  "matrix": [
+    {
+      "id": "F01",
+      "area": "Ordinary EVM execution",
+      "baseline": "Pinned Reth 2.7 / REVM / Alloy Ethereum interpreter and precompiles, ordinary signatures/nonces/gas/refunds/reverts; L2-specific lifecycle.",
+      "candidate": "Same external dependency versions at b019. EezHandler reuses Ethereum execution; overrides native nonce handling and final ordinary base-fee credit. Plain and inspector paths share the handler.",
+      "implementation": [
+        "crates/eez-evm/src/evm.rs",
+        "crates/eez-evm/src/evm/tests.rs",
+        "crates/eez-node-e2e/tests/safe_fee_quotes.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "final_runtime",
+        "fees"
+      ],
+      "tests": [
+        "collector_receives_final_base_fee_for_success_revert_halt_refund_and_floor",
+        "collector_credit_follows_same_transaction_selfdestruct_cleanup",
+        "entirely_l2_safe_keeps_ordinary_gas_rules"
+      ],
+      "status": "preserved_with_intentional_fee_destination_change",
+      "pending": "No same-workload main/candidate execution or throughput comparison has run in this review. Existing controls do not exhaust all Ethereum opcodes/precompiles."
+    },
+    {
+      "id": "F02",
+      "area": "Native transaction and receipt encoding",
+      "baseline": "Type 0x76, reserved 0xeeee...0076 sender, account nonce, wire [chainId,nonce,to,value,input], position-derived implicit gas.",
+      "candidate": "Accepted fresh-network type 0x45/version 1, sender 0xffff...fffe, sourceHash and exact explicit position-derived gas, no account nonce, strict canonical RLP. Recorded history is an additional native kind.",
+      "implementation": [
+        "crates/eez-primitives/src/lib.rs",
+        "crates/eez-protocol/src/native_source.rs",
+        "crates/eez-node-e2e/tests/native_system.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "final_runtime",
+        "native_contract"
+      ],
+      "tests": [
+        "two_composers_two_keyless_followers"
+      ],
+      "status": "intentional_new_network_protocol_change",
+      "pending": "Old databases, genesis, wire decoders and old-network replay are deliberately unsupported. Generic clients must admit native type 0x45; Ethereum-only closed receipt enums do not."
+    },
+    {
+      "id": "F03",
+      "area": "EIP-7702",
+      "baseline": "Ordinary L2 execution supported by pinned EVM. Cross-chain front allowlist rejects 7702 envelopes because authorizations change other accounts nonces.",
+      "candidate": "Same ordinary support and same front rejection. Delegation install/execution, subsequent delegated execution and revocation observed; native authorizationList remains empty.",
+      "implementation": [
+        "crates/eez-node/src/ingress.rs",
+        "crates/eez-evm/src/evm.rs"
+      ],
+      "evidence": [
+        "ordinary_7702",
+        "cold_replay"
+      ],
+      "tests": [
+        "eip7702_envelope_is_rejected"
+      ],
+      "status": "preserved_profile_boundary",
+      "pending": "No claim of 7702 cross-chain envelope support or full 7702 conformance. Actual delegated-account/cross-chain combinations need separate scope and nonce-ownership analysis."
+    },
+    {
+      "id": "F04",
+      "area": "Blob DA versus user blobs and withdrawals",
+      "baseline": "Native L1 blob DA; ordinary L2 EIP-4844 and beacon withdrawals rejected.",
+      "candidate": "Same separation; complete blobs/KZG/semantic stream remain checked. No implicit beacon issuance added.",
+      "implementation": [
+        "crates/eez-evm/src/lib.rs",
+        "crates/eez-evm/src/tests.rs",
+        "crates/eez-blob-codec/src/lib.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "final_runtime",
+        "cold_replay"
+      ],
+      "tests": [
+        "l2_block_and_engine_replay_reject_blobs_but_l1_simulation_still_executes_them",
+        "l2_rejects_beacon_withdrawals_during_construction_import_and_engine_replay"
+      ],
+      "status": "preserved",
+      "pending": "An L1 type-3 posting receipt does not alone prove blob semantics; use the independent blob verifier and follower evidence."
+    },
+    {
+      "id": "F05",
+      "area": "Bidirectional mutable and grouped cross-chain execution",
+      "baseline": "L1 plus one L2; nested alternating callbacks, complete source groups, source attribution, call/return bytes, value and root commitments.",
+      "candidate": "Same pinned core tables, selectors and constraints; native source identities/lowering updated coherently. No multi-L2 or multiprover extension.",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs",
+        "crates/eez-proof-signer/src/settlement",
+        "crates/eez-node-e2e/tests/cross_chain.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "final_runtime",
+        "cold_replay"
+      ],
+      "tests": [
+        "minimal_bidirectional_cross_chain_smoke",
+        "both_directions_return_value_and_wrapper_success_repeated_waves",
+        "inbound_nested_contract_to_contract_to_proxy_preserves_source_attribution",
+        "outbound_nested_contract_to_contract_to_proxy_preserves_source_attribution"
+      ],
+      "status": "preserved_with_native_format_adaptation",
+      "pending": "Core-only support beyond the signer profile is not runtime support; see all 26 explicit exclusions."
+    },
+    {
+      "id": "F06",
+      "area": "Failure, rollback and retries",
+      "baseline": "Terminal failed calls and canonical non-overlapping rollback windows; no failed cross-chain calls with descendants or overlapping rollback.",
+      "candidate": "Same restrictions. Source lookup-only failures do not create fabricated L2 deliveries; whole groups and failure returns remain bound.",
+      "implementation": [
+        "crates/eez-protocol/src/entries/materialize.rs",
+        "crates/eez-proof-signer/src/settlement/tests/semantics.rs",
+        "crates/eez-node-e2e/tests/cross_chain.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "final_runtime"
+      ],
+      "tests": [
+        "inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "outbound_reverting_destination_preserves_caught_result_without_destination_writes",
+        "source_reverted_lookup_with_cross_chain_descendants_is_rejected"
+      ],
+      "status": "preserved_narrower_than_core",
+      "pending": "Add small negative controls for the seven exclusion classes at the real admission/signing boundary; no need to enable unsupported scenarios."
+    },
+    {
+      "id": "F07",
+      "area": "Static reads and position-bound lookup results",
+      "baseline": "Terminal static reads and admitted successful terminal callbacks; mixed L2 static hosts only with flat successful mutable roots; same-position conflicting results rejected.",
+      "candidate": "Same rules. Default suite plus L1 staticLocalWrite and staticThenNestedWrites checked independently; candidate reuse and callback hashes checked by extended collector.",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs",
+        "crates/eez-proof-signer/src/settlement/tests/outbound.rs",
+        "testing/kurtosis/scripts/collect-protocol-e2e-evidence.sh"
+      ],
+      "evidence": [
+        "final_runtime",
+        "extra_static",
+        "missing_proxy"
+      ],
+      "tests": [
+        "outbound_changing_static_reads_and_write_settle_and_replay",
+        "inbound_static_read_with_static_callback_settles",
+        "outbound_static_read_with_static_callback_settles_and_replays",
+        "inbound_static_read_without_callback_proxy_is_rejected",
+        "outbound_static_read_without_callback_proxy_is_rejected"
+      ],
+      "status": "preserved_narrower_than_core",
+      "pending": "The two pinned MissingProxy staged terminal oracles were not reached in the fee-enabled live run. Earlier process tests cover that terminal; the new live early rejection is separate evidence."
+    },
+    {
+      "id": "F08",
+      "area": "Ordinary fees, settlement tariffs and quotes",
+      "baseline": "Ethereum base-fee burning; tips, nested quotes, posting reservations, balance/nonce validation and exact tariff/refund paths.",
+      "candidate": "Intentional base-fee credit to authenticated collector/FeeVault, after final gas/refunds; tips unchanged. Existing quote/pricing/reservation logic and final posting admission retained. FeeVault recipient is owner-rotatable.",
+      "implementation": [
+        "crates/eez-evm/src/evm.rs",
+        "contracts/src/L2/FeeVault.sol",
+        "crates/eez-composer/src/composer/fees",
+        "crates/eez-node-e2e/tests/fee_quotes.rs",
+        "crates/eez-node-e2e/tests/native_system/treasury.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "fees",
+        "final_runtime"
+      ],
+      "tests": [
+        "recipient_rotation_withdrawal_and_offline_replay",
+        "unsigned_nested_quote_matches_receipt_and_replays",
+        "enforced_nested_quote_rejects_underpayment_and_replays",
+        "queued_l1_nonces_replay_nested_predecessors_and_reject_underpayment"
+      ],
+      "status": "intentional_treasury_change_with_preserved_quote_contract",
+      "pending": "Compare main/candidate fees by formulas and returned execution, not identical amounts: mandatory history gas and L1 conditions differ. No performance ratio established."
+    },
+    {
+      "id": "F09",
+      "area": "L1 history and PREVRANDAO",
+      "baseline": "No permanent authenticated scheduled L1-history predeploy/native import; standalone signer used configured canonical L1 source.",
+      "candidate": "Consecutive checked L1 history from configured bootstrap, delayed scheduled recorded import or explicit repeat, same header/evm PREVRANDAO. Offline witnesses plus getCustomData bind anchor/profile/rules/current accepted root.",
+      "implementation": [
+        "contracts/L1_HISTORY_SPEC.md",
+        "contracts/src/OfflineRollup.sol",
+        "crates/eez-protocol/src/l1_history",
+        "crates/eez-evm/src/history.rs"
+      ],
+      "evidence": [
+        "history_faults",
+        "final_runtime",
+        "cold_replay",
+        "native_contract"
+      ],
+      "tests": [
+        "ethereum_native_v0_post_replays_from_blobs_without_sequencer_headers",
+        "gnosis_native_v0_post_replays_from_blobs_without_sequencer_headers"
+      ],
+      "status": "intentional_new_protocol_guarantee",
+      "pending": "Delay reduces ordinary reorg exposure; it is not finality. Reorg recovery remains required. History starts at the configured authenticated checkpoint, not automatically at arbitrary chain genesis."
+    },
+    {
+      "id": "F10",
+      "area": "Independent follower and stateless replay",
+      "baseline": "Native DA and block-hash commitments; independent keyless follower, replay and prefix validation.",
+      "candidate": "Follower derives new native/history format from L1/DA/genesis only; signer replays complete witnesses without chain RPC. Cold follower checked 206 complete batches, 3558 selected heights, 814 receipts and 112 catch-up parts.",
+      "implementation": [
+        "crates/eez-node-e2e/tests/kurtosis_policy_replay.rs",
+        "crates/eez-node-e2e/tests/derivable_operations.rs",
+        "crates/eez-proof-signer/src/service"
+      ],
+      "evidence": [
+        "cold_replay",
+        "final_runtime",
+        "prefix_fix"
+      ],
+      "tests": [
+        "kurtosis_policy_batches_replay_independently_from_l1",
+        "expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay"
+      ],
+      "status": "preserved_and_extended",
+      "pending": "Replay checks selected complete canonical ranges and transaction hashes; listed receipt checks are status plus canonical block membership, not all receipt fields/logs. Partial claimed terminal 7134 is not relabeled applied; later complete 7146 is selected. No blanket proof for all unselected data."
+    },
+    {
+      "id": "F11",
+      "area": "Queue ownership, partial consumption, restart and reorg",
+      "baseline": "Ownership retained until validated canonical consumption; partial accepted prefixes supported; retries bounded; pending queue/counters in memory.",
+      "candidate": "Same contract, with history-aware reorg rewind and offline streaming sessions. Restart reconciles canonical state, not durable restoration of every pending client request.",
+      "implementation": [
+        "crates/eez-control-rpc/SPEC.md",
+        "crates/eez-node-e2e/tests/partial_consumption.rs",
+        "crates/eez-node-e2e/tests/queue_reorg.rs",
+        "crates/eez-node-e2e/tests/streaming.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "cold_replay",
+        "history_faults"
+      ],
+      "tests": [
+        "restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "valid_blob_batch_resumes_at_middle_group_in_same_l1_block",
+        "native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+        "shared_stateless_signer_composers_recover_from_native_l1_reorg"
+      ],
+      "status": "preserved_with_history_recovery",
+      "pending": "Receipt, post claim or matching height is insufficient. No durable in-memory queue recovery claim. Deliberate restart downtime is distinct from ordinary no-L1-information liveness."
+    },
+    {
+      "id": "F12",
+      "area": "Ordinary block production during unavailable L1/proving",
+      "baseline": "Source and proving/submission deadlines constrained settlement; no new recorded-repeat import mechanism.",
+      "candidate": "Independent local ordinary production; repeat selected L1 origin on scheduled imports; bounded settlement replacements cannot halt local production.",
+      "implementation": [
+        "crates/eez-composer/src/composer.rs",
+        "contracts/L1_HISTORY_SPEC.md",
+        "docs/configurable-settlement-policy.md"
+      ],
+      "evidence": [
+        "history_faults",
+        "cold_replay"
+      ],
+      "tests": [
+        "imported_history_reorg_recovers_twenty_ordinary_transactions_without_settlement",
+        "expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay"
+      ],
+      "status": "intentional_liveness_extension",
+      "pending": "Controlled 72-second observation/missed-slot/signer outages and bounded catch-up passed on identified earlier bytes. Neither four wall-clock days nor sustained mixed-load throughput is established; four days is optional stress, not required to test expired L1 blockhash."
+    },
+    {
+      "id": "F13",
+      "area": "Public Ethereum RPC and tooling",
+      "baseline": "Ordinary Ethereum calls, estimation, access lists and debug tracing over the pre-history EVM; native receipt type already nonstandard.",
+      "candidate": "Public call/estimate/access-list pending fallback executes the validated native prefix; standard latest/historical selectors preserved. Public debug pending is still environment-only and fails at import boundaries.",
+      "implementation": [
+        "crates/eez-node-common/src/rpc.rs",
+        "crates/eez-node-common/src/rpc/pending.rs",
+        "contracts/L1_HISTORY_SPEC.md"
+      ],
+      "evidence": [
+        "final_runtime",
+        "pending_debug"
+      ],
+      "tests": [
+        "pending_history_import_requires_executed_state"
+      ],
+      "status": "confirmed_candidate_pending_debug_gap",
+      "pending": "Fix and reproduce debug_traceCall pending on stable import/repeat parents without weakening history checks. Baseline exact RPC observation and WS/IPC transport probes remain pending. Engine-auth eth_call is a separate internal surface."
+    },
+    {
+      "id": "F14",
+      "area": "Prover API and independent-language support",
+      "baseline": "prove.v1 client-streamed Prove plus PrepareOrdinary/RetainOrdinaryRanges and leases; build/config identity; signer used a configured canonical L1 source.",
+      "candidate": "One prove.v2 service, request-local witnesses, portable validation identity, bounded streaming/resume/rewind/cancel, same trusted ECDSA attestation model. External server endpoint already configurable.",
+      "implementation": [
+        "crates/eez-control-rpc/SPEC.md",
+        "crates/eez-control-rpc/STREAMING_SPEC.md",
+        "crates/eez-control-rpc/conformance/IMPLEMENTING.md"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "conformance",
+        "cold_replay"
+      ],
+      "tests": [
+        "shared_stateless_signer_composers_recover_from_native_l1_reorg"
+      ],
+      "status": "intentional_fresh_network_api_simplification",
+      "pending": "No old RPC compatibility required. No actual Nethermind server is present, so vectors/Rust tests do not establish C# execution interoperability. Optional server session controls must use specified bounded cold fallback."
+    },
+    {
+      "id": "F15",
+      "area": "Ethereum/Gnosis rules and process lifecycle",
+      "baseline": "Pinned Ethereum and Gnosis configurations; Reth v2.7 shutdown backport; existing strict identity and deployment tooling.",
+      "candidate": "Same pinned external versions at b019; offline L1-rule commitment and genesis/profile checks added. Vendor shutdown README and sources unchanged between the two revisions.",
+      "implementation": [
+        "crates/vendor/reth/README.md",
+        "crates/eez-l1/src",
+        "crates/eez-node-e2e/tests/derivable_operations.rs",
+        "crates/eez-node-e2e/tests/dynamic_admission.rs"
+      ],
+      "evidence": [
+        "candidate_ci",
+        "native_contract"
+      ],
+      "tests": [
+        "gnosis_native_v0_post_replays_from_blobs_without_sequencer_headers",
+        "gnosis_automatic_mixed_wave_exceeds_twelve_and_replays"
+      ],
+      "status": "preserved_with_new_profile_bindings",
+      "pending": "Both process profiles are covered; the retained Kurtosis live network is one concrete test network. Do not generalize to every custom genesis/network-rule transition. Parent-owned Tokio update after b019 is outside this frozen comparison."
+    }
+  ],
+  "evidence": {
+    "baseline_ci": {
+      "kind": "remote CI metadata and filtered consumer logs; no local execution",
+      "source": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "run": 39776847137,
+      "url": "https://github.com/eez-association/eez-rollupX/actions/runs/39776847137",
+      "conclusion": "success",
+      "jobs": 14,
+      "github_artifact_count": 0,
+      "artifact_delivery": "OCI payloads"
+    },
+    "candidate_ci": {
+      "kind": "retained exact-artifact CI",
+      "path": "docs/audits/2026-10-24-pr-readiness/ci-runtime-consumption.json",
+      "source": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+      "run": 40104687331,
+      "scope": "174 selected process tests: 172 pass, 2 first failures; 5 explicitly ignored. Corrected harnesses have separate focused passes; aggregate run remains failed.",
+      "sha256": "b9780b80a20d5aa96c3380396828553a696a74cdc87536276eadbb703fbbf01e"
+    },
+    "final_runtime": {
+      "kind": "live, retained exact roles",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/final-runtime-validation.json",
+      "source": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+      "scope": "60 RPC samples, ordinary settlement, upstream 34/34; independent 33 initial plus same-post revertCounter continuation. First campaign remains FAIL.",
+      "sha256": "2c5fecf1d00f79238e206f45a2ab3dd34ff3c0e485487936e0cd6b49ba975b36"
+    },
+    "cold_replay": {
+      "kind": "fresh follower process against retained L1/DA",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/cold-replay-final.json",
+      "scope": "206 complete batches; 3558 selected block heights; 814 receipts; 112 parts; includes the three ordinary 7702 receipts.",
+      "sha256": "27a07df7ea99f486b7b54fee9fca2c93fa221eb8e9c18f5ca006ddb5ee3f0997"
+    },
+    "ordinary_7702": {
+      "kind": "live R03 ordinary execution",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/rpc-blob-7702.json",
+      "scope": "Install/delegate, ordinary delegated use, revoke; no cross-chain trigger. Its later cold replay is separate.",
+      "sha256": "b4b8d9dce65e4b5c360ee22059f1854c9d2e6d01a4b8409bfe80b9c880b0554a"
+    },
+    "history_faults": {
+      "kind": "live controlled fault/recovery, earlier identified roles",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/live-faults-summary.json",
+      "scope": "72-second observer/missed-slot/signer pauses, ordinary transfers and later canonical recovery; first harness failures retained.",
+      "sha256": "5f6d76f8c62e254ac9f446b5754b0dd2f12e018d39f17b0ac9e5bbc10292d6f1"
+    },
+    "fees": {
+      "kind": "process and live",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/live-baseline-summary.json",
+      "scope": "This file calls earlier candidate bytes baseline; it is NOT main a50. Receipt-based fees, history/FeeVault controls and quotes.",
+      "sha256": "606c95608483f3da381cfd42295f4dabd27445bc990f0a82b6c849dd1b79ba75"
+    },
+    "native_contract": {
+      "kind": "accepted fresh-network requirements",
+      "path": "docs/proposals/native-system-transactions.md",
+      "sha256": "34d9d0e5d3f2ca6e8d7b6a4eaf945e6e9c2b3222f6698d66554f00a7750dda20"
+    },
+    "extra_static": {
+      "kind": "live plus same-post read-only continuation",
+      "path": "docs/audits/2026-10-24-pr-readiness/kurtosis/protocol-extra-results.json",
+      "scope": "staticThenNestedWrites initial independent PASS; staticLocalWrite initially failed missing oracle, later independent PASS without a new trigger/post. Original summary unchanged.",
+      "sha256": "4de68141260d17ddd49974c83bac5b2daae1e4c59d2c04c68cec5dd30b1899db"
+    },
+    "missing_proxy": {
+      "kind": "new live early-admission negatives; process terminal tests separate",
+      "path": "docs/audits/2026-10-24-extended-validation/kurtosis/missing-proxy.json",
+      "scope": "Both exact proxy/chain errors, no receipt/ownership and unchanged source nonce/balance. Staged terminal SimulationFailed oracle not reached.",
+      "sha256": "084713bba66783141356e386d54777d02c913e1e86b47bc50316a0e9288344a4"
+    },
+    "prefix_fix": {
+      "kind": "baseline/fix same-input comparison and focused helper validation",
+      "path": "docs/audits/2026-10-24-pr-readiness/prefix-history-verifier.json",
+      "scope": "20 example tests, header/profile/parent-state validation; same retained input passes new helper after old helper fails. No node/signer runtime change.",
+      "sha256": "a60f8498e20cea4bc4e1de21007bc67d6046f298d784e9738a7ca792194c98ac"
+    },
+    "conformance": {
+      "kind": "portable vectors and Rust-side conformance",
+      "path": "docs/audits/2026-10-24-pr-readiness/final-fixtures.md",
+      "scope": "29 input-derived conformance cases and 24 proof expectations; not execution of an external C# server.",
+      "sha256": "19505da26f423da062538087f05a2f71ad59228974fe75f4da9e069c0509ccba"
+    },
+    "pending_debug": {
+      "kind": "live read-only first stable-parent comparison",
+      "path": "artifacts/extended-validation/kurtosis/pending-debug/comparison.json",
+      "availability": "local-only ignored artifact",
+      "sha256": "79b28fc523a3076dd4071d0a3fd298375a6bb718338e667c53a1ae7bb14c9278",
+      "source": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+      "observed_at": "2026-10-24T17:29:13.108603Z",
+      "parent_number": 12302,
+      "broadcasts": 0,
+      "scope": "debug_traceCall latest passes; pending fails -32603 for unexecuted L1 history; eth_call pending returns 0x; parent stable. Main equivalent not yet executed."
+    }
+  },
+  "excluded_scenarios": [
+    {
+      "scenario": "catchNestedRevertAfterCallback",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L1_to_L2/catchNestedRevertAfterCallback/E2ECatchNestedRevertAfterCallback.s.sol",
+      "source_sha256": "f1bb8743082266654e4b9f2f2879a994b3bde14aef46b979874e1ed603b2c638",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L1_to_L2/catchRemoteAndNestedRevertsAfterSuccessfulCallbacks/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacks.s.sol",
+      "source_sha256": "501884c436781a9a0fbf5846f0515b407ee41093fd91c679bdc5f1b7e470bb81",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "catchRemoteRevertAfterCallback",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L1_to_L2/catchRemoteRevertAfterCallback/E2ECatchRemoteRevertAfterCallback.s.sol",
+      "source_sha256": "13eaec428c537fbc9cda772a86c7e0d96384c5207d4f4558db87745037629bae",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "catchNestedRevertAfterCallbackL2",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/catchNestedRevertAfterCallbackL2/E2ECatchNestedRevertAfterCallbackL2.s.sol",
+      "source_sha256": "50e75acb061bb265468c141f518140d74e4ce5a48340c068de07828857004b25",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2.s.sol",
+      "source_sha256": "06c2a46bb2f109010757c91746f1e356ff2337526f868c831254193ac49a325a",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "catchRemoteRevertAfterCallbackL2",
+      "group": "failed_descendants",
+      "rule": "Failed cross-chain frame has descendants",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/catchRemoteRevertAfterCallbackL2/E2ECatchRemoteRevertAfterCallbackL2.s.sol",
+      "source_sha256": "4fe444d5a3407f7c529260da1f8fa535713c07b929c9b4c778ef6f03ef70ea84",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs"
+      ],
+      "tests": [
+        "entries::tests::unsupported_recorded_shapes_fail_closed"
+      ],
+      "evidence_limit": "Materializer rejection has a unit control. The 26-scenario inventory is static; no live signer rejection is claimed for these six complete scenarios."
+    },
+    {
+      "scenario": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+      "group": "overlapping_rollback",
+      "rule": "Nested source rollback windows overlap",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/nestedRollbackGroupsRestoreStateBeforeContinuationL2/E2ENestedRollbackGroupsRestoreStateBeforeContinuationL2.s.sol",
+      "source_sha256": "a399951f4b197c8c9c8b1b29fb7159a194558353e36948187d2116b1a1406bc1",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [],
+      "evidence_limit": "Both overlap guards are present. No dedicated exact overlapping-window negative was identified in this scoped test review; nested retry positive tests are not that negative."
+    },
+    {
+      "scenario": "nestedRollbackRestoresInnerThenOuterStateL2",
+      "group": "overlapping_rollback",
+      "rule": "Nested source rollback windows overlap",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/nestedRollbackRestoresInnerThenOuterStateL2/E2ENestedRollbackRestoresInnerThenOuterStateL2.s.sol",
+      "source_sha256": "2d6d42219e976af7a18e27cd33e60bd733283cd6368d2100fb89ec9f4605bd29",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [],
+      "evidence_limit": "Both overlap guards are present. No dedicated exact overlapping-window negative was identified in this scoped test review; nested retry positive tests are not that negative."
+    },
+    {
+      "scenario": "rollbackGroupWithStaticReadThenWriteL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/revert/L2_to_L1/rollbackGroupWithStaticReadThenWriteL2/E2ERollbackGroupWithStaticReadThenWriteL2.s.sol",
+      "source_sha256": "b92c9e8f35da9e7be978d3afc14b226c226844c945283156010472b6e530e1ff",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "staticReadThenCatchFailedWriteL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadThenCatchFailedWriteL2/E2EStaticReadThenCatchFailedWriteL2.s.sol",
+      "source_sha256": "898fff2d3cf5a26aa44c520e1d1216e9891c63e068f9f863fb77d97a47731061",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadThenNestedWriteCaughtRevertAndRollbackL2/E2EStaticReadThenNestedWriteCaughtRevertAndRollbackL2.s.sol",
+      "source_sha256": "b7b414cabb282738cdf84cc9cbbf4509b62ed48d555802e246237a2ad6350829",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "staticReadThenRollbackWriteL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadThenRollbackWriteL2/E2EStaticReadThenRollbackWriteL2.s.sol",
+      "source_sha256": "de3f811c1c67d3a7d48c905ae9d9f1d49a41174d666ac413900bb288b0e5236e",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "staticReadThenWriteWithCallbackL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadThenWriteWithCallbackL2/E2EStaticReadThenWriteWithCallbackL2.s.sol",
+      "source_sha256": "e7a177a77945d7ceb928781a5903d74afff3c8f65e30bad50683ad5890f8d699",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "staticThenNestedWritesL2",
+      "group": "mixed_static_host",
+      "rule": "Static sources mixed with nested, failed or rollback mutable sources",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticThenNestedWritesL2/E2EStaticThenNestedWritesL2.s.sol",
+      "source_sha256": "9c00c6b6b63484a06294b464bfd472a000f3ac55d95de644f13cf8bbc046f7fa",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs"
+      ],
+      "tests": [
+        "mixed_outbound_authorizes_reads_before_and_after_write",
+        "mixed_outbound_rejects_changed_host_outcome"
+      ],
+      "evidence_limit": "Successful flat mixed hosts are covered. Those controls do not individually reproduce all six excluded mixed/nested/rollback shapes."
+    },
+    {
+      "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+      "group": "deep_static_callback",
+      "rule": "Static callback itself has a cross-chain descendant",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L1_to_L2/deepStaticReadCallbacksUnderStaticAndMutableCalls/E2EDeepStaticReadCallbacksUnderStaticAndMutableCalls.s.sol",
+      "source_sha256": "851dacd559c9e8ddbd0feb965e5c44a53edde17ac2534fab7feadbe2b312efca",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts the callbacks-with-descendants error; not a full live signer scenario."
+    },
+    {
+      "scenario": "staticReadCallsBackAndReadsAgain",
+      "group": "deep_static_callback",
+      "rule": "Static callback itself has a cross-chain descendant",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L1_to_L2/staticReadCallsBackAndReadsAgain/E2EStaticReadCallsBackAndReadsAgain.s.sol",
+      "source_sha256": "016abf9102fe63ac32af595b013e47899999dbfdefc83b774234fe160a36a59b",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts the callbacks-with-descendants error; not a full live signer scenario."
+    },
+    {
+      "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+      "group": "deep_static_callback",
+      "rule": "Static callback itself has a cross-chain descendant",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/deepStaticReadCallbacksUnderStaticAndMutableCallsL2/E2EDeepStaticReadCallbacksUnderStaticAndMutableCallsL2.s.sol",
+      "source_sha256": "756ea0f69442a58ecd00401de1ace1fbd6ffa30b5c4a96652227e9a6ddf3cf0d",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts the callbacks-with-descendants error; not a full live signer scenario."
+    },
+    {
+      "scenario": "staticReadCallsBackAndReadsAgainL2",
+      "group": "deep_static_callback",
+      "rule": "Static callback itself has a cross-chain descendant",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadCallsBackAndReadsAgainL2/E2EStaticReadCallsBackAndReadsAgainL2.s.sol",
+      "source_sha256": "e03ac9686c9f904677d5245809b1b78db2d92edcabc3deb5f1decba5c7fd7fab",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts the callbacks-with-descendants error; not a full live signer scenario."
+    },
+    {
+      "scenario": "mutableCallMakesReadThatCallsBack",
+      "group": "nested_static_callback",
+      "rule": "Static read inside a mutable cross-chain frame has callbacks",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L1_to_L2/mutableCallMakesReadThatCallsBack/E2EMutableCallMakesReadThatCallsBack.s.sol",
+      "source_sha256": "ee0034bdb56328c36db18a4a9ad7f5069876c61e081031d8ae43d89fa26d2640",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts nested-static-with-descendants rejection; not a full live signer scenario."
+    },
+    {
+      "scenario": "nestedStaticLocalWriteL2",
+      "group": "nested_static_callback",
+      "rule": "Static read inside a mutable cross-chain frame has callbacks",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L1_to_L2/nestedStaticLocalWriteL2/E2ENestedStaticLocalWriteL2.s.sol",
+      "source_sha256": "ca9bf3ef5f7421ceea254ff9d9fbeac6a8d0c2e43bbe713a23de8320baff8032",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts nested-static-with-descendants rejection; not a full live signer scenario."
+    },
+    {
+      "scenario": "mutableCallMakesReadThatCallsBackL2",
+      "group": "nested_static_callback",
+      "rule": "Static read inside a mutable cross-chain frame has callbacks",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/mutableCallMakesReadThatCallsBackL2/E2EMutableCallMakesReadThatCallsBackL2.s.sol",
+      "source_sha256": "be9d96972df1cb8b7b70afa20edbd7ca44a87cbb6ce8f9c34877247cd8a23162",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts nested-static-with-descendants rejection; not a full live signer scenario."
+    },
+    {
+      "scenario": "nestedStaticLocalWriteL1",
+      "group": "nested_static_callback",
+      "rule": "Static read inside a mutable cross-chain frame has callbacks",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/nestedStaticLocalWriteL1/E2ENestedStaticLocalWriteL1.s.sol",
+      "source_sha256": "e18a8c5b80f7c6a985e5d0a0769760d95abb97c0ad91cc3845827b0e19842ecf",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts nested-static-with-descendants rejection; not a full live signer scenario."
+    },
+    {
+      "scenario": "staticLocalWriteL2",
+      "group": "conflicting_static_results",
+      "rule": "Different answers share the same L2 position/lookup identity",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticLocalWriteL2/E2EStaticLocalWriteL2.s.sol",
+      "source_sha256": "beff1b4df738bce16ccdc8730c2f53913357c0410cf4f8b0f0ef7ba5ded24887",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/verify.rs",
+        "crates/eez-proof-signer/src/settlement/tests/outbound.rs"
+      ],
+      "tests": [
+        "repeated_static_callbacks_must_agree",
+        "mixed_outbound_rejects_conflicting_cached_results",
+        "mixed_outbound_authorizes_changing_results_at_distinct_positions"
+      ],
+      "evidence_limit": "Signer outbound authorization rejects conflicting cached results; distinct-position results have a positive control. This does not claim execution of the complete excluded core scenario."
+    },
+    {
+      "scenario": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+      "group": "failed_static_callback",
+      "rule": "Static callback fails, caught or propagated",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2/E2EStaticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2.s.sol",
+      "source_sha256": "878ed24c4cfee0a9ad102597d501be1a0c01f448563eb7e4f1f51e5b33863ed8",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts failed-static-callback rejection. A propagated failed root also violates the failed-descendants rule."
+    },
+    {
+      "scenario": "staticReadHandlesFailedCallbackL2",
+      "group": "failed_static_callback",
+      "rule": "Static callback fails, caught or propagated",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadHandlesFailedCallbackL2/E2EStaticReadHandlesFailedCallbackL2.s.sol",
+      "source_sha256": "1e25260f60e3bcc7d28e8b8e27341eb76d56d24c879e5163e82f2ca1c62211be",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts failed-static-callback rejection. A propagated failed root also violates the failed-descendants rule."
+    },
+    {
+      "scenario": "staticReadPropagatesFailedCallbackL2",
+      "group": "failed_static_callback",
+      "rule": "Static callback fails, caught or propagated",
+      "source": "eez-core-protocol/script/e2e/scenarios/static/L2_to_L1/staticReadPropagatesFailedCallbackL2/E2EStaticReadPropagatesFailedCallbackL2.s.sol",
+      "source_sha256": "e4c3944c05201bb00ef8b70facb8ca7339c049986372adf0ea0e61a2b6e7ca69",
+      "baseline": "unsupported by the a50c326d signer profile",
+      "candidate": "same unsupported shape; fail closed",
+      "status": "preexisting_profile_limit",
+      "implementation": [
+        "crates/eez-protocol/src/entries/mod.rs",
+        "crates/eez-protocol/src/entries/materialize.rs"
+      ],
+      "tests": [
+        "static_callbacks_outside_the_supported_shape_are_rejected"
+      ],
+      "evidence_limit": "Materializer test asserts failed-static-callback rejection. A propagated failed root also violates the failed-descendants rule."
+    }
+  ],
+  "exclusion_counts": {
+    "failed_descendants": 6,
+    "overlapping_rollback": 2,
+    "mixed_static_host": 6,
+    "deep_static_callback": 4,
+    "nested_static_callback": 4,
+    "conflicting_static_results": 1,
+    "failed_static_callback": 3
+  },
+  "other_exclusions": [
+    {
+      "scenario": "staticLocalWrite",
+      "status": "independent live continuation PASS; original collector failure retained",
+      "evidence": "extra_static"
+    },
+    {
+      "scenario": "staticThenNestedWrites",
+      "status": "independent live PASS",
+      "evidence": "extra_static"
+    },
+    {
+      "scenario": "topLevelStaticReentrantMissingProxy",
+      "status": "process terminal rejection exists; live early admission PASS, staged terminal not reached",
+      "evidence": "missing_proxy"
+    },
+    {
+      "scenario": "topLevelStaticReentrantMissingProxyL2",
+      "status": "process terminal rejection exists; live early admission PASS, staged terminal not reached",
+      "evidence": "missing_proxy"
+    }
+  ],
+  "baseline_execution_plan": {
+    "ci_run": 39776847137,
+    "refs": {
+      "runtime": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:97af11400987132646cde6a036425b3cf870184bcdbf7166549d38eee9f57f98",
+      "tests": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:86c735ce0f79cd3319a2fd34c82499b1ce46b028f2f3f63cbe15c83893fd43d0",
+      "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:034b0df2b0161dd33cc99d54f515f4c00aa566c91ace39a51ee0b709ade54424",
+      "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:72fc91cedf0e91015b11c12722dc139b3e064630e79068fa49056718668f3e35",
+      "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:037f7b97d6593af923c3b86a556e8fe5e8e52c2633082cac74316d7e60d9eaf5"
+    },
+    "public_oci_manifests_observed": true,
+    "payload_layers_downloaded_by_reviewer": false,
+    "compressed_runtime_layer_bytes": 146416008,
+    "compressed_tests_layer_bytes": 159330256,
+    "filtered_log_jobs": [
+      119841498919,
+      119841499207
+    ],
+    "shared_exact_test_names_source_checked": [
+      "cross_chain::minimal_bidirectional_cross_chain_smoke",
+      "cross_chain::both_directions_return_value_and_wrapper_success_repeated_waves",
+      "cross_chain::inbound_reverting_destination_preserves_caught_result_without_destination_writes",
+      "cross_chain::outbound_changing_static_reads_and_write_settle_and_replay",
+      "fee_quotes::unsigned_nested_quote_matches_receipt_and_replays",
+      "fee_quotes::enforced_nested_quote_rejects_underpayment_and_replays",
+      "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+      "queue_reorg::native_l1_reorg_recovers_confirmed_and_unresolved_source_generations_in_nonce_order",
+      "dynamic_admission::ethereum_automatic_mixed_wave_exceeds_twelve_and_replays"
+    ],
+    "constraints": [
+      "Use separate checkout at exact main and its own scripts, manifests, contracts/genesis and fresh datadirs.",
+      "Fetch immutable OCI payloads, validate root/pin/lock/platform/archive and executable identities; no Cargo rebuild or fallback.",
+      "Existing run-native-suite invokes forge build; reuse only exact existing baseline deployment artifacts when avoiding all builds. Do not silently use current contracts.",
+      "Require nonzero --list/selection from each exact archived executable; same names alone do not establish equal assertions.",
+      "Run sequentially with owned disjoint enclave/container/port resources; freeze resource allocation and pause heavy task builds.",
+      "Do not reuse candidate chain state with 0x76 baseline binaries.",
+      "Compare identical ordinary/cross-chain application workloads and observable state/return/receipt outcomes; normalize only documented fee destinations/profile costs, never hashes/commitments.",
+      "Record offered/accepted/included/settled counts and latency separately; empty backlog replay is not comparative throughput.",
+      "Preserve first failures; no retry-only pass promotion."
+    ]
+  },
+  "minimal_followups": [
+    {
+      "priority": 1,
+      "id": "pending_debug",
+      "test": "Reproduce exact stable-parent pending debug failure, reuse checked prefix for tracing, test advancing and repeated import plus malformed evidence and named/positional params. Keep tx_index/executed-payload semantics and historical tracing intact.",
+      "owner": "root; live observation by kurtosis_validation"
+    },
+    {
+      "priority": 1,
+      "id": "baseline_ab",
+      "test": "Use immutable main payloads and the shared exact filters above, then a capped same-workload mixed-traffic comparison with state, receipts, tariffs and follower checks.",
+      "owner": "root/kurtosis_validation planning"
+    },
+    {
+      "priority": 2,
+      "id": "profile_rejection_boundary",
+      "test": "One negative per seven exclusion classes, with accepted neighboring controls. Reach the intended materialization/authorization/signing error and assert no signature/canonical effect; do not count parser errors or core Anvil success as that proof.",
+      "owner": "proposed, not executed"
+    },
+    {
+      "priority": 2,
+      "id": "current_ci_gate",
+      "test": "Complete final candidate CI after helper/fixture/dependency fixes; preserve the earlier two CI failures and ignored inventory.",
+      "owner": "root"
+    },
+    {
+      "priority": 3,
+      "id": "transport_external_engine",
+      "test": "WS/IPC pending smoke and actual external Nethermind execution/settlement/replay are distinct future evidence; no actual external server is available in this repository.",
+      "owner": "external/server and deployment owners"
+    }
+  ],
+  "limits": [
+    "No core-only success is counted as signer support.",
+    "The 26 scenarios were classified statically from their pinned sources and profile; their whole live executions were not attempted here.",
+    "Candidate runtime live record is319ebc2d; b019 changes only helper/test/tooling paths, not node/signer source, but source equality is not a newly built b019 binary identity.",
+    "No performance comparison has been executed by this review.",
+    "Root-owned compatible Tokio update after b019 is outside this frozen comparison."
+  ]
+}

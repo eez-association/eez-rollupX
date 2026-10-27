@@ -1,0 +1,63 @@
+{
+  "scope": "Kurtosis workload and replay configuration reader; no runtime, quote or fee-policy change",
+  "live_first_attempt": {
+    "phase": "cross-chain-waves-r03",
+    "exit_code": 1,
+    "start_epoch": 1792849386,
+    "seconds": 75,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/cross-chain-waves-r03.log",
+    "log_sha256": "21d13b74f3a1c834cb056a23448985691897e94fb87aa8451f1f0986364ff259"
+  },
+  "first_failure": {
+    "cause": "yaml_value retained single quotes around true, so fee_collection_enabled chose the unquoted workload branch",
+    "signed_trigger": "0x344f6b4f0cb0fda9dbe0a5ecae6ce63c067ff96c3c43ce6489fe7d8ede8dda5f",
+    "admission_error": "l1_tip_underfunded",
+    "offered_payment": "0x15e29",
+    "required_payment": "0xf0949efb7fab",
+    "accepted_triggers": 0,
+    "later_wave_modes_executed": false
+  },
+  "regression_before": {
+    "phase": "yaml-scalar-before",
+    "exit_code": 1,
+    "start_epoch": 1792849925,
+    "seconds": 0,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/yaml-scalar-before.log",
+    "log_sha256": "2766966bb9052c30327b46122dae8c69fb0185e05cbdc6d03a432019a0ecf492"
+  },
+  "regression_after": {
+    "phase": "yaml-scalar-review-after",
+    "exit_code": 0,
+    "start_epoch": 1792850032,
+    "seconds": 9,
+    "log": "artifacts/pr-readiness/kurtosis/live/phases/yaml-scalar-review-after.log",
+    "log_sha256": "a32bb3d04851a64bafd51ecb7879108e32255ed4b27e3ddd8287396b3d23c89d"
+  },
+  "regression_counts": {
+    "before_tests": 2,
+    "before_failed_subtests": 7,
+    "after_tests": 13,
+    "after_failed": 0,
+    "after_skipped": 0
+  },
+  "coverage": [
+    "plain, single-quoted and double-quoted boolean settings in both directions",
+    "simple numeric replay setting with trailing whitespace",
+    "whitespace-separated YAML comment",
+    "absent/empty/comment-only value disables expectation",
+    "mismatched quotes and literal true#suffix do not enable fees",
+    "existing quote envelope, nonce, admission and bounded retry checks"
+  ],
+  "changes": {
+    "testing/kurtosis/scripts/lib.sh": "ab87c083d2879cfff1b7d630ccd8d8731c38d3d03a405c633ab715d66aab245f",
+    "scripts/ci/tests/test_kurtosis_fee_quotes.py": "8e0b8ec719d703503da96e6d9e6ed1ca1360a674d42b9773e7bf18c4a004f60f"
+  },
+  "live_repeat": {
+    "phase": "cross-chain-waves-yaml-fixed",
+    "exit_code": 1,
+    "four_wave_modes_passed": true,
+    "cross_chain_operations": 40,
+    "remaining_state_chaining_failed": "quote_limit before admission after the old Sync-production barrier; separately investigated and corrected"
+  },
+  "artifact_scope": "Raw logs are local-only ignored artifacts; their SHA-256 values are retained here."
+}

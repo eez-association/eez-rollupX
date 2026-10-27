@@ -67,6 +67,8 @@ where
     l2_provider: Arc<L2>,
     l1_reader: L1Reader,
     derivation: eez_l1::derivation::DerivationSource,
+    header_rules: eez_protocol::l1_history::HeaderRules,
+    offline_profile: eez_protocol::l1_history::OfflineProfile,
     evm_config: EezEvmConfig,
     deploy_block: u64,
     /// Shared canonical-head state — cursor + per-batch index +
@@ -132,6 +134,7 @@ where
         l2_provider: Arc<L2>,
         l1_reader: L1Reader,
         chain_spec: Arc<ChainSpec>,
+        offline_rules: eez_l1::chain_config::OfflineL1Rules,
         deploy_block: u64,
         l1_head: Arc<L1CanonicalHead>,
         correlations: Arc<CorrelationStore>,
@@ -147,14 +150,21 @@ where
             })
             .await
             .map_err(DeriverError::l2_provider)?;
-        l1_head.restore_derivation(derivation.seed_history());
-        let evm_config = EezEvmConfig::new(chain_spec);
+        let offline_profile = offline_rules
+            .profile(schedule, chain_spec.chain().id())
+            .map_err(DeriverError::l2_provider)?;
+        l1_head.initialize_history(schedule);
+        let evm_config = EezEvmConfig::new(chain_spec)
+            .with_l1_history(l1_head.clone())
+            .map_err(DeriverError::l2_provider)?;
         Ok(Self {
             inner: Arc::new(Inner {
                 committer,
                 l2_provider,
                 l1_reader,
                 derivation,
+                header_rules: offline_rules.headers,
+                offline_profile,
                 evm_config,
                 deploy_block,
                 l1_head,
@@ -236,43 +246,6 @@ where
                 continue;
             }
 
-            let mut history = self.inner.derivation.seed_history();
-            let mut position = None;
-            let mut containing: Option<eez_l1::derivation::AuthenticatedL1Header> = None;
-            while let Some(record) = self
-                .inner
-                .correlations
-                .after(position)
-                .map_err(DeriverError::l2_provider)?
-            {
-                let reference = eez_l1::L1BlockRef {
-                    number: record.l1_block_number,
-                    hash: record.l1_block_hash,
-                };
-                if containing
-                    .as_ref()
-                    .is_none_or(|header| header.reference() != reference)
-                {
-                    containing = Some(
-                        self.inner
-                            .derivation
-                            .canonical_header(reference)
-                            .await
-                            .map_err(DeriverError::l2_provider)?,
-                    );
-                }
-                history
-                    .record_accepted_endpoint(
-                        containing.as_ref().expect("header fetched for this record"),
-                        record.l1_transaction_hash,
-                        record.l1_transaction_index,
-                        &record.endpoint_header,
-                    )
-                    .map_err(DeriverError::l2_provider)?;
-                position = Some((record.l1_block_number, record.l1_transaction_index));
-            }
-            self.inner.l1_head.restore_derivation(history);
-
             // Seed every record in the tail block. The subsequent inclusive
             // scan starts at this block, so this de-duplicates same-block peers
             // as well as the final transaction and preserves transaction order.
@@ -338,8 +311,20 @@ where
             .map_err(DeriverError::l2_provider)?
             .ok_or_else(|| DeriverError::l2_provider("accepted endpoint header is unavailable"))?
             .into_header();
+        let provider = self
+            .inner
+            .l2_provider
+            .state_by_block_hash(endpoint_header.hash_slow())
+            .map_err(DeriverError::l2_provider)?;
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(provider.as_ref()));
+        let endpoint_history = self
+            .inner
+            .evm_config
+            .history_state(&mut db)
+            .map_err(DeriverError::l2_provider)?;
         Ok(BatchCorrelation {
             endpoint_header,
+            endpoint_history,
             l1_block_number,
             l1_block_hash,
             l1_transaction_hash: tx_hash,
@@ -348,20 +333,16 @@ where
         })
     }
 
-    async fn publish_correlation(
+    fn publish_correlation(
         &self,
         correlation: BatchCorrelation,
         evidence: eez_l1::ReconciledBatchSettlement,
+        l1: &eez_l1::derivation::AuthenticatedL1Header,
     ) -> DeriverResult<()> {
-        let l1 = self
-            .inner
-            .derivation
-            .canonical_header(evidence.l1_block)
-            .await
-            .map_err(DeriverError::l2_provider)?;
+        let origin = correlation.endpoint_history;
         self.inner
             .l1_head
-            .validate_accepted(&evidence, &l1, &correlation.endpoint_header)
+            .validate_accepted(&evidence, l1, &correlation.endpoint_header, origin)
             .map_err(DeriverError::l2_provider)?;
         self.inner
             .correlations
@@ -369,19 +350,17 @@ where
             .map_err(DeriverError::l2_provider)?;
         self.inner
             .l1_head
-            .publish_accepted(evidence, &l1, &correlation.endpoint_header)
+            .publish_accepted(evidence, l1, &correlation.endpoint_header, origin)
             .map_err(DeriverError::l2_provider)?;
-        self.discard_stale_seed_suffix(SealedHeader::seal_slow(correlation.endpoint_header))
-            .await
+        Ok(())
     }
 
-    /// A live acceptance changes descendants even when their transaction lists
-    /// are empty. Replace the first stale-seed child with an executed empty
-    /// sibling before another candidate may capture its parent. A direct fork
-    /// switch lets Reth return ordinary transactions from the removed suffix to
-    /// its pool; an ancestor-only rewind can lose them. Caller holds the
-    /// reconciliation lock. The replacement remains unsafe, not settled.
-    async fn discard_stale_seed_suffix(
+    /// Recheck the canonical history endpoint of every unsafe block. An L1
+    /// reorg can change an imported hash without changing PREVRANDAO. The final
+    /// selected hash commits all preceding imports through parent linkage.
+    /// Replace the first stale child with an executed empty sibling so Reth can
+    /// reinject ordinary transactions; the replacement remains unsafe.
+    async fn discard_stale_history_suffix(
         &self,
         mut retained: SealedHeader<alloy_consensus::Header>,
     ) -> DeriverResult<()> {
@@ -396,23 +375,40 @@ where
             } else {
                 self.l2_sealed_header_at(number)?
             };
-            let (timestamp, seed) = self
+            let (timestamp, _) = self
                 .inner
                 .l1_head
                 .next_block_context(&retained)
                 .map_err(DeriverError::l2_provider)?;
             if next.parent_hash != retained.hash()
                 || next.timestamp != timestamp
-                || next.mix_hash != seed
+                || !self.history_matches(&next)?
             {
                 let environment = eez_driver::derivation::Environment {
                     fee_recipient: next.beneficiary,
-                    prev_randao: seed,
                     extra_data: next.extra_data.clone(),
+                };
+                let transactions = {
+                    let provider = self
+                        .inner
+                        .l2_provider
+                        .state_by_block_hash(retained.hash())
+                        .map_err(DeriverError::l2_provider)?;
+                    let mut db =
+                        StateProviderDatabase::new(EvmStateProviderAdapter(provider.as_ref()));
+                    let (_, history) = self
+                        .inner
+                        .evm_config
+                        .prepare_history(&mut db, &retained, timestamp)
+                        .map_err(DeriverError::l2_provider)?;
+                    history
+                        .into_iter()
+                        .map(|tx| Bytes::from(tx.encoded_2718()))
+                        .collect::<Vec<_>>()
                 };
                 let (payload, header) = self.execute_block_on_parent(
                     &retained,
-                    &[],
+                    &transactions,
                     ExecutionInputs::Derived(&environment),
                 )?;
                 self.inner
@@ -424,6 +420,97 @@ where
             retained = next;
         }
         Ok(())
+    }
+
+    /// Acquire outside the production lock, then atomically publish only if the
+    /// canonical generation still matches. Execution never performs RPC reads.
+    async fn prepare_history(
+        &self,
+        parent: &alloy_consensus::Header,
+        through: eez_l1::L1BlockRef,
+    ) -> DeriverResult<()> {
+        use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS};
+        let state = self
+            .inner
+            .l2_provider
+            .state_by_block_hash(parent.hash_slow())
+            .map_err(DeriverError::l2_provider)?;
+        let first_number = u64::try_from(
+            state
+                .storage(
+                    HISTORY_ADDRESS,
+                    alloy_primitives::U256::from(ENDPOINT_SLOT).into(),
+                )
+                .map_err(DeriverError::l2_provider)?
+                .unwrap_or_default(),
+        )
+        .map_err(DeriverError::l2_provider)?;
+        self.prepare_history_from_endpoint(first_number, through)
+            .await
+    }
+
+    async fn prepare_history_from_endpoint(
+        &self,
+        first_number: u64,
+        through: eez_l1::L1BlockRef,
+    ) -> DeriverResult<()> {
+        let generation = self.inner.l1_head.policy_anchor_snapshot().generation;
+        let previous = self
+            .inner
+            .l1_head
+            .prepared_history()
+            .map(|prepared| prepared.chain());
+        let prepared = self
+            .inner
+            .derivation
+            .prepare_history(first_number, through, self.inner.header_rules, previous)
+            .await
+            .map_err(|error| match error {
+                eez_l1::derivation::DerivationError::Unavailable(detail) => {
+                    DeriverError::l1_scan(eez_l1::L1Error::SourceIncomplete {
+                        block: through.number,
+                        tx_hash: B256::ZERO,
+                        detail: detail.into(),
+                    })
+                }
+                error => DeriverError::l2_provider(error),
+            })?;
+        self.inner
+            .l1_head
+            .publish_history(prepared, generation)
+            .map_err(DeriverError::l2_provider)
+    }
+
+    /// Existing local blocks already passed the mandatory hook. Checking their
+    /// selected endpoint against canonical evidence detects changed ancestors,
+    /// including bridge-only hashes and branches with identical randomness.
+    fn history_matches(
+        &self,
+        block: &SealedHeader<alloy_consensus::Header>,
+    ) -> DeriverResult<bool> {
+        use alloy_primitives::U256;
+        use eez_protocol::l1_history::{ENDPOINT_SLOT, HISTORY_ADDRESS, hash_storage_key};
+        let chain = self
+            .inner
+            .evm_config
+            .l1_headers(block.timestamp)
+            .map_err(DeriverError::l2_provider)?;
+        let state = self
+            .inner
+            .l2_provider
+            .state_by_block_hash(block.hash())
+            .map_err(DeriverError::l2_provider)?;
+        let number = state
+            .storage(HISTORY_ADDRESS, B256::from(U256::from(ENDPOINT_SLOT)))
+            .map_err(DeriverError::l2_provider)?
+            .unwrap_or_default();
+        let number = u64::try_from(number).map_err(DeriverError::l2_provider)?;
+        let selected = chain.at(number).map_err(DeriverError::l2_provider)?;
+        let hash = state
+            .storage(HISTORY_ADDRESS, hash_storage_key(number).into())
+            .map_err(DeriverError::l2_provider)?
+            .unwrap_or_default();
+        Ok(B256::from(hash) == selected.hash() && block.mix_hash == selected.header().mix_hash)
     }
 
     /// Current cursor — highest L2 block confirmed by any L1-landed
@@ -595,23 +682,16 @@ where
                 .schedule()
                 .validate_position(block.header())
                 .map_err(DeriverError::l2_provider)?;
-            if block.header().mix_hash
-                != self
-                    .inner
-                    .l1_head
-                    .derivation_seed(number)
-                    .map_err(DeriverError::l2_provider)?
-            {
+            if !self.history_matches(&SealedHeader::seal_slow(block.header().clone()))? {
                 return Ok(retained);
             }
             for tx in block.body().transactions() {
                 let encoded = tx.encoded_2718();
-                if encoded.first() == Some(&eez_primitives::SYSTEM_TX_TYPE) {
-                    return Ok(retained);
-                }
                 let tx = TransactionSigned::decode_2718(&mut encoded.as_slice())
                     .map_err(DeriverError::l2_provider)?;
-                if tx.recover_signer().map_err(DeriverError::l2_provider)? == system {
+                if tx.recover_signer().map_err(DeriverError::l2_provider)? == system
+                    && !tx.is_history()
+                {
                     return Ok(retained);
                 }
             }
@@ -624,7 +704,6 @@ where
     /// Returns the inclusive L1 block covered: the scan's endpoint, or the
     /// tip when the range was empty (nothing below it can hold our events).
     async fn catch_up_inner(&self) -> DeriverResult<u64> {
-        let _guard = self.inner.committer.begin_reconcile().await?;
         self.inner.l1_head.invalidate_scan();
         let old_cursor = self.inner.l1_head.cursor();
         let anchor = self.revalidate_index_tail().await?;
@@ -639,11 +718,8 @@ where
                 self.l2_hash_at(cursor).ok() != Some(accepted.l2_block.hash)
             })
         {
+            let _guard = self.inner.committer.begin_reconcile().await?;
             self.retreat_l2_to_cursor(cursor).await?;
-        }
-        if let Some(accepted) = accepted {
-            self.discard_stale_seed_suffix(SealedHeader::seal_slow(accepted.batch.endpoint_header))
-                .await?;
         }
         match anchor {
             Some(anchor_l1_block) => self.sync_batches_inner(anchor_l1_block, cursor).await,
@@ -685,6 +761,7 @@ where
             if canonical == tail.l1_block_hash {
                 return Ok(Some(tail.l1_block));
             }
+            let _guard = self.inner.committer.begin_reconcile().await?;
             let old_cursor = self.inner.l1_head.cursor();
             let (new_cursor, _new_finalized, dropped) = self
                 .inner
@@ -793,6 +870,7 @@ where
     /// Publish completion only after checking the scan's L1 identities and
     /// canonical L2 endpoint. The caller holds the engine reconciliation lock.
     async fn finish_scan(&self, number: u64, expected_hash: Option<B256>) -> DeriverResult<()> {
+        let generation = self.inner.l1_head.policy_anchor_snapshot().generation;
         // A successful resync can run ahead of queued live notifications.
         // Never pair an older L1 snapshot with the newer canonical L2 state.
         let (number, expected_hash) = self
@@ -844,6 +922,16 @@ where
             ));
         }
         let cursor = self.inner.l1_head.cursor();
+        let parent = self.l2_sealed_header_at(cursor)?;
+        self.prepare_history(&parent, eez_l1::L1BlockRef { number, hash })
+            .await?;
+        let _guard = self.inner.committer.begin_reconcile().await?;
+        if !self.inner.l1_head.generation_is(generation) || self.inner.l1_head.cursor() != cursor {
+            return Err(DeriverError::l2_provider(
+                "scan state changed during L1 acquisition",
+            ));
+        }
+        self.discard_stale_history_suffix(parent).await?;
         self.sync_safe_to_cursor().await?;
         self.inner.l1_head.mark_scanned(
             eez_l1::L1BlockRef { number, hash },
@@ -1002,9 +1090,23 @@ where
                     .canonical_header(evidence.l1_block)
                     .await
                     .map_err(DeriverError::l2_provider)?;
+                // The recorded origin came from this exact executed checkpoint.
+                // Its state may have been replaced by a resumed same-height batch;
+                // rebuild and authenticate L1 ancestry without reopening that state.
+                self.prepare_history_from_endpoint(
+                    prior.endpoint_history.endpoint,
+                    evidence.l1_block,
+                )
+                .await?;
+                let _guard = self.inner.committer.begin_reconcile().await?;
                 self.inner
                     .l1_head
-                    .publish_accepted(evidence, &l1, &prior.endpoint_header)
+                    .publish_accepted(
+                        evidence,
+                        &l1,
+                        &prior.endpoint_header,
+                        prior.endpoint_history,
+                    )
                     .map_err(DeriverError::l2_provider)?;
                 continue;
             }
@@ -1050,7 +1152,7 @@ where
                 }
             }
 
-            let (replayed_here, scan_sync_hash) = self
+            let (replayed_here, scan_sync_hash, _reconcile_guard, authenticated_l1) = self
                 .reconcile_batch_blocks(
                     batch_first_l2,
                     &payload,
@@ -1111,7 +1213,7 @@ where
                     hash: correlation.last_l2().hash,
                 }),
             )?;
-            self.publish_correlation(correlation, evidence).await?;
+            self.publish_correlation(correlation, evidence, &authenticated_l1)?;
             *cumulative_l2 = end;
         }
 
@@ -1121,6 +1223,7 @@ where
 
         // Advance safe once per chunk, not per batch: two batches in one L1 block
         // rewrite the same L2 height, so a per-batch hash gets orphaned.
+        let _guard = self.inner.committer.begin_reconcile().await?;
         let old_safe_l2 = self.inner.safe_l2_block.load(Ordering::Acquire);
         if *cumulative_l2 > old_safe_l2 {
             let safe_header = self.l2_sealed_header_at(*cumulative_l2)?;
@@ -1200,6 +1303,23 @@ where
         raw_txs: &[Bytes],
         inputs: ExecutionInputs<'_>,
     ) -> DeriverResult<(ExecutionData, SealedHeader<alloy_consensus::Header>)> {
+        self.execute_block_with_plans(parent_header, raw_txs, &[], inputs)
+            .map(|(payload, header, _)| (payload, header))
+    }
+
+    /// Replay the exact retained prefix, then encode construction plans using
+    /// the gas actually charged by every preceding transaction.
+    fn execute_block_with_plans(
+        &self,
+        parent_header: &SealedHeader<alloy_consensus::Header>,
+        raw_txs: &[Bytes],
+        plans: &[eez_protocol::system_tx::PlannedTransaction],
+        inputs: ExecutionInputs<'_>,
+    ) -> DeriverResult<(
+        ExecutionData,
+        SealedHeader<alloy_consensus::Header>,
+        Vec<Bytes>,
+    )> {
         let parent_block_number = parent_header.number;
         let parent_hash = parent_header.hash();
         let state_provider = self
@@ -1227,7 +1347,8 @@ where
             .with_bundle_update()
             .build();
 
-        let attributes = inputs.attributes(&self.inner.evm_config, parent_header)?;
+        let attributes = inputs.attributes(&self.inner.evm_config, parent_header, raw_txs)?;
+        let block_gas_limit = attributes.gas_limit;
 
         let mut builder = self
             .inner
@@ -1241,9 +1362,19 @@ where
             .apply_pre_execution_changes()
             .map_err(|e| DeriverError::l2_provider(format!("pre-execution changes failed: {e}")))?;
 
-        for (tx_idx, tx_bytes) in raw_txs.iter().enumerate() {
-            let mut encoded = tx_bytes.as_ref();
-            let tx = TransactionSigned::decode_2718(&mut encoded).map_err(|e| {
+        let mut gas_used = 0u64;
+        let mut suffix = Vec::with_capacity(plans.len());
+        for tx_idx in 0..raw_txs.len() + plans.len() {
+            let tx_bytes = if let Some(raw) = raw_txs.get(tx_idx) {
+                raw.clone()
+            } else {
+                let raw = plans[tx_idx - raw_txs.len()]
+                    .at_position(block_gas_limit, gas_used)
+                    .map_err(DeriverError::l2_provider)?;
+                suffix.push(raw.clone());
+                raw
+            };
+            let tx = TransactionSigned::decode_2718_exact(&tx_bytes).map_err(|e| {
                 DeriverError::local_diverged_with_msg(
                     parent_block_number + 1,
                     &format!("decode tx #{tx_idx}: {e}"),
@@ -1255,12 +1386,15 @@ where
                     &format!("could not recover signer for tx #{tx_idx}"),
                 )
             })?;
-            builder.execute_transaction(recovered).map_err(|e| {
+            let gas = builder.execute_transaction(recovered).map_err(|e| {
                 DeriverError::local_diverged_with_msg(
                     parent_block_number + 1,
                     &format!("execute tx #{tx_idx}: {e}"),
                 )
             })?;
+            gas_used = gas_used
+                .checked_add(gas.tx_gas_used())
+                .ok_or_else(|| DeriverError::l2_provider("reconstruction gas overflow"))?;
         }
 
         let outcome = builder
@@ -1270,7 +1404,7 @@ where
         let sealed_block = outcome.block.sealed_block().clone();
         let sealed_header = sealed_block.sealed_header().clone();
         let execution_data = <EezEngineTypes as PayloadTypes>::block_to_payload(sealed_block, None);
-        Ok((execution_data, sealed_header))
+        Ok((execution_data, sealed_header, suffix))
     }
 
     async fn replay_block(
@@ -1445,7 +1579,6 @@ where
                 if self.inner.scan_needs_resync.load(Ordering::Acquire) {
                     return self.catch_up().await;
                 }
-                let _guard = self.inner.committer.begin_reconcile().await?;
                 self.finish_scan(block_number, Some(block_hash)).await
             }
             L1Event::Reorg {
@@ -1538,8 +1671,8 @@ where
             state_applied,
             "on_batch_posted entered; awaiting reconcile lock",
         );
-        // Acquire lock to prevent sequencing during multi-block derivation
-        let _guard = self.inner.committer.begin_reconcile().await?;
+        // Remote evidence is acquired before reconcile_batch_blocks takes the
+        // commit lock; that guard remains owned through acceptance publication.
         event!(
             name: "eez.deriver.batch_posted.lock_acquired",
             Level::INFO,
@@ -1606,7 +1739,7 @@ where
         // Per-block reconciliation: skip blocks whose tx lists already
         // match the batch, and STF-replay the rest (reth fork-switches
         // as needed).
-        let (replayed, sync_block_hash) = self
+        let (replayed, sync_block_hash, _reconcile_guard, authenticated_l1) = self
             .reconcile_batch_blocks(
                 from_block,
                 &payload,
@@ -1676,7 +1809,7 @@ where
                 hash: correlation.last_l2().hash,
             }),
         )?;
-        self.publish_correlation(correlation, evidence).await?;
+        self.publish_correlation(correlation, evidence, &authenticated_l1)?;
         let l1_settled_root = settlement.final_state.unwrap_or_default();
         // Safe moves once per L1 block, at its last batch: a resumed batch rewrites
         // the height its same-block predecessor settled, orphaning that safe hash.
@@ -1766,7 +1899,7 @@ where
     ) -> DeriverResult<()> {
         // Delivered Reorg events already carry the surviving canonical L1
         // ancestor; hash-tail auditing is reserved for missed reorgs.
-        let _guard = self.inner.committer.begin_reconcile().await?;
+        let guard = self.inner.committer.begin_reconcile().await?;
 
         if common_ancestor_number
             < self
@@ -1791,23 +1924,23 @@ where
             .correlations
             .remove_after_l1(common_ancestor_number)
             .map_err(DeriverError::l2_provider)?;
-        if dropped == 0 {
-            event!(
-                name: "eez.deriver.l1.reorg.noop",
-                Level::WARN,
-                event_name = "eez.deriver.l1.reorg.noop",
-                common_ancestor_number,
-                old_head_hash = %old_head_hash,
-                new_head_number,
-                new_head_hash = %new_head_hash,
-                dropped_batches = dropped,
-                removed_correlations,
-                "L1 reorg reported above indexed batches; no L2 retreat needed",
-            );
-            return Ok(());
-        }
-
-        let new_safe_hash = self.retreat_l2_to_cursor(new_cursor).await?;
+        let new_safe_hash = if dropped > 0 {
+            self.retreat_l2_to_cursor(new_cursor).await?
+        } else {
+            self.l2_hash_at(new_cursor)?
+        };
+        let parent = self.l2_sealed_header_at(new_cursor)?;
+        drop(guard);
+        self.prepare_history(
+            &parent,
+            eez_l1::L1BlockRef {
+                number: new_head_number,
+                hash: new_head_hash,
+            },
+        )
+        .await?;
+        let _guard = self.inner.committer.begin_reconcile().await?;
+        self.discard_stale_history_suffix(parent).await?;
 
         event!(
             name: "eez.deriver.l1.reorg.retreated",
@@ -1936,7 +2069,12 @@ where
         posting_block: eez_l1::L1BlockRef,
         tx_hash: B256,
         settlement: eez_l1::Settlement,
-    ) -> DeriverResult<(u64, Option<B256>)> {
+    ) -> DeriverResult<(
+        u64,
+        Option<B256>,
+        tokio::sync::OwnedMutexGuard<()>,
+        eez_l1::derivation::AuthenticatedL1Header,
+    )> {
         let l1_block_number = posting_block.number;
         let terminal = payload.terminal();
         let terminal_prefix = terminal
@@ -1957,6 +2095,7 @@ where
         let original_parent_number = terminal_height
             .checked_sub(u64::from(payload.block_count()))
             .ok_or_else(|| DeriverError::l2_provider("candidate begins before genesis"))?;
+        let generation = self.inner.l1_head.policy_anchor_snapshot().generation;
         let original_parent = self.l2_sealed_header_at(original_parent_number)?;
         let l1 = self
             .inner
@@ -1964,16 +2103,160 @@ where
             .canonical_header(posting_block)
             .await
             .map_err(DeriverError::l2_provider)?;
+        use alloy_sol_types::SolCall as _;
+        use eez_protocol::l1_history::EvidenceAnchor;
+        let posted = eez_protocol::abi::postAndVerifyBatchCall::abi_decode(&post_batch_input)
+            .map_err(DeriverError::l2_provider)?;
+        if posted.abi_encode() != post_batch_input.as_ref() {
+            return Err(DeriverError::l2_provider(
+                "noncanonical settlement calldata",
+            ));
+        }
+        // Fetch through inclusion to make the latest relevant cutoff available
+        // even after missed L1 slots. The proof bridge itself ends at its anchor.
+        self.prepare_history(&original_parent, posting_block)
+            .await?;
+        let reconcile_guard = self.inner.committer.begin_reconcile().await?;
+        if !self.inner.l1_head.generation_is(generation)
+            || self.l2_hash_at(original_parent_number)? != original_parent.hash()
+        {
+            return Err(DeriverError::l2_provider(
+                "reconciliation predecessor changed during L1 acquisition",
+            ));
+        }
+        let prepared = self
+            .inner
+            .l1_head
+            .prepared_history()
+            .ok_or_else(|| DeriverError::l2_provider("missing prepared follower history"))?;
+        let chain = prepared.chain();
+        let number = if posted.batch.blockNumber == u64::MAX {
+            l1_block_number
+                .checked_sub(1)
+                .ok_or_else(|| DeriverError::l2_provider("settlement in L1 genesis"))?
+        } else {
+            posted.batch.blockNumber
+        };
+        let endpoint = chain.at(number).map_err(DeriverError::l2_provider)?;
+        let historical = posted.batch.blockNumber != u64::MAX;
+        let anchor = if historical {
+            EvidenceAnchor::Historical {
+                number,
+                hash: endpoint.hash(),
+            }
+        } else {
+            EvidenceAnchor::ActualParent {
+                number,
+                hash: endpoint.hash(),
+                target_timestamp: l1.header().timestamp,
+            }
+        };
         self.inner
-            .derivation
-            .schedule()
+            .offline_profile
+            .validate_inclusion(anchor, endpoint.header(), l1.header())
+            .map_err(DeriverError::l2_provider)?;
+        // Lookup-only and reverted/static observations can be present in the
+        // settlement table even when no semantic L2 transaction was published.
+        let has_actions = !semantic_transactions.is_empty()
+            || posted.batch.entries.len() != 1
+            || !posted.batch.staticEntries.is_empty()
+            || posted.batch.entries.first().is_none_or(|entry| {
+                !entry.l2ToL1Calls.is_empty() || !entry.expectedL1ToL2Calls.is_empty()
+            });
+        if historical && has_actions {
+            return Err(DeriverError::l2_provider(
+                "historical mode forbids every cross-chain action",
+            ));
+        }
+        let schedule = self.inner.derivation.schedule();
+        schedule
             .candidate(
                 &original_parent,
                 payload.block_count(),
-                l1.header().timestamp,
-                !semantic_transactions.is_empty(),
+                if historical {
+                    endpoint.header().timestamp
+                } else {
+                    l1.header().timestamp
+                },
+                has_actions,
             )
             .map_err(DeriverError::l2_provider)?;
+        let first = chain
+            .headers()
+            .first()
+            .ok_or_else(|| DeriverError::l2_provider("missing follower L1 history"))?
+            .header()
+            .number;
+        let bridge = chain
+            .range(first, number)
+            .map_err(DeriverError::l2_provider)?;
+        // Authenticate the inherited endpoint and every recorded import against
+        // this batch's exact anchor. Future evidence cannot authorize an import
+        // beyond the anchor or replace the producer's chosen endpoint.
+        let mut inherited = {
+            let state = self
+                .inner
+                .l2_provider
+                .state_by_block_hash(original_parent.hash_slow())
+                .map_err(DeriverError::l2_provider)?;
+            let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+            self.inner
+                .evm_config
+                .history_state(&mut db)
+                .map_err(DeriverError::l2_provider)?
+        };
+        bridge
+            .verify_origin(inherited.endpoint, inherited.endpoint_hash, anchor)
+            .map_err(DeriverError::l2_provider)?;
+        let history_schedule = schedule.history().map_err(DeriverError::l2_provider)?;
+        for (position, mut plan) in payload.blocks().enumerate() {
+            let timestamp = schedule
+                .timestamp(original_parent.number + position as u64 + 1)
+                .map_err(DeriverError::l2_provider)?;
+            let first = plan
+                .transactions
+                .next()
+                .map(TransactionSigned::decode_2718_exact)
+                .transpose()
+                .map_err(DeriverError::l2_provider)?;
+            let input = match &first {
+                Some(TransactionSigned::System(tx))
+                    if tx.to == eez_protocol::l1_history::HISTORY_ADDRESS =>
+                {
+                    Some(&tx.input)
+                }
+                _ => None,
+            };
+            let call = input
+                .map(|input| eez_protocol::l1_history::decode_import(input))
+                .transpose()
+                .map_err(DeriverError::l2_provider)?;
+            let selected = call
+                .as_ref()
+                .map(|call| {
+                    inherited
+                        .endpoint
+                        .checked_add(call.hashes.len() as u64)
+                        .ok_or_else(|| DeriverError::l2_provider("history endpoint overflow"))
+                })
+                .transpose()?;
+            let transition = history_schedule
+                .execution(timestamp, inherited, &bridge, selected)
+                .map_err(DeriverError::l2_provider)?;
+            if transition.import.as_ref() != input {
+                return Err(DeriverError::l2_provider(
+                    "published history update differs from anchored ancestry",
+                ));
+            }
+            inherited.endpoint = transition.origin_number;
+            inherited.endpoint_hash = transition.origin_hash;
+            if call.is_some() {
+                inherited.next_cutoff = transition
+                    .cutoff
+                    .checked_add(history_schedule.interval())
+                    .ok_or_else(|| DeriverError::l2_provider("history cutoff overflow"))?;
+            }
+        }
         // Reconstruct checked actions from the authenticated enclosing stream.
         // Settlement tables authorize applied effects; they cannot substitute
         // for L2 reconstruction inputs, including value-bearing/nested calls.
@@ -2003,7 +2286,11 @@ where
         // This includes outbound roots and callbacks to L1 inside inbound roots.
         let mut gate_expected_hashes = Vec::new();
         let mut gate_should_verify = false;
-        let sync_block_txs: Option<Vec<Bytes>> = match self.inner.system_tx_cfg.as_ref() {
+        let sync_block_txs: Option<Vec<eez_protocol::system_tx::PlannedTransaction>> = match self
+            .inner
+            .system_tx_cfg
+            .as_ref()
+        {
             Some(cfg) => {
                 // Decode settlement entries independently from DA. They decide
                 // which effects L1 applied and remain the authorization source
@@ -2054,6 +2341,29 @@ where
                     .iter()
                     .map(|group| group.effects.len())
                     .collect::<Vec<_>>();
+                let all_sources =
+                    match anchor {
+                        EvidenceAnchor::ActualParent {
+                            hash,
+                            target_timestamp,
+                            ..
+                        } => {
+                            let context =
+                                eez_protocol::native_source::LiveSourceContext::new(
+                                    self.inner.offline_profile.l1ChainId.try_into().map_err(
+                                        |_| DeriverError::l2_provider("unsupported L1 chain id"),
+                                    )?,
+                                    self.inner.l1_reader.eez(),
+                                    eez_protocol::RollupId(cfg.this_rollup_id),
+                                    cfg.l2_chain_id,
+                                    target_timestamp,
+                                    hash,
+                                )
+                                .map_err(DeriverError::l2_provider)?;
+                            actions.source_hashes(&context)
+                        }
+                        EvidenceAnchor::Historical { .. } => Vec::new(),
+                    };
                 let all_outbound = actions.outbound().to_vec();
                 let mut inbound = actions.inbound().to_vec();
 
@@ -2096,9 +2406,17 @@ where
                     inbound.len(),
                 )
                 .map_err(|error| DeriverError::local_diverged_with_msg(from_block, &error))?;
-                let group_start = selection.outbound_groups.start;
+                let selected_native_sources = all_sources[selection.outbound_groups.clone()]
+                    .iter()
+                    .copied()
+                    .chain(
+                        all_sources[all_outbound.len() + slice.inbound_skip
+                            ..all_outbound.len() + slice.inbound_skip + slice.inbound_take]
+                            .iter()
+                            .copied(),
+                    )
+                    .collect::<Vec<_>>();
                 let outbound = all_outbound[selection.outbound_groups].to_vec();
-                let all_inbound = inbound.clone();
                 inbound.drain(..slice.inbound_skip);
                 inbound.truncate(slice.inbound_take);
                 settlement_outbound.drain(..slice.outbound_skip);
@@ -2220,37 +2538,11 @@ where
                     gate_expected_hashes.extend(verification.l2_outbound_hashes);
                 }
 
-                let mut starting_nonce = self.system_address_nonce_at(from_block - 1)?;
-                // The skipped prefix's system transactions already sit in this
-                // Sync block, so offset by what that prefix emitted rather than
-                // by its settlement-entry count.
-                let skipped_outbound = &all_outbound[..group_start];
-                let skipped_inbound = &all_inbound[..slice.inbound_skip];
-                if !skipped_outbound.is_empty() || !skipped_inbound.is_empty() {
-                    let prefix_pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
-                        skipped_outbound,
-                        skipped_inbound,
-                        cfg,
-                        starting_nonce,
-                    )
-                    .map_err(|e| {
-                        DeriverError::l2_provider(format!(
-                            "build_cross_chain_sync_groups(skipped prefix, tx={tx_hash}): {e}"
-                        ))
-                    })?;
-                    starting_nonce = starting_nonce
-                        .checked_add(prefix_pairs.len() as u64)
-                        .ok_or_else(|| {
-                            DeriverError::l2_provider(format!(
-                                "SYSTEM_ADDRESS nonce overflow over the skipped prefix (tx={tx_hash})"
-                            ))
-                        })?;
-                }
                 let pairs = eez_protocol::system_tx::build_cross_chain_sync_groups(
                     &outbound,
                     &inbound,
                     cfg,
-                    starting_nonce,
+                    &selected_native_sources,
                 )
                 .map_err(|e| {
                     DeriverError::l2_provider(format!(
@@ -2267,7 +2559,6 @@ where
                     outbound = outbound.len(),
                     inbound = inbound.len(),
                     sync_block_txs = full.len(),
-                    starting_nonce,
                     "rebuilt Sync block",
                 );
                 Some(full)
@@ -2297,7 +2588,7 @@ where
                 terminal.extra_data,
             )?;
             let terminal_inputs = ExecutionInputs::Derived(&terminal_environment);
-            self.validate_execution_inputs(from_block - 1, terminal_inputs)?;
+            self.validate_execution_inputs(from_block - 1, terminal_inputs, &terminal_prefix)?;
             // The competing batch already committed this Sync block; only the
             // entries this batch settled are new. Append them to its EXISTING
             // content rather than a fresh block — see `batch_l2_range`.
@@ -2339,14 +2630,42 @@ where
                     "resumed terminal ordinary prefix differs from V0",
                 ));
             }
-            let new_content = sync_block_txs.clone().unwrap_or_default();
-            // `ends_with`, not equality: idempotent re-derivation (e.g. after a
-            // crash between this replay and recording it) must not re-append.
-            let already_applied = !new_content.is_empty() && block_txs.ends_with(&new_content);
+            let plans = sync_block_txs.as_deref().unwrap_or_default();
             let parent = self.l2_sealed_header_at(from_block - 1)?;
+            let candidate_start = block_txs
+                .len()
+                .checked_sub(plans.len())
+                .filter(|start| *start >= terminal_prefix.len());
+            let repeated = !plans.is_empty() && candidate_start.is_some_and(|start| {
+                plans.iter().zip(&block_txs[start..]).all(|(plan, raw)| match plan {
+                    eez_protocol::system_tx::PlannedTransaction::User(expected) => expected == raw,
+                    eez_protocol::system_tx::PlannedTransaction::Native(expected) => {
+                        matches!(TransactionSigned::decode_2718_exact(raw), Ok(TransactionSigned::System(actual))
+                            if actual.source_hash == expected.source_hash())
+                    }
+                })
+            });
+            let append_at = if repeated {
+                candidate_start.expect("repeated suffix has a start")
+            } else {
+                block_txs.len()
+            };
+            let (_, _, new_content) = self.execute_block_with_plans(
+                &parent,
+                &block_txs[..append_at],
+                plans,
+                terminal_inputs,
+            )?;
+            let already_applied = repeated && block_txs[append_at..] == new_content;
+            if repeated && !already_applied {
+                return Err(DeriverError::local_diverged_with_msg(
+                    from_block,
+                    "retained native occurrence differs from exact reconstruction",
+                ));
+            }
             // This uses the actual canonical H-1 parent, never the resumed
             // entry-state prefix at H or the original ordinary count.
-            terminal_inputs.attributes(&self.inner.evm_config, &parent)?;
+            terminal_inputs.attributes(&self.inner.evm_config, &parent, &block_txs)?;
             if !self.local_block_matches(from_block, &block_txs, terminal_inputs)? {
                 return Err(DeriverError::local_diverged_with_msg(
                     from_block,
@@ -2424,13 +2743,16 @@ where
                     .transactions
                     .map(Bytes::copy_from_slice)
                     .collect::<Vec<_>>();
-                if is_sync_block && let Some(suffix) = &sync_block_txs {
-                    block_txs.extend_from_slice(suffix);
-                }
                 let environment =
                     self.derived_environment(l2_block - 1, plan.beneficiary, plan.extra_data)?;
                 let inputs = ExecutionInputs::Derived(&environment);
-                self.validate_execution_inputs(l2_block - 1, inputs)?;
+                if is_sync_block && let Some(plans) = &sync_block_txs {
+                    let parent = self.l2_sealed_header_at(l2_block - 1)?;
+                    let (_, _, suffix) =
+                        self.execute_block_with_plans(&parent, &block_txs, plans, inputs)?;
+                    block_txs.extend(suffix);
+                }
+                self.validate_execution_inputs(l2_block - 1, inputs, &block_txs)?;
                 let matched = if stale_boundary {
                     false
                 } else {
@@ -2493,7 +2815,7 @@ where
                 )
             })?;
         }
-        Ok((replayed, sync_block_hash))
+        Ok((replayed, sync_block_hash, reconcile_guard, l1))
     }
 
     fn derived_environment(
@@ -2502,15 +2824,11 @@ where
         beneficiary: Address,
         extra_data: &[u8],
     ) -> DeriverResult<eez_driver::derivation::Environment> {
-        let parent = self.l2_sealed_header_at(parent_number)?;
-        let (_, prev_randao) = self
-            .inner
-            .l1_head
-            .next_block_context(&parent)
-            .map_err(DeriverError::l2_provider)?;
+        // Validate the predecessor now; each reconstructed block selects its
+        // own scheduled source through the shared EVM configuration.
+        self.l2_sealed_header_at(parent_number)?;
         Ok(eez_driver::derivation::Environment {
             fee_recipient: beneficiary,
-            prev_randao,
             extra_data: Bytes::copy_from_slice(extra_data),
         })
     }
@@ -2519,17 +2837,35 @@ where
         &self,
         parent_number: u64,
         inputs: ExecutionInputs<'_>,
+        raw_txs: &[Bytes],
     ) -> DeriverResult<()> {
         let parent = self.l2_sealed_header_at(parent_number)?;
-        let attributes = inputs.attributes(&self.inner.evm_config, &parent)?;
-        let (timestamp, seed) = self
+        let attributes = inputs.attributes(&self.inner.evm_config, &parent, raw_txs)?;
+        let (_, timestamp) = self
             .inner
-            .l1_head
-            .next_block_context(&parent)
+            .derivation
+            .schedule()
+            .next(&parent)
             .map_err(DeriverError::l2_provider)?;
-        if attributes.timestamp != timestamp || attributes.prev_randao != seed {
+        let state = self
+            .inner
+            .l2_provider
+            .state_by_block_hash(parent.hash())
+            .map_err(DeriverError::l2_provider)?;
+        let mut db = StateProviderDatabase::new(EvmStateProviderAdapter(state.as_ref()));
+        let first = raw_txs
+            .first()
+            .map(|raw| TransactionSigned::decode_2718_exact(raw))
+            .transpose()
+            .map_err(DeriverError::l2_provider)?;
+        let transition = self
+            .inner
+            .evm_config
+            .validate_history_input(&mut db, &parent, timestamp, first.as_ref())
+            .map_err(DeriverError::l2_provider)?;
+        if attributes.timestamp != timestamp || attributes.prev_randao != transition.prev_randao {
             return Err(DeriverError::l2_provider(
-                "execution inputs differ from authenticated time/seed",
+                "execution inputs differ from authenticated time/origin",
             ));
         }
         Ok(())
@@ -2565,7 +2901,10 @@ where
             .checked_sub(1)
             .ok_or_else(|| DeriverError::l2_provider("cannot derive genesis"))?;
         let parent = self.l2_sealed_header_at(parent_number)?;
-        inputs.matches_local(&self.inner.evm_config, &parent, &block)
+        Ok(
+            inputs.matches_local(&self.inner.evm_config, &parent, &block)?
+                && self.history_matches(&SealedHeader::seal_slow(block.header().clone()))?,
+        )
     }
 
     /// Outbound calls emitted by the L2 manager from `first_transaction` onward.
@@ -2587,36 +2926,6 @@ where
                 DeriverError::l2_provider(format!("local receipts for Sync block {block} missing"))
             })?;
         extract_outbound_call_observations(&receipts, eez_l2, first_transaction)
-    }
-
-    /// SYSTEM_ADDRESS account nonce at the L2 parent block. Both
-    /// composer and deriver query this at the same block hash; reth
-    /// is deterministic so they read identical values, which makes
-    /// the native system-tx hashes byte-equal.
-    fn system_address_nonce_at(&self, parent_block_number: u64) -> DeriverResult<u64> {
-        let Some(_) = self.inner.system_tx_cfg.as_ref() else {
-            return Ok(0);
-        };
-        let parent_header = self
-            .inner
-            .l2_provider
-            .sealed_header(parent_block_number)
-            .map_err(DeriverError::l2_provider)?
-            .ok_or_else(|| {
-                DeriverError::l2_provider(format!(
-                    "local L2 header at parent {parent_block_number} missing"
-                ))
-            })?;
-        let state = self
-            .inner
-            .l2_provider
-            .state_by_block_hash(parent_header.hash())
-            .map_err(DeriverError::l2_provider)?;
-        let system_address = eez_primitives::SYSTEM_ADDRESS;
-        Ok(state
-            .account_nonce(&system_address)
-            .map_err(DeriverError::l2_provider)?
-            .unwrap_or(0))
     }
 
     /// Loud-fail if the batch's claimed commitment chain disagrees with

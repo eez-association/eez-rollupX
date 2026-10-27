@@ -4,6 +4,8 @@
 # positively check absence over the authenticated L2 settlement range.
 # topLevelStaticReentrantCounter's static entry also carries one static
 # callback to L1, which L1 executes while resolving the lookup.
+# staticLocalWrite resolves three reads under one key/root around local writes;
+# its callback attempts include the candidates rejected by their result hash.
 set -euo pipefail
 
 SCENARIO="${1:?usage: verify-l1-lookup.sh <scenario> <sol> <log> <output-json>}"
@@ -23,6 +25,7 @@ grep -Fq 'PASS: none of 1 absent key(s) appears on L2' "$SCENARIO_LOG" \
     || die "upstream absence verification is absent"
 
 callback_source=""; callback_target=""; callback_proxy=""
+result_two=""; callback_rolling_hash_two=""; callback_forward_input=""
 case "$SCENARIO" in
     topLevelStaticCounter|topLevelStaticReentrantCounter)
         grep -Fq 'PASS: posted batch static entries match expected static table' "$SCENARIO_LOG" \
@@ -38,6 +41,19 @@ case "$SCENARIO" in
             callback_proxy="$(field CALLBACK_PROXY)"
         fi
         ;;
+    staticLocalWrite)
+        grep -Fq 'PASS: posted batch static entries match expected static table' "$SCENARIO_LOG" \
+            || die "upstream static-table verification is absent"
+        source="$(field READER)"; destination="$(field QUOTE)"
+        # The scenario requires 1 -> 2 -> 1, independently of the prediction
+        # text or saved results supplied by the Composer.
+        result="$(cast abi-encode 'f(uint256)' 1)"
+        result_two="$(cast abi-encode 'f(uint256)' 2)"
+        trigger_sig='run()'; call_sig='quote()'; static=true; kind=StaticCall; success=true
+        callback_source="$destination"; callback_target="$source"
+        callback_proxy="$(cast call "$ROLLUPS" 'computeCrossChainProxyAddress(address,uint64)(address)' \
+            "$callback_source" "$ROLLUP_ID" --rpc-url "$L1_RPC")"
+        ;;
     revertCounter)
         grep -Fq 'PASS: posted batch calldata matches expected table' "$SCENARIO_LOG" \
             || die "upstream table verification is absent"
@@ -52,6 +68,8 @@ esac
 for address in "$source" "$destination"; do
     [[ "$address" =~ ^0x[[:xdigit:]]{40}$ ]] || die "invalid scenario address"
 done
+callback_sig="$call_sig"
+[[ "$SCENARIO" != staticLocalWrite ]] || callback_sig='rate()'
 callback_rolling_hash=""; proxy_query_input=""; proxy_query_output=""
 if [[ -n "$callback_target" ]]; then
     for address in "$callback_source" "$callback_target" "$callback_proxy"; do
@@ -63,11 +81,17 @@ if [[ -n "$callback_target" ]]; then
     # The untagged static fold over the one successful callback result:
     # keccak256(bytes32(0) || 0x01 || returnData).
     callback_rolling_hash="$(cast keccak "0x$(printf '%064d' 0)01${result#0x}")"
-    # The reader checks the callback proxy exists by asking the registry for its
-    # address before the read; the trace must contain exactly this query.
-    proxy_query_input="$(cast calldata 'computeCrossChainProxyAddress(address,uint64)' \
-        "$callback_source" "$ROLLUP_ID")"
-    proxy_query_output="$(cast abi-encode 'f(address)' "$callback_proxy")"
+    if [[ "$SCENARIO" == staticLocalWrite ]]; then
+        callback_rolling_hash_two="$(cast keccak "0x$(printf '%064d' 0)01${result_two#0x}")"
+        callback_forward_input="$(cast calldata 'executeOnBehalf(address,uint64,bytes)' \
+            "$callback_target" 0 "$(cast sig "$callback_sig")")"
+    else
+        # The round-trip reader queries the callback proxy before its read.
+        # staticLocalWrite has no such query in its source transaction.
+        proxy_query_input="$(cast calldata 'computeCrossChainProxyAddress(address,uint64)' \
+            "$callback_source" "$ROLLUP_ID")"
+        proxy_query_output="$(cast abi-encode 'f(address)' "$callback_proxy")"
+    fi
 fi
 trigger_hash="$(sed -n -E 's/^User tx:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG")"
 post_hash="$(sed -n -E 's/^L1 postBatch:[[:space:]]*(0x[[:xdigit:]]{64}).*/\1/p' "$SCENARIO_LOG")"
@@ -78,6 +102,12 @@ key="$(cast call "$ROLLUPS" \
     'computeCrossChainCallHash(bool,address,uint64,address,uint64,uint256,uint64,bytes)(bytes32)' \
     "$static" "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$(cast sig "$call_sig")" --rpc-url "$L1_RPC")"
 [[ "$key" =~ ^0x[[:xdigit:]]{64}$ ]] || die "invalid lookup key"
+if [[ "$SCENARIO" == staticLocalWrite ]]; then
+    local_key="$(cast keccak "$(cast abi-encode \
+        'f(bool,address,uint64,address,uint64,uint256,uint64,bytes)' \
+        true "$source" 0 "$destination" "$ROLLUP_ID" 0 0 "$(cast sig "$call_sig")")")"
+    [[ "${key,,}" == "${local_key,,}" ]] || die "lookup identity differs from canonical ABI hash"
+fi
 
 # Receipt existence is not enough: old orphan receipts can remain queryable.
 # Bind both txs to their positions in the same current canonical block.
@@ -120,7 +150,8 @@ jq -e --arg registry "${ROLLUPS,,}" --arg selector "$post_selector" \
 decoded="$(cast decode-calldata --json "$post_sig" "$(jq -er '.input' <<<"$post")")"
 entry="$(jq -ce --arg scenario "$SCENARIO" --arg key "${key,,}" --arg result "${result,,}" \
     --arg callback_source "${callback_source,,}" --arg callback_target "${callback_target,,}" \
-    --arg callback_data "$(cast sig "$call_sig")" --arg callback_rolling_hash "${callback_rolling_hash,,}" \
+    --arg callback_data "$(cast sig "$callback_sig")" --arg callback_rolling_hash "${callback_rolling_hash,,}" \
+    --arg result_two "${result_two,,}" --arg callback_rolling_hash_two "${callback_rolling_hash_two,,}" \
     --argjson rollup "$ROLLUP_ID" -f "$HERE/lookup-entry.jq" <<<"$decoded")" \
     || die "posted lookup has the wrong identity, result, root transition or nested calls"
 if [[ "$static" == false ]]; then
@@ -148,34 +179,44 @@ mkdir -p "$(dirname "$OUTPUT_JSON")"
 trace_file="${OUTPUT_JSON%.json}.lookup-trace.json"
 cast rpc debug_traceTransaction "$trigger_hash" '{"tracer":"callTracer","timeout":"30s"}' \
     --rpc-url "$L1_RPC" >"$trace_file" || die "canonical lookup trace unavailable"
-trace_evidence="$(jq -ce --arg source "${source,,}" --arg registry "${ROLLUPS,,}" \
+trace_evidence="$(jq -ce --arg scenario "$SCENARIO" --arg source "${source,,}" --arg registry "${ROLLUPS,,}" \
     --arg proxy "${proxy,,}" --arg trigger_input "$(cast sig "$trigger_sig")" \
     --arg lookup_input "${lookup_input,,}" --arg output "${trace_output,,}" --argjson static "$static" \
     --arg static_check_gas_input "$(cast sig 'STATIC_CHECK_GAS()')" \
     --arg callback_proxy "${callback_proxy,,}" --arg callback_target "${callback_target,,}" \
-    --arg callback_input "$(cast sig "$call_sig")" --arg callback_output "${result,,}" \
+    --arg callback_input "$(cast sig "$callback_sig")" --arg callback_output "${result,,}" \
+    --arg call_input "$(cast sig "$call_sig")" --arg result_two "${result_two,,}" \
+    --arg callback_forward_input "${callback_forward_input,,}" \
+    --argjson selected_candidates "$(jq -c '.selected_candidate_indices // []' <<<"$entry")" \
     --arg proxy_query_input "${proxy_query_input,,}" --arg proxy_query_output "${proxy_query_output,,}" \
     -f "$HERE/lookup-trace.jq" "$trace_file")" || die "actual registry lookup returned the wrong result/revert"
 
-[[ "$(cast call "$source" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 1 ]] \
-    || die "caller did not execute exactly once"
-if [[ "$static" == true ]]; then
-    predicted="$(cast to-dec "$result")"
-    [[ "$(cast call "$source" 'lastRead()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == "$predicted" ]] \
-        || die "reader persisted the wrong result"
-    if [[ -n "$callback_target" ]]; then
-        # The L2 forwarder cannot be called directly: its callback needs L1.
-        [[ "$(cast call "$callback_target" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == "$predicted" ]] \
-            || die "L1 producer differs from the read result"
-    else
-        [[ "$(cast call "$destination" 'counter()(uint256)' --rpc-url "$L2_RPC")" == "$predicted" ]] \
-            || die "L2 producer changed"
-    fi
+if [[ "$SCENARIO" == staticLocalWrite ]]; then
+    for read in 'rate:1' 'quoteAtRate1:1' 'quoteAtRate2:2' 'quoteAfterResetToRate1:1' 'runs:1'; do
+        [[ "$(cast call "$source" "${read%:*}()(uint256)" --block "$block_hex" --rpc-url "$L1_RPC")" == "${read#*:}" ]] \
+            || die "reader persisted the wrong local-write state (${read%:*})"
+    done
 else
-    [[ "$(cast call "$source" 'lastCallFailed()(bool)' --block "$block_hex" --rpc-url "$L1_RPC")" == true ]] \
-        || die "caller did not catch the revert"
-    [[ "$(cast call "$source" 'targetCounter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 0 ]] \
-        || die "caller recorded a successful target result"
+    [[ "$(cast call "$source" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 1 ]] \
+        || die "caller did not execute exactly once"
+    if [[ "$static" == true ]]; then
+        predicted="$(cast to-dec "$result")"
+        [[ "$(cast call "$source" 'lastRead()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == "$predicted" ]] \
+            || die "reader persisted the wrong result"
+        if [[ -n "$callback_target" ]]; then
+            # The L2 forwarder cannot be called directly: its callback needs L1.
+            [[ "$(cast call "$callback_target" 'counter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == "$predicted" ]] \
+                || die "L1 producer differs from the read result"
+        else
+            [[ "$(cast call "$destination" 'counter()(uint256)' --rpc-url "$L2_RPC")" == "$predicted" ]] \
+                || die "L2 producer changed"
+        fi
+    else
+        [[ "$(cast call "$source" 'lastCallFailed()(bool)' --block "$block_hex" --rpc-url "$L1_RPC")" == true ]] \
+            || die "caller did not catch the revert"
+        [[ "$(cast call "$source" 'targetCounter()(uint256)' --block "$block_hex" --rpc-url "$L1_RPC")" == 0 ]] \
+            || die "caller recorded a successful target result"
+    fi
 fi
 
 scratch="$(mktemp -d)"
@@ -186,8 +227,9 @@ bash "$HERE/verify-semantic-settlement-blob.sh" "$post_hash" L1 \
 # bracket to the posted settlement tables; this trigger's traced lookup
 # (scenario-unique source/destination) must be exactly one of those brackets,
 # not an unrelated transaction in an otherwise valid blob.
-jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg kind "$kind" \
+jq -e --arg scenario "$SCENARIO" --arg source "${source,,}" --arg destination "${destination,,}" --arg kind "$kind" \
     --arg data "$(cast sig "$call_sig")" --arg result "${result,,}" --argjson success "$success" \
+    --arg callback_data "$(cast sig "$callback_sig")" --arg result_two "${result_two,,}" \
     --arg callback_source "${callback_source,,}" --arg callback_target "${callback_target,,}" \
     --argjson rollup "$ROLLUP_ID" '
     def root_action: .parent_index == null and .kind == $kind and .source_chain == 0
@@ -202,7 +244,22 @@ jq -e --arg source "${source,,}" --arg destination "${destination,,}" --arg kind
       and .success == true and (.return_data | ascii_downcase) == $result and .revert_span == null;
     .semantic_evidence.semantics_bound_to_settlement == true
     and ([.payload.semantic_transactions[] | select(.origin_chain == 0 and .tx_data == "0x"
-      and (if $callback_target == "" then
+      and (if $scenario == "staticLocalWrite" then
+             .actions as $actions | [$result, $result_two, $result] as $results
+             | ($actions | length) == 6 and all(range(0; 3); . as $i
+                 | ($actions[2*$i] | .index == 2*$i and .parent_index == null
+                     and .kind == "StaticCall" and .source_chain == 0 and .target_chain == $rollup
+                     and (.from_address | ascii_downcase) == $source
+                     and (.to_address | ascii_downcase) == $destination and .value == "0"
+                     and .data == $data and .success == true and .result_kind == "ReturnSuccess"
+                     and .return_data == $results[$i] and .revert_span == null)
+                 and ($actions[2*$i+1] | .index == 2*$i+1 and .parent_index == 2*$i
+                     and .kind == "StaticCall" and .source_chain == $rollup and .target_chain == 0
+                     and (.from_address | ascii_downcase) == $callback_source
+                     and (.to_address | ascii_downcase) == $callback_target and .value == "0"
+                     and .data == $callback_data and .success == true and .result_kind == "ReturnSuccess"
+                     and .return_data == $results[$i] and .revert_span == null))
+           elif $callback_target == "" then
              (.actions | length) == 1 and (.actions[0] | root_action)
            else
              (.actions | length) == 2 and (.actions[0] | root_action) and (.actions[1] | callback_action)

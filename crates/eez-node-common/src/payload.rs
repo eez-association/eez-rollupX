@@ -14,12 +14,12 @@ use alloy_rlp::Encodable;
 use eez_driver::{BUILDER_EXTRA_DATA, BUILDER_GAS_LIMIT};
 use eez_payload_codec::BlockDaSizer;
 use eez_primitives::engine::EezBuiltPayload;
+use eez_primitives::engine::EezPayloadAttributes as EthPayloadAttributes;
 use eez_primitives::{EezPrimitives, EezTxEnvelope as TransactionSigned};
 use reth_basic_payload_builder::{
     BuildArguments, BuildOutcome, MissingPayloadBehaviour, PayloadBuilder, PayloadConfig,
 };
 use reth_chainspec::{ChainSpecProvider, EthereumHardforks};
-use reth_ethereum_engine_primitives::EthPayloadAttributes;
 use reth_ethereum_payload_builder::EthereumBuilderConfig;
 use reth_evm::{ConfigureEvm, NextBlockEnvAttributes};
 use reth_node_api::{FullNodeTypes, NodeTypes, PrimitivesTy, TxTy};
@@ -213,6 +213,15 @@ where
                 .best_payload
                 .filter(|p| ordinary_block_da_bound(p.block()) <= limit);
         }
+        let mut initial_size = BlockDaSizer::new(BUILDER_EXTRA_DATA);
+        if let Some(raw) = &args.config.attributes.history_transaction {
+            use alloy_eips::Decodable2718 as _;
+            let tx = TransactionSigned::decode_2718_exact(raw)
+                .map_err(|err| data_build_error(err.to_string()))?;
+            initial_size = initial_size
+                .with_transaction(&alloy_rlp::encode(tx))
+                .map_err(|err| data_build_error(err.to_string()))?;
+        }
         let outcome = crate::payload_builder::build_payload(
             self.evm_config.clone(),
             self.client.clone(),
@@ -224,7 +233,7 @@ where
                     None => transactions,
                     Some(limit) => Box::new(DaTransactions {
                         inner: transactions,
-                        size: BlockDaSizer::new(BUILDER_EXTRA_DATA),
+                        size: initial_size,
                         limit,
                         previous: None,
                     })

@@ -1,0 +1,89 @@
+{
+  "source_commit": "d1838526480b89651f759d34e27bfbcfca43fb55",
+  "compile_started_from_head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_sha256": {
+    "Cargo.lock": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "crates/eez-node-common/Cargo.toml": "8fed0a969c17483a09e177e62b6c3629dd32f869983a603df6e5f04e4aea6b85",
+    "crates/eez-node-common/src/rpc.rs": "0ac31391f60046d9d4867449b625afc7c5c7e0cb7ce3fdc8e55d580b73e07989",
+    "crates/eez-node-common/src/rpc/pending.rs": "b49a0af32d69dcdee043113ad5d08933e815ed15f5938462b20270b8a7db83c1",
+    "crates/eez-node-e2e/tests/e2e.rs": "e5686c59473ca18cee444261d1268371f45424ab43e56fae4207c54d3ce19287",
+    "crates/eez-control-rpc/src/identity.rs": "c729b110ee1ab5f4bfcf5606f0b6c18af066dfd403efd72a16c81a36d5e6617f",
+    "contracts/L1_HISTORY_SPEC.md": "39cc82e5e1fe238321d8acb4f5a552fd314fcc17b315d61ae59071bd96bde719"
+  },
+  "test": {
+    "name": "e2e::pending_history_import_requires_executed_state",
+    "command": "timeout --kill-after=30s 300s bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\" <retained-node_e2e-cutoff-reader> e2e::pending_history_import_requires_executed_state --exact --nocapture --test-threads=1",
+    "started_at": "2026-10-24T12:09:45.023452+00:00",
+    "finished_at": "2026-10-24T12:09:55.173271+00:00",
+    "exit_code": 0,
+    "test_seconds": 9.78,
+    "passed": 1,
+    "failed": 0,
+    "ignored": 0,
+    "filtered_out": 178,
+    "rpc_blocking_permits": 1,
+    "signer_no_network": true,
+    "signer_validated_l2_blocks": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ]
+  },
+  "executables": {
+    "eez-follower": "ac7806064e9fa6f77d4bf44513db4b4e253b593165a8b194ea411b9da1e4be2a",
+    "eez-composer": "d051a6c7eba99d8627e804c297d6268c357196e84127548c05cc49d4735ef8b3",
+    "eez-proof-signer": "2e8bafcd0c8efcde1f572900bfff200432c7ac16a26a0df4765bda875890bb2f",
+    "node_e2e": "ed039f2878f21b6a8e1ca7c1f173f1c02085e583ec2ae78d3e4b0fe2caf5f35b"
+  },
+  "test_rebuild": {
+    "exit_code": 0,
+    "cargo_seconds": 43.33,
+    "only_compiled_package": "eez-node-e2e",
+    "production_executable_hashes_unchanged": true
+  },
+  "coverage": [
+    "Public HTTP call, estimateGas and createAccessList on a stable parent at the scheduled history-import position",
+    "Positional, snake_case and camelCase parameter parity; explicit latest/hash and default-tag controls",
+    "Selected L1 origin/hash with PREVRANDAO and advanced next-cutoff state",
+    "Explicit state/block overrides applied after history, including number/time/randao without rescheduling history",
+    "Counter constructor pending estimate equals latest; application reverts propagate",
+    "At most one blocking RPC worker permit, avoiding nested acquisition deadlock"
+  ],
+  "unit_checks": {
+    "node_common_default_passed": 15,
+    "node_common_l1_startup_passed": 31,
+    "control_rpc_passed": 7,
+    "focused_clippy": "passed"
+  },
+  "feature_comparison": {
+    "external_normal_build_rows": 909,
+    "added": 0,
+    "removed": 0
+  },
+  "first_process_failure_record": "pending-rpc-process-first-failure.json",
+  "limits": [
+    "Initial process failure was a corrected test-only nonexistent getter, retained separately; no flake classification",
+    "Public HTTP exercised; WS/IPC registration reviewed through shared modules, without separate transport probes",
+    "Already-executed pending payload branch retains Reth delegation; no controlled process fixture holds one open",
+    "Focused process does not sign/settle a new batch or independently replay a follower; broader baseline and shipping/live validation are separate tracks",
+    "Engine-auth eth_call, simulate/debug retain their previous fail-closed fallback and are outside this adapter",
+    "Earlier global-OOM build and serial-monitor TERM are retained; Cargo reported build-finished success for the serial role build"
+  ],
+  "local_only_logs_sha256": {
+    "artifacts/pr-readiness/pending-rpc/unit-default.log": "50076ab0f60f55cee5f7825343275fbe7200a0c3d88209a8d1bdd1ca77214007",
+    "artifacts/pr-readiness/pending-rpc/unit-final.log": "7f2bf2b6f096932a0e415922ffea364f5b114850d29ec7bd426df71016a902ca",
+    "artifacts/pr-readiness/pending-rpc/clippy-2.log": "e1633016f4d7903f596b5a8419cb0c7ddcc999e642a79c80b5e9233353defe50",
+    "artifacts/pr-readiness/pending-rpc/e2e-build-serial.jsonl": "b518c02e31b38a3f3cb9ddab3f1ecaf568e6f0d3fc43960741522ba252b31739",
+    "artifacts/pr-readiness/pending-rpc/e2e-build-serial.log": "8436d65e7377a2536ecfce03dbe4fa4f84c25ba66d900872e2e582c6c6c15a38",
+    "artifacts/pr-readiness/pending-rpc/e2e-build-memory.jsonl": "58285a59f1e9722beee0610ba644018fef702d29a39e35d4e2ceaad4203d21b4",
+    "artifacts/pr-readiness/pending-rpc/e2e-build-memory-resumed.jsonl": "7459f577f9cfc55544c2f16a72f49d5b61e65ceeb32896fc6c5c63b52204a133",
+    "artifacts/pr-readiness/pending-rpc/e2e-probe-build.log": "4af485508bec95557bc8e85273345d9261a763280992b7d9df951e6951998b42",
+    "artifacts/pr-readiness/pending-rpc/e2e-probe-build-result.json": "b8cbe7ed5b7afad274378d83da7554c08f311836d2ba08ff90f6dda4fc59c72f",
+    "artifacts/pr-readiness/pending-rpc/feature-comparison.json": "9b48e73fa660640da3515c991be132e705c592f9f421e32d4a230833d4b0baa9",
+    "artifacts/pr-readiness/pending-rpc/process-cutoff-reader/test.log": "debf96c0a7384f52ce6a61d2b57b134fb86c42ec9ac8b969c3be8e62c6e8bd4d",
+    "artifacts/pr-readiness/pending-rpc/process-cutoff-reader/result.json": "fb9e0664bd433a3ecab04b05b0f801f5b60d638fd4f87d7248ddbd8b2978d66e"
+  }
+}

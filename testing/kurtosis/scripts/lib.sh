@@ -59,10 +59,17 @@ raw_transaction_for() { # <rpc> <hash> <scratch directory> → signed envelope
 }
 
 yaml_value() { # <key> → scalar from the kurtosis args file
+    local value
     # `-m1` not `| head -1`: head closes the pipe, grep takes SIGPIPE, and
     # pipefail then fails the whole pipeline.
-    grep -m1 -E "^[[:space:]]*$1:" "${KURTOSIS_ARGS_FILE:-$K/args.yaml}" 2>/dev/null \
-        | sed -E 's/^[^:]*:[[:space:]]*//; s/[[:space:]]*#.*$//; s/^"//; s/"$//'
+    value=$(grep -m1 -E "^[[:space:]]*$1:" "${KURTOSIS_ARGS_FILE:-$K/args.yaml}" 2>/dev/null \
+        | sed -E 's/^[^:]*:[[:space:]]*//; s/^#.*$//; s/[[:space:]]+#.*$//; s/[[:space:]]+$//') || return 1
+    # Callers read simple booleans and integers. Accept either YAML quote
+    # style, but do not turn a mismatched quote into an enabled setting.
+    case "$value" in
+        \"*\"|\'*\') value="${value:1:${#value}-2}" ;;
+    esac
+    printf '%s\n' "$value"
 }
 
 fee_collection_enabled() { # in|out; workload expectation from the selected profile

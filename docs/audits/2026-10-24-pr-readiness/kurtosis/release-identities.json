@@ -1,0 +1,79 @@
+{
+  "profile": "release",
+  "target_selection": "Dockerfile.runtime shipping packages/binaries/examples, one cargo build, --locked --timings; no test targets or --all-features",
+  "source_manifest_sha256": "857921af067dc927f262da0ca41bd80fb635c0dcda9bd97860e36f6820996b6a",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_head": "3e23955dc477c9e675364776f118b1cecda75774 plus final uncommitted patch",
+  "binaries": {
+    "e2e-causal-verify": {
+      "sha256": "7833f22492f6fb99487b6e7556307f471cb09363838cf940134bd7bc242e739a",
+      "size": 833656
+    },
+    "eez-composer": {
+      "sha256": "8588ed98bd8b2e2219a21707bc2bad8a5d57ae3a4520d482606cecf644bea315",
+      "size": 195642200
+    },
+    "eez-follower": {
+      "sha256": "cbb17b45bc904a323d946f620a973189540c3da6ea2fb857c71499e4447353ce",
+      "size": 159798040
+    },
+    "eez-genesis-block-hash": {
+      "sha256": "f4b0ab7f61495df6c1b86b001552fa3ab2c529c159bf328de29661507700997c",
+      "size": 3316016
+    },
+    "eez-genesis-state-root": {
+      "sha256": "768f34aa7a1c47e19f6dd883efac6072a373be8a7823f5fb6a9a82c1ed896165",
+      "size": 925944
+    },
+    "eez-proof-signer": {
+      "sha256": "49cb9f259ddde79427a4197eb91f4e1b70dc3b756f3a247fdf4adebccfccf50a",
+      "size": 17499480
+    },
+    "verify_blob_evidence": {
+      "sha256": "eab594596d172ea907d6fab71c921e7fbbe68bb1203613cc4274b287e15d396d",
+      "size": 9755768
+    }
+  },
+  "images": {
+    "eez-native-runtime:native-v1-review-20261024": {
+      "id": "sha256:e5b59d7c48b444c929aa002429abd5068247c5c650115f7477989fa140be329f",
+      "created": "2026-10-24T10:17:59.377797464Z",
+      "repo_digests": [
+        "eez-native-runtime@sha256:e5b59d7c48b444c929aa002429abd5068247c5c650115f7477989fa140be329f"
+      ]
+    },
+    "eez-node:native-v1-review-20261024": {
+      "id": "sha256:446ff3ba0fdd06a8bde319b8ff71ea9a02a3ad53727ab0ef4aaa2826b647300b",
+      "created": "2026-10-24T10:18:33.370831033Z",
+      "repo_digests": [
+        "eez-node@sha256:446ff3ba0fdd06a8bde319b8ff71ea9a02a3ad53727ab0ef4aaa2826b647300b"
+      ]
+    },
+    "eez-proof-signer:native-v1-review-20261024": {
+      "id": "sha256:43991a5f289dbb55d774c843157656c0793a50194eeb9e88e62ab435236c5e2f",
+      "created": "2026-10-24T10:18:45.850816775Z",
+      "repo_digests": [
+        "eez-proof-signer@sha256:43991a5f289dbb55d774c843157656c0793a50194eeb9e88e62ab435236c5e2f"
+      ]
+    },
+    "eez-deploy:native-v1-review-20261024": {
+      "id": "sha256:2d235cc001568b48ac3be03bb65ad37d9521c0d31e4ad1d203c137a0ef441173",
+      "created": "2026-10-24T10:35:44.292311013Z",
+      "repo_digests": [
+        "eez-deploy@sha256:2d235cc001568b48ac3be03bb65ad37d9521c0d31e4ad1d203c137a0ef441173"
+      ]
+    }
+  },
+  "package_byte_comparisons": "all node/signer/deploy executables exactly match the one shipping bundle",
+  "deploy_packaging_correction": {
+    "runtime_sha256": "0e8a8f4671d83bd3416500fb606b73b1208083b9c1eece16085bf52eddde4bb1",
+    "dockerfile_sha256": "50ac869c4db92d634bea92b47415cb4025e7f7300b6f783b7c1c3f7a85cc106f",
+    "change": "copy generated history runtime required by --render; no Rust/contract/bytecode changes",
+    "image_runtime_and_helpers_byte_identical_to_source_and_release_bundle": true,
+    "source_manifest_sha256": "aae52f8506680ee89c6c977ebe88a5470b30564734a9e27f4ab63afee949d0be",
+    "dockerignore_sha256": "1353b8adef9a54b6a69cba39c6b99b4be857e4698e16d6a9675756d7e34338a1",
+    "producer": "actual testing/kurtosis/Dockerfile.deploy and adjacent dockerignore in a clean source copy; exact content manifest retained",
+    "permission_fix": "timestamped base preserves GENESIS_BASE mode; signer remains non-root",
+    "context_probe": "real BuildKit exported identical runtime bytes using production ignore"
+  }
+}

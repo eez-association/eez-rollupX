@@ -1,0 +1,424 @@
+{
+  "status": "local_review_and_targeted_validation_complete",
+  "recorded_at_utc": "2026-10-23T11:38:28.140188+00:00",
+  "source": {
+    "branch": "codex/l1-history-offline-proving",
+    "parent_commit": "b6dca63a2c956ddba82ed2874c9286e4b91a146e",
+    "integration_base": "8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd",
+    "main_base": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+    "streaming_dependency": "00fe7bc2541a56f26f088d0a7baf567dac5059de",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "protocol_branch": "feature/e2e_edge_cases",
+    "protocol_clean": true,
+    "changed_source_sha256": {
+      ".gitmodules": "5e20d60ca333fc1a088dac47e3c1f6743b2a3f7bd1d62f7bbd02c7b402744558",
+      "AGENTS.md": "3c265720ce7929de4d8c6e830a13f34269bc44aebc3b00aa05afe9b6837f5b15",
+      "contracts/L1_HISTORY_SPEC.md": "849546e78680d821c3b6512bff516963c8f120de77d7c34fc8fede919d2cc9c2",
+      "contracts/script/RegisterRollup.s.sol": "79db2fdb651b4eb252ba5eb8e0ad647acec59bb5f82f7efd4bdf06d976c715d8",
+      "contracts/src/L2/L1BlockhashContract.sol": "a8afe0b56c49802f704d32ecf8342edf45583d78e96bb7f6439cf4805df47f41",
+      "contracts/src/OfflineHistoryProbe.sol": "90f9e0c12fb4a81377312791407aaa1e764f5c2b86494d5e29e46e4714437b50",
+      "contracts/src/OfflineRollup.sol": "e32e22e0ab002d095d26ee6b1b3aa9c7805aede1277a1c1f4aced681ad065f4f",
+      "contracts/test/L1BlockhashContract.t.sol": "1d6cf1b89d16aa49c41bea2b3ecfe09c34ae8487517343d9b091e99a7d02c590",
+      "contracts/test/L1StorageProof.t.sol": "88a8fd1387b3fde3795535ae66ffb9da5aa81f9108293c2e28c6096889d24152",
+      "contracts/test/L1StorageProofEip1186.t.sol": "c807f964efa280ec1f217043b7643a998c3e82af34544a83cfbb822bc9223c4b",
+      "contracts/test/OfflineRollup.t.sol": "c0cd53bfaf66932b7d29841a8ac98e6c34533abe8b0f0f7434f827c70bfdcaff",
+      "crates/eez-composer/src/composer/estimate/deployment.rs": "d3a51f5b1d11d0e730310e0326e90dd9e1dfa930d2f8235d82d363f756a6b346",
+      "crates/eez-composer/src/composer/estimate/testdata/offline-rollup.hex": "e9982b5d75cafd7c4e3460348d5c4cffe33720e056a9e16b48cfcd726aebb519",
+      "crates/eez-control-rpc/conformance/check_vectors.py": "eeff33e19ecf4a3c29b844936fc665158e16f3134f9138396bc700e2fede421c",
+      "scripts/update-eezl2-genesis.sh": "a9b6145f33c2bcf388b05cab1c84566d49005911f9c64ce21518fa837acc2714"
+    },
+    "identity_note": "Parent commit plus these source/config/test hashes identify the validated implementation; audit/proposal prose is excluded to avoid self-referential hashes."
+  },
+  "environment": {
+    "rust": "1.95.0",
+    "foundry": "1.7.1",
+    "solidity": "0.8.34",
+    "optimizer_runs": 1,
+    "via_ir": true,
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "CARGO_BUILD_JOBS": 1,
+    "TMPDIR": "$PWD/artifacts/tmp",
+    "dependencies": "--locked; no dependency changes",
+    "tooling_note": "The local-only mktemp shim redirects absolute /tmp/ templates into the owned TMPDIR because the host /tmp quota is exhausted."
+  },
+  "checks": {
+    "public_protocol_fetch": {
+      "command": "git -C artifacts/validation/review-protocol-remote.git fetch https://github.com/eez-association/eez-core-protocol.git 84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/validation/pr-protocol-public-fetch.log",
+        "sha256": "9b40f9673d6def267059a60eea7240a6d5661797298a2fa0767a5cbb156081f0",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "integration_contracts": {
+      "command": "forge test --root contracts",
+      "exit_code": 0,
+      "passed": 120,
+      "failed": 0,
+      "skipped": 0,
+      "suites": 15,
+      "log": {
+        "path": "artifacts/validation/pr-protocol-contracts-final.log",
+        "sha256": "76be721f8d548173c17ab6da1e84724ea2bf6eb0e250717ed339ddd0b4816487",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "core_contracts": {
+      "command": "forge test --root eez-core-protocol --no-match-path 'script/*' --no-match-test 'test_Doc_OriginalValue_SeedInSetup|test_PostCost_Incremental'",
+      "exit_code": 0,
+      "passed": 778,
+      "failed": 0,
+      "skipped": 3,
+      "suites": 63,
+      "excluded": [
+        "script/*",
+        "test_Doc_OriginalValue_SeedInSetup",
+        "test_PostCost_Incremental"
+      ],
+      "skipped_tests": [
+        "testForkL1UpgradeAndRepeat",
+        "testForkL2UpgradeAndRepeat",
+        "testForkRejectsWrongSigningKey"
+      ],
+      "log": {
+        "path": "artifacts/validation/pr-protocol-core.log",
+        "sha256": "671ae51baba9a0b4280c94814019c1884a54795aef49411e1787ff0caca04af9",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "genesis": {
+      "command": "bash scripts/update-eezl2-genesis.sh --check",
+      "exit_code": 0,
+      "artifacts_unchanged": true,
+      "state_root": "0xfe1ff3f82c1f2b42fb8fdb1d72d5698282e55e609075fa7f572af8b0d2798817",
+      "log": {
+        "path": "artifacts/validation/pr-protocol-genesis.log",
+        "sha256": "13aaef2881680727a262a2e6d179907b681847d85552339d03f276352a7f5447",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "protocol_anvil": {
+      "command": "BASE_PORT=20000 BASE_CHAIN_ID=71337 bash scripts/ci/run-protocol-anvil.sh",
+      "exit_code": 0,
+      "passed": 64,
+      "failed": 0,
+      "not_run": 0,
+      "port_preflight": "20000 through 20127 unoccupied before launch",
+      "log": {
+        "path": "artifacts/validation/pr-protocol-anvil-final.log",
+        "sha256": "6aa97f77a053301d36ec0a4959f5f01ec79b108302a43e02b4fbed7252046787",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "python_tooling": {
+      "command": "python3 -m unittest discover -s scripts/ci/tests -v",
+      "exit_code": 0,
+      "total": 395,
+      "passed": 387,
+      "skipped": 8,
+      "failed": 0,
+      "log": {
+        "path": "artifacts/validation/pr-tooling-tests-owned-tmp.log",
+        "sha256": "2325d631e5f80abc81f473780a26e2aa8b702060228cce288c39395eab5a223a",
+        "availability": "local-only; raw artifact is not committed"
+      },
+      "skipped_tests": [
+        "test_scratch_payload_copies_out_without_execution_or_permission_loss (test_ci_payload.DockerPayloadTest.test_scratch_payload_copies_out_without_execution_or_permission_loss) ... skipped 'opt-in real data-only Docker image'",
+        "test_overrides_apply_before_creation_and_preserve_memory_and_command (test_kurtosis_ci.RealRelayResourcesTest.test_overrides_apply_before_creation_and_preserve_memory_and_command) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_readiness_wait_blocks_the_following_instruction_until_ready (test_kurtosis_ci.RealRelayResourcesTest.test_readiness_wait_blocks_the_following_instruction_until_ready) ... skipped 'set EEZ_TEST_KURTOSIS_RESOURCES=1 for an isolated real Kurtosis probe'",
+        "test_real_producer_and_all_consumers_without_build_machine_or_compiler (test_native_artifacts.NativeRelocationTest.test_real_producer_and_all_consumers_without_build_machine_or_compiler) ... skipped 'set EEZ_TEST_NATIVE_ARCHIVE=1 for real tiny-workspace relocation'",
+        "test_real_build_and_same_job_execution (test_runtime_docker.RuntimeDockerTest.test_real_build_and_same_job_execution) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_repository_source_context_preserves_genesis (test_runtime_docker.RuntimeDockerTest.test_repository_source_context_preserves_genesis) ... skipped 'set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images'",
+        "test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail (test_secret_scan.SecretScanTest.test_public_fixture_is_allowed_but_new_keys_and_inline_suppressions_fail) ... skipped 'requires Gitleaks (installed by CI)'",
+        "test_reviewed_values_are_scoped_to_exact_values_and_paths (test_secret_scan.SecretScanTest.test_reviewed_values_are_scoped_to_exact_values_and_paths) ... skipped 'requires Gitleaks (installed by CI)'"
+      ]
+    },
+    "rust_workspace_non_process": {
+      "command": "cargo +1.95.0 test --locked --workspace --exclude eez-node-e2e --no-fail-fast -- --test-threads=1",
+      "exit_code": 0,
+      "totals": {
+        "passed": 1564,
+        "failed": 0,
+        "ignored": 3,
+        "measured": 0,
+        "filtered": 0
+      },
+      "nonempty_targets": 22,
+      "empty_targets": 20,
+      "ignored_tests": [
+        "test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions",
+        "test service::sessions::tests::vectors::regenerate_offline_vectors ... ignored, explicit frozen fixture generation; see conformance/README.md",
+        "test service::tests::derivation::captured::inventory_native_proving_fixtures ... ignored, explicit local native-fixture inventory utility"
+      ],
+      "frozen_v2_real_replay": {
+        "passed": 29,
+        "tests": [
+          "baseline_lookup",
+          "baseline_static",
+          "begin_boundaries",
+          "block_boundaries",
+          "block_quota",
+          "byte_quota",
+          "cancel_session_isolation",
+          "competing_branches",
+          "concurrent_composers",
+          "detached_session_eviction",
+          "finalize_byte_quota",
+          "finalize_ranges",
+          "frame_size_limit",
+          "half_close_drains",
+          "invalid_witness_retry",
+          "pipelined_gap_recovery",
+          "posting_context_boundaries",
+          "resume_after_proof",
+          "resume_boundaries",
+          "resume_takeover_fencing",
+          "rewind_boundaries",
+          "settlement_abi_binding",
+          "settlement_blob_encoding",
+          "settlement_required_inputs",
+          "sync_range_proof",
+          "stream_capacity",
+          "subrange_promoted_anchor",
+          "terminal_before_tip",
+          "witness_quota"
+        ]
+      },
+      "manager_recognition_green": "fingerprint_recognizes_offline_manager_and_rejects_changed_execution",
+      "log": {
+        "path": "artifacts/validation/pr-workspace-non-process.log",
+        "sha256": "059129b052cb2e09de840cb0fcf1ae7d508337ee1804b8386da9b26cd4890c21",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "clippy": {
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/validation/pr-clippy.log",
+        "sha256": "b9bb5d032e2f2006a7a385c3a72af667c76bf36a25f7172b658f592b66070053",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "shipping_target_build": {
+      "command": "cargo +1.95.0 build --locked -p eez-node -p eez-follower -p eez-proof-signer -p eez-protocol -p eez-l1 --bin eez-composer --bin eez-follower --bin eez-proof-signer --example genesis_state_root --example genesis_block_hash --example e2e-causal-verify --example verify_blob_evidence",
+      "exit_code": 0,
+      "profile": "debug with production feature selection; not a release artifact",
+      "log": {
+        "path": "artifacts/validation/pr-production-target-build.log",
+        "sha256": "f21135e50174b2c49f7b6d70ce8084b79f0caf8e0802c0f52a1d117c334b0b37",
+        "availability": "local-only; raw artifact is not committed"
+      },
+      "executable_hashes": {
+        "target/debug/eez-composer": "e3111c25b492ac7b7c29029ba2d0a012259be3f7c7b5f122c6ca4b20d141a7a4",
+        "target/debug/eez-follower": "4198cdfa2b3444e72a5aa621acd8a130fa888a007c68af37ee9954df96e09231",
+        "target/debug/eez-proof-signer": "b109a3eeec6a75a027c7858e9be1e7f40a9b7ea6d23359f9cb0dd1bb5d8e8eb6"
+      }
+    },
+    "rust_fmt": {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "exit_code": 0,
+      "log": {
+        "path": "artifacts/validation/pr-rust-fmt.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    "static_semantics": {
+      "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+      "protocol_clean": true,
+      "policy_body_exact_matches": {
+        "checkProofSystemsAndGetVkeys": true,
+        "addProofSystem": true,
+        "removeProofSystem": true,
+        "updateVerificationKey": true,
+        "setThreshold": true,
+        "setRoot": true,
+        "_addProofSystem": true,
+        "_setThreshold": true
+      },
+      "context_body_exact_matches_except_getter_cast": {
+        "getCustomData": true,
+        "l1RulesId": true
+      },
+      "history_source_unchanged": true,
+      "initializer_abi": [
+        "initializeOffline"
+      ],
+      "runtime_fixture_matches_artifact": true
+    },
+    "manager_fingerprint": {
+      "runtime_length": 6425,
+      "executable_length": 6372,
+      "immutable_offsets": [
+        475,
+        1347,
+        3983,
+        5042
+      ],
+      "normalized_hash": "0xe0310dfcc22746298e094a3022dfd88c010d61b198c74d3fc3ef437499e517bd"
+    },
+    "native_process": {
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- derivable_operations::multipart:: cross_chain::minimal_bidirectional_cross_chain_smoke cross_chain::real_signer_rejects_tampered_post_batch_calldata cross_chain::nested_creation::ethereum_nested_create2_fee_quotes_settle_and_replay partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent --skip four_days --test-threads=1",
+      "exit_code": 0,
+      "outcome": {
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0,
+        "measured": 0,
+        "filtered": 171
+      },
+      "seconds": 715.09,
+      "selection": [
+        "cross_chain::minimal_bidirectional_cross_chain_smoke",
+        "cross_chain::nested_creation::ethereum_nested_create2_fee_quotes_settle_and_replay",
+        "cross_chain::real_signer_rejects_tampered_post_batch_calldata",
+        "derivable_operations::multipart::bounded_parts_use_cold_offline_signers_and_public_replay",
+        "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+        "partial_consumption::restart_after_partial_keeps_accounting_and_rebuilds_intent",
+        "partial_consumption::valid_blob_batch_resumes_at_middle_group_in_same_l1_block"
+      ],
+      "environment": {
+        "unset": [
+          "EEZ_TEST_PREBUILT",
+          "EEZ_TEST_RUNTIME_BIN_DIR",
+          "EEZ_TEST_PROOF_SIGNER_BIN"
+        ],
+        "EEZ_TEST_PROOF_SIGNER_NO_NETWORK": "1",
+        "EEZ_TEST_LOG_DIR": "$PWD/artifacts/native-e2e/logs",
+        "EEZ_TEST_DATADIR_DIR": "$PWD/artifacts/native-e2e/datadirs",
+        "RUSTUP_TOOLCHAIN": "1.95.0"
+      },
+      "log": {
+        "path": "artifacts/validation/pr-native-process.log",
+        "sha256": "c79f57ec1aab8902cf8f68c7ea5572940c3e2487ffe0041bb4b58026d22879e8",
+        "availability": "local-only; raw artifact is not committed"
+      },
+      "test_executable": {
+        "path": "target/debug/deps/node_e2e-969bf1dbfc9e03d4",
+        "sha256": "20716a3dee17e5ce04ae0f56cedf50f91aceba1658f54eeee5cd47e15d4c86f9"
+      },
+      "roles_after_production_feature_build": {
+        "target/debug/eez-composer": "e3111c25b492ac7b7c29029ba2d0a012259be3f7c7b5f122c6ca4b20d141a7a4",
+        "target/debug/eez-follower": "4198cdfa2b3444e72a5aa621acd8a130fa888a007c68af37ee9954df96e09231",
+        "target/debug/eez-proof-signer": "b109a3eeec6a75a027c7858e9be1e7f40a9b7ea6d23359f9cb0dd1bb5d8e8eb6"
+      },
+      "roles_executed_by_process_tests": {
+        "target/debug/eez-composer": "56b0687d82181b19730079d5ef20b9cb0e39b0687cd785dddaa7bba21d8736f8",
+        "target/debug/eez-follower": "08a25b7455951b4c9e1e60996ef5f20d41f6680c442d2b86cdf5524c4320efb4",
+        "target/debug/eez-proof-signer": "6aae8d9e32b037d5542d86b5657795a2d5e03eb61fa879ab306aa7465b369956"
+      },
+      "identity_note": "The source-based test build and the standalone signer build select their own dependency feature graphs and replace the un-hashed role executables. All three post-test hashes differ from the preceding production-feature build, and both identities are retained. These are source-based debug process results, not execution evidence for the shipping-feature or release artifacts. Exact-revision shipping artifact validation remains a CI gate.",
+      "network_denial": true,
+      "coverage_assertions": [
+        "Both anchor modes and the configured delay/PREVRANDAO schedule are exercised in bounded parts.",
+        "The expired-source case executes 2,000 L2 blocks in four 500-block parts and asserts the terminal source in its first part is more than 256 L1 blocks old.",
+        "The manager rejects that unavailable old anchor; complete ancestry to a recent anchor allows settlement.",
+        "Fresh network-denied signer processes validate each part; missing selected or bridge-only header evidence rejects without an attestation.",
+        "The independently started follower compares every L2 block hash, state root and PREVRANDAO, all permanent imported L1 hashes, and 32 ordinary application observations across an L1 rule transition.",
+        "Nested CREATE2 fee quotes retain settlement and replay assertions; tampered ABI calldata reaches the real signer and is rejected.",
+        "Partial consumption requires root-bound proof updates; same-block middle-group resumption and restart accounting are exercised."
+      ],
+      "coverage_source": {
+        "path": "crates/eez-node-e2e/tests/derivable_operations/multipart.rs",
+        "sha256": "3c4083fabc6504b8f724de0d36e6e42bc291eba7cc030fd011ac94f30995277b"
+      },
+      "evidence_note": "The log retains test selection and results. Successful test checkpoint stdout is captured by libtest; coverage above describes the executed assertions, not independently retained per-part timing measurements."
+    },
+    "final_documentation": {
+      "markdown_files": [
+        "AGENTS.md",
+        "contracts/L1_HISTORY_SPEC.md",
+        "docs/audits/2026-10-22-l1-history-offline-proving/README.md",
+        "docs/audits/2026-10-22-l1-history-offline-proving/coverage.md",
+        "docs/audits/2026-10-23-offline-proving-pr-readiness/README.md",
+        "docs/proposals/l1-origin-and-offline-proving.md"
+      ],
+      "checked_local_links": 127,
+      "shell_blocks": 6,
+      "shell_script": "scripts/update-eezl2-genesis.sh",
+      "shell_script_exit_code": 0,
+      "git_diff_check_exit_code": 0,
+      "issues": [],
+      "limitation": "Local path resolution and shell syntax only; this does not execute procedures or validate Markdown fragment anchors."
+    },
+    "solidity_format": {
+      "command": "forge fmt --check --root contracts",
+      "exit_code": 0,
+      "evidence": "Completed before native validation; unchanged Solidity source hashes are recorded above."
+    },
+    "conformance_integrity": {
+      "command": "python3 crates/eez-control-rpc/conformance/check_vectors.py",
+      "exit_code": 0,
+      "verified_vectors": 29,
+      "evidence": "Static manifest/schema/fixture check; the separate workspace run replays every case against fresh real services."
+    }
+  },
+  "corrected_initial_failures": [
+    {
+      "reason": "Three integration imports referenced the former core history path. Corrected to the local path.",
+      "log": {
+        "path": "artifacts/validation/pr-protocol-contracts.log",
+        "sha256": "a9378d4d26c4157fc32b1b49876c2bf74f293e53681673fb2d159e81325d720c",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    {
+      "reason": "The new test tried to deploy an empty-initialized proxy, which current OpenZeppelin rejects. Corrected to the locked implementation and atomically initialized proxy.",
+      "log": {
+        "path": "artifacts/validation/pr-protocol-contracts-fixed.log",
+        "sha256": "ab5404d3a1f55532f19cccf93fd9d0d58d8ea5900d5c7a726f7bbfb9003f6b67",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    {
+      "reason": "New manager fixture with the old fingerprint reproduced fail-closed recognition. Updating the exact executable fingerprint fixes it. This intermediate red/green comparison does not imply a baseline failure with its own artifact.",
+      "log": {
+        "path": "artifacts/validation/pr-manager-recognition-red.log",
+        "sha256": "ffc993ea53adf672464d30a3f606c28ffe7e4ff4cfa2c0477b4e69057b4f442c",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    {
+      "reason": "Host /tmp quota caused 41 failures and 13 errors. The successful run redirects absolute temporary templates; assertions are unchanged.",
+      "log": {
+        "path": "artifacts/validation/pr-tooling-tests.log",
+        "sha256": "479eb2291529e52c18baf376d68a752f935a1c4eb5110d5b141e97f5c5c2a21d",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    },
+    {
+      "reason": "Owned Anvil runner stopped after finding an occupied port later in the candidate range; two scenarios used free ports before termination. Final suite used a preflight-checked disjoint range.",
+      "log": {
+        "path": "artifacts/validation/pr-protocol-anvil.log",
+        "sha256": "407106d5c4ecb56ce9ee9dac2e1f3e414a3bc8969e609333f86aa5742a4ea736",
+        "availability": "local-only; raw artifact is not committed"
+      }
+    }
+  ],
+  "remaining_limits": [
+    "The entire native matrix is not repeated at this revision; previous full-run failures and their separate fixes remain in the earlier dated audit.",
+    "Optional four-day stress is not an acceptance requirement and was not repeated.",
+    "Public deployment, live fork coverage, Kurtosis/PBS and CI release-artifact matrix/publication/promotion are not covered.",
+    "Authorized ECDSA attestation remains the backend; these results do not establish ZK proving, L1 finality, or existing-network upgrade compatibility.",
+    "Eight Python tooling checks are skipped, including real image/Kurtosis probes and two checks requiring CI-installed Gitleaks; three core live-fork cases and the documented core exclusions are not coverage."
+  ],
+  "completed_at_utc": "2026-10-23T11:51:40.487639+00:00",
+  "tools": {
+    "anvil": {
+      "path": "/home/edu/.foundry/bin/anvil",
+      "sha256": "10c1c727d6c1de973aeb160e59875b9a9a23464d6e74149ee8abb30b3500311b"
+    },
+    "forge": {
+      "path": "/home/edu/.foundry/bin/forge",
+      "sha256": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+    }
+  },
+  "final_review": {
+    "findings_remaining_in_reviewed_patch": [],
+    "review_note": "Fresh self-review, not an independent external security audit. Published interface and policy comparison, production callers, exact runtime recognition, canonical source-name genesis generation, both anchor contexts, test assertions, active documentation and final diff scope were checked.",
+    "unrelated_dependency_or_generated_genesis_changes": false,
+    "source_hashes_unchanged_during_validation": true
+  }
+}

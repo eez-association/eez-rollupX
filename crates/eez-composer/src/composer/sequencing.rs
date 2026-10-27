@@ -124,20 +124,9 @@ where
             )
             .ok_or("sequencing timestamp overflow")?;
         let chain = self.inner.cross_chain.local.l1_entry.chain_provider();
-        let head_number = chain
-            .headers
-            .best_block_number()
-            .map_err(|e| e.to_string())?;
-        let head = chain
-            .headers
-            .header_by_number(head_number)
-            .map_err(|e| e.to_string())?
-            .ok_or("sequencing L1 head unavailable")?;
-        let target_time = boundary_time.max(
-            head.timestamp
-                .checked_add(timing.l1_block_time().as_secs())
-                .ok_or("sequencing L1 timestamp overflow")?,
-        );
+        // Reserve against this and every announced future fork. No live L1
+        // header is needed to bound locally produced ordinary data.
+        let target_time = boundary_time;
         // Accepted data may wait for a later fork. Reserve against announced
         // reductions as well; future increases do not constrain current capacity.
         let spec = chain.evm_config.chain_spec();
@@ -160,12 +149,30 @@ where
         let empty = BlockDaSizer::new(eez_driver::BUILDER_EXTRA_DATA)
             .item_bytes()
             .map_err(|e| e.to_string())?;
+        let largest_history: eez_primitives::EezTxEnvelope = eez_primitives::SystemTransaction {
+            chain_id: u64::MAX,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: alloy_primitives::B256::repeat_byte(0xff),
+            gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
+            to: eez_primitives::HISTORY_ADDRESS,
+            value: alloy_primitives::U256::ZERO,
+            input: vec![0; 100 + 32 * eez_protocol::l1_history::MAX_IMPORT_HEADERS].into(),
+        }
+        .into();
+        let history_reserve = BlockDaSizer::new(eez_driver::BUILDER_EXTRA_DATA)
+            .with_transaction(&alloy_rlp::encode(largest_history))
+            .and_then(|size| size.item_bytes())
+            .map_err(|e| e.to_string())?
+            .checked_sub(empty)
+            .ok_or("history reserve underflow")?;
         let mut previous = 0usize;
         if !fresh {
             if next == boundary {
                 // The normal driver emits a prebuilt empty Sync here. Also
                 // prevent an independent engine payload job from filling it.
-                return Ok(empty);
+                return empty
+                    .checked_add(history_reserve)
+                    .ok_or_else(|| "history reserve overflow".into());
             }
             let mut hash = parent.hash();
             let mut number = parent.number();
@@ -193,20 +200,26 @@ where
                 // A just-committed parent need not have reached the provider's
                 // height/header indexes yet. Use the supplied header directly,
                 // or the pending-aware block lookup for an older ancestor.
-                let transactions_root = if base == parent.number() {
-                    parent.transactions_root
-                } else {
-                    let block = rollup
-                        .l2_provider
-                        .find_block_by_hash(hash, BlockSource::Any)
-                        .map_err(|e| e.to_string())?
-                        .ok_or("sequencing boundary unavailable")?;
-                    if block.header().number != base {
-                        return Err("sequencing boundary number mismatch".into());
-                    }
-                    block.header().transactions_root
-                };
-                if transactions_root != alloy_consensus::constants::EMPTY_ROOT_HASH
+                let block = rollup
+                    .l2_provider
+                    .find_block_by_hash(hash, BlockSource::Any)
+                    .map_err(|e| e.to_string())?
+                    .ok_or("sequencing boundary unavailable")?;
+                if block.header().number != base {
+                    return Err("sequencing boundary number mismatch".into());
+                }
+                let has_actions =
+                    block
+                        .body()
+                        .transactions()
+                        .iter()
+                        .try_fold(false, |found, tx| {
+                            use alloy_eips::Decodable2718 as _;
+                            eez_primitives::EezTxEnvelope::decode_2718_exact(&tx.encoded_2718())
+                                .map(|tx| found || tx.is_cross_chain_system())
+                                .map_err(|e| e.to_string())
+                        })?;
+                if has_actions
                     && !rollup
                         .optimistic
                         .pending_attempt()
@@ -220,6 +233,7 @@ where
         let reserved = usize::try_from(reserve_blocks)
             .ok()
             .and_then(|n| n.checked_mul(empty))
+            .and_then(|n| n.checked_add(history_reserve))
             .ok_or("sequencing reservation overflow")?;
         let limit = item_limit(
             capacity,

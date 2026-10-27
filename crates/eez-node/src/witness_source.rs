@@ -24,9 +24,9 @@ use alloy_eips::BlockHashOrNumber;
 use alloy_primitives::{B256, Bytes};
 use alloy_rpc_types_debug::ExecutionWitness;
 use eez_driver::witness::{ExecutionWitnessMode, block_witness};
-use eez_primitives::{Block, EezPrimitives};
+use eez_evm::EezEvmConfig;
+use eez_primitives::Block;
 use eez_prover::{BlockWitness, ProvingWitnessSource};
-use reth_evm::ConfigureEvm;
 use reth_libmdbx::{DatabaseFlags, Environment, Geometry, WriteFlags};
 use reth_storage_api::{BlockReader, HeaderProvider, StateProviderFactory, TransactionVariant};
 use tokio::sync::mpsc;
@@ -40,7 +40,7 @@ const GROWTH_STEP: isize = 1024 * 1024 * 1024;
 
 const WITNESSES: &str = "witnesses_by_hash_v1";
 const HEIGHTS: &str = "witnesses_by_height_v1";
-const SCHEMA: &[u8] = b"hash-keyed-witness-v1";
+const SCHEMA: &[u8] = b"hash-keyed-offline-witness-v2";
 const PURGE_BATCH: usize = 1024;
 
 /// Persistent witness store keyed by full block hash. A transactional
@@ -50,7 +50,6 @@ pub struct WitnessDb {
     env: Environment,
     path: PathBuf,
     capture_error: Mutex<Option<String>>,
-    preparation_error: Mutex<Option<String>>,
 }
 
 /// Bounded handoff from durable capture to signer preparation. Overflow keeps
@@ -151,7 +150,6 @@ impl WitnessDb {
             env,
             path: path.to_path_buf(),
             capture_error: Mutex::new(None),
-            preparation_error: Mutex::new(None),
         })
     }
 
@@ -172,13 +170,6 @@ impl WitnessDb {
         {
             eyre::bail!("durable witness capture unavailable: {error}");
         }
-        if let Some(error) = &*self
-            .preparation_error
-            .lock()
-            .map_err(|_| eyre::eyre!("witness preparation status poisoned"))?
-        {
-            eyre::bail!("ordinary witness preparation unavailable: {error}");
-        }
         self.check_disk_capacity(0)
     }
 
@@ -186,12 +177,6 @@ impl WitnessDb {
         // A poisoned status remains unavailable to callers; do not mask it by
         // replacing state after an internal panic.
         if let Ok(mut status) = self.capture_error.lock() {
-            *status = error;
-        }
-    }
-
-    pub(crate) fn preparation_status(&self, error: Option<String>) {
-        if let Ok(mut status) = self.preparation_error.lock() {
             *status = error;
         }
     }
@@ -364,6 +349,7 @@ struct StoredWitness {
     parent_hash: [u8; 32],
     rlp: Vec<u8>,
     witness: ExecutionWitness,
+    l1_headers_rlp: Vec<Bytes>,
 }
 
 impl From<&BlockWitness> for StoredWitness {
@@ -374,6 +360,7 @@ impl From<&BlockWitness> for StoredWitness {
             parent_hash: b.parent_hash.0,
             rlp: b.rlp.to_vec(),
             witness: b.witness.clone(),
+            l1_headers_rlp: b.l1_headers_rlp.clone(),
         }
     }
 }
@@ -386,6 +373,7 @@ impl From<StoredWitness> for BlockWitness {
             parent_hash: B256::from(s.parent_hash),
             rlp: Bytes::from(s.rlp),
             witness: s.witness,
+            l1_headers_rlp: s.l1_headers_rlp,
         }
     }
 }
@@ -405,83 +393,39 @@ pub fn new_store(path: &Path) -> eyre::Result<WitnessStore> {
 /// persistent store, falling back to on-demand re-exec for the newest blocks the
 /// capture task hasn't drained yet (parent state still fresh).
 #[derive(Clone)]
-pub struct NodeWitnessSource<P, E> {
+pub struct NodeWitnessSource<P> {
     store: WitnessStore,
     provider: P,
-    evm_config: E,
-    correlations: Arc<eez_deriver::CorrelationStore>,
+    evm_config: EezEvmConfig,
 }
 
-impl<P, E> NodeWitnessSource<P, E> {
+impl<P> NodeWitnessSource<P> {
     #[must_use]
-    pub const fn new(
-        store: WitnessStore,
-        provider: P,
-        evm_config: E,
-        correlations: Arc<eez_deriver::CorrelationStore>,
-    ) -> Self {
+    pub const fn new(store: WitnessStore, provider: P, evm_config: EezEvmConfig) -> Self {
         Self {
             store,
             provider,
             evm_config,
-            correlations,
         }
     }
 }
 
-impl<P, E> std::fmt::Debug for NodeWitnessSource<P, E> {
+impl<P> std::fmt::Debug for NodeWitnessSource<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("NodeWitnessSource").finish_non_exhaustive()
     }
 }
 
-impl<P, E> ProvingWitnessSource for NodeWitnessSource<P, E>
+impl<P> ProvingWitnessSource for NodeWitnessSource<P>
 where
     P: BlockReader<Block = Block>
         + StateProviderFactory
         + HeaderProvider<Header = Header>
         + Send
         + Sync,
-    E: ConfigureEvm<Primitives = EezPrimitives> + Send + Sync,
 {
     fn ensure_ready(&self) -> Result<(), String> {
         self.store.ensure_ready().map_err(|error| error.to_string())
-    }
-
-    fn parent_provenance(
-        &self,
-        parent: Header,
-        live_slot: Option<(u64, B256)>,
-    ) -> Result<eez_protocol::l2::ParentProvenance, String> {
-        let hash = parent.hash_slow();
-        let accepted_l1_number = if parent.number == 0 {
-            0
-        } else {
-            let matched = self
-                .correlations
-                .by_endpoint_hash(hash)?
-                .ok_or("accepted parent is missing from the endpoint correlation index")?;
-            matched.l1_block_number
-        };
-        let live_slot_endpoints = if let Some((number, canonical_hash)) = live_slot {
-            self.correlations
-                .by_l1_number(number)?
-                .into_iter()
-                .map(|batch| {
-                    if batch.l1_block_hash != canonical_hash {
-                        return Err("live-slot correlation belongs to a replaced L1 block".into());
-                    }
-                    Ok(batch.endpoint_header)
-                })
-                .collect::<Result<Vec<_>, String>>()?
-        } else {
-            Vec::new()
-        };
-        Ok(eez_protocol::l2::ParentProvenance {
-            parent,
-            accepted_l1_number,
-            live_slot_endpoints,
-        })
     }
 
     fn block_witness(&self, number: u64, hash: B256) -> Result<BlockWitness, String> {
@@ -505,14 +449,13 @@ where
 
 /// Re-execute a committed block on its parent state → augmented witness.
 /// Blocking (trie walk); call under `spawn_blocking`.
-fn build_block_witness<P, E>(
+fn build_block_witness<P>(
     provider: &P,
-    evm_config: &E,
+    evm_config: &EezEvmConfig,
     id: BlockHashOrNumber,
 ) -> Result<BlockWitness, String>
 where
     P: BlockReader<Block = Block> + StateProviderFactory + HeaderProvider<Header = Header>,
-    E: ConfigureEvm<Primitives = EezPrimitives>,
 {
     let block = provider
         .recovered_block(id, TransactionVariant::WithHash)
@@ -556,11 +499,11 @@ where
 /// (`settled_floor`). A queued block that a later branch switch unwound is
 /// skipped; every other failure pauses admission and retries the exact block.
 /// Runs until the channel closes.
-pub async fn run_capture<P, E, F>(
+pub async fn run_capture<P, F>(
     mut rx: mpsc::UnboundedReceiver<eez_l1::L2Endpoint>,
     store: WitnessStore,
     provider: P,
-    evm_config: E,
+    evm_config: EezEvmConfig,
     settled_floor: F,
     preparation: Option<PreparationNotifier>,
 ) where
@@ -571,7 +514,6 @@ pub async fn run_capture<P, E, F>(
         + Send
         + Sync
         + 'static,
-    E: ConfigureEvm<Primitives = EezPrimitives> + Clone + Send + Sync + 'static,
     F: Fn() -> u64 + Send + 'static,
 {
     while let Some(endpoint) = rx.recv().await {
@@ -659,6 +601,7 @@ pub async fn run_capture<P, E, F>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eez_primitives::EezPrimitives;
 
     fn sample(number: u64) -> BlockWitness {
         with_header(Header {
@@ -882,6 +825,7 @@ mod tests {
 
     fn with_header(header: Header) -> BlockWitness {
         BlockWitness {
+            l1_headers_rlp: vec![Bytes::from_static(&[0xc0])],
             number: header.number,
             hash: header.hash_slow(),
             parent_hash: header.parent_hash,
@@ -982,7 +926,6 @@ mod tests {
                 Arc::clone(&store),
                 MockEthProvider::<EezPrimitives>::new(),
                 config.clone(),
-                Arc::new(eez_deriver::CorrelationStore::in_memory()),
             );
             store.put(&original).unwrap();
             assert_eq!(
@@ -1005,7 +948,6 @@ mod tests {
             Arc::clone(&store),
             MockEthProvider::<EezPrimitives>::new(),
             config,
-            Arc::new(eez_deriver::CorrelationStore::in_memory()),
         );
         assert_eq!(
             source.block_witness(2, original.hash).unwrap().rlp,

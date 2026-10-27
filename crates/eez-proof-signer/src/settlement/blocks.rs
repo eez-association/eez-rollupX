@@ -382,7 +382,8 @@ fn verify_decoded_intermediate_block(
         .zip(system_sender_flags)
         .enumerate()
         .find_map(|(transaction_index, (transaction, &is_system_sender))| {
-            (transaction.ty() == RESERVED_SYSTEM_TRANSACTION_TYPE || is_system_sender)
+            ((transaction.ty() == RESERVED_SYSTEM_TRANSACTION_TYPE && !transaction.is_history())
+                || is_system_sender)
                 .then_some(transaction_index)
         })
     {

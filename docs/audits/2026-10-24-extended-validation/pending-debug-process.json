@@ -1,0 +1,42 @@
+{
+  "source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "checkout": "c35cf5bc71548f74b8d72e3fa2a0a66113eab0c8",
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "node_e2e_sha256": "d61f9bc69873cb9dec3d091ee20b252831abad70c0c3b8d00763f0349618995a",
+  "runtime_sha256": {
+    "eez-composer": "8dd137a877ee837f3f37c9182e3cb5a8642aa20923d77c95e9d635edadd57704",
+    "eez-follower": "3ebfb9d5f4d54f2e49b3e72553c1812d4aecb69cdfb19ca8614ef451e92fc9cd",
+    "eez-proof-signer": "332597c24b1de4d9722e42abd3fe212297c501db555e265a477f44eb6625599c"
+  },
+  "test": "e2e::pending_history_import_requires_executed_state",
+  "result": "PASS",
+  "passed": 1,
+  "outside_selection": 178,
+  "execution_seconds": 9.54,
+  "guard": {
+    "command": [
+      "python3",
+      "-c",
+      "import importlib.util, os\nfrom pathlib import Path\nspec=importlib.util.spec_from_file_location(\"native\",\"scripts/ci/native-tests.py\")\nnative=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(native)\nfor name in (\"EEZ_TEST_PREBUILT\",\"EEZ_TEST_RUNTIME_BIN_DIR\",\"EEZ_TEST_PROOF_SIGNER_BIN\"):\n    os.environ.pop(name,None)\nnative.SUITES[\"embedded\"]=\"package(=eez-node-e2e) & binary(=node_e2e) & test(=e2e::pending_history_import_requires_executed_state)\"\nnative.run(Path(\"../tests\").resolve(),\"embedded\")\n"
+    ],
+    "exit": 0,
+    "seconds": 11.0,
+    "minimum_available_bytes": 19918147584,
+    "guard_cancelled": false,
+    "jobs": 1
+  },
+  "output_log_sha256": "b136eca0932484dc1c9647b2267fc7b4355124bcd716c8657c5f42126f69a417",
+  "retained_log_hashes": {
+    "artifacts/extended-validation/ci-candidate/40123208325/checkout/artifacts/pending-debug/logs/builder-stub-2928050-1.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "artifacts/extended-validation/ci-candidate/40123208325/checkout/artifacts/pending-debug/logs/eez-node-node-2928050-3.log": "ef5750600a4b524e135d4c5b3aad22bc0523b45e1d81a749df40771a8cc4a2fc",
+    "artifacts/extended-validation/ci-candidate/40123208325/checkout/artifacts/pending-debug/logs/eez-proof-signer-2928050-0.log": "26e4e8059f981578b4617dce2f62ed63d02e7af6e458ab3bee8453d5593748bf",
+    "artifacts/extended-validation/ci-candidate/40123208325/checkout/artifacts/pending-debug/logs/l1-consensus-2928050-2.log": "23d19abd3a5eb971066d64a815be589447f3607a3d01ecd38dc3ff4e2e423193"
+  },
+  "limits": [
+    "Directed process selection; not all179 tests",
+    "HTTP only; no WS/IPC transport probe"
+  ],
+  "no_runtime_or_test_recompilation": true,
+  "separate_live_evidence": "kurtosis/candidate-network.json#debug_pending",
+  "separate_live_status": "PASS: same input, stable parent104, exact deployed runtime28049ff7; not part of this process invocation"
+}

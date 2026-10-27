@@ -1,0 +1,60 @@
+{
+  "status": "node stopped intentionally for R03 installation; no candidate deployed",
+  "enclave": "eez-native-v1-review-20261024",
+  "enclave_uuid": "78c4b5eee3a844b99f4864b33c0d0643",
+  "node_container": "a56d567d59b186a48af93c471a1e357e3eb8fba24585a06ad160af52286546d1",
+  "stop_requested_at_utc": "2026-10-24T11:54:59.949020+00:00",
+  "clean_shutdown_seconds": 0.505,
+  "exit_code": 0,
+  "oom_killed": false,
+  "owned_composer_pid": 468004,
+  "owned_composer_rss_kib": 2429964,
+  "pre_stop_l1_number": 373,
+  "pre_stop_l1_hash": "0xe7cfd954c7c16ee0838b564ae7b2cf475240bf3c8351a591a5cbf4822ff4a299",
+  "pre_stop_l2_head_number": 2274,
+  "pre_stop_l2_safe_number": 2274,
+  "pre_stop_l2_safe_hash": "0x062219eabf9527ddf9e6b9fe0f319686f79091a7aedd3b254d53af072051249b",
+  "pre_stop_l2_safe_state_root": "0xa18e33fa460d4597590e72eb4e7e08cef229970b301fe1fd44909682b7f48032",
+  "pre_stop_registry_commitment": "0x062219eabf9527ddf9e6b9fe0f319686f79091a7aedd3b254d53af072051249b",
+  "snapshot_complete": true,
+  "snapshot_logical_bytes": 9750156073,
+  "snapshot_archives": [
+    {
+      "local_path": "artifacts/pr-readiness/kurtosis/node-maintenance-rpc/snapshot/data.tar.gz",
+      "sha256": "e1266fd597d29f26e95cc32c2e1e390edc08d3ee75d0708224439c03f18a2ff6",
+      "compressed_bytes": 27595941,
+      "members": 50
+    },
+    {
+      "local_path": "artifacts/pr-readiness/kurtosis/node-maintenance-rpc/snapshot/eez-bundle-captures.tar.gz",
+      "sha256": "27ee6e10d2c2be914b0c34cf589a7b8096fd201d14f91dcc619d1a488578030d",
+      "compressed_bytes": 319907,
+      "members": 88
+    },
+    {
+      "local_path": "artifacts/pr-readiness/kurtosis/node-maintenance-rpc/snapshot/eez-l1-embedded.tar.gz",
+      "sha256": "e7c4688274af0934fadad2c3d62070f6402c8fbb93c5054854e35a4b624d33b6",
+      "compressed_bytes": 19318334,
+      "members": 43
+    },
+    {
+      "local_path": "artifacts/pr-readiness/kurtosis/node-maintenance-rpc/snapshot/genesis.tar.gz",
+      "sha256": "f6ea7cb8428306ea13da117ede10ec08397866c7627f63f9f79d2e4d87a2a678",
+      "compressed_bytes": 139859,
+      "members": 15
+    }
+  ],
+  "snapshot_crc_and_tar_metadata_verified": true,
+  "snapshot_covers": [
+    "/data including L2 and witness MDBX",
+    "/tmp/eez-l1-embedded",
+    "/tmp/eez-bundle-captures",
+    "/genesis"
+  ],
+  "snapshot_excludes": [
+    "canonical L1 services: untouched and still running",
+    "signer: untouched and still running"
+  ],
+  "raw_evidence_local_only": "artifacts/pr-readiness/kurtosis/node-maintenance-rpc",
+  "first_capture_failure": "Incorrect expected Registry.rollups ABI length aborted before mutation; corrected to the actual three-word ABI and reran exact identity/canonicality checks."
+}

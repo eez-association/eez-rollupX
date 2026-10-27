@@ -4,6 +4,11 @@ An EEZ rollup implementation derived from
 [eez-association/eez-rollup0](https://github.com/eez-association/eez-rollup0).
 The core contracts are pinned in the `eez-core-protocol` submodule.
 
+This revision targets fresh networks with [permanent L1 history, delayed
+PREVRANDAO and offline v2 proving](docs/proposals/l1-origin-and-offline-proving.md)
+active from genesis. It requires matching new contracts, genesis and L2 datadirs;
+it does not migrate existing deployments.
+
 An L2 rollup where L1 and L2 can call into each other as part of the same
 flow. Four components do the work: a **sequencer** produces L2 blocks (it
 drives a stock [reth](https://github.com/paradigmxyz/reth) node), a
@@ -39,6 +44,11 @@ unbound mock signature.
 The [Composer-to-prover gRPC specification](crates/eez-control-rpc/SPEC.md)
 defines request construction, response validation, and settlement recovery for
 the current native-blob profile.
+
+For L2 state reads, select `latest` or an explicit executed block. Synthesized
+`pending` simulations can be unavailable while L1 evidence is unresolved or a
+scheduled history import needs an executed block; see the
+[RPC simulation boundary](docs/proposals/l1-origin-and-offline-proving.md#rpc-simulation-boundary).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and validation,
 [SECURITY.md](SECURITY.md) for private vulnerability reporting, and
@@ -134,8 +144,10 @@ the expected cost. Do not start another upstream network runner concurrently.
 | **L2→L1 front** (Outbound) | `http://localhost:18998` | send L2-origin cross-chain txs here |
 
 The two **cross-chain ingress fronts** are transparent, wallet-compatible
-proxies. Each signed transaction is classified with a read-only call trace:
-transactions that enter the source chain's EEZ cross-chain dispatcher are held
+proxies. Each signed transaction is classified with a read-only call trace.
+L2 routing uses the executed head's state and header; L1 routing uses pending
+state. This observation does not reserve a future execution context.
+Transactions that enter the source chain's EEZ cross-chain dispatcher are held
 and composed into the next Sync block, while ordinary transactions are forwarded
 unchanged to the source-chain mempool. The fronts also prepare cross-chain
 `eth_estimateGas` calls locally; other `eth_*` methods are forwarded, so a wallet

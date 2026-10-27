@@ -150,20 +150,20 @@ does not decode the inner operations or claim cryptographic KZG verification.
 Beacon commitments are hashed to select only this transaction's blobs, in its
 blob order, before measuring usage. Missing/pruned bytes remain blank, not zero.
 
-Both commitment tables also show **L2 burned fees** and **L2 tip fees** for each
-verified canonical L2 range. Ordinary transaction burn is receipt gas used times
+Both commitment tables also show **L2 collected base fees** and **L2 tip fees** for each
+verified canonical L2 range. Ordinary transaction base fees credited to the genesis collector equal receipt gas used times
 that block's base fee; tips are receipt gas used times (effective gas price minus
 base fee). Ordinary reverted transactions still pay these fees. Native system
-transactions of type `0x76` contribute receipt gas but pay **zero** burn and tips,
+transactions of type `0x45` contribute receipt gas but pay **zero** base fees and tips,
 including in blocks with a positive base fee. A nonzero native price, an ordinary
 price below the base fee, or a missing/unsupported receipt type leaves collection
 pending. The native exception follows the
 [node's native transaction profile](../../crates/eez-proof-signer/SPEC.md#3-startup-configuration).
 
 These are gross L2 execution fees, not L1 posting costs or poster profit. The
-range records retain the existing `burnWei` and `tipWei` decimal strings in the
+range records expose `baseFeeWei` and `tipWei` decimal strings in the
 network's native base units, displayed in ETH/xDAI. Fee-accounting checkpoint
-version 1 additionally records:
+version 2 records:
 
 | Field | Meaning |
 | --- | --- |
@@ -217,7 +217,7 @@ and receipt effective gas price. Historical fee-window reads check the canonical
 posting hash before and after; reorg cleanup removes enrichment. Missing data
 is blank, never substituted with zero. No Composer changes are needed.
 It does not plot another total bar on top. The **Fees** panel shows L1 execution, L1 blobs and L1 total separately from
-L2 burn fees and L2 tips for posting ranges included in the selected L1 period.
+L2 collected base fees and L2 tips for posting ranges included in the selected L1 period.
 It is a compact value card above Cross-chain transactions on the right of the
 wider Settlement transaction fees chart. Both summaries use stat panels without
 table borders or headers, preserving all six fee values and all three counts.
@@ -290,7 +290,8 @@ leave that range pending; no attribution is guessed. No database reset or new
 configuration is required. Completed current-version finalized ranges stay
 cached; provisional canonical ranges continue to be revalidated.
 
-The JSON additions are readable by older consumers of `burnWei`/`tipWei`.
+Consumers must read `baseFeeWei` in place of `burnWei`; the field is renamed
+because native-v1 networks collect ordinary base fees instead of burning them.
 Rolling the indexer back can overwrite enrichment on retry, lose the new fields
 and restore the positive-base-fee/native-receipt bug. Do not rely on beneficiary
 attribution while running an older collector. Re-upgrading requeues old-version
@@ -383,7 +384,7 @@ cargo +1.95.0 test --locked --manifest-path monitoring/indexer/Cargo.toml
 ```
 
 The default tests cover config validation, event/receipt parsing, fee arithmetic,
-detail attribution, L2 range consistency, Beacon blob structure, L2 burn/tip
+detail attribution, L2 range consistency, Beacon blob structure, L2 base-fee/tip
 arithmetic, native zero-price receipts, beneficiary attribution, checkpoint
 upgrades/recovery, and WS reconnection/identity rejection.
 Cross-chain tests cover source deduplication, rollup/emitter filtering, exclusion
@@ -675,7 +676,7 @@ Final `preflight` admission and `repriced` posting details also carry an optiona
 pricing). Its `l1` component prices the complete final
 postBatch's execution and physical blobs in L1 native base units, with the
 fee-cap balance reservation reported separately. The `l2` component records
-ordinary/native gas, base-fee burn and gross tips at the terminal Sync block's
+ordinary/native gas, collected base fees and gross tips at the terminal Sync block's
 beneficiary in L2 native base units. Exact block/parent/target and transaction
 identities bind the observation; the L1 cost includes shared historical DA,
 while L2 historical-block fees are outside the reported scope. Per-source L2
@@ -793,11 +794,12 @@ installed. Policy `strict-fifo-6` additionally clears that boundary after canoni
 resolution of its first source, allowing the remaining queue to share the next
 batch under the same FIFO checks. Receipt or relay observations do not clear it.
 The event schema and collector remain compatible; version 5 histories retain
-their original boundary behavior. `strict-fifo-7` also supersedes sparse proof
-scaling terms when a slower, wider observation supplies the requested dimensions;
-the existing `proof_estimate_ms` and `scaled_sample` basis expose that prediction.
-Its measured slow-proof floor and actual deadlines are retained. No collector
-migration is needed. Source rows expose
+their original boundary behavior. `strict-fifo-7` superseded sparse proof scaling
+when a slower, wider observation supplied the requested dimensions.
+`strict-fifo-8` also accepts a faster wider observation for that comparison,
+retaining every sample in the extrapolation's slow-duration floor. The existing
+`proof_estimate_ms` and `scaled_sample` basis expose that prediction. Actual
+deadlines are unchanged; no collector migration is needed. Source rows expose
 `source_outcome_reason`, including a blob rejection after a successful gas check.
 The final candidate stop reason and earlier individual deferrals can differ.
 Old histories retain null fields and historical `fifo_fairness_limit` reasons.

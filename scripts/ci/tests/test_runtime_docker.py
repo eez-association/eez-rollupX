@@ -20,6 +20,22 @@ spec.loader.exec_module(native)
 @unittest.skipUnless(os.environ.get("EEZ_TEST_DOCKER_RUNTIME") == "1",
                      "set EEZ_TEST_DOCKER_RUNTIME=1 to build real Docker fixture images")
 class RuntimeDockerTest(unittest.TestCase):
+    def test_deploy_context_preserves_history_identity(self):
+        runtime = Path("crates/eez-protocol/src/l1_history/runtime.bin")
+        with tempfile.TemporaryDirectory(prefix="eez-deploy-context.") as temporary:
+            root = Path(temporary)
+            dockerfile = root / "Dockerfile"
+            dockerfile.write_text(f"FROM scratch\nCOPY {runtime} /runtime.bin\n")
+            shutil.copy2(REPO / "testing/kurtosis/Dockerfile.deploy.dockerignore",
+                         root / "Dockerfile.dockerignore")
+            output = root / "output"
+            subprocess.run([
+                "docker", "buildx", "build", "--builder", "default", "--progress", "plain",
+                "--provenance=false", "-f", str(dockerfile),
+                "--output", f"type=local,dest={output}", ".",
+            ], cwd=REPO, check=True)
+            self.assertEqual((output / "runtime.bin").read_bytes(), (REPO / runtime).read_bytes())
+
     def test_repository_source_context_preserves_genesis(self):
         with tempfile.TemporaryDirectory(prefix="eez-runtime-source.") as temporary:
             subprocess.run([
@@ -133,6 +149,9 @@ class RuntimeDockerTest(unittest.TestCase):
 
             (repo / "contracts").mkdir(exist_ok=True)
             (repo / "contracts/fixture").touch()
+            history_runtime = Path("crates/eez-protocol/src/l1_history/runtime.bin")
+            (repo / history_runtime).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / history_runtime, repo / history_runtime)
             (repo / "genesis.json").write_text("{}")
             (repo / "genesis.dev.json").write_text("{}")
             protocol = repo / "eez-core-protocol"
@@ -204,6 +223,12 @@ class RuntimeDockerTest(unittest.TestCase):
                     image = manifest["images"][role]["reference"]
                     container = subprocess.check_output(["docker", "create", image, "--help"], env=env, text=True).strip()
                     try:
+                        if role == "deploy":
+                            copied_runtime = root / "copied-history-runtime.bin"
+                            subprocess.run(["docker", "cp", f"{container}:/repo/{history_runtime}",
+                                            str(copied_runtime)], env=env, check=True)
+                            self.assertEqual(copied_runtime.read_bytes(),
+                                             (repo / history_runtime).read_bytes())
                         for binary in binaries:
                             copied = root / "copied-binary"
                             subprocess.run(["docker", "cp", f"{container}:/usr/local/bin/{binary}", str(copied)], env=env, check=True)

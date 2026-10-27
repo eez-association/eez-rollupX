@@ -179,6 +179,42 @@ fee_collection_enabled "$SIDE"
 '''], env=env, capture_output=True, text=True, timeout=5)
                 self.assertEqual(result.returncode, expected, result.stderr)
 
+    def test_workload_expectations_accept_all_simple_scalar_quote_styles(self):
+        profile = self.root / "args.yaml"
+        for quote in ("", "'", '"'):
+            for enabled in ("true", "false"):
+                for side in ("in", "out"):
+                    with self.subTest(quote=quote, enabled=enabled, side=side):
+                        profile.write_text(
+                            "eez:\n  settlement_env:\n"
+                            f"    EEZ_FEES_L1_TO_L2_ENABLED: {quote}{enabled}{quote}  # profile\n"
+                            f"    EEZ_FEES_L2_TO_L1_ENABLED: {quote}{enabled}{quote}\n"
+                            f"    EEZ_SETTLEMENT_START_AFTER_BLOCK: {quote}3{quote}  \n")
+                        env = {key: value for key, value in self.env.items()
+                               if not key.startswith("EEZ_FEES_")}
+                        env.update(KURTOSIS_ARGS_FILE=str(profile), SIDE=side)
+                        result = subprocess.run(["bash", "-c", '''set -euo pipefail
+source "$REPO/testing/kurtosis/scripts/lib.sh"
+[[ $(yaml_value EEZ_SETTLEMENT_START_AFTER_BLOCK) == 3 ]]
+fee_collection_enabled "$SIDE"
+'''], env=env, capture_output=True, text=True, timeout=5)
+                        self.assertEqual(result.returncode, int(enabled != "true"), result.stderr)
+
+    def test_workload_expectations_do_not_enable_absent_or_mismatched_scalars(self):
+        profile = self.root / "args.yaml"
+        for scalar in (None, "", "# comment", "true#suffix", "'true", 'true"', "\"true'"):
+            with self.subTest(scalar=scalar):
+                profile.write_text("eez:\n  settlement_env:\n" + (
+                    f"    EEZ_FEES_L1_TO_L2_ENABLED: {scalar}\n" if scalar is not None else ""))
+                env = {key: value for key, value in self.env.items()
+                       if not key.startswith("EEZ_FEES_")}
+                env.update(KURTOSIS_ARGS_FILE=str(profile))
+                result = subprocess.run(["bash", "-c", '''set -euo pipefail
+source "$REPO/testing/kurtosis/scripts/lib.sh"
+fee_collection_enabled in
+'''], env=env, capture_output=True, text=True, timeout=5)
+                self.assertEqual(result.returncode, 1, result.stderr)
+
     def run_submission(self, responses, transport_failure=False):
         (self.root / "submission-responses.json").write_text(json.dumps(responses))
         (self.root / "submissions.jsonl").unlink(missing_ok=True)

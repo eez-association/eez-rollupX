@@ -1,0 +1,227 @@
+{
+  "date": "2026-10-24",
+  "root": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving",
+  "branch": "codex/l1-history-offline-proving",
+  "head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "core_pin": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "source_integrity": {
+    "start_manifest_paths": 1725,
+    "changed_since_start": [],
+    "previous_audit_paths": 305,
+    "previous_audit_mismatches": [],
+    "note": "implementation not modified; new audit records only"
+  },
+  "toolchains": {
+    "rust": "rustc 1.95.0 (59807616e 2026-04-14)",
+    "forge": "forge Version: 1.7.1\nCommit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8\nBuild Timestamp: 2026-05-08T07:50:55.527285345Z (1778226655)\nBuild Profile: dist"
+  },
+  "cargo_environment": {
+    "TMPDIR": "$PWD/artifacts/tmp",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "PATH_prefix": "/usr/lib/llvm-22/bin",
+    "wrapper": "bwrap --bind / / --dev /dev --bind \"$TMPDIR\" /tmp --chdir \"$PWD\"",
+    "reason": "shared host /tmp quota exhausted; private temporary bind, no shared cleanup"
+  },
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-primitives -p eez-evm -p eez-payload-codec --lib",
+      "exit_code": 101,
+      "result": {
+        "passed": 36,
+        "failed": 1,
+        "ignored": 0,
+        "note": "eez-evm ran first and failed; other selected packages did not run"
+      },
+      "log": {
+        "path": "artifacts/specs-review-2026-10-24/execution-codec-tests.log",
+        "sha256": "e538884703f735d90e50927d640a522ee118be08e98d0fbb6c2197ecc3f930fd",
+        "availability": "local-only ignored artifact; summary preserved here"
+      },
+      "summary": [
+        "running 37 tests",
+        "test result: FAILED. 36 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.61s",
+        "",
+        "thread 'tests::production_base_genesis_allocates_no_eth_and_keeps_required_predeploys' (1839341) panicked at crates/eez-evm/src/tests.rs:81:5:",
+        "assertion `left == right` failed",
+        "  left: [0x0000f90827f1c53a10cb7a02335b175320002935, 0x4b2760f84b83d6b3829e30a7573b0172b6d6402c, 0x4c3d971b1079e58843d0e1af155a2e54b9e54dba, 0x57bf29a07746a25b87c613e01d5da49f6119e96c, 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077, 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078]",
+        " right: [0x0000f90827f1c53a10cb7a02335b175320002935, 0x4b2760f84b83d6b3829e30a7573b0172b6d6402c, 0x4c3d971b1079e58843d0e1af155a2e54b9e54dba, 0x57bf29a07746a25b87c613e01d5da49f6119e96c, 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077]",
+        "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+        "",
+        ""
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-primitives -p eez-payload-codec -p eez-protocol --lib",
+      "exit_code": 0,
+      "result": {
+        "passed": 237,
+        "failed": 0,
+        "ignored": 0,
+        "package_counts": {
+          "eez-payload-codec": 16,
+          "eez-primitives": 15,
+          "eez-protocol": 206
+        }
+      },
+      "log": {
+        "path": "artifacts/specs-review-2026-10-24/primitives-protocol-codec-tests.log",
+        "sha256": "6f61c5c57ee2024446144f7ae96db0ede9897a382b62e84d717f428fa3e9e2ff",
+        "availability": "local-only ignored artifact; summary preserved here"
+      },
+      "summary": [
+        "running 16 tests",
+        "test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s",
+        "running 15 tests",
+        "test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s",
+        "running 206 tests",
+        "test result: ok. 206 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s"
+      ]
+    },
+    {
+      "command": "forge test --root contracts",
+      "exit_code": 0,
+      "result": {
+        "passed": 142,
+        "failed": 0,
+        "skipped": 0,
+        "suites": 16
+      },
+      "log": {
+        "path": "artifacts/specs-review-2026-10-24/contract-tests.log",
+        "sha256": "fd41166a5424df76bc3fcc0bdd4b11d5d95ee46f60d4dc6ec3960148f3fbf59d",
+        "availability": "local-only ignored artifact; summary preserved here"
+      },
+      "summary": [
+        "Ran 1 test for test/TopLevelStaticEpoch.t.sol:TopLevelStaticEpochTest",
+        "Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 4.83ms (547.30µs CPU time)",
+        "Ran 2 tests for test/DeploymentSmoke.t.sol:DeploymentSmokeTest",
+        "Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 5.07ms (2.26ms CPU time)",
+        "Ran 1 test for test/RollingHashVectors.t.sol:RollingHashVectorsTest",
+        "Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 5.37ms (135.41µs CPU time)",
+        "Ran 1 test for test/CallHashVectors.t.sol:CallHashVectorsTest",
+        "Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 8.29ms (146.30µs CPU time)",
+        "Ran 11 tests for test/FeeVault.t.sol:FeeVaultTest",
+        "Suite result: ok. 11 passed; 0 failed; 0 skipped; finished in 12.48ms (11.64ms CPU time)",
+        "Ran 7 tests for test/L1BlockhashContract.t.sol:L1BlockhashContractTest",
+        "Suite result: ok. 7 passed; 0 failed; 0 skipped; finished in 14.75ms (2.62ms CPU time)",
+        "Ran 8 tests for test/PublicInputsHashVectors.t.sol:PublicInputsHashVectorsTest",
+        "Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 16.27ms (27.98ms CPU time)",
+        "Ran 1 test for test/SetterWrapper.t.sol:SetterWrapperTest",
+        "Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 16.49ms (13.09ms CPU time)",
+        "Ran 4 tests for test/EEZPostBatcher.t.sol:EEZPostBatcherTest",
+        "Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 34.46ms (750.35µs CPU time)",
+        "Ran 16 tests for test/OfflineRollup.t.sol:OfflineRollupTest",
+        "Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 89.24ms (87.21ms CPU time)",
+        "Ran 2 tests for test/L1StorageProofEip1186.t.sol:L1StorageProofEip1186Test",
+        "Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 324.65ms (11.56ms CPU time)",
+        "Ran 10 tests for test/CrossChainProxyPolicy.t.sol:CrossChainProxyPolicyTest",
+        "Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 670.77ms (73.78ms CPU time)",
+        "Ran 3 tests for test/ECDSAProofSystem.t.sol:ECDSAProofSystemTest",
+        "Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.39s (12.65ms CPU time)",
+        "Ran 3 tests for test/NestedContractCreation.t.sol:NestedContractCreationTest",
+        "Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.39s (23.38ms CPU time)",
+        "Ran 64 tests for test/PostBatchGasPins.t.sol:PostBatchGasPinsTest",
+        "Suite result: ok. 64 passed; 0 failed; 0 skipped; finished in 2.39s (17.75s CPU time)",
+        "Ran 8 tests for test/L1StorageProof.t.sol:L1StorageProofTest",
+        "Suite result: ok. 8 passed; 0 failed; 0 skipped; finished in 2.39s (23.96ms CPU time)",
+        "Ran 16 test suites in 2.41s (10.77s CPU time): 142 tests passed, 0 failed, 0 skipped (142 total tests)"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-driver --lib sequencer::tests",
+      "exit_code": 101,
+      "result": {
+        "executed": 0,
+        "compile_errors": 9,
+        "error_code": "E0433",
+        "reason": "unconditional eez_primitives uses but dependency optional and default features empty"
+      },
+      "log": {
+        "path": "artifacts/specs-review-2026-10-24/clock-tests.log",
+        "sha256": "63f2ce6ba7ec901ab3bfed09667d0d976c3baf87f4854cca8cf4ca55a4ce39e0",
+        "availability": "local-only ignored artifact; summary preserved here"
+      },
+      "summary": [
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope",
+        "error[E0433]: cannot find module or crate `eez_primitives` in this scope"
+      ]
+    },
+    {
+      "command": "cargo +1.95.0 test --locked --offline -p eez-driver --features witness,derivation --lib sequencer::tests",
+      "exit_code": 0,
+      "result": {
+        "passed": 7,
+        "failed": 0,
+        "ignored": 0,
+        "filtered": 66
+      },
+      "log": {
+        "path": "artifacts/specs-review-2026-10-24/clock-shipping-features-tests.log",
+        "sha256": "944fcaa05a25396384f24c3773c823e6916b32f3c1e0a268800fc9d0fab597fd",
+        "availability": "local-only ignored artifact; summary preserved here"
+      },
+      "summary": [
+        "running 7 tests",
+        "test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 0.07s",
+        "test sequencer::tests::all_settlement_uses_one_absolute_submission_deadline ... ok",
+        "test sequencer::tests::preparation_waits_for_grid_cutoff_and_stale_decisions_cannot_rewrite_local_progress ... ok",
+        "test sequencer::tests::ordinary_clock_crosses_missing_slots_and_speculative_cap_without_l1_context ... ok",
+        "test sequencer::tests::closed_source_and_stalled_preparation_do_not_stop_local_ticks_and_worker_is_owned ... ok",
+        "test sequencer::tests::explicit_policy_outcomes_never_use_sync_pool_fallback ... ok",
+        "test sequencer::tests::guarded_catchup_preserves_every_intermediate_empty_boundary ... ok",
+        "test sequencer::tests::catchup_can_use_the_current_future_slot_but_never_a_past_or_capped_slot ... ok"
+      ]
+    }
+  ],
+  "executable_sha256": {
+    "target/debug/deps/eez_evm-b3e828c815ca575f": "efc4238063fd650ebcc51c215b772d66ff1cb71c3c9ab42f481e9d851f3e1124",
+    "target/debug/deps/eez_payload_codec-c8eb4b812b91e6c7": "85ba3c14cb6d8f35efe9a82bb9889b86ec888f4685ced7e9c371bd2cbb9e4c60",
+    "target/debug/deps/eez_primitives-f4529a22770efa2e": "8aa9a73264adb3a6cfe8c4c115b9ef7252203f26d3d0f4e1f5ca838425487218",
+    "target/debug/deps/eez_protocol-36337e3767713340": "66b923123360abefa3b350d5ee542edf50c893bc05f49309656f391ba7383bfa",
+    "target/debug/deps/eez_driver-753acc53d9b91971": "764b864ed602848049197fb4f6fa662eb52134f29f970c5562e82b0e483126b3",
+    "/home/edu/.foundry/bin/forge": "4f77da0810de94325734855d0ad58d70640aa8a5b2a837608ddf8c26da34355c"
+  },
+  "totals": {
+    "passed_cases": 422,
+    "failed_cases": 1,
+    "additional_failed_compilation_invocations": 1,
+    "note": "not a full workspace green validation"
+  },
+  "vector_check": {
+    "command": "python3 crates/eez-control-rpc/conformance/check_vectors.py",
+    "exit_code": 0,
+    "vectors": 29,
+    "scope": "fixture/schema consistency, not Nethermind execution"
+  },
+  "documentation_checks": {
+    "git_diff_check": {
+      "exit_code": 0
+    },
+    "local_markdown_links": "all resolved",
+    "undefined_reference_links": [],
+    "new_record_trailing_whitespace": "none",
+    "matrix_rows": 58,
+    "docs_inventoried": 28,
+    "status_added": [
+      "?? docs/audits/2026-10-24-specs-compliance/"
+    ],
+    "status_removed": [],
+    "new_record_paths": [
+      "docs/audits/2026-10-24-specs-compliance/README.md",
+      "docs/audits/2026-10-24-specs-compliance/checks.json",
+      "docs/audits/2026-10-24-specs-compliance/source-sha256.json",
+      "docs/audits/2026-10-24-specs-compliance/spec-inventory.json",
+      "docs/audits/2026-10-24-specs-compliance/status-start.txt",
+      "docs/audits/2026-10-24-specs-compliance/v0-probe.json",
+      "docs/audits/2026-10-24-specs-compliance/v0_probe.rs"
+    ]
+  },
+  "tracked_patch_sha256": "186a97ca59b4f4393f1980c064cf9907a6a88e86a6169c3f9f3ed57ece76e445"
+}

@@ -254,7 +254,7 @@ fn validates_effect_kinds_and_roots_by_candidate_position() {
         &[anchor, pre_settling, outbound_root, inbound_root],
         &[ClaimedEntryShape::Outbound, ClaimedEntryShape::Inbound],
     );
-    let settling = settling_with_system_flags(vec![true, false, true]);
+    let settling = settling_with_flat_effects(vec![true, false, true]);
     let checkpoints = [checkpoint(1, outbound_root), checkpoint(2, inbound_root)];
 
     let facts = verify_effect_prefix(&batch, pre_settling, &checkpoints, &settling).unwrap();
@@ -308,7 +308,7 @@ fn lookup_between_applied_effects_consumes_no_candidate_or_checkpoint() {
     );
     batch.entries[2].success = false;
     batch.entries[2].returnData = Bytes::from_static(b"expected revert");
-    let settling = settling_with_system_flags(vec![true, true]);
+    let settling = settling_with_flat_effects(vec![true, true]);
     let checkpoints = [
         checkpoint(0, first_checkpoint),
         checkpoint(1, final_checkpoint),
@@ -356,7 +356,7 @@ fn duplicate_roots_cannot_hide_reordered_effect_kinds() {
     let anchor = B256::repeat_byte(0x0a);
     let pre_settling = B256::repeat_byte(0x0b);
     let duplicate = B256::repeat_byte(0x0c);
-    let settling = settling_with_system_flags(vec![true, false, true]);
+    let settling = settling_with_flat_effects(vec![true, false, true]);
     let checkpoints = [checkpoint(1, duplicate), checkpoint(2, duplicate)];
 
     let mut valid = effect_batch(
@@ -395,7 +395,7 @@ fn rejects_wrong_anchor_or_invalid_effect_checkpoints() {
         &[anchor, pre_settling, effect_root],
         &[ClaimedEntryShape::Outbound],
     );
-    let settling = settling_with_system_flags(vec![true, false]);
+    let settling = settling_with_flat_effects(vec![true, false]);
     let valid_checkpoints = [checkpoint(1, effect_root)];
 
     assert_eq!(
@@ -456,7 +456,7 @@ fn effect_checkpoints_cannot_hide_a_post_block_state_change() {
     let pre_settling = B256::repeat_byte(0x0b);
     let transaction_root = B256::repeat_byte(0x0c);
     let final_root = B256::repeat_byte(0x0d);
-    let settling = settling_with_system_flags(vec![true, false]);
+    let settling = settling_with_flat_effects(vec![true, false]);
     let checkpoints = [checkpoint(1, transaction_root)];
 
     let transaction_endpoint = effect_batch(

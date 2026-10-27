@@ -607,50 +607,18 @@ pub fn materialize_actions(
         });
     }
 
-    let mut source = materialized.remove(&entry_rollup_id).ok_or_else(|| {
+    let source = materialized.remove(&entry_rollup_id).ok_or_else(|| {
         ProtocolErrorKind::InvalidEncoding(
             "materialization did not produce the entry-rollup table".into(),
         )
     })?;
-    if source.source_entry_count > source.batch.entries.len()
-        || source.source_entry_count > source.entry_traces.len()
+    if source.source_entry_count != source.batch.entries.len()
+        || source.batch.entries.len() != source.entry_traces.len()
     {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "materialized source prefix {} exceeds entries/traces ({}/{})",
-            source.source_entry_count,
-            source.batch.entries.len(),
-            source.entry_traces.len(),
-        ))
+        return Err(ProtocolErrorKind::InvalidEncoding(
+            "materialized source entries and traces differ".into(),
+        )
         .into());
-    }
-    if source.source_callback_counts.len() != source.source_entry_count {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "materialized source callback counts {} do not match source entries {}",
-            source.source_callback_counts.len(),
-            source.source_entry_count,
-        ))
-        .into());
-    }
-    let callback_entries = source.batch.entries.split_off(source.source_entry_count);
-    let callback_traces = source.entry_traces.split_off(source.source_entry_count);
-    let callback_count = source.source_callback_counts.iter().sum::<usize>();
-    if callback_count != callback_entries.len() {
-        return Err(ProtocolErrorKind::InvalidEncoding(format!(
-            "materialized source callback counts total {callback_count}, found {} entries",
-            callback_entries.len(),
-        ))
-        .into());
-    }
-    if !callback_entries.is_empty() {
-        target_compositions.push(TargetComposition {
-            rollup_id: entry_rollup_id,
-            batch: crate::EvmBatch {
-                entries: callback_entries,
-                ..Default::default()
-            },
-            entry_traces: callback_traces,
-        });
-        target_compositions.sort_unstable_by_key(|target| target.rollup_id);
     }
 
     tracing::debug!(
@@ -665,7 +633,6 @@ pub fn materialize_actions(
             rollup_id: entry_rollup_id,
             batch: source.batch,
             entry_traces: source.entry_traces,
-            callback_entry_counts: source.source_callback_counts,
             outbound_event_hashes: source.source_outbound_hashes,
         },
         targets: target_compositions,

@@ -5,8 +5,8 @@
 //! one mutex; the deriver also holds the shared engine reconciliation lock.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use alloy_primitives::B256;
 
@@ -58,7 +58,7 @@ struct CanonicalState {
     last_scanned: Option<L1BlockRef>,
     commitments: BTreeMap<(u64, u64), CommitmentRef>,
     latest_commitment: Option<CommitmentRef>,
-    derivation: Option<crate::derivation::SeedHistory>,
+    derivation: Option<crate::derivation::history::CanonicalHistory>,
 }
 
 impl CanonicalState {
@@ -170,28 +170,45 @@ impl L1CanonicalHead {
         self.publish_locked(&mut state, evidence);
     }
 
-    /// Install/rebuild seed provenance before boot exposes readiness. The
-    /// deriver holds the engine reconciliation lock while replacing this state.
-    pub fn restore_derivation(&self, history: crate::derivation::SeedHistory) {
-        self.state.lock().unwrap().derivation = Some(history);
+    /// Install the fixed network schedule before exposing engine readiness.
+    /// Canonical evidence must be prepared separately; an empty source fails closed.
+    pub fn initialize_history(&self, schedule: eez_protocol::l2::Schedule) {
+        self.state.lock().unwrap().derivation =
+            Some(crate::derivation::history::CanonicalHistory::new(schedule));
     }
 
-    /// Capture the seed for the exact block being built. The builder must retain
-    /// it with the rest of its immutable candidate environment. Startup without
-    /// authenticated provenance is an error, never a zero-seed fallback.
-    pub fn derivation_seed(&self, number: u64) -> Result<B256, crate::derivation::DerivationError> {
-        let state = self.state.lock().unwrap();
-        let history =
-            state
-                .derivation
-                .as_ref()
-                .ok_or(crate::derivation::DerivationError::Unavailable(
-                    "seed provenance not initialized",
-                ))?;
-        Ok(history.seed_for(number))
+    /// Snapshot for incremental acquisition. No I/O runs while holding this lock.
+    pub fn prepared_history(&self) -> Option<crate::derivation::history::PreparedHistory> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .and_then(crate::derivation::history::CanonicalHistory::prepared)
     }
 
-    /// The immutable schedule initialized by authenticated derivation startup.
+    /// Publish after canonical checks only if the acquisition's generation survives.
+    pub fn publish_history(
+        &self,
+        prepared: crate::derivation::history::PreparedHistory,
+        generation: u64,
+    ) -> Result<(), crate::derivation::DerivationError> {
+        let mut state = self.state.lock().unwrap();
+        if state.evidence.generation != generation {
+            return Err(crate::derivation::DerivationError::Unavailable(
+                "canonical generation changed during history acquisition",
+            ));
+        }
+        state
+            .derivation
+            .as_mut()
+            .ok_or(crate::derivation::DerivationError::Unavailable(
+                "L1 history not initialized",
+            ))?
+            .publish(prepared)
+    }
+
+    /// The immutable schedule initialized by derivation startup.
     pub fn derivation_schedule(
         &self,
     ) -> Result<eez_protocol::l2::Schedule, crate::derivation::DerivationError> {
@@ -200,14 +217,14 @@ impl L1CanonicalHead {
             .unwrap()
             .derivation
             .as_ref()
-            .map(crate::derivation::SeedHistory::schedule)
+            .map(crate::derivation::history::CanonicalHistory::schedule)
             .ok_or(crate::derivation::DerivationError::Unavailable(
-                "seed provenance not initialized",
+                "L1 history not initialized",
             ))
     }
 
-    /// Derive the next block's time and seed in one consistent read. Parent
-    /// authentication and the candidate's reconciliation lock belong to caller.
+    /// Capture the next grid time and inherited randomness. The caller
+    /// authenticates the parent and fences execution against canonical reconciliation.
     pub fn next_block_context(
         &self,
         parent: &alloy_consensus::Header,
@@ -218,50 +235,78 @@ impl L1CanonicalHead {
             .derivation
             .as_ref()
             .ok_or(crate::derivation::DerivationError::Unavailable(
-                "seed provenance not initialized",
+                "L1 history not initialized",
             ))?
             .next_block_context(parent)
     }
 
-    /// Check seed continuity before persisting a correlation. The sole writer
-    /// retains the reconciliation lock through persistence and publication.
+    /// Check exact acceptance bindings before persisting a correlation. This
+    /// does not change origin selection or confer authority on a claimed root.
     pub fn validate_accepted(
         &self,
         evidence: &ReconciledBatchSettlement,
         l1: &crate::derivation::AuthenticatedL1Header,
         endpoint: &alloy_consensus::Header,
+        origin: eez_protocol::l1_history::HistoryState,
     ) -> Result<(), crate::derivation::DerivationError> {
-        self.state
-            .lock()
-            .unwrap()
+        use crate::derivation::DerivationError;
+        let state = self.state.lock().unwrap();
+        let history = state
             .derivation
             .as_ref()
-            .ok_or(crate::derivation::DerivationError::Unavailable(
-                "seed provenance not initialized",
-            ))?
-            .validate_record(evidence, l1, endpoint)
-            .map(|_| ())
+            .ok_or(DerivationError::Unavailable("L1 history not initialized"))?;
+        let schedule = history.schedule();
+        if evidence.l1_block != l1.reference()
+            || evidence.endpoint
+                != Some(L2Endpoint {
+                    number: endpoint.number,
+                    hash: endpoint.hash_slow(),
+                })
+            || endpoint.number == 0
+            || (!evidence.anchor_applied && evidence.applied_effects.is_empty())
+            || l1.header().number < schedule.config().l1_reference.number
+        {
+            return Err(DerivationError::Mismatch(
+                "accepted endpoint/header binding",
+            ));
+        }
+        schedule.anchor_kind(endpoint.number, endpoint.timestamp, l1.header().timestamp)?;
+        let chain = history.headers(schedule.history()?.source_cutoff(endpoint.timestamp)?)?;
+        let selected = chain.at(origin.endpoint)?;
+        if endpoint.mix_hash != selected.header().mix_hash
+            || origin.endpoint_hash != selected.hash()
+        {
+            return Err(DerivationError::Mismatch("accepted endpoint randomness"));
+        }
+        if let Some(previous) = state.evidence.settlements.get(&evidence.tx_hash) {
+            if previous != evidence {
+                return Err(DerivationError::Mismatch("conflicting accepted occurrence"));
+            }
+        } else if let Some(previous) = state.commitments.values().next_back()
+            && ((evidence.l1_block.number, evidence.tx_index)
+                <= (previous.l1.number, previous.tx_index)
+                || endpoint.number < previous.endpoint.number
+                || (evidence.l1_block.number == previous.l1.number
+                    && evidence.l1_block.hash != previous.l1.hash))
+        {
+            return Err(DerivationError::Mismatch(
+                "unordered or conflicting accepted occurrence",
+            ));
+        }
+        Ok(())
     }
 
-    /// Atomically expose an accepted anchor and its seed under the same lock as
-    /// the cursor. No-effect evidence uses `publish` and cannot refresh the seed.
+    /// Publish only independently reconstructed acceptance. The sole writer
+    /// holds the reconciliation lock through validation, persistence and publication.
     pub fn publish_accepted(
         &self,
         evidence: ReconciledBatchSettlement,
         l1: &crate::derivation::AuthenticatedL1Header,
         endpoint: &alloy_consensus::Header,
+        origin: eez_protocol::l1_history::HistoryState,
     ) -> Result<(), crate::derivation::DerivationError> {
+        self.validate_accepted(&evidence, l1, endpoint, origin)?;
         let mut state = self.state.lock().unwrap();
-        if state.evidence.settlements.get(&evidence.tx_hash) == Some(&evidence) {
-            return Ok(());
-        }
-        state
-            .derivation
-            .as_mut()
-            .ok_or(crate::derivation::DerivationError::Unavailable(
-                "seed provenance not initialized",
-            ))?
-            .record(&evidence, l1, endpoint)?;
         self.publish_locked(&mut state, evidence);
         Ok(())
     }
@@ -396,16 +441,37 @@ impl L1CanonicalHead {
         &self,
         parent: &alloy_consensus::Header,
         through: L1BlockRef,
-    ) -> Result<(u64, B256), crate::derivation::DerivationError> {
-        self.state
-            .lock()
-            .unwrap()
+    ) -> Result<(u64, Arc<eez_protocol::l1_history::HeaderChain>), crate::derivation::DerivationError>
+    {
+        use crate::derivation::DerivationError;
+        let state = self.state.lock().unwrap();
+        let history = state
             .derivation
             .as_ref()
-            .ok_or(crate::derivation::DerivationError::Unavailable(
-                "seed provenance not initialized",
-            ))?
-            .next_block_context_through(parent, through.number)
+            .ok_or(DerivationError::Unavailable("L1 history not initialized"))?;
+        let prepared = history
+            .prepared()
+            .ok_or(DerivationError::Unavailable("L1 history not prepared"))?;
+        let chain = prepared.chain();
+        let boundary = chain.at(through.number)?;
+        let (_, timestamp) = history.schedule().next(parent)?;
+        if boundary.hash() != through.hash {
+            return Err(DerivationError::Mismatch(
+                "estimation history boundary or cutoff",
+            ));
+        }
+        let snapshot = if prepared.through() == through {
+            chain
+        } else {
+            let first = chain
+                .headers()
+                .first()
+                .ok_or(eez_protocol::l2::ProfileError("empty estimation history"))?
+                .header()
+                .number;
+            Arc::new(chain.range(first, through.number)?)
+        };
+        Ok((timestamp, snapshot))
     }
 
     /// Recheck immediately before changing ownership under the engine
@@ -420,7 +486,7 @@ impl L1CanonicalHead {
     pub fn retreat_on_l1_reorg(&self, ancestor: u64) -> (u64, u64, usize) {
         let mut state = self.state.lock().unwrap();
         if let Some(history) = &mut state.derivation {
-            history.retain_through(ancestor);
+            history.invalidate();
         }
         let original_len = state.batches.len();
         state.batches.retain(|b| b.l1_block <= ancestor);
@@ -466,6 +532,21 @@ impl L1CanonicalHead {
 
     pub fn set_finalized_l2(&self, l2_block: u64) {
         self.finalized_l2.store(l2_block, Ordering::Release);
+    }
+}
+
+impl eez_protocol::l1_history::L1HistorySource for L1CanonicalHead {
+    fn headers(
+        &self,
+        cutoff: u64,
+    ) -> Result<Arc<eez_protocol::l1_history::HeaderChain>, eez_protocol::l2::ProfileError> {
+        self.state
+            .lock()
+            .unwrap()
+            .derivation
+            .as_ref()
+            .ok_or(eez_protocol::l2::ProfileError("L1 history not initialized"))?
+            .headers(cutoff)
     }
 }
 

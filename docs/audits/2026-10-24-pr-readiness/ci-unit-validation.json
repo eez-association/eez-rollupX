@@ -1,0 +1,50 @@
+{
+  "observed_at_utc": "2026-10-24T12:56:30.130817+00:00",
+  "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40092563758/job/120868076950",
+  "job_result": "success",
+  "pr_head": "d1838526480b89651f759d34e27bfbcfca43fb55",
+  "checkout": "83a3af601a5828f8d5814f1e6baa0c76bcfec972",
+  "checkout_tree": "45839f78a7ba6f654a94862ca536fd0eb88e54ce",
+  "tree_equals_pr_head": true,
+  "workspace_units": {
+    "command": "bash scripts/ci/with-compiler-cache.sh debug-units cargo nextest run --locked --timings --workspace --lib --bins --profile ci --no-fail-fast --no-tests=fail",
+    "passed": 1569,
+    "failed": 0,
+    "skipped": 3,
+    "test_seconds": 150.549,
+    "compile_seconds": 1382,
+    "EEZ_TEST_PREBUILT": "1"
+  },
+  "reth_shutdown": {
+    "command": "bash scripts/ci/with-compiler-cache.sh reth-shutdown cargo nextest run --locked --timings --manifest-path crates/vendor/reth/Cargo.toml -p reth-engine-tree --lib -E 'test(test_engine_termination_waits_for_cleanup)' --no-tests=fail --retries 0 --flaky-result fail",
+    "passed": 1,
+    "failed": 0,
+    "filtered_out": 206,
+    "test_seconds": 3.122
+  },
+  "rpc_regressions_confirmed": [
+    "PASS [   0.009s] ( 432/1569) eez-control-rpc identity::tests::rust_dependency_changes_require_a_semantics_review",
+    "PASS [   0.020s] ( 946/1569) eez-node-common rpc::tests::derived_pending_rejects_required_import_with_complete_headers",
+    "PASS [   0.020s] ( 947/1569) eez-node-common rpc::tests::pending_prefix_executes_import_and_repeat_with_matching_randao_and_cutoff",
+    "PASS [   0.018s] ( 948/1569) eez-node-common rpc::tests::pending_prefix_rejects_bad_parent_state_and_freezes_evidence",
+    "PASS [   0.018s] ( 949/1569) eez-node-common rpc::tests::rpc_pending_defaults_follow_l2_schedule_and_remain_deterministic",
+    "PASS [   0.022s] ( 950/1569) eez-node-common rpc::tests::rpc_pending_retains_installed_randao_across_sync_and_reorg_rebuild",
+    "PASS [   0.015s] ( 951/1569) eez-node-common rpc::unavailable_history_tests::pending_without_l1_history_fails_instead_of_guessing"
+  ],
+  "summaries": [
+    "Summary [ 150.549s] 1569 tests run: 1569 passed, 3 skipped",
+    "Summary [   3.122s] 1 test run: 1 passed, 206 skipped"
+  ],
+  "retry_or_flaky_markers": [],
+  "log": {
+    "path": "artifacts/pr-readiness/ci-debug-units-40092563758.log",
+    "sha256": "c1a9ec9a641fb4ede090cbf25de823a0e5530c4b6d15ec520f738b9409712091",
+    "availability": "local-only"
+  },
+  "limits": [
+    "Workspace lib/bin units; process, integration-target and documentation tests are separate.",
+    "Three existing explicit unit ignores are not coverage; the two fixture utilities were executed earlier during corpus generation.",
+    "The 206 skipped Reth cases are filtered out by the single-test selector, not validated here.",
+    "The later test-only cost correction is outside this lib/bin selection and has separate execution pending."
+  ]
+}

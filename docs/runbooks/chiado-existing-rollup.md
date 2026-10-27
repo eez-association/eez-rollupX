@@ -1,15 +1,17 @@
 # Run a Composer for an existing Chiado rollup
 
-Use this procedure to add or replace a Composer for an already registered EEZ L2
-on Chiado. It uses the [packaged profile](../../docker-compose.chiado-node.yml):
+Use this procedure to add or replace a Composer for a Chiado L2 created with
+this revision's offline-history profile. It uses the
+[packaged profile](../../docker-compose.chiado-node.yml):
 embedded L1, Composer/L2, local proof signer, and Lighthouse. For an unchanged
 installation, use [restart](chiado-deployment.md#restart-and-stop).
 
-This revision can join only a network created with the matching native `0x76`
-genesis and protocol format. It cannot join or upgrade the earlier signed-system
-deployment. For that network, retain its original revision, images, configuration
-and databases; the historical trial below does not validate this protocol change.
-See the [compatibility boundary](chiado-deployment.md#featureevents-protocol-compatibility).
+The original deployment must have the matching `OfflineRollup`, history
+predeploy, authenticated bootstrap and delayed origin/PREVRANDAO schedule from
+genesis. Native `0x45` transactions alone do not establish compatibility.
+Earlier networks remain on their original runtime, configuration and databases;
+this procedure does not convert them. See the
+[compatibility boundary](chiado-deployment.md#offline-v2-proving-and-fresh-network-boundary).
 
 **Do not run deployment or regenerate genesis.** This profile derives settled L2
 history from L1 transactions and Beacon blobs; an existing L2 RPC URL alone is not
@@ -23,12 +25,10 @@ including [startup](../../crates/eez-node/src/lib.rs),
 fresh replay and backup restoration have **not** been rehearsed on a live rollup.
 
 The [September 28 cold-copy trial](../audits/2026-09-28-chiado-strict-fifo/README.md)
-validated one existing deployment's upgrade, retained history, canonical new
-settlement and restart, followed by 870 settled sources / 770 semantic checks.
-Its restart required bounded manual L1 backfill, so it does not establish
-unattended recovery or fresh historical replay. Retain original databases and
-configuration when testing a Reth upgrade; never roll an older binary back onto
-candidate-modified state. Pruned-genesis RPC handling also requires the
+predates this profile and does not validate its live restore procedure. Retain
+original databases and configuration when testing a runtime replacement; never
+roll an older binary back onto candidate-modified state. Pruned-genesis RPC
+handling also requires the
 [compatible monitoring identity check](../../monitoring/indexer/README.md#start-on-the-same-machine).
 
 ## 1. Obtain the deployment and choose the state source
@@ -42,9 +42,9 @@ Obtain these inputs from the existing network's operator:
 
 | Input | Required contents or constraint |
 | --- | --- |
-| Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, manager/bridge addresses, system address, and initial block/state commitments. |
-| Runtime configuration | Compatible node/signer images, matching configuration checkout/protocol revision, and the network's settlement/admission settings. The packaged timing is 5-second L1 / 1-second L2, with EEZL2 at the proxy `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` (networks created before the upgradeable EEZL2 profile used `0x4200000000000000000000000000000000000007` and need their matching release); a different profile needs its own configuration. |
-| System and attester bindings | The deployed system address must be `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076`; no system private key exists. Supply `EEZ_PROOF_SIGNER_KEY` for the registered attester privately. A fresh attestation key cannot replace that binding; this Compose profile runs a local signer. |
+| Deployment files | Original `deployments.env`, `datadir/genesis.json`, and `datadir/genesis.profile.json`. Keep registry/deployment block, rollup ID, proof-system/vkey/attester, offline manager/bridge addresses, system address, and initial block/state commitments. Preserve the complete history bootstrap, schedule and local L1 rules bound by that manager. |
+| Runtime configuration | Matching offline-profile node/signer images, configuration checkout/protocol revision, and settlement/admission settings. The packaged timing is 5-second L1 / 1-second L2, with EEZL2 at proxy `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C` and history at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`. The genesis fixes the history delay; startup cannot override it. |
+| System and attester bindings | The deployed system address must be `0xfffffffffffffffffffffffffffffffffffffffe`; no system private key exists. Supply `EEZ_PROOF_SIGNER_KEY` for the registered attester privately. A fresh attestation key cannot replace that binding; this Compose profile runs a local signer. |
 | Posting wallet | A dedicated `EEZ_L1_POSTER_KEY` funded with Chiado test xDAI. Do not share it with another active Composer or workload. No deployer key is needed. |
 | State/history source | Choose one L2 path below; obtain compatible L1 data and Beacon coverage for its replay range. Preserve the backup's source revision and last settled L1/L2 hashes. |
 
@@ -58,9 +58,13 @@ block even when L2 blocks exist. Copying only `eez-reconcile-checkpoint` does no
 restore the database or complete index. Do not erase an existing database to select
 the fresh path; use separate storage and retain the recovery copy.
 
-For either path, the embedded L1 must serve historical canonical headers for the
-genesis reference and indexed anchors, plus logs and transaction bodies throughout
-the selected scan range. With a valid checkpoint, deployment-era bodies/logs need
+For either path, the embedded L1 must serve every produced canonical header from
+the authenticated predecessor's history endpoint through each required anchor,
+including intermediate headers that no L2 block selected as its origin. It must
+also serve logs and transaction bodies throughout the selected scan range.
+This chain access belongs to the node and follower; the signer receives complete
+evidence over v2 and uses only local profiles. With a valid checkpoint,
+deployment-era bodies/logs need
 not remain available; follow [pruned-L1 recovery](ethereum-node.md#recovery-with-a-pruned-l1)
 for raw-header RPC support and recovery boundaries. The Beacon source
 must serve every batch's full blobs over that range, including the restored anchor
@@ -118,10 +122,12 @@ no `data/jwt.hex`, create the secret shared by its execution and consensus clien
 openssl rand -hex 32 > data/jwt.hex
 ```
 
-Restore the selected L2 backup now, if applicable. Complete the
+Restore the selected matching-profile L2 backup now, if applicable. Complete the
 [deployment identity checks](chiado-deployment.md#deployment-identity): genesis
-hash/state root and system/attester addresses must match the supplied bindings
-and deployed proof system. Keep genesis readable by the signer (UID 65532).
+hash/state root, history profile, local L1 rules and system/attester addresses must
+match the supplied bindings, offline manager and deployed proof system. Keep
+genesis readable by the signer (UID 65532). Do not configure signer chain RPCs;
+obsolete inputs are rejected even when empty.
 
 ## 3. Start, catch up, and verify
 

@@ -13,8 +13,8 @@ use crate::{
 
 // Matches the pinned native transaction profile in eez-proof-signer/SPEC.md.
 // The monitoring workspace deliberately has no node/Reth dependencies.
-const NATIVE_TRANSACTION_TYPE: u64 = 0x76;
-const ACCOUNTING_VERSION: u64 = 1;
+const NATIVE_TRANSACTION_TYPE: u64 = 0x45;
+const ACCOUNTING_VERSION: u64 = 2;
 
 /// Execution fees in the L2 network's native base units, plus receipt gas split
 /// by fee-paying ordinary transactions and zero-priced native transactions.
@@ -23,13 +23,13 @@ pub struct BlockFees {
     pub beneficiary: Address,
     pub ordinary_gas_used: u64,
     pub native_gas_used: u64,
-    pub burn: U256,
+    pub base_fee: U256,
     /// Gross priority payments to the header beneficiary, including operator
     /// transactions. This is not qualified external revenue or L1 liquidity.
     pub tip: U256,
 }
 
-/// Account for a complete block's execution receipts. Native type 0x76 consumes
+/// Account for a complete block's execution receipts. Native type 0x45 consumes
 /// gas at zero price; ordinary transactions pay fees even when they revert.
 /// Reject missing/unsupported types, nonzero native prices, ordinary prices below
 /// the base fee, arithmetic overflow, and inconsistent inclusion or gas evidence.
@@ -50,7 +50,7 @@ pub fn block_fees(header: &Value, receipts: &Value) -> Result<BlockFees> {
         beneficiary,
         ordinary_gas_used: 0,
         native_gas_used: 0,
-        burn: U256::ZERO,
+        base_fee: U256::ZERO,
         tip: U256::ZERO,
     };
     for (index, receipt) in receipts.iter().enumerate() {
@@ -89,13 +89,13 @@ pub fn block_fees(header: &Value, receipts: &Value) -> Result<BlockFees> {
         let priority = price
             .checked_sub(base)
             .context("L2 effective price below base fee")?;
-        fees.burn = fees
-            .burn
+        fees.base_fee = fees
+            .base_fee
             .checked_add(
                 base.checked_mul(U256::from(used))
-                    .context("L2 burn overflow")?,
+                    .context("L2 base_fee overflow")?,
             )
-            .context("L2 burn overflow")?;
+            .context("L2 base_fee overflow")?;
         fees.tip = fees
             .tip
             .checked_add(
@@ -111,7 +111,7 @@ pub fn block_fees(header: &Value, receipts: &Value) -> Result<BlockFees> {
 
 #[derive(Default)]
 struct RangeFees {
-    burn: U256,
+    base_fee: U256,
     tip: U256,
     ordinary_gas_used: U256,
     native_gas_used: U256,
@@ -140,7 +140,7 @@ impl RangeFees {
         let tip = decimal(&item["tipWei"])?;
         ensure!(attributed == tip, "L2 beneficiary tips do not match total");
         Ok(Self {
-            burn: decimal(&item["burnWei"])?,
+            base_fee: decimal(&item["baseFeeWei"])?,
             tip,
             ordinary_gas_used: decimal(&item["ordinaryGasUsed"])?,
             native_gas_used: decimal(&item["nativeGasUsed"])?,
@@ -149,10 +149,10 @@ impl RangeFees {
     }
 
     fn add(&mut self, fees: BlockFees) -> Result<()> {
-        self.burn = self
-            .burn
-            .checked_add(fees.burn)
-            .context("L2 range burn overflow")?;
+        self.base_fee = self
+            .base_fee
+            .checked_add(fees.base_fee)
+            .context("L2 range base_fee overflow")?;
         self.tip = self
             .tip
             .checked_add(fees.tip)
@@ -178,7 +178,7 @@ impl RangeFees {
     }
 
     fn write(&self, item: &mut Value) {
-        item["burnWei"] = json!(self.burn.to_string());
+        item["baseFeeWei"] = json!(self.base_fee.to_string());
         item["tipWei"] = json!(self.tip.to_string());
         item["ordinaryGasUsed"] = json!(self.ordinary_gas_used.to_string());
         item["nativeGasUsed"] = json!(self.native_gas_used.to_string());
@@ -229,8 +229,6 @@ pub async fn collect(rpc: &Rpc, ranges: &Value, old: &Value, budget: usize) -> V
                     && item["processed"].is_u64()
             })
         });
-        // Older totals cannot establish beneficiary attribution or native gas.
-        // Rescan the whole range instead of attaching guessed fields to them.
         let mut item = cached.cloned().unwrap_or_else(|| new_checkpoint(range));
         // A canonical result is provisional: validate its hash again even if
         // fully collected. Finality promotion reuses receipts, not stale status.

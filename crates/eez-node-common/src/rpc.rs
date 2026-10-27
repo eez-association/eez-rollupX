@@ -25,6 +25,9 @@ use reth_rpc_eth_types::EthApiError;
 use reth_rpc_eth_types::receipt::EthReceiptConverter;
 use std::future::ready;
 
+#[cfg(feature = "l1-startup")]
+mod pending;
+
 #[derive(Debug, Clone)]
 pub struct EezRpcTypes;
 
@@ -40,7 +43,7 @@ type ReceiptBuilder = fn(Receipt, usize, TransactionMeta) -> AnyReceiptEnvelope<
 type Converter =
     RpcConverter<EezRpcTypes, EezEvmConfig, EthReceiptConverter<ChainSpec, ReceiptBuilder>>;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct EezEthApiBuilder {
     #[cfg(feature = "l1-startup")]
     state: Option<(
@@ -82,6 +85,20 @@ impl EezEthApiBuilder {
             }
             l1_head
                 .next_block_context(parent)
+                .and_then(|context @ (timestamp, _)| {
+                    let history = l1_head.derivation_schedule()?.history()?;
+                    // Reth's derived pending call uses the parent's state; its
+                    // environment builder cannot apply the mandatory import.
+                    // Reject even a repeated source, whose schedule must advance.
+                    if history.source_cutoff(parent.timestamp)?
+                        != history.source_cutoff(timestamp)?
+                    {
+                        return Err(eez_l1::derivation::DerivationError::Unavailable(
+                            "pending L1 history import has not executed",
+                        ));
+                    }
+                    Ok(context)
+                })
                 .map_err(|error| EthApiError::Internal(reth_errors::RethError::other(error)))
         }
         #[cfg(not(feature = "l1-startup"))]
@@ -114,8 +131,8 @@ impl<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>> EthApiBuilder<N
 }
 
 // Only the fallback for an absent executed pending payload reaches this builder.
-// A live anchor changes its descendants' seed without changing its own mixHash,
-// so pending simulation must consult canonical history on every request.
+// Pending simulation must consult canonical history and cannot synthesize an
+// import in the environment alone. Executed pending payloads use their own state.
 impl PendingEnvBuilder<EezEvmConfig> for EezEthApiBuilder {
     fn pending_env_attributes(
         &self,
@@ -182,14 +199,19 @@ fn build_receipt(
 pub fn eez_add_ons<N: FullNodeComponents<Types = EezNode, Evm = EezEvmConfig>>(
     eth: EezEthApiBuilder,
 ) -> RpcAddOns<N, EezEthApiBuilder, EezEngineValidatorBuilder> {
-    RpcAddOns::new(
+    #[cfg(feature = "l1-startup")]
+    let pending = eth.clone();
+    let add_ons = RpcAddOns::new(
         eth,
         EezEngineValidatorBuilder,
         BasicEngineApiBuilder::default(),
         BasicEngineValidatorBuilder::default(),
         Default::default(),
         Identity::new(),
-    )
+    );
+    #[cfg(feature = "l1-startup")]
+    let add_ons = add_ons.extend_rpc_modules(move |ctx| pending::install(ctx, pending));
+    add_ons
 }
 
 #[cfg(all(test, feature = "l1-startup"))]
@@ -198,38 +220,137 @@ mod tests {
     use reth_chainspec::EthChainSpec as _;
     use reth_evm::ConfigureEvm as _;
 
-    #[test]
-    fn rpc_pending_defaults_follow_l2_schedule_and_remain_deterministic() {
-        let genesis =
+    use alloy_primitives::{B256, U64};
+    use alloy_provider::{ProviderBuilder, mock::Asserter};
+    use eez_l1::{L1BlockRef, L1CanonicalHead, derivation::DerivationSource};
+    use std::sync::Arc;
+
+    pub(super) fn l1_blocks(replacement: bool) -> Vec<alloy_rpc_types_eth::Block> {
+        let mut parent = B256::ZERO;
+        [1000, 1004, 1012]
+            .into_iter()
+            .enumerate()
+            .map(|(number, timestamp)| {
+                let header = alloy_consensus::Header {
+                    number: number as u64,
+                    timestamp,
+                    parent_hash: parent,
+                    mix_hash: B256::with_last_byte(if replacement && number == 1 {
+                        10
+                    } else {
+                        7 + number as u8
+                    }),
+                    ..Default::default()
+                };
+                parent = header.hash_slow();
+                alloy_rpc_types_eth::Block {
+                    header: alloy_rpc_types_eth::Header {
+                        hash: parent,
+                        inner: header,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    pub(super) fn profile(reference: &alloy_rpc_types_eth::Block) -> Arc<ChainSpec> {
+        let mut genesis =
             eez_l1::chain_config::parse_l2_genesis(include_bytes!("../../../genesis.json"))
                 .unwrap()
                 .into_genesis();
-        let spec = std::sync::Arc::new(eez_evm::profile::chain_spec(genesis).unwrap());
+        genesis.timestamp = 1004;
+        genesis.mix_hash = reference.header.mix_hash;
+        genesis.config.extra_fields.insert("rollupX".into(), serde_json::json!({
+            "feeCollector": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            "blockIntervalSeconds": 1, "syncIntervalBlocks": 4, "historyUpdateOffset": 2,
+            "l1Reference": { "chainId": 31337, "number": 0, "hash": reference.header.hash,
+                "timestamp": reference.header.timestamp, "prevRandao": reference.header.mix_hash }
+        }));
+        genesis
+            .alloc
+            .get_mut(&eez_protocol::l1_history::HISTORY_ADDRESS)
+            .unwrap()
+            .storage = Some(
+            eez_protocol::l1_history::bootstrap_storage(
+                0,
+                reference.header.hash,
+                eez_protocol::l1_history::HistorySchedule::new(1004, 1, 4, 2).unwrap(),
+            )
+            .unwrap()
+            .into_iter()
+            .collect(),
+        );
+        Arc::new(eez_evm::profile::chain_spec(genesis).unwrap())
+    }
+
+    async fn publish(
+        head: &L1CanonicalHead,
+        spec: &ChainSpec,
+        blocks: &[alloy_rpc_types_eth::Block],
+    ) {
+        let schedule = eez_evm::profile::schedule(spec).unwrap();
+        let replies = Asserter::new();
+        replies.push_success(&U64::from(31337));
+        replies.push_success(&blocks[0]);
+        let source = DerivationSource::authenticate(
+            ProviderBuilder::new().connect_mocked_client(replies.clone()),
+            schedule,
+        )
+        .await
+        .unwrap();
+        // Endpoint, binary source search, complete acquisition, canonical recheck.
+        for index in [0, 0, 1, 2, 2] {
+            replies.push_success(&blocks[index]);
+        }
+        let prepared = source
+            .prepare_history(
+                0,
+                L1BlockRef {
+                    number: 2,
+                    hash: blocks[2].header.hash,
+                },
+                eez_protocol::l1_history::HeaderRules {
+                    london_block: None,
+                    shanghai_time: None,
+                    cancun_time: None,
+                    prague_time: None,
+                    unsupported_time: None,
+                },
+                None,
+            )
+            .await
+            .unwrap();
+        head.publish_history(prepared, head.policy_anchor_snapshot().generation)
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn rpc_pending_defaults_follow_l2_schedule_and_remain_deterministic() {
+        let blocks = l1_blocks(false);
+        let spec = profile(&blocks[0]);
         let parent = SealedHeader::seal_slow(spec.genesis_header().clone());
-        let l1_head = std::sync::Arc::new(eez_l1::L1CanonicalHead::default());
-        l1_head.restore_derivation(eez_l1::derivation::SeedHistory::new(
-            eez_evm::profile::schedule(&spec).unwrap(),
-        ));
-        let correlations = std::sync::Arc::new(eez_deriver::CorrelationStore::in_memory());
+        let head = Arc::new(L1CanonicalHead::default());
+        head.initialize_history(eez_evm::profile::schedule(&spec).unwrap());
+        let correlations = Arc::new(eez_deriver::CorrelationStore::in_memory());
         correlations.mark_ready();
-        let builder = EezEthApiBuilder::new(l1_head, correlations);
+        let builder = EezEthApiBuilder::new(head.clone(), correlations);
+        assert!(
+            builder.pending_env_attributes(&parent, None).is_ok(),
+            "non-update simulation inherits the authenticated parent randomness"
+        );
+        publish(&head, &spec, &blocks).await;
         let first = builder.pending_env_attributes(&parent, None).unwrap();
         let second = builder.pending_env_attributes(&parent, None).unwrap();
         assert_eq!(first, second);
-        assert_eq!(
-            first.timestamp,
-            eez_evm::profile::schedule(&spec)
-                .unwrap()
-                .timestamp(1)
-                .unwrap()
-        );
-        assert_ne!(first.timestamp, parent.timestamp + 12);
-        assert_eq!(first.prev_randao, parent.mix_hash);
+        assert_eq!(first.timestamp, 1005);
+        assert_eq!(first.prev_randao, blocks[0].header.mix_hash);
         EezEvmConfig::new(spec)
             .next_evm_env(&parent, &first)
             .unwrap();
         let overrides = alloy_rpc_types_eth::BlockOverrides {
-            beacon_root: Some(alloy_primitives::B256::repeat_byte(1)),
+            beacon_root: Some(B256::repeat_byte(1)),
             ..Default::default()
         };
         assert!(matches!(
@@ -239,130 +360,328 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rpc_pending_seed_tracks_live_anchor_and_canonical_history_rebuild() {
-        use alloy_primitives::{B256, U64};
-        use alloy_provider::ProviderBuilder;
-        use alloy_transport::mock::Asserter;
-        use eez_l1::{L1BlockRef, L1CanonicalHead, derivation::DerivationSource};
-        use std::sync::Arc;
-
-        let mut reference: alloy_rpc_types_eth::Block = Default::default();
-        reference.header.inner.number = 10;
-        reference.header.inner.timestamp = 1000;
-        reference.header.inner.mix_hash = B256::with_last_byte(7);
-        reference.header.hash = reference.header.inner.hash_slow();
-        let mut genesis =
-            eez_l1::chain_config::parse_l2_genesis(include_bytes!("../../../genesis.json"))
-                .unwrap()
-                .into_genesis();
-        genesis.timestamp = reference.header.timestamp;
-        genesis.mix_hash = reference.header.mix_hash;
-        genesis.config.extra_fields.insert(
-            "rollupX".into(),
-            serde_json::json!({
-                "blockIntervalSeconds": 1,
-                "syncIntervalBlocks": 4,
-                "l1Reference": {
-                    "chainId": 31337,
-                    "number": reference.header.number,
-                    "hash": reference.header.hash,
-                    "timestamp": reference.header.timestamp,
-                    "prevRandao": reference.header.mix_hash,
-                }
-            }),
-        );
-        let spec = Arc::new(eez_evm::profile::chain_spec(genesis).unwrap());
+    async fn derived_pending_rejects_required_import_with_complete_headers() {
+        let blocks = l1_blocks(false);
+        let spec = profile(&blocks[0]);
         let schedule = eez_evm::profile::schedule(&spec).unwrap();
-        let replies = Asserter::new();
-        replies.push_success(&U64::from(31337));
-        replies.push_success(&reference);
-        replies.push_success(&reference);
-        let source = DerivationSource::authenticate(
-            ProviderBuilder::new().connect_mocked_client(replies.clone()),
-            schedule,
-        )
-        .await
-        .unwrap();
-        let mut history = source.seed_history();
-        let l1_head = Arc::new(L1CanonicalHead::default());
-        l1_head.restore_derivation(history.clone());
+        let head = Arc::new(L1CanonicalHead::default());
+        head.initialize_history(schedule);
+        publish(&head, &spec, &blocks).await;
         let correlations = Arc::new(eez_deriver::CorrelationStore::in_memory());
-        let builder = EezEthApiBuilder::new(l1_head.clone(), correlations.clone());
+        correlations.mark_ready();
+        let builder = EezEthApiBuilder::new(head.clone(), correlations);
+        // The second update selects the same L1 source but still advances the
+        // history contract's schedule. Neither import may be omitted from a
+        // synthesized environment that executes against its parent's state.
+        for number in [2, 6] {
+            let mut parent = spec.genesis_header().clone();
+            parent.number = number;
+            parent.timestamp = schedule.timestamp(number).unwrap();
+            let parent = SealedHeader::seal_slow(parent);
+            assert!(
+                head.next_block_context(&parent).is_ok(),
+                "evidence is complete"
+            );
+            let error = builder.pending_env_attributes(&parent, None).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("pending L1 history import has not executed")
+            );
+        }
+    }
+
+    pub(super) fn pending_genesis_db(spec: &ChainSpec) -> reth_rpc_eth_types::StateCacheDb {
+        use reth_revm::{database::StateProviderDatabase, db::State};
+        use reth_storage_api::{StateProvider, StateProviderBox, noop::NoopProvider};
+        use revm::state::{AccountInfo, Bytecode};
+        let provider: StateProviderBox = Box::new(NoopProvider::eth(Arc::new(spec.clone())));
+        let mut db = State::builder()
+            .with_database(StateProviderDatabase::new(
+                provider.into_evm_state_provider(),
+            ))
+            .build();
+        for (address, account) in &spec.genesis().alloc {
+            let code = Bytecode::new_raw(account.code.clone().unwrap_or_default());
+            db.cache.contracts.insert(code.hash_slow(), code.clone());
+            db.insert_account_with_storage(
+                *address,
+                AccountInfo {
+                    balance: account.balance,
+                    nonce: account.nonce.unwrap_or_default(),
+                    code_hash: code.hash_slow(),
+                    code: Some(code),
+                    ..Default::default()
+                },
+                account
+                    .storage
+                    .iter()
+                    .flatten()
+                    .map(|(key, value)| ((*key).into(), (*value).into()))
+                    .collect(),
+            );
+        }
+        db
+    }
+
+    #[test]
+    fn pending_prefix_executes_import_and_repeat_with_matching_randao_and_cutoff() {
+        use eez_protocol::l1_history::{
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, NEXT_CUTOFF_SLOT, WitnessHistory,
+        };
+        use reth_evm::Evm;
+        use revm::{Database, context::TxEnv};
+        let blocks = l1_blocks(false);
+        let spec = profile(&blocks[0]);
+        let schedule = eez_evm::profile::schedule(&spec).unwrap();
+        // One header models a delayed L1 source; the longer snapshot permits an
+        // advancing import. Both must execute the scheduled native transaction.
+        for (count, parent_number) in [(1, 0), (3, 0), (1, 2), (3, 2)] {
+            let mut chain = HeaderChain::default();
+            chain
+                .append(
+                    &blocks[..count]
+                        .iter()
+                        .map(|block| alloy_rlp::encode(&block.header.inner).into())
+                        .collect::<Vec<_>>(),
+                    &HeaderRules {
+                        london_block: None,
+                        shanghai_time: None,
+                        cancun_time: None,
+                        prague_time: None,
+                        unsupported_time: None,
+                    },
+                    64,
+                )
+                .unwrap();
+            let config = EezEvmConfig::new(spec.clone())
+                .with_l1_history(Arc::new(WitnessHistory(Arc::new(chain))))
+                .unwrap();
+            let mut parent = spec.genesis_header().clone();
+            parent.number = parent_number;
+            parent.timestamp = schedule.timestamp(parent_number).unwrap();
+            let parent = SealedHeader::seal_slow(parent);
+            let mut db = pending_genesis_db(&spec);
+            db.insert_account(
+                eez_primitives::SYSTEM_ADDRESS,
+                revm::state::AccountInfo {
+                    balance: alloy_primitives::U256::from(9),
+                    ..Default::default()
+                },
+            );
+            let (config, mut env, mut db) =
+                super::pending::execute_prefix(&config, &parent, db).unwrap();
+            let history = config.history_state(&mut db).unwrap();
+            let selected = usize::from(count != 1 && parent_number == 2);
+            assert_eq!(history.endpoint, selected as u64);
+            assert_eq!(history.endpoint_hash, blocks[selected].header.hash);
+            assert_eq!(
+                history.next_cutoff,
+                if parent_number == 2 { 1008 } else { 1004 }
+            );
+            assert_eq!(
+                env.block_env.timestamp,
+                alloy_primitives::U256::from(parent.timestamp + 1)
+            );
+            assert_eq!(
+                env.block_env.prevrandao,
+                Some(blocks[selected].header.mix_hash)
+            );
+
+            // Observe the actual opcode in the application EVM, not just the
+            // prepared attributes. No system nonce or fee is introduced.
+            let probe = alloy_primitives::Address::with_last_byte(90);
+            let code =
+                revm::state::Bytecode::new_raw(alloy_primitives::bytes!("4460005260206000f3"));
+            db.cache.contracts.insert(code.hash_slow(), code.clone());
+            db.insert_account(
+                probe,
+                revm::state::AccountInfo {
+                    code_hash: code.hash_slow(),
+                    code: Some(code),
+                    ..Default::default()
+                },
+            );
+            let system = db
+                .basic(eez_primitives::SYSTEM_ADDRESS)
+                .unwrap()
+                .unwrap_or_default();
+            assert_eq!(system.nonce, 0);
+            assert_eq!(system.balance, alloy_primitives::U256::ZERO);
+            assert_eq!(
+                db.storage(
+                    alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
+                    alloy_primitives::U256::from(parent_number)
+                )
+                .unwrap(),
+                alloy_primitives::U256::from_be_slice(parent.hash().as_slice())
+            );
+            env.cfg_env.disable_base_fee = true;
+            let chain_id = env.cfg_env.chain_id;
+            let mut evm = config.evm_with_env(&mut db, env);
+            let result = evm
+                .transact(
+                    TxEnv::builder()
+                        .caller(alloy_primitives::Address::with_last_byte(91))
+                        .kind(alloy_primitives::TxKind::Call(probe))
+                        .chain_id(Some(chain_id))
+                        .gas_limit(100_000)
+                        .build()
+                        .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                result.result.output().unwrap().as_ref(),
+                blocks[selected].header.mix_hash.as_slice()
+            );
+            let mut original = pending_genesis_db(&spec);
+            assert_eq!(
+                original
+                    .storage(
+                        HISTORY_ADDRESS,
+                        alloy_primitives::U256::from(NEXT_CUTOFF_SLOT)
+                    )
+                    .unwrap(),
+                alloy_primitives::U256::from(1004)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn pending_prefix_rejects_bad_parent_state_and_freezes_evidence() {
+        use eez_protocol::l1_history::{HISTORY_ADDRESS, NEXT_CUTOFF_SLOT};
+        use revm::Database;
+        let blocks = l1_blocks(false);
+        let spec = profile(&blocks[0]);
+        let head = Arc::new(L1CanonicalHead::default());
+        head.initialize_history(eez_evm::profile::schedule(&spec).unwrap());
+        publish(&head, &spec, &blocks).await;
+        let config = EezEvmConfig::new(spec.clone())
+            .with_l1_history(head.clone())
+            .unwrap();
         let mut parent = spec.genesis_header().clone();
-        parent.number = 4;
-        parent.timestamp = schedule.timestamp(parent.number).unwrap();
+        parent.number = 2;
+        parent.timestamp = 1006;
         let parent = SealedHeader::seal_slow(parent);
-        let error = builder.pending_env_attributes(&parent, None).unwrap_err();
+        let (frozen, env, mut executed) =
+            super::pending::execute_prefix(&config, &parent, pending_genesis_db(&spec)).unwrap();
+        let before = frozen.l1_headers(1007).unwrap();
+        head.initialize_history(eez_evm::profile::schedule(&spec).unwrap());
+        assert_eq!(
+            frozen.l1_headers(1007).unwrap().at(1).unwrap().hash(),
+            before.at(1).unwrap().hash()
+        );
+        assert_eq!(env.block_env.prevrandao, Some(blocks[1].header.mix_hash));
+        assert_eq!(
+            executed
+                .storage(
+                    HISTORY_ADDRESS,
+                    alloy_primitives::U256::from(NEXT_CUTOFF_SLOT)
+                )
+                .unwrap(),
+            alloy_primitives::U256::from(1008)
+        );
+        let mut corrupt = pending_genesis_db(&spec);
+        corrupt
+            .cache
+            .accounts
+            .get_mut(&HISTORY_ADDRESS)
+            .unwrap()
+            .account
+            .as_mut()
+            .unwrap()
+            .storage
+            .insert(
+                alloy_primitives::U256::from(NEXT_CUTOFF_SLOT),
+                alloy_primitives::U256::from(999),
+            );
+        let error = super::pending::execute_prefix(&frozen, &parent, corrupt)
+            .expect_err("malformed cutoff must fail before application overrides");
+        assert!(error.to_string().contains("history"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn rpc_pending_retains_installed_randao_across_sync_and_reorg_rebuild() {
+        let blocks = l1_blocks(false);
+        let spec = profile(&blocks[0]);
+        let schedule = eez_evm::profile::schedule(&spec).unwrap();
+        let head = Arc::new(L1CanonicalHead::default());
+        head.initialize_history(schedule);
+        publish(&head, &spec, &blocks).await;
+        let correlations = Arc::new(eez_deriver::CorrelationStore::in_memory());
+        let builder = EezEthApiBuilder::new(head.clone(), correlations.clone());
+        let parent_at = |number, installed_randao| {
+            let mut parent = spec.genesis_header().clone();
+            parent.number = number;
+            parent.timestamp = schedule.timestamp(number).unwrap();
+            parent.mix_hash = installed_randao;
+            SealedHeader::seal_slow(parent)
+        };
+        let before_import = parent_at(1, blocks[0].header.mix_hash);
+        let error = builder
+            .pending_env_attributes(&before_import, None)
+            .unwrap_err();
         assert!(error.to_string().contains("still validating/catching up"));
         correlations.mark_ready();
-        let before = builder.pending_env_attributes(&parent, None).unwrap();
-        assert_eq!(before.prev_randao, reference.header.mix_hash);
-
-        let mut live = reference.clone();
-        live.header.inner.number += 1;
-        live.header.inner.timestamp = parent.timestamp;
-        live.header.inner.mix_hash = B256::with_last_byte(8);
-        live.header.hash = live.header.inner.hash_slow();
-        replies.push_success(&live);
-        let accepted = source
-            .canonical_header(L1BlockRef {
-                number: live.header.number,
-                hash: live.header.hash,
-            })
-            .await
-            .unwrap();
-        // Model the deriver publishing a locally validated accepted endpoint.
-        history
-            .record_accepted_endpoint(&accepted, B256::with_last_byte(1), 0, &parent)
-            .unwrap();
-        l1_head.restore_derivation(history.clone());
-        let after = builder.pending_env_attributes(&parent, None).unwrap();
-        assert_eq!(after.timestamp, schedule.timestamp(5).unwrap());
-        assert_eq!(after.prev_randao, live.header.mix_hash);
-        assert_ne!(after.prev_randao, parent.mix_hash);
-        let env = EezEvmConfig::new(spec)
-            .next_evm_env(&parent, &after)
-            .unwrap();
-        assert_eq!(env.block_env.prevrandao, Some(live.header.mix_hash));
-
-        // A later same-height catch-up must retain the live refresh even though
-        // both endpoint variants were executed with the original seed.
-        let mut catch_up = live.clone();
-        catch_up.header.inner.number += 1;
-        catch_up.header.inner.timestamp += 4;
-        catch_up.header.inner.mix_hash = B256::with_last_byte(9);
-        catch_up.header.hash = catch_up.header.inner.hash_slow();
-        replies.push_success(&catch_up);
-        let accepted = source
-            .canonical_header(L1BlockRef {
-                number: catch_up.header.number,
-                hash: catch_up.header.hash,
-            })
-            .await
-            .unwrap();
-        history
-            .record_accepted_endpoint(&accepted, B256::with_last_byte(2), 0, &parent)
-            .unwrap();
-        l1_head.restore_derivation(history.clone());
         assert_eq!(
-            builder.pending_env_attributes(&parent, None).unwrap(),
-            after
+            builder
+                .pending_env_attributes(&before_import, None)
+                .unwrap()
+                .prev_randao,
+            blocks[0].header.mix_hash,
+            "before U(1004)=1007, retain the bootstrap source"
         );
-
-        replies.push_success(&reference);
-        let original = source
-            .canonical_header(L1BlockRef {
-                number: reference.header.number,
-                hash: reference.header.hash,
-            })
-            .await
-            .unwrap();
-        history.reorg_to(&original).unwrap();
-        l1_head.restore_derivation(history);
-        let restored = builder.pending_env_attributes(&parent, None).unwrap();
+        // Model a parent whose U(1004)=1007 import selected header 1. The
+        // pending Sync at 1008 inherits that executed choice, not the L1 cache.
+        let imported = parent_at(3, blocks[1].header.mix_hash);
+        let updated = builder.pending_env_attributes(&imported, None).unwrap();
+        assert_eq!(updated.timestamp, 1008);
+        assert_eq!(updated.prev_randao, blocks[1].header.mix_hash);
         assert_eq!(
-            restored, before,
-            "pending RPC must observe rebuilt canonical history"
+            builder
+                .pending_env_attributes(&parent_at(4, updated.prev_randao), None)
+                .unwrap()
+                .prev_randao,
+            updated.prev_randao,
+            "a Sync boundary does not change the selection"
+        );
+        let env = EezEvmConfig::new(spec.clone())
+            .next_evm_env(&imported, &updated)
+            .unwrap();
+        assert_eq!(env.block_env.prevrandao, Some(blocks[1].header.mix_hash));
+        let repeated = parent_at(3, blocks[0].header.mix_hash);
+        assert_eq!(
+            builder
+                .pending_env_attributes(&repeated, None)
+                .unwrap()
+                .prev_randao,
+            blocks[0].header.mix_hash,
+            "an executed repeat retains its source even when newer L1 headers are cached"
+        );
+        head.retreat_on_l1_reorg(0);
+        assert_eq!(
+            builder.pending_env_attributes(&imported, None).unwrap(),
+            updated,
+            "invalidating L1 evidence cannot rewrite an executed parent's environment"
+        );
+        let replacement = l1_blocks(true);
+        publish(&head, &spec, &replacement).await;
+        assert_eq!(
+            builder.pending_env_attributes(&imported, None).unwrap(),
+            updated,
+            "acquiring replacement evidence alone does not execute a new L2 parent"
+        );
+        let rebuilt = parent_at(3, replacement[1].header.mix_hash);
+        let restored = builder.pending_env_attributes(&rebuilt, None).unwrap();
+        assert_eq!(restored.timestamp, updated.timestamp);
+        assert_eq!(restored.prev_randao, replacement[1].header.mix_hash);
+        assert_ne!(restored.prev_randao, updated.prev_randao);
+        let restored_env = EezEvmConfig::new(spec)
+            .next_evm_env(&rebuilt, &restored)
+            .unwrap();
+        assert_eq!(
+            restored_env.block_env.prevrandao,
+            Some(restored.prev_randao)
         );
     }
 }
@@ -372,7 +691,7 @@ mod unavailable_history_tests {
     use super::*;
 
     #[test]
-    fn pending_without_seed_provenance_fails_instead_of_guessing() {
+    fn pending_without_l1_history_fails_instead_of_guessing() {
         let builder = EezEthApiBuilder::default();
         let parent = SealedHeader::seal_slow(alloy_consensus::Header::default());
         let error = builder.pending_env_attributes(&parent, None).unwrap_err();
@@ -389,11 +708,7 @@ mod unavailable_history_tests {
             correlations.mark_ready();
             let builder = EezEthApiBuilder::new(Default::default(), correlations);
             let error = builder.pending_env_attributes(&parent, None).unwrap_err();
-            assert!(
-                error
-                    .to_string()
-                    .contains("seed provenance not initialized")
-            );
+            assert!(error.to_string().contains("L1 history not initialized"));
         }
     }
 }

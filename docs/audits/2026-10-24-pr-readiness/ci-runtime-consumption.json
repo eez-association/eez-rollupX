@@ -1,0 +1,1144 @@
+{
+  "date": "2026-10-24",
+  "status": "CI completed: verified artifacts handed off; producer/debug/Kurtosis passed; process partitions 172 passes and two first failures; dependency policy and aggregate gate failed",
+  "run_id": 40104687331,
+  "run_attempt": 1,
+  "run_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331",
+  "producer_job_id": 120903975247,
+  "source": {
+    "created_at": "2026-10-24T14:58:32.369686+00:00",
+    "run_id": 40104687331,
+    "attempt": 1,
+    "pr_head": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+    "synthetic_checkout": "08e163331c4935d3d4e8c1b657df87812ba50862",
+    "parents": [
+      "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+      "319ebc2dbfdace3d5e708a2c9881cc741529aec4"
+    ],
+    "tree": "91e8b0b1914dfe290195bc9cd30a4f126c1af0fb",
+    "pr_head_tree": "91e8b0b1914dfe290195bc9cd30a4f126c1af0fb",
+    "tree_equal": true,
+    "detached": true,
+    "initial_git_status": "",
+    "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "initialized_protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "status_after_submodules": "",
+    "recursive_submodule_status_sha256": "363f6848b8acd7f2a2343428bbd4be800662dd8c1cba79750519f3376ca7c71a"
+  },
+  "checkout_log_evidence": {
+    "job_id": 120903975055,
+    "log_sha256": "391ac0016d93cfefc75f73a4f23376f00cb6741bf3431968c636bf0ce31c7a41",
+    "exact_synthetic_revision_in_checkout_log": true
+  },
+  "consumer_source_hashes": {
+    "scripts/ci/ci-payload.sh": "68348f856b0eef0dc3ffb400c42a857e5703f682106121ff82203199d3f723f6",
+    "scripts/ci/prepare-runtime-artifacts.sh": "5fd72b9e6ad0d91d0bd05cf849dc14473fa4baa477d3d03533aa12a407cf5c39",
+    "scripts/ci/native-tests.py": "735b65e3b4a89a33da2a4366dc5222e651dcd8a2327916b2f577922b556e4927",
+    "crates/eez-node-e2e/tests/kurtosis_policy_replay.rs": "f9bb5b8870e31284beaabbf563cd713fa437f0f975229eac9ec90ec1fd964cba",
+    "crates/eez-l1/examples/verify_blob_evidence/prefixes.rs": "e6d0c87d2724d9b8d45929b506549a82b099ef2d11297b20ec72fb90cbfdb384"
+  },
+  "superseded_run": {
+    "run_id": 40102561259,
+    "pr_head": "a887fadddf0351d2ce57e8d7d5cc9f5545c22f97",
+    "synthetic_checkout": "2a3812f4423866c3bda57ffdeb8e6ff746540458",
+    "job_id": 120897525226,
+    "conclusion": "cancelled",
+    "completed_at": "2026-10-24T14:56:40Z",
+    "log_sha256": "8e869e9fd52f52f949fe19a39f50a1ff2b9a689cc24ecd60de33efce8b87ad95",
+    "reason": "Cancelled by the new PR revision containing the confirmed receipt harness correction, not a newly observed producer failure.",
+    "shipping_build": "passed in 24m57s",
+    "archive_guard": "not reached before cancellation",
+    "producer_tests": "not run",
+    "payload_publication": "not run",
+    "debug_unit_lane": "cancelled; no completed unit-suite result",
+    "lint": "failed on inherited RUSTSEC-2026-0386/0387",
+    "viewer": "passed",
+    "payload_consumed": false
+  },
+  "earlier_failure_evidence": [
+    "ci-runtime-archive.json",
+    "ci-final-runtime.json",
+    "ci-prefix-fixture.json"
+  ],
+  "gates_observed": [
+    {
+      "name": "Quote trace viewer",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120903975055
+    },
+    {
+      "name": "Build runtime artifacts / build",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120903975247
+    },
+    {
+      "name": "Debug Unit Tests",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120903975249
+    },
+    {
+      "name": "Lint",
+      "status": "completed",
+      "conclusion": "failure",
+      "job_id": 120903975355
+    },
+    {
+      "name": "Embedded E2E Tests (slice:2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639661
+    },
+    {
+      "name": "Cross-Chain E2E Tests (slice:1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639683
+    },
+    {
+      "name": "Cross-Chain E2E Tests (slice:2/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639696
+    },
+    {
+      "name": "Cross-Chain E2E Tests (slice:4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639717
+    },
+    {
+      "name": "Embedded E2E Tests (slice:1/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639734
+    },
+    {
+      "name": "Cross-Chain E2E Tests (slice:3/4)",
+      "status": "completed",
+      "conclusion": "failure",
+      "job_id": 120911639745
+    },
+    {
+      "name": "Embedded E2E Tests (slice:4/4)",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639756
+    },
+    {
+      "name": "Embedded E2E Tests (slice:3/4)",
+      "status": "completed",
+      "conclusion": "failure",
+      "job_id": 120911639773
+    },
+    {
+      "name": "Kurtosis E2E / Kurtosis E2E",
+      "status": "completed",
+      "conclusion": "success",
+      "job_id": 120911639795
+    },
+    {
+      "name": "CI Result",
+      "status": "completed",
+      "conclusion": "failure",
+      "job_id": 120925686782
+    }
+  ],
+  "no_local_compilation": true,
+  "no_node_lifecycle": true,
+  "no_tag_promotion": true,
+  "local_only_evidence": "artifacts/pr-readiness/ci-candidate/40104687331/",
+  "limits": [
+    "The artifact verifier does not execute payload containers, replay, or node lifecycle operations. Image/archive binary comparison, genesis/profile comparison and final CI-artifact replay belong to the separately recorded live track.",
+    "Producer/debug success does not clear the process lanes: eight partitions selected 174 unique tests with 172 passes and 2 first failures; all 5 remaining tests are explicitly ignored cold-history/live/stress scenarios. Kurtosis CI passed its separate standard suite.",
+    "The inherited dependency-policy failure remains an integration blocker; later lint checks were skipped. No tag promotion occurred.",
+    "The prior diagnostic replay passed with its own recorded source/input/follower and does not substitute for final replay with matching CI runtime/test artifacts."
+  ],
+  "lint_result": {
+    "job_id": 120903975355,
+    "conclusion": "failure",
+    "completed_at": "2026-10-24T15:10:46Z",
+    "failed_steps": [
+      "Check dependency policy"
+    ],
+    "skipped_steps": [
+      "Check known vulnerabilities",
+      "Install Foundry",
+      "Install pinned Docker Compose for configuration checks",
+      "Test CI scripts",
+      "Validate settlement policy configuration propagation",
+      "Clippy",
+      "Post Rust source cache"
+    ],
+    "blocking_errors": [
+      {
+        "category": "vulnerability",
+        "advisory": "RUSTSEC-2026-0387"
+      },
+      {
+        "category": "unsound",
+        "advisory": "RUSTSEC-2026-0386"
+      }
+    ],
+    "blocking_advisories": [
+      "RUSTSEC-2026-0386",
+      "RUSTSEC-2026-0387"
+    ],
+    "nonblocking_advisory_not_detected": [
+      "RUSTSEC-2026-0118",
+      "RUSTSEC-2026-0119"
+    ],
+    "log_sha256": "6a31d9627ec8466d959397bbac8a97802b21efdf02ea6ccb2f8d0f324dbc73d7"
+  },
+  "observed_at": "2026-10-24T16:33:21.181431+00:00",
+  "producer_result": {
+    "run_id": 40104687331,
+    "run_attempt": 1,
+    "synthetic_checkout": "08e163331c4935d3d4e8c1b657df87812ba50862",
+    "pr_head": "319ebc2dbfdace3d5e708a2c9881cc741529aec4",
+    "producer_job_id": 120903975247,
+    "conclusion": "success",
+    "tag": "sha-08e163331c4935d3d4e8c1b657df87812ba50862-40104687331-1",
+    "published": {
+      "ghcr.io/eez-association/eez-rollupx-node": "ghcr.io/eez-association/eez-rollupx-node@sha256:f171788378e8bd0d5b8958c17e800307496ce58b1f7ca4e60128375f9c8ab62d",
+      "ghcr.io/eez-association/eez-rollupx-proof-signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:722dc264f979746d5819131fe8c68fdbb3d3db8fddc6bcd7d07abfde917e6078",
+      "ghcr.io/eez-association/eez-rollupx-deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:2b76084910efb177fbc5a5086df30e70cb5c532a4e981de5a606fa70a8e3fa7f",
+      "ghcr.io/eez-association/eez-rollupx-ci-runtime": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:3af5819a55084c33e46d19544851082186f50cd64aaf29037d4c0b757ddb721f",
+      "ghcr.io/eez-association/eez-rollupx-ci-tests": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:d19add5e742328856db3c1f75da22fa02ce71a63b8eb170a053d1b1d682597e7"
+    },
+    "shipping_build": "17m07s",
+    "archive_build": "11m08s",
+    "producer_tests": {
+      "passed": 31,
+      "skipped": 0,
+      "duration_seconds": 1.288,
+      "selected": [
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::reconstructs_intermediate_and_terminal_headers",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::empty_block_has_one_prefix_bound_to_its_pre_transaction_root",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::pre_transaction_prefix_uses_terminal_height_and_pre_execution_state",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::reconstructs_native_transaction_and_receipt_prefixes",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::rejects_incomplete_or_inconsistent_replay_evidence",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::rejects_invalid_receipts_even_when_their_root_matches",
+          "seconds": 0.011,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::rejects_unsupported_post_transaction_state_changes",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::rejects_wrong_block_and_noncanonical_receipt_bytes",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::replay_rejects_inconsistent_history_bootstrap_without_repair",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::supplied_state_roots_do_not_replace_execution_witness_validation",
+          "seconds": 0.009,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::replay_rejects_mismatched_or_invalid_genesis_without_repair",
+          "seconds": 0.011,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence prefixes::tests::witness_replay_preserves_the_nonzero_genesis_schedule",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-payload-codec::issue35 issue35_six_hundred_empty_blocks_use_the_exact_direct_v0_body",
+          "seconds": 0.005,
+          "result": "pass"
+        },
+        {
+          "test": "eez-payload-codec::issue35 shared_empty_vectors_are_exact_and_do_not_expand_large_spans",
+          "seconds": 0.005,
+          "result": "pass"
+        },
+        {
+          "test": "eez-l1::example/verify_blob_evidence tests::settlement_endpoints_require_the_forks_continuous_single_rollup_chain",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::entry_selection_preserves_duplicate_occurrences_across_deliveries",
+          "seconds": 0.006,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::canonical_read_write_read_evidence_includes_position_bound_static_rows",
+          "seconds": 0.009,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::inbound_multi_transaction_evidence_spans_settlement_batches",
+          "seconds": 0.01,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::l2_calldata_accepts_one_or_many_system_transactions",
+          "seconds": 0.006,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::mixed_evidence_keeps_load_boundaries_and_exact_event_multiplicity",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::multiset_preserves_duplicate_multiplicity",
+          "seconds": 0.005,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::multiset_rejects_replacement_and_reordering_is_irrelevant",
+          "seconds": 0.006,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::mixed_evidence_rejects_missing_extra_changed_and_mispositioned_static_rows",
+          "seconds": 0.011,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::split_inbound_evidence_rejects_incomplete_reordered_and_corrupt_inputs",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::causal_evidence verifier::tests::static_selection_accepts_unrelated_entries_but_rejects_missing_and_duplicate_keys",
+          "seconds": 0.007,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::public_inputs_hash_vectors execution_entry_encoding_matches_pinned_solidity",
+          "seconds": 0.006,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::public_inputs_hash_vectors static_execution_entry_encoding_matches_pinned_solidity",
+          "seconds": 0.005,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::public_inputs_hash_vectors rust_matches_pinned_solidity_vectors",
+          "seconds": 0.008,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::rolling_hash_vectors entry_vectors_match_solidity",
+          "seconds": 0.006,
+          "result": "pass"
+        },
+        {
+          "test": "eez-protocol::rolling_hash_vectors static_vectors_match_solidity",
+          "seconds": 0.005,
+          "result": "pass"
+        },
+        {
+          "test": "eez-blob-codec::ethereum_kzg_compatibility pinned_eez_layout_produces_a_valid_ethereum_blob",
+          "seconds": 1.287,
+          "result": "pass"
+        }
+      ],
+      "selected_binaries": 6,
+      "excluded_binaries": [
+        "node_e2e (executed by downstream lanes, with live replay explicitly selected separately)"
+      ]
+    },
+    "dependency_archive_guard": "passed",
+    "producer_log_sha256": "a6898f06516215bd19a18a45c3352eb65e57bf0a8e2140edb934f2d1035cfd85",
+    "completed_at": "2026-10-24T15:31:08Z"
+  },
+  "artifact_verification": {
+    "verified_at": "2026-10-24T15:33:55.718622+00:00",
+    "root_commit": "08e163331c4935d3d4e8c1b657df87812ba50862",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "cargo_lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+    "profile": "release",
+    "platform": "linux/amd64",
+    "images": {
+      "node": "ghcr.io/eez-association/eez-rollupx-node@sha256:f171788378e8bd0d5b8958c17e800307496ce58b1f7ca4e60128375f9c8ab62d",
+      "signer": "ghcr.io/eez-association/eez-rollupx-proof-signer@sha256:722dc264f979746d5819131fe8c68fdbb3d3db8fddc6bcd7d07abfde917e6078",
+      "deploy": "ghcr.io/eez-association/eez-rollupx-deploy@sha256:2b76084910efb177fbc5a5086df30e70cb5c532a4e981de5a606fa70a8e3fa7f"
+    },
+    "runtime_archive_sha256": "3059ec085803612437232c2129819d17b44253ee1d8d3d5feaf6452b1a754303",
+    "native_manifest_identity": {
+      "schema": 4,
+      "cargo_lock_sha256": "aa8b6ba7699104a5923775aa94cff71a71c7f9ecbfc11d874359704819f32058",
+      "platform": "linux/amd64",
+      "profile": "release",
+      "rustflags": "-C link-arg=-fuse-ld=mold",
+      "nextest": "0.9.143",
+      "rust": "1.95.0",
+      "root_commit": "08e163331c4935d3d4e8c1b657df87812ba50862",
+      "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f"
+    },
+    "native_inventory_files": 30,
+    "host_glibc": "glibc 2.43",
+    "producer_glibc": "glibc 2.36",
+    "checkout_status_after_verification": "",
+    "checks": {
+      "ci_payload_identity_and_platform": "passed for runtime and tests",
+      "runtime_manifest_archive_oci_images": "passed",
+      "native_identity_inventory_paths_and_hashes": "passed",
+      "native_and_runtime_archive_digest": "equal",
+      "three_frozen_roles_and_runtime_package": "equal",
+      "image_and_archive_binary_byte_comparison": "pending live agent",
+      "no_payload_container_execution": true,
+      "no_build_or_node_lifecycle": true,
+      "no_tag_promotion": true
+    },
+    "payloads": {
+      "runtime": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:3af5819a55084c33e46d19544851082186f50cd64aaf29037d4c0b757ddb721f",
+        "manifest_sha256": "319b6e17059b8c4dd52a20eefc9b3dad58f0802c0ffa949b43b54326dfe864ed"
+      },
+      "tests": {
+        "reference": "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:d19add5e742328856db3c1f75da22fa02ce71a63b8eb170a053d1b1d682597e7",
+        "manifest_sha256": "4b0f51e071b6317b369ec2971966309b260488ad8272cfdf6879d00ef25bc01e"
+      }
+    },
+    "runtime_sha256": {
+      "eez-composer": "3e76308c0c9017b23c6dcb10ac29d0b78fdd2c5abe7a3a857778f2256df825fd",
+      "eez-follower": "a3e01ef1f53aeea2d2084a7b2467496d2e071fc9db1820b1068ebeebadf6350f",
+      "eez-proof-signer": "f00afb27148cc64711db5592aa7cbe2f67c884ae5f33abd70a9b95986ca357ff",
+      "eez-genesis-state-root": "971e5f617d860d3b50d04b9c821dea67b1f6830af7e9a3dacc3a130a44f53a6b",
+      "eez-genesis-block-hash": "443681ad4c1726241c3510fec436104e110a047c8bf5755907de62c56cd99e98",
+      "e2e-causal-verify": "fef7c1afb25b626cca3e44196e2db6d5934b984bc04325897c2596f4ff13da7b",
+      "verify_blob_evidence": "e7e3ddab13bc6d1829ae39e9eb9d85a72a72f7fffc0a9966a04bfa6c4a910489"
+    },
+    "node_e2e_sha256": "15a4a7c95a97a42549fe29d4972d1ee93c9e66dcdafd6979698fe8c9cca90698",
+    "local_handoff_record": "artifacts/pr-readiness/ci-candidate/40104687331/verified-handoff.json",
+    "local_handoff_record_sha256": "ee573aadf746291cfa9c0a4ac6909d8f586d15984edb4737b637398fd062e4ff"
+  },
+  "commands": [
+    {
+      "cwd": "exact synthetic checkout",
+      "command": "bash scripts/ci/ci-payload.sh fetch runtime <this-run runtime digest> <empty runtime directory>"
+    },
+    {
+      "cwd": "exact synthetic checkout",
+      "command": "bash scripts/ci/ci-payload.sh fetch tests <this-run tests digest> <empty tests directory>"
+    },
+    {
+      "cwd": "exact synthetic checkout",
+      "command": "bash scripts/ci/prepare-runtime-artifacts.sh <runtime directory>"
+    },
+    {
+      "cwd": "exact synthetic checkout",
+      "command": "Import scripts/ci/native-tests.py; compare identity(); verify_e2e(tests, manifest); compare runtime archive and frozen role digests; check glibc floor."
+    }
+  ],
+  "consumer_logs": {
+    "runtime-fetch": {
+      "command": [
+        "bash",
+        "scripts/ci/ci-payload.sh",
+        "fetch",
+        "runtime",
+        "ghcr.io/eez-association/eez-rollupx-ci-runtime@sha256:3af5819a55084c33e46d19544851082186f50cd64aaf29037d4c0b757ddb721f",
+        "<run-artifacts>/runtime"
+      ],
+      "cwd": "exact synthetic checkout",
+      "started_at": "2026-10-24T15:32:15.469580+00:00",
+      "exit_code": 0,
+      "finished_at": "2026-10-24T15:32:23.401440+00:00",
+      "log_sha256": "1cf21d31c6b845127a5f14c629b079e83bef1b5e95f70d7a21720f079485cd1a"
+    },
+    "tests-fetch": {
+      "command": [
+        "bash",
+        "scripts/ci/ci-payload.sh",
+        "fetch",
+        "tests",
+        "ghcr.io/eez-association/eez-rollupx-ci-tests@sha256:d19add5e742328856db3c1f75da22fa02ce71a63b8eb170a053d1b1d682597e7",
+        "<run-artifacts>/tests"
+      ],
+      "cwd": "exact synthetic checkout",
+      "started_at": "2026-10-24T15:32:23.401699+00:00",
+      "exit_code": 0,
+      "finished_at": "2026-10-24T15:32:32.264985+00:00",
+      "log_sha256": "f90a2a52e7367923ab18fb018745de1ff68d35c91e777da69944130a8392f2a1"
+    },
+    "runtime-prepare": {
+      "command": [
+        "bash",
+        "scripts/ci/prepare-runtime-artifacts.sh",
+        "<run-artifacts>/runtime"
+      ],
+      "cwd": "exact synthetic checkout",
+      "started_at": "2026-10-24T15:33:36.804831+00:00",
+      "exit_code": 0,
+      "finished_at": "2026-10-24T15:33:54.742187+00:00",
+      "log_sha256": "f72ebe8c7e9ae0b794e1df6cdeb4ebf14f4dbacc53cdd43a799aaf9410121a88"
+    }
+  },
+  "downstream_completed": [
+    {
+      "job_id": 120903975249,
+      "name": "Debug Unit Tests",
+      "conclusion": "success",
+      "started_at": "2026-10-24T14:56:49Z",
+      "completed_at": "2026-10-24T15:44:48Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120903975249",
+      "log_sha256": "79a7b5a2a307aaa4013849b0c0ffbf846c09082345eb1b80eefe3ace1139bf84",
+      "summaries": [
+        "2026-10-24T15:35:32.1482552Z     Starting 1569 tests across 22 binaries (3 tests skipped)",
+        "2026-10-24T15:37:43.6799715Z      Summary [ 131.533s] 1569 tests run: 1569 passed, 3 skipped",
+        "2026-10-24T15:44:43.8009242Z      Summary [   2.698s] 1 test run: 1 passed, 206 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 1570,
+      "executed_test_inventory_sha256": "861345a2dc9082c24d71a71f31f7f9655b7f5c1ce73a146cb04d76cab4b11ab0",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120903975249.json"
+    },
+    {
+      "job_id": 120911639661,
+      "name": "Embedded E2E Tests (slice:2/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T15:48:09Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639661",
+      "log_sha256": "8dda27fb3ab2b0e76485a687619edf9422b0e161afd1df24161a0d6d00073aff",
+      "summaries": [
+        "2026-10-24T15:33:26.7154308Z     Starting 11 tests across 1 binary (168 tests skipped)",
+        "2026-10-24T15:48:07.3268669Z      Summary [ 880.612s] 11 tests run: 11 passed (3 slow), 168 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 11,
+      "executed_test_inventory_sha256": "36f816716ab3808b00b89fb0edeec8e27b66da0a43063d3e7ff318f9020857af",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639661.json"
+    },
+    {
+      "job_id": 120911639683,
+      "name": "Cross-Chain E2E Tests (slice:1/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T16:02:54Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639683",
+      "log_sha256": "4e820d9969dc9cafe5b90fcaf545bc318245fbcb46df32c14480ab01a691c4c9",
+      "summaries": [
+        "2026-10-24T15:32:34.5960229Z     Starting 33 tests across 1 binary (146 tests skipped)",
+        "2026-10-24T16:02:51.8503424Z      Summary [1817.255s] 33 tests run: 33 passed (10 slow), 146 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 33,
+      "executed_test_inventory_sha256": "144ee21a017d9d8877b59e29f0cfa67b01c2162ae0cc1d84bbc127674201bc18",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639683.json"
+    },
+    {
+      "job_id": 120911639696,
+      "name": "Cross-Chain E2E Tests (slice:2/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T16:02:23Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639696",
+      "log_sha256": "ff878a3fd439d2c4229fe9d108b672bd17cdab902d6b98184e1ddeee0a33ce56",
+      "summaries": [
+        "2026-10-24T15:32:47.2404237Z     Starting 33 tests across 1 binary (146 tests skipped)",
+        "2026-10-24T16:02:20.2896976Z      Summary [1773.050s] 33 tests run: 33 passed (9 slow), 146 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 33,
+      "executed_test_inventory_sha256": "2beafd8361201e14aa664ca63fbbcc1c65b0490e9625864e8adc7d9ec6a54709",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639696.json"
+    },
+    {
+      "job_id": 120911639717,
+      "name": "Cross-Chain E2E Tests (slice:4/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T16:01:30Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639717",
+      "log_sha256": "8ec8adac366816b1c5495bf6b4df7641a1d67ea74f4cf8c9cfa8f33acda23bec",
+      "summaries": [
+        "2026-10-24T15:32:57.7045423Z     Starting 32 tests across 1 binary (147 tests skipped)",
+        "2026-10-24T16:01:26.9109708Z      Summary [1709.206s] 32 tests run: 32 passed (9 slow), 147 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 32,
+      "executed_test_inventory_sha256": "d8bafdf5697bd85b88e98790a5c8c34124f22db6858677f3a7bdbeaf04eb9b31",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639717.json"
+    },
+    {
+      "job_id": 120911639734,
+      "name": "Embedded E2E Tests (slice:1/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T15:44:56Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639734",
+      "log_sha256": "d2ead3e3c9ac86086fc716df9fe36ae1d42270840cf232567b1990e50ae6d909",
+      "summaries": [
+        "2026-10-24T15:32:50.3618873Z     Starting 11 tests across 1 binary (168 tests skipped)",
+        "2026-10-24T15:44:54.1685961Z      Summary [ 723.807s] 11 tests run: 11 passed (9 slow), 168 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 11,
+      "executed_test_inventory_sha256": "3de75f41cee050dd132a2ecb5258639a7cbdfc9c69ddddfaeb826245fe4f68f2",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639734.json"
+    },
+    {
+      "job_id": 120911639745,
+      "name": "Cross-Chain E2E Tests (slice:3/4)",
+      "conclusion": "failure",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T15:59:41Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639745",
+      "log_sha256": "c484ed07ac9b993d37d2cc4009461bf1afc0562985b0cf6cea2373eadf50b229",
+      "summaries": [
+        "2026-10-24T15:32:35.4378392Z     Starting 33 tests across 1 binary (146 tests skipped)",
+        "2026-10-24T15:42:28.2483527Z     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 18.42s",
+        "2026-10-24T15:59:37.2790407Z      Summary [1621.841s] 33 tests run: 32 passed (6 slow), 1 failed, 146 skipped"
+      ],
+      "first_errors": [
+        "2026-10-24T15:42:28.2480288Z         FAIL [  18.428s] (13/33) eez-node-e2e::node_e2e derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+        "2026-10-24T15:42:28.2496884Z     thread 'derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay' (5602) panicked at crates/eez-node-e2e/tests/derivable_operations/multipart.rs:267:13:",
+        "2026-10-24T15:59:37.2791415Z         FAIL [  18.428s] (13/33) eez-node-e2e::node_e2e derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+        "2026-10-24T15:59:37.2928287Z ##[error]Process completed with exit code 100."
+      ],
+      "executed_test_inventory_count": 33,
+      "executed_test_inventory_sha256": "b3a072b1fb823e449b4d297f00a18933acc5608d56d54cb8837041743de8afd8",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639745.json"
+    },
+    {
+      "job_id": 120911639756,
+      "name": "Embedded E2E Tests (slice:4/4)",
+      "conclusion": "success",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T15:40:07Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639756",
+      "log_sha256": "4da864eee59757c2c6ab286ef8c939a98f5cd99bb3c62a58678b89fe424b6dc0",
+      "summaries": [
+        "2026-10-24T15:32:39.3613977Z     Starting 10 tests across 1 binary (169 tests skipped)",
+        "2026-10-24T15:40:05.4629038Z      Summary [ 446.101s] 10 tests run: 10 passed (1 slow), 169 skipped"
+      ],
+      "first_errors": [],
+      "executed_test_inventory_count": 10,
+      "executed_test_inventory_sha256": "df5acba6be469053bdf5e08679cae20bd9ec57f85f2672594dc35392ae99a9a4",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639756.json"
+    },
+    {
+      "job_id": 120911639773,
+      "name": "Embedded E2E Tests (slice:3/4)",
+      "conclusion": "failure",
+      "started_at": "2026-10-24T15:31:11Z",
+      "completed_at": "2026-10-24T15:44:42Z",
+      "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639773",
+      "log_sha256": "2b90e3f512eef78845221e394be75f4f6b902ce9e5534ba6f33b2032a59a77d7",
+      "summaries": [
+        "2026-10-24T15:33:23.0833382Z     Starting 11 tests across 1 binary (168 tests skipped)",
+        "2026-10-24T15:39:14.1576756Z     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 56.68s",
+        "2026-10-24T15:44:37.2821149Z      Summary [ 674.199s] 11 tests run: 10 passed (4 slow), 1 failed, 168 skipped"
+      ],
+      "first_errors": [
+        "2026-10-24T15:39:14.1567468Z         FAIL [  56.693s] ( 5/11) eez-node-e2e::node_e2e settlement_policy::fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "2026-10-24T15:39:14.1654007Z     thread 'settlement_policy::fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules' (5728) panicked at crates/eez-node-e2e/tests/settlement_policy.rs:3413:5:",
+        "2026-10-24T15:44:37.2822385Z         FAIL [  56.693s] ( 5/11) eez-node-e2e::node_e2e settlement_policy::fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+        "2026-10-24T15:44:37.2996681Z ##[error]Process completed with exit code 100."
+      ],
+      "executed_test_inventory_count": 11,
+      "executed_test_inventory_sha256": "56ccb717aa413d7e61d0c6e4613be372da4e9a50f5404a3d5fc228b34f28dd7c",
+      "individual_test_events_local_only": "artifacts/pr-readiness/ci-candidate/40104687331/lanes/120911639773.json"
+    }
+  ],
+  "explicit_unit_skips": [
+    {
+      "test": "eez-composer held_pool::tests::profile_blocked_backlog_discovery",
+      "reason": "manual component profile; records timings without timing assertions"
+    },
+    {
+      "test": "eez-proof-signer inventory_native_proving_fixtures",
+      "reason": "explicit local native-fixture inventory utility"
+    },
+    {
+      "test": "eez-proof-signer regenerate_offline_vectors",
+      "reason": "explicit frozen fixture generation utility"
+    }
+  ],
+  "explicit_process_ignored": [
+    {
+      "test": "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "reason": "explicit large native cold feasibility checkpoint; capped production catch-up takes minutes"
+    },
+    {
+      "test": "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "reason": "explicit large native cold feasibility checkpoint; capped production catch-up takes minutes"
+    },
+    {
+      "test": "derivable_operations::retained_native_history_cold_checkpoint",
+      "reason": "requires explicitly retained native history and metadata"
+    },
+    {
+      "test": "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "reason": "optional four-day stress run"
+    },
+    {
+      "test": "kurtosis_policy_replay::kurtosis_policy_batches_replay_independently_from_l1",
+      "reason": "requires generated live evidence/endpoints; exercised separately, not by partition default"
+    }
+  ],
+  "first_process_failure": {
+    "job_id": 120911639773,
+    "test": "settlement_policy::fullness_overshoot_posts_all_fitting_blobs_without_waiting_for_other_rules",
+    "assertion": "settlement_policy.rs:3413 rejects any historical_chunk event",
+    "observed": {
+      "split_reasons": [
+        "retained_ordinary"
+      ],
+      "cursor": 0,
+      "boundary": 40,
+      "sync_height": 44,
+      "over_budget": 0,
+      "trigger_reasons": [
+        "blob_fullness"
+      ],
+      "encoded_stream_bytes": 185791,
+      "physical_blobs": 2,
+      "new_root": "0x28bea414c4b14ed1523470f617880036e17983d0c178de2f7348e560a9861c42",
+      "post_batch_transaction": "0x54c44d3fc9751ee52ce589676e5cefd79583e381423b276c8a2b6411bcb6e654",
+      "inclusion_l1_block": 10,
+      "follower_replayed_blocks": 40
+    },
+    "diagnosis": "The event belongs to the target two-blob batch. settle_retained reuses historical_chunk for the highest committed on-grid checkpoint even with no capacity rejection. The assertion conflates this path with capacity splitting.",
+    "artifact_id": 12565298606,
+    "artifact_name": "embedded-e2e-2-40104687331-1",
+    "artifact_zip_sha256": "76c591e4fe5c8c149d0780a652a50b0e4283ddcdad9a08ed9a1ced98888adb69",
+    "restarted_composer_log_sha256": "c614127c22cc987fd250bdf7ddf1fd9f07f0b67d876de5c2c5cb4dd954c1dfad",
+    "artifact_files": 51,
+    "datadirs": "not archived by this CI lane; cannot be recovered from its artifact",
+    "repeated_in_this_ci_run": false,
+    "production_modified": false,
+    "focused_followup": "fullness-regression.json; three directed passes with a corrected harness and unchanged CI runtime, none emitting historical_chunk; separate from the first CI result."
+  },
+  "process_inventory": {
+    "run_id": 40104687331,
+    "node_e2e_sha256": "15a4a7c95a97a42549fe29d4972d1ee93c9e66dcdafd6979698fe8c9cca90698",
+    "all_inventory_sha256": "1b5b83c2b9f47750d2dd961aa8dfce7e228c41b41b2c2c34fcd2e3af3335c1f5",
+    "ignored_inventory_sha256": "d3c6ec356865404465e1195bbef05a45cabb1869279ada0de4abb460bfcfbd48",
+    "all_tests": 179,
+    "explicit_ignored": [
+      "derivable_operations::ethereum_native_large_history_cold_checkpoint",
+      "derivable_operations::gnosis_native_large_history_cold_checkpoint",
+      "derivable_operations::multipart::four_days_settle_in_parts_with_cold_offline_provers_and_independent_replay",
+      "derivable_operations::retained_native_history_cold_checkpoint",
+      "kurtosis_policy_replay::kurtosis_policy_batches_replay_independently_from_l1"
+    ],
+    "selected_unique": 174,
+    "duplicates": 0,
+    "unexplained_omissions": [],
+    "passed": 172,
+    "failed": 2,
+    "lanes": [
+      {
+        "job_id": 120911639661,
+        "name": "Embedded E2E Tests (slice:2/4)",
+        "selected": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639683,
+        "name": "Cross-Chain E2E Tests (slice:1/4)",
+        "selected": 33,
+        "passed": 33,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639696,
+        "name": "Cross-Chain E2E Tests (slice:2/4)",
+        "selected": 33,
+        "passed": 33,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639717,
+        "name": "Cross-Chain E2E Tests (slice:4/4)",
+        "selected": 32,
+        "passed": 32,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639734,
+        "name": "Embedded E2E Tests (slice:1/4)",
+        "selected": 11,
+        "passed": 11,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639745,
+        "name": "Cross-Chain E2E Tests (slice:3/4)",
+        "selected": 33,
+        "passed": 32,
+        "failed": 1
+      },
+      {
+        "job_id": 120911639756,
+        "name": "Embedded E2E Tests (slice:4/4)",
+        "selected": 10,
+        "passed": 10,
+        "failed": 0
+      },
+      {
+        "job_id": 120911639773,
+        "name": "Embedded E2E Tests (slice:3/4)",
+        "selected": 11,
+        "passed": 10,
+        "failed": 1
+      }
+    ],
+    "local_record_sha256": "e470f8632bc74c26f5d14dec6dbc1f6615f92e09e7c60cd232689ab4991f1d4a",
+    "commands": [
+      "<verified node_e2e> --list",
+      "<verified node_e2e> --ignored --list"
+    ],
+    "execution_scope": "libtest inventory only; no tests, services or network topology started by these commands"
+  },
+  "additional_process_failures": [
+    {
+      "job_id": 120911639745,
+      "test": "derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay",
+      "failure": "application missed catch-up range before cold proofs",
+      "evidence": "multipart-terminal-regression.json",
+      "artifact_id": 12565941455,
+      "artifact_zip_sha256": "f87eb6fd372c131bb4181f716871d4a7f4b7ca1969b1c71026766bf325830802",
+      "diagnosis": "Fixed genesis-age terminal races sequential application writes against independently advancing local production. The correction fixes a finite terminal after all receipts without dropping any application or changing proof/replay checks.",
+      "diagnostic_retry": "Two separately identified directed passes with corrected harnesses; final deterministic late-receipt case passed 1/1 in 123.27 seconds. Original CI remains failed; see multipart-terminal-regression.json."
+    }
+  ],
+  "kurtosis_result": {
+    "job_id": 120911639795,
+    "job_url": "https://github.com/eez-association/eez-rollupX/actions/runs/40104687331/job/120911639795",
+    "conclusion": "success",
+    "started_at": "2026-10-24T15:31:11Z",
+    "completed_at": "2026-10-24T16:32:57Z",
+    "log_sha256": "347b15c9ff40339113b47fe72d87db2fdd6c96c7c213634a5b50e1877e6fc7e0",
+    "source_commit": "08e163331c4935d3d4e8c1b657df87812ba50862",
+    "protocol_commit": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_hashes": {
+      ".github/workflows/kurtosis-e2e.yml": "4adc12e24eacdcf05023af6b24bc8995739d42a580effd10dfd939eb58aff37a",
+      "testing/kurtosis/run-ci.sh": "36c9901244b53a0b7879fde30b4f697efecdc2e59edc9a7e5bcf7918e5f0cd9f",
+      "testing/kurtosis/scripts/run-protocol-e2e.sh": "7a4f32d6aa9b3bf6f5e51a9d71ff04e367c0af14ab4951dc5b2720865cd5daea"
+    },
+    "phases": [
+      {
+        "phase": "protocol-build",
+        "exit_code": 0,
+        "seconds": 457
+      },
+      {
+        "phase": "integration-build",
+        "exit_code": 0,
+        "seconds": 50
+      },
+      {
+        "phase": "network-start",
+        "exit_code": 0,
+        "seconds": 173
+      },
+      {
+        "phase": "waves-and-state-chaining",
+        "exit_code": 0,
+        "seconds": 1152
+      },
+      {
+        "phase": "network-checks",
+        "exit_code": 0,
+        "seconds": 1568
+      },
+      {
+        "phase": "protocol-suite",
+        "exit_code": 0,
+        "seconds": 1425
+      }
+    ],
+    "waves": [
+      {
+        "mode": "inbound",
+        "waves": 1,
+        "cross_chain_operations": 4,
+        "post_batches": 1
+      },
+      {
+        "mode": "outbound",
+        "waves": 1,
+        "cross_chain_operations": 4,
+        "post_batches": 4
+      },
+      {
+        "mode": "mixed",
+        "waves": 1,
+        "cross_chain_operations": 8,
+        "post_batches": 8
+      },
+      {
+        "mode": "mixed-pure",
+        "waves": 3,
+        "cross_chain_operations": 24,
+        "post_batches": 22
+      }
+    ],
+    "wave_proof_signature_checks": 4,
+    "state_chaining": "passed; inbound, outbound and mixed-direction state chaining, with canonical settlement and signer checks",
+    "protocol": {
+      "discovered": 64,
+      "eligible": 34,
+      "selected": [
+        "bridge",
+        "multi-call-twice",
+        "multi-call-two-diff",
+        "multi-call-twiceL2",
+        "multi-call-two-diffL2",
+        "counter-multi-tx",
+        "deepNested",
+        "flash-loan",
+        "multi-call-nested",
+        "nestedCounter",
+        "multi-call-nestedL2",
+        "nestedCounterL2",
+        "counter",
+        "bridgeL2",
+        "counterL2",
+        "reentrant",
+        "nestedCallRevert",
+        "revertCounter",
+        "revertFromOtherChain",
+        "nestedCallRevertL2",
+        "revertCounterL2",
+        "revertFromOtherChainAndCallAgainL2",
+        "revertFromOtherChainL2",
+        "revertFromOtherChainNested",
+        "nestedStaticCounter",
+        "staticReadWrite",
+        "staticReadX2Write",
+        "topLevelStaticCounter",
+        "topLevelStaticReentrantCounter",
+        "nestedStaticCounterL2",
+        "staticCounterL2",
+        "staticReadWriteL2",
+        "staticReadX2WriteL2",
+        "topLevelStaticReentrantCounterL2"
+      ],
+      "passed": 34,
+      "failed": 0,
+      "skipped_selected": 0,
+      "excluded_from_all": [
+        {
+          "scenario": "catchNestedRevertAfterCallback",
+          "source_path": "script/e2e/scenarios/revert/L1_to_L2/catchNestedRevertAfterCallback/E2ECatchNestedRevertAfterCallback.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacks",
+          "source_path": "script/e2e/scenarios/revert/L1_to_L2/catchRemoteAndNestedRevertsAfterSuccessfulCallbacks/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacks.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "catchRemoteRevertAfterCallback",
+          "source_path": "script/e2e/scenarios/revert/L1_to_L2/catchRemoteRevertAfterCallback/E2ECatchRemoteRevertAfterCallback.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "catchNestedRevertAfterCallbackL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/catchNestedRevertAfterCallbackL2/E2ECatchNestedRevertAfterCallbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/catchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2/E2ECatchRemoteAndNestedRevertsAfterSuccessfulCallbacksL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "catchRemoteRevertAfterCallbackL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/catchRemoteRevertAfterCallbackL2/E2ECatchRemoteRevertAfterCallbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "nestedRollbackGroupsRestoreStateBeforeContinuationL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/nestedRollbackGroupsRestoreStateBeforeContinuationL2/E2ENestedRollbackGroupsRestoreStateBeforeContinuationL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "nestedRollbackRestoresInnerThenOuterStateL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/nestedRollbackRestoresInnerThenOuterStateL2/E2ENestedRollbackRestoresInnerThenOuterStateL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "rollbackGroupWithStaticReadThenWriteL2",
+          "source_path": "script/e2e/scenarios/revert/L2_to_L1/rollbackGroupWithStaticReadThenWriteL2/E2ERollbackGroupWithStaticReadThenWriteL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCalls",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/deepStaticReadCallbacksUnderStaticAndMutableCalls/E2EDeepStaticReadCallbacksUnderStaticAndMutableCalls.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "mutableCallMakesReadThatCallsBack",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/mutableCallMakesReadThatCallsBack/E2EMutableCallMakesReadThatCallsBack.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "nestedStaticLocalWriteL2",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/nestedStaticLocalWriteL2/E2ENestedStaticLocalWriteL2.s.sol",
+          "reason": "NOT LIVE YET (staged/parallel network tests)."
+        },
+        {
+          "scenario": "staticLocalWrite",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/staticLocalWrite/E2EStaticLocalWrite.s.sol",
+          "reason": "NOT LIVE YET (staged/parallel network tests)."
+        },
+        {
+          "scenario": "staticReadCallsBackAndReadsAgain",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/staticReadCallsBackAndReadsAgain/E2EStaticReadCallsBackAndReadsAgain.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticThenNestedWrites",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/staticThenNestedWrites/E2EStaticThenNestedWrites.s.sol",
+          "reason": "Explicit selection only pending live validation."
+        },
+        {
+          "scenario": "topLevelStaticReentrantMissingProxy",
+          "source_path": "script/e2e/scenarios/static/L1_to_L2/topLevelStaticReentrantMissingProxy/E2ETopLevelStaticReentrantMissingProxy.s.sol",
+          "reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation."
+        },
+        {
+          "scenario": "deepStaticReadCallbacksUnderStaticAndMutableCallsL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/deepStaticReadCallbacksUnderStaticAndMutableCallsL2/E2EDeepStaticReadCallbacksUnderStaticAndMutableCallsL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "mutableCallMakesReadThatCallsBackL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/mutableCallMakesReadThatCallsBackL2/E2EMutableCallMakesReadThatCallsBackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "nestedStaticLocalWriteL1",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/nestedStaticLocalWriteL1/E2ENestedStaticLocalWriteL1.s.sol",
+          "reason": "NOT LIVE YET (staged/parallel network tests)."
+        },
+        {
+          "scenario": "staticLocalWriteL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticLocalWriteL2/E2EStaticLocalWriteL2.s.sol",
+          "reason": "NOT LIVE YET (staged/parallel network tests)."
+        },
+        {
+          "scenario": "staticReadCallsBackAndReadsAgainL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadCallsBackAndReadsAgainL2/E2EStaticReadCallsBackAndReadsAgainL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2/E2EStaticReadCatchesCallbackRevertAndChecksUncaughtPropagationL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadHandlesFailedCallbackL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadHandlesFailedCallbackL2/E2EStaticReadHandlesFailedCallbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadPropagatesFailedCallbackL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadPropagatesFailedCallbackL2/E2EStaticReadPropagatesFailedCallbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadThenCatchFailedWriteL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenCatchFailedWriteL2/E2EStaticReadThenCatchFailedWriteL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadThenNestedWriteCaughtRevertAndRollbackL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenNestedWriteCaughtRevertAndRollbackL2/E2EStaticReadThenNestedWriteCaughtRevertAndRollbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadThenRollbackWriteL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenRollbackWriteL2/E2EStaticReadThenRollbackWriteL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticReadThenWriteWithCallbackL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticReadThenWriteWithCallbackL2/E2EStaticReadThenWriteWithCallbackL2.s.sol",
+          "reason": "PR #54 call-pattern scenarios; explicit selection only pending live validation."
+        },
+        {
+          "scenario": "staticThenNestedWritesL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/staticThenNestedWritesL2/E2EStaticThenNestedWritesL2.s.sol",
+          "reason": "Explicit selection only pending live validation."
+        },
+        {
+          "scenario": "topLevelStaticReentrantMissingProxyL2",
+          "source_path": "script/e2e/scenarios/static/L2_to_L1/topLevelStaticReentrantMissingProxyL2/E2ETopLevelStaticReentrantMissingProxyL2.s.sol",
+          "reason": "NOT READY. Missing-proxy cases remain explicit-only pending live staged validation."
+        }
+      ],
+      "upstream_max_parallel": 2,
+      "bridge_prerequisite_seconds": 76.45,
+      "remaining_scenarios_seconds": 1289.66,
+      "independent_verifier_workers": 4,
+      "independent_verification_seconds": 55.883,
+      "suite_complete": true,
+      "accounting_valid": true,
+      "evidence_complete": true,
+      "causal_coverage_complete": true,
+      "semantic_blob_coverage_complete": true,
+      "selection_reconciliation": "Exact set of 34 RESULT lines equals unexcluded scenarios discovered at the initialized protocol pin."
+    },
+    "proof_flow_guard": "run-ci.sh reached PASS after requiring at least one signed window, at least one remote attestation and no configured signer failure events; exact aggregate counters are not printed in the retained log.",
+    "diagnostic_artifact": "Not published: workflow uploads Kurtosis bundles only on failure, and its upload step was skipped. The API lists only the two failed process-shard artifacts for this run.",
+    "warnings": [
+      "Optional Kurtosis OpenTelemetry side containers did not start because Docker client API 1.51 exceeded daemon maximum 1.48; CLI continued. No telemetry coverage is claimed."
+    ],
+    "limits": [
+      "The retained job log establishes the reported assertions and exact selection. Individual successful receipt/table/evidence bundles and full service logs were not published, so this verifier cannot re-inspect them.",
+      "The 30 upstream E2E_EXCLUDE_FROM_ALL scenarios were not executed by this CI lane, including staticLocalWrite and staticThenNestedWrites; local explicit additions are separate evidence.",
+      "This standard CI protocol pass does not erase the independently captured live revertCounter helper failure on another execution path.",
+      "Cold follower replay with retained endpoint/receipts is recorded in the separate live track, not implied by this lane."
+    ]
+  },
+  "aggregate_gate": {
+    "job_id": 120925686782,
+    "conclusion": "failure",
+    "completed_at": "2026-10-24T16:33:05Z",
+    "log_sha256": "e6520fc9713cb1cac04d4bb4436a64fc61d4c4b236a13c0e4534dad0854099ed",
+    "first_error": "lint: failure (expected success)",
+    "other_failed_required_lanes": [
+      "embedded-e2e",
+      "cross-chain-e2e"
+    ],
+    "promotion_performed": false
+  }
+}

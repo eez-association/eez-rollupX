@@ -1,0 +1,506 @@
+use super::*;
+use alloy_consensus::Header;
+use alloy_primitives::{U64, U256};
+use alloy_provider::ProviderBuilder;
+use eez_protocol::{
+    l1_history::L1HistorySource,
+    l2::{DerivationConfig, GenesisL1Reference},
+};
+use std::{collections::BTreeMap, sync::Mutex};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+struct Fixture {
+    schedule: Schedule,
+    genesis: Header,
+    blocks: Arc<Mutex<BTreeMap<u64, alloy_rpc_types_eth::Block>>>,
+    provider: alloy_provider::DynProvider,
+    server: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
+
+impl Fixture {
+    async fn new(times: &[u64]) -> Self {
+        let mut blocks = BTreeMap::new();
+        let mut parent = B256::ZERO;
+        for (number, timestamp) in times.iter().copied().enumerate() {
+            let mut block = super::super::tests::block(number as u64, timestamp, number as u8 + 1);
+            block.header.inner.parent_hash = parent;
+            block.header.hash = block.header.inner.hash_slow();
+            parent = block.header.hash;
+            blocks.insert(number as u64, block);
+        }
+        let reference = &blocks[&0].header;
+        let genesis = Header {
+            timestamp: times[0] + 4,
+            mix_hash: reference.mix_hash,
+            ..Default::default()
+        };
+        let schedule = Schedule::new(
+            DerivationConfig {
+                fee_collector: alloy_primitives::address!(
+                    "f39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+                ),
+                block_interval_seconds: 1,
+                sync_interval_blocks: 4,
+                history_update_offset: 2,
+                l1_reference: GenesisL1Reference {
+                    chain_id: 31337,
+                    number: 0,
+                    hash: reference.hash,
+                    timestamp: reference.timestamp,
+                    prev_randao: reference.mix_hash,
+                },
+            },
+            &genesis,
+        )
+        .unwrap();
+        let blocks = Arc::new(Mutex::new(blocks));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let served = Arc::clone(&blocks);
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut input = Vec::new();
+                let mut buffer = [0; 1024];
+                let request = loop {
+                    let n = socket.read(&mut buffer).await.unwrap();
+                    assert!(n > 0 && input.len() < 8192);
+                    input.extend_from_slice(&buffer[..n]);
+                    if let Some(end) = input.windows(4).position(|v| v == b"\r\n\r\n")
+                        && let Ok(json) =
+                            serde_json::from_slice::<serde_json::Value>(&input[end + 4..])
+                    {
+                        break json;
+                    }
+                };
+                let result = match request["method"].as_str().unwrap() {
+                    "eth_chainId" => serde_json::json!(U64::from(31337)),
+                    "eth_getBlockByNumber" => {
+                        let number: U64 =
+                            serde_json::from_value(request["params"][0].clone()).unwrap();
+                        serde_json::to_value(served.lock().unwrap().get(&number.to::<u64>()))
+                            .unwrap()
+                    }
+                    method => panic!("unexpected source method {method}"),
+                };
+                let body =
+                    serde_json::json!({"jsonrpc":"2.0", "id":request["id"], "result":result})
+                        .to_string();
+                socket.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+            }
+        });
+        let provider = ProviderBuilder::new()
+            .connect_http(format!("http://{address}").parse().unwrap())
+            .erased();
+        Self {
+            schedule,
+            genesis,
+            blocks,
+            provider,
+            server,
+        }
+    }
+
+    async fn source(&self) -> DerivationSource {
+        DerivationSource::authenticate(self.provider.clone(), self.schedule)
+            .await
+            .unwrap()
+    }
+
+    fn reference(&self, number: u64) -> L1BlockRef {
+        L1BlockRef {
+            number,
+            hash: self.blocks.lock().unwrap()[&number].header.hash,
+        }
+    }
+
+    fn rules(&self) -> HeaderRules {
+        HeaderRules {
+            london_block: None,
+            shanghai_time: None,
+            cancun_time: None,
+            prague_time: None,
+            unsupported_time: None,
+        }
+    }
+
+    fn reorg_from(&self, start: u64) {
+        let mut blocks = self.blocks.lock().unwrap();
+        let mut parent = blocks[&(start - 1)].header.hash;
+        for (_, block) in blocks.range_mut(start..) {
+            // Keep the randomness identical: endpoint hashes must still change.
+            block.header.inner.extra_data = Bytes::from_static(b"replacement");
+            block.header.inner.parent_hash = parent;
+            block.header.hash = block.header.inner.hash_slow();
+            parent = block.header.hash;
+        }
+    }
+}
+
+#[tokio::test]
+async fn prepared_history_keeps_every_header_and_does_not_choose_the_blocks_origin() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let prepared = source
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
+        .await
+        .unwrap();
+    assert_eq!(prepared.chain().headers().len(), 5);
+    for number in 0..=4 {
+        assert_eq!(
+            prepared.chain().at(number).unwrap().hash(),
+            fixture.reference(number).hash
+        );
+    }
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    assert!(
+        head.headers(1004).is_err(),
+        "execution still requires the inherited header"
+    );
+    head.publish_history(prepared, head.policy_anchor_snapshot().generation)
+        .unwrap();
+    assert_eq!(
+        head.next_block_context(&fixture.genesis).unwrap(),
+        (1005, B256::with_last_byte(1))
+    );
+    assert_eq!(
+        head.headers(1012).unwrap().headers().len(),
+        5,
+        "no successor is required to repeat an origin"
+    );
+}
+
+#[tokio::test]
+async fn fee_context_history_stays_at_its_sampled_boundary_after_new_evidence() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    let through = fixture.reference(1);
+    let prepared = source
+        .prepare_history(0, through, fixture.rules(), None)
+        .await
+        .unwrap();
+    head.publish_history(prepared.clone(), head.policy_anchor_snapshot().generation)
+        .unwrap();
+    let parent = Header {
+        number: 1,
+        timestamp: 1005,
+        ..fixture.genesis.clone()
+    };
+    let (timestamp, frozen) = head.estimation_block_context(&parent, through).unwrap();
+    assert_eq!(timestamp, 1006);
+    assert_eq!(frozen.headers().len(), 2);
+    let fresh = source
+        .prepare_history(
+            0,
+            fixture.reference(4),
+            fixture.rules(),
+            Some(prepared.chain()),
+        )
+        .await
+        .unwrap();
+    head.publish_history(fresh, head.policy_anchor_snapshot().generation)
+        .unwrap();
+    assert_eq!(head.headers(timestamp).unwrap().headers().len(), 5);
+    assert_eq!(frozen.endpoint().unwrap().hash(), through.hash);
+    assert_eq!(frozen.headers().len(), 2);
+    let (same_time, resampled) = head.estimation_block_context(&parent, through).unwrap();
+    assert_eq!(same_time, timestamp);
+    assert_eq!(resampled.headers().len(), 2);
+    assert_eq!(resampled.endpoint().unwrap().hash(), through.hash);
+    for number in 0..=through.number {
+        assert_eq!(
+            frozen.at(number).unwrap().header(),
+            resampled.at(number).unwrap().header()
+        );
+    }
+}
+
+#[tokio::test]
+async fn late_delivery_and_missing_slots_keep_ready_evidence_for_unbounded_repeats() {
+    let fixture = Fixture::new(&[1000, 1003, 1006]).await;
+    let source = fixture.source().await;
+    let mut history = CanonicalHistory::new(fixture.schedule);
+    history
+        .publish(
+            source
+                .prepare_history(0, fixture.reference(0), fixture.rules(), None)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    for cutoff in [1004, 1024, 1_000_000] {
+        assert_eq!(history.headers(cutoff).unwrap().headers().len(), 1);
+    }
+    let old = history.headers(1004).unwrap();
+    history
+        .publish(
+            source
+                .prepare_history(0, fixture.reference(2), fixture.rules(), Some(old.clone()))
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(
+        old.headers().len(),
+        1,
+        "an in-flight selection owns its immutable evidence"
+    );
+    assert_eq!(
+        history.headers(1004).unwrap().headers().len(),
+        3,
+        "missed slots never become fabricated headers"
+    );
+    assert_eq!(
+        history
+            .headers(1004)
+            .unwrap()
+            .select(1004)
+            .unwrap()
+            .header()
+            .number,
+        1
+    );
+}
+
+#[tokio::test]
+async fn older_replay_keeps_ready_descendants_and_stale_acquisition_cannot_publish() {
+    let fixture = Fixture::new(&[1000, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    let ready = source
+        .prepare_history(0, fixture.reference(2), fixture.rules(), None)
+        .await
+        .unwrap();
+    let old = source
+        .prepare_history(0, fixture.reference(0), fixture.rules(), None)
+        .await
+        .unwrap();
+    let generation = head.policy_anchor_snapshot().generation;
+    head.publish_history(ready, generation).unwrap();
+    head.publish_history(old.clone(), generation).unwrap();
+    assert_eq!(
+        head.headers(1024).unwrap().endpoint().unwrap().hash(),
+        fixture.reference(2).hash
+    );
+    head.invalidate_scan();
+    let error = head.publish_history(old, generation).unwrap_err();
+    assert!(matches!(
+        error,
+        DerivationError::Unavailable("canonical generation changed during history acquisition")
+    ));
+    assert_eq!(
+        head.headers(1024).unwrap().endpoint().unwrap().hash(),
+        fixture.reference(2).hash
+    );
+}
+
+#[tokio::test]
+async fn incomplete_scan_does_not_remove_evidence_but_real_reorg_does() {
+    let fixture = Fixture::new(&[1000, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    head.publish_history(
+        source
+            .prepare_history(0, fixture.reference(0), fixture.rules(), None)
+            .await
+            .unwrap(),
+        head.policy_anchor_snapshot().generation,
+    )
+    .unwrap();
+    head.invalidate_scan();
+    assert!(
+        head.headers(1024).is_ok(),
+        "temporary reconciliation uncertainty must not gate repeat execution"
+    );
+    head.retreat_on_l1_reorg(0);
+    assert!(
+        head.headers(1024).is_err(),
+        "a real reorg invalidates potentially incompatible ancestry"
+    );
+}
+
+#[tokio::test]
+async fn reorg_invalidates_evidence_without_any_settlement_or_randomness_change() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
+    let source = fixture.source().await;
+    let old = source
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
+        .await
+        .unwrap();
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    head.publish_history(old.clone(), head.policy_anchor_snapshot().generation)
+        .unwrap();
+    let seed = head.headers(1004).unwrap().at(3).unwrap().header().mix_hash;
+    fixture.reorg_from(1);
+    assert_eq!(head.retreat_on_l1_reorg(0), (0, 0, 0));
+    assert!(head.headers(1004).is_err());
+    let fresh = source
+        .prepare_history(0, fixture.reference(4), fixture.rules(), Some(old.chain()))
+        .await
+        .unwrap();
+    assert_ne!(
+        fresh.chain().at(1).unwrap().hash(),
+        old.chain().at(1).unwrap().hash()
+    );
+    head.publish_history(fresh, head.policy_anchor_snapshot().generation)
+        .unwrap();
+    assert_eq!(
+        head.headers(1004).unwrap().at(3).unwrap().header().mix_hash,
+        seed
+    );
+}
+
+#[tokio::test]
+async fn broken_bridge_missing_header_and_wrong_fork_layout_fail_before_publication() {
+    for case in 0..3 {
+        let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008]).await;
+        let source = fixture.source().await;
+        {
+            let mut blocks = fixture.blocks.lock().unwrap();
+            match case {
+                0 => {
+                    blocks.remove(&2);
+                }
+                1 => {
+                    let block = blocks.get_mut(&2).unwrap();
+                    block.header.inner.parent_hash = B256::ZERO;
+                    block.header.hash = block.header.inner.hash_slow();
+                }
+                _ => {
+                    let block = blocks.get_mut(&2).unwrap();
+                    block.header.inner.base_fee_per_gas = Some(1);
+                    block.header.hash = block.header.inner.hash_slow();
+                }
+            }
+        }
+        assert!(
+            source
+                .prepare_history(0, fixture.reference(4), fixture.rules(), None)
+                .await
+                .is_err()
+        );
+    }
+}
+
+#[tokio::test]
+async fn canonical_cache_reuses_prefix_but_never_substitutes_a_claimed_anchor() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008, 1012]).await;
+    let source = fixture.source().await;
+    let old = source
+        .prepare_history(0, fixture.reference(4), fixture.rules(), None)
+        .await
+        .unwrap();
+    let fresh = source
+        .prepare_history(1, fixture.reference(5), fixture.rules(), Some(old.chain()))
+        .await
+        .unwrap();
+    assert_eq!(
+        fresh.chain().at(0).unwrap(),
+        old.chain().at(0).unwrap(),
+        "retain bounded evidence for terminal-prefix replay"
+    );
+    assert_eq!(
+        fresh.chain().endpoint().unwrap().hash(),
+        fixture.reference(5).hash
+    );
+    let wrong = L1BlockRef {
+        number: 5,
+        hash: B256::with_last_byte(99),
+    };
+    assert!(matches!(
+        source
+            .prepare_history(0, wrong, fixture.rules(), Some(fresh.chain()))
+            .await,
+        Err(DerivationError::Profile(ProfileError(
+            "canonical history boundary or source selection mismatch"
+        )))
+    ));
+}
+
+#[tokio::test]
+async fn accepted_commitments_do_not_refresh_randomness_and_bad_bindings_do_not_advance() {
+    let fixture = Fixture::new(&[1000, 1001, 1003, 1004, 1008, 1012]).await;
+    let source = fixture.source().await;
+    let head = crate::L1CanonicalHead::default();
+    head.initialize_history(fixture.schedule);
+    head.publish_history(
+        source
+            .prepare_history(0, fixture.reference(5), fixture.rules(), None)
+            .await
+            .unwrap(),
+        head.policy_anchor_snapshot().generation,
+    )
+    .unwrap();
+    let l1 = source.canonical_header(fixture.reference(4)).await.unwrap();
+    let endpoint = Header {
+        number: 4,
+        timestamp: 1008,
+        mix_hash: B256::with_last_byte(4),
+        difficulty: U256::ZERO,
+        ..Default::default()
+    };
+    let origin = eez_protocol::l1_history::HistoryState {
+        first_number: 0,
+        endpoint: 3,
+        endpoint_hash: fixture.reference(3).hash,
+        next_cutoff: 1008,
+    };
+    let evidence = crate::ReconciledBatchSettlement {
+        l1_block: fixture.reference(4),
+        tx_hash: B256::with_last_byte(21),
+        tx_index: 0,
+        calldata_hash: B256::with_last_byte(22),
+        applied_effects: 0..1,
+        anchor_applied: true,
+        endpoint: Some(crate::L2Endpoint {
+            number: 4,
+            hash: endpoint.hash_slow(),
+        }),
+        selection: Default::default(),
+    };
+    for case in 0..4 {
+        let mut invalid = evidence.clone();
+        let mut header = endpoint.clone();
+        match case {
+            0 => invalid.endpoint.as_mut().unwrap().hash = B256::ZERO,
+            1 => invalid.l1_block.hash = B256::ZERO,
+            2 => {
+                invalid.anchor_applied = false;
+                invalid.applied_effects = 0..0;
+            }
+            _ => {
+                header.mix_hash = B256::ZERO;
+                invalid.endpoint.as_mut().unwrap().hash = header.hash_slow();
+            }
+        }
+        assert!(
+            head.publish_accepted(invalid, &l1, &header, origin)
+                .is_err()
+        );
+        assert_eq!(head.cursor(), 0);
+    }
+    let before = head.next_block_context(&endpoint).unwrap().1;
+    head.publish_accepted(evidence.clone(), &l1, &endpoint, origin)
+        .unwrap();
+    head.publish_accepted(evidence, &l1, &endpoint, origin)
+        .unwrap();
+    assert_eq!(head.cursor(), 4);
+    assert_eq!(head.next_block_context(&endpoint).unwrap().1, before);
+    assert_ne!(
+        before,
+        l1.header().mix_hash,
+        "settlement randomness does not replace the scheduled source"
+    );
+}

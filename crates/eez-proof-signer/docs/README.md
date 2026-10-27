@@ -25,8 +25,9 @@ changing `service/`; Operations is aimed at deployment and incident diagnosis.
 
 ## Shared vocabulary
 
-- **Window:** the inclusive L2 block span streamed in one `Prove` RPC.
-- **Batch:** the `PostBatch.abi_calldata` decoded as an `EvmBatch`.
+- **Window:** the inclusive L2 block span selected from a v2 session by
+  `Finalize`.
+- **Batch:** the settlement's `abi_calldata` decoded as an `EvmBatch`.
 - **Stateless / stateless:** `Stateless` names the upstream witness-backed
   validator; lowercase “stateless service” means that this daemon persists no
   request-derived protocol state.
@@ -38,9 +39,11 @@ changing `service/`; Operations is aimed at deployment and incident diagnosis.
   a selected transaction boundary from the replayed state root, transactions,
   receipts, gas, bloom, and the exact accepted header template. Settlement
   binds it to the corresponding ABI root-update claim.
-- **DA sidecar / Sync block:** a sidecar is the canonical derivation table for
-  one effect; the Sync block is the terminal L2 block carried in full by the
-  self-contained payload and independently checked against those tables.
+- **Derivation sidecar:** the locally reconstructed call data for one effect,
+  checked against native blob semantics. It is not a separate published array.
+- **Sync block:** the terminal L2 block reconstructed from native operations,
+  the authenticated predecessor and canonical L1 facts. The payload does not
+  contain a full terminal block or derived history imports.
 - **Admission:** cheap stream-shape, identity, and quota checks. Admission does
   not establish consensus or execution correctness.
 - **Validation:** Stateless/Reth re-execution plus shared backend-contract
@@ -76,12 +79,15 @@ only when one flat test file would obscure the same ownership boundary:
   backend-output contract;
 - [`src/validate/stateless/tests.rs`](../src/validate/stateless/tests.rs) covers
   the production adapter and evidence;
-- [`src/validate/stateless/chain_config/tests.rs`](../src/validate/stateless/chain_config/tests.rs)
-  covers strict operator-configured chain-document loading;
+- the shared [chain-document tests](../../eez-l1/src/chain_config/tests.rs) and
+  [L2 profile tests](../../eez-l1/src/chain_config/l2.rs) cover strict local
+  configuration loading;
 - [`src/settlement/tests/`](../src/settlement/tests) mirrors the focused
   settlement gate modules;
 - [`src/service/tests/`](../src/service/tests) covers in-process gRPC
   orchestration, runtime behavior, attestation, and recorded regressions;
+- [`src/service/sessions/tests.rs`](../src/service/sessions/tests.rs) covers
+  frozen v2 transcripts, session fencing, quotas, deadlines and shutdown;
 - inline tests in [`src/attest.rs`](../src/attest.rs) cover key separation and
   signature encoding; and
 - the pinned [EEZ Stateless fork](https://github.com/eez-association/stateless)

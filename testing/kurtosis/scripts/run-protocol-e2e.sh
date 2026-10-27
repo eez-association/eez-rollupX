@@ -62,14 +62,24 @@ source "$deploy_dir/deployments.env"
 set +a
 if [[ "${EEZ_USE_LOCAL_DEPLOYMENTS:-0}" == "1" ]]; then
     : "${EEZ_L2_GENESIS:?set the deployed L2 genesis path for execution-prefix replay}"
+    : "${EEZ_L1_CHAIN_CONFIG:?set the deployed L1 profile for execution-prefix replay}"
 else
     EEZ_L2_GENESIS="$deploy_dir/l2-genesis.json"
+    kurtosis files download "$ENCLAVE" el_cl_genesis_data "$deploy_dir/network" >/dev/null
+    EEZ_L1_CHAIN_CONFIG="$deploy_dir/network/genesis.json"
 fi
 [[ -f "$EEZ_L2_GENESIS" && -r "$EEZ_L2_GENESIS" ]] || {
     echo "L2 genesis is not a readable file: $EEZ_L2_GENESIS" >&2
     exit 1
 }
-export EEZ_L2_GENESIS
+case "$EEZ_L1_CHAIN_CONFIG" in
+    mainnet|sepolia|hoodi|chiado) ;;
+    *) [[ -f "$EEZ_L1_CHAIN_CONFIG" && -r "$EEZ_L1_CHAIN_CONFIG" ]] || {
+        echo "L1 genesis is not a readable file: $EEZ_L1_CHAIN_CONFIG" >&2
+        exit 1
+    } ;;
+esac
+export EEZ_L2_GENESIS EEZ_L1_CHAIN_CONFIG
 
 ROLLUPS="${ROLLUPS:-$EEZ_REGISTRY_ADDRESS}"
 MANAGER_L2="${MANAGER_L2:-${EEZL2_ADDRESS:-0x4b2760f84b83d6b3829e30a7573b0172b6d6402c}}"

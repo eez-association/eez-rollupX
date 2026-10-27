@@ -1,0 +1,207 @@
+{
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "log_sha256": "a752888a8c018d51df9717cb153d903c8f980155b4924eba88e0406f4ec6f892",
+  "log_scope": "Owned node startup20:12:17 through completed mixed campaign20:44:34 UTC; local bulk log retained.",
+  "measured_interval": {
+    "started_at": 1792873282.572,
+    "ended_at": 1792874183.526
+  },
+  "unique_dropped_attempts": 27,
+  "counts_by_phase": {
+    "before_measured_ordinary": 27
+  },
+  "first_at": "2026-10-24T20:12:36.279701Z",
+  "last_at": "2026-10-24T20:17:48.395947Z",
+  "attempts": [
+    {
+      "at": "2026-10-24T20:12:36.279701Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 7,
+      "transaction_hash": "0x46563d9cef2c51342a59cf44d4cb25f74218c6d5dbe28e1db6ea02c859d32d1e",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:12:48.399374Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 8,
+      "transaction_hash": "0x444b3581d0f4dcfe948ec64afc9d1e5f9aae6898981bc64bf74e4cef3912f274",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:13:00.382561Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 9,
+      "transaction_hash": "0x37022d9089458fc5491d3581c8922597022d702051fe4fcbdd6f4b56f285a996",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:13:12.183173Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 10,
+      "transaction_hash": "0x689959a57a1107b0d05ab4d990f9a94346e65a5c7a3d174eef520e05d8b36572",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:13:24.106724Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 11,
+      "transaction_hash": "0xf27d05ef090990810fe4fca4de6250f707a80c6a51c46d6c943d7316a2508f20",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:13:36.328615Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 12,
+      "transaction_hash": "0xaf9bce7e32dcecf8b56a33e9577b4e8a774b67a40d3a47eab22f6192829384a4",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:13:48.337504Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 13,
+      "transaction_hash": "0xb3c7b00f0e300d72bdda65d607bcec83ccad87aaffe7e3759b15c53dae5dfdd3",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:14:00.395873Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 14,
+      "transaction_hash": "0xaf26bb8801aad7b155366a547766baa867cbf8f22c0e5012d1926652e17fd913",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:14:12.351634Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 15,
+      "transaction_hash": "0xfc6f2836aa82b4fd9d3fc2e7963912aac55a538d770dc9002c69a49b63ba6ba4",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:14:24.453536Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 16,
+      "transaction_hash": "0xc100c6c9f4224e50b1101f02cd3e301e62709a1dd5ca14b34cf67322a44d491e",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:14:36.390212Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 17,
+      "transaction_hash": "0xb9ee70fdf7fcde27b740139a83654bee62710af92f1b09061e2fbba10f14e867",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:14:48.154975Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 18,
+      "transaction_hash": "0x498c067a79f739e4a22586b2b287ab2c66dfaa6638ebe691cdf9c9206502c898",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:15:00.365299Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 19,
+      "transaction_hash": "0xb3022e7ce5e2d540ff044a293ac820a224710fd3a7c3fb7eb5944ad867035a57",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:15:12.342621Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 20,
+      "transaction_hash": "0xede0bce45c35343a8a0b482814fda568fd59646449a7fb035562d6203b304fea",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:15:24.383995Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 21,
+      "transaction_hash": "0x79d609b8f5d42e355c784a5efaf6536d7bacc8db2c6e49da4994c6dd70fd630d",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:15:36.363168Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 22,
+      "transaction_hash": "0x0d1530767ff0c3f3ae40d66259c1335a749d75c4567d23b6f6574e5113733a57",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:15:48.352215Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 23,
+      "transaction_hash": "0x92c804da52d924a7754a4b65bbe93d2fb0aefcd7da78bb0a176b013a36ed2d97",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:16:00.414030Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 24,
+      "transaction_hash": "0xea0eb38b679323137ab72cb79aff5fa5723893455724e2a68def984e4bd7158e",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:16:12.352930Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 25,
+      "transaction_hash": "0xa3b09764d32efb280e03553741e9226fedf336c01f29fcfda80cd0d7300baa66",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:16:24.347712Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 26,
+      "transaction_hash": "0xe92f95e345cee7f1f11a46c8daee8b0e656904ef7da2b0ad192d57b8fc313e09",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:16:36.371810Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 27,
+      "transaction_hash": "0x8bf1d594199a0674b7cb46f2ab4a11ff7dee4a571374ba880cb3ca14049c0f1a",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:16:48.330385Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 28,
+      "transaction_hash": "0x832163bb4916c5703343ab611346ac584eefc8770f902ee97d6b2fe374d6b70b",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:17:00.362954Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 29,
+      "transaction_hash": "0xa6fb94709573f669fca28bc8ee7b4d130fdbe8c417df215e10c654fbb162ac56",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:17:12.402938Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 30,
+      "transaction_hash": "0x53e7c1fbdad64c6d8aca5c8ab1b04c09547aeb55f9dd6867cc8040449cf64214",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:17:24.378429Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 31,
+      "transaction_hash": "0xe5daa5140acc865e6c9ffc8475e9bbe9a0474fd02f3ccfb0ced987e69c7eebd6",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:17:36.355011Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 32,
+      "transaction_hash": "0x12ef1d07cfe0fd9aef0b87ab5e893fb54c8d99339925a10bfca223926165a0c3",
+      "reason": "excluded"
+    },
+    {
+      "at": "2026-10-24T20:17:48.395947Z",
+      "phase": "before_measured_ordinary",
+      "target_l1": 33,
+      "transaction_hash": "0xe43f0118c4c019c8be1d3cf15af211182474616cb8b6662f92208ceab5f2461a",
+      "reason": "excluded"
+    }
+  ],
+  "classification": "All 27 exclusions precede the measured ordinary interval. This timestamp classification does not establish why PBS excluded each attempt. Ownership and later canonical settlement are checked separately; the earlier bootstrap quote_limit failure is preserved."
+}

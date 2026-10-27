@@ -3152,8 +3152,12 @@ version = "0.1.0"
 dependencies = [
  "alloy-primitives",
  "alloy-rlp",
+ "hex",
  "proptest",
  "prost",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
@@ -3198,9 +3202,11 @@ dependencies = [
  "alloy-consensus",
  "alloy-eips",
  "alloy-primitives",
+ "alloy-provider",
  "alloy-rlp",
  "alloy-rpc-types-debug",
  "alloy-rpc-types-engine",
+ "alloy-rpc-types-eth",
  "alloy-sol-types",
  "async-trait",
  "eez-evm",
@@ -3237,7 +3243,9 @@ dependencies = [
  "alloy-evm",
  "alloy-genesis",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-rpc-types-engine",
+ "alloy-sol-types",
  "eez-primitives",
  "eez-protocol",
  "reth-chainspec",
@@ -3339,6 +3347,7 @@ dependencies = [
  "alloy-rpc-types-debug",
  "alloy-rpc-types-eth",
  "alloy-signer-local",
+ "alloy-sol-types",
  "eez-blob-codec",
  "eez-composer",
  "eez-control-rpc",
@@ -3403,6 +3412,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-rpc-types-engine",
  "alloy-rpc-types-eth",
+ "alloy-rpc-types-trace",
  "alloy-transport",
  "clap",
  "dotenvy",
@@ -3412,7 +3422,9 @@ dependencies = [
  "eez-l1",
  "eez-payload-codec",
  "eez-primitives",
+ "eez-protocol",
  "eyre",
+ "futures-util",
  "jsonrpsee",
  "mimalloc",
  "reth-basic-payload-builder",
@@ -3432,9 +3444,11 @@ dependencies = [
  "reth-evm-ethereum",
  "reth-execution-cache",
  "reth-execution-types",
+ "reth-network-api",
  "reth-node-api",
  "reth-node-builder",
  "reth-node-ethereum",
+ "reth-payload-builder",
  "reth-payload-builder-primitives",
  "reth-payload-primitives",
  "reth-primitives-traits",
@@ -3445,6 +3459,7 @@ dependencies = [
  "reth-rpc-eth-api",
  "reth-rpc-eth-types",
  "reth-storage-api",
+ "reth-tasks",
  "reth-transaction-pool",
  "revm",
  "serde_json",
@@ -3556,12 +3571,15 @@ dependencies = [
  "eez-primitives",
  "eez-protocol",
  "eyre",
+ "getrandom 0.3.4",
  "hex",
  "prost",
  "reth-chainspec",
  "reth-ethereum-primitives",
+ "reth-evm",
  "reth-evm-ethereum",
  "reth-primitives-traits",
+ "reth-trie-common",
  "revm",
  "serde_json",
  "stateless",
@@ -3572,7 +3590,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "tries",
- "url",
 ]
 
 [[package]]
@@ -3583,6 +3600,7 @@ dependencies = [
  "alloy-eips",
  "alloy-network",
  "alloy-primitives",
+ "alloy-rlp",
  "alloy-signer-local",
  "alloy-sol-types",
  "eez-blob-codec",
@@ -3616,6 +3634,7 @@ dependencies = [
 name = "eez-prover-client"
 version = "0.1.0"
 dependencies = [
+ "alloy-consensus",
  "alloy-primitives",
  "alloy-rlp",
  "alloy-signer",
@@ -3624,6 +3643,7 @@ dependencies = [
  "async-trait",
  "eez-blob-codec",
  "eez-control-rpc",
+ "eez-primitives",
  "eez-protocol",
  "eez-prover",
  "prost",
@@ -3652,6 +3672,8 @@ dependencies = [
  "anyhow",
  "eez-blob-codec",
  "eez-control-rpc",
+ "eez-evm",
+ "eez-l1",
  "eez-primitives",
  "eez-protocol",
  "http-body-util",
@@ -9625,7 +9647,6 @@ dependencies = [
 [[package]]
 name = "reth-rpc-builder"
 version = "2.7.0"
-source = "git+https://github.com/paradigmxyz/reth?tag=v2.7.0#3d592ece6de8c4559987416a544fc215fd6d6921"
 dependencies = [
  "alloy-network",
  "alloy-provider",
@@ -12130,9 +12151,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.52.3"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fc7f01b389ac15039e4dc9531aa973a135d7a4135281b12d7c1bc79fd57fffe"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",

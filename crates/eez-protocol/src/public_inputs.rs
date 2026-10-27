@@ -9,6 +9,7 @@ use alloy_sol_types::{SolValue, sol};
 use tracing::debug;
 
 use crate::abi::{EvmBatch, ExecutionEntrySol, StaticExecutionEntrySol};
+use crate::l1_history::OfflineContext;
 
 // ── Per-element atomic hashes ─────────────────────────────────────
 
@@ -169,8 +170,8 @@ pub enum PublicInputsError {
     /// The proof plan reconstructed from the batch is malformed.
     #[error(transparent)]
     InvalidPlan(#[from] ProofPlanInvariantError),
-    /// Manager-defined custom data for nonzero block numbers is not wired yet.
-    #[error("public-input hashing requires blockNumber == uint64.max, got {block_number}")]
+    /// The batch selector must agree with its checked evidence mode.
+    #[error("batch selector {block_number} differs from the offline context")]
     UnsupportedBlockNumber {
         /// Unsupported `batch.blockNumber` value.
         block_number: u64,
@@ -198,9 +199,8 @@ pub enum PublicInputsError {
     },
 }
 
-/// Exact L1 execution context for a latest-bound batch. Header authenticity is
-/// checked by runtime callers; this value provides shape validation and the
-/// pinned reference manager's `abi.encode(timestamp, parentBlockHash)` bytes.
+/// Exact inclusion target for actual-parent mode. Shape validation alone
+/// supplies no authority; the offline context and manager bind these fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct L1PostingContext {
     /// Configured execution network; authenticated independently by the signer.
@@ -225,25 +225,14 @@ impl L1PostingContext {
         }
         Ok(self)
     }
-
-    /// Exact bytes returned by the pinned Rollup for `uint64.max`.
-    pub fn custom_data(self) -> Result<Bytes, PublicInputsError> {
-        self.validate()?;
-        Ok((
-            alloy_primitives::U256::from(self.target_timestamp),
-            self.parent_hash,
-        )
-            .abi_encode()
-            .into())
-    }
 }
 
-/// Hash a latest-context batch without blobs. Runtime settlement uses the
-/// blob-aware form; both reject timeless and specific-block contexts.
+/// Hash an offline-profile batch without blobs. Both anchor modes use the
+/// same exact deployment, accepted-root and rule-period binding.
 pub fn public_inputs_hashes(
     batch: &EvmBatch,
     vkey: B256,
-    context: L1PostingContext,
+    context: OfflineContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
     if !batch.blobIndices.is_empty() {
         return Err(PublicInputsError::UnsupportedBlobIndices {
@@ -253,16 +242,16 @@ pub fn public_inputs_hashes(
     public_inputs_hashes_with_blob_hashes(batch, vkey, &[], context)
 }
 
-/// Compute per-proof-system hashes, binding the exact target timestamp and L1
-/// parent through the pinned manager's latest-context sentinel. Callers derive
-/// transaction hashes from actual blobs; indices select those hashes in order.
+/// Compute per-proof-system hashes for the exact checked offline context.
+/// Callers derive transaction hashes from actual blobs; indices select those
+/// hashes in order. The context cannot be reused for another rollup or mode.
 pub fn public_inputs_hashes_with_blob_hashes(
     batch: &EvmBatch,
     vkey: B256,
     transaction_blob_hashes: &[B256],
-    context: L1PostingContext,
+    context: OfflineContext,
 ) -> Result<Vec<B256>, PublicInputsError> {
-    if batch.blockNumber != u64::MAX {
+    if batch.blockNumber != context.selector() {
         return Err(PublicInputsError::UnsupportedBlockNumber {
             block_number: batch.blockNumber,
         });
@@ -299,9 +288,17 @@ pub fn public_inputs_hashes_with_blob_hashes(
         .iter()
         .map(|a| vec![vkey.0; a.proof_system_indexes.len()])
         .collect();
+    if rollup_assignments.len() != 1
+        || rollup_assignments[0].rollup_id.0 != context.rollup_id()
+        || batch.expectedRootPerRollup.len() != 1
+        || batch.expectedRootPerRollup[0].rollupId != context.rollup_id()
+        || batch.expectedRootPerRollup[0].root != context.current_l2_root()
+    {
+        return Err(PublicInputsError::InvalidL1Context);
+    }
     let plan = ProofPlan {
         proof_systems: batch.proofSystems.clone(),
-        custom_data: vec![context.custom_data()?; rollup_assignments.len()],
+        custom_data: vec![context.custom_data()],
         rollup_assignments,
         vk_matrix,
     };
@@ -484,19 +481,49 @@ mod tests {
         ));
     }
 
-    fn context() -> L1PostingContext {
-        L1PostingContext {
-            chain_id: 1,
-            parent_number: 99,
-            parent_hash: B256::with_last_byte(0xab),
-            target_timestamp: 1_700_000_000,
+    fn profile() -> crate::l1_history::OfflineProfile {
+        crate::l1_history::OfflineProfile {
+            feeCollector: alloy_primitives::address!("f39fd6e51aad88f6f4ce6ab8827279cfffb92266"),
+            l1ChainId: alloy_primitives::U256::from(1),
+            l2ChainId: alloy_primitives::U256::from(900),
+            genesisHash: B256::with_last_byte(0x23),
+            genesisTimestamp: 120,
+            blockInterval: 2,
+            syncInterval: 6,
+            updateOffset: 2,
+            l1ConfigHash: B256::repeat_byte(2),
+            historyCodeHash: keccak256(crate::l1_history::HISTORY_RUNTIME),
+            ruleTimes: vec![0, 144],
         }
+    }
+    fn context_for(anchor: crate::l1_history::EvidenceAnchor) -> OfflineContext {
+        OfflineContext::new(
+            &profile(),
+            Address::repeat_byte(0x11),
+            Address::repeat_byte(0x22),
+            1,
+            B256::repeat_byte(0x33),
+            anchor,
+            1_699_999_988,
+        )
+        .unwrap()
+    }
+    fn context() -> OfflineContext {
+        context_for(crate::l1_history::EvidenceAnchor::ActualParent {
+            number: 99,
+            hash: B256::with_last_byte(0xab),
+            target_timestamp: 1_700_000_000,
+        })
     }
 
     fn carrier_batch() -> crate::abi::EvmBatch {
         use crate::abi::RollupIdWithProofSystemsSol;
         let mut batch = crate::abi::EvmBatch {
             blockNumber: u64::MAX,
+            expectedRootPerRollup: vec![crate::abi::ExpectedRootPerRollupSol {
+                rollupId: 1,
+                root: B256::repeat_byte(0x33),
+            }],
             proofSystems: vec![address!("00000000000000000000000000000000000000aa")],
             ..Default::default()
         };
@@ -508,63 +535,128 @@ mod tests {
     }
 
     #[test]
-    fn latest_context_matches_the_pinned_solidity_manager_vector() {
-        // Independent oracle: PublicInputsHashVectors.t.sol executes the real
-        // manager and rejects the same proof after either context field changes.
-        let hash = public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), context())
-            .unwrap()[0];
+    fn generic_core_manager_vector_remains_unchanged() {
+        // The generic core still supports other manager contracts. Its separate
+        // Solidity oracle remains valid; RollupX selects the offline profile.
+        let plan = ProofPlan {
+            proof_systems: carrier_batch().proofSystems,
+            rollup_assignments: vec![RollupProofAssignment {
+                rollup_id: RollupId(1),
+                proof_system_indexes: vec![0],
+            }],
+            vk_matrix: vec![vec![B256::with_last_byte(0x42).0]],
+            custom_data: vec![
+                (
+                    alloy_primitives::U256::from(1_700_000_000u64),
+                    B256::with_last_byte(0xab),
+                )
+                    .abi_encode()
+                    .into(),
+            ],
+        };
         assert_eq!(
-            hash,
+            all_per_ps_hashes(&plan, &[], &[], &[], &Bytes::new(), Address::ZERO).unwrap()[0],
             alloy_primitives::b256!(
                 "62573d0503b227019390ec8d00cc7fc808403e3b042ae02de710081bc20fee30"
             )
         );
-        for mutated in [
-            L1PostingContext {
-                target_timestamp: context().target_timestamp + 1,
-                ..context()
+    }
+
+    #[test]
+    fn both_anchor_modes_bind_exact_context_and_root_pin() {
+        use crate::l1_history::EvidenceAnchor;
+        let vkey = B256::with_last_byte(0x42);
+        let mut batch = carrier_batch();
+        let actual = public_inputs_hashes(&batch, vkey, context()).unwrap()[0];
+        for anchor in [
+            EvidenceAnchor::ActualParent {
+                number: 99,
+                hash: B256::with_last_byte(0xab),
+                target_timestamp: 1_700_000_001,
             },
-            L1PostingContext {
-                parent_hash: B256::with_last_byte(0xac),
-                ..context()
+            EvidenceAnchor::ActualParent {
+                number: 99,
+                hash: B256::with_last_byte(0xac),
+                target_timestamp: 1_700_000_000,
+            },
+            EvidenceAnchor::ActualParent {
+                number: 98,
+                hash: B256::with_last_byte(0xab),
+                target_timestamp: 1_700_000_000,
             },
         ] {
             assert_ne!(
-                hash,
-                public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), mutated)
-                    .unwrap()[0]
+                actual,
+                public_inputs_hashes(&batch, vkey, context_for(anchor)).unwrap()[0]
             );
         }
-        for number in [0, 1, u64::MAX - 1] {
-            let mut batch = carrier_batch();
-            batch.blockNumber = number;
+        let historical = context_for(EvidenceAnchor::Historical {
+            number: 99,
+            hash: B256::with_last_byte(0xab),
+        });
+        assert!(matches!(
+            public_inputs_hashes(&batch, vkey, historical),
+            Err(PublicInputsError::UnsupportedBlockNumber { .. })
+        ));
+        batch.blockNumber = 99;
+        assert_ne!(
+            actual,
+            public_inputs_hashes(&batch, vkey, historical).unwrap()[0]
+        );
+        assert!(matches!(
+            public_inputs_hashes(&batch, vkey, context()),
+            Err(PublicInputsError::UnsupportedBlockNumber { .. })
+        ));
+        for pins in [
+            vec![],
+            vec![crate::abi::ExpectedRootPerRollupSol {
+                rollupId: 2,
+                root: B256::repeat_byte(0x33),
+            }],
+            vec![crate::abi::ExpectedRootPerRollupSol {
+                rollupId: 1,
+                root: B256::ZERO,
+            }],
+            vec![
+                batch.expectedRootPerRollup[0].clone(),
+                batch.expectedRootPerRollup[0].clone(),
+            ],
+        ] {
+            batch.expectedRootPerRollup = pins;
             assert!(matches!(
-                public_inputs_hashes(&batch, B256::with_last_byte(0x42), context()),
-                Err(PublicInputsError::UnsupportedBlockNumber { .. })
+                public_inputs_hashes(&batch, vkey, historical),
+                Err(PublicInputsError::InvalidL1Context)
             ));
         }
+    }
+
+    #[test]
+    fn actual_posting_shape_rejects_missing_identity_and_overflow() {
+        let good = L1PostingContext {
+            chain_id: 1,
+            parent_number: 99,
+            parent_hash: B256::with_last_byte(0xab),
+            target_timestamp: 1_700_000_000,
+        };
         for invalid in [
             L1PostingContext {
-                parent_hash: B256::ZERO,
-                ..context()
+                chain_id: 0,
+                ..good
             },
             L1PostingContext {
                 parent_number: u64::MAX,
-                ..context()
+                ..good
             },
             L1PostingContext {
-                chain_id: 0,
-                ..context()
+                parent_hash: B256::ZERO,
+                ..good
             },
             L1PostingContext {
                 target_timestamp: 0,
-                ..context()
+                ..good
             },
         ] {
-            assert!(matches!(
-                public_inputs_hashes(&carrier_batch(), B256::with_last_byte(0x42), invalid),
-                Err(PublicInputsError::InvalidL1Context)
-            ));
+            assert_eq!(invalid.validate(), Err(PublicInputsError::InvalidL1Context));
         }
     }
 
@@ -572,7 +664,7 @@ mod tests {
     fn per_ps_fold_matches_three_word_encoding() {
         let vkey = B256::repeat_byte(0x42);
         let got = public_inputs_hashes(&carrier_batch(), vkey, context()).unwrap()[0];
-        let custom_hash = custom_data_hash(RollupId(1), &context().custom_data().unwrap());
+        let custom_hash = custom_data_hash(RollupId(1), &context().custom_data());
         let shared =
             shared_public_input(&[], &[], &[], &Bytes::new(), &[custom_hash], Address::ZERO);
 
@@ -628,7 +720,7 @@ mod tests {
         let expected = all_per_ps_hashes(
             &ProofPlan {
                 proof_systems: batch.proofSystems.clone(),
-                custom_data: vec![context().custom_data().unwrap()],
+                custom_data: vec![context().custom_data()],
                 rollup_assignments: vec![RollupProofAssignment {
                     rollup_id: RollupId(1),
                     proof_system_indexes: vec![0],

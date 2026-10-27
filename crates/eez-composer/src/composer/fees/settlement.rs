@@ -269,14 +269,7 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
                     }
                     OutboundSourceEntry::Static(_) => Some(U256::ZERO),
                 }?;
-                effect.callback_entries.iter().try_fold(
-                    total.checked_add(source)?,
-                    |total, callback| {
-                        total.checked_add(eez_protocol::entries::entry_flat_value_sum(
-                            callback.as_abi_entry(),
-                        )?)
-                    },
-                )
+                total.checked_add(source)
             })
             .ok_or(FeeQuoteError::Unsupported("settlement inflow shape"))?;
         let delta = I256::try_from(inflow)
@@ -307,6 +300,10 @@ fn batch(runtime: &PostingRuntime, input: &SettlementInput<'_>) -> Result<EvmBat
     eez_protocol::entries::finalize_l1_entry_traces(&mut result, &traces).map_err(unavailable)?;
     result.immediateEntryCount = U256::from(result.entries.len());
     result.blockNumber = u64::MAX;
+    result.expectedRootPerRollup = vec![eez_protocol::abi::ExpectedRootPerRollupSol {
+        rollupId: input.rollup_id,
+        root: input.settled_root,
+    }];
     result.proofSystems = vec![runtime.ctx.ecdsa_proof_system_address];
     result.rollupIdsWithProofSystems = vec![RollupIdWithProofSystemsSol {
         rollupId: input.rollup_id,
@@ -435,12 +432,20 @@ fn prepare(
             Ok(hash)
         })
         .collect::<Result<Vec<_>, FeeQuoteError>>()?;
-    let context = eez_protocol::public_inputs::L1PostingContext {
-        chain_id: runtime.ctx.l1_chain_id,
-        parent_number: posting.parent.number,
-        parent_hash: posting.quote.sample.hash,
-        target_timestamp: posting.attributes.timestamp,
-    };
+    let context = eez_protocol::l1_history::OfflineContext::new(
+        &runtime.ctx.offline_profile,
+        runtime.registry,
+        runtime.ctx.rollup_manager,
+        input.rollup_id,
+        input.settled_root,
+        eez_protocol::l1_history::EvidenceAnchor::ActualParent {
+            number: posting.parent.number,
+            hash: posting.quote.sample.hash,
+            target_timestamp: posting.attributes.timestamp,
+        },
+        posting.parent.timestamp,
+    )
+    .map_err(unavailable)?;
     let digests = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &batch,
         snapshot.vkey,

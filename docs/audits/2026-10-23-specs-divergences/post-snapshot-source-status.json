@@ -1,0 +1,13 @@
+{
+  "captured_utc": "2026-10-23T17:24:03.560550+00:00",
+  "head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "tracked_diff_sha256": "f342018e58dfe659690b647a6fef617e9ef16bb6ae827a9274f6c31d98ceaeda",
+  "changes_after_reading_snapshot": [
+    {
+      "path": "crates/eez-testkit/src/lib.rs",
+      "snapshot_sha256": "ce60156b62feafac52973ed36f7c30f8068459f97d81f8710eb982e694b1ed43",
+      "current_sha256": "98822f0ebbb6ce64ff3076c52a32776e0189635e533b10eaa73e87b5f7a2c5b1"
+    }
+  ],
+  "parent_report": "Readiness fixture/Sequence-race fixes under Clippy and process validation; no successful final E2E result used by this audit."
+}

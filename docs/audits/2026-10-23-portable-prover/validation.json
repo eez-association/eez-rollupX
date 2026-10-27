@@ -1,0 +1,292 @@
+{
+  "status": "Scoped implementation and local validation complete; full CI and external backend validation remain",
+  "date": "2026-10-23",
+  "branch": "codex/l1-history-offline-proving",
+  "worktree": "/home/edu/Development/rollupX/artifacts/l1-history-offline-proving",
+  "source_baseline": "21fc597e8b3c6ee36525f1a0d1cce2c1e676b69a",
+  "initial_status": "clean",
+  "source_identity": "Baseline plus source_sha256 below; this record is committed with the reviewed patch",
+  "integration_base": "8621b0368f4f42dc871dd84c0aaf5b6c4599bfbd",
+  "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "protocol_branch": "feature/e2e_edge_cases",
+  "protocol_clean": true,
+  "tools": {
+    "rustc": "1.95.0 (59807616e 2026-04-14)",
+    "forge": "1.7.1 (4072e48705af9d93e3c0f6e29e93b5e9a40caed8)",
+    "protoc": "3.21.12",
+    "llvm_prefix": "/usr/lib/llvm-22"
+  },
+  "build_environment": {
+    "TMPDIR": "$PWD/artifacts/tmp",
+    "LLVM_SYS_221_PREFIX": "/usr/lib/llvm-22",
+    "PATH_prefix": "/usr/lib/llvm-22/bin:$PWD/artifacts/validation/tmp-tools",
+    "CARGO_BUILD_JOBS": "1",
+    "RUSTUP_TOOLCHAIN": "1.95.0"
+  },
+  "environment_limit": "Local-only mktemp shim routed temporary paths into the worktree; sandbox bubblewrap /tmp/.git mount quota required approved escalated command execution",
+  "process_environment": {
+    "unset": [
+      "EEZ_TEST_PREBUILT",
+      "EEZ_TEST_RUNTIME_BIN_DIR",
+      "EEZ_TEST_PROOF_SIGNER_BIN"
+    ],
+    "EEZ_TEST_PROOF_SIGNER_NO_NETWORK": "1",
+    "EEZ_TEST_LOG_DIR": "$PWD/artifacts/native-e2e/portable-prover/logs",
+    "EEZ_TEST_DATADIR_DIR": "$PWD/artifacts/native-e2e/portable-prover/datadirs"
+  },
+  "checks": [
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-control-rpc -p eez-prover-client -p eez-l1 -p eez-protocol",
+      "result": "passed",
+      "kind": "Rust unit/integration and local mock RPC",
+      "passed": 455,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/validation/portable-prover-focused.log",
+      "log_sha256": "a7b456b610f2af3288bb2bf85e2aa1730063db9804aa40dfce9635287f9e8c20"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-proof-signer -p eez-composer --lib",
+      "result": "passed",
+      "kind": "Rust unit",
+      "selection": "Composer only: signer is a binary crate",
+      "passed": 406,
+      "failed": 0,
+      "ignored": 1,
+      "log": "artifacts/validation/portable-signer-composer-tests.log",
+      "log_sha256": "1105d8e7b356a162340045084bc711ea0459b7f9cfdf459ab2a765188479e0c2"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-proof-signer",
+      "result": "passed",
+      "kind": "Rust unit and real TCP service with frozen native execution fixtures",
+      "passed": 327,
+      "failed": 0,
+      "ignored": 2,
+      "log": "artifacts/validation/portable-signer-tests.log",
+      "log_sha256": "c4f0388d766b29eba17dd6ee5044ffb4fb9c912ce984a9956b03754660a12ffc"
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings",
+      "result": "passed",
+      "kind": "static",
+      "log": "artifacts/validation/portable-workspace-clippy.log",
+      "log_sha256": "44c2aa9f33e6b8be30744393df5ebbeea92fd51699ae57f4f8ce9ceec43db9fc"
+    },
+    {
+      "command": "cargo +1.95.0 fmt --all --check",
+      "result": "passed",
+      "kind": "static",
+      "log": "artifacts/validation/portable-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "cargo +1.95.0 check --locked -p eez-proof-signer --all-targets",
+      "result": "passed",
+      "kind": "build",
+      "log": "artifacts/validation/portable-signer-check.log",
+      "log_sha256": "e5fa82c272691d788ae69a7b9f54a699856af47d93f303d05e4e9c381ab3e1e6"
+    },
+    {
+      "command": "cargo +1.95.0 clippy --locked -p eez-proof-signer --all-targets --all-features -- -D warnings",
+      "result": "passed",
+      "kind": "static",
+      "log": "artifacts/validation/portable-signer-clippy.log",
+      "log_sha256": "cd17243f58323089ea494192cf143eb8f424726ff66228ba3d0a3a9845240e33"
+    },
+    {
+      "command": "RUSTDOCFLAGS='-D warnings' cargo +1.95.0 doc --locked -p eez-proof-signer --no-deps",
+      "result": "passed",
+      "kind": "documentation build",
+      "log": "artifacts/validation/portable-signer-doc.log",
+      "log_sha256": "0cd385b54e3dba56f38bde45be9a5ea51cf8960e529bb3300478844f575df2e2"
+    },
+    {
+      "command": "forge fmt --check --root contracts",
+      "result": "passed",
+      "kind": "static",
+      "log": "artifacts/validation/portable-forge-fmt.log",
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "command": "forge test --root contracts",
+      "result": "passed",
+      "kind": "Solidity unit",
+      "passed": 120,
+      "failed": 0,
+      "skipped": 0,
+      "log": "artifacts/validation/portable-contract-tests.log",
+      "log_sha256": "a42c19c6f4f59a4578ddb4e5a4eacbf9b99c8f9962ef52d7ea558c1f9b0f097d"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e --no-run",
+      "result": "passed",
+      "kind": "source process build",
+      "log": "artifacts/validation/portable-native-build.log",
+      "log_sha256": "3d9883355356e3e8672e95394bc53935c1c7ce02f11b5a776ed8ceb300fdb062"
+    },
+    {
+      "command": "cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e -- cross_chain::minimal_bidirectional_cross_chain_smoke cross_chain::real_signer_rejects_tampered_post_batch_calldata cross_chain::opaque_prover_rejection_retains_the_candidate derivable_operations::multipart:: --skip four_days --test-threads=1",
+      "result": "passed",
+      "kind": "source-based native process",
+      "filtered": 173,
+      "passed": 5,
+      "failed": 0,
+      "ignored": 0,
+      "log": "artifacts/validation/portable-native-tests.log",
+      "log_sha256": "366f504d843b5bdaaf0113d6d9efc07706450ed21e89cea118ada1236b59fa78"
+    },
+    {
+      "command": "python3 crates/eez-control-rpc/conformance/check_vectors.py",
+      "result": "passed",
+      "kind": "frozen fixture integrity",
+      "cases": 29
+    },
+    {
+      "command": "protoc --proto_path=crates/eez-control-rpc/proto --csharp_out=artifacts/validation/csharp-schema --descriptor_set_out=artifacts/validation/csharp-schema/prove.descriptor.pb --include_imports prove.proto prove_stream.proto",
+      "result": "passed",
+      "kind": "C# message generation only",
+      "limit": "No dotnet compilation, gRPC server or external engine execution"
+    }
+  ],
+  "frozen_cases_executed": [
+    "service::sessions::tests::baseline_lookup",
+    "service::sessions::tests::baseline_static",
+    "service::sessions::tests::begin_boundaries",
+    "service::sessions::tests::block_boundaries",
+    "service::sessions::tests::block_quota",
+    "service::sessions::tests::byte_quota",
+    "service::sessions::tests::cancel_session_isolation",
+    "service::sessions::tests::competing_branches",
+    "service::sessions::tests::concurrent_composers",
+    "service::sessions::tests::detached_session_eviction",
+    "service::sessions::tests::finalize_byte_quota",
+    "service::sessions::tests::finalize_ranges",
+    "service::sessions::tests::frame_size_limit",
+    "service::sessions::tests::half_close_drains",
+    "service::sessions::tests::invalid_witness_retry",
+    "service::sessions::tests::pipelined_gap_recovery",
+    "service::sessions::tests::posting_context_boundaries",
+    "service::sessions::tests::resume_after_proof",
+    "service::sessions::tests::resume_boundaries",
+    "service::sessions::tests::resume_takeover_fencing",
+    "service::sessions::tests::rewind_boundaries",
+    "service::sessions::tests::settlement_abi_binding",
+    "service::sessions::tests::settlement_blob_encoding",
+    "service::sessions::tests::settlement_required_inputs",
+    "service::sessions::tests::stream_capacity",
+    "service::sessions::tests::subrange_promoted_anchor",
+    "service::sessions::tests::sync_range_proof",
+    "service::sessions::tests::terminal_before_tip",
+    "service::sessions::tests::witness_quota"
+  ],
+  "native_coverage": [
+    "bidirectional settlement with actual-parent evidence",
+    "tampered post-batch rejection",
+    "opaque prover rejection retains candidate ownership",
+    "120-block catch-up in 3 bounded parts",
+    "2000-block catch-up in 4 parts with source age >256",
+    "cold network-denied signers",
+    "historical anchors and complete bridge evidence",
+    "independent follower replay",
+    "delayed L1 history and PREVRANDAO application observations"
+  ],
+  "expected_before_change_failure": {
+    "command": "cargo +1.95.0 test --locked -p eez-control-rpc portable_identity_vectors",
+    "source": "Baseline production identity algorithm with the new portable vector regression",
+    "exit_code": 101,
+    "passed": 0,
+    "failed": 1,
+    "case": "representative",
+    "old_schema5_identity": "4ec42003836ad5ee8837a25cf58150dcbd75c193a9f9d42bac7ee32e99c3f927",
+    "expected_schema6_identity": "e80245a1030659a78ad737c6757821f113890c5c0e56714d70869ab175691307",
+    "log": "artifacts/validation/portable-identity-baseline.log",
+    "log_sha256": "b877d18028feb0a75b01a37cd30b2dae391f3850efe52606edd7d30be49d7f4b",
+    "after": "Same case passed in the final focused suite"
+  },
+  "incomplete_checks": [
+    {
+      "command": "cargo +1.95.0 test --locked --workspace --exclude eez-node-e2e",
+      "exit_code": 143,
+      "result": "SIGTERM during compilation; cause not established; no tests executed",
+      "log": "artifacts/validation/portable-workspace-tests.log",
+      "log_sha256": "8e88a68a9c8bb25b2ac1b82ca658b3968fa1b1572b79feffb949af97616510c5"
+    }
+  ],
+  "ignored_utilities": [
+    "Composer manual profiling utility",
+    "signer regenerate_offline_vectors",
+    "signer inventory_native_proving_fixtures"
+  ],
+  "runtime_test_retries": 0,
+  "remaining_validation": [
+    "External Nethermind/C# implementation and service compilation (not supplied; no dotnet SDK)",
+    "Full workspace test run (broad local attempt interrupted)",
+    "CI shipping release artifacts and full native/Kurtosis matrix",
+    "Live deployments/fork/image checks not operated"
+  ],
+  "intentional_exclusions": [
+    "Optional four-day stress: source expiry is covered directly by the 2000-block test",
+    "Unchanged core/Anvil/genesis/tooling suites not repeated for this follow-up; earlier dated audit results apply to their recorded revision"
+  ],
+  "source_sha256": {
+    "AGENTS.md": "72bc50f21363fdb0275ffe725e12676cbe7a2c65d837a27cbced8d6e91f2d86a",
+    "contracts/src/OfflineRollup.sol": "a5a5f431a3dae964b2f1e691ec97e984762c45b8b5194c9e16eb0d762941c54d",
+    "crates/eez-composer/src/composer/estimate/testdata/offline-rollup.hex": "43af5560595c446e34af576012c18d35fbb484cb280d8385caf04d5b7e86e074",
+    "crates/eez-control-rpc/SPEC.md": "6474dfb72af12cba82a10ae23ff52d4faa211a556f497c9510f8ebb38799361c",
+    "crates/eez-control-rpc/STREAMING_SPEC.md": "3422ef7c86837bf6d14ec6c3ff98ff0f916122e60f253981ebdb0a50c958e621",
+    "crates/eez-control-rpc/VALIDATION_IDENTITY.md": "1aeaae56aa9d0034d6b3ae910128bef043b280f2a3b7cfe9b6ffe51cad304560",
+    "crates/eez-control-rpc/conformance/IMPLEMENTING.md": "b38202c42da10df3b31e2761f54a9c657aa0347a08911cefaa59dca6f2053769",
+    "crates/eez-control-rpc/conformance/README.md": "40a079406224428ff51a0929fe339c01174a7805f4e2a7215dc891cbad6ffc9e",
+    "crates/eez-control-rpc/conformance/validation-identity.json": "6da4035c54ca2521cf25ca2261f3056d3ca05ccaea575d5a9ed559b6defadfe3",
+    "crates/eez-control-rpc/src/identity.rs": "489f40a10ca28b0384f2c66497b94744c7bc4732d636f41f27459283ca6a8929",
+    "crates/eez-l1/src/chain_config/canonical.rs": "e8c4dedc6f3a78fd2d62ba505c49304f1297cff911bb5c80d6035b5912d7a107",
+    "crates/eez-l1/src/chain_config/offline.rs": "bfaa9213b123c39d13591ea59a4052225c413fd5edb42e8a9ff06982b792c4da",
+    "crates/eez-proof-signer/SPEC.md": "eba12c4874bd0423df493a79fb7b108244004878259479083096de3a5bbc9382",
+    "crates/eez-proof-signer/docs/operations.md": "8dd1d76cedc8628257ddefe86268f275dfda4893e9777a92d22365e461497de5",
+    "crates/eez-proof-signer/src/service/sessions/tests/vectors.rs": "75c2afd448795b730ef80a0bfa463a1b863967529eb1138444390df0d6e5603f",
+    "crates/eez-protocol/src/l1_history.rs": "085528bdd63553e898df2c14b1ff18eed1ef5324cc09b24a7401e05899b6fc32",
+    "crates/eez-protocol/src/l1_history/context.rs": "1a24f308b4b9e75031414b00715dac75326c71a5103e56de856989ea4a93cefe",
+    "crates/eez-prover-client/src/lib.rs": "080923b1e57b06ea7f814c2d5dfdf873e1f58efd5cda60bf141a234ad04b7add",
+    "crates/eez-prover-client/src/streaming.rs": "780e7764e18d154887e95e4bf78bbe07dac7361f78a321eadd3626a37ae78031",
+    "crates/eez-testkit/src/lib.rs": "21e89a672d57406b779f2c2a8416ee8b10854a8a177528bcbafdf938fd1c639a",
+    "docs/proposals/minimal-prover-interface.md": "a0a4b3960e3c9cea8c75b4d3cf1e685c95cc1fed831d27a0f5a8bc7347b5b03a",
+    "docs/runbooks/chiado-deployment.md": "3b74465f4c1469367a519cc54e337c6a9739466dfad7d66d640086d7d71a72e5",
+    "docs/runbooks/ethereum-node.md": "83d1acf8dcda3e4ec6ab873cbbff656662051101f197fa63e82a43936d9b63fb"
+  },
+  "unchanged_inputs_sha256": {
+    "Cargo.toml": "55dff95f298b4ea79284f1dafe8f288ee99f60ef0123de4834cf29c27517e46b",
+    "Cargo.lock": "53fa3e897a06b1ddbac3a742630befae3e2cff45b15b7cdb6ceb37c991d1f696",
+    "crates/eez-control-rpc/proto/prove.proto": "f117bef5c35989a1575e25c05f87506a24801dd91aa5668db0d0012fd62dacaa",
+    "crates/eez-control-rpc/proto/prove_stream.proto": "682178307eecbe8dd15d5cd187c0344ed058a0990b06f2567dff427b49972b90",
+    "genesis.json": "9056d4005de44334658a0eafd81688637726e07a9f7944a83f55c855f271035c",
+    "genesis.dev.json": "b76d092443daaf21c54fd839c31c8bde29475555021fdfd8ed6f72a07d6a7312",
+    "crates/eez-node-e2e/tests/fixtures/genesis.json": "d159c3cbb60bc13f0e8135164d1f0671cae063f8405fa0d0633a91efe4f89bfa",
+    "testing/kurtosis/l2-genesis-profile.json": "89a01429793d694ba2fd416eadca160ea9a858e90b5b1eb92b92d9314a768fc8",
+    "crates/eez-proof-signer/tests/fixtures/streaming-v2/manifest.json": "556869d9e22b0d2c0e61f5450e97122f52547df8c49d27f8a5764eeed01974aa"
+  },
+  "contract_fixture": {
+    "full_runtime_bytes": 6425,
+    "executable_bytes": 6372,
+    "executable_sha256": "99204da808d1d8f55e245f13e6882cf320345be491d3bf38e4aed0d81d325d34",
+    "baseline_executable_identical": true,
+    "matches_rebuilt_artifact": true,
+    "metadata_changed": true
+  },
+  "native_executables_sha256": {
+    "target/debug/eez-composer": "7bf3748233486688ae4646ff6167449eb524f2a9a2b44939e81856c7d7a7878d",
+    "target/debug/eez-follower": "ec685c76fcbc379ab41fb71b1a8453062ff45297b7ff678cc6f41044b8abbb1e",
+    "target/debug/eez-proof-signer": "434b34b2e198bce401d759a61e2145fe6e17501e7bb77f4ef21d052a0d20f6db",
+    "target/debug/deps/node_e2e-969bf1dbfc9e03d4": "60590a0a2370d6f7e575522c86aa7491cfbaf54f701e09be2cdec25623dfa633"
+  },
+  "native_executables_limit": "Source-built debug/test artifacts, not shipping release artifacts. Standalone signer rebuilt by the harness before execution; its pre-run hash is not the executed identity.",
+  "artifact_availability": "Large logs, C# generated output and datadirs under artifacts/ are local-only and ignored, not retrievable from another checkout. Small hashes and result summaries are retained here.",
+  "final_static_checks": {
+    "git diff --check": "passed",
+    "cargo +1.95.0 fmt --all --check": "passed",
+    "python3 crates/eez-control-rpc/conformance/check_vectors.py": "passed; 29 frozen cases unchanged",
+    "changed_markdown_relative_file_links": 200,
+    "conformance_bash_examples_checked": 3,
+    "limit": "File targets resolved at initialized protocol pin; shell syntax checked without executing procedures"
+  }
+}

@@ -1,5 +1,7 @@
 //! Cross-chain integration and nonce-gap regression tests.
 
+mod combined_history;
+mod history_observations;
 mod nested_creation;
 
 use alloy_primitives::{Address, Bytes, TxHash, U256, keccak256};
@@ -152,8 +154,25 @@ async fn assert_value_set_attribution(
 /// verification of the posted proof's recomputed public-input hash.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn minimal_bidirectional_cross_chain_smoke() {
+    bidirectional_smoke(false).await;
+}
+
+/// Native history is part of the ordinary prefix even when its scheduled slot
+/// is Sync. Both directions must use complete-block checkpoint positions.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bidirectional_cross_chain_with_history_at_sync() {
+    bidirectional_smoke(true).await;
+}
+
+async fn bidirectional_smoke(history_at_sync: bool) {
     let attester = signer_address(ANVIL_ATTESTER_KEY).unwrap();
-    let w = setup_cross_chain().await.unwrap();
+    let w = if history_at_sync {
+        setup_cross_chain_with_env(&[("EEZ_TEST_HISTORY_UPDATE_OFFSET", "4".to_string())])
+            .await
+            .unwrap()
+    } else {
+        setup_cross_chain().await.unwrap()
+    };
     let l1_rpc = w.l1_rpc();
     let l2_rpc = w.l2_rpc();
 
@@ -307,6 +326,32 @@ async fn minimal_bidirectional_cross_chain_smoke() {
         "valid smoke transactions must not be evicted",
     );
     w.node.assert_no_divergence_failure_logs();
+    if history_at_sync {
+        let provider = ProviderBuilder::new().connect_http(l2_rpc.parse().unwrap());
+        let receipt = provider
+            .get_transaction_receipt(outbound)
+            .await
+            .unwrap()
+            .unwrap();
+        let block: serde_json::Value = provider
+            .client()
+            .request("eth_getBlockByHash", (receipt.block_hash.unwrap(), true))
+            .await
+            .unwrap();
+        let transactions = block["transactions"].as_array().unwrap();
+        let native_type = format!("0x{:x}", eez_primitives::SYSTEM_TX_TYPE);
+        assert_eq!(transactions[0]["type"], native_type);
+        let history: eez_primitives::SystemTransaction =
+            serde_json::from_value(transactions[0].clone()).unwrap();
+        assert_eq!(history.to, eez_primitives::HISTORY_ADDRESS);
+        assert!(transactions.iter().skip(1).any(|tx| {
+            tx["type"] == native_type
+                && serde_json::from_value::<eez_primitives::SystemTransaction>(tx.clone())
+                    .unwrap()
+                    .to
+                    == eez_primitives::EEZL2_ADDRESS
+        }));
+    }
 }
 
 async fn assert_no_composer_methods(rpc: &str) {
@@ -2093,7 +2138,10 @@ async fn outbound_static_read_with_static_callback_settles_and_replays() {
 /// A static read whose callback source proxy is not deployed on the reading
 /// chain would revert on chain: the protocol cannot create the proxy inside
 /// the read's static frame. Simulation alone would answer the callback, so the
-/// Composer must reject the transaction at admission and name the proxy.
+/// Composer must reject the transaction and name the proxy. This fixture has
+/// fee collection disabled: the front accepts ownership, then composition
+/// records a terminal simulation failure. Fee-enabled fronts reject the same
+/// shape earlier during signed fee simulation, before queue ownership.
 async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bool) {
     let w = setup_cross_chain_static_round_trip(inbound, false)
         .await
@@ -2112,6 +2160,8 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
         (w.l2_xchain(), OUTBOUND_USER, w.l2_chain_id)
     };
     let nonce = onchain_nonce(&source_rpc, key).await.unwrap();
+    let sender = signer_address(key).unwrap();
+    let balance = l2_balance(&source_rpc, sender).await.unwrap();
     let hash = sign_and_send(
         &front,
         key,
@@ -2131,24 +2181,42 @@ async fn assert_static_round_trip_without_callback_proxy_is_rejected(inbound: bo
     );
 
     let status: serde_json::Value = ProviderBuilder::new()
-        .connect_http(w.l2_xchain().parse().unwrap())
+        .connect_http(front.parse().unwrap())
         .client()
         .request("eez_getCrossChainTransaction", (hash,))
         .await
         .unwrap();
+    assert_eq!(status["hash"], serde_json::json!(hash), "{status}");
+    assert_eq!(status["lifecycle"], "terminal", "{status}");
+    assert_eq!(status["ownership"]["state"], "terminal", "{status}");
     assert_eq!(
         status["ownership"]["reason"], "SimulationFailed",
         "{status}"
     );
     let expected = format!(
-        "static callback source proxy {} is not deployed",
-        w.callback_source_proxy
+        "executor: static callback source proxy {} is not deployed on chain {chain_id}; it must exist before the read",
+        w.callback_source_proxy,
     );
-    assert!(
-        status["ownership"]["rejection"]["error"]
-            .as_str()
-            .is_some_and(|error| error.contains(&expected)),
+    assert_eq!(
+        status["ownership"]["rejection"]["error"], expected,
         "{status}"
+    );
+    assert_eq!(status["ownership"]["canonical"], serde_json::Value::Null);
+    for rpc in [&source_rpc, &front] {
+        assert_eq!(
+            receipt_ok(rpc, hash).await.unwrap(),
+            None,
+            "a terminal rejection must not have a direct or front receipt: {status}",
+        );
+    }
+    assert_eq!(onchain_nonce(&source_rpc, key).await.unwrap(), nonce);
+    assert_eq!(l2_balance(&source_rpc, sender).await.unwrap(), balance);
+    assert!(
+        account_code(&source_rpc, w.callback_source_proxy)
+            .await
+            .unwrap()
+            .is_empty(),
+        "rejected simulation must not deploy the missing callback proxy",
     );
     let (_, reads) = static_reader_state(&w);
     assert_eq!(

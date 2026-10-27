@@ -1,0 +1,64 @@
+{
+  "dependency-audit": {
+    "exit_code": 1,
+    "issues": [
+      {
+        "id": "RUSTSEC-2026-0387",
+        "package": "crypto-bigint",
+        "title": "Multiple timing variability issues in operations intended to be constant-time",
+        "date": "2026-10-23"
+      },
+      {
+        "kind": "unsound",
+        "id": "RUSTSEC-2026-0386",
+        "package": "tokio",
+        "title": "`AsyncFd::new` and related constructors violate I/O safety",
+        "date": "2026-10-13"
+      }
+    ],
+    "database": {
+      "advisory-count": 1352,
+      "last-commit": null,
+      "last-updated": null
+    }
+  },
+  "dependency-audit-base": {
+    "exit_code": 1,
+    "issues": [
+      {
+        "id": "RUSTSEC-2026-0387",
+        "package": "crypto-bigint",
+        "title": "Multiple timing variability issues in operations intended to be constant-time",
+        "date": "2026-10-23"
+      },
+      {
+        "kind": "unsound",
+        "id": "RUSTSEC-2026-0386",
+        "package": "tokio",
+        "title": "`AsyncFd::new` and related constructors violate I/O safety",
+        "date": "2026-10-13"
+      }
+    ],
+    "database": {
+      "advisory-count": 1352,
+      "last-commit": null,
+      "last-updated": null
+    }
+  },
+  "base_commit": "a50c326d99f7cd1c21406eedbf370a344015a6b5",
+  "candidate_initial_head": "3e23955dc477c9e675364776f118b1cecda75774",
+  "rustsec_revision": "21d909e4c8bd4e14c7aea58bf980c881a0053ab1",
+  "versions_equal_in_base_and_candidate": {
+    "crypto-bigint": "0.5.5",
+    "tokio": "1.52.3"
+  },
+  "baseline_lock_sha256": "08dc72d9107b9a45c8daac650b4a722522545af4b88d9d7f27aaddbdf75df128",
+  "candidate_lock_sha256": "53fa3e897a06b1ddbac3a742630befae3e2cff45b15b7cdb6ceb37c991d1f696",
+  "deny_result": {
+    "exit_code": 1,
+    "advisories": "failed",
+    "bans": "passed",
+    "sources": "passed"
+  },
+  "scope": "No dependency version or ignore policy was changed; exploitability and remediation are not established by this protocol validation."
+}

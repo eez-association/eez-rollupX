@@ -1,4 +1,4 @@
-//! Version 1 chain-document canonicalization for validation namespaces.
+//! Chain-document canonicalization for the single validation contract.
 //!
 //! Object keys are decoded, sorted by UTF-8 bytes and emitted exactly once.
 //! Arrays retain order, strings use compact serde_json UTF-8 escaping, and
@@ -11,9 +11,6 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, de};
 use serde_json::value::RawValue;
-
-/// Canonicalizer version; changes to these rules change the identity schema.
-pub const CANONICAL_JSON_VERSION: u64 = 1;
 
 /// Canonicalize a complete JSON document without rounding scalar numbers or
 /// silently overwriting duplicate keys at any nesting level.
@@ -96,6 +93,38 @@ impl<'de> Deserialize<'de> for UniqueObject<'de> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn portable_canonical_json_vectors() {
+        let vectors: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../eez-control-rpc/conformance/validation-identity.json"
+        ))
+        .unwrap();
+        for vector in vectors["canonical_json"].as_array().unwrap() {
+            let actual =
+                canonicalize_chain_json(vector["input"].as_str().unwrap().as_bytes()).unwrap();
+            let expected: alloy_primitives::Bytes = vector["canonical_utf8_hex"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap();
+            assert_eq!(actual, expected.as_ref(), "{}", vector["name"]);
+            assert_eq!(
+                alloy_primitives::keccak256(&actual),
+                vector["digest"]
+                    .as_str()
+                    .unwrap()
+                    .parse::<alloy_primitives::B256>()
+                    .unwrap()
+            );
+        }
+        for invalid in vectors["invalid_json"].as_array().unwrap() {
+            assert!(
+                canonicalize_chain_json(invalid.as_str().unwrap().as_bytes()).is_err(),
+                "{invalid}"
+            );
+        }
+    }
 
     #[test]
     fn canonical_json_preserves_scalars_and_orders_only_object_keys() {

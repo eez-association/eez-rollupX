@@ -1,6 +1,5 @@
 //! Decoding and exact verification of the batch data-availability payload.
 
-use alloy_consensus::Transaction as _;
 use alloy_primitives::Bytes;
 use reth_primitives_traits::BlockBody as _;
 use thiserror::Error;
@@ -67,6 +66,8 @@ pub(crate) fn verify_da_payload(
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
     reconstructor: &SystemTransactionReconstructor,
+    semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
+    posting_context: &eez_protocol::l1_history::OfflineContext,
 ) -> Result<(), DaPayloadError> {
     use alloy_eips::Encodable2718 as _;
     let payload = eez_payload_codec::v0::Payload::decode(encoded_payload)
@@ -135,6 +136,10 @@ pub(crate) fn verify_da_payload(
             outbound_effects,
             inbound_effects,
             reconstructor,
+            &reconstructor
+                .source_hashes(semantic_transactions, posting_context)
+                .map_err(invalid_da_payload)?,
+            terminal.settlement_evidence().cumulative_gas_used(),
         )?;
     }
     Ok(())
@@ -153,6 +158,8 @@ fn verify_reconstructed_sync_block(
     outbound_effects: &AuthorizedOutboundEffects,
     inbound_effects: &AuthorizedInboundEffects<'_>,
     reconstructor: &SystemTransactionReconstructor,
+    source_hashes: &[alloy_primitives::B256],
+    cumulative_gas_used: &[u64],
 ) -> Result<(), DaPayloadError> {
     let first_system_position = outbound_effects
         .iter()
@@ -165,12 +172,11 @@ fn verify_reconstructed_sync_block(
                 .map(AuthorizedInboundEffect::transaction_index)
         })
         .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?;
-    let starting_nonce = block
-        .body
-        .transactions
-        .get(first_system_position)
-        .ok_or(DaPayloadError::InvalidEffectTransactionLayout)?
-        .nonce();
+    if cumulative_gas_used.len() != validated_transactions.len()
+        || cumulative_gas_used.last().copied().unwrap_or(0) != block.header.gas_used
+    {
+        return Err(DaPayloadError::InvalidEffectTransactionLayout);
+    }
     let outbound_reconstruction_inputs = outbound_effects
         .groups()
         .map(|bindings| {
@@ -183,7 +189,6 @@ fn verify_reconstructed_sync_block(
                     .iter()
                     .map(|binding| eez_protocol::system_tx::OutboundSyncEffect {
                         source_entry: binding.derived_source_entry().clone(),
-                        callback_entries: binding.derived_callback_entries().to_vec(),
                     })
                     .collect(),
                 user_tx: user_transaction.clone(),
@@ -198,7 +203,7 @@ fn verify_reconstructed_sync_block(
         .reconstruct_sync_pairs(
             &outbound_reconstruction_inputs,
             &inbound_reconstruction_entries,
-            starting_nonce,
+            source_hashes,
         )
         .map_err(|reason| DaPayloadError::SystemTransactionReconstruction { reason })?;
     let reconstructed = eez_protocol::system_tx::interleave_sync_block_txs(&pairs);
@@ -217,7 +222,14 @@ fn verify_reconstructed_sync_block(
     for (transaction_index, (validated_transaction, reconstructed_transaction)) in
         suffix.iter().zip(reconstructed).enumerate()
     {
-        if validated_transaction.as_ref() != reconstructed_transaction.as_ref() {
+        let position = first_system_position + transaction_index;
+        let prior_gas = position
+            .checked_sub(1)
+            .map_or(0, |index| cumulative_gas_used[index]);
+        let reconstructed_transaction = reconstructed_transaction
+            .at_position(block.header.gas_limit, prior_gas)
+            .map_err(|reason| DaPayloadError::SystemTransactionReconstruction { reason })?;
+        if validated_transaction != &reconstructed_transaction {
             return Err(DaPayloadError::SyncBlockTransactionMismatch {
                 transaction_index: first_system_position + transaction_index,
             });

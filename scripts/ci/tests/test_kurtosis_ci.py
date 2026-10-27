@@ -162,11 +162,36 @@ class FeeProfileTest(unittest.TestCase):
         exec(compile(source.read_text(), str(source), "exec"), namespace)
         args["eez"].update(enable_explorers=False, enable_blobscan=False, enable_ui=False,
                            builder_rpc_url="http://builder:8645")
-        plan = SimpleNamespace(add_service=add_service, wait=lambda **_: None,
-                               run_sh=lambda **_: SimpleNamespace(files_artifacts=["fixture"]))
+        def run_sh(**kwargs):
+            if kwargs["description"].startswith("deploy EEZ contracts"):
+                services["deployment"] = kwargs
+            return SimpleNamespace(files_artifacts=["fixture"])
+
+        plan = SimpleNamespace(add_service=add_service, wait=lambda **_: None, run_sh=run_sh)
         with self.assertRaises(RuntimeReached):
             namespace["run"](plan, args)
         return services
+
+    def test_history_capture_is_opt_in_and_offset_reaches_fresh_deployment(self):
+        args = yaml.safe_load((REPO / "testing/kurtosis/ci-args.yaml").read_text())
+        services = self.runtime_services(args)
+        self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["deployment"]["env_vars"])
+        self.assertNotIn("eez-prove-capture", services)
+        self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
+                         "http://eez-proof-signer:50061")
+        args["eez"].update(history_update_offset=5, prove_capture_image="fixture:capture")
+        services = self.runtime_services(args)
+        self.assertEqual(services["deployment"]["env_vars"]["EEZ_L2_HISTORY_UPDATE_OFFSET"], "5")
+        self.assertEqual(services["eez-node"]["env_vars"]["EEZ_PROVER_URL"],
+                         "http://eez-prove-capture:50061")
+        self.assertEqual(services["eez-prove-capture"]["cmd"],
+                         ["0.0.0.0:50061", "http://eez-proof-signer:50061", "/data/captures"])
+        self.assertNotIn("EEZ_L2_HISTORY_UPDATE_OFFSET", services["eez-proof-signer"]["env_vars"])
+        for invalid in (-1, "5", "", None, True):
+            with self.subTest(offset=invalid):
+                args["eez"]["history_update_offset"] = invalid
+                with self.assertRaisesRegex(ValueError, "history_update_offset"):
+                    self.runtime_services(args)
 
     def test_removed_fee_expiry_reaches_node_for_startup_rejection(self):
         for value in ("2000000000", "", "0", "invalid"):

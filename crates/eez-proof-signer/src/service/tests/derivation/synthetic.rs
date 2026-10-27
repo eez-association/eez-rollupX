@@ -1,4 +1,4 @@
-//! Independent single-account trie and receipt fixtures. No production block
+//! Independent account trie and receipt fixtures. No production block
 //! builder, reconstruction helper, or trie-root helper constructs expected roots.
 
 use super::*;
@@ -6,19 +6,11 @@ use alloy_consensus::{
     Header, SignableTransaction as _, TxEip1559, TxEip2930, TxEip4844, TxEip7702, TxLegacy,
 };
 use alloy_eips::Encodable2718 as _;
-use alloy_primitives::{B64, Bloom, KECCAK256_EMPTY, TxKind, b256};
+use alloy_primitives::{B64, Bloom, TxKind, b256};
 use eez_primitives::EezTxEnvelope as TransactionSigned;
 
 const EMPTY_REQUESTS: B256 =
     b256!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-
-#[derive(alloy_rlp::RlpEncodable)]
-struct Account {
-    nonce: u64,
-    balance: U256,
-    storage_root: B256,
-    code_hash: B256,
-}
 
 #[derive(alloy_rlp::RlpEncodable)]
 struct Receipt {
@@ -28,27 +20,32 @@ struct Receipt {
     logs: Vec<u8>,
 }
 
-fn account_leaf(address: Address, nonce: u64, balance: U256) -> Vec<u8> {
-    // A full 64-nibble key has even-length hex-prefix leaf encoding 0x20 || key.
-    let mut path = vec![0x20];
-    path.extend_from_slice(keccak256(address).as_slice());
-    alloy_rlp::encode(vec![
-        Bytes::from(path),
-        Bytes::from(alloy_rlp::encode(Account {
-            nonce,
-            balance,
-            storage_root: alloy_consensus::EMPTY_ROOT_HASH,
-            code_hash: KECCAK256_EMPTY,
-        })),
-    ])
-}
-
 fn ordered_leaf(value: Vec<u8>) -> B256 {
     // RLP(0) = 0x80, therefore the only transaction/receipt key is [8,0].
     keccak256(alloy_rlp::encode(vec![
         Bytes::from_static(&[0x20, 0x80]),
         Bytes::from(value),
     ]))
+}
+
+fn ordered_root(values: &[Vec<u8>]) -> B256 {
+    match values {
+        [] => alloy_consensus::EMPTY_ROOT_HASH,
+        [value] => ordered_leaf(value.clone()),
+        [first, second] => {
+            // Keys RLP(0)=0x80 and RLP(1)=0x01 diverge at the root. Their
+            // remaining odd leaf paths are 0 and 1 respectively. These fixture
+            // values exceed the MPT inline threshold, so both children hash.
+            let mut branch = vec![Bytes::new(); 17];
+            for (position, path, value) in [(8, 0x30, first), (0, 0x31, second)] {
+                let leaf = alloy_rlp::encode(vec![Bytes::from(vec![path]), value.clone().into()]);
+                assert!(leaf.len() >= 32);
+                branch[position] = keccak256(leaf).as_slice().to_vec().into();
+            }
+            keccak256(alloy_rlp::encode(branch))
+        }
+        _ => panic!("independent fixture supports at most two transactions"),
+    }
 }
 
 fn transaction(kind: usize, nonce: u64) -> TransactionSigned {
@@ -157,29 +154,42 @@ fn fixture_with_extra_transaction(
 }
 
 fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, Vec<BlockWitness>) {
-    let mut config = genesis();
-    config.timestamp = 80;
-    let schedule = config.config.extra_fields.get_mut("rollupX").unwrap();
-    schedule["blockIntervalSeconds"] = 2u64.into();
-    schedule["syncIntervalBlocks"] = 6u64.into();
-    schedule["l1Reference"]["timestamp"] = 80u64.into();
+    let config = crate::testkit::history::genesis();
     let key = alloy_signer_local::PrivateKeySigner::from_bytes(&B256::repeat_byte(0x11)).unwrap();
     let sender = key.address();
     let mut balance = U256::from(1_000_000_000_000_000_000u64);
     let mut nonce = 0;
+    let state = |nonce, balance, timestamp| {
+        crate::testkit::history::state(&[(sender, nonce, balance)], timestamp)
+    };
+    // Independent ABI construction of the native history occurrence domain.
+    // The fixture does not call the production source-hash builder.
+    use alloy_sol_types::SolValue as _;
+    let l2_spec = reth_chainspec::ChainSpec::from(config.clone());
+    let history_domain = keccak256(
+        (
+            keccak256("EEZ_ROLLUPX_HISTORY_SOURCE"),
+            U256::from(1),
+            U256::from(crate::testkit::history::l1_spec().chain().id()),
+            U256::from(l2_spec.chain().id()),
+            l2_spec.genesis_header().hash_slow(),
+            eez_primitives::HISTORY_ADDRESS,
+        )
+            .abi_encode_params(),
+    );
     let mut parent = Header {
         parent_hash: B256::ZERO,
         ommers_hash: alloy_consensus::EMPTY_OMMER_ROOT_HASH,
         beneficiary: Address::ZERO,
-        state_root: keccak256(account_leaf(sender, nonce, balance)),
+        state_root: state(nonce, balance, 104).0,
         transactions_root: alloy_consensus::EMPTY_ROOT_HASH,
         receipts_root: alloy_consensus::EMPTY_ROOT_HASH,
         logs_bloom: Bloom::ZERO,
         difficulty: U256::ZERO,
-        number: 10,
+        number: 12,
         gas_limit: 30_000_000,
         gas_used: 0,
-        timestamp: 100,
+        timestamp: 104,
         extra_data: Bytes::new(),
         mix_hash: B256::ZERO,
         nonce: B64::ZERO,
@@ -194,10 +204,9 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
     };
     let initial = eez_driver::derivation::Environment {
         fee_recipient: Address::ZERO,
-        prev_randao: B256::ZERO,
         extra_data: Bytes::new(),
     };
-    let mut environments = vec![initial.clone(); 8];
+    let mut environments = vec![initial.clone(); 12];
     for env in &mut environments[2..] {
         env.fee_recipient = Address::repeat_byte(0x20);
     }
@@ -209,9 +218,10 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
         env.extra_data = Bytes::from_static(b"last run");
     }
     let mut blocks = Vec::new();
-    let mut raw_transactions = Vec::new();
     for (position, environment) in environments.iter().enumerate() {
-        let pre_state = account_leaf(sender, nonce, balance);
+        let (_, pre_state) = state(nonce, balance, parent.timestamp);
+        let timestamp = parent.timestamp + 2;
+        let updating = (timestamp - 86).is_multiple_of(12);
         let kind = match position {
             0 => Some(0),
             2 => Some(1),
@@ -219,21 +229,46 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             6 => extra_transaction,
             _ => None,
         };
-        let txs = kind
-            .map(|kind| transaction(kind, nonce))
-            .into_iter()
-            .collect::<Vec<_>>();
+        let mut txs = Vec::new();
+        if updating {
+            // Construct the fixed ABI independently of the history planner.
+            let mut input = hex::decode("8ea69a3a").unwrap();
+            for word in [timestamp - 6, 64, 0] {
+                input.extend_from_slice(&U256::from(word).to_be_bytes::<32>());
+            }
+            txs.push(
+                eez_primitives::SystemTransaction {
+                    chain_id: 1,
+                    version: eez_primitives::SYSTEM_TX_VERSION,
+                    source_hash: keccak256(
+                        (
+                            history_domain,
+                            parent.hash_slow(),
+                            U256::from(parent.number + 1),
+                            U256::from(timestamp),
+                            keccak256(&input),
+                        )
+                            .abi_encode_params(),
+                    ),
+                    gas_limit: eez_primitives::HISTORY_TX_GAS_CAP,
+                    to: eez_primitives::HISTORY_ADDRESS,
+                    value: U256::ZERO,
+                    input: input.into(),
+                }
+                .into(),
+            );
+        }
+        txs.extend(kind.map(|kind| transaction(kind, nonce)));
         let raw = txs
             .iter()
-            .map(|tx| Bytes::from(tx.encoded_2718()))
+            .map(alloy_eips::Encodable2718::encoded_2718)
             .collect::<Vec<_>>();
-        let timestamp = parent.timestamp + 2;
         let mut header = parent.clone();
         header.parent_hash = parent.hash_slow();
         header.number += 1;
         header.timestamp = timestamp;
         header.beneficiary = environment.fee_recipient;
-        header.mix_hash = environment.prev_randao;
+        header.mix_hash = parent.mix_hash;
         header.extra_data = environment.extra_data.clone();
         header.parent_beacon_block_root = Some(B256::ZERO);
         header.blob_gas_used = Some(if kind == Some(3) { 131_072 } else { 0 });
@@ -242,7 +277,7 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
         // Reverted CREATE: 53,000 intrinsic + 3 nonzero calldata bytes at 16
         // each + 2 initcode-word gas + two PUSH0 opcodes at 2 each. REVERT
         // consumes no additional gas for empty memory/output.
-        header.gas_used = match kind {
+        let ordinary_gas = match kind {
             Some(4) => 53_054,
             // 21,000 + 25,000 authorization gas. Existing-authority clearing
             // earns 12,500 refund, capped to 46,000 / 5 = 9,200. A wrong-chain
@@ -252,10 +287,23 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             Some(_) => 21_000,
             None => 0,
         };
-        header.transactions_root = raw.first().map_or(alloy_consensus::EMPTY_ROOT_HASH, |tx| {
-            ordered_leaf(tx.to_vec())
-        });
-        header.receipts_root = kind.map_or(alloy_consensus::EMPTY_ROOT_HASH, |kind| {
+        // Fixed independent Anvil/Osaka oracle for these two one-byte cutoffs,
+        // cold slots and the pinned runtime; see the native-v1 audit's
+        // history-gas-oracle.json. Do not learn this value from the validator.
+        let history_gas = if updating { 41_092 } else { 0 };
+        header.gas_used = history_gas + ordinary_gas;
+        header.transactions_root = ordered_root(&raw);
+        let mut receipts = Vec::new();
+        if updating {
+            let receipt = alloy_rlp::encode(Receipt {
+                status: 1,
+                gas_used: history_gas,
+                bloom: Bloom::ZERO,
+                logs: vec![],
+            });
+            receipts.push([&[0x45][..], &receipt].concat());
+        }
+        if let Some(kind) = kind {
             let receipt = alloy_rlp::encode(Receipt {
                 status: u8::from(kind != 4),
                 gas_used: header.gas_used,
@@ -272,15 +320,16 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
                 };
                 [&[receipt_type][..], &receipt].concat()
             };
-            ordered_leaf(encoded)
-        });
+            receipts.push(encoded);
+        }
+        header.receipts_root = ordered_root(&receipts);
         if kind.is_some() {
             nonce += if kind == Some(5) { 2 } else { 1 };
         }
         if kind == Some(3) {
             balance -= U256::from(131_072);
         }
-        header.state_root = keccak256(account_leaf(sender, nonce, balance));
+        header.state_root = state(nonce, balance, timestamp).0;
         let block = Block {
             header: header.clone(),
             body: alloy_consensus::BlockBody {
@@ -295,13 +344,17 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
             parent_hash: header.parent_hash.to_vec(),
             rlp: alloy_rlp::encode(block),
             witness: Some(ExecutionWitness {
-                state: vec![pre_state],
-                codes: vec![],
+                state: pre_state.into_iter().map(|node| node.to_vec()).collect(),
+                codes: vec![eez_protocol::l1_history::HISTORY_RUNTIME.to_vec()],
                 keys: vec![],
                 headers: vec![alloy_rlp::encode(&parent)],
+                l1_headers_rlp: if position == 0 {
+                    crate::testkit::history::l1_headers()
+                } else {
+                    Vec::new()
+                },
             }),
         });
-        raw_transactions.push(raw);
         parent = header;
     }
     (config, blocks)
@@ -310,14 +363,43 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
 fn configured_state(config: alloy_genesis::Genesis) -> Arc<ServiceState> {
     Arc::new(
         ServiceState::new(
-            crate::service::l1::L1Authority::Synthetic,
+            Address::repeat_byte(0x33),
+            Address::repeat_byte(0x44),
             Validator::stateless_for_test(config, TEST_SYSTEM_ADDRESS),
             expected_rollup_id(1),
             test_attester(),
-            crate::testkit::l1_chain_spec(),
+            crate::testkit::history::l1_spec(),
         )
         .unwrap(),
     )
+}
+
+#[test]
+fn independent_history_fixture_replays_every_block() {
+    let (config, blocks) = fixture_blocks(None);
+    let admitted = blocks
+        .iter()
+        .map(|block| {
+            let raw = block.witness.as_ref().unwrap();
+            AdmittedBlock {
+                l1_headers_rlp: raw.l1_headers_rlp.iter().cloned().map(Into::into).collect(),
+                declared_number: block.number,
+                claimed_hash: B256::from_slice(&block.hash),
+                claimed_parent_hash: B256::from_slice(&block.parent_hash),
+                rlp: block.rlp.clone(),
+                witness: alloy_rpc_types_debug::ExecutionWitness {
+                    state: raw.state.iter().cloned().map(Into::into).collect(),
+                    codes: raw.codes.iter().cloned().map(Into::into).collect(),
+                    keys: raw.keys.iter().cloned().map(Into::into).collect(),
+                    headers: raw.headers.iter().cloned().map(Into::into).collect(),
+                },
+            }
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(admitted.len(), 12);
+    Validator::stateless_for_test(config, TEST_SYSTEM_ADDRESS)
+        .validate(&admitted)
+        .expect("independent history transaction, receipt and state-root oracle");
 }
 
 #[tokio::test]
@@ -325,9 +407,14 @@ async fn independent_blob_execution_is_rejected_before_attestation() {
     let (config, mut blocks) = fixture_blocks(Some(3));
     // Select the independently constructed Osaka block so this rejection
     // reaches blob execution, not an earlier fork or DA mismatch.
-    let block = blocks.remove(6);
+    let mut block = blocks.remove(6);
+    block.witness.as_mut().unwrap().l1_headers_rlp = crate::testkit::history::l1_headers();
     let raw = block.witness.as_ref().unwrap();
     let admitted = AdmittedBlock {
+        l1_headers_rlp: crate::testkit::history::l1_headers()
+            .into_iter()
+            .map(Into::into)
+            .collect(),
         declared_number: block.number,
         claimed_hash: B256::from_slice(&block.hash),
         claimed_parent_hash: B256::from_slice(&block.parent_hash),
@@ -353,7 +440,7 @@ async fn independent_blob_execution_is_rejected_before_attestation() {
     let encoded = crate::testkit::encode_da_payload(&[Vec::new()]);
     let state = configured_state(config);
     let server = TestServer::new(state.clone()).await;
-    let status = server.prove(request(blocks, encoded)).await;
+    let status = server.prove(request(&state, blocks, encoded)).await;
     assert_eq!(status.code(), Code::FailedPrecondition);
     assert_eq!(status.message(), "window validation rejected");
     assert_eq!(state.attester.signing_calls(), 0);
@@ -364,8 +451,8 @@ async fn independent_paid_transaction_types_under_osaka_reach_the_attester() {
     let (config, blocks, payload) = fixture();
     let state = configured_state(config);
     let server = TestServer::new(state.clone()).await;
-    let chunks = request(blocks, payload.clone());
-    let expected = recompute_window_public_inputs_hash(&chunks);
+    let chunks = request(&state, blocks, payload.clone());
+    let expected = recompute_window_public_inputs_for_state(&state, &chunks);
     let response = server.attest(chunks).await;
     assert_attestation(&response, expected, state.attester.address());
     assert_eq!(state.attester.signing_calls(), 1);
@@ -377,9 +464,9 @@ async fn nonzero_beacon_root_is_rejected_even_without_a_beacon_predeploy() {
     let state = configured_state(config);
     let server = TestServer::new(state.clone()).await;
     let response = server
-        .attest(request(blocks.clone(), payload.clone()))
+        .attest(request(&state, blocks.clone(), payload.clone()))
         .await;
-    assert_eq!(response.signature.len(), 65);
+    assert_eq!(response.proof.len(), 65);
     assert_eq!(state.attester.signing_calls(), 1);
     // Mutate an executed header, not merely its claimed DA environment. Replay
     // must enforce the fixed zero field even when a beacon call would be inert.
@@ -390,7 +477,7 @@ async fn nonzero_beacon_root_is_rejected_even_without_a_beacon_predeploy() {
     let invalid = vec![blocks.remove(0)];
     let encoded = super::payload(&invalid);
     assert_eq!(
-        server.prove(request(invalid, encoded)).await.code(),
+        server.prove(request(&state, invalid, encoded)).await.code(),
         Code::FailedPrecondition
     );
     assert_eq!(state.attester.signing_calls(), 1);
@@ -408,13 +495,13 @@ async fn transactions_and_input_changes_cannot_move_between_logical_positions() 
     let mut late = published.clone();
     late[2].beneficiary = published[1].beneficiary;
     let mut changed_terminal = published.clone();
-    changed_terminal[7].extra_data = Bytes::from_static(b"forged");
+    changed_terminal.last_mut().unwrap().extra_data = Bytes::from_static(b"forged");
     let state = configured_state(config);
     let server = TestServer::new(state.clone()).await;
     for variant in [swapped, early, late, changed_terminal] {
         assert_eq!(
             server
-                .prove(request(blocks.clone(), encode_published(&variant)))
+                .prove(request(&state, blocks.clone(), encode_published(&variant)))
                 .await
                 .code(),
             Code::FailedPrecondition
@@ -431,14 +518,17 @@ async fn bpo_remains_osaka_while_unsupported_execution_forks_fail_before_signing
     let state = configured_state(config.clone());
     let server = TestServer::new(state.clone()).await;
     let _response = server
-        .attest(request(blocks.clone(), payload.clone()))
+        .attest(request(&state, blocks.clone(), payload.clone()))
         .await;
     assert_eq!(state.attester.signing_calls(), 1);
     config.config.amsterdam_time = Some(114);
     let unsupported = configured_state(config);
     let server = TestServer::new(unsupported.clone()).await;
     assert_eq!(
-        server.prove(request(blocks, payload.clone())).await.code(),
+        server
+            .prove(request(&unsupported, blocks, payload.clone()))
+            .await
+            .code(),
         Code::FailedPrecondition
     );
     assert_eq!(unsupported.attester.signing_calls(), 0);
@@ -467,8 +557,8 @@ async fn reverted_ordinary_creation_reconstructs_failed_receipt_and_nonce_change
     );
     let state = configured_state(config);
     let server = TestServer::new(state.clone()).await;
-    let chunks = request(blocks.clone(), payload.clone());
-    let expected = recompute_window_public_inputs_hash(&chunks);
+    let chunks = request(&state, blocks.clone(), payload.clone());
+    let expected = recompute_window_public_inputs_for_state(&state, &chunks);
     let response = server.attest(chunks).await;
     assert_attestation(&response, expected, state.attester.address());
     assert_eq!(state.attester.signing_calls(), 1);
@@ -478,7 +568,7 @@ async fn reverted_ordinary_creation_reconstructs_failed_receipt_and_nonce_change
     published[6].transactions.clear();
     let missing = encode_published(&published);
     assert_eq!(
-        server.prove(request(blocks, missing)).await.code(),
+        server.prove(request(&state, blocks, missing)).await.code(),
         Code::FailedPrecondition
     );
     assert_eq!(state.attester.signing_calls(), 1);
@@ -496,8 +586,8 @@ async fn independent_7702_authorization_nonce_and_refund_are_reconstructed() {
         assert_eq!(block.body.transactions[0].encoded_2718()[0], 4);
         let state = configured_state(config);
         let server = TestServer::new(state.clone()).await;
-        let chunks = request(blocks, payload.clone());
-        let expected = recompute_window_public_inputs_hash(&chunks);
+        let chunks = request(&state, blocks, payload.clone());
+        let expected = recompute_window_public_inputs_for_state(&state, &chunks);
         let response = server.attest(chunks).await;
         assert_attestation(&response, expected, state.attester.address());
         assert_eq!(state.attester.signing_calls(), 1);
@@ -505,16 +595,11 @@ async fn independent_7702_authorization_nonce_and_refund_are_reconstructed() {
 }
 
 #[test]
-fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
+fn native_replay_preserves_account_nonce_and_independent_receipt_state_commitments() {
     use alloy_consensus::Typed2718 as _;
     use reth_primitives_traits::Block as _;
 
-    let mut config = genesis();
-    config.timestamp = 80;
-    config.config.extra_fields.get_mut("rollupX").unwrap()["blockIntervalSeconds"] = 2u64.into();
-    config.config.extra_fields.get_mut("rollupX").unwrap()["syncIntervalBlocks"] = 6u64.into();
-    config.config.extra_fields.get_mut("rollupX").unwrap()["l1Reference"]["timestamp"] =
-        80u64.into();
+    let config = crate::testkit::history::genesis();
     let mut spec = reth_chainspec::ChainSpec::from(config);
     spec.base_fee_params = eez_protocol::l2::BASE_FEE_PARAMS.into();
     let spec = Arc::new(spec);
@@ -524,7 +609,7 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         timestamp: 100,
         gas_limit: 30_000_000,
         base_fee_per_gas: Some(1_000_000_000),
-        state_root: keccak256(account_leaf(sender, 7, U256::ZERO)),
+        state_root: crate::testkit::history::state(&[(sender, 7, U256::ZERO)], 100).0,
         withdrawals_root: Some(alloy_consensus::EMPTY_ROOT_HASH),
         parent_beacon_block_root: Some(B256::ZERO),
         blob_gas_used: Some(0),
@@ -532,21 +617,30 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         requests_hash: Some(EMPTY_REQUESTS),
         ..Default::default()
     };
-    for nonce in [7, 8] {
+    let selector = eez_protocol::entries::EXECUTE_INCOMING_SELECTOR;
+    // Osaka's independent calldata-floor formula for a call to a STOP/empty target.
+    let gas = 21_000
+        + selector
+            .iter()
+            .map(|byte| if *byte == 0 { 10 } else { 40 })
+            .sum::<u64>();
+    for occurrence in [7, 8] {
         let transaction: TransactionSigned = eez_primitives::SystemTransaction {
             chain_id: 1,
-            nonce,
+            version: eez_primitives::SYSTEM_TX_VERSION,
+            source_hash: B256::with_last_byte(occurrence),
+            gas_limit: eez_primitives::SYSTEM_TX_GAS_CAP,
             to: eez_primitives::EEZL2_ADDRESS,
             value: U256::ZERO,
-            input: Bytes::new(),
+            input: Bytes::copy_from_slice(&selector),
         }
         .into();
         let raw = transaction.encoded_2718();
         let encoded_receipt = [
-            vec![0x76],
+            vec![0x45],
             alloy_rlp::encode(Receipt {
                 status: 1,
-                gas_used: 21_000,
+                gas_used: gas,
                 bloom: Bloom::ZERO,
                 logs: vec![],
             }),
@@ -556,11 +650,12 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         header.number += 1;
         header.timestamp += 2;
         header.parent_hash = parent.hash_slow();
-        header.gas_used = 21_000;
+        header.gas_used = gas;
         header.base_fee_per_gas = parent.next_block_base_fee(eez_protocol::l2::BASE_FEE_PARAMS);
         header.transactions_root = ordered_leaf(raw);
         header.receipts_root = ordered_leaf(encoded_receipt);
-        header.state_root = keccak256(account_leaf(sender, nonce + 1, U256::ZERO));
+        header.state_root =
+            crate::testkit::history::state(&[(sender, 7, U256::ZERO)], header.timestamp).0;
         let block = Block {
             header: header.clone(),
             body: alloy_consensus::BlockBody {
@@ -571,7 +666,10 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         };
         let recovered = block.try_into_recovered().unwrap();
         let witness = alloy_rpc_types_debug::ExecutionWitness {
-            state: vec![account_leaf(sender, nonce, U256::ZERO).into()],
+            state: crate::testkit::history::state(&[(sender, 7, U256::ZERO)], parent.timestamp).1,
+            codes: vec![Bytes::copy_from_slice(
+                eez_protocol::l1_history::HISTORY_RUNTIME,
+            )],
             headers: vec![alloy_rlp::encode(&parent).into()],
             ..Default::default()
         };
@@ -579,7 +677,19 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
             recovered,
             witness,
             Arc::clone(&spec),
-            eez_evm::EezEvmConfig::new(Arc::clone(&spec)),
+            eez_evm::EezEvmConfig::new(Arc::clone(&spec))
+                .with_l1_history(Arc::new(eez_protocol::l1_history::WitnessHistory({
+                    let mut chain = eez_protocol::l1_history::HeaderChain::default();
+                    let raw = crate::testkit::history::l1_headers()
+                        .into_iter()
+                        .map(Into::into)
+                        .collect::<Vec<_>>();
+                    chain
+                        .append(&raw, &crate::testkit::l1_header_rules(), 16)
+                        .unwrap();
+                    Arc::new(chain)
+                })))
+                .unwrap(),
             &[0],
         )
         .unwrap();
@@ -587,7 +697,7 @@ fn native_replay_preserves_independent_nonce_receipt_and_state_commitments() {
         assert_eq!(output.validation.block_hash, header.hash_slow());
         assert_eq!(
             output.validation.execution_output.result.receipts[0].ty(),
-            0x76
+            0x45
         );
         assert_eq!(
             output.checkpoints.transaction_state_checkpoints[0].state_root,

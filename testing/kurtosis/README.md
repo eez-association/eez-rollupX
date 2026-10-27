@@ -658,8 +658,17 @@ omits explorer checks. Native Beacon/KZG verification remains required.
 Independent protocol checks require L1/L2 `debug` APIs, including raw blocks,
 receipts, execution witnesses and chain configuration. Lookup-prefix replay also
 requires the deployed `EEZ_L2_GENESIS` file; the collector checks its genesis hash
-and configuration against the node before replay. Kurtosis supplies this file
-from the deployment artifact. Mined raw transactions missing from
+and configuration against the node before replay. It also requires
+`EEZ_L1_CHAIN_CONFIG`: the deployed Ethereum genesis file or an existing public
+preset (`mainnet`, `sepolia`, `hoodi`, `chiado`). Kurtosis supplies both genesis
+files from its artifacts. The retained prefix input embeds that L1 profile,
+the manager's `protocolConfigHash` read at the original post, and at most 65 raw
+L1 headers (the inherited endpoint and up to 64 imports). The offline helper
+checks the profile commitment, exact header decoding/linkage, parent trie,
+history transaction and PREVRANDAO before reconstructing transaction prefixes.
+It performs no RPC; the surrounding collector still establishes canonical L1/L2
+identities through RPC. Private Gnosis genesis profiles are not supported by
+this prefix helper. Mined raw transactions missing from
 `eth_getRawTransactionByHash` are recovered from the exact raw-block position
 and must hash to the expected canonical transaction before matching blob data.
 Retain transaction lookup indexes and receipt/state history in the L1 client;
@@ -736,10 +745,13 @@ identical proxy calls from one source transaction, verifies the ordered
 transaction landed in the same builder-produced L1 block. The suite also
 places a deployed non-proxy between two valid inbound calls and verifies that
 only the poison transaction is evicted while both ordered survivors settle. A
-final mixed-direction drain verifies that an outbound source transaction and
-inbound delivery share the canonical L2 Sync block. Every scenario also
-verifies bundle settlement, proof-signer acceptance, and L1/L2 state-root
-convergence.
+final mixed-direction case verifies separate, FIFO-ordered Sync blocks when
+fee collection is enabled; with fees disabled it requires the outbound source
+transaction and inbound delivery to share one canonical L2 Sync block. Every
+scenario also verifies bundle settlement, proof-signer acceptance, and L1/L2
+block-hash commitment convergence. Prepared groups begin collection after a
+fresh accepted idle cutoff, independent of whether the settlement policy posts
+an empty batch.
 
 ### Validate partial consumption
 
@@ -976,6 +988,45 @@ the ABI is unchanged. Existing enclaves keep their deployed contracts; use a
 fresh, separately named enclave to validate a new pin without removing the devnet.
 
 ## Customize the network
+
+### Capture history and cross-chain observation replay
+
+For an owned, fresh enclave, set `eez.history_update_offset: 5` with the existing
+two-second, six-slot cadence. This places the authenticated history import at
+transaction zero of Sync. The default offset remains unchanged. Set
+`eez.prove_capture_image` to an image containing the `eez-testkit` example
+`capture_prover`; the package inserts that bounded test adapter between Composer
+and the unchanged signer. It retains only acknowledged v2 evidence and successful
+proof requests in the adapter's `/data/captures` directory. This unauthenticated
+adapter is for private test networks only.
+
+With the integration contracts built, run:
+
+```bash
+export KURTOSIS_ENCLAVE=eez-combined-history
+export KURTOSIS_ARGS_FILE=/path/to/that-enclaves-args.yaml
+export EEZ_COMBINED_CAPTURE_DIR="$PWD/artifacts/combined-history/capture"
+bash testing/kurtosis/scripts/capture-combined-history.sh
+source testing/kurtosis/ports.sh
+export EEZ_COMBINED_L2_RPC="$EEZ_DEVNET_L2_RPC"
+cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e \
+  -- cross_chain::combined_history::kurtosis_combined_history_observations_replay_offline \
+  --ignored --exact --nocapture
+```
+
+The workload deploys a probe and L1 reader using public fixture accounts. One
+source transaction reads the probe statically, records a failed mutable lookup,
+delivers a real write, and reads its new value. The replay selects a canonical
+capture with an advancing history import, compares the observations with retained
+chain state, then uses a separate network-denied signer for the unchanged request
+and coherent ABI/blob variants. Earlier-state and post-effect outcomes must fail
+at `observation_replay` without a signature. Requests and results remain in
+`combined-regression/` for language-neutral replay.
+
+Current Composer policy puts ordinary mempool writes in preceding blocks of the
+proved window. The terminal rich Sync contains history and cross-chain effects.
+This live test does not claim an ordinary mempool write between those operations
+in the same block; the separate signer fixtures cover that more general body.
 
 ### Arguments file
 

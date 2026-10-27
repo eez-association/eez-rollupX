@@ -14,11 +14,21 @@ signs the independently recomputed public-input hash.
   commands.
 
 The current production backend is in-process Stateless. The service is
-single-flight and fails closed: any admission, validation, settlement,
+bounded and fails closed: any admission, validation, settlement,
 deadline, or signing failure returns no signature.
 
-The signer requires `--l1-chain-config` / `EEZ_L1_CHAIN_CONFIG` (`mainnet`,
-`chiado`, or a Genesis/ChainConfig path). Every request must carry an L1 chain ID
-and target timestamp. Upgrade composer and signer together; requests without
-that context are rejected. Existing Chiado and Kurtosis deployment templates
-already provide the trusted L1 profile.
+The signer loads the complete L2 genesis, the local L1 chain profile, and the
+registry/manager/proof-system identities. It accepts the offline v2 profile
+through `Begin -> Block* -> Finalize`; each request carries the complete L1
+header evidence needed for its chosen anchor. It never connects to an L1 or L2
+RPC, including during startup, retries or restart.
+
+The signer checks execution and public inputs conditional on that evidence.
+`OfflineRollup.getCustomData()` binds the same context to the actual accepted L2
+commitment and L1 anchor when settlement verifies the proof. The ECDSA backend
+still requires trust in the configured attester; it is not a ZK proof.
+
+This execution profile is active from a fresh genesis with new contracts and
+fresh datadirs. Existing networks cannot follow it as a binary-only update.
+See [operations](docs/operations.md) for configuration, bounded sessions and
+shutdown, and the [v2 profile](../eez-control-rpc/STREAMING_SPEC.md) for wire rules.

@@ -146,7 +146,11 @@ const NEXT_BLOCK_SLACK: u64 = 2;
 pub const MAX_MISSING_SLOT_REPLACEMENTS: u64 = 4;
 
 /// Return the aligned, bounded slot offset from the observed canonical parent.
-fn policy_target_slot_offset(parent: u64, target: u64, slot_seconds: u64) -> Option<u64> {
+pub(crate) fn policy_target_slot_offset(
+    parent: u64,
+    target: u64,
+    slot_seconds: u64,
+) -> Option<u64> {
     let distance = target.checked_sub(parent)?;
     if distance.checked_rem(slot_seconds)? != 0 {
         return None;

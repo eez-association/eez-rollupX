@@ -642,7 +642,6 @@ mod tests {
                 .iter()
                 .map(|entry| OutboundSyncEffect {
                     source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-                    callback_entries: vec![],
                 })
                 .collect(),
             user_tx: users[0].tx_data.clone(),

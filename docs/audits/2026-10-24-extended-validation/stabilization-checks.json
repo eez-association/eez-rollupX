@@ -1,0 +1,295 @@
+{
+  "source": {
+    "base": "d46f0a148a29ecdeea2eefa15e7380e72deeb277",
+    "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+    "source_patch_sha256": "570dfb28574e00c1688cc45c880ee94ec087bfa59aa64a5c4817ef7857532f48",
+    "source_files": {
+      "crates/eez-composer/src/composer/admission.rs": "7e2f3ad30c37d32f86bc564fa05986071cbb23753d7fe003aa4e8c129b0142c4",
+      "crates/eez-driver/src/sequencer.rs": "86c685ecccef6a69cda521295c21ba4eca4531b91f7d8f52188e8b7070e546a1",
+      "crates/eez-node-e2e/tests/derivable_operations/multipart.rs": "b65c42d1984edf90a2eea7074b16039da07e2963a5be31ae7226b2b3b861d09c",
+      "crates/eez-testkit/src/l1_reorg.rs": "2345c2c821905efc29daae85afe4713ba0853f7e233f4c858be44f53a8e2a0d9",
+      "crates/eez-testkit/src/lib.rs": "101dc03fd58fafe4bb958ff965dca51e84e47fd22b2288694a0ea9a7073a1602",
+      "scripts/native-l1-consensus.py": "54e45cf0e99457aa0715c26b6f6617e96cedf004474c9b71061707dd4f002e5e"
+    }
+  },
+  "failed_ci": {
+    "run": 40133261304,
+    "merge": "d488e7b77164377fca3ee8b5c8e1f333afd1e94b",
+    "artifact_sha256": {
+      "embedded-e2e-3": "e7442ea6845c49e91a7a4bad014a6a26a92b637fcc6ce97fcadf52b3a1380d13",
+      "cross-chain-e2e-2": "a4d36cc39a5c8b2b107427e94acf53f70f2d5d15d74051ff66c060a915e52eab"
+    },
+    "diagnostic_tests_digest": "sha256:53fd257c9c3207c7d0ef7708f7a55e103ab536bf0ad027d67c4fb1768bbe52dd",
+    "diagnostic_runtime_digest": "sha256:49e870f71f80083dfddbb1dcbd7729851a3f0f47f6712b8c351d67f43ba68085"
+  },
+  "artifact_scope": "Raw logs, datadirs, source patches and guard scripts are local-only ignored artifacts. Compact results and hashes are retained here; earlier failures remain failures.",
+  "checks": {
+    "stabilization-original-cases": {
+      "command": [
+        "python3",
+        "-"
+      ],
+      "exit": 0,
+      "seconds": 158.04,
+      "minimum_available_bytes": 22718808064,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "2f22201bebb93c1ba36d55b0f9cd176b130e04a43cb37702680063270ac0c6a7",
+      "test_results": []
+    },
+    "stabilization-planner-before": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib",
+        "preparation_retries_changed_context_without_changing_the_l1_target",
+        "--",
+        "--exact",
+        "sequencer::tests::preparation_retries_changed_context_without_changing_the_l1_target"
+      ],
+      "exit": 101,
+      "seconds": 157.04,
+      "minimum_available_bytes": 23173431296,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "595123cd14977902a4226072f9a96558ce2690b44be5c9b598eed3123ed2d2a9",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s"
+      ]
+    },
+    "stabilization-planner-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib"
+      ],
+      "exit": 101,
+      "seconds": 9.0,
+      "minimum_available_bytes": 24690810880,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "c82a680e1e5b30f10f29abc1742b172703e884cd1c4202b170851e637459782a",
+      "test_results": [
+        "test result: FAILED. 52 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s"
+      ]
+    },
+    "stabilization-planner-final": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib"
+      ],
+      "exit": 101,
+      "seconds": 3.0,
+      "minimum_available_bytes": 24757137408,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "eae39a308632f7ab788b172feb58416db285c815793be50e3eadcae13753f560",
+      "test_results": [
+        "test result: FAILED. 52 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s"
+      ]
+    },
+    "stabilization-planner-aligned": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 9.0,
+      "minimum_available_bytes": 24748150784,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "f656a8fcb2768c5f10472d747720ab41f97ae360b43b6dd522ba479d40294011",
+      "test_results": [
+        "test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s"
+      ]
+    },
+    "stabilization-source-late-sync": {
+      "command": [
+        "bash",
+        "-s"
+      ],
+      "exit": 101,
+      "seconds": 2501.67,
+      "minimum_available_bytes": 13740773376,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "847e37be25fdfbf8f49ed495e7278ca478989391c5cccde741bab3a8b8311822",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 178 filtered out; finished in 567.68s"
+      ]
+    },
+    "stabilization-future-race-before": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib",
+        "preparation_retries_changed_context_without_changing_the_l1_target",
+        "--",
+        "--exact",
+        "sequencer::tests::preparation_retries_changed_context_without_changing_the_l1_target"
+      ],
+      "exit": 101,
+      "seconds": 88.02,
+      "minimum_available_bytes": 23866388480,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "4b8c9d9a4b26aca3f8ada101e6f0776ecf6015f576deb593522c15c04447bbc5",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s"
+      ]
+    },
+    "stabilization-future-race-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 9.0,
+      "minimum_available_bytes": 24353026048,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "79b0f6bbfca5426db9e460d253b4d0a7a2315e6fc5654ac05f2dc5bc89f6f658",
+      "test_results": [
+        "test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s"
+      ]
+    },
+    "stabilization-generation-before": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib",
+        "preparation_retries_changed_context_without_changing_the_l1_target"
+      ],
+      "exit": 101,
+      "seconds": 9.0,
+      "minimum_available_bytes": 24236724224,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "287b9f01884187485b0f3099d230be15a2042587a2b314e6514af36e90d0be36",
+      "test_results": [
+        "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 52 filtered out; finished in 0.00s"
+      ]
+    },
+    "stabilization-generation-after": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 9.0,
+      "minimum_available_bytes": 24275611648,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "d9974bd46fadc35ea7a5be0bae1cc54befb4064cbe7caa2984ede3819ef78455",
+      "test_results": [
+        "test result: ok. 53 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s"
+      ]
+    },
+    "stabilization-clippy": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "clippy",
+        "--locked",
+        "--offline",
+        "--workspace",
+        "--all-targets",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit": 0,
+      "seconds": 115.03,
+      "minimum_available_bytes": 23957426176,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "61125be04a074a5c009bdb56176ac819d5ff03cdddcce55ff17c89991b76f49b",
+      "test_results": []
+    },
+    "stabilization-units": {
+      "command": [
+        "cargo",
+        "+1.95.0",
+        "test",
+        "--locked",
+        "--offline",
+        "-p",
+        "eez-driver",
+        "-p",
+        "eez-composer",
+        "-p",
+        "eez-testkit",
+        "--lib"
+      ],
+      "exit": 0,
+      "seconds": 642.2,
+      "minimum_available_bytes": 18486857728,
+      "guard_cancelled": false,
+      "jobs": 1,
+      "log_sha256": "34e473a450a938fb578885f5a985d43de9741ffc87c4777cdb05dadf18b4fc7b",
+      "test_results": [
+        "test held_pool::tests::profile_blocked_backlog_discovery ... ignored, manual component profile; records timings without timing assertions",
+        "test result: ok. 408 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.34s",
+        "test result: ok. 74 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s",
+        "test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.02s"
+      ]
+    },
+    "stabilization-source-combined": {
+      "command": [
+        "bash",
+        "artifacts/stabilization-20261024/validate-source.sh"
+      ],
+      "exit": -2,
+      "seconds": 158.05,
+      "minimum_available_bytes": 4636233728,
+      "guard_cancelled": true,
+      "jobs": 1,
+      "log_sha256": "a7b6bc94c71249da441f4622add4923d6d5268a9ff5abadce57f8675d1726fe1",
+      "test_results": []
+    }
+  }
+}

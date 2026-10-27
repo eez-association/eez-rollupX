@@ -131,7 +131,27 @@ pub fn chain_spec(genesis: Genesis) -> Result<ChainSpec, ProfileError> {
     }
     let mut spec = ChainSpec::from_genesis(genesis);
     validate_header(spec.genesis_header())?;
-    schedule(&spec)?;
+    let schedule = schedule(&spec)?;
+    let reference = schedule.config().l1_reference;
+    let expected_storage = eez_protocol::l1_history::bootstrap_storage(
+        reference.number,
+        reference.hash,
+        schedule.history()?,
+    )?;
+    let history = spec
+        .genesis()
+        .alloc
+        .get(&eez_protocol::l1_history::HISTORY_ADDRESS)
+        .ok_or(ProfileError("missing L1 history predeploy"))?;
+    if history.code.as_ref().map(AsRef::as_ref) != Some(eez_protocol::l1_history::HISTORY_RUNTIME)
+        || history.nonce != Some(1)
+        || !history.balance.is_zero()
+        || history.storage.as_ref() != Some(&expected_storage)
+    {
+        return Err(ProfileError(
+            "L1 history genesis code, account or bootstrap storage",
+        ));
+    }
     spec.base_fee_params = BASE_FEE_PARAMS.into();
     Ok(spec)
 }

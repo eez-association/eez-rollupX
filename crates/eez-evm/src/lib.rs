@@ -1,7 +1,7 @@
 //! Adapts Ethereum execution to EEZ transaction and receipt types.
 //!
 //! The pinned `EthEvmConfig` fixes its primitives to Ethereum types, which cannot
-//! represent native type `0x76`. This wrapper selects `EezPrimitives`, preserves
+//! represent native type `0x45`. This wrapper selects `EezPrimitives`, preserves
 //! the native receipt type, and decodes native transactions in Engine payloads.
 //! Transaction gas accounting and block assembly reuse the pinned Ethereum code.
 //! The rollup lifecycle retains EIP-2935 but excludes beacon and request calls. `eez-primitives` defines the zero-fee native TxEnv;
@@ -42,12 +42,28 @@ mod evm;
 pub use evm::EezEvmFactory;
 
 pub mod block;
+pub mod history;
 pub mod profile;
 use block::{EezBlockExecutorFactory, ExecutionLayer};
 
 /// Enforce L2 transaction support during construction and replay. The underlying
 /// EVM is also used for L1 simulation, where blob transactions remain valid.
 pub fn ensure_supported_transaction(tx: &EezTxEnvelope) -> Result<(), AnyError> {
+    if let EezTxEnvelope::System(native) = tx {
+        native.validate().map_err(AnyError::new)?;
+        if native.to == eez_primitives::EEZL2_ADDRESS
+            && ![
+                eez_protocol::system_tx::LOAD_EXECUTION_TABLE_SELECTOR,
+                eez_protocol::entries::EXECUTE_INCOMING_SELECTOR,
+            ]
+            .iter()
+            .any(|selector| native.input.starts_with(selector))
+        {
+            return Err(AnyError::new(eez_protocol::l2::ProfileError(
+                "unsupported native EEZL2 call selector",
+            )));
+        }
+    }
     if tx.is_eip4844() {
         return Err(AnyError::new(InvalidTransactionError::Eip4844Disabled));
     }
@@ -88,7 +104,7 @@ impl ReceiptBuilder for EezReceiptBuilder {
     type Transaction = EezTxEnvelope;
     type Receipt = Receipt;
 
-    /// Preserve native type `0x76` in the receipt root; Ethereum's receipt builder
+    /// Preserve native type `0x45` in the receipt root; Ethereum's receipt builder
     /// only accepts its own type enum. Status, gas, and logs are unchanged.
     fn build_receipt<E: Evm>(&self, ctx: ReceiptBuilderCtx<'_, EezTxType, E>) -> Receipt {
         Receipt {
@@ -110,7 +126,7 @@ pub struct EezEvmConfig<C = ChainSpec> {
     schedule: Arc<OnceLock<Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError>>>,
 }
 
-impl<C> EezEvmConfig<C> {
+impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
     pub fn new(chain_spec: Arc<C>) -> Self {
         Self::with_layer(chain_spec, ExecutionLayer::Rollup)
     }
@@ -136,6 +152,130 @@ impl<C> EezEvmConfig<C> {
 }
 
 impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
+    /// Install ready checked L1 evidence for the mandatory history hook. No
+    /// execution path falls back to an RPC source when evidence is absent.
+    pub fn with_l1_history(
+        mut self,
+        source: Arc<dyn history::L1HistorySource>,
+    ) -> Result<Self, eez_protocol::l2::ProfileError> {
+        let schedule = self.schedule()?;
+        self.executor.history = Some(history::HistoryConfig {
+            schedule: schedule.history()?,
+            first_number: schedule.config().l1_reference.number,
+            source,
+            source_context: eez_protocol::native_source::HistorySourceContext::new(
+                schedule.config().l1_reference.chain_id,
+                self.chain_spec().chain().id(),
+                schedule.genesis_hash(),
+            )?,
+            l2_chain_id: self.chain_spec().chain().id(),
+        });
+        Ok(self)
+    }
+
+    /// Ready checked evidence for a scheduled L2 timestamp. The source performs
+    /// no network or blocking I/O here; absence is an execution/preparation error.
+    pub fn l1_headers(
+        &self,
+        timestamp: u64,
+    ) -> Result<Arc<eez_protocol::l1_history::HeaderChain>, eez_protocol::l2::ProfileError> {
+        let history = self
+            .executor
+            .history
+            .as_ref()
+            .ok_or(eez_protocol::l2::ProfileError(
+                "L1 history source is not configured",
+            ))?;
+        history
+            .source
+            .headers(history.schedule.source_cutoff(timestamp)?)
+    }
+
+    /// Construct an exact history transaction from local parent state and ready
+    /// evidence. Call from a blocking builder/worker, never perform remote reads.
+    pub fn prepare_history<DB: revm::Database>(
+        &self,
+        db: &mut DB,
+        parent: &Header,
+        timestamp: u64,
+    ) -> Result<
+        (
+            eez_protocol::l1_history::HistoryExecution,
+            Option<EezTxEnvelope>,
+        ),
+        alloy_evm::block::BlockExecutionError,
+    > {
+        let history = self.executor.history.as_ref().ok_or_else(|| {
+            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+        })?;
+        let (number, expected_timestamp) = self
+            .schedule()
+            .and_then(|schedule| schedule.next(parent))
+            .map_err(alloy_evm::block::BlockExecutionError::other)?;
+        if timestamp != expected_timestamp {
+            return Err(alloy_evm::block::BlockExecutionError::msg(
+                "invalid history block position",
+            ));
+        }
+        crate::history::prepare(db, history, parent.hash_slow(), number, timestamp)
+    }
+
+    /// Read and validate the fixed predeploy and inherited history state.
+    pub fn history_state<DB: revm::Database>(
+        &self,
+        db: &mut DB,
+    ) -> Result<eez_protocol::l1_history::HistoryState, alloy_evm::block::BlockExecutionError> {
+        let history = self.executor.history.as_ref().ok_or_else(|| {
+            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+        })?;
+        crate::history::state(db, history)
+    }
+
+    /// Independently check recorded history inputs against local authenticated
+    /// parent state. Does not execute or commit the transaction.
+    pub fn validate_history_input<DB: revm::Database>(
+        &self,
+        db: &mut DB,
+        parent: &Header,
+        timestamp: u64,
+        tx: Option<&EezTxEnvelope>,
+    ) -> Result<eez_protocol::l1_history::HistoryExecution, alloy_evm::block::BlockExecutionError>
+    {
+        let history = self.executor.history.as_ref().ok_or_else(|| {
+            alloy_evm::block::BlockExecutionError::msg("L1 history source is not configured")
+        })?;
+        let (number, expected_timestamp) = self
+            .schedule()
+            .and_then(|schedule| schedule.next(parent))
+            .map_err(alloy_evm::block::BlockExecutionError::other)?;
+        if timestamp != expected_timestamp {
+            return Err(alloy_evm::block::BlockExecutionError::msg(
+                "invalid history block position",
+            ));
+        }
+        crate::history::transition(db, history, parent.hash_slow(), number, timestamp, tx)
+    }
+
+    /// Derive the block environment from its public transaction input. Empty
+    /// imports and non-update blocks inherit the parent's randomness. Execution
+    /// independently binds the inherited endpoint to authenticated contract state.
+    pub fn history_prev_randao(
+        &self,
+        parent: &Header,
+        timestamp: u64,
+        transaction: Option<&EezTxEnvelope>,
+    ) -> Result<alloy_primitives::B256, eez_protocol::l2::ProfileError> {
+        let Some(EezTxEnvelope::System(tx)) = transaction.filter(|tx| tx.is_history()) else {
+            return Ok(parent.mix_hash);
+        };
+        let call = eez_protocol::l1_history::decode_import(&tx.input)?;
+        let Some(hash) = call.hashes.last() else {
+            return Ok(parent.mix_hash);
+        };
+        let chain = self.l1_headers(timestamp)?;
+        Ok(chain.by_hash(*hash)?.header().mix_hash)
+    }
+
     fn schedule(&self) -> Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError> {
         *self
             .schedule

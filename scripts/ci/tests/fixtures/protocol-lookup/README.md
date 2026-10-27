@@ -54,3 +54,21 @@ Anvil fixture chains at protocol rc.2 (SHA-256
 the read, its reader queries the registry for the callback source proxy's
 address (`computeCrossChainProxyAddress`), so the trace has three registry
 frames. Addresses are local fixture identities, not operator credentials.
+
+## Static reads around L1 local writes
+
+`staticLocalWrite.txt` and `staticLocalWrite-trace.json` were captured from the
+isolated Kurtosis network on 2026-10-24, using RollupX PR #101's R03 runtime and
+protocol `84a5b5207880f192a6a5896cbfe0bac5249db47f`. The log is the original
+upstream success whose independent collector initially failed because this
+scenario had no lookup oracle. Its transaction is
+`0xbdcb4a911b1b2a2657a0164fdbf9c903ef0eb85a78dec481e216fbbf3b2bd1bc`.
+
+The captured trace contains three `quote()` lookups returning 1, 2, 1. Their
+`rate()` callback attempts return 1; 2, 2; 1: the middle lookup rejects candidate
+A before selecting B, and the last lookup reuses A. The posted table contains
+A/B/A, including an identical repeated row; two distinct outcomes do not imply
+exactly two serialized rows. The regression uses independently encoded expected
+calldata, and mutations must fail the real shell/jq consumer. RPC, KZG and Forge
+boundaries are mocked in unit tests; the audit records their separate live
+read-only validation.

@@ -3,12 +3,14 @@
 
 use alloy_consensus::{Transaction, TxEnvelope};
 use alloy_eips::{Decodable2718, Encodable2718};
+use alloy_primitives::{B256, keccak256};
 use alloy_sol_types::SolValue;
 use reth_primitives_traits::SignerRecoverable;
 
 use super::SemanticTransaction;
 use crate::abi::ExecutionEntrySol;
 use crate::entries::{InboundSidecar, finalize_l1_entry_traces};
+use crate::native_source::{LiveSourceContext, SourcePosition};
 use crate::system_tx::{OutboundSourceEntry, OutboundSyncEffect, OutboundSyncGroup};
 use crate::{Composition, EvmBatch, RollupId};
 
@@ -55,6 +57,8 @@ pub struct ReconstructionActions {
     rollup: RollupId,
     outbound: Vec<OutboundSyncGroup>,
     inbound: Vec<InboundSidecar>,
+    outbound_manifest_indices: Vec<u64>,
+    inbound_positions: Vec<SourcePosition>,
     compositions: Vec<Composition>,
 }
 
@@ -73,10 +77,14 @@ impl ReconstructionActions {
             rollup,
             outbound: Vec::new(),
             inbound: Vec::new(),
+            outbound_manifest_indices: Vec::new(),
+            inbound_positions: Vec::new(),
             compositions: Vec::new(),
         };
         let mut inbound_started = false;
-        for transaction in transactions {
+        for (manifest_index, transaction) in transactions.iter().enumerate() {
+            let manifest_index = u64::try_from(manifest_index)
+                .map_err(|_| ReconstructionError::Table("manifest index exceeds uint64"))?;
             if transaction.actions.is_empty() {
                 return Err(ReconstructionError::EmptyTransaction);
             }
@@ -92,6 +100,15 @@ impl ReconstructionActions {
             } else {
                 return Err(ReconstructionError::Origin(transaction.origin_chain.0));
             };
+            // Failed/reverted roots still occupy original positions. They may
+            // not smuggle a foreign chain through an empty materialized target.
+            if transaction.actions.iter().any(|action| {
+                [action.source_rollup_id, action.target_rollup_id]
+                    .iter()
+                    .any(|id| !id.is_mainnet() && *id != rollup)
+            }) {
+                return Err(ReconstructionError::Table("foreign action chain"));
+            }
             let composition = transaction
                 .materialize()
                 .map_err(|e| ReconstructionError::Materialization(e.to_string()))?;
@@ -115,24 +132,13 @@ impl ReconstructionActions {
                 .collect::<Result<Vec<_>, _>>()?;
             if outbound {
                 let source = &composition.source;
-                if !source.batch.staticEntries.is_empty()
-                    || source.callback_entry_counts.len() != source.batch.entries.len()
-                    || source
-                        .callback_entry_counts
-                        .iter()
-                        .try_fold(0usize, |sum, n| sum.checked_add(*n))
-                        != Some(deliveries.len())
-                {
-                    return Err(ReconstructionError::Table("outbound callback partition"));
+                if !source.batch.staticEntries.is_empty() || !deliveries.is_empty() {
+                    return Err(ReconstructionError::Table(
+                        "standalone outbound callbacks are unsupported",
+                    ));
                 }
                 let mut effects = Vec::new();
-                let mut callbacks = deliveries.into_iter();
-                for (entry, count) in source
-                    .batch
-                    .entries
-                    .iter()
-                    .zip(&source.callback_entry_counts)
-                {
+                for entry in &source.batch.entries {
                     if entry.destinationRollupId != RollupId::MAINNET.0
                         || !entry.rootUpdates.is_empty()
                     {
@@ -140,13 +146,11 @@ impl ReconstructionActions {
                     }
                     effects.push(OutboundSyncEffect {
                         source_entry: OutboundSourceEntry::Mutable(entry.clone()),
-                        callback_entries: callbacks.by_ref().take(*count).collect(),
                     });
                 }
                 effects.extend(source.l2_static_entries.iter().cloned().map(|entry| {
                     OutboundSyncEffect {
                         source_entry: OutboundSourceEntry::Static(entry),
-                        callback_entries: Vec::new(),
                     }
                 }));
                 if effects.is_empty() {
@@ -158,13 +162,50 @@ impl ReconstructionActions {
                     effects,
                     user_tx: transaction.tx_data.clone(),
                 });
+                result.outbound_manifest_indices.push(manifest_index);
             } else {
                 if !composition.source.l2_static_entries.is_empty() {
                     return Err(ReconstructionError::Table(
                         "L1 source has L2 static entries",
                     ));
                 }
-                result.inbound.extend(deliveries);
+                let applied = crate::settlement::l1_applied_root_mask(&transaction.actions)
+                    .map_err(ReconstructionError::Materialization)?;
+                let roots = transaction
+                    .actions
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, action)| action.parent_index.is_none())
+                    .enumerate()
+                    .filter(|(_, (index, _))| applied[*index])
+                    .collect::<Vec<_>>();
+                if roots.len() != deliveries.len() {
+                    return Err(ReconstructionError::Table(
+                        "inbound root/delivery count differs",
+                    ));
+                }
+                for ((root_index, (_, action)), delivery) in roots.into_iter().zip(deliveries) {
+                    let call_hash = crate::common_cross_chain_call_hash(crate::CallHashInput {
+                        call_mode: action.call_mode,
+                        source_address: action.source_address,
+                        source_rollup_id: action.source_rollup_id,
+                        target_address: action.target_address,
+                        target_rollup_id: action.target_rollup_id,
+                        value: action.value,
+                        data: &action.data,
+                    });
+                    if call_hash != delivery.as_abi_entry().proxyEntryHash {
+                        return Err(ReconstructionError::Table(
+                            "inbound root/delivery identity differs",
+                        ));
+                    }
+                    result.inbound_positions.push(SourcePosition {
+                        manifest_index,
+                        top_level_call_index: u64::try_from(root_index)
+                            .map_err(|_| ReconstructionError::Table("root index exceeds uint64"))?,
+                    });
+                    result.inbound.push(delivery);
+                }
             }
             result.compositions.push(composition);
         }
@@ -180,6 +221,26 @@ impl ReconstructionActions {
     /// remain represented by settlement, without an L2 transaction.
     pub fn inbound(&self) -> &[InboundSidecar] {
         &self.inbound
+    }
+
+    /// Native source hashes in the same outbound-then-inbound order as the
+    /// reconstruction. Derive these before selecting any consumed suffix:
+    /// every stored position belongs to the original complete stream.
+    /// This operation does not authenticate the supplied live context.
+    pub fn source_hashes(&self, context: &LiveSourceContext) -> Vec<B256> {
+        self.outbound
+            .iter()
+            .zip(&self.outbound_manifest_indices)
+            .map(|(group, &index)| context.outbound(index, keccak256(&group.user_tx)))
+            .chain(
+                self.inbound
+                    .iter()
+                    .zip(&self.inbound_positions)
+                    .map(|(delivery, &position)| {
+                        context.inbound(position, delivery.as_abi_entry().proxyEntryHash)
+                    }),
+            )
+            .collect()
     }
 
     /// Match every semantic L1 table to its exact supplied settlement table.

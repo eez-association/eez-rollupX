@@ -1,27 +1,14 @@
-// The composer-controlled prover wire (Model B).
-//
-// The composer is the CLIENT: it dials the prover and streams one posted
-// settlement window as `Prove(stream ProveChunk)` — a header chunk first, then
-// one `BlockWitness` per window block (RLP + augmented execution witness). The
-// prover re-executes the window, runs its settlement gates, ECDSA-signs the
-// recomputed `publicInputsHash`, and returns it as the response. One exchange:
-// no feed, no dispatch, no sink, no cursor, no backfill.
-
+// Language-neutral offline proving: one v2 package and one service.
+// See ../STREAMING_SPEC.md. Edit this schema; Cargo generates the Rust module.
 syntax = "proto3";
 
-package prove.v1;
+package prove.v2;
 
 service Prover {
-  // Local validation identity and effective resource limits; no execution or
-  // signature. This call never occupies the expensive validation worker.
+  // Local validation identity and effective limits; does not acquire a proving worker.
   rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
-  // Validate and cache a bounded ordinary range. Never returns a settlement
-  // signature and never accepts a caller-selected derivation recipe.
-  rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
-  rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest) returns (RetainOrdinaryRangesResponse);
-  // Client-stream a whole posted window, receive the settlement attestation.
-  // Header MUST be the first chunk; blocks follow in ascending block order.
-  rpc Prove(stream ProveChunk) returns (ProveResponse);
+  // Required: Begin -> Block* -> Finalize, with complete request-local evidence.
+  rpc ProveStream(stream ClientFrame) returns (stream ServerFrame);
 }
 
 message CapabilitiesRequest {}
@@ -34,108 +21,9 @@ message CapabilitiesResponse {
   uint64 max_request_bytes = 5;
   uint64 max_request_witness_items = 6;
   uint64 max_message_bytes = 7;
-  uint64 preparation_max_blocks = 8; // zero until preparation is implemented
+  reserved 8, 11, 12, 13, 14;
   uint64 stream_idle_timeout_millis = 9;
   uint64 request_timeout_millis = 10;
-  uint64 cache_max_entries = 11;
-  uint64 cache_max_bytes = 12;
-  uint64 maximum_leases = 13;
-  uint64 lease_lifetime_millis = 14;
-}
-
-message PrepareChunk {
-  oneof kind {
-    PrepareHeader header = 1;
-    BlockWitness block = 2;
-  }
-}
-
-message PrepareHeader {
-  uint64 rollup_id = 1;
-  bytes expected_validation_identity = 2;
-  uint64 from_block = 3;
-  uint64 to_block = 4;
-  bytes lease_id = 5; // empty creates one; 32 bytes atomically extends it
-}
-
-message PrepareResponse {
-  bytes validation_identity = 1;
-  uint64 first_number = 2;
-  bytes first_hash = 3;
-  uint64 last_number = 4;
-  bytes last_hash = 5;
-  uint64 prepared_count = 6;
-  bytes lease_id = 7;
-}
-
-message RetainOrdinaryRangesRequest {
-  bytes validation_identity = 1;
-  bytes lease_id = 2;
-  repeated CachedOrdinaryRange ranges = 3;
-  bool release = 4;
-}
-
-message RetainOrdinaryRangesResponse {
-  bytes validation_identity = 1;
-  bytes lease_id = 2;
-  uint64 retained_count = 3;
-}
-
-message ProveChunk {
-  oneof kind {
-    ProveHeader header = 1;  // exactly one, first
-    BlockWitness block  = 2;  // one per window block, in order
-    CachedOrdinaryRange cached_range = 3;
-  }
-}
-
-message CachedOrdinaryRange {
-  bytes validation_identity = 1;
-  uint64 first_number = 2;
-  bytes first_hash = 3;
-  uint64 last_number = 4;
-  bytes last_hash = 5;
-}
-
-message ProveHeader {
-  uint64 rollup_id  = 1;
-  uint64 from_block = 2;  // posted + 1 (OD-5 anchor + 1)
-  uint64 to_block   = 3;  // sync_height (the settling block)
-  PostBatch post_batch = 4;
-  bytes expected_validation_identity = 5; // exactly 32 bytes, local rule agreement
-  ParentProvenance parent_provenance = 6; // required, independently checked on L1
-}
-
-// Exact canonical header encodings, not claims of acceptance or authority.
-// The signer authenticates acceptance and the complete ordered live-slot set
-// through its configured canonical L1 RPC source before executing the candidate.
-message ParentProvenance {
-  bytes parent_header_rlp = 1;
-  uint64 accepted_l1_number = 2; // zero only for the registered L2 genesis
-  repeated bytes live_slot_endpoint_headers_rlp = 3;
-}
-
-// The authoritative L1 settlement payload the prover re-derives against.
-message PostBatch {
-  // ABI-encoded `EEZ.postAndVerifyBatch` calldata (proof carriers filled,
-  // `proofs[]` empty). The prover decodes THIS to recompute publicInputsHash.
-  bytes abi_calldata = 1;
-  reserved 2, 3; // Removed claimed hash and timeless/specific-block context.
-  // Complete mandatory physical EIP-4844 blobs in transaction order. The
-  // prover derives KZG versioned hashes from these bytes and never trusts
-  // hashes claimed by the Composer.
-  repeated bytes blobs = 4;
-  // Required. Clients select an explicit L1 target; the signer resolves
-  // limits from its operator-trusted L1 profile,
-  // never a blob maximum supplied by the composer.
-  L1PostingContext posting_context = 5;
-}
-
-message L1PostingContext {
-  uint64 chain_id = 1;
-  uint64 target_timestamp = 2;
-  uint64 parent_number = 3;
-  bytes parent_hash = 4; // exactly 32 nonzero bytes; independently authenticated
 }
 
 message BlockWitness {
@@ -146,34 +34,26 @@ message BlockWitness {
   ExecutionWitness witness = 5;
 }
 
-// Structural mirror of `alloy_rpc_types_debug::ExecutionWitness`.
+// L2 execution witness plus the offline profile's distinct L1 ancestry evidence.
 message ExecutionWitness {
   repeated bytes state   = 1;  // trie nodes (augmented with removal-closure)
   repeated bytes codes   = 2;  // contract bytecodes
   repeated bytes keys    = 3;  // hashed-key preimages
   repeated bytes headers = 4;  // ancestor headers (BLOCKHASH)
+  // Canonical raw L1 execution headers, oldest first. Nonempty segments extend
+  // one contiguous session chain. They are never L2 BLOCKHASH ancestry.
+  repeated bytes l1_headers_rlp = 5;
 }
 
-message ProveResponse {
-  bytes public_inputs_hash = 1;  // 32B — the hash the prover signed
-  bytes signature          = 2;  // 65B — ECDSA over public_inputs_hash
-}
-
-// Machine-readable detail attached to a failed Prove RPC. The gRPC status
-// code remains authoritative. Fields 1/2 identify a cross-chain candidate the
-// Composer may remove; field 3 is non-actionable local cache repair.
+// Machine-readable details in a v2 Rejected frame. The status code remains
+// authoritative; candidate identities are checked against the current attempt
+// before the Composer may remove attributable work.
 message ProveFailure {
+  reserved 3;
   oneof actionable_failure {
     OutboundFailure outbound = 1;
     InboundFailure inbound   = 2;
-    CacheMiss cache_miss = 3;
   }
-}
-
-message CacheMiss {
-  bytes validation_identity = 1;
-  uint64 block_number = 2;
-  bytes block_hash = 3;
 }
 
 // An outbound candidate is identified by its original signed L2 user
@@ -194,4 +74,154 @@ message InboundFailure {
   uint32 entry_index = 1;  // zero-based position in PostBatch.entries
   // 32B — keccak256 of the canonical ExecutionEntrySol ABI encoding.
   bytes entry_hash = 2;
+}
+
+message ClientFrame {
+  // Empty only on Begin. The server issues this opaque ID; it is never a block
+  // or proof identity and is not shared between Composers.
+  bytes session_id = 1;
+  // Chosen by the client, unique among outstanding operations, and echoed on
+  // every response to this operation. Superseded work need not receive a reply.
+  uint64 request_id = 2;
+  // Zero on Begin and Resume; otherwise echo Ready. Baseline servers may use
+  // the constant 1. Only Resume/Rewind require changing epochs and fencing.
+  uint64 epoch = 3;
+  oneof kind {
+    Begin begin = 4;
+    Resume resume = 5;
+    Rewind rewind = 6;
+    Block block = 7;
+    Finalize finalize = 8;
+    Cancel cancel = 9;
+  }
+}
+
+message Begin {
+  uint64 rollup_id = 1;
+  // Execution predecessor. The first expected block is anchor_number + 1.
+  // Finalize binds its exact witness-supplied header and either this predecessor
+  // or a replayed whole-group checkpoint to the manager's accepted commitment.
+  // Begin alone establishes no execution or settlement authority.
+  uint64 anchor_number = 2;
+  bytes anchor_hash = 3;
+  bytes anchor_state_root = 4;
+}
+
+// Optional: first frame on a new stream, with a new epoch on Ready.
+// Unsupported Resume returns UNIMPLEMENTED; the client can Begin and backfill.
+message Resume {}
+
+message Rewind {
+  // Optional. Unsupported Rewind returns UNIMPLEMENTED without changing progress.
+  // Must identify the anchor or a fully validated block in this session's
+  // current active prefix. The block number and state root are already known.
+  bytes ancestor_hash = 1;
+}
+
+message Block {
+  // One block per frame. Baseline clients wait for each ACK. Clients that pipeline
+  // must drain responses while sending; servers may execute sequentially and
+  // apply backpressure/resource limits. The complete witness is required.
+  BlockWitness data = 1;
+}
+
+message Finalize {
+  // Baseline: the block immediately after the current session anchor (initially Begin).
+  // Starting later is optional subrange finalization; unsupported requests return
+  // UNIMPLEMENTED. Its predecessor must already be in the validated session prefix.
+  uint64 from_block = 1;
+  // Inclusive validated terminal; may precede the current tip.
+  uint64 to_block = 2;
+  bytes terminal_hash = 3;
+  // Required for every profile; absent input is INVALID_ARGUMENT.
+  SettlementInput settlement = 4;
+}
+
+// Common EEZ settlement input, independent of session recovery and prover backend.
+// Unsupported blobs or context cause UNIMPLEMENTED, never silent omission.
+message SettlementInput {
+  // Exact proofless EEZ.postAndVerifyBatch calldata for the configured ABI,
+  // including when the posting client submits it through a settlement wrapper.
+  bytes abi_calldata = 1;
+  // Complete physical EIP-4844 blobs in transaction order.
+  // The prover derives commitments/versioned hashes itself. RollupX and draft
+  // blob-based Rollup0 require all blobs, empty batch.callData and indices [0, 1, ...].
+  repeated bytes blobs = 2;
+  // Required only for actual-parent mode (batch.blockNumber == uint64.max).
+  // Historical mode requires absence; these fields never acquire new meanings.
+  // L1 witness headers establish internal consistency; the deployed manager
+  // authenticates the same parent/time when it recomputes the public input.
+  // Profile/deployment context is independently derived from local configuration.
+  L1PostingContext posting_context = 3;
+}
+
+// Same fields/tags as RollupX's L1PostingContext; not an inclusion/finality claim.
+message L1PostingContext {
+  uint64 chain_id = 1;
+  uint64 target_timestamp = 2;
+  uint64 parent_number = 3;
+  bytes parent_hash = 4; // nonzero 32-byte hash; checked against the L1 evidence endpoint.
+}
+
+// Optional; unsupported Cancel returns UNIMPLEMENTED. Ordinary gRPC cancellation
+// is enough for the baseline.
+message Cancel {}
+
+message ServerFrame {
+  // A successful Begin carries a new 32-byte ID. Authorized responses echo the
+  // binding; a rejection without an authorized binding carries an empty ID.
+  bytes session_id = 1;
+  // Echoes the request_id of the ClientFrame this response addresses.
+  uint64 request_id = 2;
+  // The authoritative fencing epoch for this operation. Ready returns a newly
+  // issued epoch after Begin, Resume, or Rewind; Cancelled echoes the epoch it
+  // retired. A response not referring to an authorized session carries zero.
+  uint64 epoch = 3;
+  oneof kind {
+    Ready ready = 4;
+    Validated validated = 5;
+    Proof proof = 6;
+    Cancelled cancelled = 7;
+    Rejected rejected = 8;
+  }
+}
+
+message Ready {
+  // This is the last FULLY VALIDATED block, not the last received message.
+  uint64 validated_through = 1;
+  bytes validated_hash = 2;
+}
+
+message Validated {
+  uint64 number = 1;
+  bytes hash = 2;
+  bytes post_state_root = 3;
+  // Diagnostic only. Caching/sharing is optional; always false is conformant.
+  // Clients must not change acceptance or recovery behavior based on this bit.
+  bool reused = 4;
+}
+
+message Proof {
+  // Only this response attests settlement; Ready and Validated are not proofs.
+  // Success closes the stream. Provers supporting Resume retain the selected range
+  // and predecessor anchor. It does not advance the L1 settlement cursor.
+  bytes public_inputs_hash = 1;
+  bytes proof = 2;
+}
+
+message Cancelled {}
+
+message Rejected {
+  // The numeric standard gRPC status code (not a language-specific enum).
+  // Rejection applies only to the named session/request; it must not terminate
+  // unrelated Composer sessions.
+  int32 code = 1;
+  string message = 2;
+  // Encoded ProveFailure when an actionable candidate is known.
+  bytes details = 3;
+  // Authoritative fully validated cursor when this is a session-bound
+  // rejection. Both fields are zero/empty when the response cannot refer to an
+  // authorized session.
+  uint64 validated_through = 4;
+  bytes validated_hash = 5;
 }

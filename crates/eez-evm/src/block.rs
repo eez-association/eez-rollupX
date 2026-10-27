@@ -19,7 +19,12 @@ use alloy_primitives::{Address, U256};
 use eez_primitives::{
     EEZL2_ADDRESS, EezTxEnvelope, EezTxType, Receipt, SYSTEM_ADDRESS, system_tx_gas_limit,
 };
-use revm::{Inspector, context::Block as _, primitives::hardfork::SpecId, state::Account};
+use revm::{
+    Inspector,
+    context::{Block as _, Transaction as _},
+    primitives::hardfork::SpecId,
+    state::Account,
+};
 use std::{
     ops::{Deref, DerefMut},
     sync::Arc,
@@ -38,14 +43,23 @@ pub struct EezBlockExecutorFactory<C> {
     spec: Arc<C>,
     layer: ExecutionLayer,
     evm: EezEvmFactory,
+    pub(crate) history: Option<crate::history::HistoryConfig>,
 }
 
-impl<C> EezBlockExecutorFactory<C> {
+impl<C: reth_chainspec::EthChainSpec<Header = alloy_consensus::Header>> EezBlockExecutorFactory<C> {
     pub fn new(spec: Arc<C>, layer: ExecutionLayer) -> Self {
+        let evm = match layer {
+            ExecutionLayer::Rollup => EezEvmFactory {
+                collector: crate::profile::schedule(spec.as_ref())
+                    .map(|schedule| Some(schedule.config().fee_collector)),
+            },
+            ExecutionLayer::L1Simulation => EezEvmFactory::for_l1_simulation(),
+        };
         Self {
             spec,
             layer,
-            evm: EezEvmFactory,
+            evm,
+            history: None,
         }
     }
 }
@@ -54,6 +68,8 @@ impl<C> EezBlockExecutorFactory<C> {
 pub struct EezBlockExecutor<'a, E, S> {
     inner: EthBlockExecutor<'a, E, S, EezReceiptBuilder>,
     layer: ExecutionLayer,
+    history: Option<crate::history::HistoryConfig>,
+    history_required: bool,
 }
 
 impl<'a, E, S> Deref for EezBlockExecutor<'a, E, S> {
@@ -153,16 +169,40 @@ where
         self.inner
             .system_caller
             .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)?;
-        burn_protocol_balances(self.inner.evm.db_mut())
+        burn_protocol_balances(self.inner.evm.db_mut())?;
+        let history = self.history.as_ref().ok_or_else(|| {
+            BlockExecutionError::msg("mandatory L1 history evidence source is not configured")
+        })?;
+        self.history_required = crate::history::begin(&mut self.inner.evm, history)?;
+        Ok(())
     }
 
     fn execute_transaction_without_commit(
         &mut self,
         tx: impl ExecutableTx<Self>,
     ) -> Result<Self::Result, BlockExecutionError> {
-        let (mut env, recovered) = tx.into_parts();
+        let (env, recovered) = tx.into_parts();
         if self.layer == ExecutionLayer::Rollup {
             ensure_supported_transaction(recovered.tx()).map_err(BlockExecutionError::other)?;
+            let first = self.inner.receipts.is_empty();
+            if recovered.tx().is_history() != (first && self.history_required) {
+                return Err(BlockExecutionError::msg(
+                    "missing, duplicate or misplaced history transaction",
+                ));
+            }
+            if recovered.tx().is_history() {
+                let history = self
+                    .history
+                    .as_ref()
+                    .ok_or_else(|| BlockExecutionError::msg("missing history configuration"))?;
+                crate::history::validate(
+                    &mut self.inner.evm,
+                    history,
+                    self.inner.ctx.parent_hash,
+                    recovered.tx(),
+                )?;
+            }
+
             if matches!(recovered.tx(), EezTxEnvelope::System(_)) {
                 // Ethereum's rule charges a transaction's declared limit against
                 // the block before execution. A native transaction instead runs
@@ -175,11 +215,18 @@ where
                 // A budget below the intrinsic cost is rejected by revm, which
                 // invalidates the block: execution never shortens the call data
                 // or skips the transaction.
-                let budget = system_tx_gas_limit(
+                let mut budget = system_tx_gas_limit(
                     self.inner.evm.block().gas_limit(),
                     self.inner.cumulative_tx_gas_used,
                 );
-                env.set_gas_limit(budget);
+                if recovered.tx().is_history() {
+                    budget = budget.min(eez_protocol::l1_history::IMPORT_GAS_LIMIT);
+                }
+                if recovered.tx().gas_limit() != budget || env.gas_limit() != budget {
+                    return Err(BlockExecutionError::msg(
+                        "native gas limit differs from its block position",
+                    ));
+                }
                 // The remainder mirrors the pinned inner executor after its
                 // declared-limit check.
                 let result = self
@@ -187,6 +234,16 @@ where
                     .evm
                     .transact(env)
                     .map_err(|err| BlockExecutionError::evm(err, recovered.tx().trie_hash()))?;
+                if recovered.tx().is_history()
+                    && (!result.result.is_success()
+                        || result
+                            .result
+                            .output()
+                            .is_none_or(|output| !output.is_empty())
+                        || !result.result.logs().is_empty())
+                {
+                    return Err(BlockExecutionError::msg("history transaction failed"));
+                }
                 return Ok(EthTxResult {
                     result,
                     blob_gas_used: recovered.tx().blob_gas_used().unwrap_or_default(),
@@ -210,6 +267,9 @@ where
         // beacon balance increments or DAO transition. EIP-2935 already ran.
         // A future execution fork must explicitly define its L2 lifecycle before
         // the Osaka allowlist above is extended.
+        if self.history_required && self.inner.receipts.is_empty() {
+            return Err(BlockExecutionError::msg("missing history transaction"));
+        }
         let inner = self.inner;
         Ok((
             inner.evm,
@@ -257,6 +317,8 @@ impl<C: EthExecutorSpec + 'static> BlockExecutorFactory for EezBlockExecutorFact
         EezBlockExecutor {
             inner: EthBlockExecutor::new(evm, ctx, &self.spec, EezReceiptBuilder),
             layer: self.layer,
+            history: self.history.clone(),
+            history_required: false,
         }
     }
 }

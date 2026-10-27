@@ -5,6 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 
 import {EEZL2} from "../src/L2/EEZL2.sol";
+import {L1BlockhashContract} from "../src/L2/L1BlockhashContract.sol";
+import {FeeVault} from "../src/L2/FeeVault.sol";
 
 /// @notice Prints the genesis accounts of an EEZL2 behind an `EEZProxy`, as the
 ///         protocol's `deployment/Deploy.s.sol:_deployL2` would leave them, but
@@ -25,12 +27,17 @@ contract GenerateEEZL2Genesis is Script {
         address recoveryAddress,
         address upgradeOwner,
         address proxy,
-        address implementation
+        address implementation,
+        address feeVault,
+        address treasuryOwner,
+        address treasuryRecipient
     )
         external
     {
         require(proxy.code.length == 0 && implementation.code.length == 0, "Target already has code");
         require(upgradeOwner != address(0), "Zero upgrade owner");
+
+        console.log("L1_HISTORY_RUNTIME", vm.toString(type(L1BlockhashContract).runtimeCode));
 
         EEZL2 template = new EEZL2(rollupId, systemAddress, useGasLeft, recoveryAddress);
         vm.etch(implementation, address(template).code);
@@ -56,6 +63,24 @@ contract GenerateEEZL2Genesis is Script {
         _account(implementation);
         _account(proxy);
         _account(proxyAdmin);
+        _storage(accesses);
+
+        require(feeVault.code.length == 0, "Fee vault target already has code");
+        vm.etch(feeVault, abi.encodePacked(type(FeeVault).creationCode, abi.encode(treasuryOwner, treasuryRecipient)));
+        vm.setNonce(feeVault, 1);
+        vm.startStateDiffRecording();
+        (bool vaultOk, bytes memory vaultRuntime) = feeVault.call("");
+        Vm.AccountAccess[] memory vaultAccesses = vm.stopAndReturnStateDiff();
+        require(vaultOk, "FeeVault constructor failed");
+        vm.etch(feeVault, vaultRuntime);
+        require(FeeVault(payable(feeVault)).owner() == treasuryOwner, "FeeVault owner mismatch");
+        require(FeeVault(payable(feeVault)).recipient() == treasuryRecipient, "FeeVault recipient mismatch");
+        require(FeeVault(payable(feeVault)).pendingOwner() == address(0), "FeeVault pending owner mismatch");
+        _account(feeVault);
+        _storage(vaultAccesses);
+    }
+
+    function _storage(Vm.AccountAccess[] memory accesses) private view {
         for (uint256 i; i < accesses.length; ++i) {
             Vm.StorageAccess[] memory slots = accesses[i].storageAccesses;
             for (uint256 j; j < slots.length; ++j) {

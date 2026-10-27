@@ -185,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn attester_does_not_confuse_a_legacy_key_with_native_authority() {
+    fn attester_identity_is_the_signing_key_address() {
         let attester = Attester::new(
             LEGACY_USER_PRIVATE_KEY,
             test_proof_system_vkey(),

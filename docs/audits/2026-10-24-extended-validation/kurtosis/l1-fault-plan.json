@@ -1,0 +1,128 @@
+{
+  "status": "Executed on final runtime; both L1 controls passed and recovered canonically; see candidate-faults.json.",
+  "runtime_source": "28049ff734ab931cbde01246c5d238cce6ef65bf",
+  "runtime_producer": 40123208325,
+  "protocol": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
+  "enclave": "eez-final-ab-20261024",
+  "enclave_uuid": "ca2e0c2232ce4c17a42704d8002f92bb",
+  "authorization": "Root released operating window19:54:53 UTC; final controls run after comparable load and signer recovery in this fresh isolated enclave.",
+  "reference_sources": [
+    {
+      "path": "artifacts/pr-readiness/kurtosis/check-production-fault.py",
+      "sha256": "945836f00b77d32cfbc7ceeb5e12de44f568a234c0557ac8d3ab93485a506651",
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "artifacts/extended-validation/tools/run-recovery.py",
+      "sha256": "1a5205cbb27797337867902e818f93670d71913b54739274b5c6a763cf7a677a",
+      "availability": "local-only retained artifact"
+    },
+    {
+      "path": "docs/audits/2026-10-24-extended-validation/kurtosis/workloads/ordinary-recovery.mjs",
+      "sha256": "6528e4ed7ffa0775ef21919912f54bf1dc0375bff08f8af8506e2c2cdb83074c",
+      "availability": "Git"
+    },
+    {
+      "path": "artifacts/extended-validation/tools/collect-mixed.py",
+      "sha256": "1664637ba6a8cb097db77fe02a7303fffce4c2802846020a955301339f9bae13",
+      "availability": "local-only retained artifact"
+    }
+  ],
+  "cases": [
+    {
+      "name": "delayed_l1_observation",
+      "service": "eez-follower",
+      "container_id": "362376e6ef0de6eee3c139972c97277159c2120ab06023336c9fd505363ac424",
+      "role": "Lighthouse Beacon observer driving the node embedded L1 Engine API, not the independent L2 replay follower.",
+      "settling_seconds": 6,
+      "measurement_seconds": 72,
+      "ordinary_transfers": 24,
+      "injection_checks": [
+        "Canonical external L1 advances during the pause.",
+        "Embedded L1 number and hash stay fixed during the measured interval.",
+        "The selected L1 origin settles to the available endpoint and repeats; PREVRANDAO agrees with that selected origin."
+      ]
+    },
+    {
+      "name": "missed_l1_slots",
+      "service": "vc-1-reth-lighthouse",
+      "container_id": "9ae5c97ed096a4bb3eb033d5a71038a9ffb51246a6289e2902d51aa6cc894bc8",
+      "role": "The validator client of this enclave only; other enclaves and the canonical execution client are untouched.",
+      "settling_seconds": 24,
+      "measurement_seconds": 72,
+      "ordinary_transfers": 24,
+      "injection_checks": [
+        "Canonical L1 number and hash stay fixed after the settling interval while at least six configured 12-second slots elapse.",
+        "Embedded L1 is fixed in the same measured interval.",
+        "Selected origin and PREVRANDAO repeat without inventing blocks for missing slots."
+      ]
+    }
+  ],
+  "preconditions": [
+    "Final runtime and test artifacts verified against the exact producer; all deployed role copies compared by SHA256.",
+    "Explicit enclave environment, chain IDs, both genesis hashes and full Docker enclave/service labels rechecked before lifecycle operations.",
+    "Only the named target service may be paused; it must be running and initially unpaused. Keep its container, PID, start time and image identity.",
+    "Comparable load, pipeline and signer control have drained canonically; ordinary pending nonce equals safe nonce and cross-chain queue is empty.",
+    "No heavy build or competing task-owned measured workload; available host memory at least 12 GiB. Abort this control and restore its service below 5 GiB.",
+    "Reuse the same funded ordinary actor serially, after its prior receipts settle. No competing use of its key or nonce domain."
+  ],
+  "traffic": {
+    "generator": "workloads/ordinary-recovery.mjs",
+    "period_seconds": 3,
+    "transfers_per_case": 24,
+    "gas_limit": 21000,
+    "max_fee_per_gas_wei": "100000000",
+    "priority_fee_per_gas_wei": "10000000",
+    "value_wei": "1",
+    "maximum_gas_reserve_per_case_wei": "50400000000000",
+    "maximum_total_gas_reserve_all_campaigns_wei": "42995400000000000",
+    "maximum_total_value_all_campaigns_wei": "20474",
+    "initial_actor_funding_wei": "50000000000000000",
+    "broadcast_retries": 0,
+    "on_rejection_or_ambiguity": "Stop the producer, preserve the signed intent and failure, restore the service; never silently resubmit.",
+    "maximum_ordinary_intentions_all_campaigns": 20474,
+    "additional_preparatory_transfers": 2,
+    "budget_scope": "15000 mixed + 5400 pipeline + 3 controls of24 + 2 accepted preparatory transfers; preparation is excluded from measured statistics."
+  },
+  "observations": [
+    "Sample wall time, L1 head, latest/safe L2 hash and timestamp, sender nonce and selected history origin every second; retain hash rechecks for multi-RPC observations.",
+    "Retain head age, sample gaps and commit gaps as measurements. No 2-second or 4-second wall-clock acceptance SLA.",
+    "Require L2 block advancement and ordinary nonce advancement while the target remains paused. Diagnose any production gap against the captured node logs and future prepared header timestamps.",
+    "Capture the actual unsafe branch before restoration. Check parent links, configured two-second protocol timestamps and explicit repeated native history imports.",
+    "Record all unsafe replacements during recovery instead of assuming height equality proves preservation."
+  ],
+  "restoration_and_recovery": [
+    "Record operation intent before Docker pause. Always unpause the exact owned service in finally, including signal/error paths; verify running/unpaused and preserved process identity afterwards.",
+    "Restore after the settling plus 72-second measurement and the bounded unsafe-branch capture. Keep recovery waits outside the paused interval.",
+    "Require every accepted transfer to have a successful canonical receipt covered by safe; verify exact sender/recipient nonce and balance changes from those receipt gas costs.",
+    "Require safe to cover the end of the observed production and selected origin to advance beyond the paused origin after fresh L1 arrives.",
+    "Compare recovered selected hash and PREVRANDAO with canonical L1; check every stored hash across the retained-to-recovered origin range and parent links.",
+    "Keep the existing 24-block proof quota. Authenticate each relevant full settlement claim and its canonical pre/post hash and state-root continuity; preserve excluded partial claims separately."
+  ],
+  "final_accounting_and_replay": [
+    "The read-only collector now accepts EEZ_DELAYED_L1_OUTPUT and EEZ_MISSED_L1_OUTPUT alongside the existing signer-recovery input. Each requires all 24 receipts and a successful same-runtime summary; duplicate hashes are rejected. Local input-only checks passed; final live collection remains pending.",
+    "Check all non-native base fees credited to FeeVault and beneficiary tips over the full measured/control range, including any other ordinary receipt in that range.",
+    "One fresh follower may replay from genesis to a complete canonical endpoint after all controls. Preserve every original settlement claim and each selected receipt; do not rewrite partial endpoints.",
+    "The archived replay checks receipt status and canonical block inclusion, not all logs, gas or contract state. Separate traffic, fee, history and fault oracles retain those assertions."
+  ],
+  "changes_from_original_fault_harness": [
+    "The lifecycle targets and settling/measurement durations are retained.",
+    "The original arbitrary four-second lag assertion is not carried forward; actual timing and execution progress are retained.",
+    "Use the already-executed 24-transfer recovery sender and exact accounting instead of three cast sends.",
+    "Use current verified helper/runtime bytes, full ownership labels and fresh canonical baseline rather than stale endpoints or image tags."
+  ],
+  "not_executed": [],
+  "prepared_collector": {
+    "path": "workloads/collect-mixed.py",
+    "sha256": "8df68a8329d2f530176754f11724d3010ec7487425f874dcce7e788d64a47461",
+    "input_selection_evidence": "collector-preparation.json",
+    "live_executed": true,
+    "native_selection_evidence": "native-replay-selection.json"
+  },
+  "previous_plan_sha256": "627751893950ac8ca722880c25a21b67a4e8a43473f639dc11c3a88310c1c136",
+  "supervisor": {
+    "path": "workloads/run-l1-fault.py",
+    "sha256": "572b45f7ecf4695dba1a15aa598a38c59b0ff38301868a6256ff3fb2c9492be1",
+    "status": "Both live cases passed with exact restored process identity; no captured unsafe replacements."
+  }
+}

@@ -226,7 +226,7 @@ impl LocalExecutionSession {
             );
             // Ordinary execution previously bypassed the inspection handler.
             evm.set_inspector_enabled(tracing);
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             (
                 result.result.output().cloned().unwrap_or_default(),
                 result.result.tx_gas_used(),
@@ -268,7 +268,7 @@ impl LocalExecutionSession {
                 self.evm_env.clone(),
                 traced,
             );
-            let result = evm.transact(tx_env).map_err(evm_err)?;
+            let result = evm.transact_funded_call(tx_env).map_err(evm_err)?;
             let output = result.result.output().cloned().unwrap_or_default();
             let gas_used = result.result.tx_gas_used();
             let success = result.result.is_success();
@@ -520,6 +520,9 @@ impl TargetExecutionSession for LocalExecutionSession {
 }
 
 pub(super) fn disable_checks(env: &mut reth_evm::EvmEnvFor<EezEvmConfig>) {
+    // Intercepted composition frames are calls, not charged L2 transactions.
+    // Only the separately executed native/user body distributes actual fees.
+    env.cfg_env.disable_fee_charge = true;
     env.cfg_env.disable_base_fee = true;
     env.cfg_env.disable_balance_check = true;
     env.cfg_env.disable_nonce_check = true;

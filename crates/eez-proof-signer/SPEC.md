@@ -6,14 +6,15 @@ This document specifies the behavior of `eez-proof-signer` for the currently
 supported single-rollup profile. It is intentionally narrower than the complete
 EEZ protocol.
 
-The protocol source used by this profile is the `eez-core-protocol`
-submodule at commit
-`9a1f815336c20d28e5ec5cecbf195c41fbd5ab0f` (`v0.1.0-rc.2`). Stateless execution uses the
+The protocol sources are this checkout's `eez-core-protocol` gitlink and the fork's
+[`OfflineRollup`](../../contracts/src/OfflineRollup.sol). Source revisions and current
+validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
+This profile is for fresh networks, active from genesis. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
 pinned to commit `0bda6b200c1eb4689c147c080c3c248b50be2ea8`. Its
 [recovered-block and checkpoint APIs](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8#eez-reth-compatibility-branch) preserve the transaction
 checkpoints required by this profile; the root lockfile selects the runtime
-dependency graph. This dependency port does not extend the admitted proof profile.
+dependency graph.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. Solidity
 defines on-chain behavior. This document defines the additional conditions the
@@ -23,6 +24,15 @@ document MUST be updated atomically.
 
 For Composer request construction, response validation, and recovery, see the
 [Composer-to-prover RPC specification](../eez-control-rpc/SPEC.md).
+
+External v2 provers MUST enforce the same execution, encoding, evidence,
+settlement, public-input and signature validation requirements. References to
+Stateless/Reth APIs, Rust types, daemon configuration and worker implementation
+describe this Rust signer. Another engine may implement the same validation
+contract with the resource/session policies permitted by the
+[streaming baseline](../eez-control-rpc/STREAMING_SPEC.md#1-required-interface);
+matching an identity never substitutes for validation. See the
+[external integration guide](../eez-control-rpc/conformance/IMPLEMENTING.md).
 
 Partial L1 consumption does not relax this proof profile. The signer validates
 the full proposal and the original native-blob commitments. Canonical prefix
@@ -46,11 +56,10 @@ where:
 
 - the anchor commits the validated L2 state transition before settlement
   effects;
-- each outbound effect represents one mutable L2-origin settlement host; flat
-  sibling roots may share a host, callback-bearing roots use separate hosts,
-  and calls rolled back by a source frame plus a subsequent retry reuse their
-  original host;
-  and
+- each outbound effect represents the single L1 settlement host for one
+  L2-origin user transaction. Its roots share that host, including roots with
+  supported nested callbacks. Callbacks execute within the original frame;
+  a source-frame rollback and subsequent retry reuse the source-table cursor;
 - each inbound effect represents one successful, source-committed mutable
   L1-origin call tree; and
 - each inbound lookup represents a failed destination call or a call whose L1
@@ -62,7 +71,7 @@ are pinned at their exact FIFO positions relative to mutable entries.
 
 The profile supports exactly one nonzero rollup ID, one nonzero proof-system
 address, and one nonzero proof-system verification key. It supports nested and
-reentrant calls alternating between L1 and that L2, flat multi-root outbound
+reentrant calls alternating between L1 and that L2, multi-root outbound
 transactions, terminal failed top-level calls, terminal static calls,
 successful top-level static reads whose only descendants are terminal,
 successful static callbacks to the reading chain, and terminal failed nested
@@ -70,19 +79,22 @@ rows with no descendants. Calls rolled back inside a recovered source-chain
 frame are represented by canonical, non-overlapping `revertNextNCalls` windows.
 It does not support failed calls with descendants, any other static call with
 descendants, explicit call gas, overlapping or out-of-bounds rollback windows,
-L1 block binding, sender binding, other L2 targets, or multiple proof systems.
+sender binding, other L2 targets, or multiple proof systems. Both actual-parent
+and historical L1 anchor modes are supported under the distinct rules below.
 
 No failed stage may produce a signature. A successful signature authorizes the
 locally recomputed public-input hash only under all rules in this document.
 
 ### 1.1 What the signature does not establish
 
-The signer independently authenticates the accepted parent, live-anchor seed,
-registry root and target L1 context through its configured canonical source.
-The reads are checked against the named canonical L1 block before replay.
-Signing does not query L1 again or require that block to remain the tip. The
-on-chain latest-context binding enforces the exact parent hash and inclusion
-timestamp. Authentication is not a finality or future-inclusion guarantee.
+The signer has no chain provider. It validates a complete witness-backed
+execution and L1 header chain against a fixed local deployment profile. Its
+signature is conditional on the exact anchor, current accepted L2 commitment
+and active L1 rule period in the recomputed public input. At inclusion,
+`OfflineRollup.getCustomData()` supplies those actual on-chain facts. A fabricated
+branch or root cannot settle because its context differs. This is still an
+ECDSA attestation: the configured attester is trusted to execute these checks;
+there is no ZK verification of the execution trace.
 
 The signature does **not** establish:
 
@@ -103,8 +115,9 @@ The signature does **not** establish:
   block RLP, witnesses, or transaction checkpoints; or
 - caller authentication or transport confidentiality.
 
-Latest-context binding prevents reusing the signature under a different L1
-parent/timestamp. It does not add transaction-scoped wrapper authorization or
+Actual-parent binding prevents reuse under another inclusion parent/time.
+Historical binding permits later inclusion only while B is available and the
+accepted root, fixed profile, rule period and complete settlement still match. It does not add transaction-scoped wrapper authorization or
 replace the pinned registry's consumption rules.
 
 Operators MUST supply those guarantees separately where required.
@@ -147,11 +160,12 @@ Values are classified as follows:
 | Source | Authority and required treatment |
 | --- | --- |
 | Operator configuration | Authoritative for execution-chain rules, expected rollup ID, proof-system address and vkey, attester identity and resource limits. The deployment MUST use the fixed EEZL2 and native system addresses. System reconstruction has no private-key input. |
-| Composer stream | Untrusted, including range, hashes, RLP, witness, settlement calldata, and claimed public-input hash. |
+| Composer stream | Untrusted, including range, hashes, RLP, L1/L2 witnesses and settlement calldata. There is no authoritative claimed public-input hash. |
 | Stateless/Reth output | Security-critical derived evidence. It MUST be consumed and checked against the corresponding admitted blocks before settlement uses it. |
 | Pinned EEZ contracts | Authoritative for on-chain ABI layouts, selectors, hashes, and execution behavior. |
 | `eez-protocol` mirrors | Shared local implementations used by the signer; they MUST match the pinned contracts and independent vectors. |
-| Configured L1 source | Supplies canonical headers, accepted settlement occurrences and registry state at the named L1 parent. It is operator-trusted, never selected by Composer. |
+| L1 witness chain | Untrusted raw headers; exact decoding, linkage, fork layout, selection and termination are checked locally. The manager binds the endpoint to actual L1 at inclusion. |
+| Deployed offline manager | Supplies actual anchor, accepted L2 block hash and active L1 rule period in the verification context before registry queue mutations. |
 | L2 execution state | Supplied as witnesses and independently replayed; no live L2 RPC or full L2 database is required. |
 
 Names in code and diagnostics SHOULD preserve this distinction. Composer values
@@ -168,20 +182,23 @@ The CLI value takes precedence.
 | --- | --- | --- | --- |
 | `--listen-addr` | `EEZ_PROOF_SIGNER_ADDR` | `127.0.0.1:50061` | Valid socket address. |
 | `--chain-config` | `EEZ_CHAIN_CONFIG` | none | Path to the complete, strict L2 `Genesis` document. |
-| `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required trusted L1 profile: `mainnet`, `hoodi`, `sepolia`, `chiado`, or a Genesis/ChainConfig path. |
-| `--l1-rpc-url` | `EEZ_L1_RPC_URL` | none | Required operator-trusted HTTP(S) canonical L1 source; credentials are redacted. |
+| `--l1-chain-config` | `EEZ_L1_CHAIN_CONFIG` | none | Required local L1 profile: supported named preset or complete Genesis path, binding the actual L1 genesis and effective fork/blob rules. |
 | `--registry-address` | `EEZ_REGISTRY_ADDRESS` | none | Required nonzero deployed EEZ registry. |
+| `--manager-address` | `EEZ_ROLLUP_MANAGER_ADDRESS` | none | Required nonzero offline manager for that registry/rollup. |
 | `--rollup-id` | `EEZ_ROLLUP_ID` | none | Nonzero L1 registry rollup ID. This is not the L2 EIP-155 chain ID. |
 | `--vkey` | `EEZ_VKEY` | none | Nonzero 32-byte proof-system vkey. |
 | `--signer-key` | `EEZ_PROOF_SIGNER_KEY` | none | Valid secp256k1 attestation private key. |
 | `--attester-address` | `EEZ_ATTESTER_ADDRESS` | none | MUST equal the address derived from `--signer-key`. |
-| `--l2-system-address` | `EEZ_L2_SYSTEM_ADDRESS` | `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076` | MUST equal the fixed native system address embedded in EEZL2. |
+| `--l2-system-address` | `EEZ_L2_SYSTEM_ADDRESS` | `0xfffffffffffffffffffffffffffffffffffffffe` | MUST equal the fixed native system address embedded in EEZL2. |
 | `--proof-system` | `EEZ_PROOF_SYSTEM` | none | Nonzero expected proof-system contract address. |
 | `--max-request-blocks` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BLOCKS` | `65536` | Nonzero; lower explicit limits remain effective. |
 | `--max-request-bytes` | `EEZ_PROOF_SIGNER_MAX_REQUEST_BYTES` | `536870912` | Nonzero. |
 | `--max-request-witness-items` | `EEZ_PROOF_SIGNER_MAX_REQUEST_WITNESS_ITEMS` | `1000000` | Nonzero. |
 | `--stream-idle-timeout-secs` | `EEZ_PROOF_SIGNER_STREAM_IDLE_TIMEOUT_SECS` | `120` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
 | `--request-timeout-secs` | `EEZ_PROOF_SIGNER_REQUEST_TIMEOUT_SECS` | `600` | Nonzero; representable as an `Instant` deadline and u64 milliseconds. |
+
+Startup, Block, Finalize and restart use local configuration plus complete
+request evidence. The signer has no chain-provider settings or RPC fallback.
 
 Private-key syntax errors MUST be reported without echoing the supplied secret.
 Debug formatting MUST NOT reveal private keys.
@@ -194,7 +211,9 @@ The chain document MUST contain an explicit `chainId`. Unknown supported-level
 and extension fields MUST be rejected rather than silently ignored. A complete
 Genesis document is required for L2; a bare `ChainConfig` is rejected. The
 L2 loader checks the fixed Osaka-from-genesis profile, 30,000,000 gas limit,
-1 gwei initial base fee, and canonical EIP-2935 history predeploy. It applies
+1 gwei initial base fee, canonical EIP-2935 history predeploy and exact permanent
+L1 history runtime/bootstrap storage. Schedule parameters include the fixed
+update offset; invalid or incomplete old genesis files reject. It applies
 RollupX's fixed EIP-1559 elasticity 2 and denominator 50 to that same document.
 These rules do not change the separately configured L1 profile. Duplicate keys, including
 escaped aliases and nested objects, MUST be rejected before deserialization.
@@ -206,8 +225,9 @@ same read. The digest precedes spelling normalization/defaults; see the
 The active deployment bindings are:
 
 ```text
-SYSTEM_ADDRESS = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+SYSTEM_ADDRESS = 0xfffffffffffffffffffffffffffffffffffffffe
 EEZL2_ADDRESS  = 0x4B2760F84B83d6b3829E30A7573B0172B6d6402C
+L1_HISTORY    = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077
 ```
 
 The signer rejects a noncanonical `EEZ_L2_SYSTEM_ADDRESS`. Matching EEZL2's
@@ -226,26 +246,41 @@ manager's behaviour. An implementation that changes the ABI, events or table
 semantics this profile assumes requires a coordinated Composer/signer release
 before the upgrade transaction is sequenced.
 
-Native transactions are `0x76 || rlp([chainId, nonce, to, value, input])` with
-the fixed sender, EEZL2 destination and zero gas price. Their metered gas budget
-is position-dependent: `min(16,777,216, block gas limit - cumulative gas used by
-the preceding transactions)`, where the cap is Osaka's EIP-7825 per-transaction
-limit. The budget is not reserved against the block; only metered use counts. A
-budget below the transaction's intrinsic gas (including EIP-7623's floor) makes
-the block invalid. Replay derives the budget from block contents alone, so the
-signer's stateless execution and the Composer agree without any carried field.
-The nonce and chain ID MUST match execution state/rules. Encoding contains no
-signature or configurable gas fields. Ordinary Ethereum transactions retain
-normal fees. Receipts retain type `0x76`. Public RPC/txpool admission MUST reject
-native transactions; only independently authorized reconstruction can supply
-them for settlement.
+Native transactions are `0x45 || rlp([version, chainId, sourceHash, gasLimit,
+to, value, input])`, with version 1, the fixed implicit sender and zero fees.
+The [native contract](../../docs/proposals/native-system-transactions.md) defines
+canonical RLP, occurrence domains, RPC placeholders and exact gas/value rules.
+The signer independently recomputes each sourceHash from authenticated context
+and original semantic positions. Decoding a native transaction does not authorize
+its execution or minting. EEZL2 actions target EEZL2; scheduled history imports
+target the history predeploy with zero value.
 
-A native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
+The encoded gas limit MUST equal `min(16_777_216, remaining block gas)` for
+cross-chain actions, or `min(2_000_000, remaining block gas)` for history. Prior
+cumulative gas comes from replayed receipts. Reject a mismatched encoded limit;
+never clamp or normalize received bytes. A budget below intrinsic gas, including
+the active EIP-7623 floor, invalidates the block. Only actual charged gas counts
+toward block usage. Native execution never checks or increments the SYSTEM
+account nonce, even temporarily. Receipts have type `0x45`. Public RPC/txpool
+admission rejects native transactions.
+
+Ordinary Ethereum transactions retain normal nonce checks and fee deductions.
+Their final charged base-fee portion is credited after each transaction to the
+required genesis `config.rollupX.feeCollector`, including revert and halt; tips
+retain the active Ethereum beneficiary rules. Every prefix commitment includes
+the credit. Profile authenticates the collector, with no runtime override.
+The genesis renderer selects the fixed FeeVault predeploy. Its owner-controlled
+recipient and permissionless withdrawals are ordinary witnessed L2 execution;
+neither changes the network profile nor requires a chain RPC in the signer.
+Collector deletion, aliases, overflow and synthetic execution follow the
+[native fee contract](../../docs/proposals/native-system-transactions.md#fee-collector-configuration-and-execution).
+
+An EEZL2 native transaction's `value` is minted to `SYSTEM_ADDRESS` immediately before
 execution and removed again if the call reverts or halts. As a pre-execution
 change of every L2 block, after the EIP-2935 history write, execution sets the
 balances of `EEZL2_ADDRESS` and `SYSTEM_ADDRESS` to zero; an absent or
 zero-balance account is left untouched. `SYSTEM_ADDRESS` receives EEZL2's
-outbound value but can spend only freshly minted value, and an EEZL2 table is
+outbound value and retains pooled inventory within the block, and an EEZL2 table is
 consumable only in the block that loaded it, so both balances are dead at the
 next block start. Proxy recovery sweeps go to EEZL2's separate
 `RECOVERY_ADDRESS` genesis immutable (the deployment's L1 poster by default)
@@ -264,232 +299,159 @@ root shape and call identity. Flat rolling hashes are checked at conversion;
 nested/reverted tables additionally require complementary settlement
 verification. A checked shape alone never authorizes signing or value minting.
 
-This native format and its genesis are a fresh-network compatibility boundary.
-Old signed-system captures do not establish native authorization, mixed-version
-nodes are unsupported, and no in-place database migration is provided. See the
-[operator compatibility contract](../../docs/runbooks/chiado-deployment.md#recovery-and-upgrades).
+Deploy the native-v1 contracts, genesis and matching execution/proving binaries
+on a fresh network. This profile has no migration or activation switch.
 
 ## 4. Service and RPC behavior
 
-The service exposes capability discovery, preparation/retention control, and
-the final proving stream:
+The daemon serves `prove.v2.Prover.ProveStream` and the shared Capabilities query.
+`ProveStream` is the only proving method. The
+[v2 runtime contract](../eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile)
+is normative for attachment epochs, queues, byte accounting, duplicates,
+Resume/Rewind/Cancel and subrange finalization.
 
-```protobuf
-rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
-rpc PrepareOrdinary(stream PrepareChunk) returns (PrepareResponse);
-rpc RetainOrdinaryRanges(RetainOrdinaryRangesRequest)
-    returns (RetainOrdinaryRangesResponse);
-rpc Prove(stream ProveChunk) returns (ProveResponse);
-```
+Capabilities reports operations tag 0, offline profile 2, validation identity
+and effective limits without acquiring an expensive worker or signing.
+Every stream requires matching `eez-validation-identity-bin` metadata before
+admission. Identity binds loaded chain/deployment/profile and proof rules, not
+request truth. Missing or mismatching identities never reach execution.
 
-One final stream contains exactly one header followed by full block/witness
-chunks and/or cached ordinary ranges covering every declared position. Cached
-ranges cannot cover the terminal. Its `expected_validation_identity` MUST be exactly 32 bytes and
-match the local configured namespace before witness ingestion. A width error is
-`INVALID_ARGUMENT`; an identity mismatch is `FAILED_PRECONDITION` with metadata
-`eez-capabilities-changed: 1`, no actionable details, and no signing call.
-
-`Capabilities` reports immutable local validation identity and effective limits
-without acquiring the active proof slot. It never constructs an attestable digest
-or calls the signer. Preparation reports a 64-block ceiling and releases the
-shared validation worker after each block so a final proof can proceed at a block
-boundary. It cannot reach settlement or the attester. Fully validated facts are
-held in a volatile cache bounded to 131,072 entries and 512 MiB of accounted
-block/evidence data. Final proving rechecks continuity, state-root telescoping,
-recipe/DA equality and the intermediate gate, and always validates a fresh
-terminal witness. Preparation creates/extends an opaque reservation and final
-proof replaces it with the exact ordinary range. At most eight leases are active,
-so rapid crash/restart sequences remain live while abandoned reservations expire;
-overlap is refcounted, expiry only makes facts evictable, and cloned final facts
-outlive lease expiry. The client reduces each preparation group below 64 when
-the negotiated aggregate-byte, per-message, or witness-item quota requires it;
-one individually oversized block fails explicitly. An expired or restart-lost
-lease renewal/release clears only client resource hints and triggers durable
-reconstruction. The producer renews the exact retained ranges every 30 seconds;
-final proving and renewal serialize with preparation state changes.
-The producer now feeds a bounded 128-identity queue from
-the durable witness store and retains only an exact latest catch-up watermark on
-overflow; once overflow exists, every newer endpoint replaces that watermark
-until consumed. Startup submits the persisted canonical head through capture so
-an existing backlog prewarms without waiting for another block. Full lifecycle/native
-recovery evidence remains open.
+Ordinary and empty blocks need no transaction checkpoints: their validated full
+hash is the ordinary-prefix commitment. Native-effect blocks derive all required
+prefix hashes, including the post-system-call B[0] state. Retained terminal
+witnesses remain available for independent static/lookup replay at Finalize.
 
 ### 4.1 Single-flight execution
 
-The daemon initializes the codec's default KZG settings before opening its RPC
-listener. This process-wide initialization runs in one awaited blocking worker;
-failure prevents readiness. It creates no request, validation result, or
-attestation, and changes neither the trusted setup nor any per-request check.
-Initialization time belongs to startup, outside Composer's per-window timing
-samples. No calibration postBatch is required. This startup behavior is wire
-compatible with older Composers; rollback moves the cost back to the first
-request without changing historical decoding or follower replay.
-
-Exactly one `Prove` request may be admitted at a time. A second request MUST be
-rejected immediately with `Unavailable`; it MUST NOT wait while holding an
-open stream.
-
-The active-request slot remains held through validation, settlement, signing,
-and response construction. If a blocking worker outlives its RPC future, the
-slot remains held until that worker exits. Graceful shutdown stops accepting
-new connections and waits for the slot to become idle.
+KZG settings initialize in one awaited blocking worker before listening. Failure
+prevents readiness; no startup request or signature is produced. The listener
+admits bounded sessions, while expensive validation shares one worker. Finalize
+also owns its request permit through settlement/signing. A detached or expired
+blocking job retains its permits until actual exit. Graceful shutdown waits for
+owned work; RPC timeout does not stop a running EVM job.
 
 ### 4.2 Message and request limits
 
-The maximum decoded request-message size is:
+The message decode ceiling is `min(max_request_bytes, 256 MiB)`. Session defaults
+are 65,536 blocks, 512 MiB and 1,000,000 witness items. Known-field encoded lengths
+include Begin and full accepted Block frames; Finalize must fit with retained
+bytes. L1 headers count toward item/byte limits alongside state/code/key/L2-header
+witness elements. Integer overflow rejects. Per-message limits bound decode
+allocation; aggregate accounting does not undo allocation already performed.
 
-```text
-min(max_request_bytes, 256 MiB)
-```
-
-The maximum response-message size is 1024 bytes.
-
-The aggregate byte quota is the sum of `prost::Message::encoded_len()` for
-decoded known fields of every header and block chunk, including fields later
-discarded. Integer overflow MUST reject the request. This quota does not undo
-allocations made while decoding the current message; the per-message limit
-bounds that stage.
-
-The witness-item quota counts all `state`, `codes`, `keys`, and `headers`
-elements across the request. The block quota covers the inclusive declared
-range.
+Queues and session/stream counts have the finite bounds in the streaming
+specification. An ACKed duplicate does not charge a second retained copy, but
+changed witness data is not an exact duplicate. Rewind restores evidence quotas
+and the exact L1 chain checkpoint as well as the L2 prefix.
 
 ### 4.3 Deadlines and cancellation
 
-The stream idle timeout applies independently to every wait for a message or
-EOF. The request timeout is one absolute deadline covering ingestion,
-validation, settlement, signing, and response construction.
+Idle timeout bounds input silence and response backpressure. Each ordered Block
+or Finalize has an absolute deadline including worker admission and processing.
+Progress does not extend that operation deadline. Composer additionally bounds
+the whole settlement attempt, including reconnect/backfill, under its original
+exclusive submission cutoff.
 
-CPU-bound validation and settlement run in one blocking worker. A worker that
-has not started MAY be aborted. Running EVM execution is non-interruptible; a
-running worker observes cooperative cancellation before block executions and
-at selected settlement phase boundaries. A timed-out or disconnected request
-MUST NOT release the active slot while its worker is still running.
-
-If the absolute deadline expires during signing, the signature MUST NOT be
-returned even if local signing completed.
-
-`PrepareOrdinary` uses the same absolute request bound from its first header
-through response construction, including every chunk/EOF read, shared-worker
-wait, validation, and cache publication. Progress MUST NOT reset that deadline;
-the per-message idle timeout remains independent. An ingestion timeout releases
-the preparation slot without executing, publishing, or signing. A running
-validation worker retains its shared-worker permit until it exits.
-
-Cache publication runs off the async executor and retains the preparation slot
-until its worker exits. After acquiring the cache lock, it MUST reject an expired
-or cancelled request before starting the atomic update. An update already admitted
-under that lock may finish atomically after cancellation/deadline expiry; the RPC
-MUST NOT return a successful response after its deadline. An unacknowledged lease
-remains bounded by the normal cache capacity and lease expiry rules.
-
-Enforcing these existing time bounds changes no wire fields, validation identity,
-genesis, or database format. Existing clients remain compatible; a signer upgrade
-needs no coordinated node upgrade or migration. Rollback restores the old timeout
-behavior without changing historical decoding or follower replay.
+CPU-heavy parsing/execution/witness work runs off async threads. Queued work may
+be aborted; running jobs observe cooperative cancellation between phases. An
+expired or fenced job cannot publish an ACK or usable Proof, even if signing
+completed locally. Successful Finalize returns exactly one Proof followed by EOF.
+Half-close drains accepted work; EOF without Proof is never success. Sessions
+are volatile and restart requires complete witness backfill.
 
 ## 5. Stream admission
 
-Admission proves stream shape and quota compliance only. It does not prove
-block, witness, or settlement correctness.
+Admission establishes framing and quotas only. It does not authorize signing.
 
-### 5.1 Header
+### 5.1 Begin and Finalize
 
-The first chunk MUST be a `ProveHeader`. It MUST contain `post_batch` and
-`post_batch.posting_context` and `parent_provenance`. Missing context is rejected before reading blocks.
-Before execution, its chain ID MUST match the trusted L1 profile, and its target
-timestamp MUST select active blob rules. There is no legacy blob-limit fallback.
+Begin requires the configured nonzero rollup ID, representable predecessor
+number and exact 32-byte predecessor hash/state root. These are untrusted claims.
+The first replayed block supplies its exact parent header; its coordinates and
+hash/root must match Begin. A subrange uses its retained, fully replayed parent.
 
-The header is admitted only if:
+Finalize selects a nonempty retained range and exact terminal hash, with present
+settlement calldata and blobs. Candidate ranges cover whole Sync-to-Sync
+intervals. The batch contains exactly one nonzero root pin for the configured
+rollup. After full effect binding that root must equal the execution predecessor
+or an independently replayed whole-group terminal checkpoint. A receipt, height
+or Composer checkpoint list cannot establish acceptance.
 
-- `rollup_id` equals the operator-configured expected rollup ID;
-- `from_block != 0`;
-- `from_block <= to_block`;
-- the inclusive span `to_block - from_block + 1` is representable and no larger
-  than `max_request_blocks`; and
-- the posting context contains a nonzero chain ID and timestamp, a nonzero
-  32-byte parent hash, and a parent number below `uint64.max`.
+Actual-parent mode uses `blockNumber == uint64.max`, requires posting_context
+and ends the complete L1 evidence chain at the exact named parent. The target is
+the child's exact timestamp; actions require live timing. Historical mode uses
+explicit nonzero B and forbids posting_context. Its chain ends at B, terminal
+time is at most timestamp(B), and B must be strictly later than every relevant
+source cutoff. Every cross-chain action is forbidden, including static, failed,
+nested or reverted observations producing no L2 transaction.
 
-PostBatch fields 2 and 3 (the claimed hash and optional block hash) are removed
-and reserved. The required context is a claim until independently authenticated.
-`post_batch.abi_calldata` and the physical `post_batch.blobs` are retained for
-settlement validation.
+The manager checks actual inclusion facts: exact parent/time for actual mode,
+or nonzero available blockhash with age 1..256 for historical mode. Both bind
+actual accepted root and active L1 rules. The signer checks all internal
+consistency and execution; it does not claim future inclusion or finality. Missing
+or inconsistent evidence rejects without an RPC lookup or signing call.
 
-The provenance carries the exact canonical RLP of the L2 parent, its containing
-acceptance height (zero only for genesis), and the complete ordered list of
-accepted endpoint headers from the canonical L1 block at the parent's timestamp.
-Each header is limited to 1024 bytes before decoding; exact RLP round-trip and
-exhaustion are required. Headers count against aggregate witness items as well
-as the protobuf byte quota. Decoding confers no acceptance authority.
+### 5.2 Blocks and L1 evidence
 
-Under the existing request permit and deadline, the signer authenticates the
-finalized genesis reference, configured genesis or parent acceptance through the
-shared complete settlement-attribution scanner, named canonical L1 parent, and
-registry state at that exact target hash. Canonical timestamps locate at most
-one possible live slot. Every accepted endpoint in that slot must match the supplied list;
-an earlier live variant refreshes descendants even if the parent was later
-accepted as catch-up. The target hash is checked at its canonical height both
-before and after these reads; normal head extension does not invalidate it.
-Source unavailability returns `Unavailable`; a replaced target during
-authentication returns `Aborted`.
-Neither error carries an eviction hint.
+New Block frames must extend the validated prefix with exact number/hash/parent
+and a present witness. Full RLP identity and state continuity are checked before
+ACK. Identical duplicates are idempotent; gaps/conflicts do not change progress.
 
-The genesis reference is authenticated when its exact header is canonical and
-the source's `finalized` block is at or above its height. A reference at L1
-block zero is final by definition and only has to match the canonical block
-zero, so a fresh private devnet can be served before its first finalized
-checkpoint. Deployment permits that reference only on private networks.
+`witness.headers` retains L2 ancestry. Dedicated `l1_headers_rlp` segments form a
+single consecutive raw-header chain starting at the authenticated previous
+history endpoint. Exact fork-aware RLP decoding, hash computation, consecutive
+numbers, parent links and strictly increasing timestamps are mandatory. Headers
+are individually bounded to 2048 bytes; aggregate quotas also apply. Every
+produced bridge-only header remains required. Finalize verifies exact termination
+at the chosen anchor and membership of every recorded origin in that ancestry.
+A later eligible header does not invalidate an earlier recorded repeat.
 
-Historical header authentication does not require the genesis reference's block
-body. When the operator-selected source returns pruning error code `4444` for a
-block read, the shared reader uses `debug_getRawHeader` at the same canonical
-number/tag, exact-decodes the header and recomputes its hash. Height, reference
-identity and finality checks still apply; a by-hash lookup cannot establish
-canonicality. Sources without this method must retain the corresponding block
-bodies. This fallback does not replace the logs, transactions or blobs required
-to authenticate a non-genesis accepted parent.
-
-All replayed headers, including prepared cache hits, must extend the authenticated
-parent and carry its independently established descendant seed. The registry
-root must equal that parent or a terminal prefix independently bound by execution
-and settlement gates. No registration-to-tip or lifetime `RootUpdated` scan is
-performed. Operator configuration establishes the genesis trust root; a
-non-genesis parent still requires an actual accepted settlement occurrence.
-A manual root assignment alone cannot authorize a parent or bypass the registry
-root comparison. This does not implement node recovery from owner resets.
-
-After blocking execution and observation replay finish, the signer constructs
-an attestable digest without another L1 read. A head change or RPC outage after
-authentication does not invalidate completed work; the returned signature may
-already be unusable for inclusion, which the on-chain context check enforces.
-The request deadline, exclusive permit and all execution/settlement gates remain
-in force. Startup and `Capabilities` do not require a ready RPC or grant signing
-authority.
-
-### 5.2 Blocks
-
-After the header, every chunk MUST be a `BlockWitness`; duplicate headers and
-empty chunk kinds MUST be rejected.
-
-For block index `i`, admission MUST require:
-
-- `number == from_block + i`;
-- `hash` and `parent_hash` are exactly 32 bytes;
-- a witness is present;
-- the aggregate quotas remain within limits; and
-- for `i > 0`, the claimed parent hash equals the preceding claimed block hash.
-
-EOF is accepted only after exactly the declared number of blocks. Extra,
-missing, duplicated, or reordered blocks MUST be rejected.
-
-The first block's parent is not compared with a trusted external anchor during
-admission.
+There is no separate provenance claim, canonical-state RPC, seed-history cache or
+registration-to-tip scan. Execution facts remain separate from conditional
+settlement authority. The manager's accepted-root binding closes that boundary
+on-chain when the returned proof is verified.
 
 ## 6. Execution validation
 
 The production backend is always the pinned in-process Stateless/Reth backend.
 The operator-configured chain document determines fork rules and the EIP-155
 chain ID; the Composer cannot override either.
+
+### L1 history and synchronized PREVRANDAO
+
+The shared schedule is `I = delta * k`, `T(n) = T0 + n * I` and
+`U(T) = T + (q + 1) * delta`, with `0 <= q < k`. At every U(T), transaction
+zero MUST be native `0x45`, from the fixed system address to the history
+predeploy, with zero value and canonical `importHistory(T, hashes)` calldata.
+There is exactly one such transaction; outside U(T) it is forbidden. Its array
+contains zero to 64 consecutive headers after the inherited endpoint. Zero
+records repeat that endpoint while advancing the scheduled cutoff. A chosen
+endpoint cannot regress and its timestamp MUST be at most T. The exact calldata
+MUST match the authenticated parent state and checked ancestry byte for byte.
+The source need not be the latest eligible header. Missing acquisition therefore
+permits a producer to record a repeat; missing evidence for a recorded choice
+still rejects a proof. Replay follows the recorded choice, never arrival time.
+
+The selected header's `prevRandao` MUST match both the L2 header and actual EVM
+PREVRANDAO. Keep it and the origin until the next scheduled update, including
+across Sync boundaries. The delay is a minimum age, not finality, freshness or
+unpredictability. The sequencer may defer an otherwise eligible advance.
+
+Pre-execution applies EIP-2935 parent history and protocol balance cleanup.
+The recorded history transaction then executes before applications. It preserves
+the system nonce, has a successful receipt, zero fees and zero minted value, and contributes actual gas to the 30M block budget, capped at 2M gas.
+Wrong code/state, missing/duplicate/misplaced transactions, malformed calldata,
+wrong version/source/chain/value/gas, conflicting imports, unexpected output/logs, revert or
+budget exhaustion invalidate the block. The prover cannot substitute a hidden
+call or silently repair the input. Prefix commitments include the transaction
+exactly once and retain its bytes when reconstructing cross-chain groups.
+
+The permanent contract stores every numbered hash from the configured starting
+block to the recorded endpoint, including never-selected intermediate headers.
+Absence rejects explicitly. Public V0 operations carry the exact history
+transaction in their ordinary prefix; it is not a cross-chain action and is
+allowed in historical mode. EEZL2 native actions retain terminal-only framing
+and all existing settlement authorization checks.
 
 ### 6.1 Decode and identity binding
 
@@ -509,7 +471,7 @@ Only the terminal block may request transaction-state checkpoints. For each
 recovered terminal transaction define:
 
 ```text
-system[i] = tx[i].type == 0x76
+system[i] = tx[i].type == 0x45
             && signer(tx[i]) == SYSTEM_ADDRESS
             && tx[i].to == EEZL2_ADDRESS
 ```
@@ -599,7 +561,10 @@ themselves prove that the first parent belongs to the live canonical chain.
 From the validated block and receipts, the backend MUST retain:
 
 - one receipt-success flag per transaction;
-- one recovered `SYSTEM_ADDRESS` sender flag per transaction;
+- one validated cross-chain `SYSTEM_ADDRESS` flag per transaction. History
+  imports MUST have a false flag: they belong to the ordinary prefix despite
+  using native system envelopes. Observation replay MUST use the same boundary
+  as the ordinary-prefix commitment;
 - every log emitted by `EEZL2_ADDRESS` whose first topic is the current
   `CrossChainCallExecuted` signature, ordered by transaction and log position;
   and
@@ -635,7 +600,7 @@ outbound observations, terminal effects, DA or signing.
 
 ## 7. Canonical batch and public-input profile
 
-`PostBatch.abi_calldata` MUST exact-decode as the current
+`Finalize.settlement.abi_calldata` MUST exact-decode as the current
 `postAndVerifyBatch(ProofSystemBatchPerVerificationEntries)` ABI with selector
 `0xe4a480e4`. Re-encoding the decoded argument MUST reproduce every byte after
 the selector. Alternate, partial, or trailing encodings MUST be rejected.
@@ -648,14 +613,16 @@ The decoded batch MUST satisfy all of these profile rules:
 1. `proofSystems` contains exactly the configured proof-system address.
 2. `rollupIdsWithProofSystems` contains exactly one item with the expected
    rollup ID and `proofSystemIndexes == [0]`.
-3. `expectedRootPerRollup` is empty.
+3. `expectedRootPerRollup` contains exactly one nonzero pin for the configured rollup,
+   authorized against the predecessor or replayed whole-group checkpoint.
 4. Every mutable entry has `destinationRollupId == expected_rollup_id`.
 5. Every static entry has the canonical supported shape, targets the expected
    rollup, and contains exactly one pin for that rollup.
 6. `immediateStaticEntryCount == 0`.
 7. `immediateEntryCount` equals the complete leading run of mutable entries
    whose `proxyEntryHash == 0`.
-8. `blockNumber == uint64.max` (the pinned manager's latest-context sentinel).
+8. `blockNumber` selects actual-parent (`uint64.max`) or explicit nonzero historical B,
+   with the distinct evidence/action rules in section 5.
 9. `bindMsgSenderInPublicInput == false`.
 
 `blobIndices` is checked together with the mandatory physical DA carrier in
@@ -666,10 +633,10 @@ is responsible for inserting the returned signature into the correct proof
 carrier and satisfying the on-chain `proofSystems.length == proofs.length`
 requirement.
 
-This profile requires the pinned reference manager's latest-context behavior:
-`abi.encode(uint256(target_timestamp), parent_hash)`. The same proof cannot be
-included under a different parent or timestamp. Timeless and specific-block
-contexts are rejected; changing the target requires a new request.
+This profile requires the deployed offline manager and the exact domain-separated
+context in section 12. A generic context-free manager cannot settle these proofs.
+Changing actual-parent coordinates requires new Finalize evidence; historical
+reuse requires unchanged anchor/root/profile/rules/settlement and available B.
 
 ## 8. Block-hash commitment chain and effect binding
 
@@ -698,7 +665,7 @@ call's exact FIFO position.
 
 Every preceding block MUST contain neither:
 
-- a native transaction of reserved type `0x76`;
+- a native transaction of reserved type `0x45`;
 - a transaction recovered from `SYSTEM_ADDRESS`; nor
 - an observed EEZL2 outbound event.
 
@@ -852,6 +819,12 @@ effect and no unclaimed inbound candidate.
 
 All outbound effects MUST precede all inbound effects.
 
+Native semantic reconstruction MUST reproduce one canonical L1 host per L2
+user transaction, covering its complete source load. Splitting that host into
+several settlement entries is not an accepted native semantic encoding. The
+effect-binding and recursive table validators can represent host slices, but
+their success alone does not authorize signing.
+
 An outbound candidate transaction MUST be immediately preceded by a canonical,
 successful, zero-value `SYSTEM_ADDRESS` call to `loadExecutionTable` containing
 one or more L2 source entries. A group MAY contain only mutable sources,
@@ -897,11 +870,17 @@ and receipt-log order. Every matching EEZL2 event in the terminal receipts
 MUST be claimed exactly once; malformed, missing, reordered, or extra
 observations MUST fail.
 
+Event consumption MUST use the independently verified number of committed
+L2-origin calls. Source-table root/cursor counts MUST NOT be used as receipt
+event counts: one nested root can emit multiple events, and a reverted call
+can emit none. Host verification must account for every event in order without
+reusing it or leaving trailing observations unclaimed.
+
 The event's `callGas` MUST be zero. The batch entry MUST:
 
 - target the expected rollup;
-- contain one or more root `l2ToL1Calls`; a multi-root host MUST be flat, while
-  a one-root host MAY contain valid nested rows;
+- contain one or more root `l2ToL1Calls`; mutable-only hosts MAY contain valid
+  nested rows for multiple roots, subject to the supported recursive profile;
 - use `proxyEntryHash == 0`;
 - have `success == true`; and
 - carry only calls and rows in the supported mutable shape from section 8.3.
@@ -917,48 +896,18 @@ or contribute transferred value. The update's
 `etherDelta` MUST equal total L1-to-L2 value minus total L2-to-L1 value across
 all roots covered by that host, within the `int192` range.
 
-### Mixed outbound profile compatibility
+### Fresh-network profile boundary
 
-The pinned feature/events protocol already changed L2 selectors, static-entry
-encoding, events and proxy/runtime bytecode. This backport retains that pin and
-adds keyless native transactions, direct V0 operations, the required genesis
-profile and authenticated L1 context. Prove requires parent provenance and
-posting context; obsolete claimed-hash fields are removed. Validation identity
-schema 4 rejects mixed-version peers. Old selectors and wire formats MUST fail
-closed; no historical reader or in-place contract/genesis migration is provided.
+Deploy matching contracts, genesis, Composer, signer and followers together with
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 1 and capability profile 2 identify the
+current contract before proving. Configuration and wire inputs must match it. Restart may require client
+resubmission because queue ownership remains in memory; this feature does not
+add durable request recovery or change retry attribution.
 
-Deploy matching contracts, rendered genesis, Composer, Signer and followers as
-one protocol set on a new network. Existing networks must retain their matching
-binaries until a separately validated migration exists. Do not mix old and new
-signers/replaying nodes, or downgrade after new-format history. Pending requests
-remain in memory and restart may require resubmission. This port does not change
-retry attribution, queue ownership or scheduling.
-
-### Protocol v0.1.0-rc.2 compatibility
-
-The rc.2 pin changes only the managers: a table-dispatched call may no longer
-target the executing chain's own manager (`EEZDestinationForbidden`). The
-Composer applies a narrower admission policy: it rejects every cross-chain call
-whose destination is the destination chain's manager, including a top-level
-static lookup that the managers would still resolve, because that lookup has no
-supported use. Structs, hashes, events, storage
-layout, proxies and the proof system are unchanged, so these binaries validate
-and settle against both rc.1 and rc.2 managers, and existing contracts upgrade
-in place. The validator revision names the pin, so the Composer and Signer
-upgrade together. Wallet gas estimation recognizes only the rc.2 registry
-implementation and is unavailable until the network's L1 manager is upgraded.
-
-### Static-callback compatibility
-
-Validator revision v8 accepts top-level static reads with static callbacks
-(sections 10 and 11). It changes no contract, wire field, DA encoding or
-storage, and historical blobs decode and replay unchanged. Peers before v8
-reject these reads: an older Composer refuses them at admission, and an older
-Signer or follower rejects a batch or blob that contains one. The revision bump
-makes a v7/v8 Composer–Signer pair fail the identity check at startup instead.
-Upgrade followers no later than the Composer and Signer, which upgrade
-together. Downgrading after a static callback has settled leaves the older
-followers unable to replay that history.
+The destination manager remains forbidden for supported cross-chain calls;
+static-callback, grouped/reverted-call and position-bound static-entry rules
+above remain in force. Their existing security checks are not relaxed by either
+anchor mode.
 
 Upstream prose in `STATIC_ENTRY.md` and parts of the core specification still
 describes hash-only matching; pinned `IEEZL2.sol`, `EEZL2.sol` and
@@ -989,23 +938,25 @@ into a valid candidate.
 
 V0 MUST cover exactly the independently replayed window. Published metadata and
 ordinary transaction bytes MUST match every block's reconstruction evidence. For
-the terminal, operations contain the ordinary prefix before its first native
-transaction. The remaining actions MUST reconstruct byte for byte to the exact
-validated suffix. B[0] includes the ordinary prefix and pre-execution history
+the terminal, operations contain the ordinary prefix, including the recorded history
+transaction, before its first EEZL2 native action. The remaining actions MUST reconstruct byte for byte to the exact
+validated suffix. B[0] includes the ordinary prefix and its recorded history
 updates; it is a terminal-height block hash, not the H-1 parent hash.
 
 Native reconstruction uses the fixed contract:
 
 ```text
-type         = 0x76
-sender       = 0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0076
+type         = 0x45
+sender       = 0xfffffffffffffffffffffffffffffffffffffffe
 signature    = none
 target       = EEZL2_ADDRESS
 chain id     = operator-configured L2 EIP-155 chain ID
 gas price    = 0, including nested execution
 gas limit    = min(16_777_216, block gas limit - preceding cumulative gas), metered
 rollup id    = expected_rollup_id
-first nonce  = nonce of the first validated native transaction
+version      = 1
+sourceHash   = independently recomputed occurrence identity
+system nonce = neither checked nor changed
 ```
 
 The canonical order is:
@@ -1019,8 +970,10 @@ The canonical order is:
  inbound delivery M-1]
 ```
 
-System nonces increase through that order. Outbound loads carry zero native
-value. Inbound deliveries carry their authorized inbound value. The reconstructed
+Each sourceHash retains its original manifest and root positions. A complete
+outbound bracket has one load followed by the exact signed origin, with callbacks
+inline in the source table. Each load/delivery value equals the checked sum of
+its committed L2 incoming calls, including nested callbacks. The reconstructed
 suffix length and every raw transaction byte MUST equal the validated
 terminal block after its published ordinary prefix.
 
@@ -1117,11 +1070,29 @@ For the supported profile:
 staticEntryHashes = ordered staticEntryHash values
 blobHashes        = versioned hashes selected by the canonical identity
                     blobIndices
-customData        = abi.encode(uint256(target_timestamp), parent_hash)
+customData        = exact offline context below
 customDataHash    = H(abi.encode(uint64(expected_rollup_id), customData))
 customDataHashes  = dynamic bytes32[] containing only customDataHash
 boundSender       = address(0)
 ```
+
+The context uses a flat argument list (not an outer dynamic tuple):
+
+```text
+common = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1"), L1 chain ID, registry, manager,
+         rollup ID, L2 chain ID, fixed profile hash, active L1 rules ID,
+         current accepted L2 block hash
+actual = abi.encode(common..., uint8(1), parent number, parent hash, inclusion time)
+history = abi.encode(common..., uint8(2), B, hash(B))
+```
+
+The precise widths and profile/rule preimages are shared in
+[`l1_history/context.rs`](../eez-protocol/src/l1_history/context.rs) and the
+[`OfflineRollup`](../../contracts/src/OfflineRollup.sol) contract. The fixed profile
+binds genesis/bootstrap/runtime, schedule, import limits and canonical L1 rules.
+The rules ID changes at every configured timestamp fork/blob-rule transition.
+The manager uses the inclusion period; a historical proof from a prior period
+therefore cannot bypass new settlement limits.
 
 The shared input is:
 
@@ -1164,15 +1135,17 @@ their KZG versioned hashes are bound as above. Empty `callData` is profile-pinne
 and its empty hash remains part of the on-chain formula. The following
 batch carriers are not directly included in the digest:
 
-- `expectedRootPerRollup`;
+- the literal `expectedRootPerRollup` array (the actual current accepted root is
+  separately bound through the manager context);
 - `immediateEntryCount` and `immediateStaticEntryCount`;
 - proof-system contract addresses;
 - proof bytes; and
 - the literal `blockNumber`, `blobIndices`, and
   `bindMsgSenderInPublicInput` carriers.
 
-Some of these fields affect derived hash inputs in broader protocol profiles.
-This signer pins them to the values in section 7 before hashing. The configured
+The selected mode/anchor, active rules and current accepted root affect the
+derived context in this profile. The signer checks the carriers against section 7
+before hashing, and the manager independently supplies actual context values. The configured
 proof-system address is also checked before signing. Those checks constrain
 what the signer accepts, but they do not add the omitted carriers to the
 signature preimage.
@@ -1296,13 +1269,9 @@ attestation and one node-side acceptance of a remote attestation while running
 the inbound, outbound, and mixed settlement modes. A wave-only success is not
 sufficient end-to-end proof evidence.
 
-The current captured `fresh-chain-inbound-2175` PostBatch uses a legacy selector
-and is a rejection regression, not a positive current-protocol fixture. The
-captured `nonzero-outbound-630` receipts use the former five-field outbound
-event and likewise test rejection by the current six-field decoder. The
-`stateless-block-13` and `stateless-checkpoint-2175` fixtures validate execution
-and checkpoint behavior only; they do not by themselves establish a positive
-current-protocol settlement attestation.
+Current native-v1 captures and portable v2 transcripts are required for positive
+settlement evidence; exact fixture provenance and executed checks are recorded in
+[the current treasury/RPC audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 
 Updating either pinned external revision MUST include:
 

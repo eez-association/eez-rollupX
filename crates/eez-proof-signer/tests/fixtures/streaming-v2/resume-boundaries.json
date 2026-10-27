@@ -1,0 +1,141 @@
+{
+  "authority": "Input-side construction; native capture or derived ordinary subrange, never response-derived expectations",
+  "case": "resume-boundaries",
+  "category": "offline-v2",
+  "events": [
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "client",
+      "protobuf_hex": "10012a00",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "server",
+      "protobuf_hex": "100142020803",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "client",
+      "protobuf_hex": "0a01ee10022a00",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "server",
+      "protobuf_hex": "100242020803",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "client",
+      "protobuf_hex": "0a1feeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10032a00",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "server",
+      "protobuf_hex": "100342020803",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "client",
+      "protobuf_hex": "0a20eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10042a00",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "server",
+      "protobuf_hex": "100442020805",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "client",
+      "protobuf_hex": "0a21eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee10052a00",
+      "transport": 0
+    },
+    {
+      "check": "Malformed or unknown Resume discloses no cursor",
+      "direction": "server",
+      "protobuf_hex": "100542020803",
+      "transport": 0
+    },
+    {
+      "check": "Begin exact native predecessor",
+      "direction": "client",
+      "protobuf_hex": "1006224608011a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b2220aeb2657c3afb834ba55bc2412856fc696d23a14fd50e4f02a2810de80a588bda",
+      "transport": 0
+    },
+    {
+      "check": "Ready exact cursor and binding",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100618012222122056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "check": "Resume requires a new attachment",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100718012a00",
+      "transport": 0
+    },
+    {
+      "check": "Resume requires a new attachment",
+      "direction": "server",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110071801422408032a2056aa3d75bc8583499dc8e1247a39ab5fe3cd17702bf75364210d49bb75e52e2b",
+      "transport": 0
+    },
+    {
+      "check": "Cancel bound session only",
+      "direction": "client",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100818014a00",
+      "transport": 0
+    },
+    {
+      "check": "Cancelled retires this session",
+      "direction": "server",
+      "protobuf_hex": "0a200101010101010101010101010101010101010101010101010101010101010101100818013a00",
+      "transport": 0
+    },
+    {
+      "direction": "eof",
+      "transport": 0
+    },
+    {
+      "check": "Cancelled session cannot Resume",
+      "direction": "client",
+      "protobuf_hex": "0a20010101010101010101010101010101010101010101010101010101010101010110092a00",
+      "transport": 1
+    },
+    {
+      "check": "Cancelled session cannot Resume",
+      "direction": "server",
+      "protobuf_hex": "100942020805",
+      "transport": 1
+    },
+    {
+      "direction": "half_close",
+      "transport": 1
+    },
+    {
+      "direction": "eof",
+      "transport": 1
+    }
+  ],
+  "expected_proofs": 0,
+  "fixture": "native-offline-bidirectional",
+  "format": 2,
+  "normalization": "Distinct session tokens and monotonic epochs rebound; diagnostic wording/reused omitted",
+  "oracle": {
+    "attester": "0x9965507d1a55bcc2695c58ba16fb37d819b0a4dc"
+  },
+  "server_profile": {
+    "max_window_blocks": 4096,
+    "max_window_bytes": 16777216,
+    "max_window_witness_items": 100000,
+    "request_timeout_secs": 120,
+    "stream_idle_timeout_secs": 30
+  }
+}
