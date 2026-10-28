@@ -203,3 +203,112 @@ cleanup at block close, complete-group cleanup and discarded previews.
 Workspace Clippy with warnings denied, Cargo formatting and `git diff --check`
 also passed. The final diff contains only the test correction and this evidence;
 contract/process suites were not rerun for this test-only follow-up.
+
+## 2026-10-28: CI history expectations and recovered submission evidence
+
+[Run 40597867010](https://github.com/eez-association/eez-rollupX/actions/runs/40597867010)
+at `361a1de05e5c53821698af07fec298e694afc5d4` passed lint, debug units,
+artifact production and five of eight process shards. Three process shards
+failed on assertions that still described the previous history contract:
+
+- `pending_history_import_requires_executed_state` read the removed
+  `firstCutoff` storage slot. It now checks the actual proxy getter across
+  pending calls, traces and block overrides. Empty public state is distinguished
+  from the authenticated genesis origin used for PREVRANDAO.
+- Both bounded and expired-source multipart catch-up tests expected the genesis
+  reference in public storage before an import, and later expected every L1
+  header to be stored. They now require an initially empty store and track the
+  exact positive, increasing pairs in executed history transactions. Missing
+  pairs, including block zero, must return zero. Cold offline signing, recent
+  anchors for expired sources, application observations, PREVRANDAO and independent
+  follower block/state replay remain required.
+
+Kurtosis ran all 34 upstream scenarios successfully, but its independent collector
+rejected `counter-multi-tx` because the log retained a temporary submission refusal.
+The pinned runner retried the identical signed transaction after a composition
+conflict; that transaction was included successfully, and the scenario verified
+its three triggers across two batches. This is an operation retry inside one
+successful test, not a failed test passing on a rerun.
+
+The generic collector now recognizes only the pinned runner's three temporary
+same-transaction refusal reasons (`reconciliation`, `quote_busy`, `stale_context`).
+Every logged hash must identify exactly one verified scenario trigger with a
+successful canonical receipt and matching chain ID and nonce. All existing causal,
+table, physical-blob and final canonical-recheck gates still run. Evidence retains
+the original log digest and records the reconciled submissions. Other errors,
+underfunding/requotation and specialized lookup submissions remain rejected.
+Regression cases cover both directions, split batches, wrong identity, reverted
+or orphaned receipts, unrelated/malformed errors and later semantic failures.
+
+The three original process failures were reproduced locally before editing,
+using the retained pre-fix E2E executable (`88a95e5e41f0e621f02bc8b338b7bd3d883414d8dd57ad5518caf9c1f5aacaa3`)
+and the verified CI runtime from `92fc170b119edf2b0614843eaae1a858e38b46af`.
+The difference from that runtime source to the failed CI head contains only the
+previous test assertion correction and its audit record; production is unchanged.
+This is local reproduction with identified executables, not execution of the
+failed run's release test archive. Each selected process test failed with exit 101
+at the corresponding obsolete history assertion.
+
+The new recovered-submission tests also failed against the original collector.
+That baseline run additionally hit the existing 30-second timeout in an orphan
+negative case under build load; it is retained as a local test flake. An initial
+post-fix run caught an inaccurate expected error string in a new orphan case:
+the collector correctly rejected absence from the canonical block. Only that
+test expectation was corrected.
+
+### Follow-up validation
+
+| Check | Result |
+| --- | --- |
+| `cargo +1.95.0 test --locked -p eez-node-e2e --test node_e2e --no-run --message-format=json` | Fresh test executable built successfully |
+| `e2e::pending_history_import_requires_executed_state` | One passed; pending/latest/named/positional RPC, trace, gas/access-list and override checks retained |
+| `derivable_operations::multipart::bounded_parts_use_cold_offline_signers_and_public_replay` | One passed; 120 blocks, three parts (two historical, one actual-parent), 24 stored pairs and independent replay |
+| `derivable_operations::multipart::expired_sources_use_recent_anchors_with_cold_offline_signers_and_public_replay` | One passed; 2,010 blocks, five parts (four historical, one actual-parent), 402 stored pairs, 32 application transactions and independent replay; first terminal source age 304, with old-anchor rejection checked on-chain |
+| `python3 -m unittest discover -s scripts/ci/tests -v` | 418 selected: 409 passed, nine existing skips |
+| `python3 -m unittest discover -s scripts/ci/tests -p test_protocol_transaction_selection.py -v` | Final ten-test module passed, including all 16 new recovered-refusal success/rejection cases |
+| `cargo +1.95.0 clippy --locked --workspace --all-targets -- -D warnings` | Passed |
+| `cargo +1.95.0 fmt --all --check`, collector `bash -n`, `git diff --check` | Passed |
+
+The Python skips are three opt-in runtime Docker tests, two Kurtosis resource
+tests, one data-only Docker payload test, one native-archive relocation test,
+and two Gitleaks tests because the scanner is unavailable locally. They are not
+coverage. The full tooling run preceded the final additional refusal cases;
+the complete affected module was rerun after those additions. Collector tests
+execute the real shell/JSON selection with mocked RPC and semantic-verifier
+boundaries; a full Kurtosis run is still needed to validate their combination
+against a network. Integration contracts were available through a successful
+cached `forge build --root contracts`; that was not a new Solidity test run.
+
+The new E2E executable is
+`target/debug/deps/node_e2e-0cb5b6bfb86a29d0`, SHA-256
+`161b6359b654bdb89f1ed5e329ec1977cab648801b4b9bf5632cb238bce8ccdf`.
+Each process case ran once via that executable with its exact filter,
+`--exact --test-threads=1 --nocapture`. The harness explicitly selected the
+verified unchanged CI runtime, rather than a PATH binary, and set
+`EEZ_TEST_PROOF_SIGNER_NO_NETWORK=1`. All local Anvil ports, logs and datadirs
+were isolated; no deployed service or operator wallet was used.
+
+| Selected runtime binary | SHA-256 |
+| --- | --- |
+| Composer | `f08e233ae876f2e271384a234ed40fc8388139794a5ecce1f4e5a9f191197c14` |
+| Follower | `d1984439694cfdf242cc8a1c7d6e5643032bff6c086b392313f693b45905ef8b` |
+| Signer | `d0c6d626aeb0d885d232de1a4a8c823442e446538509ad365de02f9ac3f0c31c` |
+
+The optional four-day stress test remained ignored; the executed expired-source
+case covers the required unavailable-L1-blockhash condition. No new full Rust
+workspace unit run, core Anvil suite or live-network workload was needed locally
+for this test/tooling-only correction. Final review checked the accepted empty
+store and sparse-pair semantics, preserved pending-prefix assertions, independent
+replay, exact canonical trigger identity and every downstream collector gate.
+
+All work uses this PR's isolated worktree and unchanged protocol pin
+`84a5b5207880f192a6a5896cbfe0bac5249db47f`. The correction changes tests,
+validation tooling and documentation only. Runtime, contracts, genesis, wire
+formats, dependencies and the deployed network are unchanged.
+
+Local before/after logs, executable digests and retained process datadirs are
+under ignored `artifacts/validation/ci-fixes-20261028/`. They are local-only;
+the linked failed CI run retains the original shard diagnostics and
+[Kurtosis evidence artifact](https://github.com/eez-association/eez-rollupX/actions/runs/40597867010/artifacts/12782326215).
+The regression inputs and assertions are committed. A new complete CI matrix
+must validate the final head before this follow-up is considered CI-green.

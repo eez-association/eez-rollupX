@@ -35,18 +35,23 @@ async fn application_call(rpc: &str, block: u64, data: Vec<u8>) -> Bytes {
         .unwrap()
 }
 
-async fn observe_source(rpc: &str, block: &Header, expected: &Header) {
+async fn observe_source(rpc: &str, block: &Header, expected: &Header, imported: bool) {
     let result = application_call(rpc, block.number, observeCall {}.abi_encode()).await;
     let result = observeCall::abi_decode_returns(&result).unwrap();
     assert_eq!(
-        result.number, expected.number,
-        "origin number at L2 {}",
+        result.number,
+        if imported { expected.number } else { 0 },
+        "stored origin number at L2 {}",
         block.number
     );
     assert_eq!(
         result.hash,
-        expected.hash_slow(),
-        "origin hash at L2 {}",
+        if imported {
+            expected.hash_slow()
+        } else {
+            B256::ZERO
+        },
+        "stored origin hash at L2 {}",
         block.number
     );
     assert_eq!(
@@ -375,6 +380,11 @@ async fn catch_up(
         .rfind(|header| header.timestamp <= genesis.timestamp - 5)
         .unwrap();
     let mut sources = std::collections::BTreeMap::from([(0_u64, bootstrap_source.clone())]);
+    // Logical execution origin exists at genesis; public storage contains only
+    // pairs actually carried by a history transaction, never block zero.
+    let mut first_import = None;
+    let mut imported_hashes = std::collections::BTreeMap::new();
+    observe_source(&world.l2_rpc(), &genesis, bootstrap_source, false).await;
     let mut parent = genesis.clone();
     let mut expected = Vec::with_capacity(terminal_number as usize);
     let mut parts = 0;
@@ -423,14 +433,22 @@ async fn catch_up(
             if elapsed % 5 == 3 {
                 assert!(recorded.len() <= 1);
                 if let Some((position, history)) = recorded.first() {
+                    first_import.get_or_insert(block.header.number);
                     assert_eq!(*position, 0);
                     assert!(!history.blocks.is_empty() && history.blocks.len() <= 64);
                     for record in &history.blocks {
+                        assert!(record.number > 0 && record.number >= bootstrap_source.number);
+                        assert!(
+                            imported_hashes
+                                .last_key_value()
+                                .is_none_or(|(number, _)| record.number > *number)
+                        );
                         selected = record.number;
                         assert_eq!(
                             record.block_hash,
                             historical_headers[selected as usize].hash_slow()
                         );
+                        imported_hashes.insert(record.number, record.block_hash);
                     }
                 }
             } else {
@@ -590,7 +608,13 @@ async fn catch_up(
             terminal.hash_slow()
         );
         for block in [blocks.first().unwrap(), &blocks[2], blocks.last().unwrap()] {
-            observe_source(&world.l2_rpc(), &block.header, source(&block.header)).await;
+            observe_source(
+                &world.l2_rpc(),
+                &block.header,
+                source(&block.header),
+                first_import.is_some_and(|first| block.header.number >= first),
+            )
+            .await;
         }
         parent = terminal.clone();
         expected.extend(blocks.into_iter().map(|block| block.header));
@@ -604,6 +628,7 @@ async fn catch_up(
         );
     }
     let source = |block: &Header| &sources[&block.number];
+    let first_import = first_import.expect("catch-up must exercise actual history imports");
     assert!(parts >= 3);
     assert_eq!(parent.timestamp - genesis.timestamp, terminal_number);
     let follower = NodeHandle::start(
@@ -636,7 +661,13 @@ async fn catch_up(
         assert_eq!(actual.state_root, original.state_root);
         assert_eq!(actual.mix_hash, source(original).mix_hash);
         if original.number % part_blocks <= 3 {
-            observe_source(&follower.l2_rpc_url(), original, source(original)).await;
+            observe_source(
+                &follower.l2_rpc_url(),
+                original,
+                source(original),
+                original.number >= first_import,
+            )
+            .await;
         }
     }
     let selected = source(&parent);
@@ -651,8 +682,22 @@ async fn catch_up(
         assert_eq!(original, replayed, "ordinary application state diverged");
         let observation = recordsCall::abi_decode_returns(&original).unwrap();
         assert_eq!(observation.l2Block, U256::from(number));
-        assert_eq!(observation.number, expected_source.number);
-        assert_eq!(observation.hash, expected_source.hash_slow());
+        assert_eq!(
+            observation.number,
+            if number >= first_import {
+                expected_source.number
+            } else {
+                0
+            }
+        );
+        assert_eq!(
+            observation.hash,
+            if number >= first_import {
+                expected_source.hash_slow()
+            } else {
+                B256::ZERO
+            }
+        );
         assert_eq!(
             observation.randao,
             U256::from_be_bytes(expected_source.mix_hash.0)
@@ -667,7 +712,12 @@ async fn catch_up(
         let replayed = application_call(&follower.l2_rpc_url(), parent.number, encoded).await;
         assert_eq!(
             hashAtCall::abi_decode_returns(&original).unwrap(),
-            header.hash_slow()
+            imported_hashes
+                .get(&header.number)
+                .copied()
+                .unwrap_or(B256::ZERO),
+            "stored pair availability at L1 {}",
+            header.number
         );
         assert_eq!(
             replayed, original,
@@ -682,7 +732,7 @@ async fn catch_up(
         "l1_rule_change_timestamp":rule_change,
         "first_part_terminal_source_age":first_source_age,
         "l2_blocks":parent.number, "elapsed_seconds":terminal_number,
-        "minimum_history_seconds":history_seconds, "imported_l1_headers":selected.number + 1,
+        "minimum_history_seconds":history_seconds, "imported_l1_headers":imported_hashes.len(),
         "ordinary_transactions":application_blocks.len(),
         "l2_hash":parent.hash_slow(), "l2_state_root":parent.state_root, "wall_ms":started.elapsed().as_millis()})
     );
