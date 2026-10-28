@@ -321,6 +321,13 @@ stale prebuilt executables, build integration contracts, and retain diagnostics:
 )
 ```
 
+The source test harness builds the production Composer, follower and signer
+entrypoints together once per test process, on a blocking worker. Do not add
+duplicate runtime binaries to `eez-node-e2e`: Cargo would link them again while
+archiving tests even though CI executes only the frozen shipping candidate.
+`EEZ_TEST_PREBUILT` forbids this source build and requires the verified binary
+paths supplied by the CI artifact consumer.
+
 All `eez-node-e2e` process tests are modules of the single `node_e2e` target; select
 affected modules from the table with a `<module>::` filter and run them serially;
 [Nextest](.config/nextest.toml) also isolates `eez-node-e2e`. Do not add `--ignored`

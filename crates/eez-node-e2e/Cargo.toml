@@ -13,12 +13,8 @@ autotests              = false
 name = "node_e2e"
 path = "tests/main.rs"
 
-[dependencies]
-eez-follower.workspace = true
-eez-node.workspace     = true
-eyre.workspace         = true
-
 [dev-dependencies]
+eez-node.workspace = true
 eez-primitives.workspace = true
 reqwest.workspace = true
 prost.workspace = true
