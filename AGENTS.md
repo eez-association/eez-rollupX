@@ -345,10 +345,10 @@ selectors or use self-hosted resources for public PRs. Docker-native retained
 Cargo state is disabled in CI; the optional local tooling still follows the
 [test-archive split's compile cap](docs/proposals/ci-test-archive-split.md#compile-cap).
 Registry and compiler caches remain optional and cannot substitute for validation.
-Protocol network scenarios run with at most two workers on hosted VMs, preserving
+Protocol network scenarios run with at most four workers on hosted VMs, preserving
 the full scenario inventory. See the [hosted CI proposal](docs/proposals/github-hosted-ci.md).
-Kurtosis completes cold protocol and integration fixture compilation before starting the live
-network. Preserve the relay housekeeper readiness gate: its post-migration
+Kurtosis completes protocol and integration fixture compilation before starting the live
+network; an exact-pin protocol compiler cache may only skip unchanged work. Preserve the relay housekeeper readiness gate: its post-migration
 metrics endpoint must answer before the API starts against the same database.
 `scripts/ci/run-native-suite.sh` requires the producer's configured artifact
 environment; it is not a standalone local build command.

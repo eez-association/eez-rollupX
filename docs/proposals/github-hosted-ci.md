@@ -32,11 +32,17 @@ shipping workflow explicitly disables retained Cargo state and exposes no input
 to enable it.
 
 Standard hosted Ubuntu has different capacity for private and public repositories.
-Both protocol execution paths cap concurrent scenarios at two without reducing
-the discovered inventory. Lint and debug unit jobs allow 120 minutes for cold
+Both protocol execution paths cap concurrent scenarios at four without reducing
+the discovered inventory. The cap was two until protocol `84a5b520` added a
+per-scenario wait for setup transactions to reach the L2 safe head; with two
+workers those waits ran nearly serially (the 33 parallel scenarios grew from
+562 s to 1262 s). The public repository's hosted runner has four vCPUs.
+Lint and debug unit jobs allow 120 minutes for cold
 source builds, while their existing validation steps remain required.
-Kurtosis completes cold protocol and integration fixture compilation before starting its live
-network, keeping compilation off the VM while slot-bound PBS assertions run.
+Kurtosis completes protocol and integration fixture compilation before starting its live
+network, keeping compilation off the VM while slot-bound PBS assertions run. The
+published job restores an exact-pin protocol compiler cache (about nine minutes
+cold on the hosted runner); a miss compiles cold.
 The pinned relay housekeeper must finish database startup before the API starts;
 a bounded health check prevents concurrent schema migrations. Failure tails for
 the PBS services remain in the job log even if diagnostic artifact upload fails.
