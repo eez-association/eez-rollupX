@@ -2715,7 +2715,7 @@ async fn general_block_rule_consolidates_empty_history_before_the_pure_interval(
                 unreachable!()
             };
             assert_eq!(native.chain_id, world.l2_chain_id);
-            assert!((1..=64).contains(&native.hashes.len()));
+            assert!((1..=64).contains(&native.blocks.len()));
             assert_eq!(tx.gas_limit(), IMPORT_GAS_LIMIT.min(block.header.gas_limit));
             assert!(
                 updating,
@@ -3511,13 +3511,15 @@ async fn ordinary_burst_is_budgeted(profile: eez_testkit::NativeL1Profile, max_b
             .call(
                 TransactionRequest::default().to(HISTORY_ADDRESS).input(
                     alloy_primitives::Bytes::from(
-                        IL1BlockhashContract::currentCall {}.abi_encode(),
+                        IL1BlockhashContract::getLatestImportedL1BlockCall {}.abi_encode(),
                     )
                     .into(),
                 ),
             )
             .await?;
-        Ok::<_, anyhow::Error>(IL1BlockhashContract::currentCall::abi_decode_returns(&raw)?)
+        Ok::<_, anyhow::Error>(
+            IL1BlockhashContract::getLatestImportedL1BlockCall::abi_decode_returns(&raw)?,
+        )
     };
     let mut hashes = Vec::new();
     // Each fits by itself on both networks. The calldata alone must exceed the

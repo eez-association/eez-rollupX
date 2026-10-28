@@ -119,6 +119,52 @@ fn balance(executor: &mut Executor<'_>, account: Address) -> U256 {
 }
 
 #[test]
+fn completed_blocks_clear_protocol_residue_from_standalone_transactions() {
+    // The receiving call must see its ETH before cleanup; its storage survives.
+    let mut f = Fixture::new(bytes!("4760005500"), bytes!("00"));
+    let mut executor = f.executor();
+    executor
+        .execute_transaction(ordinary(0, SYSTEM_ADDRESS, 17))
+        .unwrap();
+    executor
+        .execute_transaction(ordinary(1, EEZL2_ADDRESS, 29))
+        .unwrap();
+    assert_eq!(balance(&mut executor, SYSTEM_ADDRESS), U256::from(17));
+    assert_eq!(balance(&mut executor, EEZL2_ADDRESS), U256::from(29));
+    // A subsequent ordinary call must still see the first donation.
+    executor
+        .execute_transaction(ordinary(2, EEZL2_ADDRESS, 0))
+        .unwrap();
+    let gas = executor.cumulative_tx_gas_used;
+    let (mut evm, output) = executor.finish().unwrap();
+    for address in PROTOCOL_BALANCE_ACCOUNTS {
+        assert_eq!(
+            evm.db_mut()
+                .basic(address)
+                .unwrap()
+                .map_or(U256::ZERO, |a| a.balance),
+            U256::ZERO
+        );
+    }
+    assert_eq!(
+        evm.db_mut().storage(EEZL2_ADDRESS, U256::ZERO).unwrap(),
+        U256::from(29)
+    );
+    assert_eq!(
+        evm.db_mut().basic(USER).unwrap().unwrap().balance,
+        U256::from(1_000_000 - 46)
+    );
+    assert_eq!(output.receipts.len(), 3);
+    assert!(
+        output
+            .receipts
+            .iter()
+            .all(|receipt| receipt.success && receipt.logs.is_empty())
+    );
+    assert_eq!(output.gas_used, gas);
+}
+
+#[test]
 fn complete_groups_clear_only_protocol_balances_after_user_and_inbound_execution() {
     // Record the manager balance seen during each transaction. The load and
     // paired user must see their shared funding; cleanup must preserve storage.
@@ -169,15 +215,24 @@ fn complete_groups_clear_only_protocol_balances_after_user_and_inbound_execution
             .nonce,
         1
     );
-    // Ordinary work after a group is not itself a boundary. The block-start
-    // fallback, covered separately, clears these later donations next block.
+    // Ordinary work after a group is not itself a boundary. Finalization
+    // clears these later donations in this same block.
     executor
         .execute_transaction(ordinary(2, SYSTEM_ADDRESS, 7))
         .unwrap();
     assert_eq!(balance(&mut executor, SYSTEM_ADDRESS), U256::from(7));
     assert_eq!(balance(&mut executor, USER), U256::from(1_000_000 - 27));
     let gas = executor.cumulative_tx_gas_used;
-    let (_, output) = executor.finish().unwrap();
+    let (mut evm, output) = executor.finish().unwrap();
+    for address in PROTOCOL_BALANCE_ACCOUNTS {
+        assert_eq!(
+            evm.db_mut()
+                .basic(address)
+                .unwrap()
+                .map_or(U256::ZERO, |a| a.balance),
+            U256::ZERO
+        );
+    }
     assert_eq!(output.receipts.len(), 5);
     assert!(
         output

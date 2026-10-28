@@ -87,6 +87,21 @@ fn execute_empty_blocks(
             },
         );
         executor.apply_pre_execution_changes().unwrap();
+        if number == 1 {
+            for (address, original) in accounts {
+                assert_eq!(
+                    executor
+                        .evm_mut()
+                        .db_mut()
+                        .basic(*address)
+                        .unwrap()
+                        .unwrap()
+                        .balance,
+                    original.balance,
+                    "pre-execution must not burn {address}"
+                );
+            }
+        }
         let (_, output) = executor.finish().unwrap();
         assert!(output.receipts.is_empty());
         assert_eq!(output.gas_used, 0);
@@ -128,7 +143,7 @@ fn issue35_empty_l2_blocks_write_history_without_beacon_or_request_side_effects(
 }
 
 #[test]
-fn rollup_blocks_burn_protocol_balances_before_execution_and_l1_simulation_keeps_them() {
+fn rollup_blocks_burn_protocol_balances_at_finalization_and_l1_simulation_keeps_them() {
     let code = Bytecode::new_raw(bytes!("00"));
     let accounts = [
         (

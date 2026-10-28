@@ -112,8 +112,8 @@ impl<E, S> EezBlockExecutor<'_, E, S> {
     }
 
     /// Validate a complete RollupX prefix before computing a canonical hash.
-    /// Rollup execution has no post-transaction state changes; this is the same
-    /// boundary enforced by finalization, including an eligible empty block.
+    /// This checks the boundary enforced by finalization, including an eligible
+    /// empty block. Canonical hashing must additionally apply finalization cleanup.
     pub fn validate_prefix(&self) -> Result<(), BlockExecutionError> {
         if self.layer != ExecutionLayer::Rollup {
             return Err(BlockExecutionError::msg(
@@ -168,10 +168,6 @@ where
         self.inner
             .system_caller
             .apply_blockhashes_contract_call(self.inner.ctx.parent_hash, &mut self.inner.evm)?;
-        let mut cleanup = Default::default();
-        clear_protocol_balances(self.inner.evm.db_mut(), &mut cleanup)
-            .map_err(|_| BlockExecutionError::msg("cannot load protocol cleanup accounts"))?;
-        self.inner.evm.db_mut().commit(cleanup);
         let history = self.history.as_ref().ok_or_else(|| {
             BlockExecutionError::msg("mandatory L1 history evidence source is not configured")
         })?;
@@ -288,7 +284,7 @@ where
         self.inner.commit_transaction(result.inner)
     }
 
-    fn finish(self) -> Result<(E, BlockExecutionResult<Receipt>), BlockExecutionError> {
+    fn finish(mut self) -> Result<(E, BlockExecutionResult<Receipt>), BlockExecutionError> {
         if self.layer == ExecutionLayer::L1Simulation {
             return self.inner.finish();
         }
@@ -297,6 +293,12 @@ where
         // A future execution fork must explicitly define its L2 lifecycle before
         // the Osaka allowlist above is extended.
         self.validate_prefix()?;
+        // Ordinary donations remain spendable/observable until the block closes.
+        // Prefix builders must finalize a copy, never their continuing draft.
+        let mut cleanup = Default::default();
+        clear_protocol_balances(self.inner.evm.db_mut(), &mut cleanup)
+            .map_err(|_| BlockExecutionError::msg("cannot load protocol cleanup accounts"))?;
+        self.inner.evm.db_mut().commit(cleanup);
         let inner = self.inner;
         Ok((
             inner.evm,

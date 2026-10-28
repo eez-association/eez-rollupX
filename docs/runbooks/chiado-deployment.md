@@ -244,14 +244,14 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-4 signers together; there is no existing-database upgrade.
-The L1 history getter returns zero outside its retained range and retains strict
-errors for inconsistent history. This changes the
-genesis runtime hash and manager profile; an existing network retains its old
-getter behavior until a separately specified transition. See the
+and validation-contract-6 signers together; there is no existing-database upgrade.
+The initially empty history proxy returns zero for absent records, including
+permanently skipped numbers. Its dedicated ProxyAdmin initially shares
+`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, manager profile and
+validation identity bind the new layout and paired native encoding. See the
 [history compatibility rules](../../contracts/L1_HISTORY_SPEC.md#compatibility).
-History updates use the dedicated optional `0x46` envelope, and history slot 3
-stores the immutable genesis phase. Old `0x45` history transactions and old
+History updates use the optional `0x46` envelope with explicit number/hash pairs;
+the schedule is fixed by genesis configuration. Previous hash-only bodies and
 genesis/runtime state are rejected. Cross-chain `0x45` uses six fields without a
 version. Its source identity binds the L2 EVM chain ID, intended L1 parent and
 zero-based complete-group ordinal in the full Live Sync block under the
@@ -261,8 +261,11 @@ Rollback to earlier binaries requires a
 separate fresh network; reusing this network's database is unsupported.
 The prover remains v2 and requires no chain RPCs.
 
-Every L2 block also burns the balances of EEZL2 and the native system address before
-its first transaction, so neither account holds ETH at a block start; see the
+Every completed L2 block burns the residual balances of EEZL2 and the native
+system address. Ordinary donations remain visible inside the block until it
+closes or a complete cross-chain group clears them. Historical state queries
+observe the closed block, while proven FIFO lookups observe the selected in-block
+transaction boundary; see the
 [signer specification](../../crates/eez-proof-signer/SPEC.md). This changes
 execution: nodes, followers and signers from before this rule cannot replay a
 network created with it, and it is not a binary-only upgrade for an existing
@@ -286,8 +289,9 @@ broadcast. The registry and manager are
 proxies; `deployments.env` also records their implementations and ProxyAdmins.
 Use only the proxy addresses in configuration and integrations. It is not a restart
 command. Before broadcasting, the deploy image reads a finalized L1 reference,
-initializes permanent history and RANDAO from it, and records its exact chain/block
-identity under `config.rollupX`. L2 genesis starts one Sync interval after that
+sets the initial execution origin and RANDAO from it, and records its exact chain/block
+identity under `config.rollupX`. The public history store starts empty until its
+first system import. L2 genesis starts one Sync interval after that
 reference. Chiado requires 1-second L2 blocks and five positions per Sync interval.
 `EEZ_L2_HISTORY_UPDATE_OFFSET` fixes the delay at genesis (default 2, allowed 0–4);
 it is read from the mounted `.env` by the deployment script. Missing finalized
@@ -841,12 +845,36 @@ Follow the
 [signer operations guide](../../crates/eez-proof-signer/docs/operations.md#offline-configuration-and-recovery)
 for limits, configuration and loss of volatile sessions.
 
-This profile requires freshly deployed contracts, authenticated history bootstrap,
+This profile requires freshly deployed contracts, an authenticated genesis L1 reference,
 a newly rendered genesis and fresh datadirs. Existing Chiado deployments are
 outside its compatibility boundary. There is no upgrade, database migration or
 legacy execution mode in these binaries. Do not rerun deployment or delete
 operator state to convert an existing network. Source and private fixture tests
 do not establish a public deployment or restart rehearsal.
+
+### L1 history implementation upgrades
+
+Fresh genesis contains the history proxy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`,
+its initial implementation at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee007a`, and
+ProxyAdmin `0x58aD165846a897f4aba3EC8f07a4a7dB434324Bf`. The ProxyAdmin owner is
+initially `EEZ_L2_UPGRADE_OWNER`; transferring EEZL2's separate admin does not
+transfer this one. The owner needs L2 gas for an upgrade transaction.
+
+Before an authorized upgrade, verify the current proxy implementation and admin
+slots and `ProxyAdmin.owner()` on the intended L2. Review storage compatibility
+and all [history execution requirements](../../contracts/L1_HISTORY_SPEC.md#proxy-and-authority).
+Deploy the reviewed implementation as an ordinary L2 contract, verify its bytes,
+then have the admin owner call `upgradeAndCall(historyProxy, implementation, data)`
+on the dedicated ProxyAdmin. Use empty data unless a reviewed atomic migration
+is required. This implementation needs no initialization call.
+
+After inclusion, verify the implementation slot and Upgraded event, preserved
+historical hashes, a later successful native import and PREVRANDAO, canonical
+settlement, and follower replay. Preserve the transaction and artifact identity.
+Compatible upgrades need no change to genesis or signer configuration. Rolling
+back a code pointer does not undo writes; the restored implementation must accept
+the resulting storage. These steps describe operation, not authorization to
+upgrade an existing network or evidence of a public upgrade rehearsal.
 
 ### L2 fee treasury
 

@@ -4,16 +4,34 @@ use super::*;
 /// Reserved local EIP-2718 type, distinct from cross-chain source transactions.
 pub const HISTORY_TX_TYPE: u8 = 0x46;
 pub const HISTORY_TX_VERSION: u64 = 1;
-pub const MAX_HISTORY_HASHES: usize = 64;
+pub const MAX_HISTORY_BLOCKS: usize = 64;
 
-/// Exact wire body: `RLP([version, chainId, hashes])`. There is no source identity,
+/// One explicit L1 number/hash pair. Shape validation is not ancestry authentication.
+#[derive(
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    alloy_rlp::RlpEncodable,
+    alloy_rlp::RlpDecodable,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct HistoryBlock {
+    #[serde(with = "alloy_serde::quantity")]
+    pub number: u64,
+    pub block_hash: B256,
+}
+
+/// Exact wire body: `RLP([version, chainId, [[number, blockHash], ...]])`. There is no source identity,
 /// calldata, gas, destination or value supplied by the producer. The executor
 /// derives those fields after authenticating the parent and the header chain.
 #[derive(Clone, Debug, PartialEq, Eq, alloy_rlp::RlpEncodable)]
 pub struct HistoryTransaction {
     pub version: u64,
     pub chain_id: u64,
-    pub hashes: Vec<B256>,
+    pub blocks: Vec<HistoryBlock>,
 }
 
 impl HistoryTransaction {
@@ -23,11 +41,18 @@ impl HistoryTransaction {
                 "unsupported history transaction version",
             ));
         }
-        if self.hashes.is_empty()
-            || self.hashes.len() > MAX_HISTORY_HASHES
-            || self.hashes.iter().any(B256::is_zero)
+        if self.blocks.is_empty()
+            || self.blocks.len() > MAX_HISTORY_BLOCKS
+            || self
+                .blocks
+                .iter()
+                .any(|block| block.number == 0 || block.block_hash.is_zero())
+            || self
+                .blocks
+                .windows(2)
+                .any(|pair| pair[0].number >= pair[1].number)
         {
-            return Err(alloy_rlp::Error::Custom("invalid history hash list"));
+            return Err(alloy_rlp::Error::Custom("invalid history block list"));
         }
         Ok(())
     }
@@ -37,7 +62,7 @@ impl Decodable for HistoryTransaction {
     fn decode(buf: &mut &[u8]) -> Result<Self, alloy_rlp::Error> {
         let mut input = *buf;
         let outer = alloy_rlp::Header::decode(&mut input)?;
-        if !outer.list || outer.payload_length > 2 * 9 + 3 + MAX_HISTORY_HASHES * 33 {
+        if !outer.list || outer.payload_length > 2 * 9 + 3 + MAX_HISTORY_BLOCKS * 43 {
             return Err(alloy_rlp::Error::Custom("invalid history envelope length"));
         }
         if input.len() < outer.payload_length {
@@ -50,19 +75,23 @@ impl Decodable for HistoryTransaction {
         if !list.list
             || list.payload_length != fields.len()
             || list.payload_length == 0
-            || list.payload_length > MAX_HISTORY_HASHES * 33
-            || !list.payload_length.is_multiple_of(33)
+            || list.payload_length > MAX_HISTORY_BLOCKS * 43
         {
-            return Err(alloy_rlp::Error::Custom("invalid history hash list length"));
+            return Err(alloy_rlp::Error::Custom(
+                "invalid history block list length",
+            ));
         }
-        let mut hashes = Vec::with_capacity(list.payload_length / 33);
+        let mut blocks = Vec::with_capacity((list.payload_length / 35).min(MAX_HISTORY_BLOCKS));
         while !fields.is_empty() {
-            hashes.push(B256::decode(&mut fields)?);
+            if blocks.len() == MAX_HISTORY_BLOCKS {
+                return Err(alloy_rlp::Error::Custom("history block list exceeds bound"));
+            }
+            blocks.push(HistoryBlock::decode(&mut fields)?);
         }
         let tx = Self {
             version,
             chain_id,
-            hashes,
+            blocks,
         };
         tx.validate()?;
         *buf = rest;
@@ -151,8 +180,8 @@ impl Transaction for HistoryTransaction {
     fn value(&self) -> U256 {
         U256::ZERO
     }
-    /// Calldata is not a transaction field. Execution derives it from the hashes
-    /// and the eligible cutoff; RPC exposes `hashes` instead of invented input.
+    /// Calldata is not a transaction field. Execution derives it from the blocks
+    /// after authenticating the scheduled update; RPC exposes `blocks` rather than invented input.
     fn input(&self) -> &Bytes {
         static EMPTY: Bytes = Bytes::new();
         &EMPTY
@@ -175,7 +204,7 @@ impl serde::Serialize for HistoryTransaction {
         let mut tx = serializer.serialize_struct("HistoryTransaction", 13)?;
         tx.serialize_field("version", &U64::from(self.version))?;
         tx.serialize_field("chainId", &U64::from(self.chain_id))?;
-        tx.serialize_field("hashes", &self.hashes)?;
+        tx.serialize_field("blocks", &self.blocks)?;
         tx.serialize_field("nonce", &U64::ZERO)?;
         tx.serialize_field("to", &HISTORY_ADDRESS)?;
         tx.serialize_field("value", &U256::ZERO)?;
@@ -199,8 +228,8 @@ impl<'de> serde::Deserialize<'de> for HistoryTransaction {
             version: u64,
             #[serde(with = "alloy_serde::quantity")]
             chain_id: u64,
-            #[serde(deserialize_with = "deserialize_hashes")]
-            hashes: Vec<B256>,
+            #[serde(deserialize_with = "deserialize_blocks")]
+            blocks: Vec<HistoryBlock>,
             nonce: Option<U256>,
             to: Option<Address>,
             value: Option<U256>,
@@ -257,7 +286,7 @@ impl<'de> serde::Deserialize<'de> for HistoryTransaction {
         let tx = Self {
             version: rpc.version,
             chain_id: rpc.chain_id,
-            hashes: rpc.hashes,
+            blocks: rpc.blocks,
         };
         tx.validate().map_err(serde::de::Error::custom)?;
         Ok(tx)
@@ -265,14 +294,14 @@ impl<'de> serde::Deserialize<'de> for HistoryTransaction {
 }
 
 /// Bound JSON list allocation just as the canonical RLP decoder does.
-fn deserialize_hashes<'de, D: serde::Deserializer<'de>>(
+fn deserialize_blocks<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
-) -> Result<Vec<B256>, D::Error> {
-    struct Hashes;
-    impl<'de> serde::de::Visitor<'de> for Hashes {
-        type Value = Vec<B256>;
+) -> Result<Vec<HistoryBlock>, D::Error> {
+    struct Blocks;
+    impl<'de> serde::de::Visitor<'de> for Blocks {
+        type Value = Vec<HistoryBlock>;
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            formatter.write_str("one to 64 history hashes")
+            formatter.write_str("one to 64 history blocks")
         }
         fn visit_seq<A: serde::de::SeqAccess<'de>>(
             self,
@@ -280,19 +309,19 @@ fn deserialize_hashes<'de, D: serde::Deserializer<'de>>(
         ) -> Result<Self::Value, A::Error> {
             if sequence
                 .size_hint()
-                .is_some_and(|size| size > MAX_HISTORY_HASHES)
+                .is_some_and(|size| size > MAX_HISTORY_BLOCKS)
             {
-                return Err(serde::de::Error::custom("history hash list exceeds bound"));
+                return Err(serde::de::Error::custom("history block list exceeds bound"));
             }
-            let mut hashes = Vec::new();
+            let mut blocks = Vec::new();
             while let Some(hash) = sequence.next_element()? {
-                if hashes.len() == MAX_HISTORY_HASHES {
-                    return Err(serde::de::Error::custom("history hash list exceeds bound"));
+                if blocks.len() == MAX_HISTORY_BLOCKS {
+                    return Err(serde::de::Error::custom("history block list exceeds bound"));
                 }
-                hashes.push(hash);
+                blocks.push(hash);
             }
-            Ok(hashes)
+            Ok(blocks)
         }
     }
-    deserializer.deserialize_seq(Hashes)
+    deserializer.deserialize_seq(Blocks)
 }

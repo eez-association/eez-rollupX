@@ -9,10 +9,10 @@ and pinned core define interoperability. Shared type/version names alone do not:
 
 | Boundary | Exact local contract |
 | --- | --- |
-| Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 hashes after its version. Receipts retain the corresponding type. |
+| Native transactions and receipts | Cross-chain `0x45` has six fields and no version, with execution-group source identities; optional HistoryUpdate `0x46` version **1** has only chain ID and 1–64 explicit increasing positive number/hash pairs after its version. Receipts retain the corresponding type. |
 | `ChainOperation` payload | Direct RollupX V0 (`0x00`), including its [compact count grammar](../../../docs/proposals/native-system-transactions.md#direct-v0-wire-contract); this differs from the draft's per-block uvarints. |
 | Execution and settlement | The single authenticated `Profile`/`OfflineProfile`, genesis, L1 rules and [signer validation contract](../../eez-proof-signer/SPEC.md). |
-| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 3, as defined below. |
+| Prover transport | `prove.v2.Prover`, capability profile 2 and validation-contract identity version 6, as defined below. |
 
 These are the fixed contracts of one network profile, not selectable compatibility
 modes. The [compliance review](../../../docs/audits/2026-10-24-specs-compliance/README.md)
@@ -42,11 +42,19 @@ encoding, canonical JSON and execution/settlement semantics together. The manage
 profile domain is `EEZ_ROLLUPX_OFFLINE_PROFILE`. There are no independent schema
 or canonicalizer versions to configure. Use the published identity/profile vectors
 before testing streaming; generated protobuf bindings alone do not implement this hash.
-Validation-contract version 3 includes execution-group source identities,
+Validation-contract version 5 includes execution-group source identities,
 optional nonempty `0x46` history and [complete-group cleanup](../../../docs/proposals/native-system-transactions.md#complete-group-balance-cleanup).
 An external executor clears SYSTEM/EEZL2 in the completing transaction's state
 before its checkpoint, retaining load/user adjacency through previews/rollbacks.
 Cleanup adds no gas, receipt or log; final-block-only cleanup is insufficient.
+Block finalization additionally clears any ordinary donations. Those remain
+visible during in-block execution until the block closes or a complete group
+clears them. Derive canonical prefix hashes by closing copies; replay FIFO
+observations at their selected in-block transaction boundary before finalization,
+even for a full terminal prefix. An `eth_call` on the closed state is not
+equivalent. Independently check the unmodified terminal execution output against
+its header root. The version-5 identity distinguishes these semantics without
+changing the v2 protobuf.
 For each native group compute standard ABI
 `keccak256(abi.encode(string("SOURCE_ENTRY_V1"), uint256(chainId),
 bytes32(l1ParentHash), uint64(entryIndex)))`. Use the L2 EVM chain ID from the
@@ -127,9 +135,14 @@ execution engine alone does not implement the RollupX profile.
 The [history transaction contract](../../../contracts/L1_HISTORY_SPEC.md) also
 applies to an external engine: execute the optional first-position `0x46` update
 only at an eligible genesis-phased timestamp. Decode exactly version 1, chain ID
-and 1–64 hashes; derive cutoff, fixed sender/destination/zero value and the 2M
+and 1–64 increasing positive number/hash pairs; derive the delayed cutoff,
+fixed sender/destination/zero value and the 2M
 remaining-gas-bounded budget. Preserve the system nonce and meter execution.
-Check the consecutive ancestry and delay, and set both header and opcode
+The store starts empty behind a genesis-bound proxy; inherit the configured
+bootstrap origin until the first import. Execute the implementation authenticated
+by state and witness code, including ordinary authorized upgrades. Gaps in stored
+numbers are allowed and cannot be backfilled. Check the complete consecutive
+ancestry (including unstored headers) and delay, and set both header and opcode
 PREVRANDAO from that recorded choice. Omission inherits origin and PREVRANDAO
 without a storage write; validate that inheritance even in eligible empty blocks.
 Never infer a new choice from newer witness headers or perform an invisible import.

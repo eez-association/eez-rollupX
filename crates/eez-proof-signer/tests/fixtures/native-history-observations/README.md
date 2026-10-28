@@ -3,16 +3,16 @@
 These deterministic requests exercise RX-PROVER-01 through the standalone v2
 signer. They are constructed execution fixtures, not captures from a deployed
 network. The six-block window starts at genesis. Its terminal Sync block contains
-a scheduled history import followed by a signed transfer of 7 wei to a probe.
+a scheduled history import followed by a signed transfer of 7 wei to SYSTEM_ADDRESS.
 The allowed `historyUpdateOffset = 5`, with six 2-second slots per interval,
 places the import at Sync. The default offset does not exercise this boundary.
 
-The probe returns three ABI words: its balance, the installed L1 block number,
+The probe returns three ABI words: the system balance, the installed L1 block number,
 and that block's hash. The expected outcomes are independently fixed:
 
 | Request suffix | Claimed observation state | Expected result |
 | --- | --- | --- |
-| `before-history` | Balance 0, bootstrap L1 header | Reject before signing |
+| `before-history` | Balance 0, empty public history `(0, 0)` | Reject before signing |
 | `before-ordinary` | Balance 0, newly imported L1 header | Reject before signing |
 | `correct` | Balance 7, newly imported L1 header | Sign the committed digest |
 
@@ -49,3 +49,10 @@ existing seccomp launcher. It requires six block acknowledgements per case,
 four `observation_replay` rejections with no signature, and two signatures over
 the expected digests. No L1/L2 RPC, node database, Anvil chain or contract
 deployment supplies authority to this test.
+
+The ordinary transaction donates seven wei to SYSTEM_ADDRESS. The observation
+probe reads that in-block balance; finalization burns it in the closed block.
+Consequently the zero-balance/current-origin case also rejects a result obtained
+from the closed state rather than the selected in-block transaction boundary.
+Both static and mutable lookups must reach the signing gate only with the
+seven-wei result, including with a following native group in signer unit tests.

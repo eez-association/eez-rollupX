@@ -12,7 +12,7 @@ use alloy_rlp::RlpEncodable;
 /// One contract version for identity encoding, JSON canonicalization and accepted
 /// execution/settlement semantics. These rules cannot be selected independently.
 /// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
-pub const VALIDATION_VERSION: u64 = 4;
+pub const VALIDATION_VERSION: u64 = 6;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]
@@ -179,7 +179,7 @@ mod tests {
         assert_eq!(
             keccak256(include_bytes!("../../../Cargo.lock")),
             alloy_primitives::b256!(
-                "834a018a7e81af4b1cd56320cdd8e16c71ead92815c2692a9fbac1a8a76689d7"
+                "730fe310ae5eef1360d2e065775505a533b2e66d7b83fcf4b80b115c9f5eff85"
             ),
             "review dependency semantics and VALIDATION_VERSION before updating this guard"
         );

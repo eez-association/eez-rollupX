@@ -18,7 +18,7 @@ interface IOfflineRegistry is IEEZRegistry {
 contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     bytes32 public constant CONTEXT_DOMAIN = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1");
     /// @notice Fixed execution/validation contract; there is no selectable old profile.
-    uint64 public constant VALIDATION_VERSION = 4;
+    uint64 public constant VALIDATION_VERSION = 6;
     bytes32 public constant PROFILE_DOMAIN = keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE");
     bytes32 public constant RULES_DOMAIN = keccak256("EEZ_ROLLUPX_L1_RULES_V1");
     address public constant HISTORY_ADDRESS = 0xeeeeEeeeEeeeEeEeEEEeEeeeeEEEEeeEEEee0077;

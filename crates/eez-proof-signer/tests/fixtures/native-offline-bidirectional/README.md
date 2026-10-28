@@ -18,8 +18,12 @@ required for cold independent replay. No RPC endpoint, operator secret or cache 
 part of this fixture.
 
 Source details and the executed command are recorded in
-[the implementation audit](../../../../../docs/audits/2026-10-27-history-zero-lookup/README.md).
+[the implementation audit](../../../../../docs/audits/2026-10-27-upgradeable-l1-history/README.md).
 
 This capture includes the fixed FeeVault predeploy, its initial owner/recipient,
-the single `Profile` commitment and validation-contract version 4. The sole
+the single `Profile` commitment and validation-contract version 6. The sole
 prover service remains `prove.v2.Prover`; its protobuf messages are unchanged.
+
+The history predeploy is an initially empty EEZProxy with a separate ProxyAdmin.
+Native history updates carry explicit `(number, blockHash)` pairs. The public
+store remains zero until its first system import.

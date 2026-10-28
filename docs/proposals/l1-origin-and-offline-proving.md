@@ -48,10 +48,10 @@ outbound, grouped and callback operations.
 | --- | --- | --- |
 | A1 | Cross-chain `0x45` and dedicated history `0x46`; no system-account nonce | Update exact encoding, hashing, recovery, execution, receipts, RPC, Engine, database and replay. Reject malformed envelopes and unsupported versions. Ordinary user nonces are unchanged. |
 | A2 | `SYSTEM_ADDRESS = 0xfffffffffffffffffffffffffffffffffffffffe` | Update every producer/consumer and contract authorization. Preserve EIP-2935 block-system operations and prove that native execution does not increment the account nonce or leak temporary protocol credit. |
-| A3 | Keep EEZL2 at `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C`, with the pinned core's upgradeable proxy | Do not move EEZL2 to the draft's predeploy namespace. Keep the history predeploy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`; regenerate its sender-dependent runtime and genesis. The L1 registry remains independently configured and authenticated. |
+| A3 | Keep EEZL2 at `0x4B2760F84B83d6b3829E30A7573B0172B6d6402C`, with the pinned core's upgradeable proxy | Do not move EEZL2 to the draft's predeploy namespace. Keep the history predeploy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`; install the initially empty upgradeable store and regenerate its proxy, implementation and genesis. The L1 registry remains independently configured and authenticated. |
 | A4 | Recompute `sourceHash` from authenticated context and canonical operation position | Cross-chain occurrences have a sourceHash; history updates have none. Preserve original positions through filtering, whole-group partial consumption and replay. An occurrence identifier never authorizes execution or minting by itself. |
 | A5 | Explicit, metered native gas; no native fees | Require the encoded cross-chain gas limit to equal `min(remainingBlockGas, 16_777_216)`. History has no encoded gas field; derive `min(remainingBlockGas, 2_000_000)`. Reject mismatched cross-chain limits rather than clamping supplied bytes. Keep the existing whole-group capacity/refusal rules. |
-| A6 | Clear SYSTEM/EEZL2 balances after each complete cross-chain group, before its checkpoint; retain block-start cleanup | Accepted 2026-10-27 amendment: a load, paired user transaction, all roots and callbacks remain whole. Full committed funding is independent per group. Preserve mint rollback and clear residual balances after included revert/halt as well. See the [native execution rules](native-system-transactions.md). |
+| A6 | Clear SYSTEM/EEZL2 balances after each complete cross-chain group, before its checkpoint; clear remaining balances at block finalization | Accepted 2026-10-27 amendment: a load, paired user transaction, all roots and callbacks remain whole. Full committed funding is independent per group. Preserve mint rollback and clear residual balances after included revert/halt as well. See the [native execution rules](native-system-transactions.md). |
 | A7 | Credit ordinary L2 base fees to a network fee collector; priority fees still go to the beneficiary | Apply the credit after each ordinary transaction using its final charged gas, including reverted transactions. Native transactions pay zero. Every intermediate prefix root and final state root must include exactly the same credit. |
 | A8 | Preserve recorded L1 history, delayed PREVRANDAO and continuous ordinary L2 production | Retain both anchor modes, bounded nonempty imports, explicit omission semantics, multipart catch-up, complete ancestry witnesses and all existing delay/reorg checks. Change the transaction representation without making production depend on L1 arrival or proving. |
 | A9 | Keep proving wire v2 and an offline, language-neutral prover contract | No signer L1/L2 RPC, new RPC version or original-L1-transaction replay requirement. Recompute all existing commitments independently. Publish the final identity and conformance vectors for Nethermind/C# implementers. |
@@ -172,7 +172,7 @@ records independent review and the executed encoding checks:
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
 | E1 | Specified | Versionless cross-chain envelope with an execution-group source formula; dedicated optional history version 1; full Live Sync group ordinals; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
-| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 4. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
+| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 6. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 
 The `DELEGATECALL`/`CALLCODE` case in audit C09 follows the pinned proxy's caller
@@ -194,7 +194,7 @@ ban or proxy bytecode change is part of this work.
 | `eez-evm` | Sender, no native nonce increment, exact gas, cleanup, collector credit, recorded history | State transitions and rollback, EIP-2935 coexistence, actual PREVRANDAO, receipts/gas, post-transaction balances and intermediate roots |
 | Composer, driver, deriver/follower | Construct and rederive identical bytes; preserve ownership and local clock | Build/replay equivalence, retries, failed outbound carriers, partial consumption, restart, real reorgs, missed/late L1 and unavailable prover |
 | `eez-proof-signer`, control RPC and prover client | Authenticate the amended profile and all native occurrences before signing; retain v2 | Wrong source context/collector/profile rejects, cold offline replay, rewind/resume isolation, both anchors and exact public-input recomputation |
-| Local contracts, genesis/deployment tooling | Sender-dependent history runtime, collector/profile binding, updated fixtures and configuration consumers | Solidity/Rust profile agreement, generated genesis check, config propagation and mismatched configuration failures |
+| Local contracts, genesis/deployment tooling | Upgradeable history proxy/implementation, collector/profile binding, updated fixtures and configuration consumers | Solidity/Rust profile agreement, generated genesis check, config propagation and mismatched configuration failures |
 | External integration documentation/corpus | Publish one language-neutral contract for Nethermind/C# | Independent portable vectors and existing v2 transcript harness; actual external-client execution remains separately evidenced |
 
 Use the existing [validation matrix](../../AGENTS.md#build-and-validate), pinned
@@ -220,11 +220,13 @@ the prover is unavailable. It inherits the last installed L1 origin until an
 eligible, authenticated advance is available. Omitting the optional history
 transaction means inheritance; it does not assert that a missing L1 slot was empty.
 
-The L2 history contract retains every produced L1 hash from its genesis checkpoint
-to its current imported endpoint. At scheduled updates, a native system
-transaction can append a bounded consecutive range. Omission keeps the existing
-endpoint. That endpoint also determines the block's PREVRANDAO. Followers replay
-the recorded transaction; later header arrival cannot reinterpret old blocks.
+The L2 history contract starts empty and permanently retains the explicit L1
+number/hash pairs recorded by system transactions. Gaps are valid and cannot be
+backfilled; the default producer fills consecutive available numbers. At scheduled
+updates it may import up to 64 pairs. Omission inherits the last execution origin,
+or the configured genesis reference while empty. That origin also determines
+PREVRANDAO. Followers replay the recorded transaction; later header arrival cannot
+reinterpret old blocks.
 
 The prover receives blocks and witnesses over v2 and needs no L1/L2 RPC, persistent
 header database or hidden cache. Its proof is conditional on the L1 anchor and
@@ -276,68 +278,50 @@ T(n) = T0 + n * I
 U(T) = T + (q + 1) * delta
 ```
 
-Before the first update, genesis installs the authenticated bootstrap header.
-At U(T), the producer MAY include one HistoryUpdate at transaction zero:
+Before the first update the public store is empty; execution inherits the
+authenticated genesis reference and its PREVRANDAO. At U(T), the producer MAY
+include one HistoryUpdate at transaction zero:
 
 ```text
-wire = 0x46 || RLP([version = 1, chainId, hashes])
-1 <= hashes.length <= 64
+wire = 0x46 || RLP([version = 1, chainId, [[number, blockHash], ...]])
+1 <= blocks.length <= 64
 ```
 
-The [native execution contract](native-system-transactions.md) defines exact
-canonical decoding. No sourceHash, gas, destination, value or calldata is carried.
-The engine derives the fixed system sender, history predeploy, zero value,
-`importHistory(T, hashes)` and `min(remainingBlockGas, 2_000_000)` gas. No origin
-field is added to `extraData`; prove.v2 is unchanged. Exact transaction bytes go
-in the V0 ordinary prefix and `Block.rlp`. Cross-chain actions retain `0x45`
-and their original source identities; history is not a cross-chain action.
+The [history contract](../../contracts/L1_HISTORY_SPEC.md) owns the exact native,
+proxy, storage and application contract. The engine derives system sender,
+predeploy destination, zero value, `importL1Blocks` calldata and
+`min(remainingBlockGas, 2_000_000)` gas. No origin is added to extraData and
+prove.v2 is unchanged. Exact bytes travel in the V0 prefix and Block.rlp.
+Cross-chain 0x45 and its source identities remain separate.
 
-Let P be the endpoint in authenticated parent L2 state and h the hash count:
+Each positive, strictly increasing pair must match authenticated headers and
+cannot regress the logical origin. The first update may include the positive
+genesis reference; later updates advance beyond the stored endpoint. Gaps are
+allowed in storage and cannot be backfilled. Every intervening header is still
+required for authentication, including those not selected for storage. The final
+selected timestamp must be at most T. Default producer policy fills consecutive
+available pairs, up to 64; replay follows recorded bytes, not producer policy.
 
-- An update strictly advances to checked `P + h`, with `1 <= h <= 64`.
-- Every hash equals its consecutive checked L1 header. No produced header is skipped.
-- The selected endpoint timestamp is at most T; origins cannot regress.
-- The source need not be the latest eligible header. Producer policy prefers the
-  newest ready endpoint, capped at P + 64; replay follows the recorded bytes.
-- Omission at any position inherits origin and PREVRANDAO without a storage write.
-  This includes eligible positions and completely empty blocks. Late evidence
-  never rewrites previously recorded blocks.
-- Duplicate, misplaced, off-schedule, empty or malformed updates invalidate the
-  block. A later eligible update needs no intervening empty imports.
+Omission inherits origin and PREVRANDAO without writes, including eligible empty
+blocks. Duplicate, misplaced, off-schedule, empty or malformed updates invalidate
+the block. Later updates need no intervening empty imports. Both L2 mixHash and
+the actual PREVRANDAO opcode match the selected header before applications run.
+A storage write alone cannot configure the opcode environment.
 
-The engine derives the selected header's PREVRANDAO before application execution
-and independently checks it against the recorded import and parent state. Both
-L2 `mixHash` and the actual opcode MUST match. At other positions, retain the
-installed origin and randomness, including across Sync boundaries. A contract
-storage write alone cannot set the opcode's environment.
+The proxy at the fixed public address delegates to the implementation selected
+by authenticated state. Imports remain system-only, nonce-neutral, fee-free,
+without mint, output or logs, and metered within the 30M block gas limit. Existing
+EIP-2935 and balance-cleanup rules remain unchanged. Upgrades are ordinary signed
+L2 transactions; the owner is trusted with implementation behavior. Compatible
+upgrades retain the contract layout and execution invariants.
 
-EIP-2935 L2 parent-hash history and existing protocol balance cleanup run first.
-The history transaction executes with no system-account nonce check or increment,
-a successful receipt, zero fees, zero minted value, and actual gas charged to the 30M block
-budget. Its budget is `min(remaining block gas, 2,000,000)`. Require exact code,
-fixed storage parameters, canonical calldata, successful execution, empty output
-and no logs. Failure rejects the whole block; never truncate or repair the import.
-Subsequent cross-chain natives have their own source identities and use the
-remaining gas after this transaction, with no shared native nonce.
-
-The predeploy stores mapping slot 0 and full-width scalar slots 1–6 for first
-number, endpoint, fixed first cutoff (genesis phase), interval, delay and import limit. `current()` and
-`getL1BlockHash(number)` expose exact hashes. The getter returns zero outside the
-retained range, including before bootstrap; missing covered records and invalid
-endpoint state revert. It stores no
-full headers, timestamps, historical randomness or state roots. Applications
-can supply a raw header and verify its hash, then use the existing L1 storage
-proof verifier for authenticated account/storage reads. The hash is a commitment,
-not a way to retrieve its preimage.
-
-Accepted amendment: sequential application consumers call `getL1BlockHash`
-inside each polling transaction and wait without advancing when it returns zero.
-Unexpected getter failures still revert. The reference collector is removed;
-applications use the predeploy directly under the
-[polling rules](../../contracts/L1_HISTORY_SPEC.md#application-polling).
-The changed runtime and fresh genesis are bound by validation-contract version 4;
-the [compatibility boundary](../../contracts/L1_HISTORY_SPEC.md#compatibility)
-requires matching execution, deployment and proving artifacts.
+Getters return zero for unavailable records, including skipped numbers, and the
+latest getter returns `(0, 0)` when empty. Applications must follow the
+[polling rules](../../contracts/L1_HISTORY_SPEC.md#application-polling); they cannot
+infer contiguous coverage from the endpoint. A supplied header and storage proof
+still need a nonzero stored commitment. Validation-contract version 6 binds the
+new fresh-network profile. See its
+[compatibility boundary](../../contracts/L1_HISTORY_SPEC.md#compatibility).
 
 ## Delay and late L1 delivery
 
@@ -354,11 +338,12 @@ For I = 12 seconds and delay = 6 seconds:
 | 12 | H100 remains installed; no new eligible evidence is ready. |
 | 18 | No history transaction is included; L2 keeps H100 and its PREVRANDAO. Applications continue. |
 | 21 | H101, timestamp 12, arrives nine seconds late. Acquisition prepares it; old blocks stay unchanged. |
-| 30 | Next scheduled tx may install H101 or a newer eligible endpoint within the 64-header budget. Both origin and PREVRANDAO change together. |
+| 30 | Next scheduled tx may install H101 or a newer eligible endpoint within the 64-record budget. Both origin and PREVRANDAO change together. |
 
-A genuinely missed L1 slot has no produced block number and creates no synthetic
-zero hash. Multiple received headers are imported consecutively in bounded
-updates, including headers never selected individually. A real canonical L1 reorg
+A missed L1 slot has no produced block number and creates no synthetic
+zero hash. The default producer imports received headers consecutively in bounded
+updates, including headers never selected individually. Recorded sparse imports
+remain valid but permanently omit the skipped records. A real canonical L1 reorg
 can invalidate imported history. Conditional cross-chain proposals can also be
 replaced. Continuing production does not make unsettled receipts irreversible.
 
@@ -472,7 +457,7 @@ complete applicable ancestry and advances only after canonical consumption.
 Proof generation or a receipt alone is not progress. Cold prover restart must
 work from full request evidence. Retained execution sessions are an optimization.
 
-Imports are capped at 64 headers per scheduled transaction. Evidence remains
+Imports are capped at 64 stored pairs per scheduled transaction. Evidence remains
 bounded by the existing 131,072-header and aggregate witness/session quotas.
 Splitting only L2 blocks does not shorten an arbitrarily old-to-recent L1 bridge.
 Recovery beyond those evidence limits is not specified; it needs a separate
@@ -485,8 +470,8 @@ Deploy new matching genesis, manager profile, Composer, follower and prover.
 No old network/database replay, in-place upgrade, dual execution mode or rollback
 compatibility is provided. Regenerate fixtures with the existing genesis script;
 keep pinned Solidity/compiler metadata and the core gitlink. Wire v2 remains
-unchanged; validation-contract version 4 and Profile bind cross-chain and history
-encoding, complete-group cleanup, execution rules and the fee collector used by
+unchanged; validation-contract version 6 and Profile bind cross-chain and history
+encoding, complete-group and block-finalization cleanup, execution rules and the fee collector used by
 every component. Cross-chain source identities remain unchanged.
 The derived correlation index uses `eez-batch-correlation-recorded-history-v1`.
 Each accepted checkpoint retains its executed history state as well as its

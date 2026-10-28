@@ -175,9 +175,11 @@ number, non-increasing timestamp, noncanonical RLP or wrong fork layout rejects.
 Every produced intermediate header is required, including headers used only to
 bridge to the proof anchor. Skipped L1 slots have no invented headers.
 
-Block execution checks history storage/code, schedule and the selected source.
+Block execution checks the history proxy, authenticated implementation/state,
+schedule and selected source. Empty storage inherits the genesis-configured origin.
+Gaps in stored numbers do not permit gaps in the supplied header chain.
 It exact-validates each recorded 0x46 history transaction in `Block.rlp`, including
-position, version, chain ID and nonempty consecutive hashes, derives its gas and
+position, version, chain ID and 1–64 increasing positive number/hash pairs, derives its gas and
 import calldata, and uses the selected
 header's `prevRandao` for both L2 header and EVM. Finalize authenticates every
 recorded selection against the complete bridge and exact anchor. No latest-source

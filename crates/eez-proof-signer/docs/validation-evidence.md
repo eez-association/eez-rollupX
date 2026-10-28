@@ -131,6 +131,13 @@ the computed pre-state and post-state roots already produced during validation.
 Consensus, execution, receipt, gas, and state-root validation remain
 Stateless/Reth responsibilities.
 
+RollupX uses the shared [`eez-evm` adapter](../../eez-evm/src/stateless.rs)
+to close disposable checkpoint trie inputs without clearing the continuing
+execution. It independently checks the actual terminal bundle with the ordinary
+trie, so checkpoint projection cannot repair a missing finalization transition.
+FIFO observation replay uses the unfinalized transaction boundary; its pin binds
+the closed prefix's body and execution parent, not an RPC read of its state root.
+
 A fork change must keep the extension narrow and pass that repository's tests
 before this crate updates its pin. The pin update must also pass this crate's
 adapter and fixture tests. No alternative validation backend is selectable in

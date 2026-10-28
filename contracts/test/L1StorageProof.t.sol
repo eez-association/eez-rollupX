@@ -18,7 +18,6 @@ contract L1StorageProofTest is Test {
         );
         vm.etch(verifier.HISTORY(), type(L1BlockhashContract).runtimeCode);
         vm.store(verifier.HISTORY(), bytes32(uint256(1)), bytes32(uint256(NUMBER)));
-        vm.store(verifier.HISTORY(), bytes32(uint256(2)), bytes32(uint256(NUMBER)));
     }
 
     function record(bytes memory raw) internal {

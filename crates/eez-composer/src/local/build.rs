@@ -1267,8 +1267,7 @@ mod tests {
 
     fn rollup_config() -> EezEvmConfig {
         use eez_protocol::l1_history::{
-            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
-            bootstrap_storage,
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
         };
         let reference = Header {
             timestamp: 964,
@@ -1294,15 +1293,8 @@ mod tests {
         genesis["config"]["rollupX"]["l1Reference"]["timestamp"] = serde_json::json!(964);
         genesis["config"]["rollupX"]["l1Reference"]["hash"] =
             serde_json::json!(reference.hash_slow());
-        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] = serde_json::to_value(
-            bootstrap_storage(
-                0,
-                reference.hash_slow(),
-                HistorySchedule::new(988, 12, 2, 1).unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+        genesis["alloc"][format!("{HISTORY_ADDRESS:#x}")]["storage"] =
+            serde_json::to_value(genesis_storage()).unwrap();
         let mut chain = HeaderChain::default();
         chain
             .append(
@@ -1331,21 +1323,25 @@ mod tests {
         let evm_config = rollup_config();
 
         let provider: MockEthProvider = MockEthProvider::new();
-        let history =
-            &evm_config.chain_spec().genesis().alloc[&eez_protocol::l1_history::HISTORY_ADDRESS];
-        provider.add_account(
+        for address in [
             eez_protocol::l1_history::HISTORY_ADDRESS,
-            ExtendedAccount::new(1, U256::ZERO)
-                .with_bytecode(history.code.clone().unwrap())
-                .extend_storage(
-                    history
-                        .storage
-                        .as_ref()
-                        .unwrap()
-                        .iter()
-                        .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
-                ),
-        );
+            eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+            eez_protocol::l1_history::HISTORY_ADMIN_ADDRESS,
+        ] {
+            let account = &evm_config.chain_spec().genesis().alloc[&address];
+            provider.add_account(
+                address,
+                ExtendedAccount::new(account.nonce.unwrap(), U256::ZERO)
+                    .with_bytecode(account.code.clone().unwrap())
+                    .extend_storage(
+                        account
+                            .storage
+                            .iter()
+                            .flatten()
+                            .map(|(key, value)| (*key, U256::from_be_bytes(value.0))),
+                    ),
+            );
+        }
         provider.add_account(
             test_signer().address(),
             ExtendedAccount::new(0, U256::from(1_000_000_000_000_000_000_u128)),
@@ -2005,6 +2001,58 @@ mod tests {
             assert_eq!(actual, vec![f.build(&transactions[..=p]).header.hash()]);
             hashes.assert_state_matches_rebuild();
         }
+        assert_eq!(hashes.executed_transactions, transactions.len());
+    }
+
+    #[test]
+    fn prefix_hashing_does_not_burn_donations_in_the_continuing_draft() {
+        use revm::Database as _;
+        let f = fixture();
+        // Record SYSTEM.balance so premature finalization changes storage.
+        let mut code = vec![0x73];
+        code.extend_from_slice(eez_primitives::SYSTEM_ADDRESS.as_slice());
+        code.extend_from_slice(&[0x31, 0x5f, 0x55, 0x00]);
+        f.provider.add_account(
+            STORE,
+            ExtendedAccount::new(1, U256::ZERO).with_bytecode(code.into()),
+        );
+        let transactions: Vec<_> = f
+            .history_prefix()
+            .into_iter()
+            .chain([
+                sign_tx(0, eez_primitives::SYSTEM_ADDRESS, U256::from(17), 21_000),
+                sign_tx(1, STORE, U256::ZERO, 100_000),
+            ])
+            .collect();
+        let mut hashes = SyncPrefixHashes::new(
+            &f.provider,
+            &f.evm_config,
+            &f.parent,
+            TIMESTAMP,
+            B256::ZERO,
+            FEE_RECIPIENT,
+        );
+        for count in 1..=transactions.len() {
+            assert_eq!(
+                hashes.prefix(&transactions[..count]).unwrap(),
+                f.build(&transactions[..count]).header.hash()
+            );
+            hashes.assert_state_matches_rebuild();
+        }
+        let mut draft = f.open(&transactions);
+        assert_eq!(
+            draft
+                .state
+                .basic(eez_primitives::SYSTEM_ADDRESS)
+                .unwrap()
+                .unwrap()
+                .balance,
+            U256::from(17)
+        );
+        assert_eq!(
+            draft.state.storage(STORE, U256::ZERO).unwrap(),
+            U256::from(17)
+        );
         assert_eq!(hashes.executed_transactions, transactions.len());
     }
 

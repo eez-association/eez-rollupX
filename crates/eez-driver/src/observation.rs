@@ -283,7 +283,12 @@ where
     })
 }
 
-/// Replay an exact block and execute observations at their canonical prefix.
+/// Replay an exact block and execute observations at their in-block prefix.
+///
+/// Observations run before block-finalization cleanup, even at the final
+/// transaction boundary. Their pin authenticates the closed prefix's body and
+/// replay from its parent, not an `eth_call` on its post-finalization state root.
+/// This preserves ordinary donations visible to the next canonical transaction.
 ///
 /// The observation list must be nondecreasing by `after_transactions` and no
 /// position may exceed the block body. Canonical transactions commit normally;

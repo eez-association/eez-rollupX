@@ -94,16 +94,28 @@ pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::
             let history_address = eez_primitives::HISTORY_ADDRESS;
             let first: U256 = l2
                 .client()
-                .request("eth_getStorageAt", (history_address, "0x2", parent))
+                .request("eth_getStorageAt", (history_address, "0x1", parent))
                 .await?;
             let last: U256 = l2
                 .client()
-                .request("eth_getStorageAt", (history_address, "0x2", hash))
+                .request("eth_getStorageAt", (history_address, "0x1", hash))
                 .await?;
-            let first = u64::try_from(first)?;
-            let last = u64::try_from(last)?;
+            let bootstrap = genesis["config"]["rollupX"]["l1Reference"]["number"]
+                .as_u64()
+                .context("genesis L1 reference number")?;
+            let first = if first.is_zero() {
+                bootstrap
+            } else {
+                u64::try_from(first)?
+            };
+            let last = if last.is_zero() {
+                bootstrap
+            } else {
+                u64::try_from(last)?
+            };
             anyhow::ensure!(
-                last >= first && last - first <= 64,
+                last >= first
+                    && last - first < eez_l1::derivation::history::MAX_HISTORY_HEADERS as u64,
                 "unbounded history range"
             );
             let mut headers = Vec::<Bytes>::new();

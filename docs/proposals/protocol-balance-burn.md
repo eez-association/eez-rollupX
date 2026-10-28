@@ -12,8 +12,9 @@
 
 The [native transaction proposal](native-system-transactions.md) now requires
 cleanup after each complete cross-chain group, inside the completing transaction
-and before its checkpoint. Block-start cleanup remains for transfers outside
-groups. The historical results below validate only the earlier block-start rule;
+and before its checkpoint. Block-finalization cleanup replaces block-start
+cleanup for transfers outside groups; ordinary donations remain visible until
+block close. The historical results below validate only the earlier block-start rule;
 they do not establish validation of the amended execution profile.
 
 ## Problem and scope

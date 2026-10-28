@@ -257,7 +257,10 @@ fn ordinary_column_preserves_history_bytes_and_rejects_cross_chain_and_blobs() {
     let history = eez_primitives::HistoryTransaction {
         chain_id: 1337,
         version: eez_primitives::HISTORY_TX_VERSION,
-        hashes: vec![alloy_primitives::B256::with_last_byte(8)],
+        blocks: vec![eez_primitives::HistoryBlock {
+            number: 8,
+            block_hash: alloy_primitives::B256::with_last_byte(8),
+        }],
     };
     let raw: Bytes = eez_primitives::EezTxEnvelope::from(history.clone())
         .encoded_2718()

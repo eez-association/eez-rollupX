@@ -45,6 +45,8 @@ pub mod balances;
 pub mod block;
 pub mod history;
 pub mod profile;
+#[cfg(feature = "stateless")]
+pub mod stateless;
 use block::{EezBlockExecutorFactory, ExecutionLayer};
 
 /// Enforce L2 transaction support during construction and replay. The underlying
@@ -165,7 +167,7 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
         let schedule = self.schedule()?;
         self.executor.history = Some(history::HistoryConfig {
             schedule: schedule.history()?,
-            first_number: schedule.config().l1_reference.number,
+            bootstrap: schedule.config().l1_reference,
             source,
             l2_chain_id: self.chain_spec().chain().id(),
         });
@@ -269,11 +271,17 @@ impl<C: EthChainSpec<Header = Header>> EezEvmConfig<C> {
         };
         tx.validate()
             .map_err(|_| eez_protocol::l2::ProfileError("invalid history transaction"))?;
-        let Some(hash) = tx.hashes.last() else {
+        let Some(block) = tx.blocks.last() else {
             return Ok(parent.mix_hash);
         };
         let chain = self.l1_headers(timestamp)?;
-        Ok(chain.by_hash(*hash)?.header().mix_hash)
+        let header = chain.at(block.number)?;
+        if header.hash() != block.block_hash {
+            return Err(eez_protocol::l2::ProfileError(
+                "history transaction differs from authenticated headers",
+            ));
+        }
+        Ok(header.header().mix_hash)
     }
 
     fn schedule(&self) -> Result<eez_protocol::l2::Schedule, eez_protocol::l2::ProfileError> {

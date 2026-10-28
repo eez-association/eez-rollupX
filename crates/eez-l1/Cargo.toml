@@ -50,7 +50,7 @@ alloy-network.workspace               = true
 alloy-transport                      = { version = "2", default-features = false }
 eez-payload-codec.workspace          = true
 eez-primitives.workspace             = true
-eez-evm.workspace                    = true
+eez-evm = { workspace = true, features = ["stateless"] }
 reth-chainspec.workspace             = true
 reth-primitives-traits.workspace     = true
 stateless-reth.workspace             = true

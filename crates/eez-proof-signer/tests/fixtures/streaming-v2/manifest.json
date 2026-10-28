@@ -1,59 +1,60 @@
 {
   "format": 2,
-  "base_commit": "66e79cedf4cfac3222b5de40f0fee8d1f2936000",
+  "base_commit": "d5b6d3c9efa6ecdd8147edab532ff913f425426f",
   "protocol_gitlink": "84a5b5207880f192a6a5896cbfe0bac5249db47f",
-  "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1, complete-group cleanup, Profile, validation-contract version 4, v2 capability profile 2; source digests include uncommitted changes at generation",
+  "implementation": "Versionless cross-chain 0x45 with execution-group SOURCE_ENTRY_V1 identity, optional history 0x46/v1 with explicit pairs and an initially empty upgradeable store, complete-group and block-finalization cleanup, Profile, validation-contract version 6, v2 capability profile 2; source digests include uncommitted changes at generation",
   "authority": "Complete captured L1 evidence; signatures are conditional on the independently checked on-chain context",
   "generator": "crates/eez-proof-signer/src/service/sessions/tests/vectors.rs",
   "source_sha256": {
-    "Cargo.lock": "1c23d3d99586a6799e90b17b90724bbee949f4de8f6ef99eee197857eee6b644",
+    "Cargo.lock": "6d2430d0f78b851f367df8afded52a0c8ee59e046bfbfaa2211d4d865b5df7e1",
     "Cargo.toml": "e3ef19389d09937d96918a32e8c0a9fd7c96fe0050e564f20500f3c8c97a5c69",
     "contracts/src/L2/FeeVault.sol": "51a8950f6d7c29a098fd989b1d6a1abd7becb8c70f9915d664e5f529d4789559",
-    "contracts/src/L2/L1BlockhashContract.sol": "1323a4e9c2a2006febd26a47cb41d38e31ab855f5ff36329ec60c4d72ac8754a",
-    "contracts/src/OfflineRollup.sol": "9a06ede23710a7ff835c00ff8c454e3904a1d084efe7731bdbd4593b03f5dc5b",
+    "contracts/src/L2/L1BlockhashContract.sol": "07f81c3dd1d54ade4400fa564dc4d423947141925c1496fbf3315326d28de93c",
+    "contracts/src/OfflineRollup.sol": "367d0f9c6ece3b45121e3d425a5ea286f4a24ace1da200613974cf571c6f8f28",
     "crates/eez-blob-codec/Cargo.toml": "de7127eb1138a389ca86436e3e4134688845af61ac942fb1743d1eca7ee136e3",
     "crates/eez-blob-codec/src/lib.rs": "3e9b57bf1532b3f2f49cc6eb0022060cde69976f86e1ff1022c7b34ab14ca9e9",
     "crates/eez-blob-codec/src/limits.rs": "0008d6315bebdfa1f4b44bc2147bea84b803f06c300b10c4c423358091fff252",
     "crates/eez-blob-codec/src/transport.rs": "262f3f58529299039b8a6bdaf2ee332ab595738fe7f740ef3751b33250a5df7d",
     "crates/eez-control-rpc/Cargo.toml": "f5d3a32921d640ab7b4f8abcf98f721c084e3c36f5572ee61806b7ec1b4df196",
     "crates/eez-control-rpc/build.rs": "b6a1a03996c9536f984c2be284cb62fc70b264bd0da52da1f435ae139eca554e",
-    "crates/eez-control-rpc/conformance/check_vectors.py": "57dda802885dac2811807e239fbc60f74775b6dedd7224bfe61690e82143a3ce",
+    "crates/eez-control-rpc/conformance/check_vectors.py": "ee7f5406c0815853e6be131927469c37a44af65f633362fb6864fce856f5889d",
     "crates/eez-control-rpc/conformance/replay.rs": "698d0bda1c2f0609d74738d5a90bab388010211bf25af21da0fe4f75be318df2",
     "crates/eez-control-rpc/examples/replay_streaming.rs": "32cd5a3330e07ef2c59d40d219eed7207607cbf8c10c82e8e83db5c0a925d6ac",
     "crates/eez-control-rpc/proto/prove.proto": "e27d7a44a252608cdbf9b738110924cbbb86ff01fbbeeca1365088a4dcbc1887",
     "crates/eez-control-rpc/src/generated.rs": "c03ca529172e2cbc6c4e0d77e3bf21c82f5ede67ccc515ecc26c92de4697aa93",
-    "crates/eez-control-rpc/src/identity.rs": "5b19c272abcc902c188e5772de3d8faef9c80c7f1a24768f7433f5dcd8794f55",
+    "crates/eez-control-rpc/src/identity.rs": "338d9bed4c4526825dfdbda3a907efa7eb2868ce9c0763ce5d667d0a92c9181a",
     "crates/eez-control-rpc/src/lib.rs": "b1e57ea5232251501620dca99139ca503964a1e6b8066d5a921e3a54d814bd05",
     "crates/eez-driver/Cargo.toml": "d460214c773f37dde7e79f58182efccc73506fa5a1791376ceadab27585ddb79",
     "crates/eez-driver/src/block_committer.rs": "8fd4fe84ce0b674d786d2923f23c42045bb2099fc44dd9b1adf5f839969280aa",
     "crates/eez-driver/src/derivation/encoding.rs": "05ee09f25df08f3c7ee4676d9583b5a9d79894cece9fe93e2becf8d326da5c4f",
     "crates/eez-driver/src/derivation/no_state.rs": "0f53d4fad5bda849cfd2142f05fbc9ed8da5af5f49991f68ab0e7c05cdca9f69",
-    "crates/eez-driver/src/derivation/tests.rs": "58216683363ca69ff95244534e801dc4947c1c1942ad29abda8de6c8c87233f1",
+    "crates/eez-driver/src/derivation/tests.rs": "ef97287c3c63bb8e9973f3376725371a9faf833122067e180f2e0632d21abb55",
     "crates/eez-driver/src/derivation.rs": "f80b00fb2204019989f8cc28963936a5e89f8636c5b347864ae3bf4a0bed90ef",
     "crates/eez-driver/src/error.rs": "ef09b614914abb6755f2e8c575504c6a193f83f216b11bb06b70bc280bbd31e2",
     "crates/eez-driver/src/lib.rs": "e6df41f33f44165eb6b65fea811e07e9fad2e8215b0d1c98612289bcb1b9db21",
-    "crates/eez-driver/src/observation.rs": "e80f624a91334ae4431e00aad7622a562503f862b727bb6df055a7ae53bff5b2",
+    "crates/eez-driver/src/observation.rs": "1600cdc37f8c793532119c52203cf1c9e8bab3eaf01cca085082654e59598a74",
     "crates/eez-driver/src/sequencer.rs": "86c685ecccef6a69cda521295c21ba4eca4531b91f7d8f52188e8b7070e546a1",
     "crates/eez-driver/src/slot.rs": "a26449ecb5b59f21e791757f845ff0ab5e9aba271820b44b17edac335acbfaf1",
     "crates/eez-driver/src/timing.rs": "1b4ac5d866bf5b7684770a230002013d24b5b4b8b228130b9e16e293db9105d8",
-    "crates/eez-driver/src/witness.rs": "e7c4fec56eed52a3f6755968b80e39a8decdfd01a67ba0e975ec9a344aab6e67",
-    "crates/eez-evm/Cargo.toml": "5fd0763963370674bb4f211caa617e2f213acaa721eae527dae05d7ca61d4545",
-    "crates/eez-evm/src/balances.rs": "0e1c41d3dc7ed5b80292d3028a111d6fec0a16269e022427adf532dabce48e15",
-    "crates/eez-evm/src/block/tests/groups.rs": "7636658acbb756a32b29226fcc593f64dfabc0a520208ad9466358abc410d06c",
-    "crates/eez-evm/src/block/tests.rs": "68b82c880e974a31c8f6d36d569de25e7fc865895e286305789d2ff1748c4a61",
-    "crates/eez-evm/src/block.rs": "7df26e8c1c3600110385855aa0717aed53c8bec3d9613f8b5bfb291c3bdf95ee",
+    "crates/eez-driver/src/witness.rs": "f78cb6c879d949647bafd96d1d49a2c88af8555a743ba86a9033b7927736d4a1",
+    "crates/eez-evm/Cargo.toml": "e36fdefd75b50724974033d1754ff4d11f21a9c5b15f560d45b866fd1643a4fb",
+    "crates/eez-evm/src/balances.rs": "50e9739231373ed8a3989935e163d19f9d3f8d4d0eeff7756e7733a9aaf15611",
+    "crates/eez-evm/src/block/tests/groups.rs": "66b6e97fcf1edffb233bd85776a6f0eefec60370b9383f7a4d6470946022664c",
+    "crates/eez-evm/src/block/tests.rs": "023672d1ca7fbbe5aeef3ef3a8b4bddd9d44718de707e1858049739cf77e0feb",
+    "crates/eez-evm/src/block.rs": "229e0745f6fd10a85df5e055a0a621ff356d465b1b9839ca822f6201f432efa9",
     "crates/eez-evm/src/evm/tests.rs": "e4c7f670e2a7c733b0f3c37fefa6a682c48eb25782ebb2d7ccecb336ba6c64fe",
     "crates/eez-evm/src/evm.rs": "b43a8ef0282c087b73bd0fa7a310e655e16db466f93a36979ede578519263bb7",
-    "crates/eez-evm/src/history/tests.rs": "10dc8017e09653ae8ca998863f7dac06cd38d4b52f4425cf620f36b1764616a9",
-    "crates/eez-evm/src/history.rs": "59d14ef6a049991f7d8d9514651e6000f7e6c1660cfcdc48c1d07c9fc4505af6",
-    "crates/eez-evm/src/lib.rs": "83206a0775ebc2f061f2a91d04e9b4cb723d4a5300049b86d0fb5967307ccac5",
-    "crates/eez-evm/src/profile.rs": "e547084bc155324dda392305b037890a3da539baa41abaff6e4837bf490cad33",
-    "crates/eez-evm/src/tests.rs": "a9f826f43f4bb02aafcba25c51837ec3ff3ad0d979b69216a99a97585b053e22",
+    "crates/eez-evm/src/history/tests.rs": "24237874f4fd60ca7014a0195e4239134f2eba0dff5fff7155f56f969bc01c7c",
+    "crates/eez-evm/src/history.rs": "462b034add67c6ec8aa18e6d175a32780f55033a274e530fdd0798ac00d05282",
+    "crates/eez-evm/src/lib.rs": "c1d0e640c178f3784e0fdbcca45ed4040cce3547065eb77f8f6825c874866af9",
+    "crates/eez-evm/src/profile.rs": "222b7f6f9e3f1ae63c528c18da4da41b79735a00ac82ddf4f3a67d8f6ed56ff4",
+    "crates/eez-evm/src/stateless.rs": "b40fa670dddfee9c67da1bcfa78ce26aff5b390013052e761f33b1af431feeeb",
+    "crates/eez-evm/src/tests.rs": "7570f910491760c7221ec029619a724b466b54805c8580db098e55237b5cea2e",
     "crates/eez-evm-inspector/Cargo.toml": "408ecfea569e1a78c6290e9114f34f62f4184d00c7f7b18aed7870f3b713b770",
     "crates/eez-evm-inspector/src/inspector.rs": "166455fd370c26e4c26dad4015a79af7e91f2ae02ed28a41264c91747c82e5e3",
     "crates/eez-evm-inspector/src/lib.rs": "19ad640813daa5692e71831ff8119f2e97b688e4d0461a72ee533651007ed014",
     "crates/eez-evm-inspector/src/overlay.rs": "cd617d5a3d08843b6317cec0f649eb5f3744aa8f1ac1e065d96842220705781f",
-    "crates/eez-l1/Cargo.toml": "ee7db7682fe4965401bdd5a78514d75ba6e9572a240e4a44572854e4127ffe44",
+    "crates/eez-l1/Cargo.toml": "48cf5db12562a5a1d6633c056dbe579427e82422668568f58222b3ba497d9234",
     "crates/eez-l1/src/blob_source.rs": "3a3eadb8b280855c3dfcf6510b7e632cc8ce62cdaaf907a59d0e8b6f42eddad8",
     "crates/eez-l1/src/chain_config/canonical.rs": "eba1a0dc94cd2dcf9959ee82bee8215ce83ebcd1091f60184258bd9a6438a2a5",
     "crates/eez-l1/src/chain_config/l2.rs": "bdf3efcfc93b5a550d43c40b982ba11e7d6339c9603dbca6a887dd385984d997",
@@ -61,7 +62,7 @@
     "crates/eez-l1/src/chain_config/tests.rs": "05db3687edd7b25913f3377928f85f94b7fbef40d79e40b2a8f55e5169495bda",
     "crates/eez-l1/src/chain_config.rs": "82154ab7633c688e2f1c2a6d755ca8b12e373033134cc80d5179fca1ceab9d5c",
     "crates/eez-l1/src/config.rs": "4d79c16b7af054616acaac24cf3c0425e5db419307aa413e6e88bcd3530fbecf",
-    "crates/eez-l1/src/derivation/history/tests.rs": "b667a3aa59f8c6918125853f8c74761f4a50e7693e2960c3678f8e64aa695d92",
+    "crates/eez-l1/src/derivation/history/tests.rs": "919980fd46ce2365ae8ec96d6bafc25c14ea6c4b606f245180706e85068b20d5",
     "crates/eez-l1/src/derivation/history.rs": "5c3a7cf87f10ab211cc68233cfc2d37158cef30388b438832e78bc350a60a4a6",
     "crates/eez-l1/src/derivation/tests.rs": "e5f03b460b26936be5e901b88c078dd27dcb69efe543cd9a5e0625c1517d2293",
     "crates/eez-l1/src/derivation.rs": "7c763f87911e75d878c028d464d2cbdee67f9e81e2a194ce0f261be97af52f2c",
@@ -81,14 +82,14 @@
     "crates/eez-payload-codec/src/lib.rs": "8261fd4d3e1f3ff627d0fb544dbc33eaac38ee7a4324eb2e002d65ff8cd4711d",
     "crates/eez-payload-codec/src/v0/counts.rs": "6722d87be7162821146920d435d047827565e487c4fa3da89e798cd4efa32d80",
     "crates/eez-payload-codec/src/v0/sizing.rs": "2dcbd6ddabe2c8e6236effd714605fbd2ba734a6eb6c7dce59d7f7ad544403fc",
-    "crates/eez-payload-codec/src/v0/tests.rs": "cb8a0a730e86e213316427c4bed55136164c933d56ccd5798b44dd295895a06e",
+    "crates/eez-payload-codec/src/v0/tests.rs": "3620eaf3458ef4356c26c5ec97e5b3c298489c6b446f3b59c5791ff24120e5a5",
     "crates/eez-payload-codec/src/v0.rs": "f42c59a009c0e0805c048b623365a7821a3ece5124ceb6cf4834272f383bfe89",
     "crates/eez-primitives/Cargo.toml": "ec2f92337e0e40feb3faa0e6c9b051e6d19a96a0bef3243e9bfad95a33504a30",
     "crates/eez-primitives/src/engine.rs": "d39e14364c6d3755d9687617bb295a2e8142616115fcebe3e40d6c09f7a14734",
-    "crates/eez-primitives/src/history.rs": "e0759d88233be3d411db16ebb89e1458996d6616667de0ccdf00a4c9d6930655",
-    "crates/eez-primitives/src/lib.rs": "0842ee298fa581ed7e6be854952830ad8e75e22c1e30586b17dde1de05cc9002",
-    "crates/eez-primitives/src/tests.rs": "33a9dfb33feeb5dcae130a08ac5b2e7d85f1c933518fea56b384172c5c0e06ba",
-    "crates/eez-proof-signer/Cargo.toml": "575f777c6eca3f27dee441d83afe669bc8d12172169c7667b5291e56f8e097fb",
+    "crates/eez-primitives/src/history.rs": "817da999edd376d6d8354b6560bd549f4e60a931fecaf59f80a1548a64ff3142",
+    "crates/eez-primitives/src/lib.rs": "a7a4d1ac09e14b5886436a0b5d5f3a8f91f3aaf81afd731cb1434b2525227cb8",
+    "crates/eez-primitives/src/tests.rs": "818814afc5577b1fc6a75077cebe35050e18560e335d0ccd742b814c3a043a62",
+    "crates/eez-proof-signer/Cargo.toml": "9c2e802e3e963758b199dcb0603c09b659e6e7a23aec3093d930c048309aa316",
     "crates/eez-proof-signer/src/attest.rs": "39e3ec83fbf317b76b732b7a40b826d11c0d765dc840dd07cbd595add986ca3c",
     "crates/eez-proof-signer/src/cancel.rs": "4c580b45b1e7776155fe90c715c518dc778b8f65b73f9aecc744f0af85f7f335",
     "crates/eez-proof-signer/src/config/tests.rs": "dacee355f71fc89f7b1d3e1b5bc243b25ddd3333cb2409e34f11f25e22d849c9",
@@ -129,16 +130,16 @@
     "crates/eez-proof-signer/src/settlement/tests/state.rs": "e5dde061a74ae7d4944a124f95d49a6bd1a3d21478e21b67e9aceb38eef91665",
     "crates/eez-proof-signer/src/settlement/tests.rs": "00da27c66f2afad9aceb53c6ab20a23992c96adec6a85e696f461f19e4d38e5d",
     "crates/eez-proof-signer/src/settlement.rs": "23aaedf32c296a71789a4288db6aa53f51bda9ca4b696b1a934830399fa10d6a",
-    "crates/eez-proof-signer/src/testkit/history.rs": "37e71c05e0a395ad068ed83570269fa125379dbed821fc08cc680f39163adf10",
-    "crates/eez-proof-signer/src/testkit/history_observations.rs": "c30b585929df00188d62e6a303cc915e09f5164a826ba1f445067c02224f04b2",
+    "crates/eez-proof-signer/src/testkit/history.rs": "c7272ccd07b8bd5744a0ead831fe86afb9a180810bac9886fe60616d65da82b8",
+    "crates/eez-proof-signer/src/testkit/history_observations.rs": "65976117004bf7cb7e6c0692289c071c84afc762c15e9e88462f1b9a2577f010",
     "crates/eez-proof-signer/src/testkit.rs": "532d39bf364ef507f2bac7d2e53eb3c7dbc8a3a89707f2b4e4da4bd68859267e",
     "crates/eez-proof-signer/src/validate/stateless/reconstruction.rs": "2fac74a52293edcb0dea19a9e650cfe20fe7718b64f8a4244ce29bc6dec41c39",
-    "crates/eez-proof-signer/src/validate/stateless/tests.rs": "a2ab704417fb9e2fff6adee3b62adbfa677b140ab8494aedb0011749da52f414",
-    "crates/eez-proof-signer/src/validate/stateless.rs": "8aa56b8c10a40c27441bf179af1302e4b38fc59572a9d87c1df972ddc8b6e882",
+    "crates/eez-proof-signer/src/validate/stateless/tests.rs": "d3574430458a966c9e103ad789a5468bf9185129945f94d170475ec3d4e69f8b",
+    "crates/eez-proof-signer/src/validate/stateless.rs": "2513f484072f64c23e6f9b0dfab31e4335429c0c5d3e3e9b1730715e51e36f57",
     "crates/eez-proof-signer/src/validate/streaming.rs": "68e623213da41d5ab381653ed1b61a7e27bc6d8dca2d93f2bc0b3cfe71ddd459",
     "crates/eez-proof-signer/src/validate/testing.rs": "7ed4476526f9db09b07f596c4dac724557c09fbc5fef2a838372fdcecab5f1e6",
     "crates/eez-proof-signer/src/validate/tests.rs": "203a4cf0f0c3401c3f6e0725cf246eecfc10e4bbcf019eb45117bb4e7df2a766",
-    "crates/eez-proof-signer/src/validate.rs": "96d904aa41da08f8bd24ce644b537e8a83ffca93f0cb5ac3f6b169e9ed18c267",
+    "crates/eez-proof-signer/src/validate.rs": "eb65eefe1ac702f410eb9886374d7421349068095308ca6e0d6632bed6502a1d",
     "crates/eez-proof-signer/src/window/tests.rs": "45d43002d39d3cdb1c42c3698807836de33f7e971c2922c9a3e849630078f9c0",
     "crates/eez-proof-signer/src/window.rs": "5da8d1c5315d987aad8de0c22e0f9e399fe03248a224e959f0811586c98c27d1",
     "crates/eez-protocol/Cargo.toml": "5249e83a298758aa38353022eba7b5db9c0eb8c9780f6c11e586f146361a084d",
@@ -160,12 +161,14 @@
     "crates/eez-protocol/src/error.rs": "502a6531df24359767a7341407d7c9064a727b9da7b7de96dcc1b243ff6a57ac",
     "crates/eez-protocol/src/executor.rs": "6ed1da8c81096fd0da5e099d46553675e1f5e018d066f5ec4beb385afc8114e5",
     "crates/eez-protocol/src/fee_vault.rs": "bd11d76e459c053765db41763d68fc5582e81d7ab457727b82150eda4ac880ce",
-    "crates/eez-protocol/src/l1_history/context.rs": "1bd189d88c0483ec7806d845251cafa04c31c43e62c4a83738ac6aadbb1a09ac",
-    "crates/eez-protocol/src/l1_history/runtime.bin": "75063a5e89bf01a675b416325c91fff1b0a7c43710d3c5b8cfce3ec33b6459a3",
-    "crates/eez-protocol/src/l1_history/tests.rs": "19c9ca5fe7bf44ffba8534e2ca768a1563c46e35d0eee0e8968372c09d1fb180",
-    "crates/eez-protocol/src/l1_history.rs": "e1104e3aa7d8d1abe4df5b5f187709127301024fbb492511487105b943c0660a",
+    "crates/eez-protocol/src/l1_history/context.rs": "b93ff204167f4c0e81d2756684fb579af66748f8486310aa0d9393a71e694563",
+    "crates/eez-protocol/src/l1_history/implementation.bin": "ee6833778919593816ac98f679a22997179894f04e790f9d80408b09cc3f647d",
+    "crates/eez-protocol/src/l1_history/proxy_admin.bin": "ec136199cf43af4f4d063e847cc9c361d0620fc45902eb24aca0797e08dd8255",
+    "crates/eez-protocol/src/l1_history/runtime.bin": "daecd91dc9807bd1752b1615d64f4d5bff0c3813c414e1637f8cedac842a41e9",
+    "crates/eez-protocol/src/l1_history/tests.rs": "a5fc58e8b11aaf1798bee02395abb8463c2e310ac1a96afa4894b78e9f48361f",
+    "crates/eez-protocol/src/l1_history.rs": "d5d31536391af2bbd2b805160ae72411ab3f213439dd91cf43b697ac4a3dee9e",
     "crates/eez-protocol/src/l2/derivation.rs": "fdf07ebbf7ef9e68ae03a4dd6d4faba1d7b1e24061d0407c62f0a6ddebf506b0",
-    "crates/eez-protocol/src/l2.rs": "908225f0888489f4f15aaede75a80ff9b6580d09e2417291a95e628c1b7a54ec",
+    "crates/eez-protocol/src/l2.rs": "fbaae10b2cd8e1f0e76495f542132036966db1db34237250c2abd5d95b9743ae",
     "crates/eez-protocol/src/lib.rs": "17075d2adb19cb7724a5e441cb9924b6234e1b41b613d848637b4d96145885f4",
     "crates/eez-protocol/src/native_source.rs": "89aaad128b55233f075298c488ecbe3cdcbf7d62ea901eae380839b8adcce0ed",
     "crates/eez-protocol/src/outbound_gate.rs": "ab29401d753bd7cb4d52808d498b3e2df808749cca77275b73d8ae70b4e5b1e4",
@@ -173,43 +176,43 @@
     "crates/eez-protocol/src/public_inputs.rs": "d56d89e2992d4195018e2c89ad7b4a92a5893aa1d5596614efc0fc0d3ec4dc35",
     "crates/eez-protocol/src/rolling_hash.rs": "50944f28ada550a478415ea74c882a1f93673037261d6c8a7d9d2805b754a96c",
     "crates/eez-protocol/src/rollup_id.rs": "65af88f758e42e601fe3d73a2e687bec9664d5a0610cee09447b40ff55a8ffdd",
-    "crates/eez-protocol/src/settlement.rs": "086e15bf573ef7530a5ccfe3e6e46cff8ef369cdee810f1442a89ef09b680dc5",
+    "crates/eez-protocol/src/settlement.rs": "0d53c733a12ea39b8ac6fd1714069d63505488f3326061b704b38a43cc8cc972",
     "crates/eez-protocol/src/settlement_manifest.rs": "fcdb755100610ba08912f412b0ce4829a2570ae2f8f987efc3baad6fac3b7d61",
     "crates/eez-protocol/src/signer.rs": "868015c4a6ee3c6ff8db85edfe3ab83359bee978fdcef1b04d75acb6ca79f080",
     "crates/eez-protocol/src/system_tx.rs": "84f36baf962dacedf0488e2c7679bb6e984ce6b255960876f4092c155dd6aa77",
     "crates/eez-protocol/src/types.rs": "3fba77156f3d3a59a32e64d1d180a256132bd9083064b984edf5e5969fa96b5c",
-    "scripts/solidity/GenerateEEZL2Genesis.s.sol": "0f986a5670dab8c56025df3151ce54955dea8f4c17ce130a02934b810465d203",
-    "scripts/update-eezl2-genesis.sh": "11d7b0b3eb3a421817f6872a128bc7d19bbb5c12468374377554e2767be0ca42"
+    "scripts/solidity/GenerateEEZL2Genesis.s.sol": "471a4b8e4bca3c54b229a52b23dcae1433aeca309389de81c395505e329f1190",
+    "scripts/update-eezl2-genesis.sh": "b03cdf8f40a8da12a09c04a60b7be194b3479301c3063c4b95d7d7c71b912d3c"
   },
   "fixture_inputs_sha256": {
     "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l1-genesis.json": "3ff8b3521214d2546b257a4c4a3793c3e39f0e0d7e63b1802ecae730b6022b83",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l2-genesis.json": "de34f0f93542bdd00401d9ba0dee30e2bbd0f9e32b3cd12c0a4cee48fda68782",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/request.v2.protobuf": "32f876a8fee7ae6f1b93bab0557026f3db8d4f80d9a745bd14978e93f1f52a6d",
-    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/response.json": "2e3d8b1d2274f7aea6215a1a16f35644c0481560eb123a4ca08ce2353aa66731",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l1-genesis.json": "20985041185c974013aedf9277da89995cc80f37733a22d7fe0271ef0243058a",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/l2-genesis.json": "6cdcdafa83ab60ad22be2ad4473fe788efb72ba18f91c97bc0c0e8786c51cce2",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/request.v2.protobuf": "8e5bdbbfd8038647ff430333af1e46b86cf5e695f723dc9475d850e085e4f948",
+    "crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/response.json": "0e979be9b44cfa8eec150a93a419d075010223c7e4ec509dd90a06cf33960810",
     "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l1-genesis.json": "45f414c47f963c44b7c8503318296d52ebe2d4a725f4aee48559dfa0c46b95aa",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l2-genesis.json": "4bd04d399f1e20eed401b68ffd8c4d29dc8a95f9879e3e4ecd6601cbffa728c5",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/request.v2.protobuf": "586fcea3a7a98616736ab3f8f78b2f1e6f47c69494621c34e0e2d665bdf71ca0",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/response.json": "8c899d0eaf8ea25f29001ceae18ba0bd607257a6be2825b6ec05087c7f4f1eda",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l1-genesis.json": "939cc3828ff10581f141c9153d4d977d275c2f0ae1f3555e0b4efb090c5c4231",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/l2-genesis.json": "594654f804f90ee15f058608330116d0a4c9ec48d62fa2b2ea8167f705d5bf76",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/request.v2.protobuf": "1fe166d45767246605c6e6b2ae62aea4fc3ca6047a81ea45994eb9b6e048f6d4",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/response.json": "6b7136122cb2d42d813090ce68c38caa1feea7d6cd6cd158f1f28ec0dea2b178",
     "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json": "5190cf87bde6841fcd85bff8cfe0850e8928a007d4e88a65b94693045662f984",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l1-genesis.json": "48fc1ed995df028783b8d25df9ff33dbc522fb11516f09e1358ad6d06d9f26bd",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l2-genesis.json": "54f729c92567689077d88ec11ac2e669594957671c39de20b0aa4b5b87365efc",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/request.v2.protobuf": "f0a9dc7c91ae316b62e007ec025b12515b1c7bb1287a3845607dfa65314e5b53",
-    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/response.json": "a02e86cf0f90ebadb38aaeabeab1d82c600bd09c5731c99177bfa8347d8dfbb4"
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l1-genesis.json": "575c1e48df4cf0715be1874ad677f835193b859a548ee59f5a49a0075ed0d902",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/l2-genesis.json": "28f0bad675b5d2aed6e032ca17b6cbee8bdc8722283d043dde43378f45b37c28",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/request.v2.protobuf": "81d40533e44c7f94dfdde2642f543a59645d18b872538ba987e2c0bc74f21d5d",
+    "crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/response.json": "89132eb732029d96688eff159f7742990b54465d8dee5f25bdae9174de9ad57b"
   },
   "vectors": {
     "baseline-lookup.json": {
-      "sha256": "c8e0119b8d65d70e2cb9284ab9052b601b70dc7f7a953229c3b1c05c97745f7e",
-      "events": 225,
+      "sha256": "911d9edc03b3389bc17f3022c21ca30f837f4d43976739ed69a993a8e1409b05",
+      "events": 95,
       "proofs": 1,
-      "requests": 112,
-      "responses": 112,
+      "requests": 47,
+      "responses": 47,
       "rpc_errors": 0,
       "rpc_open_errors": 0
     },
     "baseline-static.json": {
-      "sha256": "06fcbc146bb82b627f626fcf70e9847b547ed05b6ee21bef257352320d3af127",
+      "sha256": "ba885bde3bbcf51e3280a9cef5ff6192039299da51d8f5d818c01c4c34fb77d1",
       "events": 65,
       "proofs": 1,
       "requests": 32,
@@ -218,7 +221,7 @@
       "rpc_open_errors": 0
     },
     "begin-boundaries.json": {
-      "sha256": "98c4fda7dd88786cebdf9f8a5cdc22993729f1d1f4acdfddc2a1dd4af4fd6fb4",
+      "sha256": "6145f0528b18f1f8719470469094623a18273f8e9d7a0ac7f06647055d3c4cb9",
       "events": 34,
       "proofs": 0,
       "requests": 16,
@@ -227,7 +230,7 @@
       "rpc_open_errors": 0
     },
     "block-boundaries.json": {
-      "sha256": "6438cefe6b8adcbbe59ecdf66044334394e62885ae7c48b0d03288c0a4e27767",
+      "sha256": "80b1630dea577c1ec4cea3ae513f328f5b1da18a38679c9e9f50829da7f15c94",
       "events": 38,
       "proofs": 0,
       "requests": 18,
@@ -236,7 +239,7 @@
       "rpc_open_errors": 0
     },
     "block-quota.json": {
-      "sha256": "b5085361f0e9ba4bb290380f4e6ea67187eac52909ee13f11e132c445faea77d",
+      "sha256": "03bab9dbeb1e8c0a550f7d7f9a48592b9f39f0e662ea4903ca8f7490f3946906",
       "events": 26,
       "proofs": 0,
       "requests": 12,
@@ -245,7 +248,7 @@
       "rpc_open_errors": 0
     },
     "byte-quota.json": {
-      "sha256": "e5e459b1ed9d3512450e9dc3d49338255ba8ecc42bf5bb6394b32a886a60055b",
+      "sha256": "9cbfa03c8fdab1424c8f00e035b0aa1b616e21c7a78ac40e2e6da8b455376762",
       "events": 26,
       "proofs": 0,
       "requests": 12,
@@ -254,7 +257,7 @@
       "rpc_open_errors": 0
     },
     "cancel-session-isolation.json": {
-      "sha256": "579c4ad953c719f34d19b7a6b19f0da52d2c18830f50d494dcce313b68642cb1",
+      "sha256": "81a0b570fa79dd14da8e9f5e4670cba3f506afc81f8bae15f1d3bdd9701316d3",
       "events": 48,
       "proofs": 1,
       "requests": 22,
@@ -263,7 +266,7 @@
       "rpc_open_errors": 0
     },
     "competing-branches.json": {
-      "sha256": "87c5b7b4cd88615660d7cd92390f33c82f1861d48ded0ce1c65dca6d5a0ac647",
+      "sha256": "42a095c8b343d0769ecaa14397f34768a218c29ac89004718eaef1405a06e616",
       "events": 50,
       "proofs": 1,
       "requests": 24,
@@ -272,7 +275,7 @@
       "rpc_open_errors": 0
     },
     "concurrent-composers.json": {
-      "sha256": "633637ee92df15e767f15a3dbf18afe89f132ee28dc201d542aa4414ca9d8593",
+      "sha256": "60cfc7bd1c8dd5637ae5c101313bf13edf0ac22d91ebf78016e3fb5db86de0a7",
       "events": 70,
       "proofs": 2,
       "requests": 34,
@@ -281,7 +284,7 @@
       "rpc_open_errors": 0
     },
     "detached-session-eviction.json": {
-      "sha256": "c13b8523268ab0da8d03a62d5ec7f6624733c0a4644fafff09ecf1e60cdac94c",
+      "sha256": "905b75a62d5c6e48376157a6632a2d2515969464421c0947f8a227b1d92cb4a4",
       "events": 63,
       "proofs": 0,
       "requests": 21,
@@ -290,7 +293,7 @@
       "rpc_open_errors": 0
     },
     "finalize-byte-quota.json": {
-      "sha256": "67b8755279c918c2d4d79510d6f73b457ff407beb77e1429d5bb3e18666cc988",
+      "sha256": "b62f77102be2376a4b32c05ffbfc34a3d85092d7f46fb76b26aace471cd2ee5e",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -299,7 +302,7 @@
       "rpc_open_errors": 0
     },
     "finalize-ranges.json": {
-      "sha256": "f4de5b160541bc8489b88ee5a7fcc0217596c9f925655c661816532500ef1bd2",
+      "sha256": "0d6f3fe71dee84524ca8d2870e022d08b028ef3cf0e5a789b8315857568922bf",
       "events": 51,
       "proofs": 1,
       "requests": 25,
@@ -308,7 +311,7 @@
       "rpc_open_errors": 0
     },
     "frame-size-limit.json": {
-      "sha256": "59a61b83561c86964a5bfd6f0c3bdc5fdadac81155e1c8aec9276abeef76f1a1",
+      "sha256": "93a1f6b938796b9c709444082fab02798e8e0cb3e28022350bdba69b35009e3c",
       "events": 8,
       "proofs": 0,
       "requests": 3,
@@ -317,7 +320,7 @@
       "rpc_open_errors": 0
     },
     "half-close-drains.json": {
-      "sha256": "5b321f537a41824a8487ee24ff15131c8c8d88e11e1462bee3f7941cecc61b3b",
+      "sha256": "aa1f0cb03e312c7059ac3994a7511c4b46196bcfeca9c685920813a8a7082d91",
       "events": 42,
       "proofs": 1,
       "requests": 19,
@@ -326,7 +329,7 @@
       "rpc_open_errors": 0
     },
     "invalid-witness-retry.json": {
-      "sha256": "273a939675e8189cd987ac108c0380f1be462f6fdc8e6fab2073caa8dd126d07",
+      "sha256": "a9ae445af7caa0b148f1a521e078c24818113cbfa35a491e236f4c6b55234605",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -335,7 +338,7 @@
       "rpc_open_errors": 0
     },
     "pipelined-gap-recovery.json": {
-      "sha256": "d9e52ef81c659c7a4959d416edc1cc69f7e0eaf100863d1e60d0428e374e2d3b",
+      "sha256": "e466eacae4f4d3a4f50854e4b3d12813d48d4d05e53f8c343dce8ec391e1118e",
       "events": 37,
       "proofs": 1,
       "requests": 18,
@@ -344,7 +347,7 @@
       "rpc_open_errors": 0
     },
     "posting-context-boundaries.json": {
-      "sha256": "e2feb932ec0c8c99d2af970a18bb818bd8f9b538ae5b4b5392ab982cebdfda3a",
+      "sha256": "df1cb657fd0c318cd01dbac1fcf077b45739b53976e917dc08d3605c4004ac36",
       "events": 85,
       "proofs": 1,
       "requests": 42,
@@ -353,7 +356,7 @@
       "rpc_open_errors": 0
     },
     "resume-after-proof.json": {
-      "sha256": "728aa3d928d0096cc9034860347c6ac68419482eec8ac59e94816e48db1c47bd",
+      "sha256": "9048a82ab02f334179b7f4c92e0c668acf6caa28852ae8f42b64ac4364eecd23",
       "events": 40,
       "proofs": 2,
       "requests": 19,
@@ -362,7 +365,7 @@
       "rpc_open_errors": 0
     },
     "resume-boundaries.json": {
-      "sha256": "b3e48cedf2cae9128cd2a3856275b52d739dcb8ac75113307da0a18107d80d96",
+      "sha256": "c7ddd56104da907dbc806751315d45970ee23753c1c48108d3e45e168f19db89",
       "events": 21,
       "proofs": 0,
       "requests": 9,
@@ -371,7 +374,7 @@
       "rpc_open_errors": 0
     },
     "resume-takeover-fencing.json": {
-      "sha256": "c64289ca3f75933ab9d39e8b2538e39b39b44b7bb1703980f171242f7535f23a",
+      "sha256": "5a9ae59aac8aa45e91063a09f2c29dc0e63cd54eff5004dbcb3dcbccd11210df",
       "events": 45,
       "proofs": 1,
       "requests": 21,
@@ -380,7 +383,7 @@
       "rpc_open_errors": 0
     },
     "rewind-boundaries.json": {
-      "sha256": "4af1f2d83f6748709ba36b98ff66a0fbd66d5817015c8bc94773c092181b75ad",
+      "sha256": "7f195e1c76e24ab7ad3ec01dda97ff846eb6d86cc803a6256788204847649557",
       "events": 65,
       "proofs": 1,
       "requests": 32,
@@ -389,7 +392,7 @@
       "rpc_open_errors": 0
     },
     "settlement-abi-binding.json": {
-      "sha256": "bb11a9e55be42fa841aa00522fcfd5e87be2b5de092168ee75ca76384a0d12e2",
+      "sha256": "2e58084ce2486fb977c5c0df5a5aac83446a31afa4387066c95dfcc1f7a8268d",
       "events": 87,
       "proofs": 1,
       "requests": 43,
@@ -398,7 +401,7 @@
       "rpc_open_errors": 0
     },
     "settlement-blob-encoding.json": {
-      "sha256": "1bad4b848727bba71083b75511d4a0aa3f1c7d00599467d1abe0c6bb01d157ba",
+      "sha256": "8b078f7c5c4d8b3e3f8c2a68bed7e1ba489155c99d4707b36113339009f8e707",
       "events": 75,
       "proofs": 1,
       "requests": 37,
@@ -407,7 +410,7 @@
       "rpc_open_errors": 0
     },
     "settlement-required-inputs.json": {
-      "sha256": "cfc2b97daea0d9ee7f762c9bde52ce4313c62bff9f917f4df41c54b166212dcb",
+      "sha256": "e16bb6724203cf82cf8b5ea0c61098f41d1a3f862558fd41f33eb216e9de6f1f",
       "events": 73,
       "proofs": 1,
       "requests": 36,
@@ -416,7 +419,7 @@
       "rpc_open_errors": 0
     },
     "stream-capacity.json": {
-      "sha256": "6f453d76961696c8fffa63dbdf6815199308e8a55880945f1b5a6635fa1976f1",
+      "sha256": "15f3c940bd0dc569360948639f5ab696b39b0d2635dfc39666781c857b5aedf6",
       "events": 41,
       "proofs": 0,
       "requests": 16,
@@ -425,7 +428,7 @@
       "rpc_open_errors": 1
     },
     "subrange-promoted-anchor.json": {
-      "sha256": "fa885ff7177436758f4dbe595dfabbe290534e3d14a8dcd8d1b3fa0f17e5d509",
+      "sha256": "57ccb7c1c757d6590a926ad7e86bc2aad902d4a883e55d06d4c54653e1f17ec9",
       "events": 44,
       "proofs": 2,
       "requests": 21,
@@ -434,7 +437,7 @@
       "rpc_open_errors": 0
     },
     "sync-range-proof.json": {
-      "sha256": "d02ccd2c4376c96802ebe6e2fd46fbf384754af2825f671c450d973944994853",
+      "sha256": "dcd03cb6468c69c803ab8ce1eb7a20dbf5996bb08f10199aa242bcb961f0fa7a",
       "events": 17,
       "proofs": 1,
       "requests": 8,
@@ -443,7 +446,7 @@
       "rpc_open_errors": 0
     },
     "terminal-before-tip.json": {
-      "sha256": "40311232e8487cdb1fd370fa0d57a69c93ebe0db3b250593d346af0de9868c27",
+      "sha256": "6fe670e4c178d603bb842cb129cc50608cf253221d9a4a50957e353f95020e58",
       "events": 30,
       "proofs": 2,
       "requests": 14,
@@ -452,7 +455,7 @@
       "rpc_open_errors": 0
     },
     "witness-quota.json": {
-      "sha256": "63c7bbce50f9ac89440848a72a34c77446036a4945bb991f7b19a822900579e6",
+      "sha256": "43c94cef2e6629f9fa2d6f54d9f19aff77b3f2d43393affe3564c50a8901411f",
       "events": 26,
       "proofs": 0,
       "requests": 12,

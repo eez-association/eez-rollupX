@@ -454,6 +454,8 @@ pub(crate) enum ObservationValidationError {
 
 /// Validation backend selected at startup.
 #[derive(Debug)]
+// Production has only one variant; a test-only stub does not warrant boxing it.
+#[cfg_attr(test, allow(clippy::large_enum_variant))]
 pub(crate) enum Validator {
     /// In-process re-execution using each block's streamed witness.
     Stateless(stateless::Backend),

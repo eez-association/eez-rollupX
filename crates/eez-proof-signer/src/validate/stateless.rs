@@ -31,10 +31,7 @@ use revm::bytecode::Bytecode;
 use revm::database::State;
 use revm::state::AccountInfo;
 use stateless_reth::validation::StatelessValidationError;
-use stateless_reth::{
-    StatelessValidationOutput, stateless_validation_recovered,
-    stateless_validation_recovered_with_state_checkpoints,
-};
+use stateless_reth::{StatelessValidationOutput, stateless_validation_recovered};
 use stateless_tries::{WitnessDbError, default::StatelessSparseTrie};
 use tracing::{debug, info, trace};
 
@@ -130,7 +127,7 @@ impl CheckpointPlan {
     }
 }
 
-/// Stateless replay's internal state commitment at a transaction boundary.
+/// Stateless replay's finalized-copy commitment at a transaction boundary.
 /// It is never exposed to settlement directly: the accepted block template,
 /// prefix transactions and replayed receipts are required to turn it into a
 /// canonical prefix-block hash first.
@@ -344,8 +341,9 @@ impl Backend {
             // Before this call the decoded block and witness remain untrusted.
             // Successful Stateless output means consensus, witness pre-state,
             // execution receipts, and the recomputed post-state commitment all
-            // passed. The terminal also captures its pre-transaction state so
-            // the B[0] variant includes pre-execution changes.
+            // passed. The terminal also derives finalized copies of prefix
+            // roots while its running execution remains unfinalized. B[0]
+            // includes pre-execution changes and closing balance cleanup.
             let witness = std::mem::take(&mut admitted.witness);
             let (stateless_output, replay_state_checkpoints, pre_transaction_state_root) =
                 match checkpoint_plan {
@@ -353,7 +351,7 @@ impl Backend {
                         #[cfg(test)]
                         self.checkpoint_replays
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let output = stateless_validation_recovered_with_state_checkpoints(
+                        let output = eez_evm::stateless::validate_with_closed_prefixes(
                             recovered_block,
                             witness,
                             Arc::clone(&self.chain_spec),
@@ -442,9 +440,9 @@ impl Backend {
                             .position(|&native| native)
                             .unwrap_or(transaction_count);
                         let base = if ordinary == 0 {
-                            // The checkpoint backend ran pre-execution changes before
-                            // the first native transaction; the parent state root
-                            // cannot stand in for that state.
+                            // The empty-prefix copy includes pre-execution changes
+                            // and finalization cleanup. The parent root cannot
+                            // stand in for that closed prefix state.
                             let state_root = pre_transaction_state_root.ok_or_else(|| {
                                 ValidationError::InvalidBackendOutput(
                                     "missing pre-transaction state root".into(),
@@ -789,7 +787,7 @@ fn derive_prefix_block_hashes(
         .is_some_and(|withdrawals| !withdrawals.is_empty())
     {
         return Err(ValidationError::Rejected(format!(
-            "settling block {} has withdrawals; prefix block-hash commitments require no post-transaction state changes",
+            "settling block {} has withdrawals; prefix block-hash commitments do not support beacon withdrawals",
             block.header().number,
         )));
     }

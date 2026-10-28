@@ -10,7 +10,9 @@ use alloy_rlp::{Decodable, Encodable};
 use reth_primitives_traits::InMemorySize;
 
 mod history;
-pub use history::{HISTORY_TX_TYPE, HISTORY_TX_VERSION, HistoryTransaction, MAX_HISTORY_HASHES};
+pub use history::{
+    HISTORY_TX_TYPE, HISTORY_TX_VERSION, HistoryBlock, HistoryTransaction, MAX_HISTORY_BLOCKS,
+};
 
 /// Whether a type has protocol-native fee and sender rules.
 pub const fn is_native_type(ty: u8) -> bool {
@@ -378,7 +380,9 @@ impl InMemorySize for EezTxEnvelope {
         match self {
             Self::Ethereum(tx) => tx.size(),
             Self::System(tx) => std::mem::size_of::<Self>() + tx.input.len(),
-            Self::History(tx) => std::mem::size_of::<Self>() + tx.hashes.len() * 32,
+            Self::History(tx) => {
+                std::mem::size_of::<Self>() + tx.blocks.len() * std::mem::size_of::<HistoryBlock>()
+            }
         }
     }
 }

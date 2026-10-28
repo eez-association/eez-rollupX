@@ -452,10 +452,9 @@ async fn accepted_commitments_do_not_refresh_randomness_and_bad_bindings_do_not_
         ..Default::default()
     };
     let origin = eez_protocol::l1_history::HistoryState {
-        first_number: 0,
+        imported: true,
         endpoint: 3,
         endpoint_hash: fixture.reference(3).hash,
-        first_cutoff: 1008,
     };
     let evidence = crate::ReconciledBatchSettlement {
         l1_block: fixture.reference(4),

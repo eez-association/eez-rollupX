@@ -3,181 +3,201 @@ pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {L1BlockhashContract} from "../src/L2/L1BlockhashContract.sol";
+import {EEZProxy} from "eez-core-protocol/src/proxy/EEZProxy.sol";
+import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import {ITransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract L1HistoryFixture is L1BlockhashContract {
-    constructor(uint64 first, uint64 cutoff, uint64 period, uint64 delay, uint64 bound) {
-        firstNumber = first;
-        endpoint = first;
-        hashes[first] = keccak256(abi.encode(first));
-        firstCutoff = cutoff;
-        interval = period;
-        updateDelay = delay;
-        maxImportHeaders = bound;
+contract L1HistoryV2 is L1BlockhashContract {
+    function revision() external pure returns (uint256) {
+        return 2;
     }
 }
 
 contract L1BlockhashContractTest is Test {
-    L1HistoryFixture internal history;
+    bytes32 private constant ADMIN_SLOT = 0xb53127684a568b3173ae13b9f8a6016e243e63b6e8ee1178d6a717850b5d6103;
+    bytes32 private constant IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+    L1BlockhashContract internal history;
+    L1BlockhashContract internal implementation;
+    ProxyAdmin internal admin;
     address internal system;
 
     function setUp() public {
-        history = new L1HistoryFixture(99, 120, 12, 6, 64);
+        implementation = new L1BlockhashContract();
+        history = L1BlockhashContract(address(new EEZProxy(address(implementation), address(this))));
+        admin = ProxyAdmin(address(uint160(uint256(vm.load(address(history), ADMIN_SLOT)))));
         system = history.SYSTEM_ADDRESS();
-        vm.warp(126);
     }
 
-    function list(uint256 count) internal pure returns (bytes32[] memory values) {
-        values = new bytes32[](count);
-        for (uint256 i; i < count; ++i) {
-            values[i] = keccak256(abi.encode(100 + i));
-        }
+    function pair(uint64 number) internal pure returns (L1BlockhashContract.L1Block memory) {
+        return L1BlockhashContract.L1Block(number, keccak256(abi.encode(number)));
     }
 
-    function testFutureHashReturnsZeroAndBecomesAvailableAfterImport() public {
-        assertEq(history.getL1BlockHash(100), bytes32(0));
-        assertEq(history.getL1BlockHash(type(uint64).max), bytes32(0));
+    function importOne(uint64 number) internal {
+        L1BlockhashContract.L1Block[] memory blocks = new L1BlockhashContract.L1Block[](1);
+        blocks[0] = pair(number);
         vm.prank(system);
-        history.importHistory(120, list(1));
-        assertEq(history.getL1BlockHash(100), keccak256(abi.encode(uint256(100))));
-        assertEq(history.getL1BlockHash(101), bytes32(0));
+        history.importL1Blocks(blocks);
     }
 
-    function testHistoryIncludesNeverSelectedBlocksAndPersists() public {
-        vm.prank(system);
-        history.importHistory(120, list(3));
-        (uint64 number, bytes32 hash) = history.current();
-        assertEq(number, 102);
-        assertEq(hash, keccak256(abi.encode(uint256(102))));
-        for (uint64 i = 99; i <= 102; ++i) {
-            assertEq(history.getL1BlockHash(i), keccak256(abi.encode(i)));
-        }
-        vm.warp(138);
-        // Omitted updates make no call and preserve the imported endpoint.
-        (number, hash) = history.current();
-        assertEq(number, 102);
-        assertEq(hash, history.getL1BlockHash(102));
-        assertEq(history.getL1BlockHash(99), keccak256(abi.encode(uint64(99))));
+    function upgrade(address next) internal {
+        admin.upgradeAndCall(ITransparentUpgradeableProxy(address(history)), next, "");
     }
 
-    function testBeforeBootstrapReturnsZero() public view {
+    function testInitiallyEmptyAndNoInitializer() public {
+        (uint64 number, bytes32 blockHash) = history.getLatestImportedL1Block();
+        assertEq(number, 0);
+        assertEq(blockHash, bytes32(0));
         assertEq(history.getL1BlockHash(0), bytes32(0));
-        assertEq(history.getL1BlockHash(98), bytes32(0));
-        assertEq(history.getL1BlockHash(99), keccak256(abi.encode(uint64(99))));
+        assertEq(history.getL1BlockHash(type(uint64).max), bytes32(0));
+        (bool ok,) = address(history).call(abi.encodeWithSignature("initialize()"));
+        assertFalse(ok);
+        (ok,) = address(implementation).call(abi.encodeWithSignature("initialize()"));
+        assertFalse(ok);
+        (number, blockHash) = implementation.getLatestImportedL1Block();
+        assertEq(number, 0);
+        assertEq(blockHash, bytes32(0));
     }
 
-    function testRepeatedFutureLookupsWaitThroughOmittedUpdates() public {
-        for (uint256 i; i < 3; ++i) {
+    function testZeroCannotBeFirstImport() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(L1BlockhashContract.BlockNumberNotIncreasing.selector, uint64(0), uint64(0))
+        );
+        importOne(0);
+    }
+
+    function testIncreasingPairsGapsAndUnavailableHashes() public {
+        L1BlockhashContract.L1Block[] memory blocks = new L1BlockhashContract.L1Block[](2);
+        blocks[0] = pair(100);
+        blocks[1] = pair(103);
+        vm.prank(system);
+        history.importL1Blocks(blocks);
+        importOne(107);
+        for (uint64 number = 99; number <= 108; ++number) {
+            bytes32 expected = number == 100 || number == 103 || number == 107 ? pair(number).blockHash : bytes32(0);
+            assertEq(history.getL1BlockHash(number), expected);
+        }
+        (uint64 latest, bytes32 blockHash) = history.getLatestImportedL1Block();
+        assertEq(latest, 107);
+        assertEq(blockHash, pair(107).blockHash);
+    }
+
+    function testGapsCannotBeBackfilledAndRecordsCannotBeOverwritten() public {
+        importOne(103);
+        for (uint64 number = 101; number <= 103; ++number) {
+            vm.expectRevert(
+                abi.encodeWithSelector(L1BlockhashContract.BlockNumberNotIncreasing.selector, uint64(103), number)
+            );
+            importOne(number);
+        }
+        assertEq(history.getL1BlockHash(102), bytes32(0));
+        assertEq(history.getL1BlockHash(103), pair(103).blockHash);
+    }
+
+    function testUnauthorizedAndEmptyImports() public {
+        L1BlockhashContract.L1Block[] memory blocks = new L1BlockhashContract.L1Block[](0);
+        vm.expectRevert(abi.encodeWithSelector(L1BlockhashContract.UnauthorizedImport.selector, address(this)));
+        history.importL1Blocks(blocks);
+        vm.prank(system);
+        vm.expectRevert(L1BlockhashContract.EmptyImport.selector);
+        history.importL1Blocks(blocks);
+    }
+
+    function testInvalidLaterPairRollsBackTheWholeImport() public {
+        importOne(99);
+        for (uint256 mutation; mutation < 3; ++mutation) {
+            L1BlockhashContract.L1Block[] memory blocks = new L1BlockhashContract.L1Block[](2);
+            blocks[0] = pair(100);
+            blocks[1] = pair(mutation == 0 ? 100 : mutation == 1 ? 99 : 103);
+            if (mutation == 2) blocks[1].blockHash = bytes32(0);
+            vm.prank(system);
+            if (mutation == 2) {
+                vm.expectRevert(abi.encodeWithSelector(L1BlockhashContract.InvalidBlockHash.selector, uint64(103)));
+            } else {
+                vm.expectRevert(
+                    abi.encodeWithSelector(
+                        L1BlockhashContract.BlockNumberNotIncreasing.selector, uint64(100), blocks[1].number
+                    )
+                );
+            }
+            history.importL1Blocks(blocks);
             assertEq(history.getL1BlockHash(100), bytes32(0));
-            assertEq(history.getL1BlockHash(100), bytes32(0));
-            (uint64 number, bytes32 hash) = history.current();
+            assertEq(history.getL1BlockHash(103), bytes32(0));
+            (uint64 number, bytes32 blockHash) = history.getLatestImportedL1Block();
             assertEq(number, 99);
-            assertEq(hash, keccak256(abi.encode(uint64(99))));
-            vm.warp(138 + i * 12);
+            assertEq(blockHash, pair(99).blockHash);
+        }
+    }
+
+    function testMaximumNumberHasNoWraparound() public {
+        importOne(type(uint64).max);
+        assertEq(history.getL1BlockHash(type(uint64).max), pair(type(uint64).max).blockHash);
+        vm.expectRevert(
+            abi.encodeWithSelector(L1BlockhashContract.BlockNumberNotIncreasing.selector, type(uint64).max, uint64(1))
+        );
+        importOne(1);
+    }
+
+    function testTimingAndCountAreProtocolResponsibilities() public {
+        // The contract itself accepts any timestamp and more than 64 pairs.
+        // Native admission must reject these shapes independently of the EVM call.
+        vm.warp(1);
+        L1BlockhashContract.L1Block[] memory blocks = new L1BlockhashContract.L1Block[](65);
+        for (uint64 i; i < 65; ++i) {
+            blocks[i] = pair(i + 1);
         }
         vm.prank(system);
-        history.importHistory(156, list(3));
-        assertEq(history.getL1BlockHash(100), keccak256(abi.encode(uint256(100))));
-        assertEq(history.getL1BlockHash(102), keccak256(abi.encode(uint256(102))));
-        assertEq(history.getL1BlockHash(103), bytes32(0));
+        history.importL1Blocks(blocks);
+        assertEq(history.getL1BlockHash(65), pair(65).blockHash);
     }
 
-    function testCoveredMissingHashStillReverts() public {
-        vm.prank(system);
-        history.importHistory(120, list(3));
-        vm.store(address(history), keccak256(abi.encode(uint64(100), uint256(0))), bytes32(0));
-        vm.expectRevert(abi.encodeWithSelector(L1BlockhashContract.L1BlockNotImported.selector, uint64(100)));
-        history.getL1BlockHash(100);
+    function testUpgradePreservesHistoryAndImports() public {
+        importOne(100);
+        importOne(103);
+        L1HistoryV2 next = new L1HistoryV2();
+        upgrade(address(next));
+        assertEq(L1HistoryV2(address(history)).revision(), 2);
+        assertEq(vm.load(address(history), IMPLEMENTATION_SLOT), bytes32(uint256(uint160(address(next)))));
+        assertEq(history.getL1BlockHash(100), pair(100).blockHash);
+        assertEq(history.getL1BlockHash(101), bytes32(0));
+        assertEq(history.getL1BlockHash(103), pair(103).blockHash);
+        importOne(107);
+        upgrade(address(implementation));
+        (uint64 number, bytes32 blockHash) = history.getLatestImportedL1Block();
+        assertEq(number, 107);
+        assertEq(blockHash, pair(107).blockHash);
     }
 
-    function testInvalidEndpointCannotLookLikeTemporaryUnavailability() public {
-        vm.store(address(history), keccak256(abi.encode(uint64(99), uint256(0))), bytes32(0));
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
-        history.getL1BlockHash(100);
+    function testOnlyProxyAdminOwnerCanUpgrade() public {
+        L1HistoryV2 next = new L1HistoryV2();
+        vm.prank(address(123));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(123)));
+        upgrade(address(next));
+        vm.expectRevert();
+        ITransparentUpgradeableProxy(address(history)).upgradeToAndCall(address(next), "");
+        assertEq(vm.load(address(history), IMPLEMENTATION_SLOT), bytes32(uint256(uint160(address(implementation)))));
     }
 
-    function testInvalidRangeCannotLookLikeTemporaryUnavailability() public {
-        vm.store(address(history), bytes32(uint256(1)), bytes32(uint256(100)));
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
-        history.getL1BlockHash(101);
-        vm.store(address(history), bytes32(uint256(2)), bytes32(uint256(type(uint64).max) + 1));
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
-        history.getL1BlockHash(type(uint64).max);
+    function testOwnershipTransferControlsFutureUpgrades() public {
+        L1HistoryV2 next = new L1HistoryV2();
+        admin.transferOwnership(address(123));
+        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, address(this)));
+        upgrade(address(next));
+        vm.prank(address(123));
+        upgrade(address(next));
+        assertEq(L1HistoryV2(address(history)).revision(), 2);
     }
 
-    function testFuzzFutureHashIsZero(uint64 number) public view {
-        number = uint64(bound(number, 100, type(uint64).max));
-        assertEq(history.getL1BlockHash(number), bytes32(0));
+    function testEmptyImplementationRejected() public {
+        vm.expectRevert(abi.encodeWithSignature("ERC1967InvalidImplementation(address)", address(123)));
+        upgrade(address(123));
     }
 
-    function testUnauthorizedAndWrongPositionReject() public {
-        vm.expectRevert(L1BlockhashContract.UnauthorizedHistoryImport.selector);
-        history.importHistory(120, list(1));
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryPosition.selector);
-        history.importHistory(132, list(1));
-        vm.warp(125);
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryPosition.selector);
-        history.importHistory(120, list(1));
-    }
-
-    function testEmptyImportRejectsAndLaterEligibleImportNeedsNoIntermediateCalls() public {
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryImportLength.selector);
-        history.importHistory(120, new bytes32[](0));
-        vm.warp(162);
-        vm.prank(system);
-        history.importHistory(156, list(1));
-        (uint64 number,) = history.current();
-        assertEq(number, 100);
-        assertEq(uint256(vm.load(address(history), bytes32(uint256(3)))), 120);
-        vm.warp(163);
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryPosition.selector);
-        history.importHistory(157, list(1));
-    }
-
-    function testMalformedAndOversizedImportsRollback() public {
-        bytes32[] memory invalid = list(2);
-        invalid[1] = bytes32(0);
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryHash.selector);
-        history.importHistory(120, invalid);
-        (uint64 number,) = history.current();
-        assertEq(number, 99);
-        assertEq(history.getL1BlockHash(100), bytes32(0));
-        assertEq(vm.load(address(history), keccak256(abi.encode(uint64(100), uint256(0)))), bytes32(0));
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryImportLength.selector);
-        history.importHistory(120, list(65));
-        vm.prank(system);
-        history.importHistory(120, list(64));
-        (number,) = history.current();
-        assertEq(number, 163);
-    }
-
-    function testConflictingSlotRejectsAndRollsBack() public {
-        bytes32 slot = keccak256(abi.encode(uint64(101), uint256(0)));
-        vm.store(address(history), slot, keccak256(abi.encode(uint256(101))));
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryHash.selector);
-        history.importHistory(120, list(2));
-        assertEq(history.getL1BlockHash(100), bytes32(0));
-        assertEq(vm.load(address(history), keccak256(abi.encode(uint64(100), uint256(0)))), bytes32(0));
-    }
-
-    function testEndpointOverflowRejectsAndFinalEligibleCutoffNeedsNoSuccessor() public {
-        L1HistoryFixture full = new L1HistoryFixture(type(uint64).max, 120, 12, 6, 64);
-        vm.prank(system);
-        vm.expectRevert(L1BlockhashContract.InvalidHistoryState.selector);
-        full.importHistory(120, list(1));
-        assertEq(full.getL1BlockHash(type(uint64).max), keccak256(abi.encode(type(uint64).max)));
-        uint64 lastCutoff = type(uint64).max - 6;
-        full = new L1HistoryFixture(99, lastCutoff, 12, 6, 64);
-        vm.warp(type(uint64).max);
-        vm.prank(system);
-        full.importHistory(lastCutoff, list(1));
-        (uint64 number,) = full.current();
-        assertEq(number, 100);
+    function testFuzzPositiveFirstNumberAndUnavailableNeighbors(uint64 number) public {
+        number = uint64(bound(number, 1, type(uint64).max));
+        importOne(number);
+        assertEq(history.getL1BlockHash(number), pair(number).blockHash);
+        assertEq(history.getL1BlockHash(number - 1), bytes32(0));
+        if (number < type(uint64).max) assertEq(history.getL1BlockHash(number + 1), bytes32(0));
     }
 }

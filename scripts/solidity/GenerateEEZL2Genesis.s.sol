@@ -37,8 +37,6 @@ contract GenerateEEZL2Genesis is Script {
         require(proxy.code.length == 0 && implementation.code.length == 0, "Target already has code");
         require(upgradeOwner != address(0), "Zero upgrade owner");
 
-        console.log("L1_HISTORY_RUNTIME", vm.toString(type(L1BlockhashContract).runtimeCode));
-
         EEZL2 template = new EEZL2(rollupId, systemAddress, useGasLeft, recoveryAddress);
         vm.etch(implementation, address(template).code);
         vm.setNonce(implementation, 1);
@@ -106,6 +104,30 @@ contract GenerateEEZL2Genesis is Script {
         _account(feeVault);
         _account(vaultAdmin);
         _storage(vaultAccesses);
+
+        address history = 0xeeeeEeeeEeeeEeEeEEEeEeeeeEEEEeeEEEee0077;
+        address historyImplementation = address(bytes20(hex"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee007a"));
+        require(history.code.length == 0 && historyImplementation.code.length == 0, "History target already has code");
+        vm.etch(historyImplementation, type(L1BlockhashContract).runtimeCode);
+        vm.setNonce(historyImplementation, 1);
+        // History starts empty. No callable initializer or authority lives in
+        // the implementation; the genesis reference lives in the execution profile.
+        vm.etch(
+            history,
+            abi.encodePacked(vm.getCode("EEZProxy.sol:EEZProxy"), abi.encode(historyImplementation, upgradeOwner))
+        );
+        vm.setNonce(history, 1);
+        vm.startStateDiffRecording();
+        (bool historyOk, bytes memory historyRuntime) = history.call("");
+        Vm.AccountAccess[] memory historyAccesses = vm.stopAndReturnStateDiff();
+        require(historyOk, "History proxy constructor failed");
+        vm.etch(history, historyRuntime);
+        address historyAdmin = vm.computeCreateAddress(history, 1);
+        require(historyAdmin.code.length != 0, "History ProxyAdmin missing");
+        _account(historyImplementation);
+        _account(history);
+        _account(historyAdmin);
+        _storage(historyAccesses);
     }
 
     function _storage(Vm.AccountAccess[] memory accesses) private view {

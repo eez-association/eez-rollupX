@@ -16,6 +16,8 @@ USE_GAS_LEFT=false
 # implementation holding the deployment's immutables.
 EEZL2_ADDRESS="0x4B2760F84B83d6b3829E30A7573B0172B6d6402C"
 EEZL2_IMPLEMENTATION_ADDRESS="0x4C3D971b1079E58843D0E1af155A2e54b9E54dbA"
+HISTORY_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077"
+HISTORY_IMPLEMENTATION_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee007a"
 FEE_VAULT_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078"
 FEE_VAULT_IMPLEMENTATION_ADDRESS="0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0079"
 INITIALIZABLE_SLOT="0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00"
@@ -48,8 +50,8 @@ genesis without modifying committed files. Private keys are never accepted;
 the deployment uses the reserved native system address. The recovery address
 receives ether swept from proxies at construction; deployments use the L1
 poster account, and the fixtures use the public development poster. The upgrade
-owner owns the EEZL2 ProxyAdmin and can replace the implementation with an L2
-transaction.
+owner initially owns the separate EEZL2 and L1 history ProxyAdmins and can
+replace either implementation with an L2 transaction.
 The fixed FeeVault predeploy collects L2 base fees. Its initial owner and L2
 recipient are explicit inputs; the owner can rotate the recipient or transfer
 ownership using ordinary L2 transactions. The same initial owner controls its
@@ -279,7 +281,7 @@ if ! forge_output="$({
 fi
 
 # Collect the generator's accounts and storage writes, then require exactly the
-# two implementations, proxies and ProxyAdmins with exactly the expected state.
+# three implementations, proxies and ProxyAdmins with exactly the expected state.
 proxy_admin_address="$(cast compute-address --nonce 1 "$EEZL2_ADDRESS" | sed -n 's/^Computed Address: //p')"
 [[ "$proxy_admin_address" =~ ^0x[0-9a-fA-F]{40}$ ]] || {
     echo "could not derive the EEZL2 ProxyAdmin address" >&2
@@ -309,14 +311,18 @@ fee_impl_key="$FEE_VAULT_IMPLEMENTATION_ADDRESS"
 fee_admin_key="$(cast compute-address --nonce 1 "$fee_collector" | sed -n 's/^Computed Address: //p')"
 fee_admin_key="${fee_admin_key,,}"
 [[ "$fee_admin_key" =~ ^0x[0-9a-f]{40}$ ]] || { echo "invalid FeeVault ProxyAdmin address" >&2; exit 1; }
-if (( ${#account_code[@]} != 6 )) || [[ -z "${account_code[$impl_key]:-}" ||
-    -z "${account_code[$proxy_key]:-}" || -z "${account_code[$admin_key]:-}" || -z "${account_code[$fee_collector]:-}" || -z "${account_code[$fee_impl_key]:-}" || -z "${account_code[$fee_admin_key]:-}" ]]
+history_impl_key="$HISTORY_IMPLEMENTATION_ADDRESS"
+history_admin_key="$(cast compute-address --nonce 1 "$HISTORY_ADDRESS" | sed -n 's/^Computed Address: //p')"
+history_admin_key="${history_admin_key,,}"
+[[ "$history_admin_key" =~ ^0x[0-9a-f]{40}$ ]] || { echo "invalid history ProxyAdmin address" >&2; exit 1; }
+if (( ${#account_code[@]} != 9 )) || [[ -z "${account_code[$impl_key]:-}" ||
+    -z "${account_code[$proxy_key]:-}" || -z "${account_code[$admin_key]:-}" || -z "${account_code[$fee_collector]:-}" || -z "${account_code[$fee_impl_key]:-}" || -z "${account_code[$fee_admin_key]:-}" || -z "${account_code[$HISTORY_ADDRESS]:-}" || -z "${account_code[$history_impl_key]:-}" || -z "${account_code[$history_admin_key]:-}" ]]
 then
     printf '%s\n' "$forge_output" >&2
-    echo "expected exactly the EEZL2 and FeeVault implementations, proxies and ProxyAdmins" >&2
+    echo "expected exactly the EEZL2, FeeVault and history implementations, proxies and ProxyAdmins" >&2
     exit 1
 fi
-for nonce_expected in "$impl_key|1" "$proxy_key|2" "$admin_key|1" "$fee_collector|2" "$fee_impl_key|1" "$fee_admin_key|1"; do
+for nonce_expected in "$impl_key|1" "$proxy_key|2" "$admin_key|1" "$fee_collector|2" "$fee_impl_key|1" "$fee_admin_key|1" "$HISTORY_ADDRESS|2" "$history_impl_key|1" "$history_admin_key|1"; do
     IFS='|' read -r account expected <<<"$nonce_expected"
     [[ "${account_nonce[$account]}" == "$expected" ]] || {
         echo "unexpected generated nonce for $account: ${account_nonce[$account]}" >&2
@@ -335,12 +341,16 @@ treasury_owner_word="$(address_word "$treasury_owner")"
 treasury_recipient_word="$(address_word "$treasury_recipient")"
 fee_impl_word="$(address_word "$fee_impl_key")"
 fee_admin_word="$(address_word "$fee_admin_key")"
+history_admin_word="$(address_word "$history_admin_key")"
 initialized_word="$(printf '0x%064x' 1)"
 locked_word="0x000000000000000000000000000000000000000000000000ffffffffffffffff"
 declare -A expected_storage=(
     ["$proxy_key $ERC1967_IMPLEMENTATION_SLOT"]="$impl_word"
     ["$proxy_key $ERC1967_ADMIN_SLOT"]="$admin_word"
     ["$admin_key $zero_slot"]="$owner_word"
+    ["$HISTORY_ADDRESS $ERC1967_IMPLEMENTATION_SLOT"]="$(address_word "$history_impl_key")"
+    ["$HISTORY_ADDRESS $ERC1967_ADMIN_SLOT"]="$history_admin_word"
+    ["$history_admin_key $zero_slot"]="$owner_word"
     ["$fee_collector $ERC1967_IMPLEMENTATION_SLOT"]="$fee_impl_word"
     ["$fee_collector $ERC1967_ADMIN_SLOT"]="$fee_admin_word"
     ["$fee_collector $INITIALIZABLE_SLOT"]="$initialized_word"
@@ -539,23 +549,36 @@ done
 runtime_hash="$(cast keccak "$runtime")"
 proxy_runtime_hash="$(cast keccak "$proxy_runtime")"
 
-# Compile the history runtime under its canonical protocol source path too.
-# Manager and Rust execution compare this generated identity, rather than a
-# second compilation whose source-path metadata could change the bytecode.
-history_runtime="$(sed -n 's/^  L1_HISTORY_RUNTIME \(0x[0-9a-fA-F]*\)$/\1/p' <<<"$forge_output")"
-[[ "$history_runtime" =~ ^0x[0-9a-fA-F]+$ ]] || { echo "missing L1 history runtime" >&2; exit 1; }
+# Bind the stable proxy identity separately from the genesis implementation.
+history_runtime="${account_code[$HISTORY_ADDRESS]}"
+history_impl_runtime="${account_code[$history_impl_key]}"
 history_runtime_hash="$(cast keccak "$history_runtime")"
-history_binary="$REPO/crates/eez-protocol/src/l1_history/runtime.bin"
-history_solidity="$REPO/contracts/src/generated/L1HistoryCode.sol"
-python3 - "$mode" "$history_runtime" "$history_runtime_hash" "$history_binary" "$history_solidity" <<'PY_HISTORY_CODE'
+history_impl_runtime_hash="$(cast keccak "$history_impl_runtime")"
+[[ "$history_runtime" == "$(patched_proxy_runtime "$eez_proxy_artifact" "$history_admin_word")" &&
+   "${account_code[$history_admin_key]}" == "$admin_runtime" ]] || {
+    echo "history proxy/admin differs from canonical artifacts" >&2; exit 1;
+}
+history_artifact="$build_root/out/L1BlockhashContract.sol/L1BlockhashContract.json"
+jq -e '.metadata.settings.compilationTarget == {"src/L2/L1BlockhashContract.sol": "L1BlockhashContract"}
+       and (.deployedBytecode.immutableReferences // {}) == {}' "$history_artifact" >/dev/null || {
+    echo "history implementation must have canonical metadata and no immutables" >&2; exit 1;
+}
+[[ "$history_impl_runtime" == "$(jq -er '.deployedBytecode.object | ascii_downcase' "$history_artifact")" ]] || {
+    echo "history implementation differs from canonical artifact" >&2; exit 1;
+}
+python3 - "$mode" "$REPO" "$history_runtime" "$history_runtime_hash" "$history_impl_runtime" "$admin_runtime" <<'PY_HISTORY_CODE'
 from pathlib import Path
 import sys
-mode, runtime, digest, binary_path, solidity_path = sys.argv[1:]
+mode, root, runtime, digest, implementation, admin = sys.argv[1:]
+root = Path(root)
 outputs = {
-    Path(binary_path): bytes.fromhex(runtime.removeprefix('0x')),
-    Path(solidity_path): (
+    root / 'crates/eez-protocol/src/l1_history/runtime.bin': bytes.fromhex(runtime.removeprefix('0x')),
+    root / 'crates/eez-protocol/src/l1_history/implementation.bin': bytes.fromhex(implementation.removeprefix('0x')),
+    root / 'crates/eez-protocol/src/l1_history/proxy_admin.bin': bytes.fromhex(admin.removeprefix('0x')),
+    root / 'contracts/src/generated/L1HistoryCode.sol': (
         '// SPDX-License-Identifier: MIT\npragma solidity 0.8.34;\n\n'
         '// Generated by scripts/update-eezl2-genesis.sh under canonical protocol paths.\n'
+        '// Identifies the history proxy, including its immutable ProxyAdmin address.\n'
         'library L1HistoryCode {\n'
         f'    bytes32 internal constant HASH = {digest};\n'
         '}\n'
@@ -610,11 +633,10 @@ render_genesis() {
             '.alloc[$account].storage[$slot] = $value' "$tmp" >"$tmp.next"
         mv "$tmp.next" "$tmp"
     done
-    python3 - "$tmp" "$history_runtime" <<'PY_HISTORY_STATE'
+    python3 - "$tmp" <<'PY_HISTORY_STATE'
 import json
-import subprocess
 import sys
-path, runtime = sys.argv[1:]
+path, = sys.argv[1:]
 with open(path) as f:
     genesis = json.load(f)
 config = genesis['config']['rollupX']
@@ -626,7 +648,7 @@ def integer(value):
     if not isinstance(value, int) or not 0 <= value < 1 << 64:
         raise ValueError('history coordinate must fit uint64')
     return value
-first = integer(reference['number'])
+integer(reference['number'])  # Validate the logical origin without storing a bootstrap record.
 cutoff = integer(genesis['timestamp'])
 step = integer(config['blockIntervalSeconds'])
 positions = integer(config['syncIntervalBlocks'])
@@ -641,16 +663,6 @@ if len(hash_bytes) != 32 or not any(hash_bytes):
     raise SystemExit('invalid history bootstrap hash')
 if genesis['mixHash'].lower() != reference['prevRandao'].lower():
     raise SystemExit('genesis PREVRANDAO differs from bootstrap source')
-key = subprocess.run(['cast', 'index', 'uint64', str(first), '0'], check=True, text=True, capture_output=True).stdout.strip()
-word = lambda n: f'0x{n:064x}'
-storage = {word(slot): word(value) for slot, value in enumerate([first, first, cutoff, period, delay, 64], 1)}
-storage[key] = reference['hash'].lower()
-genesis['alloc']['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077'] = {
-    'balance': '0x0', 'nonce': '0x1', 'code': runtime.lower(), 'storage': storage,
-}
-with open(path, 'w') as f:
-    json.dump(genesis, f, indent=2)
-    f.write('\n')
 PY_HISTORY_STATE
     chmod --reference="$base" "$tmp"
     printf '%s\n' "$tmp"
@@ -674,6 +686,11 @@ write_profile() {
         --arg fee_impl "$fee_impl_key" \
         --arg fee_admin "$fee_admin_key" \
         --arg fee_impl_runtime_hash "$fee_impl_runtime_hash" \
+        --arg history_address "$HISTORY_ADDRESS" \
+        --arg history_impl "$history_impl_key" \
+        --arg history_admin "$history_admin_key" \
+        --arg history_runtime_hash "$history_runtime_hash" \
+        --arg history_impl_runtime_hash "$history_impl_runtime_hash" \
         --arg implementation_address "$EEZL2_IMPLEMENTATION_ADDRESS" \
         --arg proxy_admin_address "$proxy_admin_address" \
         --arg runtime_hash "$runtime_hash" \
@@ -693,6 +710,11 @@ write_profile() {
             feeVaultImplementationAddress: $fee_impl,
             feeVaultProxyAdminAddress: $fee_admin,
             feeVaultImplementationCodeHash: $fee_impl_runtime_hash,
+            historyAddress: $history_address,
+            historyImplementationAddress: $history_impl,
+            historyProxyAdminAddress: $history_admin,
+            historyRuntimeCodeHash: $history_runtime_hash,
+            historyImplementationCodeHash: $history_impl_runtime_hash,
             useGasLeft: false,
             eezL2Address: $eezl2_address,
             eezL2ImplementationAddress: $implementation_address,

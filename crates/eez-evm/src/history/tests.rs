@@ -7,7 +7,7 @@ use alloy_evm::{
 };
 use alloy_primitives::{Address, Bytes, TxKind};
 use eez_primitives::SYSTEM_ADDRESS;
-use eez_protocol::l1_history::{HeaderChain, HeaderRules, bootstrap_storage};
+use eez_protocol::l1_history::{HeaderChain, HeaderRules, genesis_storage};
 use revm::{
     DatabaseCommit,
     context::{BlockEnv, CfgEnv, TxEnv},
@@ -51,7 +51,13 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
     let bootstrap = chain.at(0).unwrap().hash();
     let config = HistoryConfig {
         schedule,
-        first_number: 0,
+        bootstrap: eez_protocol::l2::GenesisL1Reference {
+            chain_id: 1,
+            number: 0,
+            hash: bootstrap,
+            timestamp: 0,
+            prev_randao: B256::ZERO,
+        },
         l2_chain_id: 1337,
         source: Arc::new(WitnessHistory(Arc::new(chain))),
     };
@@ -60,13 +66,25 @@ pub(crate) fn fixture() -> (HistoryConfig, InMemoryDB) {
     db.insert_account_info(
         HISTORY_ADDRESS,
         AccountInfo {
-            nonce: 1,
+            nonce: 2,
             code_hash: code.hash_slow(),
             code: Some(code),
             ..Default::default()
         },
     );
-    for (key, value) in bootstrap_storage(0, bootstrap, schedule).unwrap() {
+    let implementation = Bytecode::new_raw(Bytes::copy_from_slice(
+        eez_protocol::l1_history::HISTORY_IMPLEMENTATION_RUNTIME,
+    ));
+    db.insert_account_info(
+        eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+        AccountInfo {
+            nonce: 1,
+            code_hash: implementation.hash_slow(),
+            code: Some(implementation),
+            ..Default::default()
+        },
+    );
+    for (key, value) in genesis_storage() {
         db.insert_account_storage(HISTORY_ADDRESS, key.into(), value.into())
             .unwrap();
     }
@@ -214,7 +232,11 @@ fn recorded_import_precedes_applications_and_meters_gas_receipts_without_a_nonce
         assert_eq!(system.balance, U256::ZERO);
     }
     let chain = config.source.headers(8).unwrap();
-    for number in 0..=4 {
+    assert_eq!(
+        state.storage(HISTORY_ADDRESS, hash_storage_key(0)).unwrap(),
+        U256::ZERO
+    );
+    for number in 1..=4 {
         assert_eq!(
             state
                 .storage(HISTORY_ADDRESS, hash_storage_key(number))
@@ -290,12 +312,20 @@ fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_re
         };
         let mut native = (*native).clone();
         match mutation {
-            0 => native.hashes.clear(),
-            1 => native.hashes[0] = B256::repeat_byte(99),
+            0 => native.blocks.clear(),
+            1 => native.blocks[0].block_hash = B256::repeat_byte(99),
             2 => native.chain_id += 1,
             3 => native.version += 1,
-            4 => native.hashes = vec![B256::repeat_byte(1); 65],
-            _ => native.hashes[0] = B256::ZERO,
+            4 => {
+                native.blocks = vec![
+                    HistoryBlock {
+                        number: 1,
+                        block_hash: B256::repeat_byte(1)
+                    };
+                    65
+                ]
+            }
+            _ => native.blocks[0].block_hash = B256::ZERO,
         }
         let mut state = State::builder()
             .with_database(db.clone())
@@ -335,15 +365,13 @@ fn omitted_updates_inherit_but_duplicate_misplaced_malformed_and_wrong_randao_re
 fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
     let (config, mut db) = fixture();
     let (plan, tx) = prepare_at(&mut db, &config, 7).unwrap();
-    for slot in [
-        FIRST_NUMBER_SLOT,
-        FIRST_CUTOFF_SLOT,
-        INTERVAL_SLOT,
-        UPDATE_DELAY_SLOT,
-        MAX_IMPORT_SLOT,
+    for (slot, value) in [
+        (U256::from(ENDPOINT_SLOT), U256::MAX),
+        (U256::from(ENDPOINT_SLOT), U256::from(1)), // no hash at the claimed endpoint
+        (hash_storage_key(0), U256::from(1)),       // block zero must stay absent
     ] {
         let mut bad = db.clone();
-        bad.insert_account_storage(HISTORY_ADDRESS, U256::from(slot), U256::MAX)
+        bad.insert_account_storage(HISTORY_ADDRESS, slot, value)
             .unwrap();
         let mut state = State::builder()
             .with_database(bad)
@@ -388,11 +416,18 @@ fn wrong_runtime_state_and_missing_evidence_reject_before_import() {
 }
 
 #[test]
-fn conflicting_import_reverts_without_committing_any_history_prefix() {
+fn regressing_import_is_rejected_without_committing_any_history_prefix() {
     let (config, mut db) = fixture();
     let (plan, tx) = prepare_at(&mut db, &config, 7).unwrap();
-    db.insert_account_storage(HISTORY_ADDRESS, hash_storage_key(2), U256::MAX)
+    db.insert_account_storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT), U256::from(2))
         .unwrap();
+    let recorded = config.source.headers(4).unwrap().at(2).unwrap().hash();
+    db.insert_account_storage(
+        HISTORY_ADDRESS,
+        hash_storage_key(2),
+        U256::from_be_bytes(recorded.0),
+    )
+    .unwrap();
     let mut state = State::builder()
         .with_database(db)
         .with_bundle_update()
@@ -401,7 +436,7 @@ fn conflicting_import_reverts_without_committing_any_history_prefix() {
         execute(&config, &mut state, 7, plan.prev_randao, &[tx.unwrap()])
             .unwrap_err()
             .to_string()
-            .contains("history transaction failed")
+            .contains("numbers do not increase")
     );
     assert_eq!(
         state.storage(HISTORY_ADDRESS, hash_storage_key(1)).unwrap(),
@@ -411,13 +446,7 @@ fn conflicting_import_reverts_without_committing_any_history_prefix() {
         state
             .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
             .unwrap(),
-        U256::ZERO
-    );
-    assert_eq!(
-        state
-            .storage(HISTORY_ADDRESS, U256::from(FIRST_CUTOFF_SLOT))
-            .unwrap(),
-        U256::from(4)
+        U256::from(2)
     );
 }
 
@@ -432,9 +461,15 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
             ..Default::default()
         },
     );
-    let data: Bytes = eez_protocol::l1_history::IL1BlockhashContract::importHistoryCall {
-        cutoff: 4,
-        hashes: (1..=64).map(B256::with_last_byte).collect(),
+    let data: Bytes = eez_protocol::l1_history::IL1BlockhashContract::importL1BlocksCall {
+        blocks: (1..=64)
+            .map(
+                |number| eez_protocol::l1_history::IL1BlockhashContract::L1Block {
+                    number: u64::from(number),
+                    blockHash: B256::with_last_byte(number),
+                },
+            )
+            .collect(),
     }
     .abi_encode()
     .into();
@@ -463,7 +498,13 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
             ..native
         })
         .unwrap();
-    assert!(result.result.is_halt());
+    // The implementation exhausts its delegated gas; the transparent proxy
+    // bubbles that failure as an empty revert. No partial writes may survive.
+    assert!(matches!(
+        result.result,
+        revm::context::result::ExecutionResult::Revert { .. }
+    ));
+    assert!(result.result.output().unwrap().is_empty());
     assert_eq!(
         evm.db_mut()
             .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
@@ -478,4 +519,133 @@ fn maximum_import_fits_native_budget_and_invisible_imports_are_rejected() {
                 .contains("recorded native transaction")
         );
     }
+}
+
+#[test]
+fn positive_bootstrap_stays_publicly_empty_then_can_be_published_once() {
+    let (mut config, db) = fixture();
+    let chain = config.source.headers(4).unwrap();
+    let reference = chain.at(2).unwrap();
+    config.bootstrap.number = 2;
+    config.bootstrap.hash = reference.hash();
+    config.bootstrap.timestamp = reference.header().timestamp;
+    config.bootstrap.prev_randao = reference.header().mix_hash;
+    config.schedule = HistorySchedule::new(8, 1, 4, 2).unwrap();
+    config.source = Arc::new(WitnessHistory(Arc::new(chain.range(2, 2).unwrap())));
+    let mut state = State::builder()
+        .with_database(db)
+        .with_bundle_update()
+        .build();
+    // No record is installed by genesis or an omitted opportunity, even though
+    // execution authenticates and inherits the positive bootstrap origin.
+    execute(&config, &mut state, 9, config.bootstrap.prev_randao, &[]).unwrap();
+    assert_eq!(
+        state
+            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .unwrap(),
+        U256::ZERO
+    );
+    assert_eq!(
+        state.storage(HISTORY_ADDRESS, hash_storage_key(2)).unwrap(),
+        U256::ZERO
+    );
+    let (plan, tx) = prepare_at(&mut state, &config, 11).unwrap();
+    let tx = tx.unwrap();
+    execute(
+        &config,
+        &mut state,
+        11,
+        plan.prev_randao,
+        std::slice::from_ref(&tx),
+    )
+    .unwrap();
+    assert_eq!(
+        state
+            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .unwrap(),
+        U256::from(2)
+    );
+    assert_eq!(
+        state.storage(HISTORY_ADDRESS, hash_storage_key(2)).unwrap(),
+        U256::from_be_bytes(config.bootstrap.hash.0)
+    );
+    assert!(prepare_at(&mut state, &config, 15).unwrap().1.is_none());
+    assert!(
+        execute(&config, &mut state, 15, plan.prev_randao, &[tx])
+            .unwrap_err()
+            .to_string()
+            .contains("numbers do not increase")
+    );
+}
+
+#[test]
+fn sparse_recorded_import_authenticates_bridge_but_never_stores_or_backfills_gaps() {
+    let (config, db) = fixture();
+    let chain = config.source.headers(8).unwrap();
+    let tx: EezTxEnvelope = HistoryTransaction {
+        version: HISTORY_TX_VERSION,
+        chain_id: 1337,
+        blocks: [1, 4]
+            .map(|number| HistoryBlock {
+                number,
+                block_hash: chain.at(number).unwrap().hash(),
+            })
+            .to_vec(),
+    }
+    .into();
+    let mut state = State::builder()
+        .with_database(db.clone())
+        .with_bundle_update()
+        .build();
+    let randao = chain.at(4).unwrap().header().mix_hash;
+    execute(&config, &mut state, 11, randao, std::slice::from_ref(&tx)).unwrap();
+    assert_eq!(
+        state
+            .storage(HISTORY_ADDRESS, U256::from(ENDPOINT_SLOT))
+            .unwrap(),
+        U256::from(4)
+    );
+    for number in [0, 2, 3, 5] {
+        assert_eq!(
+            state
+                .storage(HISTORY_ADDRESS, hash_storage_key(number))
+                .unwrap(),
+            U256::ZERO
+        );
+    }
+    for number in [1, 4] {
+        assert_eq!(
+            state
+                .storage(HISTORY_ADDRESS, hash_storage_key(number))
+                .unwrap(),
+            U256::from_be_bytes(chain.at(number).unwrap().hash().0)
+        );
+    }
+    let backfill: EezTxEnvelope = HistoryTransaction {
+        version: HISTORY_TX_VERSION,
+        chain_id: 1337,
+        blocks: vec![HistoryBlock {
+            number: 3,
+            block_hash: chain.at(3).unwrap().hash(),
+        }],
+    }
+    .into();
+    assert!(
+        execute(&config, &mut state, 15, randao, &[backfill])
+            .unwrap_err()
+            .to_string()
+            .contains("numbers do not increase")
+    );
+    let mut incomplete = config.clone();
+    incomplete.source = Arc::new(WitnessHistory(Arc::new(chain.range(0, 1).unwrap())));
+    let mut missing = State::builder()
+        .with_database(db)
+        .with_bundle_update()
+        .build();
+    assert!(
+        execute(&incomplete, &mut missing, 11, randao, &[tx])
+            .unwrap_err()
+            .to_string()
+            .contains("outside supplied evidence")
+    );
 }

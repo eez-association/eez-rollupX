@@ -359,7 +359,7 @@ async fn bidirectional_smoke(history_at_sync: bool) {
         );
         let history: eez_primitives::HistoryTransaction =
             serde_json::from_value(transactions[0].clone()).unwrap();
-        assert!(!history.hashes.is_empty());
+        assert!(!history.blocks.is_empty());
         assert!(transactions.iter().skip(1).any(|tx| {
             tx["type"] == native_type
                 && serde_json::from_value::<eez_primitives::SystemTransaction>(tx.clone())

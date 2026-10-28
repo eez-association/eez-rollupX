@@ -620,6 +620,39 @@ fn validates_the_golden_block_through_stateless() {
 }
 
 #[test]
+fn history_import_requires_the_authenticated_implementation_code() {
+    let input = fixture_input();
+    let implementation = eez_protocol::l1_history::HISTORY_IMPLEMENTATION_RUNTIME;
+    let position = input
+        .witness
+        .codes
+        .iter()
+        .position(|code| code.as_ref() == implementation)
+        .expect("captured import must witness delegated implementation code");
+    Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
+        .validate(std::slice::from_ref(&input))
+        .unwrap();
+    for replace in [false, true] {
+        let mut invalid = input.clone();
+        invalid.witness.codes.remove(position);
+        if replace {
+            // Plausible executable bytes with a different hash cannot satisfy
+            // the code hash authenticated by the implementation account proof.
+            let mut changed = implementation.to_vec();
+            changed[0] ^= 1;
+            invalid.witness.codes.push(changed.into());
+        }
+        let error = Backend::new(fixture_genesis(), TEST_SYSTEM_ADDRESS)
+            .validate(&[invalid])
+            .unwrap_err();
+        assert!(
+            matches!(&error, ValidationError::Rejected(reason) if reason.contains("bytecode")),
+            "{error:?}"
+        );
+    }
+}
+
+#[test]
 fn selected_checkpoints_flow_through_the_stateless_adapter() {
     let (mut input, chain_config, expected) = checkpoint_fixture();
     let expected_hash = input.claimed_hash;
@@ -838,7 +871,7 @@ fn history_observation_claim(pin: B256, mode: CallMode, output: Bytes) -> FifoOb
 }
 
 #[test]
-fn scheduled_history_observations_include_history_and_ordinary_state() {
+fn scheduled_history_observations_include_history_and_unfinalized_donations() {
     for suffix in [false, true] {
         let fixture = crate::testkit::history_observations::Fixture::new(suffix);
         let admitted = fixture.admitted();
@@ -1213,20 +1246,9 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             parent_hash: parent.hash_slow(),
             base_fee_per_gas: Some(base_fee),
             gas_used: 21_000 + native_gas * (count as u64 - 1),
-            // The ordinary donation remains in B[0]; each native delivery
-            // clears it and its own newly minted residual before checkpoint.
-            state_root: state(
-                user,
-                1,
-                remaining,
-                fee,
-                if count == 1 {
-                    U256::from(11)
-                } else {
-                    U256::ZERO
-                },
-            )
-            .0,
+            // Closing B[0] burns its ordinary donation. Continuing the raw
+            // prefix still carries that donation into the first native group.
+            state_root: state(user, 1, remaining, fee, U256::ZERO).0,
             transactions_root: calculate_transaction_root(&transactions[..count]),
             receipts_root: calculate_receipt_root(&prefix_receipts),
             ..parent.clone()
@@ -1258,6 +1280,19 @@ fn ordinary_prefix_then_two_native_actions_preserve_every_execution_checkpoint()
             ..Default::default()
         },
     };
+    for (index, header) in expected.iter().enumerate() {
+        let mut prefix = input.clone();
+        let mut block = alloy_rlp::decode_exact::<Block>(&prefix.rlp).unwrap();
+        block.header = header.clone();
+        block.body.transactions.truncate(index + 1);
+        prefix.claimed_hash = header.hash_slow();
+        prefix.rlp = alloy_rlp::encode(block);
+        let validated = Backend::new(genesis.clone(), SYSTEM_ADDRESS)
+            .validate(&[prefix])
+            .unwrap();
+        assert_eq!(validated.blocks[0].computed_hash, header.hash_slow());
+        assert_eq!(validated.blocks[0].post_state_root, header.state_root);
+    }
     let output = Backend::new(genesis.clone(), SYSTEM_ADDRESS)
         .validate(std::slice::from_ref(&input))
         .unwrap();

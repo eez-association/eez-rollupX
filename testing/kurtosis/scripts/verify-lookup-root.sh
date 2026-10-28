@@ -32,9 +32,9 @@ genesis_hash="$(cast rpc eth_getBlockByNumber 0x0 false --rpc-url "$L2_RPC" | jq
 history_address=0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077
 parent="$(cast rpc eth_getBlockByHash "$hash" false --rpc-url "$L2_RPC" | jq -er '.parentHash')"
 [[ "$parent" =~ ^0x[[:xdigit:]]{64}$ ]] || exit 1
-cast rpc eth_getStorageAt "$history_address" 0x2 "$parent" --rpc-url "$L2_RPC" >"$scratch/first.json"
-cast rpc eth_getStorageAt "$history_address" 0x2 "$hash" --rpc-url "$L2_RPC" >"$scratch/last.json"
-python3 - "$scratch/first.json" "$scratch/last.json" >"$scratch/numbers" <<'PY'
+cast rpc eth_getStorageAt "$history_address" 0x1 "$parent" --rpc-url "$L2_RPC" >"$scratch/first.json"
+cast rpc eth_getStorageAt "$history_address" 0x1 "$hash" --rpc-url "$L2_RPC" >"$scratch/last.json"
+python3 - "$scratch/first.json" "$scratch/last.json" "${EEZ_L2_GENESIS:?set the deployed L2 genesis path}" >"$scratch/numbers" <<'PY'
 import json, re, sys
 
 def endpoint(path):
@@ -47,10 +47,18 @@ def endpoint(path):
         raise SystemExit("L1 history endpoint exceeds uint64")
     return number
 
-first, last = map(endpoint, sys.argv[1:])
-# Shared protocol MAX_IMPORT_HEADERS is 64; Rust checks the exact import count.
-if last < first or last - first > 64:
-    raise SystemExit("L1 history endpoint range exceeds one bounded import")
+first, last = map(endpoint, sys.argv[1:3])
+if first == 0 or last == 0:
+    with open(sys.argv[3]) as stream:
+        reference = json.load(stream)["config"]["rollupX"]["l1Reference"]["number"]
+    bootstrap = int(reference, 0) if isinstance(reference, str) else reference
+    if isinstance(bootstrap, bool) or not isinstance(bootstrap, int) or not 0 <= bootstrap < 2**64:
+        raise SystemExit("invalid genesis L1 reference number")
+    first, last = first or bootstrap, last or bootstrap
+# Ancestry may include skipped records; match runtime MAX_HISTORY_HEADERS.
+# The Rust executor independently bounds stored pairs to 64 and binds their hashes.
+if last < first or last - first >= 131072:
+    raise SystemExit("L1 history endpoint range exceeds the ancestry bound")
 for number in range(first, last + 1):
     print(hex(number))
 PY

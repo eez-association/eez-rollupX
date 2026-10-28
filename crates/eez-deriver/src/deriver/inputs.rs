@@ -69,8 +69,7 @@ mod tests {
 
     fn fixture() -> (EezEvmConfig, SealedHeader, Environment, Block) {
         use eez_protocol::l1_history::{
-            HISTORY_ADDRESS, HeaderChain, HeaderRules, HistorySchedule, WitnessHistory,
-            bootstrap_storage,
+            HISTORY_ADDRESS, HeaderChain, HeaderRules, WitnessHistory, genesis_storage,
         };
         let reference = Header {
             timestamp: 68,
@@ -96,14 +95,7 @@ mod tests {
         derivation["l1Reference"]["timestamp"] = 68u64.into();
         derivation["l1Reference"]["hash"] = reference.hash_slow().to_string().into();
         derivation["l1Reference"]["prevRandao"] = reference.mix_hash.to_string().into();
-        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(
-            bootstrap_storage(
-                0,
-                reference.hash_slow(),
-                HistorySchedule::new(80, 2, 6, 2).unwrap(),
-            )
-            .unwrap(),
-        );
+        genesis.alloc.get_mut(&HISTORY_ADDRESS).unwrap().storage = Some(genesis_storage());
         let mut history = HeaderChain::default();
         history
             .append(

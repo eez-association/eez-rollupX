@@ -930,6 +930,17 @@ semantic-blob coverage are all complete. `protocol-e2e/summary.json` is the
 machine-readable index, and each scenario retains its decoded evidence and raw
 Beacon blob response under `protocol-e2e/evidence/`.
 
+The generic collector also reconciles the pinned runner's `submission refused`
+diagnostics for `reconciliation`, `quote_busy` and `stale_context`: the exact logged
+hash must be one of the scenario's successfully included canonical triggers, with
+matching chain ID and nonce. All table, causal, blob and final canonical-recheck
+gates still apply. The original
+log is retained, and `source_log.reconciled_submissions` records these recovered
+submissions. Other `ERROR:` lines still fail collection. The specialized lookup
+collectors retain their strict rejection of submission errors. This handles a
+bounded retry of the same signed operation inside one scenario, not a retry of a
+failed test or a reason to ignore missing semantic evidence.
+
 Mixed L2 read/write scenarios bind the complete per-user `loadExecutionTable`
 calldata, including every static row and its mutable-entry position, to one L1
 host. Their retained mutable-call events must still match exactly. The

@@ -44,14 +44,7 @@ fn config() -> EezEvmConfig {
         .alloc
         .get_mut(&eez_protocol::l1_history::HISTORY_ADDRESS)
         .unwrap();
-    account.storage = Some(
-        eez_protocol::l1_history::bootstrap_storage(
-            0,
-            chain.at(0).unwrap().hash(),
-            history.schedule,
-        )
-        .unwrap(),
-    );
+    account.storage = Some(eez_protocol::l1_history::genesis_storage());
     EezEvmConfig::new(Arc::new(profile::chain_spec(genesis).unwrap()))
         .with_l1_history(history.source)
         .unwrap()
@@ -79,6 +72,8 @@ fn production_base_genesis_allocates_no_eth_and_keeps_required_predeploys() {
         proxy_admin,
         alloy_eips::eip2935::HISTORY_STORAGE_ADDRESS,
         eez_protocol::l1_history::HISTORY_ADDRESS,
+        eez_protocol::l1_history::HISTORY_IMPLEMENTATION_ADDRESS,
+        eez_protocol::l1_history::HISTORY_ADMIN_ADDRESS,
         vault,
         vault_implementation,
         vault_admin,

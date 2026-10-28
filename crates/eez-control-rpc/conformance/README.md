@@ -2,8 +2,8 @@
 
 The corpus uses [versionless cross-chain transactions and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
 execution-group source identities, optional HistoryUpdate 0x46/version 1,
-complete-group cleanup, Profile and
-validation-contract version 4. The proving transport remains v2.
+complete-group and block-finalization cleanup, Profile and
+validation-contract version 6. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
 
@@ -20,7 +20,7 @@ The corpus has 24 expected successful proofs across 29 cases. Exact frame/event
 counts and input digests are recorded in its manifest. The recordings and
 transcripts must match versionless `0x45`, complete-group cleanup, optional
 history and the execution-group source identity. The
-[current audit](../../../docs/audits/2026-10-27-source-counter/README.md)
+[current record](../../../docs/audits/2026-10-27-block-end-cleanup/README.md)
 records fixture regeneration, executed results and remaining integration gates.
 
 The separate [scheduled-history observation fixtures](../../eez-proof-signer/tests/fixtures/native-history-observations/README.md)

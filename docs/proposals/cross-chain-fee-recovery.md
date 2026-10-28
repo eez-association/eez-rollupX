@@ -2463,7 +2463,7 @@ execution burn/tip rules. This is a model example, not measured production cost.
 
 Use a dedicated spendable L2 treasury account. The current
 [block executor](../../crates/eez-evm/src/block.rs) burns the balances of EEZL2
-and SYSTEM_ADDRESS at the next block start; neither is a fee vault. A withdrawal
+and SYSTEM_ADDRESS at complete-group boundaries and block finalization; neither is a fee vault. A withdrawal
 contract is optional account infrastructure, but redemption authorization,
 canonical accounting, sweep costs and L1 working capital remain necessary.
 
