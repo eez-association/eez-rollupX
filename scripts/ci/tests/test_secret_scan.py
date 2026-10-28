@@ -27,6 +27,17 @@ class SecretScanTest(unittest.TestCase):
         ]
         cases.extend(("scripts/ci/tests/test_why_excluded.py", f'{name} = "{value}"\n')
                      for name, value in builder_keys)
+        verification_key_fixtures = [
+            ("crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history.json", "verification_key"),
+            ("crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history-import.json", "verification_key"),
+            ("crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity.json", "vkey"),
+            ("crates/eez-proof-signer/tests/fixtures/native-history-observations/identity.json", "vkey"),
+            ("crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity.json", "vkey"),
+            ("crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity.json", "vkey"),
+        ]
+        for relative, field in verification_key_fixtures:
+            value = json.loads((REPO / relative).read_text())[field]
+            cases.append((relative, json.dumps({field: value}) + "\n"))
         for relative, allowed in cases:
             with self.subTest(path=relative), tempfile.TemporaryDirectory(prefix="eez-secret-scan.") as directory:
                 root = Path(directory)
