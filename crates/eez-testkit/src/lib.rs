@@ -1266,16 +1266,16 @@ impl NodeHandle {
         signal("-CONT")
     }
 
-    fn spawn_with(
+    async fn spawn_with(
         name: &str,
         datadir: &std::path::Path,
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new(), None)
+        Self::spawn_with_reservations(name, datadir, cfg, env, Vec::new(), None).await
     }
 
-    fn spawn_with_reservations(
+    async fn spawn_with_reservations(
         name: &str,
         datadir: &std::path::Path,
         cfg: &NodeConfig<'_>,
@@ -1473,7 +1473,7 @@ impl NodeHandle {
         cfg: &NodeConfig<'_>,
         env: &[(&'static str, String)],
     ) -> Result<Self> {
-        let handle = Self::spawn_with(name, datadir, cfg, env)?;
+        let handle = Self::spawn_with(name, datadir, cfg, env).await?;
         handle
             .wait_for_rpc(&handle.l2_rpc_url(), Duration::from_mins(3), "L2 RPC")
             .await?;
@@ -4386,7 +4386,8 @@ impl NativeWorld {
             &self.env,
             Vec::new(),
             Some(http_lease),
-        )?;
+        )
+        .await?;
         self.node
             .wait_for_rpc(&self.node.l2_rpc_url(), SETUP_TIMEOUT, "restarted L2")
             .await?;
@@ -6207,7 +6208,8 @@ async fn setup_native_inner(
         &env,
         cfg.take_port_leases(),
         Some(l2_http_lease),
-    )?;
+    )
+    .await?;
     let mut setup_diagnostics = FixtureSetupDiagnostics {
         node: &node,
         signer: &proof_signer,
