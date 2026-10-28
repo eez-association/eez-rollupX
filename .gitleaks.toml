@@ -83,3 +83,36 @@ regexes = [
   '''^0x850b00e055388c1b56f137e0852bc02d8b05534e9f96dd1d11cff8cf0481b800ecc2e708cdc158cd95b7cfdaa6840ee7$''',
   '''^0x851b00b12f73770337fbd219b439aba7bd8e770dbdea16a3b0df030d971bc0d824d470d7868e5d93355f501bfe892947$''',
 ]
+
+# Public network/program commitments derived by NetworkProfile::verification_key,
+# not signing keys. See crates/eez-control-rpc/VALIDATION_IDENTITY.md.
+[[allowlists]]
+description = "Bidirectional and prefix-replay fixture verification key"
+condition = "AND"
+paths = [
+  '''^crates/eez-l1/examples/verify_blob_evidence/fixtures/prefix-history(-import)?\.json$''',
+  '''^crates/eez-proof-signer/tests/fixtures/native-offline-bidirectional/identity\.json$''',
+]
+regexTarget = "secret"
+regexes = ['''^(0x)?b1bfe68060d84db5ca2f0398bef39ea34e3cd1cef9ecf58c73de8df4d45d186b$''']
+
+[[allowlists]]
+description = "History-observation fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-history-observations/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?f00e07bc501597cf26edf014bf557ed3e1b0cd89f15e1c8e39fd1e90de22138d$''']
+
+[[allowlists]]
+description = "Osaka changing-static fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-changing-static/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?981d974d1b830553d0f9d7c05881262e034c23f6afb2831010e326fa1bb32c75$''']
+
+[[allowlists]]
+description = "Osaka lookup fixture verification key"
+condition = "AND"
+paths = ['''^crates/eez-proof-signer/tests/fixtures/native-osaka-lookup/identity\.json$''']
+regexTarget = "secret"
+regexes = ['''^(0x)?808c11d36e6b7c4db0c94d9b6ee3443fc5d58b705342966c5e654f2f5fea9351$''']
