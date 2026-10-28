@@ -91,7 +91,7 @@ impl Fixture {
     }
 
     fn range(&self, from: u64, to: u64) -> (Finalize, Proof) {
-        use eez_protocol::l1_history::{EvidenceAnchor, OfflineContext};
+        use eez_protocol::l1_history::{EvidenceAnchor, ProofContext};
         let state = fixture_state(self.name);
         let mut batch = eez_protocol::abi::postAndVerifyBatchCall::abi_decode_validate(
             &self.finalize.settlement.as_ref().unwrap().abi_calldata,
@@ -160,12 +160,9 @@ impl Fixture {
                 .unwrap(),
         )
         .unwrap();
-        let context = OfflineContext::new(
-            &state.deployment.profile,
-            state.deployment.registry,
-            state.deployment.manager,
+        let context = ProofContext::new(
+            (state.deployment.profile).l2ChainId,
             self.begin.rollup_id,
-            batch.expectedRootPerRollup[0].root,
             EvidenceAnchor::ActualParent {
                 number: posting.parent_number,
                 hash: B256::from_slice(&posting.parent_hash),
@@ -1227,7 +1224,9 @@ fn make_case(name: &str) -> Value {
                         Code::FailedPrecondition
                     }
                     5 => {
-                        batch.expectedRootPerRollup[0].root = B256::repeat_byte(0xee);
+                        batch
+                            .expectedRootPerRollup
+                            .push(batch.expectedRootPerRollup[0].clone());
                         Code::FailedPrecondition
                     }
                     6 => {
@@ -1258,7 +1257,7 @@ fn make_case(name: &str) -> Value {
                     0,
                     C::Finalize(finalize),
                     code,
-                    "Canonical ABI, accepted root and execution/DA commitments required",
+                    "Canonical ABI, root-pin shape and execution/DA commitments required",
                 );
             }
             t.proof(0, &f.finalize, &f.proof);

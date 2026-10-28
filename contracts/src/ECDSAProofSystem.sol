@@ -16,8 +16,8 @@ import {IProofSystem} from "eez-core-protocol/src/interfaces/IProofSystem.sol";
 ///
 ///         Proof shape: `abi.encodePacked(r, s, v)` — 32 + 32 + 1 = 65 bytes.
 ///
-///         `vkey = bytes32(uint256(uint160(signer)))` is the registry-membership
-///         ticket; the attester address lives on this contract's `signer()` view.
+///         The registry includes the configured network-bound verification key
+///         in `publicInputsHash`; the attester address is exposed by `signer()`.
 contract ECDSAProofSystem is IProofSystem {
     /// @notice Authorized attester. ECDSA recovery against the batch's
     ///         `publicInputsHash` must equal this value.

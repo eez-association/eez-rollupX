@@ -70,9 +70,9 @@ See [architecture](docs/architecture.md),
   transactions have the fixed protocol sender and require no signing key.
   Never log or preserve private-key input in diagnostics.
 - Check the exact execution parent, complete canonical header encoding/linkage,
-  recorded delayed origin/PREVRANDAO, accepted-root coverage and mode eligibility
+  recorded delayed origin/PREVRANDAO, signed entry-root coverage and mode eligibility
   before authorizing settlement. The proof is conditional on the offline context;
-  the manager binds it to actual L1 anchor/root/rules at inclusion. Never replace
+  Core binds the L1 anchor and network key, and checks consumed entry roots. Never replace
   missing evidence with RPC, cached authority or a Composer assertion. ACKs alone
   cannot sign. Historical mode forbids every cross-chain action, including
   observations without an L2 transaction. ECDSA attestation remains a trusted

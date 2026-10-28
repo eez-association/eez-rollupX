@@ -37,7 +37,7 @@ impl SettlementChecks {
         let batch = settlement::decode_canonical_post_batch(post.abi_calldata)
             .map_err(SettlementPipelineError::from)?;
         let posting = crate::testkit::target_from_wire(post.posting_context.as_ref().unwrap());
-        let context = crate::testkit::offline_context(&batch, posting);
+        let context = crate::testkit::proof_context(&batch, posting);
         let result = run_settlement(SettlementInput {
             canonical_batch: batch,
             posting_context: context,
@@ -81,7 +81,8 @@ fn a_canonical_outbound_window_passes_settlement_checks() {
     );
     let server = SettlementChecks::new(inner(validator));
     let window = single_block_settlement_window(batch, block_rlp);
-    let expected_hash = recompute_window_public_inputs_hash(&window);
+    let expected_hash =
+        recompute_window_public_inputs_hash(&window, server.state.attester.proof_system_vkey());
 
     let response = server.check(window);
 
@@ -97,7 +98,8 @@ fn a_mixed_outbound_then_inbound_window_passes_settlement_checks() {
     );
     let server = SettlementChecks::new(inner(validator));
     let window = single_block_settlement_window(batch, block_rlp);
-    let expected_hash = recompute_window_public_inputs_hash(&window);
+    let expected_hash =
+        recompute_window_public_inputs_hash(&window, server.state.attester.proof_system_vkey());
 
     let response = server.check(window);
 
@@ -114,7 +116,8 @@ fn a_value_bearing_outbound_window_passes_settlement_checks() {
     );
     let server = SettlementChecks::new(inner(validator));
     let window = single_block_settlement_window(batch, block_rlp);
-    let expected_hash = recompute_window_public_inputs_hash(&window);
+    let expected_hash =
+        recompute_window_public_inputs_hash(&window, server.state.attester.proof_system_vkey());
 
     let response = server.check(window);
 
@@ -125,7 +128,8 @@ fn a_value_bearing_outbound_window_passes_settlement_checks() {
 fn a_valid_anchor_only_window_passes_settlement_checks() {
     let server = SettlementChecks::new(one_accepting_validator());
     let window = happy_window();
-    let expected_hash = recompute_window_public_inputs_hash(&window);
+    let expected_hash =
+        recompute_window_public_inputs_hash(&window, server.state.attester.proof_system_vkey());
 
     let response = server.check(window);
 
@@ -415,14 +419,20 @@ fn settlement_digest_binds_the_exact_l1_parent_and_target_timestamp() {
             &happy_block_inputs(),
         ))])));
         let mut post_batch = public_input_post_batch();
-        let original = recompute_test_public_inputs_hash(&post_batch);
+        let original = recompute_test_public_inputs_hash(
+            &post_batch,
+            server.state.attester.proof_system_vkey(),
+        );
         let target = post_batch.posting_context.as_mut().unwrap();
         if change_parent {
             target.parent_hash[0] ^= 1;
         } else {
             target.target_timestamp += 1;
         }
-        let expected = recompute_test_public_inputs_hash(&post_batch);
+        let expected = recompute_test_public_inputs_hash(
+            &post_batch,
+            server.state.attester.proof_system_vkey(),
+        );
         assert_ne!(original, expected);
         let mut window = happy_window();
         replace_post_batch(&mut window, post_batch);

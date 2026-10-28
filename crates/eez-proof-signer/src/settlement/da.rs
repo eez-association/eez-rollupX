@@ -67,7 +67,7 @@ pub(crate) fn verify_da_payload(
     inbound_effects: &AuthorizedInboundEffects<'_>,
     reconstructor: &SystemTransactionReconstructor,
     semantic_transactions: &[eez_protocol::blob_semantics::SemanticTransaction],
-    posting_context: &eez_protocol::l1_history::OfflineContext,
+    posting_context: &eez_protocol::l1_history::ProofContext,
 ) -> Result<(), DaPayloadError> {
     use alloy_eips::Encodable2718 as _;
     let payload = eez_payload_codec::v0::Payload::decode(encoded_payload)

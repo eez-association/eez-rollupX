@@ -110,7 +110,12 @@ pub fn run_composer() -> eyre::Result<()> {
     })
 }
 
-async fn composer_proving_from_env(expected_identity: B256) -> eyre::Result<ComposerProving> {
+async fn composer_proving_from_env(
+    expected_identity: B256,
+    profile: &eez_protocol::l1_history::NetworkProfile,
+    registry: Address,
+    proof_system: Address,
+) -> eyre::Result<ComposerProving> {
     let url = env::var("EEZ_PROVER_URL")
         .map_err(|_| eyre::eyre!("EEZ_PROVER_URL is required for composer proving"))?;
     if url.trim().is_empty() {
@@ -120,7 +125,12 @@ async fn composer_proving_from_env(expected_identity: B256) -> eyre::Result<Comp
         .map_err(|_| eyre::eyre!("EEZ_ATTESTER_ADDRESS is required for composer proving"))?;
     let attester =
         Address::from_str(attester.trim()).map_err(|e| eyre::eyre!("EEZ_ATTESTER_ADDRESS: {e}"))?;
-    let remote = eez_prover_client::RemoteProver::new(url, attester, expected_identity);
+    let remote = eez_prover_client::RemoteProver::new(
+        url,
+        attester,
+        expected_identity,
+        profile.verification_key(registry, proof_system, attester),
+    );
     let capabilities = remote.capabilities().await?;
     event!(Level::INFO, validation_identity = %expected_identity,
         maximum_blocks = capabilities.max_window_blocks,
@@ -508,8 +518,15 @@ async fn launch_composer(
         EmbeddedL1::Chiado(handle) => Arc::new(handle.node.chain_spec().inner.clone()),
     };
     let offline_rules = eez_l1::chain_config::offline_l1_rules(&offline_l1_spec)?;
-    let offline_profile =
+    let network_profile =
         offline_rules.profile(derivation_schedule, builder.config().chain.chain().id())?;
+    let ecdsa_proof_system_address: Address =
+        Address::from_str(&env::var("EEZ_ECDSA_PROOF_SYSTEM_ADDRESS").map_err(|_| {
+            eyre::eyre!(
+                "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS required for L1 postBatch \
+                         proofSystems[0]"
+            )
+        })?)?;
     let expected_identity = eez_control_rpc::identity::ValidationContext {
         rollup_id: std::num::NonZeroU64::new(rollup_config.rollup_id)
             .ok_or_else(|| eyre::eyre!("rollup ID must be nonzero"))?,
@@ -517,7 +534,7 @@ async fn launch_composer(
         system_address,
         eez_l2_address: eez_protocol::EEZL2_ADDRESS,
         chain_document_digest,
-        offline_profile_hash: offline_profile.commitment(),
+        network_profile_hash: network_profile.commitment(),
         registry: eez_registry,
         manager: rollup_manager,
     }
@@ -527,7 +544,13 @@ async fn launch_composer(
         maximum_blocks,
         prover,
         witness_capture,
-    } = composer_proving_from_env(expected_identity).await?;
+    } = composer_proving_from_env(
+        expected_identity,
+        &network_profile,
+        eez_registry,
+        ecdsa_proof_system_address,
+    )
+    .await?;
     let composer_settings = composer_settings.with_prover_block_limit(maximum_blocks)?;
     let composer_info = composer_rpc::ComposerInfo::new(
         composer_rpc::ComposerContracts {
@@ -830,13 +853,6 @@ async fn launch_composer(
             .map_err(|_| eyre::eyre!("EEZ_L1_POSTER_KEY required for L1 postBatch signing"))?;
         let l1_poster_signer =
             PrivateKeySigner::from_bytes(&B256::from_str(l1_poster_key.trim_start_matches("0x"))?)?;
-        let ecdsa_proof_system_address: Address =
-            Address::from_str(&env::var("EEZ_ECDSA_PROOF_SYSTEM_ADDRESS").map_err(|_| {
-                eyre::eyre!(
-                    "EEZ_ECDSA_PROOF_SYSTEM_ADDRESS required for L1 postBatch \
-                         proofSystems[0]"
-                )
-            })?)?;
         let blob_sidecar_encoding =
             match env::var("EEZ_L1_BLOB_SIDECAR_ENCODING")
                 .map_err(|_| {
@@ -867,8 +883,6 @@ async fn launch_composer(
             submitter: submitter.clone(),
             l1_poster_signer,
             l1_chain_id: l1_submission_chain_id,
-            offline_profile: offline_profile.clone(),
-            rollup_manager,
             blob_sidecar_encoding,
             ecdsa_proof_system_address,
         });

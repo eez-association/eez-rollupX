@@ -22,7 +22,7 @@ async fn capabilities_report_offline_identity_and_effective_limits_while_worker_
             system_address: TEST_SYSTEM_ADDRESS,
             eez_l2_address: crate::EEZL2_ADDRESS,
             chain_document_digest: digest,
-            offline_profile_hash: state.deployment.profile.commitment(),
+            network_profile_hash: state.deployment.profile.commitment(),
             registry: Address::repeat_byte(0x33),
             manager: Address::repeat_byte(0x44),
         }

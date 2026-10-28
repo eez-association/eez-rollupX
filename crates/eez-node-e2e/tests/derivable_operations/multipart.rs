@@ -358,11 +358,6 @@ async fn catch_up(
     assert_eq!(profile.updateOffset, 2);
     let rule_change = l1_spec.genesis.config.bpo1_time.unwrap();
     assert!(genesis.timestamp < rule_change && rule_change < genesis.timestamp + history_seconds);
-    assert!(rules.rule_times.contains(&rule_change));
-    assert_ne!(
-        profile.rules_id(rule_change - 1).unwrap(),
-        profile.rules_id(rule_change).unwrap()
-    );
     assert!(historical_headers.first().unwrap().timestamp < rule_change);
     assert!(historical_headers.last().unwrap().timestamp >= rule_change);
     assert_ne!(
@@ -473,7 +468,11 @@ async fn catch_up(
             l1_chain_config: l1_profile.clone(),
             rollup_id: world.dep.rollup_id,
             signer_key: world.cfg.attester_key,
-            vkey: signer_address(world.cfg.attester_key).unwrap().into_word(),
+            vkey: world.dep.profile.verification_key(
+                world.dep.eez_address,
+                world.dep.proof_system_address,
+                signer_address(world.cfg.attester_key).unwrap(),
+            ),
             proof_system: world.dep.proof_system_address,
             max_request_blocks: Some(part_blocks),
         })
@@ -537,8 +536,7 @@ async fn catch_up(
             l1_rpc: &l1_rpc,
             l1_step: 5,
             registry: world.dep.eez_address,
-            manager: world.dep.rollup_manager_address,
-            offline_profile: profile.clone(),
+            network_profile: profile.clone(),
             header_rules,
         };
         let actual_target = if to == terminal_number {

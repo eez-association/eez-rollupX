@@ -241,7 +241,7 @@ fn cancelled_settlement_stops_before_effect_and_da_checks() {
     let validated = validated_single_block(settling_block, Vec::new(), Vec::new());
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -320,7 +320,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         )],
     };
     let post_batch = public_input_post_batch_for_semantics(batch.clone(), &[semantic]);
-    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch, test_proof_system_vkey());
     let calldata = post_batch.abi_calldata.clone();
     let statuses = [true];
     let checkpoints = [checkpoint(0, B256::repeat_byte(0x05))];
@@ -330,7 +330,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -354,7 +354,7 @@ fn a_fully_bound_inbound_passes_settlement_and_da_validation() {
     );
     let reverted = validated_single_block(reverted_block, vec![false], checkpoints.to_vec());
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -402,7 +402,7 @@ fn a_reverted_outbound_load_reports_the_paired_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -451,7 +451,7 @@ fn an_outbound_observation_failure_reports_the_user_transaction() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -506,7 +506,7 @@ fn an_outbound_claim_hash_mismatch_remains_non_actionable() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let error = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -561,7 +561,7 @@ fn a_fully_bound_outbound_effect_passes_settlement_checks() {
     };
     let post_batch =
         public_input_post_batch_for_semantics(batch.clone(), std::slice::from_ref(&semantic));
-    let expected_hash = recompute_test_public_inputs_hash(&post_batch);
+    let expected_hash = recompute_test_public_inputs_hash(&post_batch, test_proof_system_vkey());
     let calldata = post_batch.abi_calldata.clone();
     let statuses = [true, true];
     let checkpoints = [checkpoint(1, B256::repeat_byte(0x05))];
@@ -571,7 +571,7 @@ fn a_fully_bound_outbound_effect_passes_settlement_checks() {
         test_system_transaction_reconstructor(expected_rollup_id(1));
 
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),
@@ -592,7 +592,7 @@ fn a_fully_bound_outbound_effect_passes_settlement_checks() {
     mismatched_da.callData = settlement::encode_da_payload(&[vec![user]]).into();
     let mismatched_post_batch = public_input_post_batch_for_semantics(mismatched_da, &[semantic]);
     let run = run_settlement(SettlementInput {
-        posting_context: crate::testkit::offline_context(
+        posting_context: crate::testkit::proof_context(
             &anchor_batch(),
             crate::testkit::l1_target(),
         ),

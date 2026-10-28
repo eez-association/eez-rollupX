@@ -28,7 +28,15 @@ contract DeploymentSmokeTest is Test {
             "registry is a proxy"
         );
         ECDSAProofSystem proofSystem = new ECDSAProofSystem(SIGNER);
-        bytes32 vkey = bytes32(uint256(uint160(SIGNER)));
+        bytes32 vkey = keccak256(
+            abi.encode(
+                keccak256("EEZ_ROLLUPX_VERIFICATION_KEY_V1"),
+                keccak256("deployment smoke network"),
+                address(eez),
+                address(proofSystem),
+                SIGNER
+            )
+        );
 
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = address(proofSystem);

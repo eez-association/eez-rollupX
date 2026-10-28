@@ -12,7 +12,7 @@ use alloy_rlp::RlpEncodable;
 /// One contract version for identity encoding, JSON canonicalization and accepted
 /// execution/settlement semantics. These rules cannot be selected independently.
 /// See VALIDATION_IDENTITY.md; implementation/build metadata never participates.
-pub const VALIDATION_VERSION: u64 = 6;
+pub const VALIDATION_VERSION: u64 = 7;
 
 /// Trusted local inputs, obtained from the same chain document as execution.
 #[derive(Debug, Clone, Copy)]
@@ -22,8 +22,8 @@ pub struct ValidationContext {
     pub system_address: Address,
     pub eez_l2_address: Address,
     pub chain_document_digest: B256,
-    /// Exact profile committed by the deployed manager, including L1 rules.
-    pub offline_profile_hash: B256,
+    /// Exact network profile committed by the registered vkey, including L1 rules.
+    pub network_profile_hash: B256,
     pub registry: Address,
     pub manager: Address,
 }
@@ -46,7 +46,7 @@ impl ValidationContext {
             system_address: Address,
             eez_l2_address: Address,
             chain_document_digest: B256,
-            offline_profile_hash: B256,
+            network_profile_hash: B256,
             registry: Address,
             manager: Address,
         }
@@ -58,7 +58,7 @@ impl ValidationContext {
             system_address: self.system_address,
             eez_l2_address: self.eez_l2_address,
             chain_document_digest: self.chain_document_digest,
-            offline_profile_hash: self.offline_profile_hash,
+            network_profile_hash: self.network_profile_hash,
             registry: self.registry,
             manager: self.manager,
         })
@@ -76,7 +76,7 @@ mod tests {
             system_address: Address::repeat_byte(0x11),
             eez_l2_address: Address::repeat_byte(0x22),
             chain_document_digest: B256::repeat_byte(0x33),
-            offline_profile_hash: B256::repeat_byte(0x55),
+            network_profile_hash: B256::repeat_byte(0x55),
             registry: Address::repeat_byte(0x66),
             manager: Address::repeat_byte(0x77),
         }
@@ -99,7 +99,7 @@ mod tests {
                     .unwrap()
                     .parse()
                     .unwrap(),
-                offline_profile_hash: vector["offline_profile_hash"]
+                network_profile_hash: vector["network_profile_hash"]
                     .as_str()
                     .unwrap()
                     .parse()
@@ -130,7 +130,7 @@ mod tests {
         let identity = original.identity();
         for changed in [
             ValidationContext {
-                offline_profile_hash: B256::ZERO,
+                network_profile_hash: B256::ZERO,
                 ..original
             },
             ValidationContext {

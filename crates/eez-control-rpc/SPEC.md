@@ -3,7 +3,7 @@
 Status: fork Composer contract for fresh networks using permanent L1 history,
 delayed synchronized PREVRANDAO and offline v2 proving. Implementation/test status
 is recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
-The current `eez-core-protocol` gitlink and this fork's `OfflineRollup` define the
+The current `eez-core-protocol` gitlink and the original Core `Rollup` define the
 accepted on-chain ABI; upstream main is not a substitute.
 
 This profile preserves native blobs, block-hash commitments, whole grouped calls
@@ -76,7 +76,7 @@ or authorize reuse under changed rules.
 
 Optional prevalidation sends bounded v2 Block chunks and receives validated ACKs.
 They are execution facts, not signatures or canonical progress. Finalize always
-checks the exact selected range, full bridge, anchor mode, actions, accepted root,
+checks the exact selected range, full bridge, anchor mode, actions, entry roots,
 DA and public inputs. Resume/Rewind retain exact execution and L1 evidence
 checkpoints under the same identity. On session loss, a cold prover receives the
 complete request from durable Composer witnesses. No prepared-range or lease API
@@ -141,7 +141,7 @@ shapes and effect binding are defined in
 Its L1 chain ID, exact child timestamp, parent number and nonzero parent hash
 retain their current meanings. The complete witness chain must end at that
 parent. `batch.blockNumber == uint64.max` binds the actual inclusion parent and
-timestamp through `OfflineRollup.getCustomData`. Live cross-chain work must end
+timestamp through `Rollup.getCustomData`. Live cross-chain work must end
 at the matching target; late inclusion rejects.
 
 Historical mode uses explicit B, excluding zero and `uint64.max`, and requires
@@ -151,17 +151,16 @@ cutoff. Static, reverted, failed and nested observations still count as actions.
 The manager requires B to be earlier than inclusion, no more than 256 produced
 blocks old and available through nonzero `blockhash(B)`.
 
-Both contexts bind the domain, network/deployment, fixed genesis/profile, active
-L1 rule period and actual current accepted L2 block hash. The pin must be the
-replayed predecessor or a permitted fully replayed whole-group terminal checkpoint.
-The prover proves consistency with these inputs; the manager authenticates their
-actual L1 values at inclusion. The [exact context contract](STREAMING_SPEC.md#context-and-authority)
-contains the encoding. A historical proof remains usable only while its anchor,
-root, profile, complete settlement and rule period still match. Never reinterpret
-a live attempt as historical mode after failure.
-Composer checks the intended inclusion's rule period before choosing historical
-mode. If the next inclusion crosses a known transition, it selects actual-parent
-mode and proves under the new target rules from the outset.
+Both modes use Core Rollup's original timestamp/hash context. The registered
+vkey binds network identity, genesis, execution configuration and canonical L1
+rules; the signer derives it independently and rejects a mismatched configured
+key. Core checks signed entry roots and immediate-entry requirements during
+consumption. The unsigned expected-root pin is never replay authority.
+See the [exact context](STREAMING_SPEC.md#context-and-authority). Historical
+proofs can survive accepted-root advancement and known compatible L1 rule
+transitions, subject to Core entry eligibility and anchor availability. Never
+reinterpret a failed live attempt as historical. Incompatible upgrades require
+coordinated on-chain vkey/proof-system revocation or replacement.
 
 `Finalize.settlement.blobs` MUST contain complete 131,072-byte EIP-4844 blobs in transaction
 order, from one up to that target's per-transaction and per-block allowance. Their version-`00` EEZ message stream contains exactly one
@@ -201,13 +200,11 @@ Begin identifies the nonzero registry rollup ID and exact execution predecessor
 number/hash/state root. Finalize selects a nonempty contiguous range and its
 terminal hash; the endpoint must be Sync-aligned. Every selected block and its
 predecessor must belong to the validated session prefix. A partial-consumption
-candidate may retain its original execution predecessor while binding the
-manager's accepted root to a fully replayed whole-group terminal checkpoint.
-Neither a height nor a claimed list of checkpoint hashes is sufficient.
-Advancing the accepted root invalidates the original proof. Re-proving with a
-validated checkpoint pin may retain the original execution and DA, including
-for same-block resumption under the same actual-parent/time binding. The
-checkpoint proof is conditional until the manager observes that exact root.
+candidate can retain its original predecessor and DA. Root updates and complete
+group checkpoints remain independently checked. Core decides which signed
+entries remain eligible at consumption; an unsigned root pin or receipt does
+not establish it. Advancing the accepted root alone does not require a new proof.
+Changing signed entries, blobs, anchor or registered vkey requires recomputation.
 
 An attempt may span multiple intervals and contain prior empty Sync blocks.
 It must replay all those blocks and their original schedule. Partition catch-up
@@ -259,7 +256,7 @@ following checks pass:
 - every block exact-decodes, matches its submitted number, hash, parent hash,
   and configured chain rules, and re-executes to its committed state root;
 - L1 evidence, parent state, history imports, delayed origin/PREVRANDAO, anchor
-  mode and accepted-root binding all agree;
+  mode and signed entry roots all agree;
 - the blocks form one state-continuous window and contain settlement activity
   only in the terminal Sync block;
 - `Finalize.settlement.abi_calldata` is the canonical encoding of the supported batch
@@ -312,7 +309,7 @@ The Composer MUST also recompute the current profile's sole
 `publicInputsHash` from the exact request batch, registered vkey, and KZG versioned hashes
 independently derived from the physical request blobs, then require
 it to equal `response.public_inputs_hash`. This includes the exact offline context,
-accepted root and selected anchor mode, not just the batch/DA. The normative hash construction is
+selected anchor mode and registered network-bound vkey, not just the batch/DA. The normative hash construction is
 in [proof-signer section 12](../eez-proof-signer/SPEC.md#12-public-input-recomputation),
 and cross-language vectors are in
 [`eez-protocol/tests/fixtures`](../eez-protocol/tests/fixtures/README.md). This
@@ -481,7 +478,7 @@ permit before that worker exits. No parallel proof race is introduced.
 Ordinary-only candidates use the same operational deadline and post-proof reserve.
 The historical proof anchor is distinct from the actual submission parent.
 Actual-parent proofs bind that exact parent; historical proofs retain B and
-recheck its availability/root/rule period. A preparation estimate MUST NOT
+recheck anchor availability, key policy and entry eligibility. A preparation estimate MUST NOT
 select a future execution height whose parent does not yet exist. Resolve
 policy targets to the observed head's immediate child; skipped slots may advance
 its timestamp only within the shared bounded replacement allowance. Never

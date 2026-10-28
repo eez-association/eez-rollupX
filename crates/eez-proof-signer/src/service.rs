@@ -142,6 +142,15 @@ impl ServiceState {
         let offline_rules = eez_l1::chain_config::offline_l1_rules(&l1_chain_spec)?;
         let schedule = validator.schedule()?;
         let profile = offline_rules.profile(schedule, validator.chain_id())?;
+        eyre::ensure!(
+            attester.proof_system_vkey().get()
+                == profile.verification_key(
+                    registry,
+                    attester.expected_proof_system(),
+                    attester.address()
+                ),
+            "configured vkey differs from the network-bound verification key"
+        );
         let deployment = l1::OfflineDeployment::new(registry, manager, profile, schedule)?;
         let validation_identity = validator.validation_identity(expected_rollup_id, &deployment);
         Ok(Self {
@@ -157,8 +166,27 @@ impl ServiceState {
         })
     }
 
-    fn posting_blob_limit(&self, timestamp: u64) -> Result<usize, tonic::Status> {
+    fn posting_blob_limit(&self, timestamp: Option<u64>) -> Result<usize, tonic::Status> {
         use reth_chainspec::EthChainSpec as _;
+        let Some(timestamp) = timestamp else {
+            // Historical proofs do not commit an inclusion time. Admit at most
+            // the largest configured allowance; L1 and follower validation
+            // enforce the actual containing block's fork limit.
+            let rules = &self.l1_chain_spec.blob_params;
+            return [rules.cancun, rules.prague, rules.osaka]
+                .into_iter()
+                .chain(rules.scheduled.iter().map(|(_, params)| *params))
+                .map(|params| {
+                    eez_blob_codec::BlobLimits::from_params(params)
+                        .and_then(|limits| limits.outgoing(0, u64::MAX, None))
+                        .map_err(|error| tonic::Status::invalid_argument(error.to_string()))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .max()
+                .and_then(|maximum| usize::try_from(maximum).ok())
+                .ok_or_else(|| tonic::Status::invalid_argument("no configured L1 blob allowance"));
+        };
         // The actual-parent witness ends before inclusion. Its header layout
         // may still be supported when the target is the first unsupported fork
         // block; validating supplied headers alone cannot close that boundary.

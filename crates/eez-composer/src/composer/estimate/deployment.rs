@@ -1,9 +1,9 @@
 //! The assumed proof result is supported only for this fork's pinned code.
 //! Fingerprints exclude Solidity metadata and zero constructor immutables.
 //! Native execution always uses the original deployed bytes, including metadata.
-//! Sources: the pinned core protocol and contracts/src/OfflineRollup.sol, built
-//! with contracts/foundry.toml (0.8.34, via IR, runs=1). The fresh-network offline
-//! manager is required; unknown implementations cannot authorize an assumed proof.
+//! Sources: the pinned core protocol and integration proof system, built
+//! with contracts/foundry.toml (0.8.34, via IR, runs=1). Only the supported
+//! Core manager can authorize an assumed proof; unknown code cannot.
 use super::{
     Address, B256, EstimateError, GasEstimator, Snapshot, StateProvider, unavailable, unsupported,
 };
@@ -34,11 +34,11 @@ const REGISTRY: Code = Code {
     metadata_hashes: &[23750],
     hash: b256!("4002bf893eb71b85237faebb323218a4c9a1e33b77535639241e00feace3b650"),
 };
-const OFFLINE_ROLLUP: Code = Code {
-    length: 6610,
-    immutables: &[486, 3547, 4181, 5260],
+const ROLLUP: Code = Code {
+    length: 3295,
+    immutables: &[1015, 1751, 2266],
     metadata_hashes: &[],
-    hash: b256!("3b4d3cd772339a817a2641172b70510d71040646dd5620bbdaf5011708f30cab"),
+    hash: b256!("9c9892a76f48f4bba2350419d252b709ef599d4128c32927980cdc72d9915a0b"),
 };
 // contracts/src/ECDSAProofSystem.sol, used by the Chiado and Kurtosis networks.
 const VERIFIER: Code = Code {
@@ -116,17 +116,17 @@ fn check_any(
 fn proxy(
     state: &dyn StateProvider,
     address: Address,
-    expected: &Code,
+    accepted: &[&Code],
 ) -> Result<(), EstimateError> {
     check(state, address, &PROXY)?;
     let implementation = state
         .storage(address, IMPLEMENTATION_SLOT)
         .map_err(unavailable)?
         .unwrap_or_default();
-    check(
+    check_any(
         state,
         Address::from_word(B256::from(implementation.to_be_bytes::<32>())),
-        expected,
+        accepted,
     )
 }
 
@@ -158,8 +158,8 @@ pub(in crate::composer) fn validate_at(
     verifier: Address,
     post_batch_target: Address,
 ) -> Result<(), EstimateError> {
-    proxy(state, registry, &REGISTRY)?;
-    proxy(state, rollup, &OFFLINE_ROLLUP)?;
+    proxy(state, registry, &[&REGISTRY])?;
+    proxy(state, rollup, &[&ROLLUP])?;
     if post_batch_target != registry {
         check(state, post_batch_target, &POST_BATCHER)?;
         let code = state
@@ -186,25 +186,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fingerprint_recognizes_offline_manager_and_rejects_changed_execution() {
-        // Runtime from contracts/src/OfflineRollup.sol, built with the pinned
-        // Solidity 0.8.34, via-IR, optimizer-runs=1 integration profile.
+    fn fingerprint_recognizes_core_rollup_and_rejects_changed_execution() {
         let mut code =
-            alloy_primitives::hex::decode(include_str!("testdata/offline-rollup.hex").trim())
-                .unwrap();
-        assert!(matches(&code, &OFFLINE_ROLLUP));
-        for start in OFFLINE_ROLLUP.immutables {
+            alloy_primitives::hex::decode(include_str!("testdata/rollup.hex").trim()).unwrap();
+        assert!(matches(&code, &ROLLUP));
+        for start in ROLLUP.immutables {
             code[*start..*start + 32].fill(0xa5);
         }
-        assert!(matches(&code, &OFFLINE_ROLLUP));
-        for offset in [
-            0,
-            OFFLINE_ROLLUP.immutables[0] - 1,
-            OFFLINE_ROLLUP.immutables[0] + 32,
-        ] {
+        assert!(matches(&code, &ROLLUP));
+        for offset in [0, ROLLUP.immutables[0] - 1, ROLLUP.immutables[0] + 32] {
             let mut changed = code.clone();
             changed[offset] ^= 1;
-            assert!(!matches(&changed, &OFFLINE_ROLLUP));
+            assert!(!matches(&changed, &ROLLUP));
         }
     }
 

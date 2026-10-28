@@ -283,12 +283,9 @@ pub(super) fn inbound(
         rollupId: e.rollup_id,
         root: s.settled_root,
     }];
-    let context = eez_protocol::l1_history::OfflineContext::new(
-        &e.offline_profile,
-        e.l1.manager_address(),
-        e.rollup_manager,
+    let context = eez_protocol::l1_history::ProofContext::new(
+        U256::from(system_context(e).l2_chain_id),
         e.rollup_id,
-        s.settled_root,
         eez_protocol::l1_history::EvidenceAnchor::ActualParent {
             number: s.l1.anchor.number,
             hash: s.l1.anchor.hash(),

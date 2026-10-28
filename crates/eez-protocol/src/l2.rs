@@ -13,10 +13,10 @@ pub use derivation::{
     AnchorKind, DerivationConfig, GenesisL1Reference, Schedule, validate_fee_collector,
 };
 
-/// The one portable validation-contract version, also bound by the manager's
-/// profile preimage. Mirrored by the wire-only RPC crate and Solidity; independent
+/// The one portable validation-contract version, also bound by the registered
+/// key's network profile. Mirrored by the wire-only RPC crate; independent
 /// conformance vectors enforce agreement without runtime-role dependencies.
-pub const VALIDATION_VERSION: u64 = 6;
+pub const VALIDATION_VERSION: u64 = 7;
 
 /// Ordinary and native transactions share this metered block budget.
 pub const GAS_LIMIT: u64 = 30_000_000;

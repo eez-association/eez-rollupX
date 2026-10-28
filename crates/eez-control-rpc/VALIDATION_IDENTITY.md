@@ -1,28 +1,20 @@
 # Portable validation identity
 
-Status: normative for validation contract 6, capability profile 2 and v2 proving.
+Status: normative for validation contract 7, capability profile 2 and v2 proving.
 This is a compatibility namespace, never authorization to execute or sign.
 No Rust dependency, Cargo lockfile, source revision, binary hash, transport URL,
 signing key or resource limit participates.
 
-Version 6 adopts the initially empty, upgradeable L1 history store and native
-0x46 explicit number/hash pairs described in the
-[history contract](../../contracts/L1_HISTORY_SPEC.md). Proxy code and genesis
-commit to its initial implementation and upgrade authority. Gaps are allowed in
-stored records, while all bridge headers remain required for authentication.
-The bootstrap origin comes from genesis configuration until the first import.
+Version 7 uses the unmodified Core `Rollup` manager and its timestamp/hash
+context. The registered vkey binds the validation program and network profile.
+It removes automatic accepted-root/rule-period proof expiry. The L2 execution
+rules, including the upgradeable history store, 0x46 imports and block-end balance
+cleanup, remain unchanged. Known compatible L1 fork crossings are allowed;
+incompatible changes require coordinated on-chain key revocation/replacement.
 
-Block-finalization and complete-group balance cleanup remain unchanged: ordinary
-donations are visible during the block, prefix hashes finalize copies, and FIFO
-observations use the exact in-block boundary. The unmodified terminal output
-must independently match its header root. The
-[block-end cleanup audit](../../docs/audits/2026-10-27-block-end-cleanup/README.md)
-retains the preceding version-5 evidence.
-
-Use matching node, follower, signer and deployment artifacts on fresh networks.
-Old databases, proof sessions and mixed-version peers are unsupported. The v2
-protobuf, cross-chain 0x45 and protocol pin are unchanged. Compatible future
-history implementation upgrades change state, not the validation identity.
+Use matching node, follower, signer and deployment artifacts for fresh networks.
+Previous manager/context/key formats and sessions are unsupported. The v2
+protobuf, cross-chain 0x45 and protocol pin are unchanged.
 
 ## Encoding
 
@@ -32,13 +24,13 @@ with these ten elements in this exact order:
 | Position | Element | Encoding/value |
 | --- | --- | --- |
 | 0 | domain | UTF-8 bytes of `eez.validation-identity` |
-| 1 | validation-contract version | unsigned integer `6` |
+| 1 | validation-contract version | unsigned integer `7` |
 | 2 | rollup ID | locally configured nonzero u64 |
 | 3 | L2 chain ID | u64 from the locally loaded L2 chain document |
 | 4 | system address | exactly 20 raw bytes |
 | 5 | EEZL2 address | exactly 20 raw bytes |
 | 6 | L2 chain document digest | exactly 32 bytes: Keccak of canonical JSON below |
-| 7 | offline profile hash | exactly 32 bytes: deployed manager profile commitment |
+| 7 | network profile hash | exactly 32 bytes: registered-vkey network commitment |
 | 8 | registry address | exactly 20 raw bytes |
 | 9 | manager address | exactly 20 raw bytes |
 
@@ -54,17 +46,40 @@ JSON floating-point loss; they are fixture notation, not a new wire encoding.
 Synthetic zero-byte vectors test encoding and do not waive runtime configuration
 validation.
 
-The offline profile commitment is
-`keccak256(abi.encode(keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"), uint64(6), historyAddress, uint64(64), uint64(2000000), profile))`.
-Use the exact [OfflineRollup.Profile](../../contracts/src/OfflineRollup.sol) field
-order/types; [OfflineProfile.canonical_bytes](../eez-protocol/src/l1_history/context.rs)
-is the matching reference encoder. This binds validation-contract version 6, L1/L2 chain IDs, genesis,
-schedule/delay, complete L1 rule configuration, history runtime, fee collector
-and rule epochs. Capability profile ID 2 denotes the v2 offline transport; it
-is a fixed wire discriminator, not a selectable execution profile. There is one
-profile and one validation-contract version, with no negotiation or fallback.
-The genesis commitment includes the FeeVault code and initial owner/recipient storage; later
-ordinary treasury transactions change state, not the fixed validation identity.
+The network profile commitment is Ethereum Keccak over this static ABI tuple:
+
+```text
+abi.encode(
+  keccak256("EEZ_ROLLUPX_NETWORK_PROFILE_V1"), uint64(7),
+  address(historyAddress), uint64(64), uint64(2000000),
+  keccak256(historyProxyRuntime),
+  (uint256 l1ChainId, uint256 l2ChainId, bytes32 genesisHash,
+   uint64 genesisTimestamp, uint64 blockInterval, uint32 syncInterval,
+   uint32 updateOffset, bytes32 l1ConfigHash, address feeCollector)
+)
+```
+
+The registered verification key is:
+
+```text
+keccak256(abi.encode(
+  keccak256("EEZ_ROLLUPX_VERIFICATION_KEY_V1"), networkProfileHash,
+  address(registry), address(proofSystem), address(attester)
+))
+```
+
+[`NetworkProfile`](../eez-protocol/src/l1_history/context.rs) is the shared encoder.
+Core separately binds the rollup ID in its accumulator. The manager address is
+not in the key: its CREATE2 address may depend on the initializer carrying that
+key. Deployment registers the key; Composer derives it locally and the signer
+rejects a configured key that differs. Signature recovery alone cannot replace
+this check. The signer still trusts operator-provided chain configuration.
+
+Capability profile ID 2 is the unchanged v2 transport discriminator. There is
+one current validation version with no fallback. Genesis binds initial FeeVault
+and history implementation/authority state; compatible later contract upgrades
+change state without changing this fixed identity.
+
 The [effective L1 rules producer](../eez-l1/src/chain_config/offline.rs) defines the
 existing `l1ConfigHash` inputs: chain/genesis, named fork coordinates, header
 layouts and effective blob rules, including defaults and scheduled updates. Its
@@ -106,7 +121,7 @@ not admit a genesis configuration. Hash and load the same document snapshot.
 
 ## Versioning and operations
 
-Validation-contract version 6 covers the RLP tuple above, canonical JSON rules
+Validation-contract version 7 covers the RLP tuple above, canonical JSON rules
 and the complete offline validation contract:
 the fixed Osaka L2 profile, compact V0 operations, versionless cross-chain 0x45 and optional history 0x46/version-1 transactions
 (execution-group source identities belong only to cross-chain
@@ -141,8 +156,8 @@ identify a differing field.
 
 Different validation-contract versions fail the exact comparison.
 Deploy matching Composer/prover/follower artifacts and newly generated genesis
-and manager profile together. Profile binds the collector and execution profile;
-the service uses v2 and validation-contract version 6. Discard retained sessions
+and registered verification key together. The network profile binds the collector and execution profile;
+the service uses v2 and validation-contract version 7. Discard retained sessions
 when changing identity. This is a fresh-network profile, with no migration or
 rollback path for existing blocks/databases.
 Pending requests/counters remain in memory; restart is not durable queue recovery.

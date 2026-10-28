@@ -42,7 +42,7 @@ use eez_control_rpc::{
         prover_server::{Prover, ProverServer},
     },
 };
-use eez_protocol::{EEZL2_ADDRESS, l1_history::OfflineProfile};
+use eez_protocol::{EEZL2_ADDRESS, l1_history::NetworkProfile};
 use http_body_util::Full;
 use hyper::{Request as HttpRequest, Response as HttpResponse, StatusCode, body::Incoming};
 use hyper_util::rt::TokioIo;
@@ -794,7 +794,7 @@ pub struct ProofSignerConfig<'a> {
 }
 
 /// Use the same checked genesis/profile construction as every runtime role.
-fn offline_profile(l2_genesis: &Path, l1_profile: &Path) -> Result<OfflineProfile> {
+fn network_profile(l2_genesis: &Path, l1_profile: &Path) -> Result<NetworkProfile> {
     let l2 =
         eez_l1::chain_config::load_l2_genesis(l2_genesis).map_err(|error| anyhow!("{error:#}"))?;
     let spec = eez_evm::profile::chain_spec(l2.into_genesis())?;
@@ -991,14 +991,13 @@ pub struct Deployment {
     pub proof_system_address: Address,
     pub rollup_manager_address: Address,
     pub rollup_id: u64,
-    pub profile: OfflineProfile,
+    pub profile: NetworkProfile,
 }
 
 sol! {
     #[sol(rpc)]
-    interface IOfflineRollup {
-        function protocolConfigHash() external view returns (bytes32);
-        function l1RulesId(uint64 timestamp) external view returns (bytes32);
+    interface IRollup {
+        function verificationKey(address proofSystem) external view returns (bytes32);
         function getCustomData(uint64 selector) external view returns (bytes);
     }
     #[sol(rpc)]
@@ -1134,72 +1133,40 @@ pub async fn block_number_and_hash_at(
     Ok(block.map(|b| (b.header.number, b.header.hash)))
 }
 
-/// Check the deployed manager's bytes against independent Rust encoding before
-/// running a scenario. All calls are pinned to one produced L1 block.
-async fn check_offline_manager<P: Provider>(
+/// Check Core's context and network-bound key against independent Rust encoding.
+/// All reads are pinned to the same produced L1 block.
+async fn check_rollup_manager<P: Provider>(
     provider: &P,
     registry: Address,
     manager: Address,
-    rollup_id: u64,
-    profile: &OfflineProfile,
+    proof_system: Address,
+    attester: Address,
+    profile: &NetworkProfile,
 ) -> Result<()> {
-    use eez_protocol::l1_history::{EvidenceAnchor, OfflineContext};
     let head = provider
         .get_block_by_number(BlockNumberOrTag::Latest)
         .await?
         .context("fixture L1 head missing")?;
-    let parent_number = head
-        .header
-        .number
-        .checked_sub(1)
-        .context("manager not deployed after L1 genesis")?;
-    let parent = provider
-        .get_block_by_hash(head.header.parent_hash)
-        .await?
-        .context("fixture L1 parent missing")?;
-    let manager_contract = IOfflineRollup::new(manager, provider);
+    let manager_contract = IRollup::new(manager, provider);
     let at: alloy_eips::BlockId = head.header.hash.into();
-    let actual_profile = manager_contract
-        .protocolConfigHash()
+    let key = manager_contract
+        .verificationKey(proof_system)
         .block(at)
         .call()
         .await?;
     ensure!(
-        actual_profile == profile.commitment(),
-        "deployed/Rust offline profile mismatch: {actual_profile} != {}",
-        profile.commitment()
-    );
-    let actual_rules = manager_contract
-        .l1RulesId(head.header.timestamp)
-        .block(at)
-        .call()
-        .await?;
-    ensure!(
-        actual_rules == profile.rules_id(head.header.timestamp)?,
-        "deployed/Rust L1 rules mismatch"
+        key == profile.verification_key(registry, proof_system, attester),
+        "deployed/Rust network verification key mismatch"
     );
     let actual = manager_contract
         .getCustomData(u64::MAX)
         .block(at)
         .call()
         .await?;
-    let expected = OfflineContext::new(
-        profile,
-        registry,
-        manager,
-        rollup_id,
-        profile.genesisHash,
-        EvidenceAnchor::ActualParent {
-            number: parent_number,
-            hash: head.header.parent_hash,
-            target_timestamp: head.header.timestamp,
-        },
-        parent.header.timestamp,
-    )?
-    .custom_data();
+    let expected = (U256::from(head.header.timestamp), head.header.parent_hash).abi_encode_params();
     ensure!(
-        actual == expected,
-        "deployed/Rust actual-parent context mismatch: {actual} != {expected}"
+        actual.as_ref() == expected.as_slice(),
+        "deployed/Rust actual-parent context mismatch"
     );
     Ok(())
 }
@@ -2441,7 +2408,7 @@ pub async fn assert_latest_batch_signature(
         )
         .await?
         .ok_or_else(|| anyhow!("posted block is unavailable"))?;
-    use eez_protocol::l1_history::{EvidenceAnchor, OfflineContext};
+    use eez_protocol::l1_history::{EvidenceAnchor, ProofContext};
     let number = if call.batch.blockNumber == u64::MAX {
         containing
             .header
@@ -2474,29 +2441,17 @@ pub async fn assert_latest_batch_signature(
         pin.rollupId == dep.rollup_id,
         "root pin identifies another rollup"
     );
-    let context = OfflineContext::new(
-        &dep.profile,
-        dep.eez_address,
-        dep.rollup_manager_address,
+    mode.validate_inclusion(&anchor.header.inner, &containing.header.inner)?;
+    let context = ProofContext::new(
+        dep.profile.l2ChainId,
         dep.rollup_id,
-        pin.root,
         mode,
         anchor.header.timestamp,
     )?;
-    ensure!(
-        dep.profile.rules_id(containing.header.timestamp)?
-            == dep
-                .profile
-                .rules_id(if call.batch.blockNumber == u64::MAX {
-                    containing.header.timestamp
-                } else {
-                    anchor.header.timestamp
-                })?,
-        "proof crossed L1 rule epoch"
-    );
     let public_inputs_hash = eez_protocol::public_inputs::public_inputs_hashes_with_blob_hashes(
         &call.batch,
-        expected_attester.into_word(),
+        dep.profile
+            .verification_key(dep.eez_address, dep.proof_system_address, expected_attester),
         &transaction_blob_hashes,
         context,
     )?
@@ -3195,8 +3150,9 @@ pub async fn deploy_protocol_dev(
     l1_rpc: &str,
     deployer_key: &str,
     attester_key: &str,
-    profile: OfflineProfile,
+    profile: NetworkProfile,
 ) -> Result<Deployment> {
+    profile.validate(U256::from(DEV_CHAIN_ID))?;
     let signer = signer_of(deployer_key)?;
     let signer_addr = signer.address();
     let attester = signer_address(attester_key)?;
@@ -3213,20 +3169,15 @@ pub async fn deploy_protocol_dev(
     let rollup_implementation = signer_addr.create(nonce + 3);
     let rollup_manager_address = signer_addr.create(nonce + 4);
 
-    let vkeys: Vec<B256> = vec![B256::from_slice(&{
-        let mut padded = [0u8; 32];
-        padded[12..].copy_from_slice(attester.as_slice());
-        padded
-    })];
+    let vkeys = vec![profile.verification_key(eez_address, proof_system_address, attester)];
     // CREATE addresses are known before mining. Queue dependent transactions
     // from one signer in nonce order, then verify every receipt. Waiting after
     // each send would spend six L1 slots on identical setup in every test.
-    let initialize = eez_protocol::l1_history::initializeOfflineCall {
+    let initialize = eez_protocol::l1_history::initializeCall {
         initialOwner: signer_addr,
         initialThreshold: U256::from(1u64),
         proofSystems: vec![proof_system_address],
         vkeys,
-        profile: profile.clone(),
     }
     .abi_encode();
     let deployments = [
@@ -3246,7 +3197,7 @@ pub async fn deploy_protocol_dev(
             proof_system_address,
         ),
         (
-            "OfflineRollup.sol/OfflineRollup.json",
+            "Rollup.sol/Rollup.json",
             eez_address.abi_encode(),
             rollup_implementation,
         ),
@@ -3312,11 +3263,12 @@ pub async fn deploy_protocol_dev(
     let registry = IEEZ::new(eez_address, &provider);
     let rollup_id: u64 = registry.rollupCounter().call().await?.try_into()?;
 
-    check_offline_manager(
+    check_rollup_manager(
         &provider,
         eez_address,
         rollup_manager_address,
-        rollup_id,
+        proof_system_address,
+        attester,
         &profile,
     )
     .await?;
@@ -6117,6 +6069,12 @@ async fn setup_native_inner(
         .find(|(name, _)| *name == "EEZ_TEST_PROVE_FIXTURE_DIR")
         .map(|(_, directory)| PathBuf::from(directory))
         .or_else(|| std::env::var_os("EEZ_TEST_PROVE_FIXTURE_DIR").map(PathBuf::from));
+    let network_profile = network_profile(&cfg.l2_genesis.0, Path::new(&cfg.l1_chain_config()))?;
+    let network_vkey = network_profile.verification_key(
+        cfg.eez_address,
+        cfg.proof_system_address,
+        signer_address(cfg.attester_key)?,
+    );
     if let Some(directory) = &fixture_directory {
         std::fs::create_dir_all(directory)?;
         let l2: serde_json::Value = serde_json::from_slice(&std::fs::read(&cfg.l2_genesis.0)?)?;
@@ -6131,7 +6089,7 @@ async fn setup_native_inner(
             serde_json::to_vec_pretty(&serde_json::json!({
                 "rollup_id": cfg.rollup_id,
                 "proof_system": cfg.proof_system_address,
-                "vkey": signer_address(cfg.attester_key)?.into_word(),
+                "vkey": network_vkey,
                 "l2_system_address": L2_SYSTEM_ADDRESS,
                 "gnosis_l1": profile == NativeL1Profile::GnosisPrague,
                 "registry_address": cfg.eez_address,
@@ -6172,7 +6130,7 @@ async fn setup_native_inner(
         l1_chain_config: cfg.l1_chain_config(),
         rollup_id: signer_rollup_id,
         signer_key: cfg.attester_key,
-        vkey: signer_address(cfg.attester_key)?.into_word(),
+        vkey: network_vkey,
         proof_system: cfg.proof_system_address,
         max_request_blocks,
     })
@@ -6274,13 +6232,8 @@ async fn setup_native_inner(
     if let Some(control) = &mut l1_reorg_control {
         control.start(&cfg, history_end).await?;
     }
-    let dep = deploy_protocol_dev(
-        &l1_rpc,
-        cfg.deployer_key,
-        cfg.attester_key,
-        offline_profile(&cfg.l2_genesis.0, Path::new(&cfg.l1_chain_config()))?,
-    )
-    .await?;
+    let dep =
+        deploy_protocol_dev(&l1_rpc, cfg.deployer_key, cfg.attester_key, network_profile).await?;
     if dep.eez_address != cfg.eez_address
         || dep.proof_system_address != cfg.proof_system_address
         || dep.rollup_manager_address != cfg.rollup_manager_address

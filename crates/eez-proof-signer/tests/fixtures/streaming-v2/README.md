@@ -1,8 +1,9 @@
 # Offline v2 test vectors
 
 These 29 frozen cases contain full L1/L2 evidence and native settlement inputs
-for the fresh-network offline profile. Expected values come from captured native
-headers/proofs or explicit request-side constructions, not tested responses.
+for the fresh-network offline profile. Expected values are reconstructed from
+retained native execution inputs and the current Core proof-policy commitments,
+never learned from the service responses under test.
 
 The [conformance guide](../../../../eez-control-rpc/conformance/README.md) explains
 coverage, generation, replay, normalization and limits. The [manifest](manifest.json)

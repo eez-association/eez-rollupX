@@ -46,7 +46,7 @@ flowchart LR
 1. `post_batch` exact-decodes and canonical round-trips the full calldata into
    `CanonicalPostBatch`. Its fields remain Composer claims.
 2. `CheckedPublicInputProfile` pins the supported one-rollup,
-   one-proof-system, latest-context shape to the expected/configured deployment
+   one-proof-system, supported anchor shape to the expected/configured deployment
    values. It retains the typed capability needed for later hash computation;
    it never accepts the wire hash as authoritative.
 3. `state_chain` requires exactly one expected-rollup ABI root update per entry
@@ -75,16 +75,16 @@ flowchart LR
    sidecar arrays. Tests use this same gate. Checked inbound sidecars remain
    checked through canonical native byte reconstruction.
 9. Complete checked L1 evidence must match the authenticated parent history,
-   delayed source selections, anchor mode and exact termination. The accepted
-   L2 commitment must identify the replay predecessor or a fully replayed
-   whole-group terminal checkpoint. Observation replay must reproduce the
+   delayed source selections, anchor mode and exact termination. Core independently
+   checks signed entry roots and the unsigned live-root assertion at consumption.
+   Observation replay must reproduce the
    claimed static/reverted results. Historical mode rejects all native actions,
    including observations without an L2 transaction.
 10. After all gates pass, the job returns `AttestationMaterial` with the locally
     recomputed digest and validated endpoint hashes. The async RPC constructs
     `AttestablePublicInputsHash` and signs under the deadline, without another
-    network read. The signature binds the deployment/profile, active L1 rules,
-    selected anchor and accepted L2 commitment. Actual-parent mode also binds
+    network read. The signature binds the network/deployment through the registered
+    key, signed entry roots and selected anchor. Actual-parent mode also binds
     the exact inclusion timestamp.
     Neither a profile-only hash nor Composer's wire digest grants that authority.
 
@@ -150,6 +150,7 @@ grant the attestable capability after every gate. The signing API accepts
 neither the weaker type nor the Composer-supplied wire hash. The signature
 proves neither that L1 will apply the transition nor that an expected outbound
 call will succeed in the future. The deployed manager's `getCustomData()`
-supplies actual L1 facts and the current accepted L2 commitment at verification.
+supplies the actual anchor timestamp/hash at verification. Core separately
+checks entry roots against the current accepted commitment.
 The offline daemon proves consistency conditional on that exact context; it
 does not query a chain provider or independently establish L1 consensus.

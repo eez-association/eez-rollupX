@@ -307,12 +307,11 @@ fn fixture_blocks(extra_transaction: Option<usize>) -> (alloy_genesis::Genesis, 
 
 fn configured_state(config: alloy_genesis::Genesis) -> Arc<ServiceState> {
     Arc::new(
-        ServiceState::new(
+        configured_test_state(
             Address::repeat_byte(0x33),
             Address::repeat_byte(0x44),
             Validator::stateless_for_test(config, TEST_SYSTEM_ADDRESS),
             expected_rollup_id(1),
-            test_attester(),
             crate::testkit::history::l1_spec(),
         )
         .unwrap(),

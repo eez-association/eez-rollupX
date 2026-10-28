@@ -99,7 +99,7 @@ its Solidity implementation/tests and the applicable fork contract:
   tracks historical validation-contract-3 evidence. The [history lookup audit](docs/audits/2026-10-27-history-zero-lookup/README.md)
   records validation-contract-4 availability semantics. The [block-end cleanup audit](docs/audits/2026-10-27-block-end-cleanup/README.md)
   records the preceding validation-contract-5 execution boundary. The
-  [history contract](contracts/L1_HISTORY_SPEC.md) defines validation-contract 6:
+  [history contract](contracts/L1_HISTORY_SPEC.md) defines the current store:
   an empty upgradeable store, explicit increasing number/hash pairs and genesis-bound
   bootstrap origin until first import. There is one fresh-network profile;
   cross-chain 0x45 has six fields and no version; history 0x46 uses version 1 with explicit number/hash pairs. Do not add fallback execution, migration
@@ -109,7 +109,7 @@ its Solidity implementation/tests and the applicable fork contract:
   finalize a copy; continuing execution and FIFO observations use the unfinalized
   prefix. Never let checkpoint projection conceal an invalid terminal state root. Never clean between a load and its signed user
   or inside callbacks. Keep speculative group cursors with rollback state and
-  validation-contract-6 semantics consistent across all execution paths.
+  validation-contract-7 semantics consistent across all execution paths.
   Preserve history, execution and ownership invariants and keep owning runtime
   specifications, identities and fixtures consistent.
   Source identities bind the L2 EVM chain ID, intended L1 parent and zero-based
@@ -177,12 +177,14 @@ its Solidity implementation/tests and the applicable fork contract:
   worker retains its request permit until it exits.
   V2 session changes must preserve the [streaming profile](crates/eez-control-rpc/STREAMING_SPEC.md#6-rollupx-runtime-profile),
   including independent provenance retrieval, shared worker ownership and epoch fencing.
-  Run the frozen native session transcripts without regenerating expectations.
+  Run the frozen native session transcripts. For an authorized validation change,
+  regenerate affected expectations independently and retain execution evidence provenance.
   Keep the [validation identity](crates/eez-control-rpc/VALIDATION_IDENTITY.md)
   language-neutral. One `VALIDATION_VERSION` covers identity encoding, canonical
   JSON and validation semantics; there are no separately selectable versions.
-  The manager uses one `Profile`/`OfflineProfile` and the domain
-  `EEZ_ROLLUPX_OFFLINE_PROFILE`. Keep the single `prove.v2.Prover` service.
+  Use the pinned Core `Rollup` unchanged. Its registered vkey binds the single
+  `NetworkProfile` under `EEZ_ROLLUPX_NETWORK_PROFILE_V1`; see the identity
+  specification for the exact tuple. Keep the single `prove.v2.Prover` service.
   Dependency changes require the local review guard and a
   protocol-version change only when validation semantics change.
 - For settlement changes, preserve policy-disabled behavior and separate scheduling
@@ -223,11 +225,13 @@ its Solidity implementation/tests and the applicable fork contract:
   Cargo's `eez-control-rpc` build generates `$OUT_DIR/prove.v2.rs` using `protoc`; the
   [include module](crates/eez-control-rpc/src/generated.rs) loads it. Regenerate
   with `cargo +1.95.0 check --locked -p eez-control-rpc`; do not hand-edit the output.
-- The core pin tracks published `feature/e2e_edge_cases`; RollupX's
-  [history predeploy](contracts/src/L2/L1BlockhashContract.sol) and
-  [offline manager](contracts/src/OfflineRollup.sol) live in this repository.
-  The manager implements the pinned `IRollupContract` interface directly;
-  do not restore a private core patch or the context-free initializer.
+- The core pin tracks published `feature/e2e_edge_cases`. Deploy the unchanged
+  [Core Rollup manager](eez-core-protocol/src/rollupContract/Rollup.sol) with its
+  original four-argument initializer. The registered key binds the network profile;
+  Core supplies only the anchor timestamp/hash context. Follow the
+  [manager and key policy](docs/runbooks/chiado-deployment.md#rollup-manager-and-coordinated-upgrades)
+  for incompatible upgrades. Do not restore the custom manager, profile-bearing
+  initializer or old context encoders.
 - Regenerate EEZL2 runtime/funding fixtures with `bash scripts/update-eezl2-genesis.sh`,
   then run
   `bash scripts/update-eezl2-genesis.sh --check`. The script updates the production

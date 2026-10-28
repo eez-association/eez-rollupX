@@ -94,10 +94,10 @@ lookup observations during each Finalize.
 
 Execution validity alone does not authorize canonical ancestry. The checked
 `CandidateContext` binds the exact replay parent, schedule, complete L1 ancestry
-and selected mode to a conditional offline context. The accepted-root gate
-requires that context's pin to equal the predecessor or a fully replayed
-whole-group terminal checkpoint. The manager supplies the actual registry
-commitment at inclusion; Begin and ACKs never establish acceptance. The batch's leading root update instead binds B[0], the
+and selected mode to Core's conditional timestamp/hash context. The registered
+vkey binds the local network/program; Core checks signed entry roots and immediate
+consumption requirements. Begin, unsigned root pins and ACKs never establish
+acceptance. The batch's leading root update instead binds B[0], the
 terminal ordinary prefix after mandatory pre-execution and any ordinary users.
 
 ### `CanonicalPostBatch`
@@ -125,7 +125,7 @@ DA passed the complete settlement job.
 The async RPC wraps the recomputed digest in this stronger type only after
 execution, state-chain validation, effect/DA binding, observation replay and
 offline context/evidence checks pass. On-chain verification binds the signature
-to actual anchor, accepted L2 root and active L1 rules. The signer performs no
+to the actual anchor, signed entry roots and network-bound registered key. The signer performs no
 network lookup before or after replay. `Attester::sign` accepts only this type rather
 than `RecomputedPublicInputsHash` or an arbitrary `B256`, so a profile-only or
 Composer-supplied digest cannot cross the signing boundary by accident.

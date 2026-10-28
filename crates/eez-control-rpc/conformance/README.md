@@ -2,8 +2,8 @@
 
 The corpus uses [versionless cross-chain transactions and authenticated fee collection](../../../docs/proposals/native-system-transactions.md),
 execution-group source identities, optional HistoryUpdate 0x46/version 1,
-complete-group and block-finalization cleanup, Profile and
-validation-contract version 6. The proving transport remains v2.
+complete-group and block-finalization cleanup, network-bound verification keys and
+validation-contract version 7 with the unmodified Core `Rollup`. The proving transport remains v2.
 Separate [encoding vectors](native-profile-v1.json) freeze exact native bytes,
 source identities and profile commitments; they are not execution proofs.
 
@@ -19,9 +19,10 @@ blobs, exact ABI inputs and the posting context required by actual-parent mode.
 The corpus has 24 expected successful proofs across 29 cases. Exact frame/event
 counts and input digests are recorded in its manifest. The recordings and
 transcripts must match versionless `0x45`, complete-group cleanup, optional
-history and the execution-group source identity. The
-[current record](../../../docs/audits/2026-10-27-block-end-cleanup/README.md)
-records fixture regeneration, executed results and remaining integration gates.
+history and the execution-group source identity. The earlier
+[execution-fixture record](../../../docs/audits/2026-10-27-block-end-cleanup/README.md)
+records the baseline execution evidence; the Core proof-policy adaptation is
+described below.
 
 The separate [scheduled-history observation fixtures](../../eez-proof-signer/tests/fixtures/native-history-observations/README.md)
 add six complete v2 requests for a history import at the terminal ordinary
@@ -39,11 +40,11 @@ The full suite is not a requirement for a minimal sequential implementation.
 
 | Cases | Assertions |
 | --- | --- |
-| `baseline-lookup`, `baseline-static` | Full native execution and lookup/changing-static observation validation; exact captured proof digest and trusted signer; Proof then EOF. |
+| `baseline-lookup`, `baseline-static` | Full native execution and lookup/changing-static observation validation; exact independently reconstructed proof digest and trusted signer; Proof then EOF. |
 | `sync-range-proof`, `terminal-before-tip` | Incomplete single-block range rejected; complete Sync range proved; selected terminal before validated tip; Resume retains the later suffix. |
 | `begin-boundaries` | Absent/31/33-byte hash and root; zero/unsupported rollup; number overflow; invalid initial binding; unknown operation; repeated Begin; valid recovery. |
 | `block-boundaries` | Missing data/witness; hash widths; zero/max/gapped numbers; wrong parent/hash/RLP; duplicates at/before tip; changed duplicate witness; zero/max request IDs. |
-| `invalid-witness-retry` | Cold real execution rejects missing state, then accepts valid witnesses and signs the captured digest. |
+| `invalid-witness-retry` | Cold real execution rejects missing state, then accepts valid witnesses and signs the independently reconstructed digest. |
 | `finalize-ranges` | Empty prefix; invalid start/end; missing/wrong-width/wrong terminal; unchanged cursor and valid retry. |
 | `settlement-required-inputs` | Missing settlement, context, blobs or ABI; trailing calldata; recovery with the complete original input. |
 | `settlement-blob-encoding` | Empty/short/long physical blob; noncanonical field element; extra unselected blob; valid recovery. |
@@ -67,13 +68,15 @@ The [bidirectional](../../eez-proof-signer/tests/fixtures/native-offline-bidirec
 [lookup](../../eez-proof-signer/tests/fixtures/native-osaka-lookup) and
 [changing-static](../../eez-proof-signer/tests/fixtures/native-osaka-changing-static)
 fixtures supply exact fresh-network genesis, deployment identity, full v2 inputs
-and captured proof digests. Their READMEs identify the owned native process
-scenarios. The signing key is intentionally public test material.
+and expected proof digests. Execution/witness bytes come from the original native process
+scenarios; version-7 keys and proof expectations are recomputed from those inputs,
+then checked against the pinned Core Solidity verifier. Their READMEs distinguish
+these adaptations from new on-chain captures. The signing key is intentionally public test material.
 
 The signer needs no chain provider or seeded database. It validates the supplied
 L1 chain and independently reconstructs execution and the complete public input.
 A signature remains conditional on the bound context: the deployed manager
-checks actual L1 facts and the accepted L2 commitment at settlement. These
+checks the actual L1 anchor; Core checks entry roots during consumption. These
 recordings do not establish that a fresh isolated server independently knows L1
 consensus, and ECDSA attestation is not a ZK proof.
 
@@ -85,7 +88,7 @@ The runner does not configure, deploy or fund a server.
 
 The [generator](../../eez-proof-signer/src/service/sessions/tests/vectors.rs)
 constructs expected cursors and roots from captured consensus headers. Full
-native proof expectations use captured digests; ordinary Sync subranges use
+native proof expectations use independently reconstructed digests; ordinary Sync subranges use
 request-side ABI/blob/public-input construction. These derived oracles are not
 additional on-chain captures. Expected status codes are explicit case assertions.
 No expected digest, cursor or status is learned from a server response.
@@ -118,6 +121,8 @@ an explicitly ignored artifact utility; it is not skipped behavior coverage.
 The manifest writer records source and fixture digests, never server responses:
 
 ```bash
+cargo +1.95.0 test --locked -p eez-proof-signer -- \
+  --ignored --exact service::tests::derivation::captured::regenerate_native_fixture_commitments
 cargo +1.95.0 test --locked -p eez-proof-signer -- \
   --ignored --exact service::sessions::tests::vectors::regenerate_offline_vectors
 python3 crates/eez-control-rpc/conformance/check_vectors.py --write-manifest

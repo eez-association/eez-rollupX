@@ -244,10 +244,10 @@ The host's tracked genesis files are not used unless selected explicitly.
 Each complete cross-chain group clears residual EEZL2/system balances before its
 checkpoint, under [the native profile](../proposals/native-system-transactions.md#complete-group-balance-cleanup).
 This is a fresh-network execution boundary: deploy matching Composer, followers
-and validation-contract-6 signers together; there is no existing-database upgrade.
+and validation-contract-7 signers together; there is no existing-database upgrade.
 The initially empty history proxy returns zero for absent records, including
 permanently skipped numbers. Its dedicated ProxyAdmin initially shares
-`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, manager profile and
+`EEZ_L2_UPGRADE_OWNER` with EEZL2's separate admin. Genesis, registered verification key and
 validation identity bind the new layout and paired native encoding. See the
 [history compatibility rules](../../contracts/L1_HISTORY_SPEC.md#compatibility).
 History updates use the optional `0x46` envelope with explicit number/hash pairs;
@@ -851,6 +851,31 @@ outside its compatibility boundary. There is no upgrade, database migration or
 legacy execution mode in these binaries. Do not rerun deployment or delete
 operator state to convert an existing network. Source and private fixture tests
 do not establish a public deployment or restart rehearsal.
+
+### Rollup manager and coordinated upgrades
+
+Fresh deployments use the unchanged pinned Core `Rollup.sol`, its original
+initializer and a network-bound registered vkey. The
+[accepted simplification](../proposals/rollupx-manager-simplification.md) replaces
+the old custom manager. This is not a drop-in proxy upgrade from that manager;
+this release has no old context/key/manager compatibility path. Use matching
+node, follower, signer and deploy artifacts. L2 formats and database layout are
+unchanged, but historical inclusion policy and signed public inputs changed.
+
+Deployment derives the profile from the actual rendered genesis and canonical
+L1 configuration, then derives the key from the profile, registry, proof system
+and attester. `EEZ_VKEY` must equal this value; a padded signer address is invalid.
+The signer verifies this before serving. No L1 or L2 RPC is needed by the signer.
+
+For a future incompatible validation change, first identify pending proofs and
+canonical settlement progress. Revoke/replace the old registered vkey or proof
+system on L1 before incompatible rules activate, coordinate all runtime roles,
+and discard old sessions. Merely restarting old signers leaves their signatures
+valid. A compatible known L1 transition requires no automatic period-key change.
+
+Rollback cannot restore revoked-proof compatibility blindly: restore a matching
+contract/key/runtime set only if canonical history remains valid under it.
+These are deployment boundaries, not evidence that a live upgrade was performed.
 
 ### L1 history implementation upgrades
 

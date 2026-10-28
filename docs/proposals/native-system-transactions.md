@@ -15,9 +15,9 @@ same-profile recovery, whole groups, partial consumption and block-hash commitme
 The actual fee-recipient address is a mandatory deployment input, not an open
 design decision or a value to invent here.
 
-The [accepted simplification](../audits/2026-10-24-profile-simplification/README.md)
-uses one `Profile`/`OfflineProfile` and one
-`prove.v2.Prover` service. The profile domain has no historical revision suffix.
+The [accepted simplification](rollupx-manager-simplification.md) uses one
+`NetworkProfile`, one registered verification-key derivation and one
+`prove.v2.Prover` service.
 One validation-contract version covers the identity encoding, JSON canonicalizer
 and execution/settlement rules together; none can be selected independently.
 Acceptance requires matching Solidity/Rust profile bytes, independent identity
@@ -39,7 +39,7 @@ domains, alternate endpoints or compatibility decoders.
 | History destination | `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077` |
 | Cross-chain native gas cap | `16_777_216` |
 | History native gas cap | `2_000_000` |
-| Manager profile domain | `EEZ_ROLLUPX_OFFLINE_PROFILE` |
+| Network profile domain | `EEZ_ROLLUPX_NETWORK_PROFILE_V1` |
 | Prover transport | Existing `prove.v2.Prover.ProveStream` |
 | Portable identity | Validation contract `3` (encoding, canonicalization and semantics) |
 
@@ -213,12 +213,11 @@ all complete-group, reverted-transaction and discarded-preview regressions.
 This changes execution and commitments. Use matching new-network artifacts;
 pre-change histories/databases are unsupported, with no mixed-version execution,
 activation switch or migration. Use the six-field cross-chain envelope and keep the
-`prove.v2` protobuf unchanged; validation-contract version 6 identifies the new
-semantics. The manager profile preimage also includes this fixed version before
-the history address, binding the cleanup rule into on-chain public inputs without
-a new profile struct, configurable mode or alternate decoder. Solidity/Rust and
-independent vectors use the same word. Deploy the matching fresh manager; an old
-manager's commitment is incompatible even with the same configuration/genesis. No new L1 or L2 RPC dependency is introduced for the prover.
+`prove.v2` protobuf unchanged. Validation-contract version 7 and the registered
+network-bound verification key identify the current semantics; the unmodified
+Core manager supplies only the anchor context. The [identity specification](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md)
+defines the shared preimages. Deploy matching fresh-network artifacts. No L1 or
+L2 RPC dependency is introduced for the prover.
 
 Acceptance requires positive and rejected complete groups, nested/multi-root
 funding, included failures and discarded candidates, ordinary donations, history,
@@ -354,27 +353,27 @@ suffix. Consequently the offline prover derives all group ordinals from existing
 execution evidence, starting at zero; it accepts no external starting counter.
 
 Before signing, retain exact native reconstruction, complete semantic/DA binding,
-independent execution and whole-group checkpoints. The accepted-root claim must
-be the authenticated execution predecessor or one of those independently replayed
-checkpoints. At inclusion, getCustomData binds the actual accepted root, exact L1
-parent/time and deployment; core also checks per-entry currentRoot on execution.
-A root hash alone does not reveal an ordinal: complete execution opens that
-commitment and establishes the count. These gates must remain even though the
-prefix hash is absent from the sourceHash preimage.
+independent execution and whole-group checkpoints. Signed entry roots must match
+that replay. At inclusion, Core binds the exact L1 parent/time and registered
+network key, then checks per-entry currentRoot before consuming it. The optional
+live-root assertion is unsigned and cannot authorize a transition. A root hash
+alone does not reveal an ordinal: complete execution opens that commitment and
+establishes the count. These gates remain even though the prefix hash is absent
+from the sourceHash preimage.
 
 ### Partial settlement, competing posts and follower replay
 
-A same-target reproof retains full original execution, semantics and DA. Only
-its accepted-root assertion/proof changes. Groups keep their original ordinal
-and bytes; the selected suffix never restarts at zero. A compatible preceding
-post can consume some of the same candidate, or a shorter compatible candidate,
-without changing those identities.
+A same-target repost can retain the original proof, complete execution, semantics
+and DA while updating its unsigned accepted-root assertion. Groups keep their
+original ordinal and bytes; the selected suffix never restarts at zero. A
+compatible preceding post can consume some of the same candidate, or a shorter
+compatible candidate, without changing those identities.
 
-An intervening root advance makes the old proof stale. Reproof against the new
-root is permitted only when that root is a whole-group checkpoint in the fully
-replayed candidate. An incompatible prefix requires a rebuilt candidate and new
-proof; it cannot be repaired by supplying a different counter. A different L1
-target likewise requires reconstruction under its new parent/time.
+A root advance alone does not invalidate the signature. Core can consume a
+remaining group only if its signed starting root matches the accepted root.
+An incompatible prefix requires a rebuilt candidate and new proof; it cannot be
+repaired by supplying a different counter or unsigned root assertion. A different
+L1 target likewise requires reconstruction under its new parent/time.
 
 Followers combine canonical ordered BatchPosted, L2ExecutionPerformed and
 L2TxSkipped observations with exact posted entries and native blob semantics.
@@ -393,8 +392,8 @@ Deployments reusing an EVM chain ID may share identifiers; deployment/genesis,
 registry/rollup, exact prefix, tables and bytes remain independently bound by
 validation. Do not use sourceHash alone as a cross-network identifier.
 
-The single validation-contract version is 6, in both capability identity and
-manager profile; cross-chain envelopes have no version; history remains version 1 and the transport remains
+The single validation-contract version is 7, in both capability identity and
+the network profile committed by the registered verification key; cross-chain envelopes have no version; history remains version 1 and the transport remains
 prove.v2 with unchanged protobuf. New source bytes change native transaction and
 block hashes. Use matching new-network artifacts, fresh genesis/profile and
 fresh datadirs; mixed versions, migration, activation flags and rollback to old
@@ -513,72 +512,16 @@ Unsigned advisory execution with relaxed fee admission distributes only the
 base-fee portion actually charged; synthetic uncharged frames distribute zero.
 These simulation settings are never enabled for canonical block execution.
 
-## Manager profile and portable identity
+## Network profile and portable identity
 
-The exact Profile tuple is:
-
-```solidity
-struct Profile {
-    uint256 l1ChainId;
-    uint256 l2ChainId;
-    bytes32 genesisHash;
-    uint64 genesisTimestamp;
-    uint64 blockInterval;
-    uint32 syncInterval;
-    uint32 updateOffset;
-    bytes32 l1ConfigHash;
-    bytes32 historyCodeHash;
-    address feeCollector;
-    uint64[] ruleTimes;
-}
-```
-
-Only one execution profile is supported. Solidity uses `Profile`; Rust uses
-`OfflineProfile`. `feeCollector` precedes the final dynamic array.
-Canonical bytes and protocolConfigHash are exactly:
-
-```solidity
-profileBytes = ABI(
-    bytes32(K(bytes("EEZ_ROLLUPX_OFFLINE_PROFILE"))),
-    uint64(2),
-    address(0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077),
-    uint64(64),
-    uint64(2000000),
-    Profile(profile)
-);
-protocolConfigHash = K(profileBytes);
-```
-
-The domain and validation-contract version identify the fixed rules above,
-including both native encodings, gas caps, sender, cleanup, count codec and fee behavior; these are not additional operator
-selectors. Retain existing profile validity checks and also validate feeCollector
-as above. Mirror this tuple in Solidity/Rust, initializer calldata, event encoding,
-genesis/bootstrap and independently recomputed profile validation.
-OfflineProfileInitialized publishes the complete canonical bytes. A genesis
-header hash alone does not bind arbitrary chain-configuration fields, so explicit
-collector binding is required.
-
-Keep `EEZ_ROLLUPX_L1_HISTORY_V1` context and `EEZ_ROLLUPX_L1_RULES_V1` domains,
-both anchor selectors and existing current-root checks. The context already
-binds protocolConfigHash; require that exact commitment without additional
-context variants. No pinned core ABI change is needed.
-
-Use one ten-element portable identity RLP. Validation-contract version 6 covers
-its encoding, canonical JSON rules and accepted execution/settlement semantics:
-
-```text
-K(RLP(["eez.validation-identity", 2, rollupId, l2ChainId,
-       SYSTEM_ADDRESS, EEZL2_ADDRESS, l2DocumentDigest, protocolConfigHash,
-       registryAddress, managerAddress]))
-```
-
-Use minimal integer RLP and raw address/hash bytes. l2DocumentDigest hashes the
-complete source document, including feeCollector, with the canonical JSON rules in the
-[identity contract](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md).
-No Rust/build fingerprint enters the identity. Independently load and recompute
-it in Composer and prover; compare Capabilities and stream metadata before Block.
-A session cannot resume under another identity. C# uses the same contract and
-vectors; v2 transport and witness fields are unchanged.
+The [original Core Rollup integration](rollupx-manager-simplification.md) supersedes
+the former custom-manager profile. The registered verification key now commits
+to the network profile, registry, proof system and attester. Core remains unchanged.
+Use exactly the profile, key and validation identity encodings in
+[VALIDATION_IDENTITY.md](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md), version 7.
+The profile includes the collector, schedule, history runtime and effective L1
+rules. No independently selectable schema, period hash or on-chain profile copy
+is retained. v2 transport and witness fields remain unchanged.
 
 ## Retained derivation and recovery
 

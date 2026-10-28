@@ -7,7 +7,7 @@ supported single-rollup profile. It is intentionally narrower than the complete
 EEZ protocol.
 
 The protocol sources are this checkout's `eez-core-protocol` gitlink and the fork's
-[`OfflineRollup`](../../contracts/src/OfflineRollup.sol). Source revisions and current
+[`Core Rollup`](../../eez-core-protocol/src/rollupContract/Rollup.sol). Source revisions and current
 validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 This profile is for fresh networks, active from genesis. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
@@ -89,10 +89,11 @@ locally recomputed public-input hash only under all rules in this document.
 
 The signer has no chain provider. It validates a complete witness-backed
 execution and L1 header chain against a fixed local deployment profile. Its
-signature is conditional on the exact anchor, current accepted L2 commitment
-and active L1 rule period in the recomputed public input. At inclusion,
-`OfflineRollup.getCustomData()` supplies those actual on-chain facts. A fabricated
-branch or root cannot settle because its context differs. This is still an
+signature is conditional on the exact L1 anchor in the recomputed public input.
+Core `Rollup.getCustomData()` supplies the actual timestamp/hash at inclusion;
+the registered vkey binds the independently configured network and program.
+Core checks each signed entry's starting root when consuming it.
+This is still an
 ECDSA attestation: the configured attester is trusted to execute these checks;
 there is no ZK verification of the execution trace.
 
@@ -116,8 +117,8 @@ The signature does **not** establish:
 - caller authentication or transport confidentiality.
 
 Actual-parent binding prevents reuse under another inclusion parent/time.
-Historical binding permits later inclusion only while B is available and the
-accepted root, fixed profile, rule period and complete settlement still match. It does not add transaction-scoped wrapper authorization or
+Historical binding permits later inclusion while B is available, the registered
+key and signed settlement remain valid, and Core's entry checks succeed. It does not add transaction-scoped wrapper authorization or
 replace the pinned registry's consumption rules.
 
 Operators MUST supply those guarantees separately where required.
@@ -165,7 +166,7 @@ Values are classified as follows:
 | Pinned EEZ contracts | Authoritative for on-chain ABI layouts, selectors, hashes, and execution behavior. |
 | `eez-protocol` mirrors | Shared local implementations used by the signer; they MUST match the pinned contracts and independent vectors. |
 | L1 witness chain | Untrusted raw headers; exact decoding, linkage, fork layout, selection and termination are checked locally. The manager binds the endpoint to actual L1 at inclusion. |
-| Deployed offline manager | Supplies actual anchor, accepted L2 block hash and active L1 rule period in the verification context before registry queue mutations. |
+| Core Rollup manager | Supplies the actual timestamp/hash context and registered vkey. Core checks signed entry roots at consumption. |
 | L2 execution state | Supplied as witnesses and independently replayed; no live L2 RPC or full L2 database is required. |
 
 Names in code and diagnostics SHOULD preserve this distinction. Composer values
@@ -391,9 +392,9 @@ hash/root must match Begin. A subrange uses its retained, fully replayed parent.
 Finalize selects a nonempty retained range and exact terminal hash, with present
 settlement calldata and blobs. Candidate ranges cover whole Sync-to-Sync
 intervals. The batch contains exactly one nonzero root pin for the configured
-rollup. After full effect binding that root must equal the execution predecessor
-or an independently replayed whole-group terminal checkpoint. A receipt, height
-or Composer checkpoint list cannot establish acceptance.
+rollup. This unsigned pin is an on-chain admission assertion, never authority
+for replay or signing. The signed entry chain and validated whole-group
+checkpoints determine which effects can be consumed by Core.
 
 Actual-parent mode uses `blockNumber == uint64.max`, requires posting_context
 and ends the complete L1 evidence chain at the exact named parent. The target is
@@ -404,8 +405,8 @@ source cutoff. Every cross-chain action is forbidden, including static, failed,
 nested or reverted observations producing no L2 transaction.
 
 The manager checks actual inclusion facts: exact parent/time for actual mode,
-or nonzero available blockhash with age 1..256 for historical mode. Both bind
-actual accepted root and active L1 rules. The signer checks all internal
+or nonzero available blockhash with age 1..256 for historical mode. Network and
+program configuration is bound through the registered vkey. The signer checks all internal
 consistency and execution; it does not claim future inclusion or finality. Missing
 or inconsistent evidence rejects without an RPC lookup or signing call.
 
@@ -426,8 +427,8 @@ A later eligible header does not invalidate an earlier recorded omission.
 
 There is no separate provenance claim, canonical-state RPC, seed-history cache or
 registration-to-tip scan. Execution facts remain separate from conditional
-settlement authority. The manager's accepted-root binding closes that boundary
-on-chain when the returned proof is verified.
+settlement authority. Core verifies the registered-key signature, then checks
+signed entry roots and immediate-entry requirements during consumption.
 
 ## 6. Execution validation
 
@@ -674,10 +675,10 @@ is responsible for inserting the returned signature into the correct proof
 carrier and satisfying the on-chain `proofSystems.length == proofs.length`
 requirement.
 
-This profile requires the deployed offline manager and the exact domain-separated
-context in section 12. A generic context-free manager cannot settle these proofs.
-Changing actual-parent coordinates requires new Finalize evidence; historical
-reuse requires unchanged anchor/root/profile/rules/settlement and available B.
+This profile requires the original Core Rollup context and network-bound
+registered key in section 12. Changing actual-parent coordinates requires new
+Finalize evidence. Historical reuse requires an available unchanged anchor,
+valid key and signed settlement, and Core entry eligibility.
 
 ## 8. Block-hash commitment chain and effect binding
 
@@ -940,7 +941,7 @@ all roots covered by that host, within the `int192` range.
 ### Fresh-network profile boundary
 
 Deploy matching contracts, genesis, Composer, signer and followers together with
-fresh datadirs. There is no old/new activation height or migration. Validation-contract version 6 and capability profile 2 identify the
+fresh datadirs. There is no old/new activation height or migration. Validation-contract version 7 and capability profile 2 identify the
 current contract before proving. Configuration and wire inputs must match it. Restart may require client
 resubmission because queue ownership remains in memory; this feature does not
 add durable request recovery or change retry attribution.
@@ -1017,7 +1018,7 @@ load/user group counts once, even with static roots, callbacks or an included
 reverted user; each applying inbound delivery counts once. Ordinary/history
 transactions, anchors and inbound lookups without a native transaction do not
 count. Derive ordinals from the complete semantic/execution stream before any
-partial-consumption filtering. Preserve whole-prefix/checkpoint and accepted-root
+partial-consumption filtering. Preserve whole-prefix/checkpoint and signed-root
 validation: no Composer-supplied offset is authoritative, and no new post/reproof
 resets the count. A complete
 outbound bracket has one load followed by the exact signed origin, with callbacks
@@ -1119,29 +1120,33 @@ For the supported profile:
 staticEntryHashes = ordered staticEntryHash values
 blobHashes        = versioned hashes selected by the canonical identity
                     blobIndices
-customData        = exact offline context below
+customData        = exact Core Rollup context below
 customDataHash    = H(abi.encode(uint64(expected_rollup_id), customData))
 customDataHashes  = dynamic bytes32[] containing only customDataHash
 boundSender       = address(0)
 ```
 
-The context uses a flat argument list (not an outer dynamic tuple):
+The context is the original Core Rollup pair:
 
 ```text
-common = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1"), L1 chain ID, registry, manager,
-         rollup ID, L2 chain ID, fixed profile hash, active L1 rules ID,
-         current accepted L2 block hash
-actual = abi.encode(common..., uint8(1), parent number, parent hash, inclusion time)
-history = abi.encode(common..., uint8(2), B, hash(B))
+actual = abi.encode(uint256(inclusionTimestamp), bytes32(parentHash))
+history = abi.encode(uint256(0), bytes32(blockhash(B)))
 ```
 
-The precise widths and profile/rule preimages are shared in
-[`l1_history/context.rs`](../eez-protocol/src/l1_history/context.rs) and the
-[`OfflineRollup`](../../contracts/src/OfflineRollup.sol) contract. The fixed profile
-binds genesis/bootstrap/runtime, schedule, import limits and canonical L1 rules.
-The rules ID changes at every configured timestamp fork/blob-rule transition.
-The manager uses the inclusion period; a historical proof from a prior period
-therefore cannot bypass new settlement limits.
+[`ProofContext`](../eez-protocol/src/l1_history/context.rs) mirrors the unchanged
+[`Rollup`](../../eez-core-protocol/src/rollupContract/Rollup.sol). The network profile and
+registered vkey use the exact preimages in
+[VALIDATION_IDENTITY.md](../eez-control-rpc/VALIDATION_IDENTITY.md).
+Signer startup checks the configured vkey against its independently loaded
+profile, registry, proof system and signing address. No on-chain profile storage
+or period-specific rule hash is required.
+
+Each header is validated under its own rules. Historical proofs may cross known
+compatible L1 transitions. Their blob count is bounded by the largest configured
+allowance; L1 and followers enforce the containing block's actual allowance.
+Actual-parent proofs use the exact target's blob rules. Before an incompatible
+program/rule change, operators must revoke or replace the registered key/proof
+system; stopping signers alone does not invalidate earlier signatures.
 
 The shared input is:
 
@@ -1184,16 +1189,16 @@ their KZG versioned hashes are bound as above. Empty `callData` is profile-pinne
 and its empty hash remains part of the on-chain formula. The following
 batch carriers are not directly included in the digest:
 
-- the literal `expectedRootPerRollup` array (the actual current accepted root is
-  separately bound through the manager context);
+- the literal `expectedRootPerRollup` array (Core checks it as an unsigned
+  admission assertion; signed entry roots are checked independently);
 - `immediateEntryCount` and `immediateStaticEntryCount`;
 - proof-system contract addresses;
 - proof bytes; and
 - the literal `blockNumber`, `blobIndices`, and
   `bindMsgSenderInPublicInput` carriers.
 
-The selected mode/anchor, active rules and current accepted root affect the
-derived context in this profile. The signer checks the carriers against section 7
+The selected mode/anchor determines the context. Accepted-root advancement alone
+does not expire a signature; complete entry eligibility still applies. The signer checks the carriers against section 7
 before hashing, and the manager independently supplies actual context values. The configured
 proof-system address is also checked before signing. Those checks constrain
 what the signer accepts, but they do not add the omitted carriers to the

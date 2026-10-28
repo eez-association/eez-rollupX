@@ -5,7 +5,7 @@
 | Status | Accepted fresh-network behavior, including the native/fee amendments. The [current audit](../audits/2026-10-27-source-counter/README.md) tracks execution-group source indices and versionless `0x45`; [earlier validation](../audits/2026-10-27-group-cleanup-and-history/README.md) covers complete-group cleanup and optional HistoryUpdate before this amendment. |
 | Scope | Fresh networks only, active from genesis; no hardfork switch, legacy execution path or existing-network migration. |
 | Protocol | Published `feature/e2e_edge_cases`, `84a5b5207880f192a6a5896cbfe0bac5249db47f`. Core interfaces are unchanged. |
-| Prover interface | Keep `prove.v2.Prover.ProveStream` and existing witness field `l1_headers_rlp`. One validation-contract version covers encoding and semantics, with a single manager Profile. |
+| Prover interface | Keep `prove.v2.Prover.ProveStream` and existing witness field `l1_headers_rlp`. One validation-contract version covers encoding and semantics, with a single network profile committed by the registered verification key. |
 | Owning contracts | [History predeploy](../../contracts/L1_HISTORY_SPEC.md), [signer specification](../../crates/eez-proof-signer/SPEC.md), [streaming contract](../../crates/eez-control-rpc/STREAMING_SPEC.md), [portable identity](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md). |
 
 ## Accepted branch scope after divergence review
@@ -134,9 +134,9 @@ must differ from the accounts cleared by protocol balance cleanup. The renderer
 selects FeeVault at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0078`. Its owner may
 change its withdrawal recipient through ordinary L2 execution, without changing
 this network parameter. The required
-field is `config.rollupX.feeCollector`; [Profile and portable identity](native-system-transactions.md#manager-profile-and-portable-identity)
+field is `config.rollupX.feeCollector`; [Profile and portable identity](native-system-transactions.md#network-profile-and-portable-identity)
 authenticate it. The independently loaded node, follower and signer configuration,
-manager profile and deployment rendering must agree. The [configuration contract](native-system-transactions.md#one-authenticated-configuration-source)
+registered verification key and deployment rendering must agree. The [configuration contract](native-system-transactions.md#one-authenticated-configuration-source)
 fixes validation, propagation and rendering. Missing/empty/malformed/conflicting
 settings fail; no runtime override is permitted.
 
@@ -172,7 +172,7 @@ records independent review and the executed encoding checks:
 | ID | Status | Definition/evidence |
 | --- | --- | --- |
 | E1 | Specified | Versionless cross-chain envelope with an execution-group source formula; dedicated optional history version 1; full Live Sync group ordinals; inline callbacks; retry/partial-consumption rules. See [native specification](native-system-transactions.md#exact-source-identities) and [reference encodings](../../crates/eez-control-rpc/conformance/native-profile-v1.json). |
-| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact Profile and validation-contract version 6. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#manager-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
+| E2 | Specified | Required genesis feeCollector, propagation/rendering, exact NetworkProfile and validation-contract version 7. See [configuration](native-system-transactions.md#fee-collector-configuration-and-execution) and [profile/identity](native-system-transactions.md#network-profile-and-portable-identity). The fixed FeeVault predeploy receives base fees; its initial owner and recipient are selected for deployment. |
 | E3 | Complete within this repository | A1–A11, regenerated runtime/genesis/profile, real captures, all 29 v2 corpus cases, independent oracles and the selected integration/replay matrix pass. The [validation audit](../audits/2026-10-24-native-v1/README.md) records initial failures, corrections, exact scope and CI/external-Nethermind limits. |
 
 The `DELEGATECALL`/`CALLCODE` case in audit C09 follows the pinned proxy's caller
@@ -229,8 +229,9 @@ PREVRANDAO. Followers replay the recorded transaction; later header arrival cann
 reinterpret old blocks.
 
 The prover receives blocks and witnesses over v2 and needs no L1/L2 RPC, persistent
-header database or hidden cache. Its proof is conditional on the L1 anchor and
-accepted L2 commitment that `getCustomData()` supplies at actual inclusion.
+header database or hidden cache. Its proof is conditional on the L1 anchor
+that `getCustomData()` supplies at actual inclusion. The registered key binds
+the network profile, and Core separately checks consumed entry roots.
 
 ```mermaid
 flowchart TD
@@ -239,7 +240,7 @@ flowchart TD
     B["Block body: optional history tx first when eligible; then applications"]
     D["Public blobs: exact history tx plus ordinary transactions"]
     P["Offline v2 prover: check ancestry and recorded choice; replay L2"]
-    G["getCustomData: actual L1 anchor, rules, profile and accepted L2 hash"]
+    G["getCustomData: actual anchor timestamp and hash"]
     V["EEZ/verifier: recompute public input and verify proof"]
     F["Follower: replay public transactions; compare committed block hashes"]
     L -->|"ready snapshot; never a clock dependency"| C
@@ -256,8 +257,8 @@ flowchart TD
 | --- | --- |
 | Producer | Choose an eligible advance or inherit from local state and ready evidence; record exact transaction bytes. Acquisition runs separately. |
 | Offline prover | Validate header encoding/linkage, inherited state, every recorded import and its delay; execute the actual PREVRANDAO and transactions; recompute all block, DA, settlement and public-input commitments. |
-| `getCustomData()` | Read the actual accepted L2 block-hash commitment and deployment/profile/rules; resolve the actual parent or an available historical L1 hash; enforce the mode's inclusion rules. |
-| EEZ and verifier | Bind that on-chain context into the public input and verify before batch state changes. |
+| `getCustomData()` | Return the inclusion timestamp and parent hash, or zero timestamp and an available historical L1 hash. |
+| EEZ and verifier | Bind the anchor context and registered network key into the public input; verify the proof and consumed entry roots. |
 | Follower | Reconstruct from public DA and authenticated L1 ancestry; execute the same history transactions and native action groups. |
 
 The manager does not replay L2 or parse the supplied historical headers. The
@@ -319,7 +320,7 @@ Getters return zero for unavailable records, including skipped numbers, and the
 latest getter returns `(0, 0)` when empty. Applications must follow the
 [polling rules](../../contracts/L1_HISTORY_SPEC.md#application-polling); they cannot
 infer contiguous coverage from the endpoint. A supplied header and storage proof
-still need a nonzero stored commitment. Validation-contract version 6 binds the
+still need a nonzero stored commitment. Validation-contract version 7 binds the
 new fresh-network profile. See its
 [compatibility boundary](../../contracts/L1_HISTORY_SPEC.md#compatibility).
 
@@ -388,7 +389,7 @@ Ranges begin and end at the profile's Sync boundaries.
 | --- | --- | --- |
 | `batch.blockNumber` | `uint64.max` | Explicit B, `0 < B < uint64.max` |
 | L1 commitment | N − 1 and `blockhash(N − 1)` | B and `blockhash(B)` |
-| Inclusion binding | Exact parent and S | Available B/hash, unchanged accepted L2 root/profile/rules |
+| Inclusion binding | Exact parent and S | Available B/hash, eligible signed entries and registered key |
 | Execution | E = S permits supported live actions; E < S is ordinary catch-up; E > S rejects | E <= timestamp(B); ordinary catch-up only |
 | Cross-chain actions | Only at E = S and under existing action validation | Forbidden, including static/failed/nested observations without an L2 transaction |
 | Age | Actual parent available | B < N, N − B <= 256, nonzero hash |
@@ -396,24 +397,19 @@ Ranges begin and end at the profile's Sync boundaries.
 
 Historical timestamp eligibility also implies that B is later than every delayed
 source cutoff in the window. It does not require the chosen origin to be maximal.
-Historical proofs can survive a later inclusion block only while the root,
-anchor, rules, profile, settlement data and proof policy remain unchanged.
-Expired anchors, reorgs and accepted-root advancement require re-proving. Never
-reinterpret a failed live proof as historical catch-up.
+Historical proofs can survive later inclusion while the anchor is available,
+the registered key remains valid and Core's signed-entry checks succeed.
+Accepted-root advancement alone does not expire them. Never reinterpret a
+failed live proof as historical catch-up.
 
-`getCustomData()` returns the fixed flat ABI context defined by
-[OfflineRollup](../../contracts/src/OfflineRollup.sol) and its
-[Rust encoder](../../crates/eez-protocol/src/l1_history/context.rs): context domain,
-L1 chain ID, registry, manager, rollup ID, L2 chain ID, profile hash, active L1 rules
-ID and actual current L2 block-hash commitment, followed by mode/anchor fields
-(and S for actual parent). It remains read-only and stores no L1 history.
-
-The profile commits to genesis/bootstrap, schedule, runtime, import limits,
-execution semantics and L1 rule epochs under `EEZ_ROLLUPX_OFFLINE_PROFILE`.
-Historical validation derives rules at timestamp(B); the manager supplies those
-active at S. Crossing a rule epoch rejects. Composer chooses actual-parent mode
-initially when a known transition would make historical mode incompatible.
-The core public-input hash and settlement ABI remain unchanged.
+Core `Rollup.sol` is used unchanged. Its `getCustomData` returns only the original
+timestamp/hash pair: inclusion time and parent hash in actual-parent mode;
+zero and `blockhash(B)` in historical mode. The registered vkey binds the network
+profile and validation program. See the accepted
+[manager simplification](rollupx-manager-simplification.md) and exact
+[profile/key encoding](../../crates/eez-control-rpc/VALIDATION_IDENTITY.md).
+Known compatible L1 rule transitions are allowed. Incompatible upgrades require
+coordinated on-chain revocation/replacement of old keys or proof systems.
 
 ## Offline evidence and acceptance
 
@@ -430,19 +426,11 @@ latest-source test: subsequent headers cannot change a recorded valid choice.
 Missing evidence rejects the proof, never invokes a chain RPC or freezes the
 independent producer.
 
-The proof binds one self-rollup accepted-root pin to either the exact execution
-parent block hash or a permitted whole-group terminal checkpoint independently
-reproduced by complete replay. A supplied checkpoint list, equal height, receipt
-or state root cannot substitute. `getCustomData()` reads the real accepted
-commitment, so a conditional proof cannot settle against a different one.
-Partial consumption requires a new proof bound to the newly accepted checkpoint;
-whole groups, semantic ordering and remaining effects remain fully checked.
-
-The wire flow stays `Begin -> Block* -> Finalize`. Existing witness fields 1–4
-retain their meanings; field 5 carries raw L1 headers. Rewind restores both
-execution and L1 evidence checkpoints. Exact duplicates are idempotent; conflicting
-ones reject. ACK does not authorize signing. The final Block carries any remaining
-bridge; Finalize introduces no unverified evidence channel.
+The batch contains one unsigned self-rollup expected-root pin, checked by Core
+at admission. It does not authenticate replay. Signed entry roots and complete
+checkpoints are independently validated, and Core decides applicability during
+consumption. Partial consumption can reuse a signature while its signed bytes,
+key policy and anchor remain valid; no whole group may be split.
 
 ## Multipart recovery outside the L1 blockhash window
 
@@ -466,11 +454,11 @@ settlement without stopping local production or truncating evidence.
 
 ## Compatibility and validation
 
-Deploy new matching genesis, manager profile, Composer, follower and prover.
+Deploy new matching genesis, Core manager and registered key, Composer, follower and prover.
 No old network/database replay, in-place upgrade, dual execution mode or rollback
 compatibility is provided. Regenerate fixtures with the existing genesis script;
 keep pinned Solidity/compiler metadata and the core gitlink. Wire v2 remains
-unchanged; validation-contract version 6 and Profile bind cross-chain and history
+unchanged; validation-contract version 7 and the registered key bind cross-chain and history
 encoding, complete-group and block-finalization cleanup, execution rules and the fee collector used by
 every component. Cross-chain source identities remain unchanged.
 The derived correlation index uses `eez-batch-correlation-recorded-history-v1`.

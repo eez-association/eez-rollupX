@@ -14,9 +14,7 @@ import {
     RollupUpdate,
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
-import {OfflineRollup} from "../src/OfflineRollup.sol";
-import {L1HistoryCode} from "../src/generated/L1HistoryCode.sol";
-import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {Rollup} from "eez-core-protocol/src/rollupContract/Rollup.sol";
 import {RollupDeployment} from "./utils/RollupDeployment.sol";
 
 import {ECDSAProofSystem} from "../src/ECDSAProofSystem.sol";
@@ -130,8 +128,8 @@ contract PostBatchGasProbe {
 ///      cover the base and the WORST per-entry marginal on the ladder.
 contract PostBatchGasPinsTest is Test {
     /// Mirrors `POSTBATCH_BASE_GAS_PIN` in `crates/eez-composer/src/composer.rs`.
-    /// Offline manager, one accepted-root pin, 64 cold rule epochs and up to
-    /// 64 blob references: measured 165_440, plus 10% rounded up to 10,000.
+    /// Conservative ceiling with the original Core manager, one accepted-root
+    /// assertion and up to 64 blob references; the ladder below checks coverage.
     uint256 private constant POSTBATCH_BASE_GAS_PIN = 190_000;
 
     /// Mirrors `POSTBATCH_ENTRY_GAS_PIN` in `crates/eez-composer/src/composer.rs`.
@@ -1636,7 +1634,7 @@ contract PostBatchGasPinsTest is Test {
     }
 
     /// Mirrors `scripts/deploy.sh`: registry proxy, proof system, threshold-1
-    /// manager proxy whose vkey is the signer-address membership ticket, then
+    /// manager proxy whose vkey binds the network and attester, then
     /// `registerRollup`. The implementations behind both proxies are cooled
     /// too, so measurements include cold proxy dispatch.
     function _deployProtocol() private returns (EEZ eez, ECDSAProofSystem proofSystem) {
@@ -1647,32 +1645,16 @@ contract PostBatchGasPinsTest is Test {
         address[] memory proofSystems = new address[](1);
         proofSystems[0] = address(proofSystem);
         bytes32[] memory vkeys = new bytes32[](1);
-        vkeys[0] = bytes32(uint256(uint160(prover)));
-        // The production manager authenticates the accepted root and offline
-        // context. Use the maximum rule schedule so cold binary-search reads
-        // are covered by the same base reserve as a small public-chain profile.
-        uint64[] memory times = new uint64[](64);
-        for (uint64 i; i < times.length; i++) {
-            times[i] = i * 10;
-        }
-        OfflineRollup.Profile memory profile = OfflineRollup.Profile(
-            block.chainid,
-            900,
-            GENESIS_ROOT,
-            120,
-            1,
-            5,
-            2,
-            keccak256("fixed L1 gas fixture rules"),
-            L1HistoryCode.HASH,
-            address(0x1234),
-            times
+        vkeys[0] = keccak256(
+            abi.encode(
+                keccak256("EEZ_ROLLUPX_VERIFICATION_KEY_V1"),
+                keccak256("gas fixture network"),
+                address(eez),
+                address(proofSystem),
+                prover
+            )
         );
-        OfflineRollup implementation = new OfflineRollup(address(eez));
-        bytes memory init =
-            abi.encodeCall(OfflineRollup.initializeOffline, (address(this), 1, proofSystems, vkeys, profile));
-        OfflineRollup manager =
-            OfflineRollup(address(new TransparentUpgradeableProxy(address(implementation), address(this), init)));
+        Rollup manager = RollupDeployment.deploy(address(eez), address(this), 1, proofSystems, vkeys);
 
         assertEq(eez.registerRollup(address(manager), GENESIS_ROOT), ROLLUP_ID, "unexpected rollup id");
         touched.push(address(eez));
@@ -1848,7 +1830,7 @@ contract PostBatchGasPinsTest is Test {
 
         bytes32[] memory customDataHashes = new bytes32[](1);
         (address manager,,) = eez.rollups(ROLLUP_ID);
-        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, OfflineRollup(manager).getCustomData(batch.blockNumber)));
+        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, Rollup(manager).getCustomData(batch.blockNumber)));
         bytes32[] memory blobHashes = new bytes32[](batch.blobIndices.length);
         for (uint256 i = 0; i < blobHashes.length; i++) {
             blobHashes[i] = blobhash(batch.blobIndices[i]);
@@ -1867,7 +1849,7 @@ contract PostBatchGasPinsTest is Test {
                 address(0)
             )
         );
-        bytes32 vkey = bytes32(uint256(uint160(vm.addr(PROVER_KEY))));
+        bytes32 vkey = Rollup(manager).verificationKey(batch.proofSystems[0]);
         bytes32 accumulator = keccak256(abi.encode(bytes32(0), ROLLUP_ID, vkey));
         return keccak256(abi.encodePacked(sharedPublicInput, accumulator));
     }

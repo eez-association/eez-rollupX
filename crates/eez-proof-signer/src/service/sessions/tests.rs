@@ -345,20 +345,12 @@ fn controlled(request_timeout: Duration) -> Controlled {
     output.pre_state_root = parent.state_root;
     output.blocks[0].post_state_root = parent.state_root;
     let (validator, started, release) = Validator::blocking_stub(Ok(output));
-    let attester = crate::attest::Attester::new(
-        b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
-        crate::testkit::test_proof_system_vkey(),
-        alloy_primitives::Address::repeat_byte(0xaa),
-        eez_primitives::SYSTEM_ADDRESS,
-    )
-    .unwrap();
     let state = Arc::new(
-        ServiceState::new(
+        crate::service::tests::configured_test_state(
             alloy_primitives::Address::repeat_byte(0x33),
             alloy_primitives::Address::repeat_byte(0x44),
             validator,
             NonZeroU64::new(1).unwrap(),
-            attester,
             crate::testkit::l1_chain_spec(),
         )
         .unwrap(),
@@ -689,20 +681,12 @@ async fn timed_out_stream_block_keeps_worker_and_never_advances_cursor() {
 #[tokio::test]
 async fn panicking_stream_worker_returns_redacted_error_without_progress_or_signature() {
     let mut fixture = controlled(Duration::from_secs(5));
-    let attester = crate::attest::Attester::new(
-        b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
-        crate::testkit::test_proof_system_vkey(),
-        alloy_primitives::Address::repeat_byte(0xaa),
-        eez_primitives::SYSTEM_ADDRESS,
-    )
-    .unwrap();
     let state = Arc::new(
-        ServiceState::new(
+        crate::service::tests::configured_test_state(
             alloy_primitives::Address::repeat_byte(0x33),
             alloy_primitives::Address::repeat_byte(0x44),
             Validator::panicking_stub(),
             NonZeroU64::new(1).unwrap(),
-            attester,
             crate::testkit::l1_chain_spec(),
         )
         .unwrap(),

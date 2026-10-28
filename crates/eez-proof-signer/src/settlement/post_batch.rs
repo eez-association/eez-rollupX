@@ -134,7 +134,7 @@ impl<'a> CheckedPublicInputProfile<'a> {
         &self,
         proof_system_vkey: NonZeroProofSystemVkey,
         transaction_blob_hashes: &[B256],
-        posting_context: &eez_protocol::l1_history::OfflineContext,
+        posting_context: &eez_protocol::l1_history::ProofContext,
     ) -> Result<RecomputedPublicInputsHash, PublicInputError> {
         let hashes = public_inputs_hashes_with_blob_hashes(
             self.canonical_batch.as_batch(),
@@ -176,7 +176,7 @@ pub(crate) fn recompute_public_input_hash(
         .recompute_public_inputs_hash(
             proof_system_vkey,
             &[],
-            &crate::testkit::offline_context(batch, crate::testkit::l1_target()),
+            &crate::testkit::proof_context(batch, crate::testkit::l1_target()),
         )
         .map(RecomputedPublicInputsHash::into_inner)
 }

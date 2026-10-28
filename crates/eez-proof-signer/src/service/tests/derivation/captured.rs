@@ -108,6 +108,45 @@ fn inventory_native_proving_fixtures() {
     }
 }
 
+fn fixture_state(directory: &std::path::Path, identity: &serde_json::Value) -> Arc<ServiceState> {
+    let system_address = identity["l2_system_address"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let attester = crate::attest::Attester::new(
+        b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
+        identity["vkey"].as_str().unwrap().parse().unwrap(),
+        identity["proof_system"].as_str().unwrap().parse().unwrap(),
+        system_address,
+    )
+    .unwrap();
+    Arc::new(
+        ServiceState::new(
+            identity["registry_address"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap(),
+            identity["rollup_manager_address"]
+                .as_str()
+                .unwrap()
+                .parse()
+                .unwrap(),
+            Validator::stateless(&directory.join("l2-genesis.json"), system_address).unwrap(),
+            expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
+            attester,
+            Arc::new(reth_chainspec::ChainSpec::from(
+                serde_json::from_slice::<alloy_genesis::Genesis>(
+                    &std::fs::read(directory.join("l1-genesis.json")).unwrap(),
+                )
+                .unwrap(),
+            )),
+        )
+        .unwrap(),
+    )
+}
+
 struct Fixture {
     input: Vec<WindowChunk>,
     state: Arc<ServiceState>,
@@ -153,40 +192,7 @@ impl Fixture {
                 .parse::<B256>()
                 .unwrap()
         );
-        let system_address = identity["l2_system_address"]
-            .as_str()
-            .unwrap()
-            .parse()
-            .unwrap();
-        let attester = crate::attest::Attester::new(
-            b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba"),
-            identity["vkey"].as_str().unwrap().parse().unwrap(),
-            identity["proof_system"].as_str().unwrap().parse().unwrap(),
-            system_address,
-        )
-        .unwrap();
-        let state = Arc::new(
-            ServiceState::new(
-                identity["registry_address"]
-                    .as_str()
-                    .unwrap()
-                    .parse()
-                    .unwrap(),
-                identity["rollup_manager_address"]
-                    .as_str()
-                    .unwrap()
-                    .parse()
-                    .unwrap(),
-                Validator::stateless(&directory.join("l2-genesis.json"), system_address).unwrap(),
-                expected_rollup_id(identity["rollup_id"].as_u64().unwrap()),
-                attester,
-                Arc::new(reth_chainspec::ChainSpec::from(
-                    serde_json::from_slice::<alloy_genesis::Genesis>(&read("l1-genesis.json"))
-                        .unwrap(),
-                )),
-            )
-            .unwrap(),
-        );
+        let state = fixture_state(&directory, &identity);
         let mut fixture = Self {
             input: chunks(&encoded),
             state,
@@ -331,7 +337,9 @@ fn pipeline_error_at(
                 &history,
             )
             .map_err(PipelineError::L1Authorization)?;
-        let maximum_blobs = state.posting_blob_limit(context.rules_timestamp()).unwrap();
+        let maximum_blobs = state
+            .posting_blob_limit(context.posting_timestamp())
+            .unwrap();
         super::super::super::settlement_job::settle_validated(
             state,
             &window,
@@ -419,7 +427,7 @@ async fn native_offline_request_without_l1_evidence_cannot_sign() {
 }
 
 #[tokio::test]
-async fn an_unrelated_accepted_root_cannot_authorize_a_cold_request() {
+async fn unsigned_root_assertion_does_not_change_the_signed_proof() {
     let mut fixture = Fixture::load("native-offline-bidirectional");
     let post = header_mut(&mut fixture.input[0])
         .post_batch
@@ -428,14 +436,28 @@ async fn an_unrelated_accepted_root_cannot_authorize_a_cold_request() {
     let mut batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
     batch.expectedRootPerRollup[0].root = B256::repeat_byte(0x91);
     post.abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
-    let error = pipeline_error(&fixture.state, fixture.input.clone());
-    assert_eq!(error.gate(), "canonical_registry", "{error:?}");
+    assert_eq!(fixture.digest(), fixture.expected_hash);
     let server = fixture.server().await;
+    let proof = server.attest(fixture.input.clone()).await;
+    assert_eq!(proof.proof, fixture.signature);
+    assert_eq!(fixture.state.attester.signing_calls(), 1);
+
+    // An unsigned admission hint cannot authorize a different signed entry root.
+    batch.entries[0].rootUpdates[0].currentRoot = B256::repeat_byte(0x91);
+    header_mut(&mut fixture.input[0])
+        .post_batch
+        .as_mut()
+        .unwrap()
+        .abi_calldata = eez_protocol::entries::encode_postbatch(&batch);
+    let negative = Fixture::load("native-offline-bidirectional");
+    let error = pipeline_error(&negative.state, fixture.input.clone());
+    assert_eq!(error.gate(), "root_update_chain", "{error:?}");
+    let negative_server = negative.server().await;
     assert_eq!(
-        server.prove(fixture.input).await.code(),
+        negative_server.prove(fixture.input).await.code(),
         Code::FailedPrecondition
     );
-    assert_eq!(fixture.state.attester.signing_calls(), 0);
+    assert_eq!(negative.state.attester.signing_calls(), 0);
 }
 
 #[tokio::test]
@@ -600,4 +622,91 @@ async fn forged_native_lookup_outcome_reaches_observation_replay_and_never_signs
         Code::FailedPrecondition
     );
     assert_eq!(fixture.state.attester.signing_calls(), 0);
+}
+
+/// Refresh commitments after an intentional proof-policy change while retaining
+/// the captured execution/witness bytes. This constructs expected values from
+/// inputs; it never invokes a service or learns an expected digest from one.
+#[test]
+#[ignore = "explicit native commitment regeneration; see conformance/README.md"]
+fn regenerate_native_fixture_commitments() {
+    let key = b256!("8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba");
+    let signer = eez_protocol::signer::EcdsaProofSigner::from_private_key(key).unwrap();
+    let oracle_dir =
+        crate::testkit::manifest_dir().join("../../artifacts/rollup-core-fixture-oracle");
+    std::fs::create_dir_all(&oracle_dir).unwrap();
+    for name in [
+        "native-offline-bidirectional",
+        "native-osaka-lookup",
+        "native-osaka-changing-static",
+    ] {
+        let directory = crate::testkit::manifest_dir()
+            .join("tests/fixtures")
+            .join(name);
+        let read = |file: &str| std::fs::read(directory.join(file)).unwrap();
+        let mut identity: serde_json::Value =
+            serde_json::from_slice(&read("identity.json")).unwrap();
+        let validator = Validator::stateless(
+            &directory.join("l2-genesis.json"),
+            eez_primitives::SYSTEM_ADDRESS,
+        )
+        .unwrap();
+        let l1 = reth_chainspec::ChainSpec::from(
+            serde_json::from_slice::<alloy_genesis::Genesis>(&read("l1-genesis.json")).unwrap(),
+        );
+        let profile = eez_l1::chain_config::offline_l1_rules(&l1)
+            .unwrap()
+            .profile(validator.schedule().unwrap(), validator.chain_id())
+            .unwrap();
+        let registry = identity["registry_address"]
+            .as_str()
+            .unwrap()
+            .parse()
+            .unwrap();
+        let proof_system = identity["proof_system"].as_str().unwrap().parse().unwrap();
+        let vkey = profile.verification_key(registry, proof_system, signer.address());
+        identity["vkey"] = serde_json::json!(vkey);
+        let state = fixture_state(&directory, &identity);
+        let encoded = read("request.v2.protobuf");
+        let input = chunks(&encoded);
+        let digest = recompute_window_public_inputs_for_state(&state, &input);
+        let signature = signer.sign_prehash(digest).unwrap();
+        let response = serde_json::json!({
+            "public_inputs_hash": hex::encode(digest),
+            "signature": hex::encode(&signature),
+            "request_bytes": encoded.len(),
+            "request_hash": keccak256(&encoded),
+        });
+        for (file, value) in [("identity.json", &identity), ("response.json", &response)] {
+            std::fs::write(
+                directory.join(file),
+                serde_json::to_vec_pretty(value).unwrap(),
+            )
+            .unwrap();
+        }
+        let Some(WindowPart::Metadata(header)) = &input[0].kind else {
+            panic!("metadata")
+        };
+        let post = header.post_batch.as_ref().unwrap();
+        let batch = settlement::decode_canonical_post_batch(post.abi_calldata.clone()).unwrap();
+        let carrier =
+            settlement::verify_da_carrier_with_limit(&batch, &post.blobs, header.rollup_id, 16)
+                .unwrap();
+        let posting = post.posting_context.as_ref().unwrap();
+        let oracle = serde_json::json!({
+            "calldata": alloy_primitives::hex::encode_prefixed(&post.abi_calldata),
+            "blob_hashes": carrier.transaction_blob_hashes(),
+            "digest": digest, "signature": signature, "vkey": vkey,
+            "profile_preimage": profile.canonical_bytes(), "profile_hash": profile.commitment(),
+            "registry": registry, "proof_system": proof_system, "attester": signer.address(),
+            "parent_number": posting.parent_number,
+            "parent_hash": alloy_primitives::hex::encode_prefixed(&posting.parent_hash),
+            "target_timestamp": posting.target_timestamp,
+        });
+        std::fs::write(
+            oracle_dir.join(format!("{name}.json")),
+            serde_json::to_vec_pretty(&oracle).unwrap(),
+        )
+        .unwrap();
+    }
 }

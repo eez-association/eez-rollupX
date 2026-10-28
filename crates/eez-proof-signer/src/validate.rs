@@ -491,7 +491,7 @@ impl Validator {
             system_address: self.expected_l2_system_address(),
             eez_l2_address: crate::EEZL2_ADDRESS,
             chain_document_digest,
-            offline_profile_hash: deployment.profile.commitment(),
+            network_profile_hash: deployment.profile.commitment(),
             registry: deployment.registry,
             manager: deployment.manager,
         }

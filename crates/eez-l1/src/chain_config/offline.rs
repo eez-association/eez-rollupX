@@ -2,7 +2,7 @@
 
 use alloy_primitives::{B256, U256, keccak256};
 use eez_protocol::{
-    l1_history::{HISTORY_RUNTIME, HeaderRules, OfflineProfile},
+    l1_history::{HeaderRules, NetworkProfile},
     l2::Schedule,
 };
 use reth_chainspec::{ChainSpec, EthereumHardfork, ForkCondition, Hardforks as _};
@@ -13,8 +13,6 @@ use reth_chainspec::{ChainSpec, EthereumHardfork, ForkCondition, Hardforks as _}
 pub struct OfflineL1Rules {
     /// Strict historical execution-header layouts.
     pub headers: HeaderRules,
-    /// Every timestamp at which the manager must invalidate prior-period proofs.
-    pub rule_times: Vec<u64>,
     /// Canonical semantic document committing all effective forks and blob rules.
     pub canonical_json: Vec<u8>,
     /// Keccak of `canonical_json`.
@@ -24,10 +22,10 @@ pub struct OfflineL1Rules {
 }
 
 impl OfflineL1Rules {
-    /// Build the profile used by the manager and every proof producer/consumer.
-    /// Fresh L2 bootstrap must follow all block/TTD-based L1 transitions: this
-    /// profile's future rule epochs are timestamp-based, as on supported PoS L1s.
-    pub fn profile(&self, schedule: Schedule, l2_chain_id: u64) -> eyre::Result<OfflineProfile> {
+    /// Build the profile committed by every proof producer and its registered key.
+    /// Fresh L2 bootstrap must follow all block/TTD-based L1 transitions: future
+    /// header transitions are timestamp-based, as on supported PoS L1s.
+    pub fn profile(&self, schedule: Schedule, l2_chain_id: u64) -> eyre::Result<NetworkProfile> {
         let config = schedule.config();
         eyre::ensure!(
             config.l1_reference.chain_id == self.chain_id,
@@ -37,7 +35,7 @@ impl OfflineL1Rules {
             config.l1_reference.number >= self.last_block_fork,
             "fresh L2 bootstrap precedes a block-based L1 rule transition"
         );
-        let profile = OfflineProfile {
+        let profile = NetworkProfile {
             l1ChainId: U256::from(self.chain_id),
             l2ChainId: U256::from(l2_chain_id),
             genesisHash: schedule.genesis_hash(),
@@ -46,11 +44,9 @@ impl OfflineL1Rules {
             syncInterval: config.sync_interval_blocks,
             updateOffset: config.history_update_offset,
             l1ConfigHash: self.config_hash,
-            historyCodeHash: keccak256(HISTORY_RUNTIME),
             feeCollector: config.fee_collector,
-            ruleTimes: self.rule_times.clone(),
         };
-        profile.validate(U256::from(self.chain_id), keccak256(HISTORY_RUNTIME))?;
+        profile.validate(U256::from(self.chain_id))?;
         schedule.history()?;
         Ok(profile)
     }
@@ -85,7 +81,6 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
         .flatten()
         .min(),
     };
-    let mut times = std::collections::BTreeSet::from([0]);
     let mut forks = std::collections::BTreeMap::new();
     let mut last_block_fork = 0;
     for (fork, condition) in spec.forks_iter() {
@@ -95,7 +90,6 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
                 serde_json::json!({"block": number})
             }
             ForkCondition::Timestamp(at) => {
-                times.insert(at);
                 serde_json::json!({"timestamp": at})
             }
             ForkCondition::TTD {
@@ -120,11 +114,6 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
             .all(|pair| pair[0].0 < pair[1].0),
         "unordered L1 blob schedule"
     );
-    times.extend(spec.blob_params.scheduled.iter().map(|(at, _)| *at));
-    eyre::ensure!(
-        times.len() <= eez_protocol::l1_history::MAX_RULE_EPOCHS,
-        "L1 rule epoch limit exceeded"
-    );
     let document = serde_json::json!({
         "domain": "EEZ_ROLLUPX_EFFECTIVE_L1_RULES_V1",
         "chainId": spec.chain().id(), "genesisHash": spec.genesis_header.hash(),
@@ -135,7 +124,6 @@ pub fn offline_l1_rules(spec: &ChainSpec) -> eyre::Result<OfflineL1Rules> {
     let canonical_json = super::canonicalize_chain_json(&serde_json::to_vec(&document)?)?;
     Ok(OfflineL1Rules {
         headers,
-        rule_times: times.into_iter().collect(),
         config_hash: keccak256(&canonical_json),
         canonical_json,
         chain_id: spec.chain().id(),
@@ -150,24 +138,18 @@ mod tests {
     fn effective_rule_identity_binds_unnamed_blob_updates_and_fork_boundaries() {
         let spec = reth_chainspec::MAINNET.clone();
         let original = offline_l1_rules(&spec).unwrap();
-        assert!(
-            original.rule_times.contains(
-                &spec
-                    .hardforks
-                    .fork(EthereumHardfork::Prague)
-                    .as_timestamp()
-                    .unwrap()
-            )
-        );
         let mut changed = (*spec).clone();
-        let next = original.rule_times.last().unwrap() + 100;
+        let next = changed
+            .blob_params
+            .scheduled
+            .last()
+            .map_or(2_000_000_000, |(at, _)| at + 100);
         changed
             .blob_params
             .scheduled
             .push((next, changed.blob_params.osaka));
         let next_rules = offline_l1_rules(&changed).unwrap();
         assert_ne!(original.config_hash, next_rules.config_hash);
-        assert!(next_rules.rule_times.contains(&next));
         changed
             .blob_params
             .scheduled

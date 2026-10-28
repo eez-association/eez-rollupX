@@ -6,7 +6,7 @@ use alloy_primitives::{B256, Bytes, U256};
 use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use anyhow::Context as _;
-use eez_testkit::{CrossChainWorld, IEEZ, IOfflineRollup};
+use eez_testkit::{CrossChainWorld, IEEZ, IRollup};
 use serde_json::{Value, json};
 
 pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::Result<()> {
@@ -62,13 +62,19 @@ pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::
         }
         posts.push(hash);
     }
-    let profile_hash = IOfflineRollup::new(world.cfg.rollup_manager_address, &l1)
-        .protocolConfigHash()
+    let proof_system = world.dep.proof_system_address;
+    let attester = eez_testkit::signer_address(world.cfg.attester_key)?;
+    let verification_key = IRollup::new(world.cfg.rollup_manager_address, &l1)
+        .verificationKey(proof_system)
         .call()
         .await?;
     anyhow::ensure!(
-        profile_hash == world.dep.profile.commitment(),
-        "deployed profile differs"
+        verification_key
+            == world
+                .dep
+                .profile
+                .verification_key(world.cfg.eez_address, proof_system, attester),
+        "deployed verification key differs"
     );
     let genesis: Value = serde_json::from_slice(&std::fs::read(&world.cfg.l2_genesis.0)?)?;
     let l1_genesis: Value = serde_json::from_slice(&std::fs::read(&world.cfg.l1_genesis.0)?)?;
@@ -145,7 +151,8 @@ pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::
             let input = json!({
                 "block_hash": hash, "block_rlp": raw, "receipts_rlp": receipts, "witness": witness,
                 "chain_config": chain_config, "genesis": genesis, "genesis_hash": genesis_header.hash,
-                "l1_chain_config": l1_genesis, "l1_headers_rlp": headers, "protocol_config_hash": profile_hash,
+                "l1_chain_config": l1_genesis, "l1_headers_rlp": headers, "registry": world.cfg.eez_address, "proof_system": proof_system,
+                "attester": attester, "verification_key": verification_key,
                 "accepted_root_pins": accepted_pins, "posted_root_pins": posted_pins, "accepted_posts": posts,
             });
             let name = if index == 0 {

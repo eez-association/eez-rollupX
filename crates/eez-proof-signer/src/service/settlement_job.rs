@@ -161,7 +161,7 @@ pub(super) fn settle_validated(
 /// The job consumes the submitted calldata at its decode boundary. Other large
 /// values remain borrowed from the validated window owned by the worker.
 pub(super) struct SettlementInput<'a> {
-    pub(super) posting_context: eez_protocol::l1_history::OfflineContext,
+    pub(super) posting_context: eez_protocol::l1_history::ProofContext,
     pub(super) canonical_batch: settlement::CanonicalPostBatch,
     pub(super) submitted_blobs: &'a [Vec<u8>],
     pub(super) validated_window: &'a validate::ValidatedWindow,
@@ -202,8 +202,6 @@ pub(super) enum SettlementPipelineError {
     BlobSemantics(#[from] settlement::SemanticBindingError),
     #[error(transparent)]
     ObservationReplay(#[from] validate::ObservationValidationError),
-    #[error("candidate canonical registry state: {0}")]
-    L1Authorization(&'static str),
     #[error("request cancelled")]
     Cancelled,
 }
@@ -224,7 +222,6 @@ impl SettlementPipelineError {
             Self::BlobSemantics(_) => "blob_semantics",
             Self::ObservationReplay(_) => "observation_replay",
             Self::Cancelled => "cancellation",
-            Self::L1Authorization(_) => "canonical_registry",
         }
     }
 
@@ -295,8 +292,7 @@ impl SettlementPipelineError {
             | Self::InboundEffects(_)
             | Self::OutboundEffects(_)
             | Self::BlobSemantics(_)
-            | Self::ObservationReplay(_)
-            | Self::L1Authorization(_) => (
+            | Self::ObservationReplay(_) => (
                 tonic::Code::FailedPrecondition,
                 "settlement validation rejected",
             ),
@@ -456,16 +452,6 @@ fn run_settlement_with_observations(
         expected_rollup_id,
     )?;
 
-    // The execution gate binds this predecessor to the exact parent header.
-    // A different accepted commitment needs a fully replayed whole-group
-    // terminal checkpoint; neither a height nor a caller's checkpoint list suffices.
-    if posting_context.current_l2_root() != validated_window.window_pre_block_hash()
-        && !bound_effects.contains_checkpoint(posting_context.current_l2_root())
-    {
-        return Err(SettlementPipelineError::L1Authorization(
-            "accepted root is not the replay parent or a validated whole-group terminal prefix",
-        ));
-    }
     let recomputed_public_inputs_hash = checked_public_input_profile.recompute_public_inputs_hash(
         proof_system_vkey,
         verified_da.transaction_blob_hashes(),

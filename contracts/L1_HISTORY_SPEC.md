@@ -46,8 +46,8 @@ canonical owner distinct from the system address.
 
 Execution pins proxy bytecode, including its immutable admin. The implementation
 pointer and delegated code are read from authenticated L2 state/witnesses.
-`historyCodeHash` commits to the proxy; the genesis hash also commits to the
-initial implementation and authority. Historical replay executes the historical
+The network profile commits to the fixed proxy runtime; the genesis hash also
+commits to the initial implementation and authority. Historical replay executes the historical
 implementation. Ordinary signed L2 transactions can upgrade through ProxyAdmin
 or transfer its ownership independently of EEZL2's admin.
 
@@ -123,10 +123,11 @@ not a proof of contiguous coverage. A duplicate collector mapping is unnecessary
 
 ## Compatibility
 
-This is validation-contract version 6 from fresh genesis. The history ABI,
-storage layout, proxy/genesis code, native 0x46 body, state/block roots and
-validation identity change together. Use matching node, follower, signer and
-deployment artifacts with newly rendered genesis and manager. `prove.v2` and
+The current network profile uses validation-contract version 7. Its
+network-bound verification key and Core Rollup context leave the history ABI,
+storage layout, proxy/genesis code and native 0x46 body unchanged. Use matching
+node, follower, signer and deployment artifacts with newly rendered genesis
+and manager. `prove.v2` and
 cross-chain 0x45 are unchanged; no chain RPC is added to the prover. There is no
 legacy decoder, selector alias, migration or mixed-version execution mode.
 Old sessions, genesis or datadirs cannot be reused. Compatible future proxy
