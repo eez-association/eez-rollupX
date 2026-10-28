@@ -29,7 +29,7 @@ def write_manifest():
         sources.extend((ROOT / f"crates/{package}/src").rglob("*.rs"))
     sources.extend((ROOT / "crates/eez-control-rpc/proto").glob("*.proto"))
     sources.extend([ROOT / "contracts/src/L2/L1BlockhashContract.sol",
-                    ROOT / "contracts/src/OfflineRollup.sol",
+                    ROOT / "contracts/src/RollupX.sol",
                     ROOT / "contracts/src/L2/FeeVault.sol",
                     ROOT / "scripts/solidity/GenerateEEZL2Genesis.s.sol",
                     ROOT / "scripts/update-eezl2-genesis.sh",

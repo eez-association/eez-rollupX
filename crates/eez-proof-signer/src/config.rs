@@ -67,7 +67,7 @@ struct Args {
     /// Deployed L1 EEZ registry whose accepted endpoints authorize this signer.
     #[arg(long = "registry-address", env = "EEZ_REGISTRY_ADDRESS")]
     registry_address: Address,
-    /// Deployed OfflineRollup manager for this registry entry.
+    /// Deployed RollupX manager for this registry entry.
     #[arg(long = "manager-address", env = "EEZ_ROLLUP_MANAGER_ADDRESS")]
     manager_address: Address,
 

@@ -3,7 +3,7 @@
 Status: fork Composer contract for fresh networks using permanent L1 history,
 delayed synchronized PREVRANDAO and offline v2 proving. Implementation/test status
 is recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
-The current `eez-core-protocol` gitlink and this fork's `OfflineRollup` define the
+The current `eez-core-protocol` gitlink and this fork's `RollupX` define the
 accepted on-chain ABI; upstream main is not a substitute.
 
 This profile preserves native blobs, block-hash commitments, whole grouped calls
@@ -141,7 +141,7 @@ shapes and effect binding are defined in
 Its L1 chain ID, exact child timestamp, parent number and nonzero parent hash
 retain their current meanings. The complete witness chain must end at that
 parent. `batch.blockNumber == uint64.max` binds the actual inclusion parent and
-timestamp through `OfflineRollup.getCustomData`. Live cross-chain work must end
+timestamp through `RollupX.getCustomData`. Live cross-chain work must end
 at the matching target; late inclusion rejects.
 
 Historical mode uses explicit B, excluding zero and `uint64.max`, and requires

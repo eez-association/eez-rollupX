@@ -402,7 +402,7 @@ Expired anchors, reorgs and accepted-root advancement require re-proving. Never
 reinterpret a failed live proof as historical catch-up.
 
 `getCustomData()` returns the fixed flat ABI context defined by
-[OfflineRollup](../../contracts/src/OfflineRollup.sol) and its
+[RollupX](../../contracts/src/RollupX.sol) and its
 [Rust encoder](../../crates/eez-protocol/src/l1_history/context.rs): context domain,
 L1 chain ID, registry, manager, rollup ID, L2 chain ID, profile hash, active L1 rules
 ID and actual current L2 block-hash commitment, followed by mode/anchor fields

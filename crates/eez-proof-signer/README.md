@@ -24,7 +24,7 @@ header evidence needed for its chosen anchor. It never connects to an L1 or L2
 RPC, including during startup, retries or restart.
 
 The signer checks execution and public inputs conditional on that evidence.
-`OfflineRollup.getCustomData()` binds the same context to the actual accepted L2
+`RollupX.getCustomData()` binds the same context to the actual accepted L2
 commitment and L1 anchor when settlement verifies the proof. The ECDSA backend
 still requires trust in the configured attester; it is not a ZK proof.
 

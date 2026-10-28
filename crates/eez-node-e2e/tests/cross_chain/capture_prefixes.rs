@@ -6,7 +6,7 @@ use alloy_primitives::{B256, Bytes, U256};
 use alloy_provider::{Provider as _, ProviderBuilder};
 use alloy_sol_types::{SolCall as _, SolEvent as _};
 use anyhow::Context as _;
-use eez_testkit::{CrossChainWorld, IEEZ, IOfflineRollup};
+use eez_testkit::{CrossChainWorld, IEEZ, IRollupX};
 use serde_json::{Value, json};
 
 pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::Result<()> {
@@ -62,7 +62,7 @@ pub(super) async fn capture(world: &CrossChainWorld, terminal: B256) -> anyhow::
         }
         posts.push(hash);
     }
-    let profile_hash = IOfflineRollup::new(world.cfg.rollup_manager_address, &l1)
+    let profile_hash = IRollupX::new(world.cfg.rollup_manager_address, &l1)
         .protocolConfigHash()
         .call()
         .await?;

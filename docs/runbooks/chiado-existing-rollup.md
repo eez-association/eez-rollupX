@@ -6,7 +6,7 @@ this revision's offline-history profile. It uses the
 embedded L1, Composer/L2, local proof signer, and Lighthouse. For an unchanged
 installation, use [restart](chiado-deployment.md#restart-and-stop).
 
-The original deployment must have the matching `OfflineRollup`, history
+The original deployment must have the matching manager profile, history
 predeploy, authenticated bootstrap and delayed origin/PREVRANDAO schedule from
 genesis. Native `0x45` transactions alone do not establish compatibility.
 Earlier networks remain on their original runtime, configuration and databases;

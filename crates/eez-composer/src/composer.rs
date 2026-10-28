@@ -112,7 +112,7 @@ pub struct CrossChainExecCtx {
     pub l1_chain_id: u64,
     /// Fresh-genesis execution and L1 rule identity registered by the manager.
     pub offline_profile: eez_protocol::l1_history::OfflineProfile,
-    /// Exact OfflineRollup deployment committed by capability preflight.
+    /// Exact RollupX deployment committed by capability preflight.
     pub rollup_manager: Address,
     /// Physical sidecar encoding for the mandatory native blob DA carrier.
     pub blob_sidecar_encoding: eez_blob_codec::BlobSidecarEncoding,

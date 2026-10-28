@@ -56,7 +56,7 @@ validation.
 
 The offline profile commitment is
 `keccak256(abi.encode(keccak256("EEZ_ROLLUPX_OFFLINE_PROFILE"), uint64(6), historyAddress, uint64(64), uint64(2000000), profile))`.
-Use the exact [OfflineRollup.Profile](../../contracts/src/OfflineRollup.sol) field
+Use the exact [RollupX.Profile](../../contracts/src/RollupX.sol) field
 order/types; [OfflineProfile.canonical_bytes](../eez-protocol/src/l1_history/context.rs)
 is the matching reference encoder. This binds validation-contract version 6, L1/L2 chain IDs, genesis,
 schedule/delay, complete L1 rule configuration, history runtime, fee collector
@@ -65,6 +65,10 @@ is a fixed wire discriminator, not a selectable execution profile. There is one
 profile and one validation-contract version, with no negotiation or fallback.
 The genesis commitment includes the FeeVault code and initial owner/recipient storage; later
 ordinary treasury transactions change state, not the fixed validation identity.
+The compatible `OfflineRollup` to `RollupX` manager implementation update preserves
+this identity and every context byte. Its deployment-only initializer rename
+does not change proving or replay; see the
+[upgrade boundary](../../docs/runbooks/chiado-deployment.md#rollupx-manager-implementation-upgrades).
 The [effective L1 rules producer](../eez-l1/src/chain_config/offline.rs) defines the
 existing `l1ConfigHash` inputs: chain/genesis, named fork coordinates, header
 layouts and effective blob rules, including defaults and scheduled updates. Its

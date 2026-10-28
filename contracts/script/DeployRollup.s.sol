@@ -3,12 +3,12 @@ pragma solidity ^0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
 
-import {OfflineRollup} from "../src/OfflineRollup.sol";
+import {RollupX} from "../src/RollupX.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 
 /// @title DeployRollup
 /// @notice Deploys the per-rollup `IRollupContract` manager (reference
-///         `OfflineRollup.sol`) configured for a single-PS, threshold-1 setup:
+///         `RollupX.sol`) configured for a single-PS, threshold-1 setup:
 ///         the workspace-local `ECDSAProofSystem` with vkey =
 ///         `bytes32(uint256(uint160(authorizedSigner)))`.
 ///
@@ -67,7 +67,7 @@ contract DeployRollup is Script {
         if (proofSystem == address(0)) revert InvalidProofSystem();
         require(eez.code.length != 0, "EEZ has no code");
         require(owner != address(0) && upgradeOwner != address(0), "Zero address");
-        OfflineRollup.Profile memory profile = abi.decode(encodedProfile, (OfflineRollup.Profile));
+        RollupX.Profile memory profile = abi.decode(encodedProfile, (RollupX.Profile));
         require(keccak256(encodedProfile) == keccak256(abi.encode(profile)), "Noncanonical offline profile");
 
         address[] memory proofSystems = new address[](1);
@@ -84,10 +84,9 @@ contract DeployRollup is Script {
         vkeys[0] = bytes32(uint256(uint160(authorizedSigner)));
 
         vm.startBroadcast();
-        OfflineRollup implementation = new OfflineRollup(eez);
-        bytes memory init = abi.encodeCall(OfflineRollup.initializeOffline, (owner, 1, proofSystems, vkeys, profile));
-        OfflineRollup rollup =
-            OfflineRollup(address(new TransparentUpgradeableProxy(address(implementation), upgradeOwner, init)));
+        RollupX implementation = new RollupX(eez);
+        bytes memory init = abi.encodeCall(RollupX.initialize, (owner, 1, proofSystems, vkeys, profile));
+        RollupX rollup = RollupX(address(new TransparentUpgradeableProxy(address(implementation), upgradeOwner, init)));
         vm.stopBroadcast();
         // ERC-1967 admin slot: the ProxyAdmin contract the proxy created for `upgradeOwner`.
         address proxyAdmin = address(

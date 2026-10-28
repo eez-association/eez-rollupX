@@ -1,0 +1,84 @@
+{
+  "baseline": "6215df1a4395f58bb58bdb78bf4dc22f907c4169",
+  "foundry": "1.7.1",
+  "solc": "0.8.34",
+  "optimizer_runs": 1,
+  "via_ir": true,
+  "creation_bytes": {
+    "baseline": 7020,
+    "rollupx": 6954
+  },
+  "runtime_bytes": {
+    "baseline": 6663,
+    "rollupx": 6597
+  },
+  "executable_bytes_without_metadata": {
+    "baseline": 6610,
+    "rollupx": 6544
+  },
+  "measurements": [
+    {
+      "rule_epochs": 1,
+      "baseline_actual_parent_gas": 25174,
+      "rollupx_actual_parent_gas": 25145,
+      "baseline_historical_gas": 25186,
+      "rollupx_historical_gas": 25057,
+      "baseline_initialization_delegatecall_gas": 221699,
+      "rollupx_initialization_delegatecall_gas": 221347
+    },
+    {
+      "rule_epochs": 2,
+      "baseline_actual_parent_gas": 25680,
+      "rollupx_actual_parent_gas": 25651,
+      "baseline_historical_gas": 25692,
+      "rollupx_historical_gas": 25563,
+      "baseline_initialization_delegatecall_gas": 244049,
+      "rollupx_initialization_delegatecall_gas": 243697
+    },
+    {
+      "rule_epochs": 4,
+      "baseline_actual_parent_gas": 26186,
+      "rollupx_actual_parent_gas": 26157,
+      "baseline_historical_gas": 26198,
+      "rollupx_historical_gas": 26069,
+      "baseline_initialization_delegatecall_gas": 248948,
+      "rollupx_initialization_delegatecall_gas": 248596
+    },
+    {
+      "rule_epochs": 8,
+      "baseline_actual_parent_gas": 26692,
+      "rollupx_actual_parent_gas": 26663,
+      "baseline_historical_gas": 26704,
+      "rollupx_historical_gas": 26575,
+      "baseline_initialization_delegatecall_gas": 280646,
+      "rollupx_initialization_delegatecall_gas": 280294
+    },
+    {
+      "rule_epochs": 16,
+      "baseline_actual_parent_gas": 29212,
+      "rollupx_actual_parent_gas": 29183,
+      "baseline_historical_gas": 29224,
+      "rollupx_historical_gas": 29095,
+      "baseline_initialization_delegatecall_gas": 344042,
+      "rollupx_initialization_delegatecall_gas": 343690
+    },
+    {
+      "rule_epochs": 32,
+      "baseline_actual_parent_gas": 31725,
+      "rollupx_actual_parent_gas": 31696,
+      "baseline_historical_gas": 31737,
+      "rollupx_historical_gas": 31608,
+      "baseline_initialization_delegatecall_gas": 470838,
+      "rollupx_initialization_delegatecall_gas": 470486
+    },
+    {
+      "rule_epochs": 64,
+      "baseline_actual_parent_gas": 34238,
+      "rollupx_actual_parent_gas": 34209,
+      "baseline_historical_gas": 34250,
+      "rollupx_historical_gas": 34121,
+      "baseline_initialization_delegatecall_gas": 724442,
+      "rollupx_initialization_delegatecall_gas": 724090
+    }
+  ]
+}

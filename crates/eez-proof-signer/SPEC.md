@@ -7,7 +7,7 @@ supported single-rollup profile. It is intentionally narrower than the complete
 EEZ protocol.
 
 The protocol sources are this checkout's `eez-core-protocol` gitlink and the fork's
-[`OfflineRollup`](../../contracts/src/OfflineRollup.sol). Source revisions and current
+[`RollupX`](../../contracts/src/RollupX.sol). Source revisions and current
 validation gaps are recorded in the [feature audit](../../docs/audits/2026-10-24-fee-vault-rpc/README.md).
 This profile is for fresh networks, active from genesis. Stateless execution uses the
 [EEZ Stateless fork](https://github.com/eez-association/stateless/tree/0bda6b200c1eb4689c147c080c3c248b50be2ea8),
@@ -91,7 +91,7 @@ The signer has no chain provider. It validates a complete witness-backed
 execution and L1 header chain against a fixed local deployment profile. Its
 signature is conditional on the exact anchor, current accepted L2 commitment
 and active L1 rule period in the recomputed public input. At inclusion,
-`OfflineRollup.getCustomData()` supplies those actual on-chain facts. A fabricated
+`RollupX.getCustomData()` supplies those actual on-chain facts. A fabricated
 branch or root cannot settle because its context differs. This is still an
 ECDSA attestation: the configured attester is trusted to execute these checks;
 there is no ZK verification of the execution trace.
@@ -1137,7 +1137,7 @@ history = abi.encode(common..., uint8(2), B, hash(B))
 
 The precise widths and profile/rule preimages are shared in
 [`l1_history/context.rs`](../eez-protocol/src/l1_history/context.rs) and the
-[`OfflineRollup`](../../contracts/src/OfflineRollup.sol) contract. The fixed profile
+[`RollupX`](../../contracts/src/RollupX.sol) contract. The fixed profile
 binds genesis/bootstrap/runtime, schedule, import limits and canonical L1 rules.
 The rules ID changes at every configured timestamp fork/blob-rule transition.
 The manager uses the inclusion period; a historical proof from a prior period

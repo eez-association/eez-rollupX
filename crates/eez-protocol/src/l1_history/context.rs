@@ -10,7 +10,7 @@ use super::{
 use crate::l2::ProfileError;
 
 sol! {
-    /// Canonical profile preimage mirrored by OfflineRollup.Profile. Genesis
+    /// Canonical profile preimage mirrored by RollupX.Profile. Genesis
     /// binds bootstrap storage/runtime; the remaining fields bind execution
     /// configuration that is not itself part of the genesis block header.
     #[derive(Debug, PartialEq, Eq)]
@@ -29,7 +29,7 @@ sol! {
     }
 
     /// Atomic fresh-network manager initialization, shared with deployment tools.
-    function initializeOffline(address initialOwner, uint256 initialThreshold,
+    function initialize(address initialOwner, uint256 initialThreshold,
         address[] proofSystems, bytes32[] vkeys, OfflineProfile profile) external;
 }
 
@@ -235,7 +235,7 @@ impl OfflineContext {
         crate::native_source::LiveSourceContext::new(chain_id, hash)
     }
 
-    /// Exact flat Solidity ABI tuple returned by OfflineRollup.getCustomData.
+    /// Exact flat Solidity ABI tuple returned by RollupX.getCustomData.
     pub fn custom_data(&self) -> Bytes {
         let mut encoded = (
             keccak256("EEZ_ROLLUPX_L1_HISTORY_V1"),

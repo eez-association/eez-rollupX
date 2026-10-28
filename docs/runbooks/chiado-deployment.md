@@ -852,6 +852,51 @@ legacy execution mode in these binaries. Do not rerun deployment or delete
 operator state to convert an existing network. Source and private fixture tests
 do not establish a public deployment or restart rehearsal.
 
+### RollupX manager implementation upgrades
+
+The [RollupX manager simplification](../proposals/rollupx-manager-simplification.md)
+renames `OfflineRollup` and preserves validation-contract-6 networks. It changes
+neither the deployed proxy address nor its profile, genesis, storage layout,
+accepted-root binding, active rules, anchor modes or context bytes. Existing
+followers, providers and signers can continue using the same configuration and
+history. No hard fork, database migration or proof regeneration is needed solely
+for this implementation change; the ordinary anchor/root/rule validity limits
+still apply. This does not convert an older execution profile to version 6.
+
+Before an independently authorized upgrade, verify the intended proxy's current
+implementation, ProxyAdmin and owner, registry immutable and full stored profile
+against the original deployment inventory. Preserve those bindings and the old
+implementation address. Update Composer first: its fee estimator must recognize
+both exact executable fingerprints. An old Composer rejects fee estimation with
+the new implementation; the new Composer also supports the original implementation.
+This allowlist only enables conditional fee simulation, which still executes the
+actual deployed bytes and retains final admission/execution checks.
+
+Deploy the reviewed `contracts/src/RollupX.sol:RollupX` implementation with the
+same registry proxy as constructor argument, verify its compiled bytes and
+`EEZContract()`, then have the existing ProxyAdmin owner use
+`upgradeAndCall(managerProxy, implementation, "0x")`. Do not initialize again,
+register a new rollup, rerender genesis or change the manager address. The new
+`initialize(..., Profile)` selector is only for fresh proxy deployment; there is
+no `initializeOffline` alias or storage migration. The initialization lock and
+operational owner remain intact. Existing event topics and custom errors remain
+unchanged for provider queries.
+
+After inclusion, verify the implementation slot, admin/owner, profile hash,
+genesis commitment, rollup ID, threshold and all configured verification keys.
+Compare context bytes at identical L1 coordinates and registry roots, then verify
+normal settlement and existing follower replay. Preserve the upgrade receipt and
+artifact identity. These are operational checks to perform, not a claim that a
+live upgrade has been executed; see the [local evidence](../audits/2026-10-28-rollupx-manager/README.md).
+
+Rollback can restore the original implementation with empty calldata and the same
+registry. Both implementations use identical state and rules; rollback does not
+undo intervening owner-policy or accepted-root changes. Roll back the manager
+before rolling back Composer's fingerprint support. Fresh deployments use the
+new artifact and initializer; changed creation bytes imply different CREATE2
+addresses if an external deployment tool uses CREATE2. Existing proxy addresses,
+EEZ/EEZL2/history bytecode and genesis are unaffected.
+
 ### L1 history implementation upgrades
 
 Fresh genesis contains the history proxy at `0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee0077`,

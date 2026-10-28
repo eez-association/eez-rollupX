@@ -236,7 +236,7 @@ actual L1 parent, deadline, queue ownership and replacement accounting.
 
 The exact flat ABI context is defined by
 [`OfflineContext`](../eez-protocol/src/l1_history/context.rs) and
-[`OfflineRollup.getCustomData`](../../contracts/src/OfflineRollup.sol):
+[`RollupX.getCustomData`](../../contracts/src/RollupX.sol):
 
 ```text
 common = domain, L1 chain ID, registry, manager, rollup ID, L2 chain ID,

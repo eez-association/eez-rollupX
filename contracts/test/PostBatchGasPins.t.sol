@@ -14,7 +14,7 @@ import {
     RollupUpdate,
     StaticExecutionEntry
 } from "eez-core-protocol/src/interfaces/IEEZ.sol";
-import {OfflineRollup} from "../src/OfflineRollup.sol";
+import {RollupX} from "../src/RollupX.sol";
 import {L1HistoryCode} from "../src/generated/L1HistoryCode.sol";
 import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
 import {RollupDeployment} from "./utils/RollupDeployment.sol";
@@ -1655,7 +1655,7 @@ contract PostBatchGasPinsTest is Test {
         for (uint64 i; i < times.length; i++) {
             times[i] = i * 10;
         }
-        OfflineRollup.Profile memory profile = OfflineRollup.Profile(
+        RollupX.Profile memory profile = RollupX.Profile(
             block.chainid,
             900,
             GENESIS_ROOT,
@@ -1668,11 +1668,10 @@ contract PostBatchGasPinsTest is Test {
             address(0x1234),
             times
         );
-        OfflineRollup implementation = new OfflineRollup(address(eez));
-        bytes memory init =
-            abi.encodeCall(OfflineRollup.initializeOffline, (address(this), 1, proofSystems, vkeys, profile));
-        OfflineRollup manager =
-            OfflineRollup(address(new TransparentUpgradeableProxy(address(implementation), address(this), init)));
+        RollupX implementation = new RollupX(address(eez));
+        bytes memory init = abi.encodeCall(RollupX.initialize, (address(this), 1, proofSystems, vkeys, profile));
+        RollupX manager =
+            RollupX(address(new TransparentUpgradeableProxy(address(implementation), address(this), init)));
 
         assertEq(eez.registerRollup(address(manager), GENESIS_ROOT), ROLLUP_ID, "unexpected rollup id");
         touched.push(address(eez));
@@ -1848,7 +1847,7 @@ contract PostBatchGasPinsTest is Test {
 
         bytes32[] memory customDataHashes = new bytes32[](1);
         (address manager,,) = eez.rollups(ROLLUP_ID);
-        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, OfflineRollup(manager).getCustomData(batch.blockNumber)));
+        customDataHashes[0] = keccak256(abi.encode(ROLLUP_ID, RollupX(manager).getCustomData(batch.blockNumber)));
         bytes32[] memory blobHashes = new bytes32[](batch.blobIndices.length);
         for (uint256 i = 0; i < blobHashes.length; i++) {
             blobHashes[i] = blobhash(batch.blobIndices[i]);

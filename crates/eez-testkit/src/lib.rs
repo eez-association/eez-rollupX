@@ -996,7 +996,7 @@ pub struct Deployment {
 
 sol! {
     #[sol(rpc)]
-    interface IOfflineRollup {
+    interface IRollupX {
         function protocolConfigHash() external view returns (bytes32);
         function l1RulesId(uint64 timestamp) external view returns (bytes32);
         function getCustomData(uint64 selector) external view returns (bytes);
@@ -1157,7 +1157,7 @@ async fn check_offline_manager<P: Provider>(
         .get_block_by_hash(head.header.parent_hash)
         .await?
         .context("fixture L1 parent missing")?;
-    let manager_contract = IOfflineRollup::new(manager, provider);
+    let manager_contract = IRollupX::new(manager, provider);
     let at: alloy_eips::BlockId = head.header.hash.into();
     let actual_profile = manager_contract
         .protocolConfigHash()
@@ -3221,7 +3221,7 @@ pub async fn deploy_protocol_dev(
     // CREATE addresses are known before mining. Queue dependent transactions
     // from one signer in nonce order, then verify every receipt. Waiting after
     // each send would spend six L1 slots on identical setup in every test.
-    let initialize = eez_protocol::l1_history::initializeOfflineCall {
+    let initialize = eez_protocol::l1_history::initializeCall {
         initialOwner: signer_addr,
         initialThreshold: U256::from(1u64),
         proofSystems: vec![proof_system_address],
@@ -3246,7 +3246,7 @@ pub async fn deploy_protocol_dev(
             proof_system_address,
         ),
         (
-            "OfflineRollup.sol/OfflineRollup.json",
+            "RollupX.sol/RollupX.json",
             eez_address.abi_encode(),
             rollup_implementation,
         ),

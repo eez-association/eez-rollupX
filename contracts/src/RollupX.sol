@@ -7,15 +7,15 @@ import {IEEZRegistry} from "eez-core-protocol/src/interfaces/IEEZRegistry.sol";
 import {L1HistoryCode} from "./generated/L1HistoryCode.sol";
 
 /// @dev The pinned registry exposes this public getter in addition to IEEZRegistry.
-interface IOfflineRegistry is IEEZRegistry {
+interface IRollupXRegistry is IEEZRegistry {
     function rollups(uint64 rollupId) external view returns (address rollupContract, bytes32 root, uint256 etherBalance);
 }
 
-/// @notice Fresh-network manager binding offline evidence to actual L1 facts.
+/// @notice Rollup manager binding offline evidence to actual L1 facts.
 /// @dev Implements the pinned IRollupContract extension point directly. Proof policy,
 ///      ownership and root escape follow Core's reference Rollup; the offline profile
 ///      is mandatory and has a single atomic initializer.
-contract OfflineRollup is IRollupContract, OwnableUpgradeable {
+contract RollupX is IRollupContract, OwnableUpgradeable {
     bytes32 public constant CONTEXT_DOMAIN = keccak256("EEZ_ROLLUPX_L1_HISTORY_V1");
     /// @notice Fixed execution/validation contract; there is no selectable old profile.
     uint64 public constant VALIDATION_VERSION = 6;
@@ -129,7 +129,7 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     }
 
     /// @notice Initialize a fresh proxy atomically with its fixed network profile and proof policy.
-    function initializeOffline(
+    function initialize(
         address initialOwner,
         uint256 initialThreshold,
         address[] memory proofSystems,
@@ -181,7 +181,7 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
         if (rollupId != 0) revert AlreadyRegistered();
         if (registrant != owner()) revert UnauthorizedRegistrantAccount(registrant);
         rollupId = id;
-        (address manager, bytes32 root,) = IOfflineRegistry(EEZContract).rollups(id);
+        (address manager, bytes32 root,) = IRollupXRegistry(EEZContract).rollups(id);
         if (manager != address(this) || root != initialBlockHash || initialBlockHash == bytes32(0)) {
             revert InvalidOfflineProfile();
         }
@@ -190,9 +190,9 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     /// @notice Rule-period identity for an authenticated L1 timestamp.
     /// @dev Each configured transition changes the identity, including blob-only changes.
     function l1RulesId(uint64 timestamp) public view returns (bytes32) {
-        if (ruleTimes.length == 0) revert InvalidOfflineProfile();
-        uint256 lo;
         uint256 hi = ruleTimes.length;
+        if (hi == 0) revert InvalidOfflineProfile();
+        uint256 lo;
         while (lo + 1 < hi) {
             uint256 mid = (lo + hi) / 2;
             if (ruleTimes[mid] <= timestamp) lo = mid;
@@ -205,26 +205,32 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
     /// @dev The registry reads this before queue mutation. Accepted-root and rule-period
     ///      changes invalidate a historical proof even while its blockhash is available.
     function getCustomData(uint64 selector) external view override returns (bytes memory) {
-        if (protocolConfigHash == bytes32(0) || rollupId == 0) revert UnregisteredOfflineRollup();
+        bytes32 profileHash = protocolConfigHash;
+        uint64 id = rollupId;
+        if (profileHash == bytes32(0) || id == 0) revert UnregisteredOfflineRollup();
         if (block.timestamp > type(uint64).max || block.number == 0 || block.number > type(uint64).max) {
             revert InvalidAnchorCoordinates();
         }
-        (address manager, bytes32 currentRoot,) = IOfflineRegistry(EEZContract).rollups(rollupId);
+        (address manager, bytes32 currentRoot,) = IRollupXRegistry(EEZContract).rollups(id);
         if (manager != address(this) || currentRoot == bytes32(0)) revert UnregisteredOfflineRollup();
         uint64 timestamp = uint64(block.timestamp);
         bytes32 rules = l1RulesId(timestamp);
-        if (selector == type(uint64).max) {
-            uint64 number = uint64(block.number - 1);
-            bytes32 hash = blockhash(number);
-            if (hash == bytes32(0)) revert BlockHashUnavailable(number);
+        if (selector == 0) revert InvalidAnchorSelector();
+        bool actualParent = selector == type(uint64).max;
+        uint64 number = actualParent ? uint64(block.number - 1) : selector;
+        // BLOCKHASH returns zero for current/future blocks and anchors older than
+        // 256 blocks, as well as unavailable hashes. All reject with the same error.
+        bytes32 hash = blockhash(number);
+        if (hash == bytes32(0)) revert BlockHashUnavailable(number);
+        if (actualParent) {
             return abi.encode(
                 CONTEXT_DOMAIN,
                 block.chainid,
                 EEZContract,
                 address(this),
-                rollupId,
+                id,
                 l2ChainId,
-                protocolConfigHash,
+                profileHash,
                 rules,
                 currentRoot,
                 uint8(1),
@@ -233,23 +239,19 @@ contract OfflineRollup is IRollupContract, OwnableUpgradeable {
                 timestamp
             );
         }
-        if (selector == 0) revert InvalidAnchorSelector();
-        if (selector >= block.number || block.number - selector > 256) revert BlockHashUnavailable(selector);
-        bytes32 historicalHash = blockhash(selector);
-        if (historicalHash == bytes32(0)) revert BlockHashUnavailable(selector);
         return abi.encode(
             CONTEXT_DOMAIN,
             block.chainid,
             EEZContract,
             address(this),
-            rollupId,
+            id,
             l2ChainId,
-            protocolConfigHash,
+            profileHash,
             rules,
             currentRoot,
             uint8(2),
-            selector,
-            historicalHash
+            number,
+            hash
         );
     }
 
